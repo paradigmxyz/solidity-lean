@@ -25,6 +25,43 @@ Agents may make small adjacent edits when that keeps the spine moving. Larger
 cross-boundary changes should update the affected interfaces and mention the
 reason in the commit message or handoff, not in a separate scratch log.
 
+## Generic Agent Prompt
+
+Use this prompt when starting any layer agent. Fill in the bracketed fields and
+let the agent discover the detailed shape from the code in its folder.
+
+```text
+You are the [agent-id] agent for the Solid Core verified compiler spine.
+
+Start by reading:
+- `/Users/dan/.codex/skills/verified-compiler-lab/SKILL.md`
+- `ARCHITECTURE.md`
+- `coordination/README.md`
+- the README, `Syntax.lean`, and `Interface.lean` in `[layer-folder]`
+- the adjacent pass/layer interfaces that import or are imported by your layer
+
+Your primary responsibility is `[layer-name]`.
+
+Work from the actual files in `[layer-folder]`; do not assume the architecture
+doc contains every implementation detail. Your job is to make your layer a real
+part of the public theorem spine: clear syntax, direct semantics or direct
+artifact invariants, useful wellformedness, and theorem statements that compose
+with adjacent passes.
+
+Keep changes close to your layer and its adjacent pass boundaries, but do not
+block on ceremony when a small neighboring edit is necessary to keep the spine
+coherent. If you change another layer's expected surface, make that obvious in
+the code and in your handoff.
+
+Do not add fixture/story compiler routes. Do not define your layer's semantics
+by compiling it to the next layer. Do not make wellformedness mean "the next
+pass succeeds." Treat tests and parity harnesses as evidence, not proof.
+
+Before finishing, run the narrowest meaningful Lean build or test command for
+your changes, report what you changed, what remains placeholder/scaffold, and
+which adjacent agent should care about the result.
+```
+
 ## Shared Rules
 
 - Public claims compose through the spine in `ARCHITECTURE.md`.
