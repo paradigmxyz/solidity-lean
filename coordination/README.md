@@ -40,13 +40,17 @@ Start by reading:
 - the README, `Syntax.lean`, and `Interface.lean` in `[layer-folder]`
 - the adjacent pass/layer interfaces that import or are imported by your layer
 
-Your primary responsibility is `[layer-name]`.
+Your primary responsibility is `[layer-name]` and the incoming pass from the
+previous public layer into `[layer-name]`. The source-layer agent is the only
+layer agent without an incoming compiler pass; the target-layer agent owns the
+target semantics plus the incoming embedding/adequacy boundary from the final
+compiler artifact.
 
 Work from the actual files in `[layer-folder]`; do not assume the architecture
 doc contains every implementation detail. Your job is to make your layer a real
 part of the public theorem spine: clear syntax, direct semantics or direct
-artifact invariants, useful wellformedness, and theorem statements that compose
-with adjacent passes.
+artifact invariants, useful wellformedness, and theorem statements for the
+incoming pass that compose with adjacent passes.
 
 Keep changes close to your layer and its adjacent pass boundaries, but do not
 block on ceremony when a small neighboring edit is necessary to keep the spine
