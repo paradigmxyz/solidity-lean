@@ -39,6 +39,20 @@ canonical language or artifact interface for the layer: syntax first, then any
 semantics, wellformedness/profile facts, and public theorems the adjacent passes
 may rely on.
 
+## Agent Model
+
+The persistent coordination model has three agents:
+
+- Source agent: owns `L00_SourceSolidity`, source syntax, and source semantics.
+- Compiler agent: owns `L01_ValidSolidity` through `L05_Bytecode`, all public
+  compiler passes, and composed public claims.
+- Target agent: owns `L06_Evm`, target semantics, target fidelity, and EVM
+  parity evidence.
+
+The compiler agent may use short-lived subagents for parallel proof or
+implementation work inside a vertical slice. Those subagents are task workers,
+not persistent owners of public layers.
+
 ## Layers And Passes
 
 `L00_SourceSolidity` is the broad source AST and source semantics. It represents

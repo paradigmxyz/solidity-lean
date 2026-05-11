@@ -4,66 +4,54 @@ This folder contains the static coordination contract for agents working on the
 spine. It is intentionally small; code, theorem statements, tests, and commits
 are the durable project record.
 
-Every agent should read `ARCHITECTURE.md`, this file, the folder README for the
-area it touches, and the adjacent layer/pass interfaces before editing.
+Every agent should read `ARCHITECTURE.md`, this file, and the folders it touches
+before editing.
 
 ## Agents
 
-- `layer-00-source-solidity`: source syntax and source semantics.
-- `layer-01-valid-solidity`: validity, resolution, typechecking, and the
-  `SourceSolidity -> ValidSolidity` checker.
-- `layer-02-abstract-yul`: AbstractYul and the hard source-to-IR lowering pass.
-- `layer-03-generated-yul`: generated Yul profile and concrete layout/ABI
-  lowering.
-- `layer-04-stackcfg`: stack CFG, stack planning, and CFG wellformedness.
-- `layer-05-bytecode`: assembler, byte encoding, PC maps, and jump adequacy.
-- `layer-06-evm`: public EVM semantics and Forge/parity evidence.
-- `supervisor`: whole-project critique for skipped layers, vacuous claims,
-  fixture-shaped routes, and untracked assumptions.
+- `source`: owns `L00_SourceSolidity`, source syntax, and source semantics.
+- `compiler`: owns `L01_ValidSolidity` through `L05_Bytecode`, all public
+  compiler passes under `SolidCore/Spine/Passes`, and composed public claims.
+- `target`: owns `L06_Evm`, target semantics, target fidelity, and EVM parity
+  evidence.
 
-Agents may make small adjacent edits when that keeps the spine moving. Larger
-cross-boundary changes should update the affected interfaces and mention the
-reason in the commit message or handoff, not in a separate scratch log.
+The compiler agent may manage short-lived subagents for parallel proof or
+implementation work inside a vertical slice. Those subagents do not become
+persistent owners of public layers; the compiler agent integrates their work and
+keeps the spine coherent.
 
-## Generic Agent Prompt
+Agents may make small cross-boundary edits when that keeps the spine moving.
+Larger source or target semantic changes should be explicit requests to the
+source or target owner, not quiet compiler convenience changes.
 
-Use this prompt when starting any layer agent. Fill in the bracketed fields and
-let the agent discover the detailed shape from the code in its folder.
+## Agent Prompts
+
+Use these prompts when starting the three persistent agents.
 
 ```text
-You are the [agent-id] agent for the Solid Core verified compiler spine.
+Source agent: You own the source language for this project. Read
+`/Users/dan/.codex/skills/verified-compiler-lab/SKILL.md`, `ARCHITECTURE.md`,
+`coordination/README.md`, and `SolidCore/Spine/L00_SourceSolidity`. Make the
+source syntax and source semantics faithful and useful for compiler proofs. Do
+not own validity checking, compiler IRs, layout, bytecode, or target semantics;
+when the compiler needs source facts, improve the source layer rather than
+changing source behavior to fit a compiler shortcut.
 
-Start by reading:
-- `/Users/dan/.codex/skills/verified-compiler-lab/SKILL.md`
-- `ARCHITECTURE.md`
-- `coordination/README.md`
-- the README and `Interface.lean` in `[layer-folder]`
-- the adjacent pass/layer interfaces that import or are imported by your layer
+Compiler agent: You own the compiler spine between source and target. Read
+`/Users/dan/.codex/skills/verified-compiler-lab/SKILL.md`, `ARCHITECTURE.md`,
+`coordination/README.md`, `SolidCore/Spine/L01_ValidSolidity` through
+`SolidCore/Spine/L05_Bytecode`, `SolidCore/Spine/Passes`, and
+`SolidCore/Spine/PublicClaims.lean`. Your job is to grow the middle layers,
+passes, WF/profile facts, preservation theorems, and public composed claims in
+small vertical slices. You may spawn or manage short-lived subagents for
+parallel proof work, but you integrate their work and prevent layer drift.
 
-Your primary responsibility is `[layer-name]` and the incoming pass from the
-previous public layer into `[layer-name]`. The source-layer agent is the only
-layer agent without an incoming compiler pass; the target-layer agent owns the
-target semantics plus the incoming embedding/adequacy boundary from the final
-compiler artifact.
-
-Work from the actual files in `[layer-folder]`; do not assume the architecture
-doc contains every implementation detail. Your job is to make your layer a real
-part of the public theorem spine: clear syntax, direct semantics or direct
-artifact invariants, useful wellformedness, and theorem statements for the
-incoming pass that compose with adjacent passes.
-
-Keep changes close to your layer and its adjacent pass boundaries, but do not
-block on ceremony when a small neighboring edit is necessary to keep the spine
-coherent. If you change another layer's expected surface, make that obvious in
-the code and in your handoff.
-
-Do not add fixture/story compiler routes. Do not define your layer's semantics
-by compiling it to the next layer. Do not make wellformedness mean "the next
-pass succeeds." Treat tests and parity harnesses as evidence, not proof.
-
-Before finishing, run the narrowest meaningful Lean build or test command for
-your changes, report what you changed, what remains placeholder/scaffold, and
-which adjacent agent should care about the result.
+Target agent: You own the target semantics for this project. Read
+`/Users/dan/.codex/skills/verified-compiler-lab/SKILL.md`, `ARCHITECTURE.md`,
+`coordination/README.md`, `SolidCore/Spine/L06_Evm`, `SolidCoreYulCore`, and the
+EVM tests. Make the target model faithful, expose the lemmas the compiler needs
+to connect bytecode to target execution, and extend parity/fidelity tests as
+evidence. Do not change target semantics to make compiler proofs easier.
 ```
 
 ## Shared Rules
