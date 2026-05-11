@@ -1,10 +1,10 @@
 import SolidCoreYulCore.BytecodeGas
 import SolidCoreYulCore.BytecodeMultiContract
-import SolidCore.Spine.L08_StackCfg.Interface
+import SolidCore.Spine.L06_StackCfg.Interface
 
 namespace SolidCore
 namespace Spine
-namespace L09_Bytecode
+namespace L07_Bytecode
 
 abbrev Byte := SolidCoreYulCore.BytecodeEvm.Byte
 abbrev Bytes := SolidCoreYulCore.BytecodeEvm.Bytes
@@ -19,6 +19,6 @@ structure WF (code : Bytes) : Prop where
   stackSafe : True := by trivial
   noUnresolvedPseudoInstructions : True := by trivial
 
-end L09_Bytecode
+end L07_Bytecode
 end Spine
 end SolidCore

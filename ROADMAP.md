@@ -12,13 +12,15 @@ L00_Source
   -> L02_Control
   -> L03_Effect
   -> L04_Layout
-  -> L05_StructuredTarget
-  -> L06_SymbolicTarget
-  -> L07_ConcreteTarget
-  -> L08_StackCfg
-  -> L09_Bytecode
-  -> L10_Evm
+  -> L05_GeneratedYul
+  -> L06_StackCfg
+  -> L07_Bytecode
+  -> L08_Evm
 ```
+
+`L05_GeneratedYul` is the Yul-shaped subset produced by the higher compiler
+layers. It is not a commitment to accept, model, or verify every possible Yul
+program.
 
 Public claims live under `SolidCore.Spine.PublicClaims`. Root imports should cite
 the spine, not legacy compilers, generated source recognizers, parity harnesses,
@@ -56,7 +58,7 @@ or example certificates.
       recursive control semantics plus a source-to-control preservation theorem.
 - [ ] Implement each later pass as recursive AST/artifact transformation rather
       than fixed-case recognizer.
-- [ ] Add real `L08_StackCfg.WF` obligations before any bytecode/EVM claim.
+- [ ] Add real `L06_StackCfg.WF` obligations before any bytecode/EVM claim.
 - [ ] Add bytecode resolution correctness before any final target theorem.
 
 ## Deletion Policy

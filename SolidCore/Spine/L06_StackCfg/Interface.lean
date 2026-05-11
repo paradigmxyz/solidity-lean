@@ -1,9 +1,9 @@
 import SolidCoreYulCore.StackCfg
-import SolidCore.Spine.L07_ConcreteTarget.Interface
+import SolidCore.Spine.L05_GeneratedYul.Interface
 
 namespace SolidCore
 namespace Spine
-namespace L08_StackCfg
+namespace L06_StackCfg
 
 abbrev Program := SolidCoreYulCore.StackCfg.Program
 abbrev Config := SolidCoreYulCore.StackCfg.Config
@@ -21,6 +21,6 @@ structure WF (depthOf : DepthEnv) (program : Program) : Prop where
   generatedLabelsFresh : True := by trivial
   maxStackBounded : True := by trivial
 
-end L08_StackCfg
+end L06_StackCfg
 end Spine
 end SolidCore

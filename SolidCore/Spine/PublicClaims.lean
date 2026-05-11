@@ -2,12 +2,10 @@ import SolidCore.Spine.Passes.P01_SourceToAccepted.Interface
 import SolidCore.Spine.Passes.P02_AcceptedToControl.Interface
 import SolidCore.Spine.Passes.P03_ControlToEffect.Interface
 import SolidCore.Spine.Passes.P04_EffectToLayout.Interface
-import SolidCore.Spine.Passes.P05_LayoutToStructuredTarget.Interface
-import SolidCore.Spine.Passes.P06_StructuredToSymbolicTarget.Interface
-import SolidCore.Spine.Passes.P07_SymbolicToConcreteTarget.Interface
-import SolidCore.Spine.Passes.P08_ConcreteToStackCfg.Interface
-import SolidCore.Spine.Passes.P09_StackCfgToBytecode.Interface
-import SolidCore.Spine.Passes.P10_BytecodeToEvm.Interface
+import SolidCore.Spine.Passes.P05_LayoutToGeneratedYul.Interface
+import SolidCore.Spine.Passes.P06_GeneratedYulToStackCfg.Interface
+import SolidCore.Spine.Passes.P07_StackCfgToBytecode.Interface
+import SolidCore.Spine.Passes.P08_BytecodeToEvm.Interface
 
 namespace SolidCore
 namespace Spine
