@@ -1,50 +1,49 @@
 # Language Spine
 
-These docs describe the target language spine we want to design toward. The
-current Lean code is still transitional; the docs are intentionally ahead of the
-implementation where the architecture has become clearer.
+These docs describe the target language spine we want to try next. The Lean
+code is still transitional; these docs are the design to refactor toward.
 
 Target spine:
 
 ```text
-L00_Source
-  -> L01_CheckedSolidity
-  -> L02_DesugaredSolidity
-  -> L03_AbstractYul
-  -> L04_GeneratedYul
-  -> L05_StackCfg
-  -> L06_Bytecode
-  -> L07_Evm
+L00_SourceSolidity
+  -> L01_ValidSolidity
+  -> L02_AbstractYul
+  -> L03_GeneratedYul
+  -> L04_StackCfg
+  -> L05_Bytecode
+  -> L06_Evm
 ```
 
-The core idea is to avoid thin layers. Each language must change the proof
-problem in a visible way:
+The design principle is that a layer exists only when it changes the proof
+problem:
 
-- Solidity richness is checked and simplified before Yul-shaped lowering.
-- `AbstractYul` introduces Yul-like scope/control while effects remain typed and
-  abstract.
-- `GeneratedYul` is concrete enough to talk about Yul builtins and layout.
-- `StackCfg`, `Bytecode`, and `Evm` separate stack invariants, byte encoding, and
-  target execution.
+- `ValidSolidity` proves source-language validity and resolution, but carries no
+  compiler layout facts.
+- `AbstractYul` is the first real lowering layer: Yul-shaped control, explicit
+  completions, and typed abstract effects.
+- `GeneratedYul` is concrete generated Yul with ABI, storage layout, memory
+  discipline, and builtins.
+- `StackCfg`, `Bytecode`, and `Evm` separate stack invariants, byte encoding,
+  and target execution.
 
-Two cross-cutting constraints from earlier oracle review apply to every layer:
+Two constraints apply throughout:
 
 - The public theorem spine should be AST/semantics-shaped. Parser success,
   certificate checking, fixture recognition, and external parity tests are
-  separate evidence paths, not the compiler correctness theorem itself.
-- Each layer should have direct semantics or a direct artifact invariant. Do not
+  separate evidence paths, not the compiler theorem.
+- Each layer should have direct semantics or direct artifact invariants. Do not
   define a layer's behavior by compiling it to the next layer, and do not make
   wellformedness mean "the next pass succeeds."
 
 Layer docs:
 
-- [L00 Source](./L00_Source.md)
-- [L01 CheckedSolidity](./L01_CheckedSolidity.md)
-- [L02 DesugaredSolidity](./L02_DesugaredSolidity.md)
-- [L03 AbstractYul](./L03_AbstractYul.md)
-- [L04 GeneratedYul](./L04_GeneratedYul.md)
-- [L05 StackCfg](./L05_StackCfg.md)
-- [L06 Bytecode](./L06_Bytecode.md)
-- [L07 Evm](./L07_Evm.md)
+- [L00 SourceSolidity](./L00_SourceSolidity.md)
+- [L01 ValidSolidity](./L01_ValidSolidity.md)
+- [L02 AbstractYul](./L02_AbstractYul.md)
+- [L03 GeneratedYul](./L03_GeneratedYul.md)
+- [L04 StackCfg](./L04_StackCfg.md)
+- [L05 Bytecode](./L05_Bytecode.md)
+- [L06 Evm](./L06_Evm.md)
 - [Sample Vault Walkthrough](./SAMPLE_VAULT_WALKTHROUGH.md)
 - [Critique](./CRITIQUE.md)

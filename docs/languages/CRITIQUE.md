@@ -1,25 +1,22 @@
 # Critique Of Target Language Docs
 
-This critique is local and provisional. Oracle review for this target spine is
-pending in conversation:
+This critique is local and provisional. Oracle review for the earlier
+AbstractYul spine is still pending in conversation:
 
 ```text
 20260511-190754-solid-core-abstractyul-spine-critique-6220c34f
 ```
 
+The current docs move beyond that request by dropping the separate
+`CheckedSolidity` and `DesugaredSolidity` public layers.
+
 ## Overall Readiness
 
-The target spine is ready for detailed design iteration, but not yet ready for
-large implementation across all layers. It has a clearer semantic purpose than
-the transitional Lean spine because `Control` and pre-Yul `Layout` are gone and
-`AbstractYul` owns the real middle proof boundary.
-
-The target spine:
+The new target spine is:
 
 ```text
-Source
-  -> CheckedSolidity
-  -> DesugaredSolidity
+SourceSolidity
+  -> ValidSolidity
   -> AbstractYul
   -> GeneratedYul
   -> StackCfg
@@ -27,158 +24,93 @@ Source
   -> Evm
 ```
 
-Each layer has a plausible reason to exist:
-
-- `CheckedSolidity` is static evidence.
-- `DesugaredSolidity` is source-to-source simplification.
-- `AbstractYul` is Yul-shaped, typed abstract effects.
-- `GeneratedYul` is concrete generated Yul.
-- `StackCfg` is stack/control-flow proof.
-- `Bytecode` is byte-offset/encoding proof.
-- `Evm` is target execution.
-
-## Older Oracle Guidance Applied
-
-The older oracle responses add four constraints that are now reflected in these
-docs:
-
-- Public claims should be AST-level and semantics-level. String recognizers,
-  fixture routes, certificates, and Forge parity can be useful evidence, but
-  they must not be the main theorem spine.
-- `CheckedSolidity` should eventually be a resolved, typed AST with explicit
-  local handles, storage locations, declaration identities, and scope facts. A
-  string-keyed local environment is only a temporary checker/parser aid.
-- Backend safety cannot stop at stack depth. `StackCfg` needs full program WF:
-  label closure, branch target closure, block terminal discipline, stack layout
-  compatibility, generated-label freshness, max-stack bounds, and
-  pseudo-instruction elimination.
-- Assumptions for ABI, storage layout, hashing, logs, gas, external calls, fuel,
-  and host behavior need names in theorem statements or profile predicates.
-  They should not live as prose attached to a broad correctness theorem.
+This is cleaner than the previous design. It avoids a desugaring layer whose
+only stable purpose was "maybe simple rewrites." Instead, source validity is one
+front-end layer, and the first compiler pass goes straight into an IR designed
+for explicit control and effects.
 
 ## Strong Points
 
-- The `AbstractYul` / `GeneratedYul` distinction is real. It separates typed
-  abstract effects from concrete Yul builtins and layout.
-- Dispatch-to-`switch` now lands in the right place: concrete Yul generation,
-  not Solidity desugaring.
-- Layout is no longer a vague pre-Yul layer. It is attached to a specific pass:
-  `AbstractYul -> GeneratedYul`.
+- `ValidSolidity` now has a crisp job: source-language legality and resolution.
+- No public layer exists merely to hold optional annotations.
+- Modifier expansion, short-circuiting, ternaries, compound assignment, and
+  loop-control compilation happen in one semantic lowering pass.
+- `AbstractYul` remains the right place for explicit completions and typed
+  abstract effects.
+- `GeneratedYul` remains the boundary where selectors, topics, ABI buffers,
+  storage slots, memory discipline, and concrete builtins appear.
 - The lower layers remain crisp: stack CFG, bytecode, and EVM each own a
   different proof burden.
 
 ## Main Open Risks
 
-### AbstractYul May Become Too Large
+### ValidSolidity Could Become Too Heavy
 
-`AbstractYul` could accidentally absorb half the compiler: functions,
-continuations, storage abstractions, ABI types, call semantics, and event
-semantics. If it becomes too expressive, proving `AbstractYul -> GeneratedYul`
-may be as hard as proving Solidity directly.
+It should not become `CheckedSolidity` under a new name. If a fact is not needed
+by more than one later proof, and recomputing it is not subtle, it probably does
+not belong in the layer artifact.
 
-Mitigation: keep `AbstractYul` Yul-shaped and small. Add abstract effects only
-when the next generated-Yul slice needs them.
+Keep source identities and type facts. Avoid compiler facts such as selectors,
+event topics, slot numbers, ABI offsets, memory layout, or stack plans.
 
-### DesugaredSolidity Needs A Clear Stopping Point
+### AbstractYul Is Now The Hard Pass
 
-Desugaring should not become a second compiler. It should remove Solidity
-surface features, not introduce Yul-only constructs or machine concepts.
+Dropping `DesugaredSolidity` is a good simplification, but it moves all source
+surface compilation into `ValidSolidity -> AbstractYul`.
 
-Mitigation: forbid Yul `switch`, memory offsets, storage slots, and stack-like
-operations from `DesugaredSolidity`.
+This pass must handle:
 
-### Source Function Calls Need A Deliberate Plan
+- modifier continuation behavior;
+- short-circuit and ternary evaluation;
+- compound assignment and pre/post increment result behavior;
+- high-level calls;
+- `for`/`continue` semantics;
+- checked arithmetic and panics;
+- return/revert/fallthrough completion;
+- rollback after writes/logs before a later revert.
 
-Function calls straddle multiple layers:
+That is a lot, but it is at least one coherent proof problem.
 
-- checked function IDs and signatures in `CheckedSolidity`;
-- modifier/inheritance normalization in `DesugaredSolidity`;
-- explicit call/evaluation behavior in `AbstractYul`;
-- selector dispatch and ABI encoding in `GeneratedYul`.
+### Rollback Needs A First-Class Semantics
 
-This is likely the first place the docs need more precision.
+The MiniVault walkthrough exposed this sharply. `AbstractYul` and `GeneratedYul`
+both need a way to state that storage writes and logs in a frame are discarded on
+revert. Without that, the compiler theorem will fail for realistic Solidity.
 
-### Environment Duplication Still Looms
+### GeneratedYul Must Stay Generated
 
-Every layer has some environment story. The docs should make the transition
-explicit:
+The generated Yul profile should be defined before the compiler grows. If we
+start accepting arbitrary Yul, the proof scope will balloon without helping the
+Solidity-to-EVM theorem.
 
-- source lexical scopes;
-- checked resolved names/types;
-- desugared simplified lexical scopes;
-- AbstractYul generated locals and abstract effect environment;
-- GeneratedYul concrete Yul locals plus EVM-like state;
-- StackCfg stack slots and labels;
-- Bytecode/EVM machine state.
+### StackCfg Needs Readable Planning
 
-If two adjacent layers end up with identical environments, one layer is suspect.
-
-### GeneratedYul Could Drift Toward Full Yul
-
-The docs say generated subset only, but implementation pressure may pull toward
-modeling arbitrary Yul. That would waste proof effort.
-
-Mitigation: define generated-subset `WF` early and reject ungenerated constructs.
-
-## Layer-Specific Critique
-
-### Source
-
-Good as a broad semantic starting point. The risk is overfitting source syntax
-to the current compiler. Keep it source-like.
-
-### CheckedSolidity
-
-This layer is essential. The current docs correctly make it evidence-bearing.
-The risk is that "checked" remains placeholder `True` facts too long. The
-resolved AST should not keep bare variable names as the semantic identity of
-locals; unique handles and explicit storage identities are the next real
-boundary.
-
-### DesugaredSolidity
-
-Useful if it handles modifiers and source sugar only. It should not handle
-dispatch-to-switch, ABI layout, or storage lowering.
-
-### AbstractYul
-
-This is the most important and least proven design choice. It should be the
-first detailed doc to refine. We need a minimal syntax and a small list of
-abstract effects for the first verified slice.
-
-### GeneratedYul
-
-The distinction from AbstractYul is good, but the docs need to be careful about
-whether helper functions/procedures are allowed. If yes, their scoping and call
-semantics need early treatment.
-
-### StackCfg
-
-Strong layer. It should survive architecture changes. The doc now needs to be
-read as demanding `Program.WF`, not just `DepthChecked`.
-
-### Bytecode
-
-Strong layer. It should survive architecture changes.
-
-### Evm
-
-Strong target layer. It must stay independent of compiler convenience.
+The public StackCfg can be positional, but the compiler pass likely needs an
+internal symbolic stack planner. Otherwise every proof becomes unreadable
+`DUP`/`SWAP` accounting too early.
 
 ## Recommended Next Step
 
-Before implementation, write one concrete tiny slice across the target spine:
+Before refactoring all Lean folders, implement a tiny end-to-end design slice in
+docs or Lean:
 
 ```text
-checked local variable + arithmetic + return
-  -> desugared core
-  -> AbstractYul lets/effects
-  -> GeneratedYul mstore/return or pure return convention
+valid Solidity local variable + checked arithmetic + return
+  -> AbstractYul let/checked-add/return
+  -> GeneratedYul memory return convention
   -> StackCfg
   -> Bytecode
-  -> Evm
+  -> gasless EVM return behavior
 ```
 
-That slice will tell us whether `AbstractYul` is the right size. If it feels
-like a thin wrapper, collapse it. If it absorbs concrete layout too early, split
-or constrain it.
+Then add, in order:
+
+1. modifier prelude-only expansion;
+2. short-circuit or ternary;
+3. storage read/write;
+4. revert rollback;
+5. event logs;
+6. external call failure.
+
+That sequence tests the new shorter spine without letting the hardest EVM
+features swamp the first proof.

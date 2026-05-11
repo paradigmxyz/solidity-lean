@@ -1,14 +1,14 @@
 # Sample Vault Walkthrough
 
 This is a brainstorm document, not a specification. Its job is to stress the
-current layer split by manually lowering one moderately rich Solidity contract
+target layer split by manually lowering one moderately rich Solidity contract
 through every target language.
 
 The sample is intentionally a little uncomfortable. It includes modifiers,
 custom errors, events, mappings, checked arithmetic, payable entry, selector
 dispatch, ABI encoding, storage layout, rollback, and an external value call.
 
-## L00 Source
+## L00 SourceSolidity
 
 ```solidity
 // Brainstorm sample, not intended as a verified fixture.
@@ -75,10 +75,10 @@ Relevant source behavior:
 - If `TransferFailed` is raised after storage writes and an event, all writes
   and logs in the current frame roll back.
 
-## L01 CheckedSolidity
+## L01 ValidSolidity
 
-`CheckedSolidity` should be the resolved, typed artifact. It should not merely
-say "the compiler can handle this."
+`ValidSolidity` should be the resolved, typed, source-valid artifact. It should
+not carry compiler layout facts.
 
 ```text
 ContractId MiniVault
@@ -90,21 +90,19 @@ Storage identities:
   S_balances      : mapping(address,uint256) declaration index 3
 
 Errors:
-  E_NotOwner(address)                 selector 0x245aecd3
-  E_Paused()                          selector 0x9e87fac8
-  E_Insufficient(uint256,uint256)     selector 0xe8620800
-  E_TransferFailed()                  selector 0x90b8ec18
+  E_NotOwner(address)
+  E_Paused()
+  E_Insufficient(uint256,uint256)
+  E_TransferFailed()
 
 Events:
   Ev_Deposit(address indexed user, uint256 amount, uint256 newBalance)
-    topic0 0x90890809c654f11d6e72a28fa60149770a0d11ec6c92319d6ceb2bb0a4ea1a15
   Ev_Withdraw(address indexed user, uint256 amount, uint256 newBalance)
-    topic0 0xf279e6a1f5e320cca91135676d9cb6e44ca8a08c0b88342bcdb1144f6511b568
 
 Functions:
-  F_setPaused(bool)   selector 0x16c38b3c, modifiers [M_onlyOwner]
-  F_deposit()         selector 0xd0e30db0, modifiers [M_whenLive], payable
-  F_withdraw(uint256) selector 0x2e1a7d4d, modifiers [M_whenLive]
+  F_setPaused(bool)   modifiers [M_onlyOwner]
+  F_deposit()         modifiers [M_whenLive], payable
+  F_withdraw(uint256) modifiers [M_whenLive]
 
 Resolved source handles for withdraw:
   P_amount       : uint256 calldata argument 0
@@ -113,7 +111,7 @@ Resolved source handles for withdraw:
   L_ok           : bool local
 ```
 
-Checked facts that matter for later passes:
+Validity facts that matter for later passes:
 
 - `owner`, `totalDeposits`, `paused`, and `balances` are storage identities, not
   string lookups.
@@ -129,10 +127,16 @@ carry stable storage identities and enough declaration metadata to compute
 layout later, but actual slot/hash/ABI layout belongs in
 `AbstractYul -> GeneratedYul`.
 
-## L02 DesugaredSolidity
+Selectors, event topics, and error selectors are also not validity facts. They
+belong in `AbstractYul -> GeneratedYul`.
 
-Modifiers are expanded into ordinary Solidity-core bodies. The language is still
-Solidity-like: no Yul switch, no ABI buffers, no concrete storage slots.
+## Pass Into L02 AbstractYul: Source-Language Lowering
+
+There is no public desugared Solidity layer in the current target design. The
+pass from `ValidSolidity` to `AbstractYul` handles source-language rewrites and
+semantic lowering directly.
+
+For intuition, modifier expansion has the same source meaning as:
 
 ```solidity
 function setPaused(bool value) external {
@@ -165,28 +169,30 @@ function withdraw(uint256 amount) external {
 }
 ```
 
-Desugaring obligations:
+Lowering obligations:
 
 - Expanding `whenLive` and `onlyOwner` must preserve return/revert/fallthrough.
 - Expanded code must not accidentally capture locals from the function body.
 - Any future modifier with code after `_` needs an explicit continuation story.
 
-## L03 AbstractYul
+## L02 AbstractYul
 
 `AbstractYul` is Yul-shaped control and generated local binding, but effects are
 still typed and abstract. This is the first layer where source lexical structure
 disappears.
 
-One possible abstract program shape:
+One possible abstract program shape. Notice that this layer has typed external
+entries, not concrete ABI selectors or calldata offsets:
 
 ```text
-proc runtime_dispatch() =
-  let selector := CalldataSelector()
-  switch selector
-    case 0x16c38b3c: call setPaused(DecodeBoolArg(0))
-    case 0xd0e30db0: call deposit()
-    case 0x2e1a7d4d: call withdraw(DecodeUintArg(0))
-    default: RevertRaw(empty)
+external entry F_setPaused(value : bool) =
+  call setPaused(value)
+
+external entry F_deposit() =
+  call deposit()
+
+external entry F_withdraw(amount : uint256) =
+  call withdraw(amount)
 
 proc requireLive() =
   let p := StorageRead(S_paused)
@@ -244,13 +250,14 @@ The abstract effects here are typed:
 - `Revert(E_Insufficient, ...)` is not yet bytes in memory.
 - `ExternalCallValue` is a host/EVM relation assumption, not exact opcode
   behavior yet.
+- External entries are still source function identities, not selector cases.
 
 Wart exposed: `AbstractYul` needs a real answer for rollback. If effects update
 state eagerly, then `Revert(E_TransferFailed, [])` after writes and logs must
 restore the pre-call frame. Either the semantics needs transactional substate,
 or effects need to produce a journal that commit/revert consumes.
 
-## L04 GeneratedYul
+## L03 GeneratedYul
 
 `GeneratedYul` lowers layout, ABI, custom errors, events, mapping slots, and
 selector dispatch into a concrete generated Yul subset.
@@ -347,7 +354,7 @@ Warts exposed:
 - `call(gas(), ...)` pulls gas exactness into view. Early claims may need a
   gasless profile or a named gas-bound assumption.
 
-## L05 StackCfg
+## L04 StackCfg
 
 StackCfg removes Yul lexical binding and helper functions. This sketch uses
 symbolic stack names as proof annotations; the runtime artifact is still stack
@@ -413,7 +420,7 @@ Wart exposed: we may want an internal stack-planning notation with symbolic
 names, even if the public `StackCfg` semantics is positional. Otherwise every
 design discussion becomes unreadable `DUP`/`SWAP` soup too early.
 
-## L06 Bytecode
+## L05 Bytecode
 
 The bytecode layer resolves labels, eliminates pseudo-instructions, computes
 program counters, and emits bytes.
@@ -474,7 +481,7 @@ Bytecode proof obligations:
 - constructor/runtime code boundaries are explicit if constructor support enters
   the theorem.
 
-## L07 Evm
+## L06 Evm
 
 The EVM theorem should talk about concrete execution of the runtime byte array.
 
@@ -516,12 +523,13 @@ assumptions.
 
 ## Architecture Warts Surfaced
 
-1. `CheckedSolidity` needs real resolved handles soon. The sample makes it
-   obvious that string names are not enough for locals, storage, errors, events,
-   functions, and modifiers.
+1. `ValidSolidity` needs real resolved source identities soon. The sample makes
+   it obvious that string names are not enough for locals, storage, errors,
+   events, functions, and modifiers.
 
-2. Modifier expansion belongs in `DesugaredSolidity`, but modifiers with code
-   after `_` will require a continuation-shaped proof, not naive text inlining.
+2. Modifier expansion belongs in `ValidSolidity -> AbstractYul`, but modifiers
+   with code after `_` will require a continuation-shaped proof, not naive text
+   inlining.
 
 3. `AbstractYul` must decide how rollback works. The `withdraw` function writes
    storage and emits a log before an external call that may cause a later revert.
