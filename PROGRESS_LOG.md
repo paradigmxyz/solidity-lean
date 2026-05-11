@@ -9,3 +9,4 @@
 - 2026-05-11 11:22:40 PDT - deletion - removed unimported `SolidCoreYulCore/SolidityLayout.lean`; future layout facts should enter through the active `L04_Layout` spine.
 - 2026-05-11 11:33:37 PDT - coordination - added lightweight `supervisor` log and softened ownership rules so agents can make small adjacent edits while still watching for vacuous theorem paths.
 - 2026-05-11 11:36:28 PDT - relocation - moved project directory from `/Users/dan/Public/solid-core-spine` to `/Users/dan/Projects/solid-core-spine`; updated coordination path.
+- 2026-05-11 11:39:23 PDT - design - drafted `DESIGN.md` as a top-down layer/pass design and layer-fit critique while oracle layer-design critique `20260511-183757-solid-core-spine-layer-design-critique-28d4afa3` runs.
