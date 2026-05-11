@@ -1,3 +1,4 @@
+import SolidCore.Spine.L05_Bytecode.Syntax
 import SolidCoreYulCore.BytecodeGas
 import SolidCoreYulCore.BytecodeMultiContract
 import SolidCore.Spine.L04_StackCfg.Interface

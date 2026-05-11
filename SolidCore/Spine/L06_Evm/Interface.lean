@@ -1,3 +1,4 @@
+import SolidCore.Spine.L06_Evm.Syntax
 import SolidCore.Spine.L05_Bytecode.Interface
 
 namespace SolidCore

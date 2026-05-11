@@ -3,5 +3,5 @@
 This layer exposes the first lowered IR: Yul-shaped control with explicit
 completions and typed abstract effects.
 
-The authoritative interface is `Interface.lean`; architectural intent lives in
-`ARCHITECTURE.md`.
+`Syntax.lean` contains the proposed AbstractYul syntax. `Interface.lean`
+contains the currently imported public surface.

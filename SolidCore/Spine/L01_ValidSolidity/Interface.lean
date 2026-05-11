@@ -1,3 +1,4 @@
+import SolidCore.Spine.L01_ValidSolidity.Syntax
 import SolidCore.Spine.L00_SourceSolidity.Interface
 
 namespace SolidCore

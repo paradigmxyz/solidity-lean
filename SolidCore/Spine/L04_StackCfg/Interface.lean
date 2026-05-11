@@ -1,3 +1,4 @@
+import SolidCore.Spine.L04_StackCfg.Syntax
 import SolidCoreYulCore.StackCfg
 import SolidCore.Spine.L03_GeneratedYul.Interface
 

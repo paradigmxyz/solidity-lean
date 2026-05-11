@@ -34,6 +34,9 @@ Every public pass is adjacent. No public compiler path should skip a layer.
 Every layer should have either direct semantics or direct artifact invariants;
 no layer's meaning should be "whatever the next compiler pass does."
 
+Each layer folder has a `Syntax.lean` module for the proposed AST/artifact
+syntax and an `Interface.lean` module for the currently imported public surface.
+
 ## Layers And Passes
 
 `L00_SourceSolidity` is the broad source AST and source semantics. It represents

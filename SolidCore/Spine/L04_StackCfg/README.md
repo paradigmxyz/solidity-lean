@@ -3,5 +3,5 @@
 This layer exposes the label-based stack-machine CFG, including stack-layout
 wellformedness obligations before byte encoding.
 
-The authoritative interface is `Interface.lean`; architectural intent lives in
-`ARCHITECTURE.md`.
+`Syntax.lean` contains the proposed StackCfg syntax. `Interface.lean` contains
+the currently imported public surface.
