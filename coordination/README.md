@@ -1,44 +1,55 @@
 # Coordination
 
-Coordination uses append-only Markdown logs. Code and theorem statements remain
-the source of truth.
+Coordination uses lightweight append-only Markdown logs. Code and theorem
+statements remain the source of truth.
 
 The project lives at `/Users/dan/Projects/solid-core-spine`.
 
 The point of coordination is momentum toward a complete source-to-EVM theorem,
-not strict territorial control. The ownership list says who should notice and
-care most about each area. Agents may make small cross-boundary edits when that
-keeps the spine moving, but should leave a short log note when the edit changes
-another agent's expected surface.
+not strict territorial control. Each layer has one primary agent who should
+notice and care most about that layer. Agents may make small adjacent edits when
+that keeps the spine moving, but should leave a short log note when the edit
+changes another agent's expected surface.
 
-## Ownership
+## Target Ownership
 
+The target architecture is:
+
+```text
+L00_SourceSolidity
+  -> L01_ValidSolidity
+  -> L02_AbstractYul
+  -> L03_GeneratedYul
+  -> L04_StackCfg
+  -> L05_Bytecode
+  -> L06_Evm
+```
+
+Layer agents:
+
+- `layer-00-source-solidity` owns source syntax and source semantics.
+- `layer-01-valid-solidity` owns the validity artifact and the
+  `SourceSolidity -> ValidSolidity` checker.
+- `layer-02-abstract-yul` owns the AbstractYul language and the
+  `ValidSolidity -> AbstractYul` lowering pass.
+- `layer-03-generated-yul` owns the GeneratedYul subset and the
+  `AbstractYul -> GeneratedYul` lowering pass.
+- `layer-04-stackcfg` owns StackCfg and the `GeneratedYul -> StackCfg` pass.
+- `layer-05-bytecode` owns Bytecode and the `StackCfg -> Bytecode` assembler.
+- `layer-06-evm` owns the EVM target semantics and the `Bytecode -> Evm`
+  embedding/adequacy theorem.
 - `supervisor` reads across the whole tree and critiques whether current work is
   moving toward a non-vacuous complete theorem.
-- `source-model` owns `SolidCore/Spine/L00_Source` and source semantics exports.
-- `target-model` owns `SolidCore/Spine/L07_Evm` and final target semantics exports.
-- `pass-01-source-to-checked-solidity` owns `L01_CheckedSolidity` and
-  `P01_SourceToCheckedSolidity`.
-- `pass-02-checked-solidity-to-desugared-solidity` owns
-  `L02_DesugaredSolidity` and `P02_CheckedSolidityToDesugaredSolidity`.
-- `pass-03-desugared-solidity-to-abstract-yul` owns `L03_AbstractYul` and
-  `P03_DesugaredSolidityToAbstractYul`.
-- `pass-04-abstract-yul-to-generated-yul` owns `L04_GeneratedYul` and
-  `P04_AbstractYulToGeneratedYul`.
-- `pass-05-generated-yul-to-stackcfg` owns `L05_StackCfg` and
-  `P05_GeneratedYulToStackCfg`.
-- `pass-06-stackcfg-to-bytecode` owns `L06_Bytecode` and
-  `P06_StackCfgToBytecode`.
-- `pass-07-bytecode-to-evm` owns `P07_BytecodeToEvm` and final adapter proof
-  artifacts. It should treat `L06_Bytecode` and `L07_Evm` as read-mostly and
-  coordinate any changes with the relevant logs.
+
+Agent prompts live in [LAYER_AGENT_PROMPTS.md](./LAYER_AGENT_PROMPTS.md).
 
 ## Working Norms
 
-- Prefer touching your own layer/pass first, but do not block on ceremony for a
-  small adjacent edit that obviously improves the spine.
-- If a cross-boundary edit changes semantics, wellformedness, exported names, or
-  theorem statements, note it in both relevant logs or in `supervisor.md`.
+- Prefer touching your own layer and incoming pass first, but do not block on
+  ceremony for a small adjacent edit that obviously improves the spine.
+- If a cross-boundary edit changes syntax, semantics, wellformedness, exported
+  names, compiler output, or theorem statements, note it in both relevant logs
+  or in `supervisor.md`.
 - Layer semantics and `WF` should describe the artifact itself, not merely say
   that some previous compiler produced it.
 - Tests and parity runs are useful evidence, but public verification claims

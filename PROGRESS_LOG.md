@@ -21,3 +21,4 @@
 - 2026-05-11 12:16:18 PDT - oracle - fresh AbstractYul spine critique `20260511-190754-solid-core-abstractyul-spine-critique-6220c34f` and older desugaring followup `resp_031091b3edd51573006a02232ad6bc81978cb9457f527d8b91` still in progress.
 - 2026-05-11 12:21:46 PDT - design - added `docs/languages/SAMPLE_VAULT_WALKTHROUGH.md`, a manual MiniVault lowering across every target layer to surface architecture warts before writing stricter per-layer design docs.
 - 2026-05-11 12:44:46 PDT - design - rewrote language docs for the proposed shorter spine `SourceSolidity -> ValidSolidity -> AbstractYul -> GeneratedYul -> StackCfg -> Bytecode -> Evm`; each layer doc now describes syntax, incoming pass transformations, and proof obligations.
+- 2026-05-11 12:51:36 PDT - coordination - replaced pass-agent coordination with one primary agent per target layer; added `coordination/LAYER_AGENT_PROMPTS.md` and updated local `verified-compiler-lab` skill to recommend layer agents.
