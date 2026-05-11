@@ -6,14 +6,14 @@ truth, and this file should change when the spine changes.
 
 ## Final Theorem Shape
 
-The project is aiming for a theorem that says: for every independently accepted
+The project is aiming for a theorem that says: for every independently checked
 source program, recursive compiler passes produce EVM bytecode whose execution
 is behaviorally compatible with the source semantics.
 
 In rough form:
 
 ```text
-accepted source
+checked Solidity
   -> desugared Solidity core
   -> control-normalized source
   -> explicit-effect source
@@ -30,7 +30,7 @@ theorems through `SolidCore.Spine.PublicClaims`.
 
 ## Recommended Spine Revision
 
-The current Lean spine goes directly from accepted source to control-normalized
+The current Lean spine goes directly from checked Solidity to control-normalized
 source. I now think we should insert a source-to-source desugaring layer between
 them before the next substantial implementation push.
 
@@ -38,7 +38,7 @@ Recommended upper spine:
 
 ```text
 L00_Source
-  -> L01_Accepted
+  -> L01_CheckedSolidity
   -> L02_DesugaredSolidity
   -> L03_Control
   -> L04_Effect
@@ -48,9 +48,10 @@ L00_Source
 
 This should be a real public layer if it handles Solidity features such as
 modifiers, declaration sugar, or other source forms whose meaning is best
-explained as a rewrite into a simpler Solidity core. Acceptance should answer
-"is this input in scope?" Desugaring should answer "what simpler source program
-has the same meaning?" Control lowering should then focus on sequencing,
+explained as a rewrite into a simpler Solidity core. Checking should answer
+"is this input in scope, and what name/type/declaration facts have been
+established?" Desugaring should answer "what simpler source program has the same
+meaning?" Control lowering should then focus on sequencing,
 branches, loops, exits, and continuations rather than rich Solidity surface
 syntax.
 
@@ -68,42 +69,44 @@ starting point for the theorem.
 It should own source syntax, source runtime state, source evaluation, and the
 meaning of language constructs before compiler-imposed restrictions. It should
 not be reshaped to make later passes easier. If a source feature is awkward to
-compile, the accepted subset or compiler pass should narrow or reject it.
+compile, the checked subset or compiler pass should narrow or reject it.
 
 Current status: `L00_Source` re-exports the copied Solidity source AST and
 interpreter.
 
-### P01_SourceToAccepted
+### P01_SourceToCheckedSolidity
 
-Role: independent acceptance checking.
+Role: independent Solidity checking.
 
 The pass should decide whether a source AST is inside the verified subset and
-return the same AST plus proof-relevant evidence. Its soundness theorem should
-say that successful checking implies the accepted predicate. Its completeness
-theorem should say that anything satisfying the accepted predicate is accepted by
-the checker.
+return a checked artifact with proof-relevant evidence. Its soundness theorem
+should say that successful checking implies the feature, name/scope, type, and
+declaration facts carried by `L01_CheckedSolidity`. Its completeness theorem
+should say that anything satisfying the checked predicate can be produced by the
+checker.
 
-Design pressure: this pass must not become "accepted means the compiler
+Design pressure: this pass must not become "checked means the compiler
 succeeds." It is the front gate for feature boundaries, name/scope/type facts,
 and any source assumptions later passes rely on.
 
-### L01_Accepted
+### L01_CheckedSolidity
 
-Role: the verified source subset.
+Role: the verified and checked source artifact.
 
-It should own accepted-input facts: supported feature boundaries, scoping,
-typing, declaration shape, external-call assumptions, and source wellformedness.
-It should not own a new semantics separate from source unless the accepted
-language has genuinely different UB/error rules. Usually its semantics should be
-source semantics plus accepted facts.
+It should own checked-input facts: supported feature boundaries, name resolution,
+scoping, typing, declaration shape, modifier validity, external-call assumptions,
+and source wellformedness. It should not own a new semantics separate from source
+unless the checked language has genuinely different UB/error rules. Usually its
+semantics should be source semantics plus checked facts.
 
-Current status: `L01_Accepted` is feature-flag based. That is a useful sketch,
-but too weak for real Solidity compilation because it does not yet carry name,
-scope, type, ABI, or storage-layout facts.
+Current status: `L01_CheckedSolidity` now returns a checked `Program` artifact
+and has explicit placeholder fact families for names/scopes, types, and
+declarations. Those placeholders need to become real checks before later passes
+depend on them.
 
-### P02_AcceptedToDesugaredSolidity
+### P02_CheckedSolidityToDesugaredSolidity
 
-Role: rewrite accepted Solidity into a smaller Solidity core.
+Role: rewrite checked Solidity into a smaller Solidity core.
 
 The pass should recursively remove source-level sugar while preserving source
 semantics. Modifiers are the motivating example: a function with modifiers
@@ -113,7 +116,7 @@ postlude behavior are represented explicitly in the desugared source core.
 Other candidates include declaration sugar, simple syntactic conveniences, and
 source forms whose meaning is cleaner as source-to-source rewrites than as
 control-flow compiler rules. The theorem should say desugared-source evaluation
-matches accepted-source evaluation.
+matches checked-source evaluation.
 
 Design pressure: do not use this layer for layout, stack, or bytecode concerns.
 It is still Solidity-level.
@@ -128,7 +131,7 @@ make control lowering uniform. It should not own continuation semantics,
 explicit effects, storage/memory layout, generated Yul, or target behavior.
 
 This is a proposed layer, not yet present in the Lean spine. It should be added
-if the accepted source language grows to include modifiers or similar surface
+if the checked source language grows to include modifiers or similar surface
 features.
 
 ### P03_DesugaredSolidityToControl
@@ -138,11 +141,13 @@ Role: elaborate desugared source into a control-normalized core language.
 The pass should remove source surface irregularities while preserving source
 behavior: nested blocks, switches, loop exits, return/revert propagation, and
 statement sequencing should become a smaller recursive control language. The
-main theorem should say control evaluation equals accepted source evaluation for
-all accepted programs.
+main theorem should say control evaluation equals checked source evaluation for
+all checked programs.
 
-Current status: this is the first real theorem-bearing pass:
-`source_to_control_sound` composes `P01` and `P02` through `L02_Control`.
+Current Lean status: the desugaring layer is not inserted yet, so
+`P02_CheckedSolidityToControl` is still the first real theorem-bearing compiler
+pass. `source_to_control_sound` composes `P01` and the current `P02` through
+`L02_Control`.
 
 ### L03_Control
 
@@ -155,7 +160,7 @@ shape, byte encoding, or EVM gas-level concerns.
 
 This layer is worth keeping if it becomes the place where arbitrary nested
 source control is proved once and then reused. If it remains a thin mirror of
-source syntax, it should be collapsed back into `L01_Accepted`.
+source syntax, it should be collapsed back into `L01_CheckedSolidity`.
 
 With the proposed desugaring layer, this should not need to know about
 modifiers. It should consume a simpler source core.
@@ -329,10 +334,10 @@ I would keep all four.
 The upper half is also directionally right:
 
 ```text
-Source -> Accepted -> DesugaredSolidity -> Control -> Effect -> Layout
+Source -> CheckedSolidity -> DesugaredSolidity -> Control -> Effect -> Layout
 ```
 
-`Source`, `Accepted`, `DesugaredSolidity`, and `Layout` clearly need to exist
+`Source`, `CheckedSolidity`, `DesugaredSolidity`, and `Layout` clearly need to exist
 once the source language includes modifiers or similar surface features. The
 remaining question is whether `Control` and `Effect` both earn their keep. I
 think they should stay for now, because Solidity combines complicated control
@@ -342,7 +347,7 @@ unprovable.
 
 The criterion should be practical:
 
-- add `L02_DesugaredSolidity` when accepted source grows past the small core
+- add `L02_DesugaredSolidity` when checked source grows past the small core
   currently represented by the Lean interfaces;
 - keep `L03_Control` if it develops reusable recursive theorems for nested
   sequencing, branching, loops, breaks, continues, returns, and reverts;
@@ -357,7 +362,7 @@ The spine probably needs a small shared refinement/observation vocabulary before
 the final theorem becomes serious. That does not need to be a public compiler
 layer. It can live as proof support used by pass theorems.
 
-The source side will also need a richer accepted-input story:
+The source side will also need a richer checked-input story:
 
 - name binding and scope facts;
 - type facts;
@@ -366,12 +371,12 @@ The source side will also need a richer accepted-input story:
 - ABI and selector facts;
 - assumptions about external calls and environment observations.
 
-Those belong in `L01_Accepted` or as evidence carried out of `P01`, not as hidden
+Those belong in `L01_CheckedSolidity` or as evidence carried out of `P01`, not as hidden
 preconditions in later compiler passes.
 
 ## Main Risks
 
-- `AcceptedSource` stays feature-flag-only, so later theorems assume facts that
+- `CheckedSource` stays feature-flag-only, so later theorems assume facts that
   were never checked.
 - `L04_Effect` and `L05_Layout` remain identity aliases, encouraging agents to
   skip the hard middle proofs.
@@ -386,9 +391,9 @@ preconditions in later compiler passes.
 
 ## Recommended Near-Term Order
 
-1. Strengthen `L01_Accepted` enough that source features carry real facts.
+1. Strengthen `L01_CheckedSolidity` enough that source features carry real facts.
 2. Add `L02_DesugaredSolidity` before modeling modifiers or other rich Solidity
-   surface forms in the accepted subset.
+   surface forms in the checked subset.
 3. Make control normalization independently valuable by proving recursive control
    lemmas beyond the first `source_to_control_sound` theorem.
 4. Decide the first real effect-IR shape before adding more layout details.

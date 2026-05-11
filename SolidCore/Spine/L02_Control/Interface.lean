@@ -1,5 +1,5 @@
 import SolidCore.Solidity.ControlCore
-import SolidCore.Spine.L01_Accepted.Interface
+import SolidCore.Spine.L01_CheckedSolidity.Interface
 
 namespace SolidCore
 namespace Spine

@@ -17,8 +17,10 @@ another agent's expected surface.
   moving toward a non-vacuous complete theorem.
 - `source-model` owns `SolidCore/Spine/L00_Source` and source semantics exports.
 - `target-model` owns `SolidCore/Spine/L08_Evm` and final target semantics exports.
-- `pass-01-source-to-accepted` owns `L01_Accepted` and `P01_SourceToAccepted`.
-- `pass-02-accepted-to-control` owns `L02_Control` and `P02_AcceptedToControl`.
+- `pass-01-source-to-checked-solidity` owns `L01_CheckedSolidity` and
+  `P01_SourceToCheckedSolidity`.
+- `pass-02-checked-solidity-to-control` owns `L02_Control` and
+  `P02_CheckedSolidityToControl`.
 - `pass-03-control-to-effect` owns `L03_Effect` and `P03_ControlToEffect`.
 - `pass-04-effect-to-layout` owns `L04_Layout` and `P04_EffectToLayout`.
 - `pass-05-layout-to-generated-yul` owns `L05_GeneratedYul` and

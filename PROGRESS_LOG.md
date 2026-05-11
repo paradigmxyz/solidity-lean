@@ -11,3 +11,5 @@
 - 2026-05-11 11:36:28 PDT - relocation - moved project directory from `/Users/dan/Public/solid-core-spine` to `/Users/dan/Projects/solid-core-spine`; updated coordination path.
 - 2026-05-11 11:39:23 PDT - design - drafted `DESIGN.md` as a top-down layer/pass design and layer-fit critique while oracle layer-design critique `20260511-183757-solid-core-spine-layer-design-critique-28d4afa3` runs.
 - 2026-05-11 11:42:39 PDT - design - updated `DESIGN.md` to recommend inserting `L02_DesugaredSolidity` between accepted source and control lowering; sent oracle followup `resp_031091b3edd51573006a02232ad6bc81978cb9457f527d8b91`.
+- 2026-05-11 11:49:37 PDT - architecture - renamed `L01_Accepted` to `L01_CheckedSolidity`; checker now returns a checked artifact with placeholder name/scope/type/declaration facts.
+- 2026-05-11 11:50:34 PDT - test - command `LEAN_NUM_THREADS=1 $HOME/.elan/bin/lake build SolidCore SolidCoreYulCore evm_parity` and `python3 tests/bin/evm_parity.py forge`; result green with 21 Forge parity tests passed.

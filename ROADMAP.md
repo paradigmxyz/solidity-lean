@@ -8,7 +8,7 @@ example-specific compiler routes.
 
 ```text
 L00_Source
-  -> L01_Accepted
+  -> L01_CheckedSolidity
   -> L02_Control
   -> L03_Effect
   -> L04_Layout
@@ -23,9 +23,9 @@ layers. It is not a commitment to accept, model, or verify every possible Yul
 program.
 
 Likely next spine change: insert a Solidity desugaring layer between
-`L01_Accepted` and control lowering before modeling modifiers or similar rich
-source surface features. Until that refactor lands, the public Lean spine above
-remains the actual imported spine.
+`L01_CheckedSolidity` and control lowering before modeling modifiers or similar
+rich source surface features. Until that refactor lands, the public Lean spine
+above remains the actual imported spine.
 
 Public claims live under `SolidCore.Spine.PublicClaims`. Root imports should cite
 the spine, not legacy compilers, generated source recognizers, parity harnesses,
@@ -45,7 +45,7 @@ or example certificates.
       interface.
 - [ ] Each pass owns its compiler/checker function.
 - [ ] Each pass proves success soundness.
-- [ ] Each pass proves completeness for independently accepted inputs when that
+- [ ] Each pass proves completeness for independently checked inputs when that
       is the right boundary.
 - [ ] Each pass records assumptions as theorem hypotheses or artifact fields,
       not prose.
@@ -60,8 +60,10 @@ or example certificates.
       theorem without turning coordination into a rigid permission system.
 - [x] Keep the first public theorem AST-level and recursive:
       `SolidCore.Spine.PublicClaims.source_to_control_sound`.
-- [ ] Strengthen `L01_Accepted` from feature flags to real name/scope/type facts.
-- [ ] Insert `L02_DesugaredSolidity` before control lowering once accepted source
+- [x] Replace the thin accepted-input layer with `L01_CheckedSolidity`.
+- [ ] Strengthen `L01_CheckedSolidity` from placeholder facts to real
+      name/scope/type/declaration checking.
+- [ ] Insert `L02_DesugaredSolidity` before control lowering once checked source
       includes modifiers or comparable Solidity surface sugar.
 - [ ] Replace projection-based `L02_Control` semantics with independent
       recursive control semantics plus a source-to-control preservation theorem.
@@ -74,10 +76,10 @@ or example certificates.
 
 Delete obsolete example-specific routes instead of preserving compatibility wrappers.
 If removal exposes a missing theorem, either prove the recursive pass theorem or
-narrow the accepted subset.
+narrow the checked subset.
 
 ## Completion Rule
 
-A feature is verified only when it is accepted independently, transformed by
+A feature is verified only when it is checked independently, transformed by
 recursive compiler passes through the spine, and covered by a named Lean theorem
 that reaches the declared target interpreter.

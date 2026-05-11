@@ -1,5 +1,5 @@
 import SolidCore.Spine.L00_Source.Interface
-import SolidCore.Spine.L01_Accepted.Interface
+import SolidCore.Spine.L01_CheckedSolidity.Interface
 import SolidCore.Spine.L02_Control.Interface
 import SolidCore.Spine.L03_Effect.Interface
 import SolidCore.Spine.L04_Layout.Interface
@@ -7,8 +7,8 @@ import SolidCore.Spine.L05_GeneratedYul.Interface
 import SolidCore.Spine.L06_StackCfg.Interface
 import SolidCore.Spine.L07_Bytecode.Interface
 import SolidCore.Spine.L08_Evm.Interface
-import SolidCore.Spine.Passes.P01_SourceToAccepted.Interface
-import SolidCore.Spine.Passes.P02_AcceptedToControl.Interface
+import SolidCore.Spine.Passes.P01_SourceToCheckedSolidity.Interface
+import SolidCore.Spine.Passes.P02_CheckedSolidityToControl.Interface
 import SolidCore.Spine.Passes.P03_ControlToEffect.Interface
 import SolidCore.Spine.Passes.P04_EffectToLayout.Interface
 import SolidCore.Spine.Passes.P05_LayoutToGeneratedYul.Interface
