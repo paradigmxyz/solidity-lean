@@ -46,4 +46,5 @@ Layer docs:
 - [L05 StackCfg](./L05_StackCfg.md)
 - [L06 Bytecode](./L06_Bytecode.md)
 - [L07 Evm](./L07_Evm.md)
+- [Sample Vault Walkthrough](./SAMPLE_VAULT_WALKTHROUGH.md)
 - [Critique](./CRITIQUE.md)
