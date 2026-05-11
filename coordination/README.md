@@ -16,21 +16,23 @@ another agent's expected surface.
 - `supervisor` reads across the whole tree and critiques whether current work is
   moving toward a non-vacuous complete theorem.
 - `source-model` owns `SolidCore/Spine/L00_Source` and source semantics exports.
-- `target-model` owns `SolidCore/Spine/L08_Evm` and final target semantics exports.
+- `target-model` owns `SolidCore/Spine/L09_Evm` and final target semantics exports.
 - `pass-01-source-to-checked-solidity` owns `L01_CheckedSolidity` and
   `P01_SourceToCheckedSolidity`.
-- `pass-02-checked-solidity-to-control` owns `L02_Control` and
-  `P02_CheckedSolidityToControl`.
-- `pass-03-control-to-effect` owns `L03_Effect` and `P03_ControlToEffect`.
-- `pass-04-effect-to-layout` owns `L04_Layout` and `P04_EffectToLayout`.
-- `pass-05-layout-to-generated-yul` owns `L05_GeneratedYul` and
-  `P05_LayoutToGeneratedYul`.
-- `pass-06-generated-yul-to-stackcfg` owns `L06_StackCfg` and
-  `P06_GeneratedYulToStackCfg`.
-- `pass-07-stackcfg-to-bytecode` owns `L07_Bytecode` and
-  `P07_StackCfgToBytecode`.
-- `pass-08-bytecode-to-evm` owns `P08_BytecodeToEvm` and final adapter proof
-  artifacts. It should treat `L07_Bytecode` and `L08_Evm` as read-mostly and
+- `pass-02-checked-solidity-to-desugared-solidity` owns
+  `L02_DesugaredSolidity` and `P02_CheckedSolidityToDesugaredSolidity`.
+- `pass-03-desugared-solidity-to-control` owns `L03_Control` and
+  `P03_DesugaredSolidityToControl`.
+- `pass-04-control-to-effect` owns `L04_Effect` and `P04_ControlToEffect`.
+- `pass-05-effect-to-layout` owns `L05_Layout` and `P05_EffectToLayout`.
+- `pass-06-layout-to-generated-yul` owns `L06_GeneratedYul` and
+  `P06_LayoutToGeneratedYul`.
+- `pass-07-generated-yul-to-stackcfg` owns `L07_StackCfg` and
+  `P07_GeneratedYulToStackCfg`.
+- `pass-08-stackcfg-to-bytecode` owns `L08_Bytecode` and
+  `P08_StackCfgToBytecode`.
+- `pass-09-bytecode-to-evm` owns `P09_BytecodeToEvm` and final adapter proof
+  artifacts. It should treat `L08_Bytecode` and `L09_Evm` as read-mostly and
   coordinate any changes with the relevant logs.
 
 ## Working Norms

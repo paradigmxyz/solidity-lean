@@ -28,13 +28,9 @@ Tests, Forge parity, fuzzing, and external traces are evidence. The verification
 claim should eventually be a named Lean theorem that composes the adjacent pass
 theorems through `SolidCore.Spine.PublicClaims`.
 
-## Recommended Spine Revision
+## Public Spine
 
-The current Lean spine goes directly from checked Solidity to control-normalized
-source. I now think we should insert a source-to-source desugaring layer between
-them before the next substantial implementation push.
-
-Recommended upper spine:
+The current Lean spine is:
 
 ```text
 L00_Source
@@ -43,10 +39,13 @@ L00_Source
   -> L03_Control
   -> L04_Effect
   -> L05_Layout
-  -> ...
+  -> L06_GeneratedYul
+  -> L07_StackCfg
+  -> L08_Bytecode
+  -> L09_Evm
 ```
 
-This should be a real public layer if it handles Solidity features such as
+This is a real public layer because it will handle Solidity features such as
 modifiers, declaration sugar, or other source forms whose meaning is best
 explained as a rewrite into a simpler Solidity core. Checking should answer
 "is this input in scope, and what name/type/declaration facts have been
@@ -54,10 +53,6 @@ established?" Desugaring should answer "what simpler source program has the same
 meaning?" Control lowering should then focus on sequencing,
 branches, loops, exits, and continuations rather than rich Solidity surface
 syntax.
-
-The Lean files have not yet been renumbered. Until that refactor happens,
-`L02_Control` is implicitly carrying both desugaring and control-normalization
-pressure.
 
 ## Layer And Pass Design
 
@@ -130,9 +125,9 @@ modifier expansion, normalized declaration forms, and any source constructs that
 make control lowering uniform. It should not own continuation semantics,
 explicit effects, storage/memory layout, generated Yul, or target behavior.
 
-This is a proposed layer, not yet present in the Lean spine. It should be added
-if the checked source language grows to include modifiers or similar surface
-features.
+Current status: this layer is present in the Lean spine. It is identity-shaped
+for now and carries placeholder facts that modifiers and unsupported surface
+sugar have been removed.
 
 ### P03_DesugaredSolidityToControl
 
@@ -144,10 +139,8 @@ statement sequencing should become a smaller recursive control language. The
 main theorem should say control evaluation equals checked source evaluation for
 all checked programs.
 
-Current Lean status: the desugaring layer is not inserted yet, so
-`P02_CheckedSolidityToControl` is still the first real theorem-bearing compiler
-pass. `source_to_control_sound` composes `P01` and the current `P02` through
-`L02_Control`.
+Current Lean status: `source_to_control_sound` composes `P01`, `P02`, and `P03`
+through `L03_Control`.
 
 ### L03_Control
 
@@ -347,8 +340,8 @@ unprovable.
 
 The criterion should be practical:
 
-- add `L02_DesugaredSolidity` when checked source grows past the small core
-  currently represented by the Lean interfaces;
+- strengthen `L02_DesugaredSolidity` when checked source grows past the small
+  core currently represented by the Lean interfaces;
 - keep `L03_Control` if it develops reusable recursive theorems for nested
   sequencing, branching, loops, breaks, continues, returns, and reverts;
 - keep `L04_Effect` if it develops an effect semantics that lets layout proofs
@@ -392,8 +385,8 @@ preconditions in later compiler passes.
 ## Recommended Near-Term Order
 
 1. Strengthen `L01_CheckedSolidity` enough that source features carry real facts.
-2. Add `L02_DesugaredSolidity` before modeling modifiers or other rich Solidity
-   surface forms in the checked subset.
+2. Strengthen `L02_DesugaredSolidity` before modeling modifiers or other rich
+   Solidity surface forms in the checked subset.
 3. Make control normalization independently valuable by proving recursive control
    lemmas beyond the first `source_to_control_sound` theorem.
 4. Decide the first real effect-IR shape before adding more layout details.

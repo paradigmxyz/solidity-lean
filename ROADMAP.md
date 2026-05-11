@@ -9,23 +9,19 @@ example-specific compiler routes.
 ```text
 L00_Source
   -> L01_CheckedSolidity
-  -> L02_Control
-  -> L03_Effect
-  -> L04_Layout
-  -> L05_GeneratedYul
-  -> L06_StackCfg
-  -> L07_Bytecode
-  -> L08_Evm
+  -> L02_DesugaredSolidity
+  -> L03_Control
+  -> L04_Effect
+  -> L05_Layout
+  -> L06_GeneratedYul
+  -> L07_StackCfg
+  -> L08_Bytecode
+  -> L09_Evm
 ```
 
-`L05_GeneratedYul` is the Yul-shaped subset produced by the higher compiler
+`L06_GeneratedYul` is the Yul-shaped subset produced by the higher compiler
 layers. It is not a commitment to accept, model, or verify every possible Yul
 program.
-
-Likely next spine change: insert a Solidity desugaring layer between
-`L01_CheckedSolidity` and control lowering before modeling modifiers or similar
-rich source surface features. Until that refactor lands, the public Lean spine
-above remains the actual imported spine.
 
 Public claims live under `SolidCore.Spine.PublicClaims`. Root imports should cite
 the spine, not legacy compilers, generated source recognizers, parity harnesses,
@@ -63,13 +59,14 @@ or example certificates.
 - [x] Replace the thin accepted-input layer with `L01_CheckedSolidity`.
 - [ ] Strengthen `L01_CheckedSolidity` from placeholder facts to real
       name/scope/type/declaration checking.
-- [ ] Insert `L02_DesugaredSolidity` before control lowering once checked source
-      includes modifiers or comparable Solidity surface sugar.
-- [ ] Replace projection-based `L02_Control` semantics with independent
+- [x] Insert `L02_DesugaredSolidity` before control lowering.
+- [ ] Strengthen `L02_DesugaredSolidity` to remove modifiers and comparable
+      Solidity surface sugar.
+- [ ] Replace projection-based `L03_Control` semantics with independent
       recursive control semantics plus a source-to-control preservation theorem.
 - [ ] Implement each later pass as recursive AST/artifact transformation rather
       than fixed-case recognizer.
-- [ ] Add real `L06_StackCfg.WF` obligations before any bytecode/EVM claim.
+- [ ] Add real `L07_StackCfg.WF` obligations before any bytecode/EVM claim.
 - [ ] Add bytecode resolution correctness before any final target theorem.
 
 ## Deletion Policy

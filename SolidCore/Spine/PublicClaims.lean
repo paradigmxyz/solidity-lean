@@ -1,11 +1,12 @@
 import SolidCore.Spine.Passes.P01_SourceToCheckedSolidity.Interface
-import SolidCore.Spine.Passes.P02_CheckedSolidityToControl.Interface
-import SolidCore.Spine.Passes.P03_ControlToEffect.Interface
-import SolidCore.Spine.Passes.P04_EffectToLayout.Interface
-import SolidCore.Spine.Passes.P05_LayoutToGeneratedYul.Interface
-import SolidCore.Spine.Passes.P06_GeneratedYulToStackCfg.Interface
-import SolidCore.Spine.Passes.P07_StackCfgToBytecode.Interface
-import SolidCore.Spine.Passes.P08_BytecodeToEvm.Interface
+import SolidCore.Spine.Passes.P02_CheckedSolidityToDesugaredSolidity.Interface
+import SolidCore.Spine.Passes.P03_DesugaredSolidityToControl.Interface
+import SolidCore.Spine.Passes.P04_ControlToEffect.Interface
+import SolidCore.Spine.Passes.P05_EffectToLayout.Interface
+import SolidCore.Spine.Passes.P06_LayoutToGeneratedYul.Interface
+import SolidCore.Spine.Passes.P07_GeneratedYulToStackCfg.Interface
+import SolidCore.Spine.Passes.P08_StackCfgToBytecode.Interface
+import SolidCore.Spine.Passes.P09_BytecodeToEvm.Interface
 
 namespace SolidCore
 namespace Spine
@@ -15,20 +16,35 @@ theorem source_to_control_sound
     {fragment : L01_CheckedSolidity.Fragment}
     {source : L00_Source.Stmt}
     {checked : L01_CheckedSolidity.Program fragment}
-    {core : L02_Control.Stmt}
+    {desugared : L02_DesugaredSolidity.Program fragment}
+    {core : L03_Control.Stmt}
     (hCheck :
       Passes.P01_SourceToCheckedSolidity.check fragment source = some checked)
+    (hDesugar :
+      Passes.P02_CheckedSolidityToDesugaredSolidity.compile checked =
+        desugared)
     (hCompile :
-      Passes.P02_CheckedSolidityToControl.compile checked = some core)
+      Passes.P03_DesugaredSolidityToControl.compile desugared = some core)
     (fuel : Nat) (context : L00_Source.Context)
     (runtime : L00_Source.Runtime) :
-    L02_Control.eval fuel context runtime core =
+    L03_Control.eval fuel context runtime core =
       L00_Source.evalStmt fuel context runtime source := by
   rcases Passes.P01_SourceToCheckedSolidity.check_sound hCheck with
     ⟨hStmt, _hChecked⟩
-  simpa [hStmt] using
-    Passes.P02_CheckedSolidityToControl.compile_sound
-      hCompile fuel context runtime
+  have hDesugarSound :=
+    Passes.P02_CheckedSolidityToDesugaredSolidity.compile_sound
+      checked fuel context runtime
+  rw [hDesugar] at hDesugarSound
+  have hDesugarSound' :
+      L00_Source.evalStmt fuel context runtime desugared.stmt =
+        L00_Source.evalStmt fuel context runtime checked.stmt := by
+    simpa [L02_DesugaredSolidity.eval] using hDesugarSound
+  rw [Passes.P03_DesugaredSolidityToControl.compile_sound
+      hCompile fuel context runtime]
+  rw [hDesugarSound']
+  exact congrArg
+    (fun stmt => L00_Source.evalStmt fuel context runtime stmt)
+    hStmt
 
 end PublicClaims
 end Spine
