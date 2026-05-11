@@ -3,6 +3,7 @@
 build/
 dist/
 tmp/
+tests/.foundry-suites/
 *.olean
 *.ilean
 *.c
