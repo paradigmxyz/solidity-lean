@@ -10,3 +10,4 @@
 - 2026-05-11 11:33:37 PDT - coordination - added lightweight `supervisor` log and softened ownership rules so agents can make small adjacent edits while still watching for vacuous theorem paths.
 - 2026-05-11 11:36:28 PDT - relocation - moved project directory from `/Users/dan/Public/solid-core-spine` to `/Users/dan/Projects/solid-core-spine`; updated coordination path.
 - 2026-05-11 11:39:23 PDT - design - drafted `DESIGN.md` as a top-down layer/pass design and layer-fit critique while oracle layer-design critique `20260511-183757-solid-core-spine-layer-design-critique-28d4afa3` runs.
+- 2026-05-11 11:42:39 PDT - design - updated `DESIGN.md` to recommend inserting `L02_DesugaredSolidity` between accepted source and control lowering; sent oracle followup `resp_031091b3edd51573006a02232ad6bc81978cb9457f527d8b91`.

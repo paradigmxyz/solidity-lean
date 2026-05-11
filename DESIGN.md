@@ -14,6 +14,7 @@ In rough form:
 
 ```text
 accepted source
+  -> desugared Solidity core
   -> control-normalized source
   -> explicit-effect source
   -> layout-resolved source
@@ -26,6 +27,36 @@ accepted source
 Tests, Forge parity, fuzzing, and external traces are evidence. The verification
 claim should eventually be a named Lean theorem that composes the adjacent pass
 theorems through `SolidCore.Spine.PublicClaims`.
+
+## Recommended Spine Revision
+
+The current Lean spine goes directly from accepted source to control-normalized
+source. I now think we should insert a source-to-source desugaring layer between
+them before the next substantial implementation push.
+
+Recommended upper spine:
+
+```text
+L00_Source
+  -> L01_Accepted
+  -> L02_DesugaredSolidity
+  -> L03_Control
+  -> L04_Effect
+  -> L05_Layout
+  -> ...
+```
+
+This should be a real public layer if it handles Solidity features such as
+modifiers, declaration sugar, or other source forms whose meaning is best
+explained as a rewrite into a simpler Solidity core. Acceptance should answer
+"is this input in scope?" Desugaring should answer "what simpler source program
+has the same meaning?" Control lowering should then focus on sequencing,
+branches, loops, exits, and continuations rather than rich Solidity surface
+syntax.
+
+The Lean files have not yet been renumbered. Until that refactor happens,
+`L02_Control` is implicitly carrying both desugaring and control-normalization
+pressure.
 
 ## Layer And Pass Design
 
@@ -70,9 +101,39 @@ Current status: `L01_Accepted` is feature-flag based. That is a useful sketch,
 but too weak for real Solidity compilation because it does not yet carry name,
 scope, type, ABI, or storage-layout facts.
 
-### P02_AcceptedToControl
+### P02_AcceptedToDesugaredSolidity
 
-Role: elaborate accepted source into a control-normalized core language.
+Role: rewrite accepted Solidity into a smaller Solidity core.
+
+The pass should recursively remove source-level sugar while preserving source
+semantics. Modifiers are the motivating example: a function with modifiers
+should become an ordinary body whose prelude, placeholder/body position, and
+postlude behavior are represented explicitly in the desugared source core.
+
+Other candidates include declaration sugar, simple syntactic conveniences, and
+source forms whose meaning is cleaner as source-to-source rewrites than as
+control-flow compiler rules. The theorem should say desugared-source evaluation
+matches accepted-source evaluation.
+
+Design pressure: do not use this layer for layout, stack, or bytecode concerns.
+It is still Solidity-level.
+
+### L02_DesugaredSolidity
+
+Role: a simpler Solidity core after source-to-source rewriting.
+
+It should own the smaller source grammar that later passes compile: explicit
+modifier expansion, normalized declaration forms, and any source constructs that
+make control lowering uniform. It should not own continuation semantics,
+explicit effects, storage/memory layout, generated Yul, or target behavior.
+
+This is a proposed layer, not yet present in the Lean spine. It should be added
+if the accepted source language grows to include modifiers or similar surface
+features.
+
+### P03_DesugaredSolidityToControl
+
+Role: elaborate desugared source into a control-normalized core language.
 
 The pass should remove source surface irregularities while preserving source
 behavior: nested blocks, switches, loop exits, return/revert propagation, and
@@ -83,7 +144,7 @@ all accepted programs.
 Current status: this is the first real theorem-bearing pass:
 `source_to_control_sound` composes `P01` and `P02` through `L02_Control`.
 
-### L02_Control
+### L03_Control
 
 Role: source-level control flow made explicit and proof-friendly.
 
@@ -96,7 +157,10 @@ This layer is worth keeping if it becomes the place where arbitrary nested
 source control is proved once and then reused. If it remains a thin mirror of
 source syntax, it should be collapsed back into `L01_Accepted`.
 
-### P03_ControlToEffect
+With the proposed desugaring layer, this should not need to know about
+modifiers. It should consume a simpler source core.
+
+### P04_ControlToEffect
 
 Role: make effects explicit without changing control behavior.
 
@@ -107,7 +171,7 @@ should say explicit-effect evaluation refines or equals control evaluation.
 
 Current status: identity pass.
 
-### L03_Effect
+### L04_Effect
 
 Role: explicit operational effects.
 
@@ -117,10 +181,10 @@ from "where bytes live." It should not own ABI offsets, storage slot formulas,
 memory word layout, stack-depth proof, or bytecode jump resolution.
 
 This layer is probably right, but only if it becomes real. It is the natural
-place to prevent `L04_Layout` from becoming a tangled mix of source semantics
+place to prevent `L05_Layout` from becoming a tangled mix of source semantics
 and low-level addressing.
 
-### P04_EffectToLayout
+### P05_EffectToLayout
 
 Role: choose and expose concrete data layout.
 
@@ -131,7 +195,7 @@ matches explicit-effect evaluation under the exported layout facts.
 
 Current status: identity pass with placeholder `LayoutFacts`.
 
-### L04_Layout
+### L05_Layout
 
 Role: low-level data layout before code generation.
 
@@ -144,7 +208,7 @@ opcode semantics.
 This layer should stay. Solidity-to-EVM proofs usually get stuck in layout
 details; isolating them before generated Yul is likely to pay for itself.
 
-### P05_LayoutToGeneratedYul
+### P06_LayoutToGeneratedYul
 
 Role: lower layout-resolved source into the generated Yul subset.
 
@@ -157,7 +221,7 @@ layout-resolved semantics.
 Design pressure: this is not a general Solidity-to-Yul or Yul-validation pass.
 The source of truth is what the higher layers generate.
 
-### L05_GeneratedYul
+### L06_GeneratedYul
 
 Role: the generated Yul-shaped subset.
 
@@ -170,7 +234,7 @@ This layer is right if it remains an emitted subset. It becomes dangerous if it
 drifts back into "all Yul," because that would add proof burden without helping
 the source-to-EVM theorem.
 
-### P06_GeneratedYulToStackCfg
+### P07_GeneratedYulToStackCfg
 
 Role: lower generated structured control into a stack-machine CFG.
 
@@ -181,7 +245,7 @@ the generated-subset `WF` and produced stack-depth facts.
 
 This is where structured control turns into control-flow graph obligations.
 
-### L06_StackCfg
+### L07_StackCfg
 
 Role: stack-oriented control-flow graph before byte encoding.
 
@@ -193,7 +257,7 @@ or final EVM environment semantics.
 This layer should stay. It is the right proof boundary between structured code
 generation and bytecode resolution.
 
-### P07_StackCfgToBytecode
+### P08_StackCfgToBytecode
 
 Role: resolve the CFG into concrete bytecode.
 
@@ -202,20 +266,20 @@ jump destinations, remove pseudo-instructions, and preserve the stack-safety
 facts needed by bytecode execution. The theorem should relate CFG steps or
 traces to bytecode execution under the produced bytecode `WF`.
 
-### L07_Bytecode
+### L08_Bytecode
 
 Role: resolved bytecode as an artifact distinct from EVM semantics.
 
 It should own byte arrays/opcodes, jumpdest resolution facts, no-jump-into-
 immediate facts, stack-safety facts inherited from CFG, and encoding adequacy.
 It should not define an alternative EVM. It should be the executable artifact
-that `L08_Evm` runs.
+that `L09_Evm` runs.
 
 This layer should stay. Removing it would force byte-offset and encoding
 reasoning into either CFG proofs or the target semantics, both of which would
 make the final theorem harder to compose.
 
-### P08_BytecodeToEvm
+### P09_BytecodeToEvm
 
 Role: connect resolved bytecode to the target EVM model.
 
@@ -225,9 +289,9 @@ resolved bytecode is interpreted by the public EVM semantics used in the final
 claim.
 
 If an adapter is used for proof convenience, the adapter must be connected back
-to `L08_Evm.step` or whatever public target relation becomes final.
+to the public EVM step relation or whatever target relation becomes final.
 
-### L08_Evm
+### L09_Evm
 
 Role: the target machine semantics.
 
@@ -265,20 +329,24 @@ I would keep all four.
 The upper half is also directionally right:
 
 ```text
-Source -> Accepted -> Control -> Effect -> Layout
+Source -> Accepted -> DesugaredSolidity -> Control -> Effect -> Layout
 ```
 
-`Source`, `Accepted`, and `Layout` clearly need to exist. The only question is
-whether `Control` and `Effect` both earn their keep. I think they should stay
-for now, because Solidity combines complicated control exits with stateful
-effects, and separating those proof burdens is likely better than discovering
-too late that one giant source-to-layout pass has become unprovable.
+`Source`, `Accepted`, `DesugaredSolidity`, and `Layout` clearly need to exist
+once the source language includes modifiers or similar surface features. The
+remaining question is whether `Control` and `Effect` both earn their keep. I
+think they should stay for now, because Solidity combines complicated control
+exits with stateful effects, and separating those proof burdens is likely better
+than discovering too late that one giant source-to-layout pass has become
+unprovable.
 
 The criterion should be practical:
 
-- keep `L02_Control` if it develops reusable recursive theorems for nested
+- add `L02_DesugaredSolidity` when accepted source grows past the small core
+  currently represented by the Lean interfaces;
+- keep `L03_Control` if it develops reusable recursive theorems for nested
   sequencing, branching, loops, breaks, continues, returns, and reverts;
-- keep `L03_Effect` if it develops an effect semantics that lets layout proofs
+- keep `L04_Effect` if it develops an effect semantics that lets layout proofs
   ignore source control quirks;
 - collapse them later only if one remains an identity wrapper after real
   features pass through the spine.
@@ -305,13 +373,13 @@ preconditions in later compiler passes.
 
 - `AcceptedSource` stays feature-flag-only, so later theorems assume facts that
   were never checked.
-- `L03_Effect` and `L04_Layout` remain identity aliases, encouraging agents to
+- `L04_Effect` and `L05_Layout` remain identity aliases, encouraging agents to
   skip the hard middle proofs.
-- `L05_GeneratedYul.WF` becomes a tautology instead of a real generated-subset
+- `L06_GeneratedYul.WF` becomes a tautology instead of a real generated-subset
   invariant.
-- `L06_StackCfg.WF` does not grow real label/depth/layout obligations before
+- `L07_StackCfg.WF` does not grow real label/depth/layout obligations before
   bytecode proofs begin.
-- `P08_BytecodeToEvm` becomes an alternate target semantics instead of an
+- `P09_BytecodeToEvm` becomes an alternate target semantics instead of an
   adequacy theorem for the public EVM.
 - Public roots accidentally import tests, examples, old compilers, or shortcut
   routes that bypass the spine.
@@ -319,12 +387,14 @@ preconditions in later compiler passes.
 ## Recommended Near-Term Order
 
 1. Strengthen `L01_Accepted` enough that source features carry real facts.
-2. Make `L02_Control` independently valuable by proving recursive control
+2. Add `L02_DesugaredSolidity` before modeling modifiers or other rich Solidity
+   surface forms in the accepted subset.
+3. Make control normalization independently valuable by proving recursive control
    lemmas beyond the first `source_to_control_sound` theorem.
-3. Decide the first real `L03_Effect` shape before adding more layout details.
-4. Rebuild `L04_Layout` around a small number of layout facts needed by the first
+4. Decide the first real effect-IR shape before adding more layout details.
+5. Rebuild layout around a small number of layout facts needed by the first
    generated Yul slice.
-5. Implement a tiny `P05` slice that emits generated Yul recursively, then follow
+6. Implement a tiny layout-to-generated-Yul slice recursively, then follow
    it through StackCfg, Bytecode, and EVM for one complete theorem path.
-6. Let the EVM lane continue expanding parity coverage, but treat that as target
+7. Let the EVM lane continue expanding parity coverage, but treat that as target
    model evidence until Lean theorem coverage reaches it.

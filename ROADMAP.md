@@ -22,6 +22,11 @@ L00_Source
 layers. It is not a commitment to accept, model, or verify every possible Yul
 program.
 
+Likely next spine change: insert a Solidity desugaring layer between
+`L01_Accepted` and control lowering before modeling modifiers or similar rich
+source surface features. Until that refactor lands, the public Lean spine above
+remains the actual imported spine.
+
 Public claims live under `SolidCore.Spine.PublicClaims`. Root imports should cite
 the spine, not legacy compilers, generated source recognizers, parity harnesses,
 or example certificates.
@@ -56,6 +61,8 @@ or example certificates.
 - [x] Keep the first public theorem AST-level and recursive:
       `SolidCore.Spine.PublicClaims.source_to_control_sound`.
 - [ ] Strengthen `L01_Accepted` from feature flags to real name/scope/type facts.
+- [ ] Insert `L02_DesugaredSolidity` before control lowering once accepted source
+      includes modifiers or comparable Solidity surface sugar.
 - [ ] Replace projection-based `L02_Control` semantics with independent
       recursive control semantics plus a source-to-control preservation theorem.
 - [ ] Implement each later pass as recursive AST/artifact transformation rather
