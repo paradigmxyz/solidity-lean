@@ -12,9 +12,9 @@ Run it from the repository root:
 python3 tests/bin/evm_parity.py forge
 ```
 
-The broader upstream-suite work is tracked by `foundry-suites.toml` and
-`UPSTREAM_SUITES.md`. The corpus helper can list, fetch, scan, and run pinned
-Foundry repositories while the Lean replay runner grows:
+The broader upstream-suite work is tracked by `foundry-suites.toml`. The corpus
+helper can list, fetch, scan, and run pinned Foundry repositories while the Lean
+replay runner grows:
 
 ```sh
 python3 tests/bin/foundry_corpus.py list
@@ -65,3 +65,25 @@ Lean. The current alpha tier covers state mutation and inspection (`deal`,
 `stopPrank`), block/env setters, access-list warm/cool helpers, log recording,
 snapshots, and host-oracled `addr`/`sign` results. `expectEmit`, `expectCall`, and `label` are accepted as
 permissive no-ops until assertion semantics are modeled.
+
+## Upstream Suite Direction
+
+Pinned suites are listed in `foundry-suites.toml`; checkouts live under
+`tests/.foundry-suites/` and are intentionally not committed.
+
+Useful corpus commands:
+
+```sh
+python3 tests/bin/foundry_corpus.py list
+python3 tests/bin/foundry_corpus.py fetch --suite solmate
+python3 tests/bin/foundry_corpus.py scan --suite solmate
+python3 tests/bin/foundry_corpus.py forge --suite local-forge-parity -- --list
+```
+
+The replay path should first import `forge build` artifacts, deploy the test
+contract, run `setUp()`, execute one test function in a persistent per-test
+chain state, intercept the Foundry cheatcode address in Lean, and then compare
+status, returndata, logs, storage/account state, balances, nonces, deployed
+code, and meaningful gas observations. Forked tests, filesystem/FFI cheatcodes,
+RPC-dependent tests, and fuzz or invariant campaigns stay outside the required
+pass set until deterministic unit-test replay is stable.

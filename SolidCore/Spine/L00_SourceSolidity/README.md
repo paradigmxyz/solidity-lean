@@ -1,0 +1,8 @@
+# L00 SourceSolidity
+
+This layer exposes the source Solidity AST and source semantics used by the
+public spine. It should describe source behavior before validity checking or
+compiler lowering.
+
+The authoritative interface is `Interface.lean`; architectural intent lives in
+`ARCHITECTURE.md`.
