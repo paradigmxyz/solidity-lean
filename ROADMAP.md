@@ -51,6 +51,8 @@ or example certificates.
 - [x] Preserve the copied baseline in an initial commit.
 - [x] Delete public imports for legacy example-specific compiler paths.
 - [x] Create the public layer/pass spine.
+- [x] Add a lightweight supervisor loop to critique progress toward the complete
+      theorem without turning coordination into a rigid permission system.
 - [x] Keep the first public theorem AST-level and recursive:
       `SolidCore.Spine.PublicClaims.source_to_control_sound`.
 - [ ] Strengthen `L01_Accepted` from feature flags to real name/scope/type facts.

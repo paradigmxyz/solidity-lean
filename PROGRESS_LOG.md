@@ -7,3 +7,4 @@
 - 2026-05-11 11:20:27 PDT - consolidation - collapsed the lower public spine to generated Yul subset -> stack CFG -> bytecode -> EVM; removed symbolic/full-Yul pass targets from active ownership.
 - 2026-05-11 11:22:16 PDT - test - command `LEAN_NUM_THREADS=1 $HOME/.elan/bin/lake build SolidCore SolidCoreYulCore evm_parity` and `python3 tests/bin/evm_parity.py forge`; result green with 21 Forge parity tests passed.
 - 2026-05-11 11:22:40 PDT - deletion - removed unimported `SolidCoreYulCore/SolidityLayout.lean`; future layout facts should enter through the active `L04_Layout` spine.
+- 2026-05-11 11:33:37 PDT - coordination - added lightweight `supervisor` log and softened ownership rules so agents can make small adjacent edits while still watching for vacuous theorem paths.
