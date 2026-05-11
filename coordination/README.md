@@ -16,23 +16,21 @@ another agent's expected surface.
 - `supervisor` reads across the whole tree and critiques whether current work is
   moving toward a non-vacuous complete theorem.
 - `source-model` owns `SolidCore/Spine/L00_Source` and source semantics exports.
-- `target-model` owns `SolidCore/Spine/L09_Evm` and final target semantics exports.
+- `target-model` owns `SolidCore/Spine/L07_Evm` and final target semantics exports.
 - `pass-01-source-to-checked-solidity` owns `L01_CheckedSolidity` and
   `P01_SourceToCheckedSolidity`.
 - `pass-02-checked-solidity-to-desugared-solidity` owns
   `L02_DesugaredSolidity` and `P02_CheckedSolidityToDesugaredSolidity`.
-- `pass-03-desugared-solidity-to-control` owns `L03_Control` and
-  `P03_DesugaredSolidityToControl`.
-- `pass-04-control-to-effect` owns `L04_Effect` and `P04_ControlToEffect`.
-- `pass-05-effect-to-layout` owns `L05_Layout` and `P05_EffectToLayout`.
-- `pass-06-layout-to-generated-yul` owns `L06_GeneratedYul` and
-  `P06_LayoutToGeneratedYul`.
-- `pass-07-generated-yul-to-stackcfg` owns `L07_StackCfg` and
-  `P07_GeneratedYulToStackCfg`.
-- `pass-08-stackcfg-to-bytecode` owns `L08_Bytecode` and
-  `P08_StackCfgToBytecode`.
-- `pass-09-bytecode-to-evm` owns `P09_BytecodeToEvm` and final adapter proof
-  artifacts. It should treat `L08_Bytecode` and `L09_Evm` as read-mostly and
+- `pass-03-desugared-solidity-to-abstract-yul` owns `L03_AbstractYul` and
+  `P03_DesugaredSolidityToAbstractYul`.
+- `pass-04-abstract-yul-to-generated-yul` owns `L04_GeneratedYul` and
+  `P04_AbstractYulToGeneratedYul`.
+- `pass-05-generated-yul-to-stackcfg` owns `L05_StackCfg` and
+  `P05_GeneratedYulToStackCfg`.
+- `pass-06-stackcfg-to-bytecode` owns `L06_Bytecode` and
+  `P06_StackCfgToBytecode`.
+- `pass-07-bytecode-to-evm` owns `P07_BytecodeToEvm` and final adapter proof
+  artifacts. It should treat `L06_Bytecode` and `L07_Evm` as read-mostly and
   coordinate any changes with the relevant logs.
 
 ## Working Norms

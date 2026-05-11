@@ -10,16 +10,14 @@ example-specific compiler routes.
 L00_Source
   -> L01_CheckedSolidity
   -> L02_DesugaredSolidity
-  -> L03_Control
-  -> L04_Effect
-  -> L05_Layout
-  -> L06_GeneratedYul
-  -> L07_StackCfg
-  -> L08_Bytecode
-  -> L09_Evm
+  -> L03_AbstractYul
+  -> L04_GeneratedYul
+  -> L05_StackCfg
+  -> L06_Bytecode
+  -> L07_Evm
 ```
 
-`L06_GeneratedYul` is the Yul-shaped subset produced by the higher compiler
+`L04_GeneratedYul` is the Yul-shaped subset produced by the higher compiler
 layers. It is not a commitment to accept, model, or verify every possible Yul
 program.
 
@@ -55,18 +53,22 @@ or example certificates.
 - [x] Add a lightweight supervisor loop to critique progress toward the complete
       theorem without turning coordination into a rigid permission system.
 - [x] Keep the first public theorem AST-level and recursive:
-      `SolidCore.Spine.PublicClaims.source_to_control_sound`.
+      `SolidCore.Spine.PublicClaims.source_to_abstractYul_sound`.
 - [x] Replace the thin accepted-input layer with `L01_CheckedSolidity`.
 - [ ] Strengthen `L01_CheckedSolidity` from placeholder facts to real
       name/scope/type/declaration checking.
 - [x] Insert `L02_DesugaredSolidity` before control lowering.
 - [ ] Strengthen `L02_DesugaredSolidity` to remove modifiers and comparable
       Solidity surface sugar.
-- [ ] Replace projection-based `L03_Control` semantics with independent
-      recursive control semantics plus a source-to-control preservation theorem.
+- [x] Collapse the placeholder `Control`, `Effect`, and pre-Yul `Layout` folders
+      into the target `L03_AbstractYul -> L04_GeneratedYul` boundary.
+- [ ] Replace transitional `L03_AbstractYul` semantics with a real Yul-shaped
+      abstract-effect language plus a source-to-AbstractYul preservation theorem.
+- [ ] Implement `L04_GeneratedYul` as a concrete generated Yul subset with named
+      layout/profile assumptions.
 - [ ] Implement each later pass as recursive AST/artifact transformation rather
       than fixed-case recognizer.
-- [ ] Add real `L07_StackCfg.WF` obligations before any bytecode/EVM claim.
+- [ ] Add real `L05_StackCfg.WF` obligations before any bytecode/EVM claim.
 - [ ] Add bytecode resolution correctness before any final target theorem.
 
 ## Deletion Policy
