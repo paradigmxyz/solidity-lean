@@ -16,8 +16,8 @@ Each `LNN_*` folder exposes one layer interface. `Passes/` contains the adjacent
 compiler pass interfaces. `PublicClaims.lean` is where composed theorem claims
 should live.
 
-Each layer folder has `Syntax.lean` for the proposed syntax and
-`Interface.lean` for the public surface currently imported by the spine. The
-interfaces are still scaffolding for the target architecture. When a placeholder
-fact becomes real, strengthen the layer or pass where that fact is owned instead
-of adding a side route.
+Each layer folder has a single `Interface.lean` file. That file is the
+canonical language or artifact surface for the layer. The interfaces are still
+scaffolding for the target architecture. When a placeholder fact becomes real,
+strengthen the layer or pass where that fact is owned instead of adding a side
+route.

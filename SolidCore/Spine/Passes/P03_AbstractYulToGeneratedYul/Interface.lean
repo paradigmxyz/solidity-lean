@@ -7,16 +7,22 @@ namespace Passes
 namespace P03_AbstractYulToGeneratedYul
 
 structure Artifact where
-  stmt : L03_GeneratedYul.Stmt
-  fuel : Nat
-  wf : L03_GeneratedYul.WF stmt
+  program : L03_GeneratedYul.Program
+  wf : L03_GeneratedYul.WF program
 
-def compile? (_stmt : L02_AbstractYul.Stmt) : Option Artifact :=
+def compile? (_program : L02_AbstractYul.Program) : Option Artifact :=
   none
 
-structure SoundnessBoundary (_stmt : L02_AbstractYul.Stmt)
-    (_artifact : Artifact) : Prop where
+structure SoundnessBoundary
+    (_program : L02_AbstractYul.Program) (_artifact : Artifact) :
+    Prop where
   generatedYulRefinesAbstractYul : True := by trivial
+
+theorem compile?_sound
+    {program : L02_AbstractYul.Program} {artifact : Artifact}
+    (hCompile : compile? program = some artifact) :
+    SoundnessBoundary program artifact := by
+  cases hCompile
 
 end P03_AbstractYulToGeneratedYul
 end Passes

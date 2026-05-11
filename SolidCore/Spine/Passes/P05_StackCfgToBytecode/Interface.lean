@@ -7,16 +7,22 @@ namespace Passes
 namespace P05_StackCfgToBytecode
 
 structure Artifact where
-  code : L05_Bytecode.Bytes
-  wf : L05_Bytecode.WF code
+  bytecode : L05_Bytecode.Artifact
+  wf : L05_Bytecode.WF bytecode
 
-def resolve? (_depthOf : L04_StackCfg.DepthEnv)
-    (_program : L04_StackCfg.Program) : Option Artifact :=
+def assemble? (_program : L04_StackCfg.Program) : Option Artifact :=
   none
 
-structure SoundnessBoundary (_program : L04_StackCfg.Program)
-    (_artifact : Artifact) : Prop where
+structure SoundnessBoundary
+    (_program : L04_StackCfg.Program) (_artifact : Artifact) :
+    Prop where
   bytecodeRefinesCfg : True := by trivial
+
+theorem assemble?_sound
+    {program : L04_StackCfg.Program} {artifact : Artifact}
+    (hAssemble : assemble? program = some artifact) :
+    SoundnessBoundary program artifact := by
+  cases hAssemble
 
 end P05_StackCfgToBytecode
 end Passes

@@ -34,8 +34,10 @@ Every public pass is adjacent. No public compiler path should skip a layer.
 Every layer should have either direct semantics or direct artifact invariants;
 no layer's meaning should be "whatever the next compiler pass does."
 
-Each layer folder has a `Syntax.lean` module for the proposed AST/artifact
-syntax and an `Interface.lean` module for the currently imported public surface.
+Each layer folder has a single `Interface.lean` module. That file is the
+canonical language or artifact interface for the layer: syntax first, then any
+semantics, wellformedness/profile facts, and public theorems the adjacent passes
+may rely on.
 
 ## Layers And Passes
 

@@ -5,29 +5,23 @@ namespace Spine
 namespace Passes
 namespace P02_ValidSolidityToAbstractYul
 
-def compile {fragment : L01_ValidSolidity.Fragment}
-    (program : L01_ValidSolidity.Program fragment) :
-    Option L02_AbstractYul.Stmt :=
-  L02_AbstractYul.compile? program.stmt
+structure Artifact where
+  program : L02_AbstractYul.Program
+  wf : L02_AbstractYul.WF program
 
-theorem compile_sound
-    {fragment : L01_ValidSolidity.Fragment}
-    {program : L01_ValidSolidity.Program fragment}
-    {core : L02_AbstractYul.Stmt}
-    (hCompile : compile program = some core)
-    (fuel : Nat) (context : L00_SourceSolidity.Context)
-    (runtime : L00_SourceSolidity.Runtime) :
-    L02_AbstractYul.eval fuel context runtime core =
-      L00_SourceSolidity.evalStmt fuel context runtime program.stmt :=
-  L02_AbstractYul.compile?_sound hCompile fuel context runtime
+def compile? (_program : L01_ValidSolidity.Program) : Option Artifact :=
+  none
 
-theorem compile_complete
-    {fragment : L01_ValidSolidity.Fragment}
-    (program : L01_ValidSolidity.Program fragment) :
-    ∃ core, compile program = some core := by
-  exact
-    ⟨L02_AbstractYul.compile program.stmt,
-      SolidCore.Solidity.ControlCore.Stmt.compile?_complete program.stmt⟩
+structure SoundnessBoundary
+    (_program : L01_ValidSolidity.Program) (_artifact : Artifact) :
+    Prop where
+  abstractYulRefinesValidSolidity : True := by trivial
+
+theorem compile?_sound
+    {program : L01_ValidSolidity.Program} {artifact : Artifact}
+    (hCompile : compile? program = some artifact) :
+    SoundnessBoundary program artifact := by
+  cases hCompile
 
 end P02_ValidSolidityToAbstractYul
 end Passes

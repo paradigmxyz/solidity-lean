@@ -37,7 +37,7 @@ Start by reading:
 - `/Users/dan/.codex/skills/verified-compiler-lab/SKILL.md`
 - `ARCHITECTURE.md`
 - `coordination/README.md`
-- the README, `Syntax.lean`, and `Interface.lean` in `[layer-folder]`
+- the README and `Interface.lean` in `[layer-folder]`
 - the adjacent pass/layer interfaces that import or are imported by your layer
 
 Your primary responsibility is `[layer-name]` and the incoming pass from the
