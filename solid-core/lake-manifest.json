@@ -1,0 +1,12 @@
+{"version": "1.1.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "«solid-core-yulcore»",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../solid-core-yulcore",
+   "configFile": "lakefile.lean"}],
+ "name": "«solid-core»",
+ "lakeDir": ".lake"}

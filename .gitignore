@@ -1,0 +1,11 @@
+.DS_Store
+.lake/
+build/
+dist/
+tmp/
+*.olean
+*.ilean
+*.c
+*.o
+*.so
+*.dylib
