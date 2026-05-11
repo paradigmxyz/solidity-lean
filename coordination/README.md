@@ -3,7 +3,7 @@
 Coordination uses append-only Markdown logs. Code and theorem statements remain
 the source of truth.
 
-The project lives at `/Users/dan/Public/solid-core-spine`.
+The project lives at `/Users/dan/Projects/solid-core-spine`.
 
 The point of coordination is momentum toward a complete source-to-EVM theorem,
 not strict territorial control. The ownership list says who should notice and
