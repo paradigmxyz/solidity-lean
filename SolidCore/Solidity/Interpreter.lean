@@ -1,4 +1,5 @@
 import SharedSemantics.External
+import SharedSemantics.Block
 import SolidCore.Solidity.Keccak
 
 namespace SolidCore
@@ -653,43 +654,17 @@ structure ErrorDecl where
   fields : List Ty
   deriving Repr
 
-structure BlockEnv where
-  basefee : Word
-  blobbasefee : Word
-  chainid : Word
-  coinbase : Word
-  difficulty : Word
-  gaslimit : Word
-  number : Word
-  prevrandao : Word
-  timestamp : Word
-  blockHashes : WordMap
-  blobHashes : WordMap
-  deriving Repr
+abbrev BlockEnv :=
+  SharedSemantics.Block.BlockEnv
 
 def BlockEnv.empty : BlockEnv :=
-  { basefee := 0
-    blobbasefee := 0
-    chainid := 0
-    coinbase := 0
-    difficulty := 0
-    gaslimit := 0
-    number := 0
-    prevrandao := 0
-    timestamp := 0
-    blockHashes := []
-    blobHashes := [] }
+  SharedSemantics.Block.BlockEnv.empty
 
-structure TxEnv where
-  gasprice : Word
-  origin : Word
-  blobHashes : List Word
-  deriving Repr
+abbrev TxEnv :=
+  SharedSemantics.Block.TxEnv
 
 def TxEnv.empty : TxEnv :=
-  { gasprice := 0
-    origin := 0
-    blobHashes := [] }
+  SharedSemantics.Block.TxEnv.empty
 
 abbrev LowLevelCallKind :=
   SharedSemantics.External.ExternalCallKind
@@ -882,17 +857,39 @@ inductive EnvWord where
 
 def EnvWord.eval (which : EnvWord) (context : Context) : Word :=
   match which with
-  | EnvWord.blockBasefee => context.blockEnv.basefee
-  | EnvWord.blockBlobbasefee => context.blockEnv.blobbasefee
-  | EnvWord.blockChainid => context.blockEnv.chainid
-  | EnvWord.blockCoinbase => context.blockEnv.coinbase
-  | EnvWord.blockDifficulty => context.blockEnv.difficulty
-  | EnvWord.blockGaslimit => context.blockEnv.gaslimit
-  | EnvWord.blockNumber => context.blockEnv.number
-  | EnvWord.blockPrevrandao => context.blockEnv.prevrandao
-  | EnvWord.blockTimestamp => context.blockEnv.timestamp
-  | EnvWord.txGasprice => context.txEnv.gasprice
-  | EnvWord.txOrigin => context.txEnv.origin
+  | EnvWord.blockBasefee =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.basefee
+  | EnvWord.blockBlobbasefee =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.blobbasefee
+  | EnvWord.blockChainid =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.chainid
+  | EnvWord.blockCoinbase =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.coinbase
+  | EnvWord.blockDifficulty =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.difficulty
+  | EnvWord.blockGaslimit =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.gaslimit
+  | EnvWord.blockNumber =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.number
+  | EnvWord.blockPrevrandao =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.prevrandao
+  | EnvWord.blockTimestamp =>
+      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+        SharedSemantics.Block.BlockEnv.WordField.timestamp
+  | EnvWord.txGasprice =>
+      SharedSemantics.Block.TxEnv.evalWord context.txEnv
+        SharedSemantics.Block.TxEnv.WordField.gasprice
+  | EnvWord.txOrigin =>
+      SharedSemantics.Block.TxEnv.evalWord context.txEnv
+        SharedSemantics.Block.TxEnv.WordField.origin
   | EnvWord.gasleft => context.gasleft
 
 inductive EnvLookup where
@@ -906,10 +903,9 @@ def EnvLookup.eval (which : EnvLookup) (context : Context) (key : Word) :
     Word :=
   match which with
   | EnvLookup.blockhash =>
-      SharedSemantics.External.blockHashAt
-        context.blockEnv.number context.blockEnv.blockHashes key
+      SharedSemantics.Block.BlockEnv.blockhash context.blockEnv key
   | EnvLookup.blobhash =>
-      SharedSemantics.External.blobHashAt context.txEnv.blobHashes key
+      SharedSemantics.Block.TxEnv.blobhash context.txEnv key
   | EnvLookup.accountBalance =>
       match WordMap.lookup? context.accountBalances key with
       | some value => value

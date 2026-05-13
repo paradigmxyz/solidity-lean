@@ -13,7 +13,9 @@
       adapter.
 - [x] Route Solidity Keccak/selector helpers through an `EvmYul.SpongeHash`
       compatibility primitive surface.
-- [ ] Route environment/storage/log/call wrappers through named shared adapters
+- [x] Route block/transaction environment reads and `blockhash`/`blobhash`
+      through shared block semantics.
+- [ ] Route remaining account/log/call wrappers through named shared adapters
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.
 - [ ] Finish executable source semantics for try/catch, libraries, payable,
@@ -30,3 +32,5 @@
   records at the Solidity layer.
 - Shared primitive behavior should be imported through named modules when
   Solidity is simply exposing Yul/EVM behavior.
+- Solidity storage and memory remain source-owned models because they carry
+  source data-location, reference, and type behavior.

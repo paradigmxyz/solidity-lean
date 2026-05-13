@@ -1,4 +1,4 @@
-import SharedSemantics.Word
+import SharedSemantics.Block
 
 namespace SharedSemantics
 namespace External
@@ -43,22 +43,17 @@ def lookupWord? : WordMap → Word → Option Word
         lookupWord? rest key
 
 def wordListAt (values : List Word) (index : Word) : Word :=
-  norm ((values[norm index]?).getD 0)
+  SharedSemantics.Block.wordListAt values index
 
 def blobHashAt (hashes : List Word) (index : Word) : Word :=
-  wordListAt hashes index
+  SharedSemantics.Block.blobHashAt hashes index
 
 def blockhashNumberInRange (current requested : Word) : Bool :=
-  let current := norm current
-  let requested := norm requested
-  requested < current && current - requested <= 256
+  SharedSemantics.Block.blockhashNumberInRange current requested
 
 def blockHashAt (current : Word) (hashes : WordMap)
     (requested : Word) : Word :=
-  if blockhashNumberInRange current requested then
-    (lookupWord? hashes requested).getD 0
-  else
-    0
+  SharedSemantics.Block.blockHashAt current hashes requested
 
 def lookupHash? : HashMap → Bytes → Option Word
   | [], _ => none
