@@ -16793,7 +16793,20 @@ def transientStorageContract : ContractDecl :=
                           (Expr.binary BinaryOp.mul
                             (Expr.ident "persistent")
                             (Expr.literal (Literal.number "10")))
-                          (Expr.ident "scratch"))) ]) } ] }
+                          (Expr.ident "scratch"))) ]) }
+      , ContractItem.function
+          { name := some "writeScratchThenRevert"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign
+                        (Expr.ident "scratch")
+                        AssignOp.assign
+                        (Expr.ident "value"))
+                  , Stmt.revertCall
+                      (Expr.call (Expr.ident "revert") []) ]) } ] }
 
 def transientStorageIndependentSlotsMatches : Option Bool := do
   let result ←
@@ -16849,6 +16862,60 @@ def transientClearedAtTransactionBoundaryMatches : Option Bool := do
       some
         (SolidCore.Solidity.Source.wordEq value 0 &&
           state'.transient == [])
+  | _ => some false
+
+def revertedTransientWriteDropsWrite : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 transientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "writeScratchThenRevert")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 11]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state _ =>
+      let getter ←
+        ContractDecl.call? 16 transientStorageContract
+          (SolidCore.Solidity.Source.CallTarget.name "scratch")
+          state []
+      match getter with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          some
+            (SolidCore.Solidity.Source.wordEq value 0 &&
+              state.transient == [])
+      | _ => some false
+  | _ => some false
+
+def revertedTransientWritePreservesPriorValue : Option Bool := do
+  let writeResult ←
+    ContractDecl.call? 24 transientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "setBoth")
+      SolidCore.Solidity.Source.State.empty []
+  let state ←
+    match writeResult with
+    | SolidCore.Solidity.Source.CallResult.returned state
+        [SolidCore.Solidity.Source.Value.word value] =>
+        if SolidCore.Solidity.Source.wordEq value 79 then
+          some state
+        else
+          none
+    | _ => none
+  let result ←
+    ContractDecl.call? 24 transientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "writeScratchThenRevert")
+      state [SolidCore.Solidity.Source.Value.word 11]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted revertedState _ =>
+      let getter ←
+        ContractDecl.call? 16 transientStorageContract
+          (SolidCore.Solidity.Source.CallTarget.name "scratch")
+          revertedState []
+      match getter with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          some
+            (SolidCore.Solidity.Source.wordEq value 9 &&
+              revertedState.transient == state.transient)
+      | _ => some false
   | _ => some false
 
 def mappingContract : ContractDecl :=
