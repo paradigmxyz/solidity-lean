@@ -414,6 +414,13 @@ abbrev SourceModifierInvocation :=
 def pathLast? (path : Path) : Option Name :=
   path.segments.reverse.head?
 
+def StateMutability.externalFunctionCallKind :
+    StateMutability -> CoreLowLevelCallKind
+  | StateMutability.pure | StateMutability.view =>
+      SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+  | StateMutability.nonpayable | StateMutability.payable =>
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+
 def pathMatchesName (path : Path) (name : Name) : Bool :=
   match pathLast? path with
   | some candidate => candidate == name
@@ -4895,11 +4902,12 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
 def Expr.externalFunctionValueCallCore? (storageNames : List Name)
     (env : TypeEnv) :
     Expr -> Option
-      (List Ty × CoreExpr × CoreExpr × CoreExpr × Option CoreExpr × Bool)
+      (CoreLowLevelCallKind × List Ty × CoreExpr × CoreExpr × CoreExpr ×
+        Option CoreExpr × Bool)
   | Expr.call fn args => do
       let fnTy ← Expr.abiTyWithEnv? env fn
       match fnTy with
-      | Ty.function paramTys returnTys _ Visibility.external_ => do
+      | Ty.function paramTys returnTys mutability Visibility.external_ => do
           if paramTys.length == args.length then
             let coreTys ← Ty.listToCore? paramTys
             let coreExprs ← Args.toCoreExprs? storageNames args
@@ -4910,7 +4918,8 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
                   fnCore)
                 coreTys coreExprs
             some
-              ( returnTys
+              ( StateMutability.externalFunctionCallKind mutability
+              , returnTys
               , SolidCore.Solidity.Source.Expr.externalFunctionAddress fnCore
               , calldataCore
               , CoreExpr.zero
@@ -4922,12 +4931,16 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
   | Expr.callWithOptions fn options args => do
       let fnTy ← Expr.abiTyWithEnv? env fn
       match fnTy with
-      | Ty.function paramTys returnTys _ Visibility.external_ => do
+      | Ty.function paramTys returnTys mutability Visibility.external_ => do
           if paramTys.length == args.length then
             let coreTys ← Ty.listToCore? paramTys
             let coreExprs ← Args.toCoreExprs? storageNames args
+            let kind := StateMutability.externalFunctionCallKind mutability
             let (valueCore, gasCore?, gasFirst) ←
-              CallOptions.lowLevelCallValueGasCore? storageNames options
+              if kind == SolidCore.Solidity.Source.LowLevelCallKind.staticcall then
+                CallOptions.lowLevelDelegateGasCore? storageNames options
+              else
+                CallOptions.lowLevelCallValueGasCore? storageNames options
             let fnCore ← Expr.toCore? storageNames fn
             let calldataCore :=
               SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -4935,7 +4948,8 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
                   fnCore)
                 coreTys coreExprs
             some
-              ( returnTys
+              ( kind
+              , returnTys
               , SolidCore.Solidity.Source.Expr.externalFunctionAddress fnCore
               , calldataCore
               , valueCore
@@ -4950,30 +4964,29 @@ def Expr.externalFunctionValueCallWithReturnsCore?
     (storageNames : List Name) (env : TypeEnv)
     (namePrefix : String) (expr : Expr)
     (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt := do
-  let (returnTys, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
+  let (kind, returnTys, targetCore, calldataCore, valueCore, gasCore?,
+    gasFirst) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-      SolidCore.Solidity.Source.LowLevelCallKind.call
-      targetCore calldataCore valueCore gasCore? gasFirst returnBindings
+      kind targetCore calldataCore valueCore gasCore? gasFirst returnBindings
       (successBody returnBindings) [])
 
 def Expr.externalFunctionValueCallDiscardCore?
     (storageNames : List Name) (env : TypeEnv) (expr : Expr) :
     Option CoreStmt := do
-  let (_, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
+  let (kind, _, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-      SolidCore.Solidity.Source.LowLevelCallKind.call
-      targetCore calldataCore valueCore gasCore? gasFirst []
+      kind targetCore calldataCore valueCore gasCore? gasFirst []
       SolidCore.Solidity.Source.Stmt.skip [])
 
 def Expr.externalFunctionValueCallSingleReturnCore?
     (storageNames : List Name) (env : TypeEnv) (expr : Expr)
     (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
-  let (returnTys, _, _, _, _, _) ←
+  let (_, returnTys, _, _, _, _, _) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   match returnTys with
   | [_] =>
@@ -4989,7 +5002,7 @@ def Expr.externalFunctionValueCallSingleReturnCore?
 def Expr.externalFunctionValueCallAssignVarsCore?
     (storageNames : List Name) (env : TypeEnv)
     (targetNames : List Name) (expr : Expr) : Option CoreStmt := do
-  let (returnTys, _, _, _, _, _) ←
+  let (_, returnTys, _, _, _, _, _) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   if targetNames.length == returnTys.length then
     Expr.externalFunctionValueCallWithReturnsCore?
@@ -5003,7 +5016,7 @@ def Expr.externalFunctionValueCallAssignVarsCore?
 def Expr.externalFunctionValueCallReturnCore?
     (storageNames : List Name) (env : TypeEnv)
     (declaredReturnTys : List Ty) (expr : Expr) : Option CoreStmt := do
-  let (returnTys, _, _, _, _, _) ←
+  let (_, returnTys, _, _, _, _, _) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   if declaredReturnTys.length == returnTys.length then
     Expr.externalFunctionValueCallWithReturnsCore?
@@ -7107,15 +7120,15 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           match Expr.externalFunctionValueCallCore? storageNames env expr with
-          | some (_, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
+          | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
+              gasFirst) => do
               let catchCore ←
                 CatchClause.listToCoreWithInternalCalls?
                   internalFuel storageRefEnv env storageNames modifiers
                   functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                  SolidCore.Solidity.Source.LowLevelCallKind.call
-                  targetCore calldataCore valueCore gasCore? gasFirst []
+                  kind targetCore calldataCore valueCore gasCore? gasFirst []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
@@ -7154,7 +7167,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               returnBindings successCore catchCore)
       | none => do
           match Expr.externalFunctionValueCallCore? storageNames env expr with
-          | some (_, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
+          | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
+              gasFirst) => do
               let successCore ←
                 Stmt.toCoreWithInternalCalls?
                   (internalFuel := internalFuel)
@@ -7172,8 +7186,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                  SolidCore.Solidity.Source.LowLevelCallKind.call
-                  targetCore calldataCore valueCore gasCore? gasFirst
+                  kind targetCore calldataCore valueCore gasCore? gasFirst
                   returnBindings successCore catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
@@ -7791,12 +7804,11 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               match Expr.externalFunctionValueCallCore? storageNames env expr with
-              | some (_, targetCore, calldataCore, valueCore, gasCore?,
+              | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
                   gasFirst) =>
                   some
                     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                      SolidCore.Solidity.Source.LowLevelCallKind.call
-                      targetCore calldataCore valueCore gasCore? gasFirst []
+                      kind targetCore calldataCore valueCore gasCore? gasFirst []
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
@@ -7825,12 +7837,11 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   returnBindings successCore catchCore)
           | none => do
               match Expr.externalFunctionValueCallCore? storageNames env expr with
-              | some (_, targetCore, calldataCore, valueCore, gasCore?,
+              | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
                   gasFirst) =>
                   some
                     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                      SolidCore.Solidity.Source.LowLevelCallKind.call
-                      targetCore calldataCore valueCore gasCore? gasFirst
+                      kind targetCore calldataCore valueCore gasCore? gasFirst
                       returnBindings successCore catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
@@ -12771,7 +12782,7 @@ def externalFunctionPointerCallContext : Option CoreContext := do
   some
     { SolidCore.Solidity.Source.Context.empty with
       lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
             target := 0xbeef
             calldata := externalFunctionPointerGetterCalldata
             success := true
@@ -12864,7 +12875,7 @@ def externalFunctionPointerTryCatchSuccessContext : Option CoreContext := do
   some
     { SolidCore.Solidity.Source.Context.empty with
       lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
             target := 0xbeef
             calldata := externalFunctionPointerGetterCalldata
             success := true
