@@ -40,6 +40,14 @@ def addressFits (value : Word) : Bool :=
 def selectorFits (value : Word) : Bool :=
   SharedSemantics.norm value < 2 ^ (8 * selectorBytes)
 
+def fixedBytesFits (size : Nat) (value : Word) : Bool :=
+  0 < size && size <= wordBytes &&
+    SharedSemantics.norm value < 2 ^ (8 * size)
+
+def allZeroBytes : Bytes -> Bool
+  | [] => true
+  | byte :: rest => normByte byte == 0 && allZeroBytes rest
+
 def encodeSelector (selector : Word) : Bytes :=
   wordToBytesBE selectorBytes (SharedSemantics.norm selector)
 
@@ -156,7 +164,7 @@ def encodeStaticValue? : Ty -> Value -> Option Bytes
   | Ty.uint256, Value.word value => some (encodeWord value)
   | Ty.int256, Value.int value => some (encodeWord value)
   | Ty.fixedBytes size, Value.word value =>
-      if 0 < size && size <= wordBytes then
+      if fixedBytesFits size value then
         some (wordToBytesBE size value ++
           List.replicate (wordBytes - size) 0)
       else
@@ -331,17 +339,28 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
   | _fuel + 1, argData, headIndex, Ty.fixedBytes size =>
       if 0 < size && size <= wordBytes then
         do
-        let bytes ← readBytes? argData (wordBytes * headIndex) size
-        some (Value.word (bytesToWordBE bytes))
+        let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
+        let bytes ← readBytes? slot 0 size
+        let padding ← readBytes? slot size (wordBytes - size)
+        if allZeroBytes padding then
+          some (Value.word (bytesToWordBE bytes))
+        else
+          none
       else
         none
   | _fuel + 1, argData, headIndex, Ty.externalFunction => do
-      let bytes ← readBytes? argData (wordBytes * headIndex) 24
-      let addressBytes ← readBytes? bytes 0 20
-      let selectorPart ← readBytes? bytes 20 selectorBytes
-      some
-        (Value.externalFunction
-          (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
+      let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
+      let addressBytes ← readBytes? slot 0 20
+      let selectorPart ← readBytes? slot 20 selectorBytes
+      let padding ←
+        readBytes? slot (20 + selectorBytes)
+          (wordBytes - 20 - selectorBytes)
+      if allZeroBytes padding then
+        some
+          (Value.externalFunction
+            (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
+      else
+        none
   | _fuel + 1, argData, headIndex, Ty.bytesCalldata => do
       let offset ← readWord? argData (wordBytes * headIndex)
       let length ← readWord? argData offset

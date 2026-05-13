@@ -11855,6 +11855,39 @@ def fixedBytesEchoCalldataResult :
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     16 contract SolidCore.Solidity.Source.State.empty calldata
 
+def fixedBytesEchoCalldataMatches : Option Bool := do
+  let result ← fixedBytesEchoCalldataResult
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+      [SolidCore.Solidity.Source.Value.word 0xaabbccdd]
+  some (result.success && result.output == expected)
+
+def fixedBytesAbiRejectsWideEncode : Bool :=
+  match
+      SolidCore.Solidity.Source.ABI.encodeValues?
+        [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+        [SolidCore.Solidity.Source.Value.word (2 ^ 32)]
+  with
+  | none => true
+  | some _ => false
+
+def fixedBytesAbiRejectsDirtyPadding : Option Bool := do
+  let contract ← ContractDecl.toCore? fixedBytesEchoContract
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "echo4(bytes4)")
+  let calldata :=
+    selector ++ [0xaa, 0xbb, 0xcc, 0xdd, 1] ++
+      List.replicate 27 0
+  match
+      SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+        16 contract SolidCore.Solidity.Source.State.empty calldata
+  with
+  | none => some true
+  | some _ => some false
+
 def environmentGlobalsFunction : FunctionDecl :=
   { name := some "env"
     returns :=
@@ -12677,6 +12710,34 @@ def externalFunctionMembersMatch : Option Bool := do
       , SolidCore.Solidity.Source.Value.word target ] =>
       some (selector == selectorEncodingSelector && target == 0xbeef)
   | _ => some false
+
+def externalFunctionAbiCleanDecodeMatches : Option Bool := do
+  let encoded ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.externalFunction]
+      [SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef selectorEncodingSelector]
+  match
+      SolidCore.Solidity.Source.ABI.decodeArgs?
+        [SolidCore.Solidity.Source.Ty.externalFunction] encoded
+  with
+  | some [SolidCore.Solidity.Source.Value.externalFunction addr selector] =>
+      some (addr == 0xbeef && selector == selectorEncodingSelector)
+  | _ => some false
+
+def externalFunctionAbiRejectsDirtyPadding : Bool :=
+  let encoded :=
+    SolidCore.Solidity.Source.ABI.wordToBytesBE 20 0xbeef ++
+      SolidCore.Solidity.Source.ABI.wordToBytesBE
+        SolidCore.Solidity.Source.ABI.selectorBytes
+        selectorEncodingSelector ++
+      [1] ++ List.replicate 7 0
+  match
+      SolidCore.Solidity.Source.ABI.decodeArgs?
+        [SolidCore.Solidity.Source.Ty.externalFunction] encoded
+  with
+  | none => true
+  | some _ => false
 
 def externalUintGetterTy : Ty :=
   Ty.function [] [Ty.uint 256]
