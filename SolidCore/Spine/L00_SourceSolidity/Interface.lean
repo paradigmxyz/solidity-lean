@@ -12105,6 +12105,75 @@ def msgSigCalldataResult :
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     8 contract SolidCore.Solidity.Source.State.empty calldata
 
+def msgSigCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? msgSigContract
+  let function ← contract.findFunctionByName? "sig"
+  let calldata ← SolidCore.Solidity.Source.ABI.calldataFor? function []
+  let result ← msgSigCalldataResult
+  let selector ← SolidCore.Solidity.Source.ABI.readSelector? calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+      [SolidCore.Solidity.Source.Value.word selector]
+  some (result.success && result.output == expected)
+
+def msgContextFunction : FunctionDecl :=
+  { name := some "inspect"
+    params := [{ name := some "x", ty := Ty.uint 256 }]
+    returns :=
+      [ { name := some "sender", ty := Ty.address false }
+      , { name := some "value", ty := Ty.uint 256 }
+      , { name := some "sig", ty := Ty.bytesN 4 }
+      , { name := some "data", ty := Ty.bytes } ]
+    mutability := StateMutability.payable
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.member (Expr.ident "msg") "sender")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "msg") "value")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "msg") "sig")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "msg") "data") ]))) }
+
+def msgContextContract : ContractDecl :=
+  { name := "MsgContext"
+    items := [ContractItem.function msgContextFunction] }
+
+def msgContextCalldata : Option (List Byte) := do
+  let contract ← ContractDecl.toCore? msgContextContract
+  let function ← contract.findFunctionByName? "inspect"
+  SolidCore.Solidity.Source.ABI.calldataFor? function
+    [SolidCore.Solidity.Source.Value.word 7]
+
+def msgContextCalldataResult :
+    Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
+  let contract ← ContractDecl.toCore? msgContextContract
+  let calldata ← msgContextCalldata
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFrom?
+    16 contract SolidCore.Solidity.Source.State.empty
+    0xc0de 0xabc 55 calldata
+
+def msgContextCalldataMatches : Option Bool := do
+  let calldata ← msgContextCalldata
+  let selector ← SolidCore.Solidity.Source.ABI.readSelector? calldata
+  let result ← msgContextCalldataResult
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [ SolidCore.Solidity.Source.Ty.address
+      , SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.fixedBytes 4
+      , SolidCore.Solidity.Source.Ty.bytesCalldata ]
+      [ SolidCore.Solidity.Source.Value.word 0xabc
+      , SolidCore.Solidity.Source.Value.word 55
+      , SolidCore.Solidity.Source.Value.word selector
+      , SolidCore.Solidity.Source.Value.bytes calldata ]
+  some (result.success && result.output == expected)
+
 def abiSelfAddressFunction : FunctionDecl :=
   { name := some "who"
     returns := [{ name := some "out", ty := Ty.address false }]
