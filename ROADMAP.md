@@ -17,8 +17,8 @@
       through shared block semantics.
 - [x] Route account, log, low-level call, and contract-creation wrappers through
       named shared adapters.
-- [ ] Replace remaining generic hash/precompile external maps with named shared
-      adapters where useful.
+- [x] Replace remaining generic hash/ecrecover maps with address-keyed shared
+      precompile calls where useful.
 - [ ] Deepen the named adapters with direct Nethermind state/log/call semantics
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.

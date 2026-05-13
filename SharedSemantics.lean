@@ -3,4 +3,5 @@ import SharedSemantics.Block
 import SharedSemantics.Call
 import SharedSemantics.External
 import SharedSemantics.Log
+import SharedSemantics.Precompile
 import SharedSemantics.Word

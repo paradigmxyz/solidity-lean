@@ -1,4 +1,5 @@
 import SolidCore.Solidity.ABI
+import SharedSemantics.Precompile
 import SharedSemantics.Word
 
 namespace SolidCore
@@ -11452,6 +11453,18 @@ def erc7201BuiltinMatchesEipExample : Option Bool := do
       | none => none
   | _ => none
 
+def successfulPrecompileWordCall
+    (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
+    (output : Word) : SolidCore.Solidity.Source.LowLevelCallResult :=
+  { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+    target := SharedSemantics.Precompile.address kind
+    calldata := input
+    value := 0
+    success := true
+    output :=
+      SolidCore.Solidity.Source.wordToBytesBE
+        SolidCore.Solidity.Source.wordBytes output }
+
 def externalCryptoHashFunction : FunctionDecl :=
   { name := some "externalHashes"
     returns :=
@@ -11473,8 +11486,11 @@ def externalCryptoHashFunction : FunctionDecl :=
 
 def externalCryptoHashContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
-    sha256Hashes := [([1, 2], 0xaaaa)]
-    ripemd160Hashes := [([3, 4], 0xbbbb)] }
+    lowLevelCallResults :=
+      [ successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa
+      , successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.ripemd160 [3, 4] 0xbbbb ] }
 
 def externalCryptoHashCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] externalCryptoHashContext
@@ -11539,8 +11555,11 @@ def ecrecoverBuiltinFunction : FunctionDecl :=
 
 def ecrecoverBuiltinContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
-    ecrecoverResults :=
-      [(17, { v := 27, r := 34, s := 51 }, 0xcafe)] }
+    lowLevelCallResults :=
+      [ successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.ecrecover
+          (SharedSemantics.Precompile.ecrecoverInput 17 27 34 51)
+          0xcafe ] }
 
 def ecrecoverBuiltinCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] ecrecoverBuiltinContext

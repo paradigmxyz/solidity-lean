@@ -3,6 +3,7 @@ import SharedSemantics.External
 import SharedSemantics.Block
 import SharedSemantics.Call
 import SharedSemantics.Log
+import SharedSemantics.Precompile
 import SolidCore.Solidity.Keccak
 
 namespace SolidCore
@@ -696,6 +697,14 @@ inductive ExternalHashKind where
   | ripemd160
   deriving Repr, BEq
 
+namespace ExternalHashKind
+
+def precompileKind : ExternalHashKind -> SharedSemantics.Precompile.Kind
+  | ExternalHashKind.sha256 => SharedSemantics.Precompile.Kind.sha256
+  | ExternalHashKind.ripemd160 => SharedSemantics.Precompile.Kind.ripemd160
+
+end ExternalHashKind
+
 def LowLevelCallResult.matches (result : LowLevelCallResult)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) : Bool :=
@@ -722,9 +731,6 @@ structure Context where
   accountCodehashes : WordMap
   contractCreationCodes : SharedSemantics.Call.NamedBytesMap := []
   contractRuntimeCodes : SharedSemantics.Call.NamedBytesMap := []
-  sha256Hashes : SharedSemantics.External.HashMap
-  ripemd160Hashes : SharedSemantics.External.HashMap
-  ecrecoverResults : SharedSemantics.Account.EcrecoverMap
   lowLevelCallResults : List LowLevelCallResult
   contractCreationResults : List ContractCreationResult
   blockEnv : BlockEnv
@@ -747,9 +753,6 @@ def Context.empty : Context :=
     accountCodehashes := []
     contractCreationCodes := []
     contractRuntimeCodes := []
-    sha256Hashes := []
-    ripemd160Hashes := []
-    ecrecoverResults := []
     lowLevelCallResults := []
     contractCreationResults := []
     blockEnv := BlockEnv.empty
@@ -758,11 +761,8 @@ def Context.empty : Context :=
 
 def ExternalHashKind.lookup? (kind : ExternalHashKind)
     (context : Context) (bytes : List Byte) : Option Word :=
-  match kind with
-  | ExternalHashKind.sha256 =>
-      SharedSemantics.External.lookupHash? context.sha256Hashes bytes
-  | ExternalHashKind.ripemd160 =>
-      SharedSemantics.External.lookupHash? context.ripemd160Hashes bytes
+  SharedSemantics.Precompile.lookupOutputWord?
+    context.lowLevelCallResults kind.precompileKind bytes
 
 def Context.storageField? (context : Context) (name : String) :
     Option StorageField :=
@@ -2407,11 +2407,9 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       let v ← vValue.expectWord
       let r ← rValue.expectWord
       let s ← sValue.expectWord
-      let signature : SharedSemantics.Account.EcrecoverSignature :=
-        { v := v, r := r, s := s }
       let address :=
-        SharedSemantics.Account.ecrecoverAt
-          context.ecrecoverResults digest signature
+        SharedSemantics.Precompile.ecrecoverAt
+          context.lowLevelCallResults digest v r s
       Except.ok (Value.word address)
   | Expr.tuple exprs => do
       let values ← Expr.evalList context runtime exprs
@@ -2965,11 +2963,9 @@ def Expr.evalWithRuntime (context : Context) :
       let v ← vValue.expectWord
       let r ← rValue.expectWord
       let s ← sValue.expectWord
-      let signature : SharedSemantics.Account.EcrecoverSignature :=
-        { v := v, r := r, s := s }
       let address :=
-        SharedSemantics.Account.ecrecoverAt
-          context.ecrecoverResults digest signature
+        SharedSemantics.Precompile.ecrecoverAt
+          context.lowLevelCallResults digest v r s
       Except.ok (Value.word address, runtime'''')
   | runtime, Expr.tuple exprs => do
       let (values, runtime') ← Expr.evalListWithRuntime context runtime exprs
@@ -4069,9 +4065,6 @@ def Contract.context (contract : Contract) : Context :=
     accountBalances := []
     accountCodes := []
     accountCodehashes := []
-    sha256Hashes := []
-    ripemd160Hashes := []
-    ecrecoverResults := []
     lowLevelCallResults := []
     contractCreationResults := []
     blockEnv := BlockEnv.empty

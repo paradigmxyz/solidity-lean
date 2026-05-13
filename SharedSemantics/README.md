@@ -16,8 +16,8 @@ surface used by Solidity ABI/event selectors and source-level `keccak256`.
 source Solidity and future Yul/EVM adapters: block fields, transaction fields,
 `blockhash`, and `blobhash`. Solidity keeps its own storage and memory model.
 
-`Account.lean` owns account-facing wrappers such as address normalization,
-balance/code/codehash lookup, and `ecrecover` oracle tables.
+`Account.lean` owns account-facing wrappers such as address normalization and
+balance/code/codehash lookup.
 
 `Call.lean` owns low-level call and contract-creation request/result surfaces,
 including the EVM-shaped call/create oracle boundary.
@@ -25,7 +25,11 @@ including the EVM-shaped call/create oracle boundary.
 `Log.lean` owns the shared log append surface used by Solidity event emission
 while Solidity keeps source-level event declaration and ABI encoding rules.
 
-`External.lean` defines explicit host/external-world records used by the
-Solidity source semantics for hashes, account lookups, low-level calls, and
-contract creation. These remain source-level oracle boundaries until the source
-semantics is connected more deeply to a shared world-state model.
+`Precompile.lean` owns address-keyed precompile calls for source-level
+`ecrecover`, `sha256`, and `ripemd160`, reusing the shared low-level call
+result surface at addresses `0x01`, `0x02`, and `0x03`.
+
+`External.lean` is a compatibility/helper surface for byte normalization and
+older external-world records that have not yet been retired. New shared
+operation surfaces should live in named modules such as `Account`, `Block`,
+`Call`, `Log`, or `Precompile`.

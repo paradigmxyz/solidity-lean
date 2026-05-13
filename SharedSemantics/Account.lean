@@ -50,33 +50,5 @@ def codehashAt (codehashes : WordMap) (address : Word) : Word :=
 def codeAt (codes : BytesMap) (address : Word) : Bytes :=
   (lookupBytes? codes address).getD []
 
-structure EcrecoverSignature where
-  v : Word := 0
-  r : Word := 0
-  s : Word := 0
-  deriving DecidableEq, Repr
-
-namespace EcrecoverSignature
-
-def matches? (lhs rhs : EcrecoverSignature) : Bool :=
-  wordEq lhs.v rhs.v && wordEq lhs.r rhs.r && wordEq lhs.s rhs.s
-
-end EcrecoverSignature
-
-abbrev EcrecoverMap := List (Word × EcrecoverSignature × Word)
-
-def lookupEcrecover? : EcrecoverMap → Word → EcrecoverSignature → Option Word
-  | [], _, _ => none
-  | (candidateDigest, candidateSignature, address) :: rest, digest, signature =>
-      if wordEq candidateDigest digest &&
-          EcrecoverSignature.matches? candidateSignature signature then
-        some (addressWord address)
-      else
-        lookupEcrecover? rest digest signature
-
-def ecrecoverAt (results : EcrecoverMap) (digest : Word)
-    (signature : EcrecoverSignature) : Word :=
-  (lookupEcrecover? results digest signature).getD 0
-
 end Account
 end SharedSemantics
