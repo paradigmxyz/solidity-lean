@@ -11939,6 +11939,39 @@ def environmentGlobalsCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] environmentGlobalsContext
     SolidCore.Solidity.Source.State.empty environmentGlobalsFunction []
 
+def environmentRandaoAliasFunction : FunctionDecl :=
+  { name := some "randaoAlias"
+    returns :=
+      [ { name := some "difficulty", ty := Ty.uint 256 }
+      , { name := some "prevrandao", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.member (Expr.ident "block") "difficulty")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "block") "prevrandao") ]))) }
+
+def environmentRandaoAliasContext : CoreContext :=
+  { SolidCore.Solidity.Source.Context.empty with
+    blockEnv :=
+      { SolidCore.Solidity.Source.BlockEnv.empty with
+        difficulty := 0x1111
+        prevrandao := 0x2222 } }
+
+def environmentDifficultyAliasesPrevrandao : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] environmentRandaoAliasContext
+      SolidCore.Solidity.Source.State.empty environmentRandaoAliasFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word difficulty
+      , SolidCore.Solidity.Source.Value.word prevrandao ] =>
+      some (difficulty == 0x2222 && prevrandao == 0x2222)
+  | _ => some false
+
 def environmentHashFunction : FunctionDecl :=
   { name := some "hashes"
     returns :=

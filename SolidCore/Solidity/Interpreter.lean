@@ -907,7 +907,7 @@ def EnvWord.eval (which : EnvWord) (context : Context) : Word :=
         SharedSemantics.Block.BlockEnv.WordField.coinbase
   | EnvWord.blockDifficulty =>
       SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.difficulty
+        SharedSemantics.Block.BlockEnv.WordField.prevrandao
   | EnvWord.blockGaslimit =>
       SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
         SharedSemantics.Block.BlockEnv.WordField.gaslimit
