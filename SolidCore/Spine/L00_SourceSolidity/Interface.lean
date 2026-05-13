@@ -12120,6 +12120,58 @@ def externalCryptoHashMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq ripe 0xbbbb)
   | _ => some false
 
+def precompileBuiltinStaticcallSharedResultFunction : FunctionDecl :=
+  { name := some "hashAndProbe"
+    returns :=
+      [ { name := some "sha", ty := Ty.bytesN 32 }
+      , { name := some "probe", ty := lowLevelCallReturnTy } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.call (Expr.ident "sha256")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [1, 2]))])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.sha256)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [1, 2]))]) ]))) }
+
+def precompileBuiltinStaticcallSharedResultContext : CoreContext :=
+  { SolidCore.Solidity.Source.Context.empty with
+    lowLevelCallResults :=
+      [ successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
+
+def precompileBuiltinStaticcallSharedResultCallResult :
+    Option CoreCallResult :=
+  FunctionDecl.call? 8 [] [] precompileBuiltinStaticcallSharedResultContext
+    SolidCore.Solidity.Source.State.empty
+    precompileBuiltinStaticcallSharedResultFunction []
+
+def precompileBuiltinStaticcallSharedResultMatches : Option Bool := do
+  let result ← precompileBuiltinStaticcallSharedResultCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word sha, probe] => do
+      let (success, output) ← CoreValue.asLowLevelReturn? probe
+      let expectedOutput :=
+        SolidCore.Solidity.Source.wordToBytesBE
+          SolidCore.Solidity.Source.wordBytes 0xaaaa
+      some
+        (SolidCore.Solidity.Source.wordEq sha 0xaaaa &&
+          SolidCore.Solidity.Source.wordEq success 1 &&
+          output == expectedOutput)
+  | _ => some false
+
 def externalCryptoHashMissingFunction : FunctionDecl :=
   { name := some "missingHash"
     returns := [{ name := some "out", ty := Ty.bytesN 32 }]

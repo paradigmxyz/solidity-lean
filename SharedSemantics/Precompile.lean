@@ -48,10 +48,19 @@ def address : Kind -> Word
 def callKind : Call.ExternalCallKind :=
   Call.ExternalCallKind.staticcall
 
-def lookup? (results : List Result) (kind : Kind) (input : Bytes) :
+def request (kind : Kind) (input : Bytes) (gas? : Option Word := none) :
+    Call.Request Call.ExternalCallKind :=
+  { kind := callKind
+    target := address kind
+    calldata := normalizeBytes input
+    value := 0
+    gas? := gas? }
+
+def lookup? (results : List Result) (kind : Kind) (input : Bytes)
+    (gas? : Option Word := none) :
     Option Result :=
-  Call.Result.lookup? results callKind (address kind) (normalizeBytes input)
-    0 none
+  let req := request kind input (gas? := gas?)
+  Call.Result.lookup? results req.kind req.target req.calldata req.value req.gas?
 
 def outputWord? (result : Result) : Option Word :=
   if result.success then
@@ -60,8 +69,8 @@ def outputWord? (result : Result) : Option Word :=
     none
 
 def lookupOutputWord? (results : List Result) (kind : Kind)
-    (input : Bytes) : Option Word := do
-  let result ← lookup? results kind input
+    (input : Bytes) (gas? : Option Word := none) : Option Word := do
+  let result ← lookup? results kind input (gas? := gas?)
   outputWord? result
 
 def ecrecoverInput (digest v r s : Word) : Bytes :=

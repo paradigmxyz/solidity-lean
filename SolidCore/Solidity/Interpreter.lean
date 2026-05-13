@@ -775,10 +775,27 @@ def Context.empty : Context :=
     txEnv := TxEnv.empty
     gasleft := 0 }
 
+def Context.lookupPrecompileCall? (context : Context)
+    (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
+    (gas? : Option Word := none) :
+    Option (SharedSemantics.Precompile.Result) :=
+  SharedSemantics.Precompile.lookup?
+    context.lowLevelCallResults kind input (gas? := gas?)
+
+def Context.lookupPrecompileOutputWord? (context : Context)
+    (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
+    (gas? : Option Word := none) : Option Word := do
+  let result ← context.lookupPrecompileCall? kind input (gas? := gas?)
+  SharedSemantics.Precompile.outputWord? result
+
+def Context.ecrecoverAt (context : Context) (digest v r s : Word) : Word :=
+  (context.lookupPrecompileOutputWord?
+    SharedSemantics.Precompile.Kind.ecrecover
+    (SharedSemantics.Precompile.ecrecoverInput digest v r s)).getD 0
+
 def ExternalHashKind.lookup? (kind : ExternalHashKind)
     (context : Context) (bytes : List Byte) : Option Word :=
-  SharedSemantics.Precompile.lookupOutputWord?
-    context.lowLevelCallResults kind.precompileKind bytes
+  context.lookupPrecompileOutputWord? kind.precompileKind bytes
 
 def Context.storageField? (context : Context) (name : String) :
     Option StorageField :=
@@ -2459,9 +2476,7 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       let v ← vValue.expectWord
       let r ← rValue.expectWord
       let s ← sValue.expectWord
-      let address :=
-        SharedSemantics.Precompile.ecrecoverAt
-          context.lowLevelCallResults digest v r s
+      let address := context.ecrecoverAt digest v r s
       Except.ok (Value.word address)
   | Expr.tuple exprs => do
       let values ← Expr.evalList context runtime exprs
@@ -3050,9 +3065,7 @@ def Expr.evalWithRuntime (context : Context) :
       let v ← vValue.expectWord
       let r ← rValue.expectWord
       let s ← sValue.expectWord
-      let address :=
-        SharedSemantics.Precompile.ecrecoverAt
-          context.lowLevelCallResults digest v r s
+      let address := context.ecrecoverAt digest v r s
       Except.ok (Value.word address, runtime'''')
   | runtime, Expr.tuple exprs => do
       let (values, runtime') ← Expr.evalListWithRuntime context runtime exprs
