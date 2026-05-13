@@ -18510,6 +18510,24 @@ def contractCreationNamedCallerContract : ContractDecl :=
                   (some
                     (Expr.newExpr namedCreatedChildTy
                       [ Arg.named "bonus" (Expr.ident "bonus")
+                      , Arg.named "amount" (Expr.ident "amount") ]))) }
+      , ContractItem.function
+          { name := some "makeNamedSalted"
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 }
+              , { name := some "payment", ty := Ty.uint 256 }
+              , { name := some "salt", ty := Ty.uint 256 } ]
+            returns := [{ name := some "created", ty := namedCreatedChildTy }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.newExpr namedCreatedChildTy [])
+                      [ CallOption.named "value" (Expr.ident "payment")
+                      , CallOption.named "salt" (Expr.ident "salt") ]
+                      [ Arg.named "bonus" (Expr.ident "bonus")
                       , Arg.named "amount" (Expr.ident "amount") ]))) } ] }
 
 def contractCreationDuplicateNamedCallerContract : ContractDecl :=
@@ -18557,6 +18575,40 @@ def contractCreationNamedArgsReorderedMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word address] =>
       some (SolidCore.Solidity.Source.wordEq address 0xc0de)
+  | _ => some false
+
+def contractCreationNamedArgsWithOptionsMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      [ contractCreationNamedChildContract
+      , contractCreationNamedCallerContract ]
+      contractCreationNamedCallerContract
+  let function ← contract.findFunctionByName? "makeNamedSalted"
+  let constructorArgs ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        contractCreationResults :=
+          [ { contractName := "NamedChild"
+              constructorArgs := constructorArgs
+              value := 5
+              salt? := some 0x1234
+              success := true
+              address := 0xcafe } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2
+      , SolidCore.Solidity.Source.Value.word 5
+      , SolidCore.Solidity.Source.Value.word 0x1234 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      some (SolidCore.Solidity.Source.wordEq address 0xcafe)
   | _ => some false
 
 def contractCreationDuplicateNamedArgsRejected : Option Bool :=
