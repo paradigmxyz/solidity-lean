@@ -375,23 +375,37 @@ def intCast? (bits : Nat) (value : Value) : Except RevertData Value :=
   else
     Except.error RevertData.typeMismatch
 
+def sliceListByWords? {α : Type} (values : List α)
+    (start? stop? : Option Word) : Except RevertData (List α) :=
+  let start :=
+    match start? with
+    | some value => SharedSemantics.norm value
+    | none => 0
+  let stop :=
+    match stop? with
+    | some value => SharedSemantics.norm value
+    | none => values.length
+  if start <= stop && stop <= values.length then
+    Except.ok ((values.drop start).take (stop - start))
+  else
+    Except.error RevertData.indexOutOfBounds
+
 def Value.slice? (container : Value) (start? stop? : Option Word) :
     Except RevertData Value :=
   match container with
   | Value.bytes bs =>
       let bytes := bs.map normByte
-      let start :=
-        match start? with
-        | some value => SharedSemantics.norm value
-        | none => 0
-      let stop :=
-        match stop? with
-        | some value => SharedSemantics.norm value
-        | none => bytes.length
-      if start <= stop && stop <= bytes.length then
-        Except.ok (Value.bytes ((bytes.drop start).take (stop - start)))
-      else
-        Except.error RevertData.indexOutOfBounds
+      match sliceListByWords? bytes start? stop? with
+      | Except.ok sliced => Except.ok (Value.bytes sliced)
+      | Except.error err => Except.error err
+  | Value.fixedArray values =>
+      match sliceListByWords? values start? stop? with
+      | Except.ok sliced => Except.ok (Value.dynamicArray sliced)
+      | Except.error err => Except.error err
+  | Value.dynamicArray values =>
+      match sliceListByWords? values start? stop? with
+      | Except.ok sliced => Except.ok (Value.dynamicArray sliced)
+      | Except.error err => Except.error err
   | _ => Except.error RevertData.typeMismatch
 
 def Value.setIndex? (container : Value) (index : Word) (value : Value) :

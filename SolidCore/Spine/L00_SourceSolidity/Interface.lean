@@ -4223,7 +4223,12 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
       | _ => Expr.abiTy? storageNames lhs
   | Expr.ternary _ thenExpr _ => Expr.abiTy? storageNames thenExpr
   | Expr.array exprs => Expr.arrayLiteralTy? storageNames exprs
-  | Expr.slice _ _ _ => some Ty.bytes
+  | Expr.slice base _ _ => do
+      let baseTy ← Expr.abiTy? storageNames base
+      match baseTy with
+      | Ty.bytes => some Ty.bytes
+      | Ty.array elementTy _ => some (Ty.array elementTy none)
+      | _ => none
   | _ => none
 termination_by expr => (sizeOf expr, 0)
 
@@ -5119,6 +5124,12 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               match Expr.abiTyWithEnv? env base with
               | some (Ty.function _ _ _ Visibility.external_) =>
                   some (Ty.address false)
+              | _ => none
+          | Expr.slice base _ _ => do
+              match Expr.abiTyWithEnv? env base with
+              | some Ty.bytes => some Ty.bytes
+              | some (Ty.array elementTy _) =>
+                  some (Ty.array elementTy none)
               | _ => none
           | _ => none
 
@@ -12014,6 +12025,123 @@ def dynamicArrayAbiOutputMatchesExpected : Option Bool := do
   let result ← dynamicArrayAbiCalldataResult
   let expected ← dynamicArrayAbiExpectedOutput
   some (result.success && result.output == expected)
+
+def calldataArraySliceFunction : FunctionDecl :=
+  { name := some "sliceArray"
+    params :=
+      [ { name := some "items"
+          ty := Ty.array (Ty.uint 256) none
+          location := some DataLocation.calldata } ]
+    returns :=
+      [ { name := some "relative", ty := Ty.uint 256 }
+      , { name := some "tail"
+          ty := Ty.array (Ty.uint 256) none
+          location := some DataLocation.memory } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.index
+                    (Expr.slice (Expr.ident "items")
+                      (some (Expr.literal (Literal.number "1")))
+                      (some (Expr.literal (Literal.number "3"))))
+                    (Expr.literal (Literal.number "0")))
+              , TupleItem.value
+                  (Expr.slice (Expr.ident "items")
+                    (some (Expr.literal (Literal.number "2"))) none) ]))) }
+
+def calldataArraySliceCallResult : Option CoreCallResult :=
+  FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty calldataArraySliceFunction
+    [ SolidCore.Solidity.Source.Value.dynamicArray
+        [ SolidCore.Solidity.Source.Value.word 10
+        , SolidCore.Solidity.Source.Value.word 20
+        , SolidCore.Solidity.Source.Value.word 30
+        , SolidCore.Solidity.Source.Value.word 40 ] ]
+
+def calldataArraySliceMatches : Option Bool := do
+  let result ← calldataArraySliceCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word relative
+      , SolidCore.Solidity.Source.Value.dynamicArray tail ] =>
+      match tail with
+      | [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ] =>
+          some (relative == 20 && first == 30 && second == 40)
+      | _ => some false
+  | _ => some false
+
+def calldataArraySliceAbiEncodeFunction : FunctionDecl :=
+  { name := some "encodeSlice"
+    params :=
+      [ { name := some "items"
+          ty := Ty.array (Ty.uint 256) none
+          location := some DataLocation.calldata } ]
+    returns := [{ name := some "encoded", ty := Ty.bytes }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call (Expr.member (Expr.ident "abi") "encode")
+              [Arg.positional
+                (Expr.slice (Expr.ident "items")
+                  (some (Expr.literal (Literal.number "1")))
+                  (some (Expr.literal (Literal.number "3"))))]))) }
+
+def calldataArraySliceAbiEncodeMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      calldataArraySliceAbiEncodeFunction
+      [ SolidCore.Solidity.Source.Value.dynamicArray
+          [ SolidCore.Solidity.Source.Value.word 10
+          , SolidCore.Solidity.Source.Value.word 20
+          , SolidCore.Solidity.Source.Value.word 30
+          , SolidCore.Solidity.Source.Value.word 40 ] ]
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.dynamicArray
+        SolidCore.Solidity.Source.Ty.uint256]
+      [ SolidCore.Solidity.Source.Value.dynamicArray
+          [ SolidCore.Solidity.Source.Value.word 20
+          , SolidCore.Solidity.Source.Value.word 30 ] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes encoded] =>
+      some (encoded == expected)
+  | _ => some false
+
+def calldataArraySliceOutOfBoundsFunction : FunctionDecl :=
+  { name := some "badSlice"
+    params :=
+      [ { name := some "items"
+          ty := Ty.array (Ty.uint 256) none
+          location := some DataLocation.calldata } ]
+    returns := [{ name := some "out", ty := Ty.array (Ty.uint 256) none }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.slice (Expr.ident "items")
+              (some (Expr.literal (Literal.number "3")))
+              (some (Expr.literal (Literal.number "2")))))) }
+
+def calldataArraySliceOutOfBoundsPanics : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      calldataArraySliceOutOfBoundsFunction
+      [ SolidCore.Solidity.Source.Value.dynamicArray
+          [ SolidCore.Solidity.Source.Value.word 1
+          , SolidCore.Solidity.Source.Value.word 2 ] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x32)
+  | _ => some false
 
 def dynamicBytesArrayAbiFunction : FunctionDecl :=
   { name := some "bytesArray"
