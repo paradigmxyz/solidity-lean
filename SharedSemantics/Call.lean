@@ -6,6 +6,7 @@ namespace Call
 abbrev Byte := Account.Byte
 abbrev Bytes := Account.Bytes
 abbrev NamedBytesMap := List (String × Bytes)
+abbrev NamedWordMap := List (String × Word)
 
 def normalizeBytes : Bytes → Bytes :=
   Account.normalizeBytes
@@ -32,6 +33,17 @@ def lookupNamedBytes? : NamedBytesMap → String → Option Bytes
 
 def namedBytesAt (values : NamedBytesMap) (name : String) : Bytes :=
   (lookupNamedBytes? values name).getD []
+
+def lookupNamedWord? : NamedWordMap → String → Option Word
+  | [], _ => none
+  | (candidate, value) :: rest, name =>
+      if candidate == name then
+        some (SharedSemantics.norm value)
+      else
+        lookupNamedWord? rest name
+
+def namedWordAt (values : NamedWordMap) (name : String) : Word :=
+  (lookupNamedWord? values name).getD 0
 
 structure Request (Kind : Type) where
   kind : Kind

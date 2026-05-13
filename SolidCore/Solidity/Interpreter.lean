@@ -743,6 +743,7 @@ structure Context where
   accountBalances : WordMap
   accountCodes : ByteMap
   accountCodehashes : WordMap
+  contractAddresses : SharedSemantics.Call.NamedWordMap := []
   contractCreationCodes : SharedSemantics.Call.NamedBytesMap := []
   contractRuntimeCodes : SharedSemantics.Call.NamedBytesMap := []
   lowLevelCallResults : List LowLevelCallResult
@@ -765,6 +766,7 @@ def Context.empty : Context :=
     accountBalances := []
     accountCodes := []
     accountCodehashes := []
+    contractAddresses := []
     contractCreationCodes := []
     contractRuntimeCodes := []
     lowLevelCallResults := []
@@ -1925,6 +1927,7 @@ inductive Expr where
   | word : Word -> Expr
   | intWord : Word -> Expr
   | byteArray : List Byte -> Expr
+  | contractAddress : String -> Expr
   | contractCreationCode : String -> Expr
   | contractRuntimeCode : String -> Expr
   | calldata : Expr
@@ -2293,6 +2296,11 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.word value => Except.ok (Value.word (normWord value))
   | Expr.intWord value => Except.ok (Value.int (normWord value))
   | Expr.byteArray bytes => Except.ok (Value.bytes (bytes.map normByte))
+  | Expr.contractAddress name =>
+      Except.ok
+        (Value.word
+          (SharedSemantics.Call.namedWordAt
+            context.contractAddresses name))
   | Expr.contractCreationCode name =>
       Except.ok
         (Value.bytes
@@ -2836,6 +2844,12 @@ def Expr.evalWithRuntime (context : Context) :
       Except.ok (Value.int (normWord value), runtime)
   | runtime, Expr.byteArray bytes =>
       Except.ok (Value.bytes (bytes.map normByte), runtime)
+  | runtime, Expr.contractAddress name =>
+      Except.ok
+        ( Value.word
+            (SharedSemantics.Call.namedWordAt
+              context.contractAddresses name)
+        , runtime )
   | runtime, Expr.contractCreationCode name =>
       Except.ok
         ( Value.bytes
@@ -3300,8 +3314,8 @@ inductive Stmt where
   | doWhile : Stmt -> Expr -> Stmt
   | forLoop : Stmt -> Expr -> Stmt -> Stmt -> Stmt
   | tryExternalCall :
-      Expr -> Expr -> Expr -> Option Expr -> Bool -> List BindingDecl -> Stmt ->
-      List TryCatchClause -> Stmt
+      LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool ->
+      List BindingDecl -> Stmt -> List TryCatchClause -> Stmt
   | tryContractCreate :
       String -> Expr -> Expr -> Option Expr -> List BindingDecl -> Stmt ->
       List TryCatchClause -> Stmt
@@ -3723,8 +3737,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | none => none
           | some result => some (result.mapRuntime Runtime.popScope)
           | none => none
-        | Stmt.tryExternalCall targetExpr calldataExpr valueExpr gasExpr?
-            gasFirst returns successBody catchClauses =>
+        | Stmt.tryExternalCall kind targetExpr calldataExpr valueExpr
+            gasExpr? gasFirst returns successBody catchClauses =>
             match targetExpr.evalWithRuntime context runtime with
             | Except.ok (targetValue, runtime') =>
                 match targetValue.expectWord with
@@ -3799,8 +3813,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                             | Except.ok (value, gas?, runtime''') =>
                                     let callResult? :=
                                       context.lookupLowLevelCall?
-                                        LowLevelCallKind.call target calldata
-                                        value gas?
+                                        kind target calldata value gas?
                                     let success :=
                                       match callResult? with
                                       | some result => result.success
@@ -4221,6 +4234,9 @@ def Contract.context (contract : Contract) : Context :=
     accountBalances := []
     accountCodes := []
     accountCodehashes := []
+    contractAddresses := []
+    contractCreationCodes := []
+    contractRuntimeCodes := []
     lowLevelCallResults := []
     contractCreationResults := []
     blockEnv := BlockEnv.empty

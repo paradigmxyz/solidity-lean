@@ -27,6 +27,8 @@
 - [x] Execute calls through external function-typed values via the stored
       address and selector, including return decoding, `{gas, value}` options,
       and `try/catch` routing.
+- [x] Route public/external Solidity library calls through context-provided
+      library addresses and shared `delegatecall` low-level call requests.
 - [ ] Deepen the named adapters with direct Nethermind state/log/call semantics
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.
