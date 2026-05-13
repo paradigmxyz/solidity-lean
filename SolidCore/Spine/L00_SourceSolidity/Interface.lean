@@ -12190,6 +12190,11 @@ def environmentGlobalsFunction : FunctionDecl :=
     returns :=
       [ { name := some "timestamp", ty := Ty.uint 256 }
       , { name := some "number", ty := Ty.uint 256 }
+      , { name := some "basefee", ty := Ty.uint 256 }
+      , { name := some "blobbasefee", ty := Ty.uint 256 }
+      , { name := some "chainid", ty := Ty.uint 256 }
+      , { name := some "coinbase", ty := Ty.address true }
+      , { name := some "gaslimit", ty := Ty.uint 256 }
       , { name := some "origin", ty := Ty.address false }
       , { name := some "gasprice", ty := Ty.uint 256 }
       , { name := some "remaining", ty := Ty.uint 256 } ]
@@ -12203,6 +12208,16 @@ def environmentGlobalsFunction : FunctionDecl :=
               , TupleItem.value
                   (Expr.member (Expr.ident "block") "number")
               , TupleItem.value
+                  (Expr.member (Expr.ident "block") "basefee")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "block") "blobbasefee")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "block") "chainid")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "block") "coinbase")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "block") "gaslimit")
+              , TupleItem.value
                   (Expr.member (Expr.ident "tx") "origin")
               , TupleItem.value
                   (Expr.member (Expr.ident "tx") "gasprice")
@@ -12214,7 +12229,12 @@ def environmentGlobalsContext : CoreContext :=
     blockEnv :=
       { SolidCore.Solidity.Source.BlockEnv.empty with
         timestamp := 100
-        number := 7 }
+        number := 7
+        basefee := 11
+        blobbasefee := 12
+        chainid := 1
+        coinbase := 0xcb
+        gaslimit := 30000000 }
     txEnv :=
       { SolidCore.Solidity.Source.TxEnv.empty with
         origin := 0xabc
@@ -12224,6 +12244,33 @@ def environmentGlobalsContext : CoreContext :=
 def environmentGlobalsCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] environmentGlobalsContext
     SolidCore.Solidity.Source.State.empty environmentGlobalsFunction []
+
+def environmentGlobalsMatch : Option Bool := do
+  let result ← environmentGlobalsCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word timestamp
+      , SolidCore.Solidity.Source.Value.word number
+      , SolidCore.Solidity.Source.Value.word basefee
+      , SolidCore.Solidity.Source.Value.word blobbasefee
+      , SolidCore.Solidity.Source.Value.word chainid
+      , SolidCore.Solidity.Source.Value.word coinbase
+      , SolidCore.Solidity.Source.Value.word gaslimit
+      , SolidCore.Solidity.Source.Value.word origin
+      , SolidCore.Solidity.Source.Value.word gasprice
+      , SolidCore.Solidity.Source.Value.word remaining ] =>
+      some
+        (timestamp == 100 &&
+          number == 7 &&
+          basefee == 11 &&
+          blobbasefee == 12 &&
+          chainid == 1 &&
+          coinbase == 0xcb &&
+          gaslimit == 30000000 &&
+          origin == 0xabc &&
+          gasprice == 50 &&
+          remaining == 999)
+  | _ => some false
 
 def environmentRandaoAliasFunction : FunctionDecl :=
   { name := some "randaoAlias"
