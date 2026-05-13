@@ -3305,16 +3305,23 @@ abbrev ExternalCallKindEnv := List ExternalCallKindEntry
 
 def ExternalCallKindEnv.lookup? (env : ExternalCallKindEnv)
     (contractName functionName : Name) (paramTys : List Ty) :
-    Option CoreLowLevelCallKind :=
+    Option StateMutability :=
   match env with
   | [] => none
   | entry :: rest =>
       if entry.contractName == contractName &&
           entry.functionName == functionName &&
           entry.paramTys == paramTys then
-        some (StateMutability.externalFunctionCallKind entry.mutability)
+        some entry.mutability
       else
         ExternalCallKindEnv.lookup? rest contractName functionName paramTys
+
+def ExternalCallKindEnv.lookupCallKind? (env : ExternalCallKindEnv)
+    (contractName functionName : Name) (paramTys : List Ty) :
+    Option CoreLowLevelCallKind :=
+  match ExternalCallKindEnv.lookup? env contractName functionName paramTys with
+  | some mutability => some (StateMutability.externalFunctionCallKind mutability)
+  | none => none
 
 def externalCallKindTypeEnvPrefix : Name :=
   "__external_call_kind:"
@@ -3340,15 +3347,22 @@ def ExternalCallKindEnv.toTypeEnv? (env : ExternalCallKindEnv) :
 def TypeEnv.externalCallKindEntries (env : TypeEnv) : TypeEnv :=
   env.filter (fun entry => entry.fst.startsWith externalCallKindTypeEnvPrefix)
 
-def TypeEnv.lookupExternalCallKind? (env : TypeEnv)
+def TypeEnv.lookupExternalMutability? (env : TypeEnv)
     (contractName functionName : Name) (paramTys : List Ty) :
-    Option CoreLowLevelCallKind := do
+    Option StateMutability := do
   let key ← externalCallKindTypeEnvName? contractName functionName paramTys
   let ty ← TypeEnv.lookup? env key
   match ty with
   | Ty.function _ _ mutability Visibility.external_ =>
-      some (StateMutability.externalFunctionCallKind mutability)
+      some mutability
   | _ => none
+
+def TypeEnv.lookupExternalCallKind? (env : TypeEnv)
+    (contractName functionName : Name) (paramTys : List Ty) :
+    Option CoreLowLevelCallKind := do
+  let mutability ←
+    TypeEnv.lookupExternalMutability? env contractName functionName paramTys
+  some (StateMutability.externalFunctionCallKind mutability)
 
 set_option maxHeartbeats 1000000 in
 mutual
@@ -4312,12 +4326,54 @@ def Expr.externalCallKindForTargetWithEnv (env : TypeEnv)
                 env contractName name argTys with
             | some kind => kind
             | none =>
-                match ExternalCallKindEnv.lookup?
+                match ExternalCallKindEnv.lookupCallKind?
                     externalCallKindEnv contractName name argTys with
                 | some kind => kind
                 | none => defaultKind
         | none => defaultKind
     | none => defaultKind
+
+def Expr.externalCallMutabilityForTargetWithEnv (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (target : Expr)
+    (name : Name) (argTys : List Ty) : Option StateMutability :=
+  let defaultKind := Expr.externalCallKindForTarget target
+  if defaultKind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall then
+    none
+  else
+    let targetTy? :=
+      match target with
+      | Expr.ident targetName => TypeEnv.lookup? env targetName
+      | _ => none
+    match targetTy? with
+    | some ty =>
+        match Ty.contractName? ty with
+        | some contractName =>
+            match TypeEnv.lookupExternalMutability?
+                env contractName name argTys with
+            | some mutability => some mutability
+            | none =>
+                ExternalCallKindEnv.lookup?
+                  externalCallKindEnv contractName name argTys
+        | none => none
+    | none => none
+
+def StateMutability.externalCallOptionsCore? (storageNames : List Name)
+    (mutability? : Option StateMutability)
+    (kind : CoreLowLevelCallKind) (options : List CallOption) :
+    Option (CoreExpr × Option CoreExpr × Bool) :=
+  if kind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall ||
+      kind == SolidCore.Solidity.Source.LowLevelCallKind.staticcall then
+    CallOptions.lowLevelDelegateGasCore? storageNames options
+  else
+    match mutability? with
+    | some StateMutability.payable =>
+        CallOptions.lowLevelCallValueGasCore? storageNames options
+    | some StateMutability.nonpayable =>
+        CallOptions.lowLevelDelegateGasCore? storageNames options
+    | some StateMutability.view | some StateMutability.pure =>
+        CallOptions.lowLevelDelegateGasCore? storageNames options
+    | none =>
+        CallOptions.lowLevelCallValueGasCore? storageNames options
 
 def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv) :
@@ -4372,12 +4428,12 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
       let kind :=
         Expr.externalCallKindForTargetWithEnv
           env externalCallKindEnv target name sourceTys
+      let mutability? :=
+        Expr.externalCallMutabilityForTargetWithEnv
+          env externalCallKindEnv target name sourceTys
       let (valueCore, gasCore?, gasFirst) ←
-        if kind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall ||
-            kind == SolidCore.Solidity.Source.LowLevelCallKind.staticcall then
-          CallOptions.lowLevelDelegateGasCore? storageNames options
-        else
-          CallOptions.lowLevelCallValueGasCore? storageNames options
+        StateMutability.externalCallOptionsCore?
+          storageNames mutability? kind options
       let signature ← externalFunctionSignature? name sourceTys
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -5105,10 +5161,8 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
             let coreExprs ← Args.toCoreExprs? storageNames args
             let kind := StateMutability.externalFunctionCallKind mutability
             let (valueCore, gasCore?, gasFirst) ←
-              if kind == SolidCore.Solidity.Source.LowLevelCallKind.staticcall then
-                CallOptions.lowLevelDelegateGasCore? storageNames options
-              else
-                CallOptions.lowLevelCallValueGasCore? storageNames options
+              StateMutability.externalCallOptionsCore?
+                storageNames (some mutability) kind options
             let fnCore ← Expr.toCore? storageNames fn
             let calldataCore :=
               SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -13122,6 +13176,73 @@ def externalFunctionPointerPayableCallMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _ [] => some true
   | _ => some false
 
+def externalNonpayableUintSetterTy : Ty :=
+  Ty.function [Ty.uint 256] []
+    StateMutability.nonpayable Visibility.external_
+
+def externalFunctionPointerNonpayableGasFunction : FunctionDecl :=
+  { name := some "callSetterWithGas"
+    params :=
+      [ { name := some "setter", ty := externalNonpayableUintSetterTy }
+      , { name := some "x", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.expr
+          (Expr.callWithOptions
+            (Expr.ident "setter")
+            [CallOption.named "gas" (Expr.literal (Literal.number "777"))]
+            [Arg.positional (Expr.ident "x")])) }
+
+def externalFunctionPointerNonpayableGasMatches : Option Bool := do
+  let encodedArgs ←
+    SolidCore.Solidity.Source.abiEncodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 11]
+  let result ←
+    FunctionDecl.call? 16 [] []
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata :=
+                SolidCore.Solidity.Source.wordToBytesBE
+                  SolidCore.Solidity.Source.selectorBytes
+                  selectorEncodingSelector ++ encodedArgs
+              gas? := some 777
+              success := true
+              output := [] } ] }
+      SolidCore.Solidity.Source.State.empty
+      externalFunctionPointerNonpayableGasFunction
+      [ SolidCore.Solidity.Source.Value.externalFunction
+          0xbeef selectorEncodingSelector
+      , SolidCore.Solidity.Source.Value.word 11 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] => some true
+  | _ => some false
+
+def externalFunctionPointerNonpayableValueFunction : FunctionDecl :=
+  { name := some "badValueSetter"
+    params :=
+      [{ name := some "setter", ty := externalNonpayableUintSetterTy }]
+    body :=
+      some
+        (Stmt.expr
+          (Expr.callWithOptions
+            (Expr.ident "setter")
+            [CallOption.named "value" (Expr.literal (Literal.number "5"))]
+            [Arg.positional (Expr.literal (Literal.number "1"))])) }
+
+def externalFunctionPointerNonpayableValueRejected : Bool :=
+  match
+      FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
+        SolidCore.Solidity.Source.State.empty
+        externalFunctionPointerNonpayableValueFunction
+        [SolidCore.Solidity.Source.Value.externalFunction
+          0xbeef selectorEncodingSelector]
+  with
+  | none => true
+  | some _ => false
+
 def externalFunctionPointerTryCatchFunction : FunctionDecl :=
   { name := some "tryGetter"
     params := [{ name := some "getter", ty := externalUintGetterTy }]
@@ -16896,6 +17017,146 @@ def highLevelExternalViewValueOptionRejected : Option Bool := do
       [ highLevelExternalViewTargetContract
       , highLevelExternalViewBadValueCallerContract ]
       highLevelExternalViewBadValueCallerContract with
+  | some _ => some false
+  | none => some true
+
+def highLevelExternalPayTargetContract : ContractDecl :=
+  { name := "PayTarget"
+    items :=
+      [ ContractItem.function
+          { name := some "payQuote"
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body := none }
+      , ContractItem.function
+          { name := some "plainQuote"
+            visibility := some Visibility.external_
+            mutability := StateMutability.nonpayable
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body := none } ] }
+
+def highLevelExternalPayableCallerContract : ContractDecl :=
+  { name := "PayCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "payKnown"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["PayTarget"] } }
+              , { name := some "amount", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "payQuote")
+                      [ CallOption.named "value" (Expr.ident "amount")
+                      , CallOption.named "gas"
+                          (Expr.literal (Literal.number "1234")) ]
+                      []))) }
+      , ContractItem.function
+          { name := some "nonpayableGas"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["PayTarget"] } } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "plainQuote")
+                      [ CallOption.named "gas"
+                          (Expr.literal (Literal.number "5678")) ]
+                      []))) } ] }
+
+def highLevelExternalNonpayableValueCallerContract : ContractDecl :=
+  { name := "NonpayableValueCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badValue"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["PayTarget"] } } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "plainQuote")
+                      [ CallOption.named "value"
+                          (Expr.literal (Literal.number "1")) ]
+                      []))) } ] }
+
+def highLevelExternalPayableValueMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      [highLevelExternalPayTargetContract, highLevelExternalPayableCallerContract]
+      highLevelExternalPayableCallerContract
+  let function ← contract.findFunctionByName? "payKnown"
+  let callData ← externalCalldata? "payQuote()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 22]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              value := 9
+              gas? := some 1234
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.word 9 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 22)
+  | _ => some false
+
+def highLevelExternalNonpayableGasMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      [highLevelExternalPayTargetContract, highLevelExternalPayableCallerContract]
+      highLevelExternalPayableCallerContract
+  let function ← contract.findFunctionByName? "nonpayableGas"
+  let callData ← externalCalldata? "plainQuote()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 33]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              gas? := some 5678
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 33)
+  | _ => some false
+
+def highLevelExternalNonpayableValueRejected : Option Bool := do
+  match
+    ContractDecl.toCoreWithBases?
+      [ highLevelExternalPayTargetContract
+      , highLevelExternalNonpayableValueCallerContract ]
+      highLevelExternalNonpayableValueCallerContract with
   | some _ => some false
   | none => some true
 
