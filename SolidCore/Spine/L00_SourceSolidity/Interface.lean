@@ -3300,9 +3300,13 @@ structure ExternalCallKindEntry where
   paramTys : List Ty := []
   paramNames : List (Option Name) := []
   mutability : StateMutability := StateMutability.nonpayable
+  isConstructor : Bool := false
   deriving Repr
 
 abbrev ExternalCallKindEnv := List ExternalCallKindEntry
+
+def constructorExternalCallKindName : Name :=
+  "__solidcore_constructor"
 
 def ExternalCallKindEnv.lookup? (env : ExternalCallKindEnv)
     (contractName functionName : Name) (paramTys : List Ty) :
@@ -3310,7 +3314,8 @@ def ExternalCallKindEnv.lookup? (env : ExternalCallKindEnv)
   match env with
   | [] => none
   | entry :: rest =>
-      if entry.contractName == contractName &&
+      if !entry.isConstructor &&
+          entry.contractName == contractName &&
           entry.functionName == functionName &&
           entry.paramTys == paramTys then
         some entry.mutability
@@ -3333,17 +3338,21 @@ def externalCallKindTypeEnvName? (contractName functionName : Name)
   some (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature)
 
 def ExternalCallKindEntry.toTypeEnvEntry?
-    (entry : ExternalCallKindEntry) : Option (Name × Ty) := do
-  let key ←
-    externalCallKindTypeEnvName?
-      entry.contractName entry.functionName entry.paramTys
-  some
-    ( key
-    , Ty.function entry.paramTys [] entry.mutability Visibility.external_ )
+    (entry : ExternalCallKindEntry) : Option (Option (Name × Ty)) := do
+  if entry.isConstructor then
+    some none
+  else
+    let key ←
+      externalCallKindTypeEnvName?
+        entry.contractName entry.functionName entry.paramTys
+    some
+      (some
+        ( key
+        , Ty.function entry.paramTys [] entry.mutability Visibility.external_ ))
 
 def ExternalCallKindEnv.toTypeEnv? (env : ExternalCallKindEnv) :
     Option TypeEnv :=
-  mapOption ExternalCallKindEntry.toTypeEnvEntry? env
+  filterMapOption ExternalCallKindEntry.toTypeEnvEntry? env
 
 def TypeEnv.externalCallKindEntries (env : TypeEnv) : TypeEnv :=
   env.filter (fun entry => entry.fst.startsWith externalCallKindTypeEnvPrefix)
@@ -4315,6 +4324,25 @@ def ExternalCallKindEntry.toAbiCallSource? (storageNames : List Name)
       else
         none
 
+def ExternalCallKindEnv.lookupConstructorEntry?
+    (env : ExternalCallKindEnv) (contractName : Name) :
+    Option ExternalCallKindEntry :=
+  match env with
+  | [] => none
+  | entry :: rest =>
+      if entry.isConstructor && entry.contractName == contractName then
+        some entry
+      else
+        ExternalCallKindEnv.lookupConstructorEntry? rest contractName
+
+def ExternalCallKindEnv.lookupConstructorAbi? (storageNames : List Name)
+    (env : ExternalCallKindEnv) (contractName : Name) (args : List Arg) :
+    Option (List CoreTy × List CoreExpr) := do
+  let entry ← ExternalCallKindEnv.lookupConstructorEntry? env contractName
+  let (_, coreTys, coreExprs) ←
+    ExternalCallKindEntry.toAbiCallSource? storageNames entry args
+  some (coreTys, coreExprs)
+
 def ExternalCallKindEnv.lookupAbiCall? (storageNames : List Name)
     (env : ExternalCallKindEnv) (contractName functionName : Name)
     (args : List Arg) :
@@ -4322,7 +4350,8 @@ def ExternalCallKindEnv.lookupAbiCall? (storageNames : List Name)
   match env with
   | [] => none
   | entry :: rest =>
-      if entry.contractName == contractName &&
+      if !entry.isConstructor &&
+          entry.contractName == contractName &&
           entry.functionName == functionName then
         match ExternalCallKindEntry.toAbiCallSource? storageNames entry args with
         | some (sourceTys, coreTys, coreExprs) =>
@@ -4561,11 +4590,19 @@ def Expr.toExternalCall? (storageNames : List Name) :
           Option CoreExpr × Bool) :=
   Expr.toExternalCallWithKindEnv? storageNames [] []
 
-def Expr.toContractCreation? (storageNames : List Name) :
+def Expr.toContractCreationWithKindEnv? (storageNames : List Name)
+    (externalCallKindEnv : ExternalCallKindEnv) :
     Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr)
   | Expr.newExpr ty args => do
       let contractName ← Ty.contractName? ty
-      let (coreTys, coreExprs) ← Args.toAbiEncode? storageNames args
+      let (coreTys, coreExprs) ←
+        match
+            ExternalCallKindEnv.lookupConstructorEntry?
+              externalCallKindEnv contractName with
+        | some _ =>
+            ExternalCallKindEnv.lookupConstructorAbi?
+              storageNames externalCallKindEnv contractName args
+        | none => Args.toAbiEncode? storageNames args
       some
         ( contractName
         , SolidCore.Solidity.Source.Expr.abiEncode coreTys coreExprs
@@ -4585,13 +4622,34 @@ def Expr.toContractCreation? (storageNames : List Name) :
             let saltCore ← Expr.toCore? storageNames salt
             some (some saltCore)
         | none => some none
-      let (coreTys, coreExprs) ← Args.toAbiEncode? storageNames args
+      let (coreTys, coreExprs) ←
+        match
+            ExternalCallKindEnv.lookupConstructorEntry?
+              externalCallKindEnv contractName with
+        | some _ =>
+            ExternalCallKindEnv.lookupConstructorAbi?
+              storageNames externalCallKindEnv contractName args
+        | none => Args.toAbiEncode? storageNames args
       some
         ( contractName
         , SolidCore.Solidity.Source.Expr.abiEncode coreTys coreExprs
         , valueCore
         , saltCore? )
   | _ => none
+
+def Expr.toContractCreation? (storageNames : List Name) :
+    Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr) :=
+  Expr.toContractCreationWithKindEnv? storageNames []
+
+def Expr.toContractCreationCoreWithKindEnv? (storageNames : List Name)
+    (externalCallKindEnv : ExternalCallKindEnv) (expr : Expr) :
+    Option CoreExpr := do
+  let (contractName, argsCore, valueCore, saltCore?) ←
+    Expr.toContractCreationWithKindEnv?
+      storageNames externalCallKindEnv expr
+  some
+    (SolidCore.Solidity.Source.Expr.contractCreate
+      contractName argsCore valueCore saltCore?)
 
 def Ty.toExternalReturnBinding? (namePrefix : String) (index : Nat)
     (ty : Ty) : Option CoreBindingDecl := do
@@ -5453,6 +5511,9 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
           [Arg.positional data, typesExpr] =>
           Expr.call (Expr.member (Expr.ident "abi") "decode")
             [Arg.positional (annotate data), typesExpr]
+      | Expr.callWithOptions (Expr.newExpr ty []) options args =>
+          Expr.callWithOptions (Expr.newExpr ty [])
+            (options.map annotateOption) (args.map annotateAbiArg)
       | Expr.call (Expr.member target name) args =>
           Expr.call (Expr.member (annotate target) name)
             (args.map annotateAbiArg)
@@ -5476,7 +5537,7 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
       | Expr.callWithOptions fn options args =>
           Expr.callWithOptions (annotate fn)
             (options.map annotateOption) (args.map annotateArg)
-      | Expr.newExpr ty args => Expr.newExpr ty (args.map annotateArg)
+      | Expr.newExpr ty args => Expr.newExpr ty (args.map annotateAbiArg)
       | Expr.tuple items => Expr.tuple (items.map annotateTupleItem)
       | Expr.array exprs => Expr.array (exprs.map annotate)
       | Expr.enumFromUInt maxValue inner =>
@@ -7148,6 +7209,20 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.expr expr)
+  | Stmt.expr expr@(Expr.newExpr _ _) =>
+      match
+        Expr.toContractCreationCoreWithKindEnv?
+          storageNames externalCallKindEnv expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+      | none => Stmt.toCore? storageNames (Stmt.expr expr)
+  | Stmt.expr expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _) =>
+      match
+        Expr.toContractCreationCoreWithKindEnv?
+          storageNames externalCallKindEnv expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+      | none => Stmt.toCore? storageNames (Stmt.expr expr)
   | Stmt.expr (Expr.assign lhs AssignOp.assign
       expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.toCoreLValue? storageNames lhs,
@@ -7209,6 +7284,32 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames
+              (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+      | none => Stmt.toCore? storageNames
+          (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+  | Stmt.expr (Expr.assign lhs AssignOp.assign
+      expr@(Expr.newExpr _ _)) =>
+      match Expr.toCoreLValue? storageNames lhs with
+      | some lhsCore =>
+          match
+            Expr.toContractCreationCoreWithKindEnv?
+              storageNames externalCallKindEnv expr with
+          | some coreExpr =>
+              some (SolidCore.Solidity.Source.Stmt.assign lhsCore coreExpr)
+          | none => Stmt.toCore? storageNames
+              (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+      | none => Stmt.toCore? storageNames
+          (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+  | Stmt.expr (Expr.assign lhs AssignOp.assign
+      expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _)) =>
+      match Expr.toCoreLValue? storageNames lhs with
+      | some lhsCore =>
+          match
+            Expr.toContractCreationCoreWithKindEnv?
+              storageNames externalCallKindEnv expr with
+          | some coreExpr =>
+              some (SolidCore.Solidity.Source.Stmt.assign lhsCore coreExpr)
           | none => Stmt.toCore? storageNames
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | none => Stmt.toCore? storageNames
@@ -7307,6 +7408,45 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Stmt.varDecl [binding] (some expr))
       | none => Stmt.toCore? storageNames
           (Stmt.varDecl [binding] (some expr))
+  | Stmt.varDecl [binding] (some expr@(Expr.newExpr _ _)) =>
+      match binding.name, binding.ty with
+      | some localName, some _ =>
+          match
+            Expr.toContractCreationCoreWithKindEnv?
+              storageNames externalCallKindEnv expr with
+          | some coreExpr => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [ declCore
+                  , SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      coreExpr ])
+          | none => Stmt.toCore? storageNames
+              (Stmt.varDecl [binding] (some expr))
+      | _, _ => Stmt.toCore? storageNames
+          (Stmt.varDecl [binding] (some expr))
+  | Stmt.varDecl [binding]
+      (some expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _)) =>
+      match binding.name, binding.ty with
+      | some localName, some _ =>
+          match
+            Expr.toContractCreationCoreWithKindEnv?
+              storageNames externalCallKindEnv expr with
+          | some coreExpr => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [ declCore
+                  , SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      coreExpr ])
+          | none => Stmt.toCore? storageNames
+              (Stmt.varDecl [binding] (some expr))
+      | _, _ => Stmt.toCore? storageNames
+          (Stmt.varDecl [binding] (some expr))
   | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) => do
       let names ← VarBindings.names? bindings
       let returnTys ← VarBindings.sourceTys? bindings
@@ -7375,6 +7515,21 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.externalFunctionValueCallReturnCore?
           storageNames env returnTys expr with
       | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.returnValues (some expr@(Expr.newExpr _ _)) =>
+      match
+        Expr.toContractCreationCoreWithKindEnv?
+          storageNames externalCallKindEnv expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
+      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.returnValues
+      (some expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _)) =>
+      match
+        Expr.toContractCreationCoreWithKindEnv?
+          storageNames externalCallKindEnv expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.ifElse cond thenBranch elseBranch => do
       let condCore ← Expr.toCore? storageNames cond
@@ -7505,7 +7660,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
-                Expr.toContractCreation? storageNames expr
+                Expr.toContractCreationWithKindEnv?
+                  storageNames externalCallKindEnv expr
               let catchCore ←
                 CatchClause.listToCoreWithInternalCalls?
                   internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -7570,7 +7726,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   checkTargetCode returnBindings successCore catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
-                Expr.toContractCreation? storageNames expr
+                Expr.toContractCreationWithKindEnv?
+                  storageNames externalCallKindEnv expr
               let successCore ←
                 Stmt.toCoreWithInternalCalls?
                   (internalFuel := internalFuel)
@@ -8232,7 +8389,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
-                    Expr.toContractCreation? storageNames expr
+                    Expr.toContractCreationWithKindEnv?
+                      storageNames externalCallKindEnv expr
                   some
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
                       contractName argsCore valueCore saltCore? []
@@ -8271,7 +8429,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                       checkTargetCode returnBindings successCore catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
-                    Expr.toContractCreation? storageNames expr
+                    Expr.toContractCreationWithKindEnv?
+                      storageNames externalCallKindEnv expr
                   some
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
                       contractName argsCore valueCore saltCore? returnBindings
@@ -9092,6 +9251,34 @@ def FunctionDecl.externalCallKindEntry? (contractName : Name)
           mutability := decl.mutability }
   | _, _, _ => none
 
+def FunctionDecl.constructorCallKindEntry? (contractName : Name)
+    (decl : FunctionDecl) : Option ExternalCallKindEntry :=
+  match decl.kind with
+  | FunctionKind.constructor =>
+      some
+        { contractName := contractName
+          functionName := constructorExternalCallKindName
+          paramTys := decl.params.map Parameter.ty
+          paramNames := decl.params.map Parameter.name
+          mutability := decl.mutability
+          isConstructor := true }
+  | _ => none
+
+def ContractDecl.constructorCallKindEntry?
+    (decl : ContractDecl) : Option ExternalCallKindEntry := do
+  let ctor? ← ContractDecl.directConstructor? decl
+  match ctor? with
+  | some ctor =>
+      FunctionDecl.constructorCallKindEntry? decl.name ctor
+  | none =>
+      some
+        { contractName := decl.name
+          functionName := constructorExternalCallKindName
+          paramTys := []
+          paramNames := []
+          mutability := StateMutability.nonpayable
+          isConstructor := true }
+
 def StateVarDecl.externalGetterParamTys? (decl : StateVarDecl) :
     Option (List Ty) :=
   match decl.visibility, decl.ty with
@@ -9508,7 +9695,9 @@ def ExternalCallKindEnv.fromContracts? (contracts : List ContractDecl) :
     Option ExternalCallKindEnv := do
   let groups ←
     mapOption (ContractDecl.externalCallKindEntries? contracts) contracts
-  some (concatLists groups)
+  let constructors ←
+    mapOption ContractDecl.constructorCallKindEntry? contracts
+  some (concatLists groups ++ constructors)
 
 def ContractDecl.storageFieldsFrom (transient : Bool) (slot : Nat) :
     List StateVarDecl -> List CoreStorageField
@@ -18292,6 +18481,92 @@ def contractCreationSuccessMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word address] =>
       some (SolidCore.Solidity.Source.wordEq address 0xc0de)
   | _ => some false
+
+def namedCreatedChildTy : Ty :=
+  Ty.user { segments := ["NamedChild"] }
+
+def contractCreationNamedChildContract : ContractDecl :=
+  { name := "NamedChild"
+    items :=
+      [ ContractItem.function
+          { kind := FunctionKind.constructor
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            body := some Stmt.empty } ] }
+
+def contractCreationNamedCallerContract : ContractDecl :=
+  { name := "NamedCreateCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "makeNamed"
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns := [{ name := some "created", ty := namedCreatedChildTy }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.newExpr namedCreatedChildTy
+                      [ Arg.named "bonus" (Expr.ident "bonus")
+                      , Arg.named "amount" (Expr.ident "amount") ]))) } ] }
+
+def contractCreationDuplicateNamedCallerContract : ContractDecl :=
+  { name := "DuplicateNamedCreateCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badNamed"
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns := [{ name := some "created", ty := namedCreatedChildTy }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.newExpr namedCreatedChildTy
+                      [ Arg.named "amount" (Expr.ident "amount")
+                      , Arg.named "amount" (Expr.ident "bonus") ]))) } ] }
+
+def contractCreationNamedArgsReorderedMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      [ contractCreationNamedChildContract
+      , contractCreationNamedCallerContract ]
+      contractCreationNamedCallerContract
+  let function ← contract.findFunctionByName? "makeNamed"
+  let constructorArgs ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        contractCreationResults :=
+          [ { contractName := "NamedChild"
+              constructorArgs := constructorArgs
+              success := true
+              address := 0xc0de } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      some (SolidCore.Solidity.Source.wordEq address 0xc0de)
+  | _ => some false
+
+def contractCreationDuplicateNamedArgsRejected : Option Bool :=
+  match
+    ContractDecl.toCoreWithBases?
+      [ contractCreationNamedChildContract
+      , contractCreationDuplicateNamedCallerContract ]
+      contractCreationDuplicateNamedCallerContract with
+  | some _ => some false
+  | none => some true
 
 def contractCreationWithOptionsFunction : FunctionDecl :=
   { name := some "makeSalted"
