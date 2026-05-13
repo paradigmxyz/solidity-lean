@@ -1,0 +1,3 @@
+[submodule "external/nethermind/EVMYulLean"]
+	path = external/nethermind/EVMYulLean
+	url = https://github.com/NethermindEth/EVMYulLean.git

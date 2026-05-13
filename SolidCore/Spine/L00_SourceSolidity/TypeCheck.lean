@@ -1,8 +1,8 @@
-import SolidCore.Spine.L01_ValidSolidity.Interface
+import SolidCore.Spine.L00_SourceSolidity.Interface
 
 namespace SolidCore
 namespace Spine
-namespace P01_SourceSolidityToValidSolidity
+namespace L00_SourceSolidity
 namespace TypeCheck
 
 abbrev Name := L00_SourceSolidity.Name
@@ -12592,6 +12592,6 @@ def badPureAddressThisRejected : Bool :=
 end Examples
 
 end TypeCheck
-end P01_SourceSolidityToValidSolidity
+end L00_SourceSolidity
 end Spine
 end SolidCore

@@ -1,16 +1,2 @@
 import SolidCore.Spine.L00_SourceSolidity.Interface
-import SolidCore.Spine.L01_ValidSolidity.Interface
-import SolidCore.Spine.L02_AbstractYul.Interface
-import SolidCore.Spine.L03_GeneratedYul.Interface
-import SolidCore.Spine.L04_StackCfg.Interface
-import SolidCore.Spine.L05_Bytecode.Interface
-import SolidCore.Spine.L06_Evm.Interface
-import SolidCore.Spine.L07_MeteredEvm.Interface
-import SolidCore.Spine.YulEvm
-import SolidCore.Spine.Passes.P01_SourceSolidityToValidSolidity.Interface
-import SolidCore.Spine.Passes.P02_ValidSolidityToAbstractYul.Interface
-import SolidCore.Spine.Passes.P03_AbstractYulToGeneratedYul.Interface
-import SolidCore.Spine.Passes.P04_GeneratedYulToStackCfg.Interface
-import SolidCore.Spine.Passes.P05_StackCfgToBytecode.Interface
-import SolidCore.Spine.Passes.P06_BytecodeToEvm.Interface
-import SolidCore.Spine.PublicClaims
+import SolidCore.Spine.L00_SourceSolidity.TypeCheck

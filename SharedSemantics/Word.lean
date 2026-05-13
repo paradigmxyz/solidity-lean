@@ -1,37 +1,57 @@
 import Std
+import EvmYul.UInt256
 
 namespace SharedSemantics
 
-def wordModulus : Nat := 2 ^ 256
+def wordModulus : Nat := EvmYul.UInt256.size
 
 def halfWordModulus : Nat := 2 ^ 255
 
 abbrev Word := Nat
 
+abbrev EvmWord := EvmYul.UInt256
+
 def norm (n : Nat) : Word :=
   n % wordModulus
+
+def toEvmWord (value : Word) : EvmWord :=
+  EvmYul.UInt256.ofNat (norm value)
+
+def ofEvmWord (value : EvmWord) : Word :=
+  norm value.toNat
+
+def liftEvmUnary (f : EvmWord -> EvmWord) (value : Word) : Word :=
+  ofEvmWord (f (toEvmWord value))
+
+def liftEvmBinary (f : EvmWord -> EvmWord -> EvmWord)
+    (lhs rhs : Word) : Word :=
+  ofEvmWord (f (toEvmWord lhs) (toEvmWord rhs))
+
+def liftEvmTernary (f : EvmWord -> EvmWord -> EvmWord -> EvmWord)
+    (a b c : Word) : Word :=
+  ofEvmWord (f (toEvmWord a) (toEvmWord b) (toEvmWord c))
 
 theorem norm_norm (value : Word) :
     norm (norm value) = norm value := by
   simp [norm, wordModulus]
 
 def addWord (a b : Word) : Word :=
-  norm (a + b)
+  liftEvmBinary EvmYul.UInt256.add a b
 
 def mulWord (a b : Word) : Word :=
-  norm (a * b)
+  liftEvmBinary EvmYul.UInt256.mul a b
 
 def divWord (a b : Word) : Word :=
-  if norm b = 0 then 0 else norm (norm a / norm b)
+  liftEvmBinary EvmYul.UInt256.div a b
 
 def modWord (a b : Word) : Word :=
-  if norm b = 0 then 0 else norm (norm a % norm b)
+  liftEvmBinary EvmYul.UInt256.mod a b
 
 def addmodWord (a b n : Word) : Word :=
-  if norm n = 0 then 0 else norm ((norm a + norm b) % norm n)
+  liftEvmTernary EvmYul.UInt256.addMod a b n
 
 def mulmodWord (a b n : Word) : Word :=
-  if norm n = 0 then 0 else norm ((norm a * norm b) % norm n)
+  liftEvmTernary EvmYul.UInt256.mulMod a b n
 
 def powModWordAux (base exponent acc : Nat) : Nat :=
   if h : exponent = 0 then
@@ -50,101 +70,69 @@ decreasing_by
   exact Nat.div_lt_self hpos (by decide : 1 < 2)
 
 def expWord (base exponent : Word) : Word :=
-  powModWordAux (norm base) (norm exponent) 1
+  liftEvmBinary EvmYul.UInt256.exp base exponent
 
 def subWord (a b : Word) : Word :=
-  norm (wordModulus + norm a - norm b)
+  liftEvmBinary EvmYul.UInt256.sub a b
 
 def iszeroWord (a : Word) : Word :=
-  if norm a = 0 then 1 else 0
+  liftEvmUnary EvmYul.UInt256.isZero a
 
 def eqWord (a b : Word) : Word :=
-  if norm a = norm b then 1 else 0
+  liftEvmBinary EvmYul.UInt256.eq a b
 
 def ltWord (a b : Word) : Word :=
-  if norm a < norm b then 1 else 0
+  liftEvmBinary EvmYul.UInt256.lt a b
 
 def gtWord (a b : Word) : Word :=
-  if norm b < norm a then 1 else 0
+  liftEvmBinary EvmYul.UInt256.gt a b
 
 def signedValue (a : Word) : Int :=
-  if norm a < halfWordModulus then
-    Int.ofNat (norm a)
-  else
-    Int.ofNat (norm a) - Int.ofNat wordModulus
+  EvmYul.UInt256.fromSigned (toEvmWord a)
 
 def sltWord (a b : Word) : Word :=
-  if signedValue a < signedValue b then 1 else 0
+  liftEvmBinary EvmYul.UInt256.slt a b
 
 def sgtWord (a b : Word) : Word :=
-  if signedValue b < signedValue a then 1 else 0
+  liftEvmBinary EvmYul.UInt256.sgt a b
 
 def signedToWord (value : Int) : Word :=
-  if value < 0 then norm (wordModulus - Int.natAbs value) else norm value.toNat
+  ofEvmWord (EvmYul.UInt256.toSigned value)
 
 def sdivWord (a b : Word) : Word :=
-  if norm b = 0 then
-    0
-  else
-    let lhs := signedValue a
-    let rhs := signedValue b
-    let quotient := (Int.natAbs lhs) / (Int.natAbs rhs)
-    if (lhs < 0) = (rhs < 0) then
-      signedToWord (Int.ofNat quotient)
-    else
-      signedToWord (-(Int.ofNat quotient))
+  liftEvmBinary EvmYul.UInt256.sdiv a b
 
 def smodWord (a b : Word) : Word :=
-  if norm b = 0 then
-    0
-  else
-    let lhs := signedValue a
-    let rhs := signedValue b
-    let unsignedMod := (Int.natAbs lhs) % (Int.natAbs rhs)
-    if lhs < 0 then
-      signedToWord (-(Int.ofNat unsignedMod))
-    else
-      signedToWord (Int.ofNat unsignedMod)
+  liftEvmBinary EvmYul.UInt256.smod a b
 
 def andWord (a b : Word) : Word :=
-  norm (Nat.land (norm a) (norm b))
+  liftEvmBinary EvmYul.UInt256.land a b
 
 def orWord (a b : Word) : Word :=
-  norm (Nat.lor (norm a) (norm b))
+  liftEvmBinary EvmYul.UInt256.lor a b
 
 def xorWord (a b : Word) : Word :=
-  norm (Nat.xor (norm a) (norm b))
+  liftEvmBinary EvmYul.UInt256.xor a b
 
 def notWord (a : Word) : Word :=
-  norm (wordModulus - 1 - norm a)
+  liftEvmUnary EvmYul.UInt256.lnot a
 
 def shlWord (shift value : Word) : Word :=
-  if 256 <= norm shift then 0 else norm (Nat.shiftLeft (norm value) (norm shift))
+  ofEvmWord
+    (EvmYul.UInt256.shiftLeft (toEvmWord value) (toEvmWord shift))
 
 def shrWord (shift value : Word) : Word :=
-  if 256 <= norm shift then 0 else norm (Nat.shiftRight (norm value) (norm shift))
+  ofEvmWord
+    (EvmYul.UInt256.shiftRight (toEvmWord value) (toEvmWord shift))
 
 def sarWord (shift value : Word) : Word :=
-  if 256 <= norm shift then
-    if signedValue value < 0 then norm (wordModulus - 1) else 0
-  else
-    signedToWord (Int.shiftRight (signedValue value) (norm shift))
+  ofEvmWord (EvmYul.UInt256.sar (toEvmWord shift) (toEvmWord value))
 
 def byteWord (ix value : Word) : Word :=
-  if norm ix < 32 then
-    norm (Nat.land (Nat.shiftRight (norm value) (8 * (31 - norm ix))) 255)
-  else
-    0
+  ofEvmWord (EvmYul.UInt256.byteAt (toEvmWord ix) (toEvmWord value))
 
 def signextendWord (ix value : Word) : Word :=
-  if norm ix < 32 then
-    let bitPos := 8 * norm ix + 7
-    let modulus := 2 ^ (bitPos + 1)
-    let signBit := 2 ^ bitPos
-    let low := norm value % modulus
-    if signBit <= low then norm (wordModulus - modulus + low) else norm low
-  else
-    norm value
+  ofEvmWord (EvmYul.UInt256.signextend (toEvmWord ix) (toEvmWord value))
 
 def clzWordAux : Nat -> Nat -> Word -> Word
   | 0, _, _ => 256

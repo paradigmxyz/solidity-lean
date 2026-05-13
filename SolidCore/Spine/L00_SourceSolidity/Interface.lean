@@ -2016,14 +2016,17 @@ def Stmt.resolveStructsInSeqFuel :
       let resolveExpr := Expr.resolveStructsFuel fuel env typeEnv
       let resolveStmt (child : Stmt) :=
         (Stmt.resolveStructsInSeqFuel fuel env typeEnv child).fst
-      let rec resolveSeq (seqEnv : TypeEnv) :
-          List Stmt -> List Stmt × TypeEnv
-        | [] => ([], seqEnv)
-        | head :: rest =>
-            let (head', seqEnv') :=
-              Stmt.resolveStructsInSeqFuel fuel env seqEnv head
-            let (rest', finalEnv) := resolveSeq seqEnv' rest
-            (head' :: rest', finalEnv)
+      let resolveSeq (seqEnv : TypeEnv) (body : List Stmt) :
+          List Stmt × TypeEnv :=
+        let step (acc : List Stmt × TypeEnv) (head : Stmt) :
+            List Stmt × TypeEnv :=
+          let (done, seqEnv) := acc
+          let (head', seqEnv') :=
+            Stmt.resolveStructsInSeqFuel fuel env seqEnv head
+          (head' :: done, seqEnv')
+        let (revBody, finalEnv) :=
+          body.foldl step (([] : List Stmt), seqEnv)
+        (revBody.reverse, finalEnv)
       let resolveClause : CatchClause -> CatchClause
         | CatchClause.clause name params body =>
             let clauseEnv := Parameters.extendTypeEnv "_catch" typeEnv params
@@ -4939,13 +4942,16 @@ def Stmt.annotateAbiInSeqFuel :
       let annotateExpr := Expr.annotateAbiFuel fuel env
       let annotateStmt (child : Stmt) :=
         (Stmt.annotateAbiInSeqFuel fuel env child).fst
-      let rec annotateSeq (env : TypeEnv) :
-          List Stmt -> List Stmt × TypeEnv
-        | [] => ([], env)
-        | head :: rest =>
-            let (head', env') := Stmt.annotateAbiInSeqFuel fuel env head
-            let (rest', finalEnv) := annotateSeq env' rest
-            (head' :: rest', finalEnv)
+      let annotateSeq (env : TypeEnv) (body : List Stmt) :
+          List Stmt × TypeEnv :=
+        let step (acc : List Stmt × TypeEnv) (head : Stmt) :
+            List Stmt × TypeEnv :=
+          let (done, env) := acc
+          let (head', env') := Stmt.annotateAbiInSeqFuel fuel env head
+          (head' :: done, env')
+        let (revBody, finalEnv) :=
+          body.foldl step (([] : List Stmt), env)
+        (revBody.reverse, finalEnv)
       let annotateClause : CatchClause -> CatchClause
         | CatchClause.clause name params body =>
             let clauseEnv := Parameters.extendTypeEnv "_catch" env params
@@ -7823,14 +7829,17 @@ def Stmt.expandUsingInSeqFuel :
       let expandExpr := Expr.expandUsingFuel fuel contracts usingDecls env
       let expandStmt (child : Stmt) :=
         (Stmt.expandUsingInSeqFuel fuel contracts usingDecls env child).fst
-      let rec expandSeq (seqEnv : TypeEnv) :
-          List Stmt -> List Stmt × TypeEnv
-        | [] => ([], seqEnv)
-        | head :: rest =>
-            let (head', seqEnv') :=
-              Stmt.expandUsingInSeqFuel fuel contracts usingDecls seqEnv head
-            let (rest', finalEnv) := expandSeq seqEnv' rest
-            (head' :: rest', finalEnv)
+      let expandSeq (seqEnv : TypeEnv) (body : List Stmt) :
+          List Stmt × TypeEnv :=
+        let step (acc : List Stmt × TypeEnv) (head : Stmt) :
+            List Stmt × TypeEnv :=
+          let (done, seqEnv) := acc
+          let (head', seqEnv') :=
+            Stmt.expandUsingInSeqFuel fuel contracts usingDecls seqEnv head
+          (head' :: done, seqEnv')
+        let (revBody, finalEnv) :=
+          body.foldl step (([] : List Stmt), seqEnv)
+        (revBody.reverse, finalEnv)
       let expandClause : CatchClause -> CatchClause
         | CatchClause.clause name params body =>
             let clauseEnv := Parameters.extendTypeEnv "_catch" env params

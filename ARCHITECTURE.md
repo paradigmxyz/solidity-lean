@@ -1,138 +1,64 @@
 # Solid Core Architecture
 
-This repository is a Lean-first verified compiler spine for Solidity-like
-source programs down to an EVM model. The public claim should always be stated
-through the spine below, not through parser success, fixtures, examples, parity
-tests, or compatibility paths.
+This repository is now focused on the Solidity source language itself. The
+public surface is the Solidity 0.8.x source AST, executable source semantics,
+and source-language typechecking/modeling facts. Parser success, compiler
+lowering, generated Yul, bytecode, and EVM execution are not public proof
+targets on this branch.
 
-## Public Theorem Shape
-
-```text
-For every source Solidity AST accepted by the validity layer,
-if each adjacent compiler pass succeeds through bytecode,
-then running the resulting bytecode in the public EVM semantics
-matches the source semantics under the theorem's named assumptions.
-```
-
-Parser ingestion, certificate checking, Forge parity, fuzzing, and corpus replay
-are useful evidence. They are not part of the verified claim until Lean has a
-theorem connecting them to the same source semantics and target interpreter.
-
-## Spine
+## Public Shape
 
 ```text
-L00_SourceSolidity
-  -> L01_ValidSolidity
-  -> L02_AbstractYul
-  -> L03_GeneratedYul
-  -> L04_StackCfg
-  -> L05_Bytecode
-  -> L06_Evm
+Solidity source AST
+  -> source typechecking and source-language validity
+  -> executable source semantics
+  -> source observations: returns, reverts, events, storage, calls, errors
 ```
 
-Every public pass is adjacent. No public compiler path should skip a layer.
-Every layer should have either direct semantics or direct artifact invariants;
-no layer's meaning should be "whatever the next compiler pass does."
+The source semantics should model Solidity behavior directly: contracts,
+inheritance, modifiers, dispatch, expressions, statements, storage and data
+locations, checked and unchecked arithmetic, ABI-facing source behavior, events,
+errors, try/catch, library behavior, payable behavior, and rollback on revert.
 
-Each layer folder has a single `Interface.lean` module. That file is the
-canonical language or artifact interface for the layer: syntax first, then any
-semantics, wellformedness/profile facts, and public theorems the adjacent passes
-may rely on.
+## External Semantics
 
-## Agent Model
+When Solidity behavior is a wrapper over Yul/EVM behavior, the source model
+should use shared imported primitives rather than reimplementing them locally.
+The external reference is Nethermind's `EVMYulLean` package:
 
-The persistent coordination model has three agents:
+```text
+https://github.com/NethermindEth/EVMYulLean.git
+047f63070309f436b66c61e276ab3b6d1169265a
+```
 
-- Source agent: owns `L00_SourceSolidity`, source syntax, and source semantics.
-- Compiler agent: owns `L01_ValidSolidity` through `L05_Bytecode`, all public
-  compiler passes, and composed public claims.
-- Target agent: owns `L06_Evm`, target semantics, target fidelity, and EVM
-  parity evidence.
+It is checked out as the reference submodule at
+`external/nethermind/EVMYulLean`.
 
-The compiler agent may use short-lived subagents for parallel proof or
-implementation work inside a vertical slice. Those subagents are task workers,
-not persistent owners of public layers.
+Because upstream currently targets a different Lean toolchain, this branch keeps
+a local `EvmYul.UInt256` compatibility module for the word primitive slice used
+by Solidity source semantics. The source layer may adapt these EVM/Yul-shaped
+primitives into local `Word`, byte, external-call, storage, and environment
+APIs, but the adapter should remain small and named. External contracts and the
+host world may still be represented by explicit `External` records/oracles at
+the Solidity layer.
 
-## Layers And Passes
+## Layout
 
-`L00_SourceSolidity` is the broad source AST and source semantics. It represents
-Solidity constructs before validity checking: functions, modifiers, expressions,
-locals, storage references, events, errors, calls, returns, reverts, break,
-continue, and checked/unchecked arithmetic. Parser success is outside this
-layer unless separately verified.
+`SolidCore/Solidity/` contains reusable executable source semantics, ABI helpers,
+Keccak support, and control-core views.
 
-`P01_SourceSolidityToValidSolidity` checks source validity. It owns fragment
-membership, name/scope resolution, overload resolution, typechecking, lvalue
-legality, inheritance and override legality, mutability/payability checks,
-modifier legality, and related source-language facts.
+`SolidCore/Spine/L00_SourceSolidity/Interface.lean` is the canonical source
+layer surface. Supporting source files, such as `TypeCheck.lean`, live beside it
+when the implementation is too large for the interface file.
 
-`L01_ValidSolidity` is valid Solidity, not a compiler IR. It may carry stable
-source identities and facts needed by multiple later proofs. It must not carry
-selectors, event topics, concrete storage slots, ABI offsets, memory layout,
-stack plans, byte offsets, or EVM conveniences.
+`SharedSemantics/` contains small cross-layer semantic foundations. It should
+wrap EVM/Yul primitives for word-level and host-facing behavior instead of
+growing a second EVM model.
 
-`P02_ValidSolidityToAbstractYul` is the source-language lowering pass. It handles
-modifier behavior, short-circuiting, ternaries, compound assignments, loop
-control, high-level calls, checked arithmetic, return/revert/fallthrough
-completions, and source effects. This pass may use internal helpers, but it
-should not create a new public layer unless the whole spine is deliberately
-revised.
+## Removed Scope
 
-`L02_AbstractYul` is Yul-shaped control with generated locals, scopes, procedures,
-explicit completions, and typed abstract effects. Storage, events, errors,
-external calls, environment reads, returns, reverts, and rollback behavior are
-modeled abstractly here. Concrete ABI, slot, topic, memory, and builtin details
-belong later.
-
-`P03_AbstractYulToGeneratedYul` concretizes abstract effects and entries into the
-generated Yul profile. It introduces selector dispatch, calldata decoding, return
-and revert encoding, storage layout, mapping hash formulas, event topics and
-data encoding, panic/custom-error encoding, memory discipline, and concrete
-helpers or builtins emitted by the compiler.
-
-`L03_GeneratedYul` is the concrete generated Yul subset. It is not a commitment
-to support arbitrary user-written Yul. Its profile should be justified by what
-the compiler emits.
-
-`P04_GeneratedYulToStackCfg` lowers generated Yul into a stack-machine control
-flow graph. It owns stack planning, block signatures, labels, branch/call
-targets, and the proof that generated Yul behavior is preserved by the CFG.
-
-`L04_StackCfg` is a label-based CFG with stack effects and wellformedness. It
-should know about labels, successors, stack depths, underflow, `DUP`/`SWAP`
-validity, terminal instructions, and max stack limits. It should not know byte
-offsets or final `PUSH` widths.
-
-`P05_StackCfgToBytecode` assembles and resolves the CFG. It owns linearization,
-label-to-PC maps, opcode/immediate encoding, `JUMPDEST` adequacy, no jumps into
-immediates, and bytecode-level preservation of CFG execution.
-
-`L05_Bytecode` is the byte artifact and any decoded view needed for proofs. It
-does not own account/world semantics; those are EVM concerns.
-
-`P06_BytecodeToEvm` connects bytecode artifacts to the public EVM semantics. It
-states the boundary conditions under which bytecode execution corresponds to
-the artifact-level semantics.
-
-`L06_Evm` is the target model. It owns opcode execution, stack, memory, storage,
-logs, returndata, calls, frames, account/world state, gas/OOG, deployment,
-precompiles, and host assumptions as they enter scope. Forge parity and replay
-tests are evidence for fidelity, not proof by themselves.
-
-## Invariants
-
-- Accepted input is independent of compiler success.
-- Compiler passes are recursive and structural, not fixture- or story-shaped.
-- Public root imports cite the spine and reusable semantic foundations only.
-- Assumptions live in theorem hypotheses, artifact fields, profiles, or code,
-  not in free-floating prose.
-- Tests may be concrete; compiler and semantics code should remain general.
-- Obsolete routes should be deleted instead of kept as compatibility wrappers.
-
-## Documentation Policy
-
-This file is the single global architecture document. Folder-local `README.md`
-files may explain what lives in that folder and how it participates in the
-spine. Do not add separate scratch, critique, sample-walkthrough, design-history,
-roadmap, or progress-log documents unless the project deliberately changes this
-policy.
+The former compiler spine is intentionally removed from this branch:
+ValidSolidity, AbstractYul, GeneratedYul, StackCfg, Bytecode, MeteredEvm, pass
+interfaces, public compiler claims, and local EVM parity harnesses. Reintroduce
+compiler artifacts only after the Solidity source semantics has a stable public
+contract and only on a branch whose goal is compiler verification again.

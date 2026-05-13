@@ -1,42 +1,30 @@
 # Roadmap
 
-## Public Yul-To-EVM Spine
+## Solidity Source Semantics
 
-checked Yul fragment -> structured Yul IR -> stack CFG -> labeled EVM
-assembly -> bytecode -> metered EVM target
+- [x] Keep `L00_SourceSolidity/Interface.lean` as the canonical source surface.
+- [x] Move source typechecking out of the compiler pass namespace.
+- [x] Remove the local compiler-pipeline attempt from this branch.
+- [x] Add Nethermind `EVMYulLean` as a pinned reference submodule under
+      `external/nethermind/EVMYulLean`.
+- [x] Add an `EvmYul.UInt256` compatibility surface for the Nethermind word
+      primitive API used by the source semantics.
+- [x] Route word-level Solidity wrappers through the shared `EvmYul.UInt256`
+      adapter.
+- [ ] Route environment/storage/log/call wrappers through named shared adapters
+      where Nethermind exposes the matching primitive.
+- [ ] Finish source typechecking coverage for Solidity 0.8.35 features.
+- [ ] Finish executable source semantics for try/catch, libraries, payable,
+      inheritance dispatch, modifiers, rollback, events, errors, and data
+      locations.
+- [ ] Add small executable source examples for each supported Solidity feature.
+- [ ] Record unsupported Solidity behavior explicitly until modeled.
 
-The replacement route is built beside the current Solidity-to-EVM spine until
-the theorem-bearing path is strong enough to become the public route.
+## Boundary Rules
 
-## Layer Contract
-
-- [ ] Every public Yul-to-EVM layer has syntax, semantics or relation,
-      wellformedness, and a small interface module.
-- [ ] Accepted-input checking is independent of compiler success.
-- [ ] Gas-observing Yul is rejected until source and target gas semantics are
-      aligned.
-- [ ] Nethermind EVM/Yul semantics are preserved behind adapters rather than
-      modified for proof convenience.
-
-## Pass Contract
-
-- [ ] Every pass imports only adjacent layer interfaces and shared foundations.
-- [ ] Every pass defines a compiler function, wellformedness evidence, and a
-      preservation theorem.
-- [ ] Public claims compose adjacent pass theorems only.
-- [ ] Bytecode claims reach the executable metered EVM target.
-
-## Milestones
-
-- [ ] Pin and integrate the Nethermind semantics boundary.
-- [x] First expression-to-stack theorem for literals and pure word operations.
-- [x] Variables and `let` with an explicit stack-layout relation.
-- [ ] Memory operations `mload` and `mstore` with a memory relation.
-- [x] Structured blocks and sequencing.
-- [ ] `if` and `switch` through continuation labels.
-- [ ] `for`, `break`, `continue`, and `leave` through explicit continuations.
-- [ ] Internal functions, initially by inlining or a proved call discipline.
-- [ ] Stack CFG to labeled EVM assembly simulation.
-- [ ] Label resolution and bytecode offset correctness.
-- [ ] Final accepted-fragment theorem from checked Yul AST to metered EVM.
-- [ ] Optional parser/certificate ingestion after the AST theorem is stable.
+- Parser/import success is not source semantics unless separately verified.
+- Compiler convenience must not shape Solidity semantics.
+- External contracts and host behavior may remain explicit `External` oracle
+  records at the Solidity layer.
+- Shared primitive behavior should be imported through named modules when
+  Solidity is simply exposing Yul/EVM behavior.
