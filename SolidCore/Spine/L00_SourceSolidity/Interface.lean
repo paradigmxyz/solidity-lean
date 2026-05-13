@@ -10826,6 +10826,50 @@ def addressIdentityCallResult : Option CoreCallResult :=
     SolidCore.Solidity.Source.State.empty addressIdentityFunction
     [SolidCore.Solidity.Source.Value.word 0x1234]
 
+def addressAbiIdentityContract : ContractDecl :=
+  { name := "AddressAbi"
+    items := [ContractItem.function addressIdentityFunction] }
+
+def addressAbiCalldataAccepted : Option Bool := do
+  let contract ← ContractDecl.toCore? addressAbiIdentityContract
+  let function ← contract.findFunctionByName? "idAddress"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      8 contract SolidCore.Solidity.Source.State.empty calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  some (result.success && result.output == expected)
+
+def addressAbiRejectsWideEncode : Bool :=
+  match
+      SolidCore.Solidity.Source.ABI.encodeValues?
+        [SolidCore.Solidity.Source.Ty.address]
+        [SolidCore.Solidity.Source.Value.word (2 ^ 160)]
+  with
+  | none => true
+  | some _ => false
+
+def addressAbiRejectsWideCalldata : Option Bool := do
+  let contract ← ContractDecl.toCore? addressAbiIdentityContract
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "idAddress(address)")
+  let calldata :=
+    selector ++
+      SolidCore.Solidity.Source.ABI.encodeWord (2 ^ 160)
+  match
+      SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+        8 contract SolidCore.Solidity.Source.State.empty calldata
+  with
+  | none => some true
+  | some _ => some false
+
 def assertFailureStatement : Stmt :=
   Stmt.expr
     (Expr.call (Expr.ident "assert")

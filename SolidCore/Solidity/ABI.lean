@@ -34,6 +34,12 @@ def wordToBytesBE : Nat -> Word -> Bytes
 def encodeWord (value : Word) : Bytes :=
   wordToBytesBE wordBytes (SharedSemantics.norm value)
 
+def addressFits (value : Word) : Bool :=
+  SharedSemantics.norm value < 2 ^ 160
+
+def selectorFits (value : Word) : Bool :=
+  SharedSemantics.norm value < 2 ^ (8 * selectorBytes)
+
 def encodeSelector (selector : Word) : Bytes :=
   wordToBytesBE selectorBytes (SharedSemantics.norm selector)
 
@@ -142,7 +148,11 @@ def encodeStaticValue? : Ty -> Value -> Option Bytes
         some (encodeWord value)
       else
         none
-  | Ty.address, Value.word value => some (encodeWord value)
+  | Ty.address, Value.word value =>
+      if addressFits value then
+        some (encodeWord value)
+      else
+        none
   | Ty.uint256, Value.word value => some (encodeWord value)
   | Ty.int256, Value.int value => some (encodeWord value)
   | Ty.fixedBytes size, Value.word value =>
@@ -152,10 +162,13 @@ def encodeStaticValue? : Ty -> Value -> Option Bytes
       else
         none
   | Ty.externalFunction, Value.externalFunction addr selector =>
-      some
-        (wordToBytesBE 20 addr ++
-          wordToBytesBE selectorBytes selector ++
-          List.replicate (wordBytes - 20 - selectorBytes) 0)
+      if addressFits addr && selectorFits selector then
+        some
+          (wordToBytesBE 20 addr ++
+            wordToBytesBE selectorBytes selector ++
+            List.replicate (wordBytes - 20 - selectorBytes) 0)
+      else
+        none
   | Ty.fixedArray size elementTy, Value.fixedArray values =>
       if values.length == size && !Ty.isDynamicAbi elementTy then
         let rec encodeArrayValues? : List Value -> Option Bytes
@@ -305,7 +318,10 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
         none
   | _fuel + 1, argData, headIndex, Ty.address => do
       let value ← readWord? argData (wordBytes * headIndex)
-      some (Value.word value)
+      if addressFits value then
+        some (Value.word value)
+      else
+        none
   | _fuel + 1, argData, headIndex, Ty.uint256 => do
       let value ← readWord? argData (wordBytes * headIndex)
       some (Value.word value)
