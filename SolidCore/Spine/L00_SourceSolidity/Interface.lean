@@ -3298,6 +3298,7 @@ structure ExternalCallKindEntry where
   contractName : Name
   functionName : Name
   paramTys : List Ty := []
+  paramNames : List (Option Name) := []
   mutability : StateMutability := StateMutability.nonpayable
   deriving Repr
 
@@ -4270,6 +4271,69 @@ def Args.toAbiEncodeSource? (storageNames : List Name) :
   | Arg.named _ _ :: _ => none
 termination_by args => (sizeOf args, 0)
 
+def Args.namedNamesForExternalCall? : List Arg -> Option (List Name)
+  | [] => some []
+  | Arg.named name _ :: rest => do
+      let tail ← Args.namedNamesForExternalCall? rest
+      some (name :: tail)
+  | Arg.positional _ :: _ => none
+termination_by args => (sizeOf args, 0)
+
+def Args.toNamedExprsForNames? (paramNames : List Name)
+    (args : List Arg) : Option (List Expr) := do
+  let names ← Args.namedNamesForExternalCall? args
+  if paramNames.length == args.length &&
+      namesUnique names && namesUnique paramNames then
+    mapOption (fun name => Args.findNamed? name args) paramNames
+  else
+    none
+
+def ExternalCallKindEntry.namedArgExprs? (entry : ExternalCallKindEntry)
+    (args : List Arg) : Option (List Expr) := do
+  let paramNames ← mapOption (fun name? => name?) entry.paramNames
+  if entry.paramTys.length == paramNames.length then
+    Args.toNamedExprsForNames? paramNames args
+  else
+    none
+
+def ExternalCallKindEntry.toAbiCallSource? (storageNames : List Name)
+    (entry : ExternalCallKindEntry) (args : List Arg) :
+    Option (List Ty × List CoreTy × List CoreExpr) :=
+  match Args.toAbiEncodeSource? storageNames args with
+  | some (sourceTys, coreTys, coreExprs) =>
+      if sourceTys == entry.paramTys then
+        some (entry.paramTys, coreTys, coreExprs)
+      else
+        none
+  | none => do
+      let exprs ← ExternalCallKindEntry.namedArgExprs? entry args
+      let positionalArgs := exprs.map Arg.positional
+      let (sourceTys, coreTys, coreExprs) ←
+        Args.toAbiEncodeSource? storageNames positionalArgs
+      if sourceTys == entry.paramTys then
+        some (entry.paramTys, coreTys, coreExprs)
+      else
+        none
+
+def ExternalCallKindEnv.lookupAbiCall? (storageNames : List Name)
+    (env : ExternalCallKindEnv) (contractName functionName : Name)
+    (args : List Arg) :
+    Option (ExternalCallKindEntry × List Ty × List CoreTy × List CoreExpr) :=
+  match env with
+  | [] => none
+  | entry :: rest =>
+      if entry.contractName == contractName &&
+          entry.functionName == functionName then
+        match ExternalCallKindEntry.toAbiCallSource? storageNames entry args with
+        | some (sourceTys, coreTys, coreExprs) =>
+            some (entry, sourceTys, coreTys, coreExprs)
+        | none =>
+            ExternalCallKindEnv.lookupAbiCall?
+              storageNames rest contractName functionName args
+      else
+        ExternalCallKindEnv.lookupAbiCall?
+          storageNames rest contractName functionName args
+
 def TupleItems.toAbiEncodeSource? (storageNames : List Name) :
     List TupleItem -> Option (List Ty × List CoreTy × List CoreExpr)
   | [] => some ([], [], [])
@@ -4311,6 +4375,16 @@ def Expr.externalCallKindForTarget (target : Expr) : CoreLowLevelCallKind :=
       | none => SolidCore.Solidity.Source.LowLevelCallKind.call
   | _ => SolidCore.Solidity.Source.LowLevelCallKind.call
 
+def Expr.externalCallTargetContractNameWithEnv? (env : TypeEnv)
+    (target : Expr) : Option Name :=
+  match target with
+  | Expr.ident targetName => do
+      let ty ← TypeEnv.lookup? env targetName
+      Ty.contractName? ty
+  | Expr.call (Expr.typeName (Ty.user path)) [_] =>
+      pathLast? path
+  | _ => none
+
 def Expr.externalCallKindForTargetWithEnv (env : TypeEnv)
     (externalCallKindEnv : ExternalCallKindEnv) (target : Expr)
     (name : Name) (argTys : List Ty) : CoreLowLevelCallKind :=
@@ -4318,23 +4392,16 @@ def Expr.externalCallKindForTargetWithEnv (env : TypeEnv)
   if defaultKind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall then
     defaultKind
   else
-    let targetTy? :=
-      match target with
-      | Expr.ident targetName => TypeEnv.lookup? env targetName
-      | _ => none
-    match targetTy? with
-    | some ty =>
-        match Ty.contractName? ty with
-        | some contractName =>
-            match TypeEnv.lookupExternalCallKind?
-                env contractName name argTys with
+    match Expr.externalCallTargetContractNameWithEnv? env target with
+    | some contractName =>
+        match TypeEnv.lookupExternalCallKind?
+            env contractName name argTys with
+        | some kind => kind
+        | none =>
+            match ExternalCallKindEnv.lookupCallKind?
+                externalCallKindEnv contractName name argTys with
             | some kind => kind
-            | none =>
-                match ExternalCallKindEnv.lookupCallKind?
-                    externalCallKindEnv contractName name argTys with
-                | some kind => kind
-                | none => defaultKind
-        | none => defaultKind
+            | none => defaultKind
     | none => defaultKind
 
 def Expr.externalCallMutabilityForTargetWithEnv (env : TypeEnv)
@@ -4344,21 +4411,14 @@ def Expr.externalCallMutabilityForTargetWithEnv (env : TypeEnv)
   if defaultKind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall then
     none
   else
-    let targetTy? :=
-      match target with
-      | Expr.ident targetName => TypeEnv.lookup? env targetName
-      | _ => none
-    match targetTy? with
-    | some ty =>
-        match Ty.contractName? ty with
-        | some contractName =>
-            match TypeEnv.lookupExternalMutability?
-                env contractName name argTys with
-            | some mutability => some mutability
-            | none =>
-                ExternalCallKindEnv.lookup?
-                  externalCallKindEnv contractName name argTys
-        | none => none
+    match Expr.externalCallTargetContractNameWithEnv? env target with
+    | some contractName =>
+        match TypeEnv.lookupExternalMutability?
+            env contractName name argTys with
+        | some mutability => some mutability
+        | none =>
+            ExternalCallKindEnv.lookup?
+              externalCallKindEnv contractName name argTys
     | none => none
 
 def StateMutability.externalCallOptionsCore? (storageNames : List Name)
@@ -4401,6 +4461,22 @@ def Expr.externalCallNeedsCodeCheckWithEnv (env : TypeEnv)
         Expr.externalCallTargetNeedsCodeCheckWithEnv env target
   | _ => false
 
+def Expr.externalCallAbiWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (target : Expr) (name : Name) (args : List Arg) :
+    Option (List Ty × List CoreTy × List CoreExpr) :=
+  match Expr.externalCallTargetContractNameWithEnv? env target with
+  | some contractName =>
+      match
+          ExternalCallKindEnv.lookupAbiCall?
+            storageNames externalCallKindEnv contractName name args with
+      | some (_, sourceTys, coreTys, coreExprs) =>
+          some (sourceTys, coreTys, coreExprs)
+      | none =>
+          Args.toAbiEncodeSource? storageNames args
+  | none =>
+      Args.toAbiEncodeSource? storageNames args
+
 def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv) :
     Expr ->
@@ -4420,7 +4496,8 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
         some ()
       let targetCore ← Expr.toCore? storageNames target
       let (sourceTys, coreTys, coreExprs) ←
-        Args.toAbiEncodeSource? storageNames args
+        Expr.externalCallAbiWithKindEnv?
+          storageNames env externalCallKindEnv target name args
       let kind :=
         Expr.externalCallKindForTargetWithEnv
           env externalCallKindEnv target name sourceTys
@@ -4450,7 +4527,8 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
         some ()
       let targetCore ← Expr.toCore? storageNames target
       let (sourceTys, coreTys, coreExprs) ←
-        Args.toAbiEncodeSource? storageNames args
+        Expr.externalCallAbiWithKindEnv?
+          storageNames env externalCallKindEnv target name args
       let kind :=
         Expr.externalCallKindForTargetWithEnv
           env externalCallKindEnv target name sourceTys
@@ -6848,6 +6926,7 @@ mutual
 def functionExpandModifiersToCoreWithInternalCalls?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames returnNames : List Name)
     (available : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty)
@@ -6859,6 +6938,7 @@ def functionExpandModifiersToCoreWithInternalCalls?
         (internalFuel := internalFuel)
         (storageRefEnv := storageRefEnv)
         (env := env)
+        (externalCallKindEnv := externalCallKindEnv)
         (storageNames := storageNames)
         (modifiers := available)
         (functions := functions)
@@ -6868,8 +6948,8 @@ def functionExpandModifiersToCoreWithInternalCalls?
   | invocation :: rest => do
       let inner ←
         functionExpandModifiersToCoreWithInternalCalls?
-          internalFuel storageRefEnv env storageNames returnNames available
-          functions freeFunctions returnTys rest body
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          returnNames available functions freeFunctions returnTys rest body
       let modifierName ← pathLast? invocation.target
       let modifierDecl ← modifierFindByName? available modifierName
       modifierApplyToCore? storageNames returnNames
@@ -6879,6 +6959,7 @@ termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
 def FunctionDecl.internalCallParts?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
     Option (List CoreBindingDecl × List CoreStmt × CoreStmt) := do
@@ -6905,7 +6986,7 @@ def FunctionDecl.internalCallParts?
               modifiers callee.modifiers body
         | fuel + 1 =>
             functionExpandModifiersToCoreWithInternalCalls?
-              fuel calleeStorageRefEnv calleeEnv storageNames
+              fuel calleeStorageRefEnv calleeEnv externalCallKindEnv storageNames
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
               modifiers functions freeFunctions
               (callee.returns.map Parameter.ty) callee.modifiers body
@@ -6937,7 +7018,7 @@ def FunctionDecl.internalCallParts?
               [] callee.modifiers body
         | fuel + 1 =>
             functionExpandModifiersToCoreWithInternalCalls?
-              fuel calleeStorageRefEnv calleeEnv []
+              fuel calleeStorageRefEnv calleeEnv externalCallKindEnv []
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
               [] [] freeFunctions
               (callee.returns.map Parameter.ty) callee.modifiers body
@@ -6950,13 +7031,14 @@ termination_by (internalFuel, 0, 0)
 def FunctionDecl.internalStatementCallCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
     Option CoreStmt := do
   let (_, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
-      internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-      name args
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
   some
     (SolidCore.Solidity.Source.Stmt.block
       (prefixCore ++
@@ -6966,13 +7048,14 @@ termination_by (internalFuel, 0, 1)
 def FunctionDecl.internalSingleReturnCallCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
     (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
   let (returnBindings, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
-      internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-      name args
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
   match returnBindings with
   | [ret] =>
       let retName := ret.name
@@ -6988,13 +7071,14 @@ termination_by (internalFuel, 0, 1)
 def FunctionDecl.internalAssignReturnCallCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
     (targetNames : List Name) : Option CoreStmt := do
   let (returnBindings, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
-      internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-      name args
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
   if targetNames.length == returnBindings.length then
     let returnNames :=
       returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
@@ -7010,7 +7094,8 @@ termination_by (internalFuel, 0, 1)
 
 def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name)
     (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty) (stmt : Stmt) :
     Option CoreStmt :=
@@ -7018,8 +7103,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.block body => do
       let coreBody ←
         Stmt.listToCoreWithInternalCallsWithRefs?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          returnTys body
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions returnTys body
       some (SolidCore.Solidity.Source.Stmt.block coreBody)
   | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
@@ -7028,11 +7113,15 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           match Expr.localStorageArrayMemberStmtCore?
               storageRefEnv env storageNames expr with
           | some coreStmt => some coreStmt
-          | none => Expr.externalCallDiscardCoreWithTypeEnv? storageNames env expr
+          | none =>
+              Expr.externalCallDiscardCoreWithKindEnv?
+                storageNames env externalCallKindEnv expr
   | Stmt.expr expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
       | some coreStmt => some coreStmt
-      | none => Expr.externalCallDiscardCoreWithTypeEnv? storageNames env expr
+      | none =>
+          Expr.externalCallDiscardCoreWithKindEnv?
+            storageNames env externalCallKindEnv expr
   | Stmt.expr
       (Expr.assign
         (Expr.call (Expr.member (Expr.ident name) "push") [])
@@ -7050,8 +7139,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreStmt => some coreStmt
       | none =>
           match FunctionDecl.internalStatementCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions
-              freeFunctions name args with
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args with
           | some coreStmt => some coreStmt
           | none => Stmt.toCore? storageNames
               (Stmt.expr (Expr.call (Expr.ident name) args))
@@ -7064,8 +7153,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.toCoreLValue? storageNames lhs,
           Expr.abiTyWithEnv? env lhs with
       | some lhsCore, some expectedTy =>
-          match Expr.externalCallSingleReturnCoreWithTypeEnv?
-              storageNames env expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
@@ -7078,8 +7167,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.toCoreLValue? storageNames lhs,
           Expr.abiTyWithEnv? env lhs with
       | some lhsCore, some expectedTy =>
-          match Expr.externalCallSingleReturnCoreWithTypeEnv?
-              storageNames env expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
@@ -7098,8 +7187,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           | some coreStmt => some coreStmt
           | none =>
               match FunctionDecl.internalSingleReturnCallCore?
-                  internalFuel storageRefEnv env storageNames modifiers functions
-                  freeFunctions name args
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions name args
                   (fun retExpr =>
                     SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
               | some coreStmt => some coreStmt
@@ -7127,8 +7216,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCoreWithTypeEnv?
-              storageNames env expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7147,8 +7236,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCoreWithTypeEnv?
-              storageNames env expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7180,8 +7269,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   [declCore, assignBlock])
           | none =>
               match FunctionDecl.internalSingleReturnCallCore?
-                  internalFuel storageRefEnv env storageNames modifiers functions
-                  freeFunctions name args
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions name args
                   (fun retExpr =>
                     SolidCore.Solidity.Source.Stmt.assign
                       (SolidCore.Solidity.Source.LValue.var localName)
@@ -7223,8 +7312,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       let returnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCoreWithTypeEnv?
-          storageNames env returnTys names expr
+        Expr.externalCallAssignVarsCoreWithKindEnv?
+          storageNames env externalCallKindEnv returnTys names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) => do
@@ -7232,8 +7321,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       let returnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCoreWithTypeEnv?
-          storageNames env returnTys names expr
+        Expr.externalCallAssignVarsCoreWithKindEnv?
+          storageNames env externalCallKindEnv returnTys names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) => do
@@ -7245,8 +7334,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         | some coreStmt => some coreStmt
         | none =>
             FunctionDecl.internalAssignReturnCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions
-              freeFunctions name args names
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args names
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) => do
@@ -7257,14 +7346,14 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           storageNames env names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
-      match Expr.externalCallReturnCoreWithTypeEnv?
-          storageNames env returnTys expr with
+      match Expr.externalCallReturnCoreWithKindEnv?
+          storageNames env externalCallKindEnv returnTys expr with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
-      match Expr.externalCallReturnCoreWithTypeEnv?
-          storageNames env returnTys expr with
+      match Expr.externalCallReturnCoreWithKindEnv?
+          storageNames env externalCallKindEnv returnTys expr with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues (some expr@(Expr.call (Expr.ident name) args)) =>
@@ -7273,8 +7362,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreStmt => some coreStmt
       | none =>
           match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions
-              freeFunctions name args
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.returnValues [retExpr]) with
           | some coreStmt => some coreStmt
@@ -7294,6 +7383,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7307,6 +7397,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7323,6 +7414,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7336,6 +7428,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7352,6 +7445,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7372,6 +7466,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7381,12 +7476,13 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       some (SolidCore.Solidity.Source.Stmt.forLoop
         initCore condCore postCore bodyCore)
   | Stmt.tryCatch expr clauses => do
-      match Expr.toExternalCallWithTypeEnv? storageNames env expr with
+      match Expr.toExternalCallWithKindEnv?
+          storageNames env externalCallKindEnv expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let catchCore ←
             CatchClause.listToCoreWithInternalCalls?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              returnTys clauses
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions returnTys clauses
           let checkTargetCode :=
             Expr.externalCallNeedsCodeCheckWithEnv env [] expr
           some
@@ -7400,8 +7496,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               gasFirst) => do
               let catchCore ←
                 CatchClause.listToCoreWithInternalCalls?
-                  internalFuel storageRefEnv env storageNames modifiers
-                  functions freeFunctions returnTys clauses
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
@@ -7412,8 +7508,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 Expr.toContractCreation? storageNames expr
               let catchCore ←
                 CatchClause.listToCoreWithInternalCalls?
-                  internalFuel storageRefEnv env storageNames modifiers
-                  functions freeFunctions returnTys clauses
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryContractCreate
                   contractName argsCore valueCore saltCore? []
@@ -7421,13 +7517,15 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
       let successEnv := Parameters.extendTypeEnv "_try" env returns
-      match Expr.toExternalCallWithTypeEnv? storageNames env expr with
+      match Expr.toExternalCallWithKindEnv?
+          storageNames env externalCallKindEnv expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let successCore ←
             Stmt.toCoreWithInternalCalls?
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := successEnv)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7436,8 +7534,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (stmt := success)
           let catchCore ←
             CatchClause.listToCoreWithInternalCalls?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              returnTys clauses
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions returnTys clauses
           let checkTargetCode :=
             Expr.externalCallNeedsCodeCheckWithEnv env
               (returns.map Parameter.ty) expr
@@ -7454,6 +7552,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   (internalFuel := internalFuel)
                   (storageRefEnv := storageRefEnv)
                   (env := successEnv)
+                  (externalCallKindEnv := externalCallKindEnv)
                   (storageNames := storageNames)
                   (modifiers := modifiers)
                   (functions := functions)
@@ -7462,8 +7561,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   (stmt := success)
               let catchCore ←
                 CatchClause.listToCoreWithInternalCalls?
-                  internalFuel storageRefEnv env storageNames modifiers
-                  functions freeFunctions returnTys clauses
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions returnTys clauses
               let checkTargetCode := returns.isEmpty
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
@@ -7477,6 +7576,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   (internalFuel := internalFuel)
                   (storageRefEnv := storageRefEnv)
                   (env := successEnv)
+                  (externalCallKindEnv := externalCallKindEnv)
                   (storageNames := storageNames)
                   (modifiers := modifiers)
                   (functions := functions)
@@ -7485,8 +7585,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   (stmt := success)
               let catchCore ←
                 CatchClause.listToCoreWithInternalCalls?
-                  internalFuel storageRefEnv env storageNames modifiers
-                  functions freeFunctions returnTys clauses
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryContractCreate
                   contractName argsCore valueCore saltCore? returnBindings
@@ -7497,6 +7597,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7510,6 +7611,7 @@ termination_by (internalFuel, sizeOf stmt, 5)
 def Stmt.listToCoreWithInternalCallsWithRefs?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions : List FunctionDecl) (freeFunctions : List FunctionDecl)
     (returnTys : List Ty) (stmts : List Stmt) :
@@ -7523,7 +7625,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           let tail ←
             Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
-              storageRefEnv env storageNames modifiers functions
+              storageRefEnv env externalCallKindEnv storageNames modifiers functions
               freeFunctions returnTys rest
           some (head :: tail)
       | none => do
@@ -7532,6 +7634,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7543,7 +7646,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           let tail ←
             Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
-              storageRefEnv env storageNames modifiers functions
+              storageRefEnv env externalCallKindEnv storageNames modifiers functions
               freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl [binding] (some (Expr.ident source)) :: rest =>
@@ -7554,6 +7657,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
               (VarBinding.extendStorageRefEnv storageRefEnv binding)
               (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
       | none => do
@@ -7562,6 +7666,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7573,6 +7678,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
               (VarBinding.extendStorageRefEnv storageRefEnv binding)
               (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
@@ -7583,13 +7689,14 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
           (VarBindings.extendStorageRefEnv storageRefEnv bindings)
           (VarBindings.extendTypeEnv env bindings)
+          externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (coreDecls ++ assigns ++ tail)
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) :: rest =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCoreWithTypeEnv?
-              storageNames env expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7602,6 +7709,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
           | none => do
@@ -7610,6 +7718,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   (internalFuel := internalFuel)
                   (storageRefEnv := storageRefEnv)
                   (env := env)
+                  (externalCallKindEnv := externalCallKindEnv)
                   (storageNames := storageNames)
                   (modifiers := modifiers)
                   (functions := functions)
@@ -7621,6 +7730,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
       | _, _ => do
@@ -7629,6 +7739,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7640,14 +7751,15 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
               (VarBinding.extendStorageRefEnv storageRefEnv binding)
               (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl [binding]
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) :: rest =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCoreWithTypeEnv?
-              storageNames env expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7660,6 +7772,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
           | none => do
@@ -7668,6 +7781,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   (internalFuel := internalFuel)
                   (storageRefEnv := storageRefEnv)
                   (env := env)
+                  (externalCallKindEnv := externalCallKindEnv)
                   (storageNames := storageNames)
                   (modifiers := modifiers)
                   (functions := functions)
@@ -7679,6 +7793,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
       | _, _ => do
@@ -7687,6 +7802,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
               (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
               (functions := functions)
@@ -7698,6 +7814,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
               (VarBinding.extendStorageRefEnv storageRefEnv binding)
               (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl [binding]
@@ -7718,12 +7835,13 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
           | none => do
               match FunctionDecl.internalSingleReturnCallCore?
-                  internalFuel storageRefEnv env storageNames modifiers functions
-                  freeFunctions name args
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions name args
                   (fun retExpr =>
                     SolidCore.Solidity.Source.Stmt.assign
                       (SolidCore.Solidity.Source.LValue.var localName)
@@ -7736,6 +7854,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                       internalFuel
                       (VarBinding.extendStorageRefEnv storageRefEnv binding)
                       (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
                       storageNames modifiers functions freeFunctions returnTys rest
                   some (declCore :: assignBlock :: tail)
               | none => do
@@ -7748,6 +7867,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                       internalFuel
                       (VarBinding.extendStorageRefEnv storageRefEnv binding)
                       (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
                       storageNames modifiers functions freeFunctions returnTys rest
                   some (head :: tail)
       | none => do
@@ -7760,6 +7880,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
               (VarBinding.extendStorageRefEnv storageRefEnv binding)
               (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl [binding]
@@ -7780,6 +7901,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
           | none => do
@@ -7791,6 +7913,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   (VarBinding.extendStorageRefEnv storageRefEnv binding)
                   (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
       | none => do
@@ -7802,6 +7925,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
               (VarBinding.extendStorageRefEnv storageRefEnv binding)
               (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) :: rest => do
@@ -7809,13 +7933,14 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       let callReturnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCoreWithTypeEnv?
-          storageNames env callReturnTys names expr
+        Expr.externalCallAssignVarsCoreWithKindEnv?
+          storageNames env externalCallKindEnv callReturnTys names expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
           (VarBindings.extendStorageRefEnv storageRefEnv bindings)
           (VarBindings.extendTypeEnv env bindings)
+          externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (decls ++ [callCore] ++ tail)
   | Stmt.varDecl bindings
@@ -7824,13 +7949,14 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       let callReturnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCoreWithTypeEnv?
-          storageNames env callReturnTys names expr
+        Expr.externalCallAssignVarsCoreWithKindEnv?
+          storageNames env externalCallKindEnv callReturnTys names expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
           (VarBindings.extendStorageRefEnv storageRefEnv bindings)
           (VarBindings.extendTypeEnv env bindings)
+          externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (decls ++ [callCore] ++ tail)
   | Stmt.varDecl bindings
@@ -7843,13 +7969,14 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
         | some coreStmt => some coreStmt
         | none =>
             FunctionDecl.internalAssignReturnCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions
-              freeFunctions name args names
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args names
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
           (VarBindings.extendStorageRefEnv storageRefEnv bindings)
           (VarBindings.extendTypeEnv env bindings)
+          externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (decls ++ [callCore] ++ tail)
   | Stmt.varDecl bindings
@@ -7864,6 +7991,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
           (VarBindings.extendStorageRefEnv storageRefEnv bindings)
           (VarBindings.extendTypeEnv env bindings)
+          externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (decls ++ [callCore] ++ tail)
   | stmt :: rest => do
@@ -7872,6 +8000,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7890,14 +8019,15 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
-          nextStorageRefEnv nextEnv storageNames modifiers functions
+          nextStorageRefEnv nextEnv externalCallKindEnv storageNames modifiers functions
           freeFunctions returnTys rest
       some (head :: tail)
 termination_by (internalFuel, sizeOf stmts, 4)
 
 def CatchClause.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (clause : CatchClause) : Option CoreTryCatchClause :=
   match clause with
@@ -7909,6 +8039,7 @@ def CatchClause.toCoreWithInternalCalls? (internalFuel : Nat)
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
           (env := catchEnv)
+          (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
           (functions := functions)
@@ -7921,7 +8052,8 @@ termination_by (internalFuel, sizeOf clause, 3)
 
 def CatchClause.listToCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (clauses : List CatchClause) : Option (List CoreTryCatchClause) :=
   match clauses with
@@ -7929,12 +8061,12 @@ def CatchClause.listToCoreWithInternalCalls? (internalFuel : Nat)
   | clause :: rest => do
       let head ←
         CatchClause.toCoreWithInternalCalls?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          returnTys clause
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions returnTys clause
       let tail ←
         CatchClause.listToCoreWithInternalCalls?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          returnTys rest
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions returnTys rest
       some (head :: tail)
 termination_by (internalFuel, sizeOf clauses, 4)
 
@@ -7945,7 +8077,7 @@ def Stmt.listToCoreWithInternalCalls? (env : TypeEnv) (storageNames : List Name)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty) (stmts : List Stmt) :
     Option (List CoreStmt) :=
   Stmt.listToCoreWithInternalCallsWithRefs?
-    defaultInternalCallInlineFuel [] env storageNames modifiers functions
+    defaultInternalCallInlineFuel [] env [] storageNames modifiers functions
     freeFunctions returnTys stmts
 
 def defaultModifierPlaceholderReplacementFuel : Nat := 1024
@@ -7997,6 +8129,7 @@ mutual
 def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
     (replaceFuel internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (returnNames : List Name) (replacement : CoreStmt) (stmt : Stmt) :
@@ -8011,7 +8144,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
       | Stmt.block body => do
           let coreBody ←
             Stmt.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
           some (SolidCore.Solidity.Source.Stmt.block coreBody)
@@ -8019,14 +8152,14 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
           let condCore ← Expr.toCore? storageNames cond
           let thenCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement thenBranch
           let elseCore ←
             match elseBranch with
             | some stmt =>
                 Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-                  replaceFuel internalFuel storageRefEnv env storageNames
+                  replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
                   modifiers functions freeFunctions returnTys returnNames
                   replacement stmt
             | none => some SolidCore.Solidity.Source.Stmt.skip
@@ -8036,14 +8169,14 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
           let condCore ← Expr.toCore? storageNames cond
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
           some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
       | Stmt.doWhile body cond => do
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
           let condCore ← Expr.toCore? storageNames cond
@@ -8053,7 +8186,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
             match init with
             | some stmt =>
                 Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-                  replaceFuel internalFuel storageRefEnv env storageNames
+                  replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
                   modifiers functions freeFunctions returnTys returnNames
                   replacement stmt
             | none => some SolidCore.Solidity.Source.Stmt.skip
@@ -8067,7 +8200,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
             | none => some SolidCore.Solidity.Source.Stmt.skip
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
           some (SolidCore.Solidity.Source.Stmt.forLoop
@@ -8075,9 +8208,11 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
       | Stmt.tryCatch expr clauses => do
           let catchCore ←
             CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames modifiers
-              functions freeFunctions returnTys returnNames replacement clauses
-          match Expr.toExternalCallWithTypeEnv? storageNames env expr with
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys
+              returnNames replacement clauses
+          match Expr.toExternalCallWithKindEnv?
+              storageNames env externalCallKindEnv expr with
           | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
               let checkTargetCode :=
                 Expr.externalCallNeedsCodeCheckWithEnv env [] expr
@@ -8107,14 +8242,16 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
           let successEnv := Parameters.extendTypeEnv "_try" env returns
           let successCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv successEnv storageNames
-              modifiers functions freeFunctions returnTys returnNames
-              replacement success
+              replaceFuel internalFuel storageRefEnv successEnv
+              externalCallKindEnv storageNames modifiers functions
+              freeFunctions returnTys returnNames replacement success
           let catchCore ←
             CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames modifiers
-              functions freeFunctions returnTys returnNames replacement clauses
-          match Expr.toExternalCallWithTypeEnv? storageNames env expr with
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys
+              returnNames replacement clauses
+          match Expr.toExternalCallWithKindEnv?
+              storageNames env externalCallKindEnv expr with
           | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
               let checkTargetCode :=
                 Expr.externalCallNeedsCodeCheckWithEnv env
@@ -8142,7 +8279,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
       | Stmt.unchecked body => do
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
           some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
@@ -8151,6 +8288,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
             (internalFuel := internalFuel)
             (storageRefEnv := storageRefEnv)
             (env := env)
+            (externalCallKindEnv := externalCallKindEnv)
             (storageNames := storageNames)
             (modifiers := modifiers)
             (functions := functions)
@@ -8161,6 +8299,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
 def CatchClause.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
     (replaceFuel internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (returnNames : List Name) (replacement : CoreStmt)
@@ -8174,9 +8313,9 @@ def CatchClause.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
           let catchEnv := Parameters.extendTypeEnv "_catch" env params
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv catchEnv storageNames
-              modifiers functions freeFunctions returnTys returnNames
-              replacement body
+              replaceFuel internalFuel storageRefEnv catchEnv
+              externalCallKindEnv storageNames modifiers functions freeFunctions
+              returnTys returnNames replacement body
           some
             (SolidCore.Solidity.Source.TryCatchClause.clause
               name bindings bodyCore)
@@ -8184,6 +8323,7 @@ def CatchClause.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
 def CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
     (replaceFuel internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (returnNames : List Name) (replacement : CoreStmt)
@@ -8196,17 +8336,20 @@ def CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
       | clause :: rest => do
           let head ←
             CatchClause.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames modifiers
-              functions freeFunctions returnTys returnNames replacement clause
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys
+              returnNames replacement clause
           let tail ←
             CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env storageNames modifiers
-              functions freeFunctions returnTys returnNames replacement rest
+              replaceFuel internalFuel storageRefEnv env externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys
+              returnNames replacement rest
           some (head :: tail)
 
 def Stmt.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
     (replaceFuel internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (returnNames : List Name) (replacement : CoreStmt)
@@ -8222,13 +8365,13 @@ def Stmt.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               do
                 let coreStmt ←
                   Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-                    replaceFuel internalFuel storageRefEnv env storageNames
-                    modifiers functions freeFunctions returnTys returnNames
-                    replacement stmt
+                    replaceFuel internalFuel storageRefEnv env
+                    externalCallKindEnv storageNames modifiers functions
+                    freeFunctions returnTys returnNames replacement stmt
                 some [coreStmt]
             else
               Stmt.listToCoreWithInternalCallsWithRefs?
-                internalFuel storageRefEnv env storageNames modifiers
+                internalFuel storageRefEnv env externalCallKindEnv storageNames modifiers
                 functions freeFunctions returnTys [stmt]
           let nextEnv :=
             match stmt with
@@ -8241,9 +8384,9 @@ def Stmt.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
             | _ => storageRefEnv
           let tail ←
             Stmt.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel nextStorageRefEnv nextEnv storageNames
-              modifiers functions freeFunctions returnTys returnNames
-              replacement rest
+              replaceFuel internalFuel nextStorageRefEnv nextEnv
+              externalCallKindEnv storageNames modifiers functions freeFunctions
+              returnTys returnNames replacement rest
           some (head ++ tail)
 
 end
@@ -8251,17 +8394,19 @@ end
 def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholder?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (returnNames : List Name) (replacement : CoreStmt) (stmt : Stmt) :
     Option CoreStmt :=
   Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
     defaultModifierPlaceholderReplacementFuel internalFuel storageRefEnv env
-    storageNames modifiers functions freeFunctions returnTys returnNames
-    replacement stmt
+    externalCallKindEnv storageNames modifiers functions freeFunctions
+    returnTys returnNames replacement stmt
 
 def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames returnNames : List Name)
     (available : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty)
@@ -8272,7 +8417,7 @@ def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
   let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
   let prefixCore ←
     Stmt.listToCoreWithInternalCallsWithRefs?
-      internalFuel storageRefEnv env storageNames available functions
+      internalFuel storageRefEnv env externalCallKindEnv storageNames available functions
       freeFunctions returnTys prefixStmts
   let modifierEnv := Parameters.extendTypeEnv "_mod" env decl.params
   let modifierStorageRefEnv :=
@@ -8280,13 +8425,15 @@ def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
   let body := Stmt.annotateAbi modifierEnv body
   let bodyCore ←
     Stmt.toCoreWithInternalCallsReplacingModifierPlaceholder?
-      internalFuel modifierStorageRefEnv modifierEnv storageNames
-      available functions freeFunctions returnTys returnNames inner body
+      internalFuel modifierStorageRefEnv modifierEnv externalCallKindEnv
+      storageNames available functions freeFunctions returnTys returnNames
+      inner body
   some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
 
 def functionExpandModifiersToCoreWithInternalCallsFull?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames returnNames : List Name)
     (available : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty)
@@ -8298,6 +8445,7 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
         (internalFuel := internalFuel)
         (storageRefEnv := storageRefEnv)
         (env := env)
+        (externalCallKindEnv := externalCallKindEnv)
         (storageNames := storageNames)
         (modifiers := available)
         (functions := functions)
@@ -8307,13 +8455,13 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
   | invocation :: rest => do
       let inner ←
         functionExpandModifiersToCoreWithInternalCallsFull?
-          internalFuel storageRefEnv env storageNames returnNames available
-          functions freeFunctions returnTys rest body
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          returnNames available functions freeFunctions returnTys rest body
       let modifierName ← pathLast? invocation.target
       let modifierDecl ← modifierFindByName? available modifierName
       modifierApplyToCoreWithInternalCalls? internalFuel storageRefEnv env
-        storageNames returnNames available functions freeFunctions returnTys
-        modifierDecl invocation inner
+        externalCallKindEnv storageNames returnNames available functions
+        freeFunctions returnTys modifierDecl invocation inner
 termination_by invocations.length
 
 def libraryHelperName (libraryName functionName : Name) : Name :=
@@ -8761,7 +8909,8 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     (freeFunctions : List FunctionDecl)
     (decl : FunctionDecl) (superFunctions : List FunctionDecl := [])
     (contractName? : Option Name := none)
-    (baseNames : List Name := []) :
+    (baseNames : List Name := [])
+    (externalCallKindEnv : ExternalCallKindEnv := []) :
     Option CoreFunctionDef := do
   let decl := FunctionDecl.inlineConstants constants decl
   let selectorEnv :=
@@ -8804,7 +8953,7 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     | none => functions
   let bodyCore ←
     functionExpandModifiersToCoreWithInternalCallsFull?
-      defaultInternalCallInlineFuel storageRefEnv env
+      defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
       storageNames (returns.map SolidCore.Solidity.Source.BindingDecl.name)
       modifiers functions freeFunctions (decl.returns.map Parameter.ty)
       modifierInvocations body
@@ -8939,6 +9088,7 @@ def FunctionDecl.externalCallKindEntry? (contractName : Name)
         { contractName := contractName
           functionName := functionName
           paramTys := decl.params.map Parameter.ty
+          paramNames := decl.params.map Parameter.name
           mutability := decl.mutability }
   | _, _, _ => none
 
@@ -8957,6 +9107,7 @@ def StateVarDecl.externalCallKindEntry? (contractName : Name)
     { contractName := contractName
       functionName := decl.name
       paramTys := params
+      paramNames := List.replicate params.length none
       mutability := StateMutability.view }
 
 def ContractDecl.directExternalCallKindEntriesAs
@@ -9651,7 +9802,8 @@ def StateVarDecl.toCoreInit? (storageNames : List Name)
 
 def ContractDecl.directCoreFunctions? (storageNames : List Name)
     (constants : ConstantEnv)
-    (extraEnv : TypeEnv) (contracts : List ContractDecl)
+    (extraEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (contracts : List ContractDecl)
     (dispatchOrder : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
     (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
@@ -9668,7 +9820,8 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
         FunctionDecl.toCore?
           storageNames constants extraEnv contracts usingDecls modifiers functions
           freeFunctions fn (concatMapList ContractDecl.directOrdinaryFunctions supers)
-          (some decl.name) (dispatchOrder.map ContractDecl.name))
+          (some decl.name) (dispatchOrder.map ContractDecl.name)
+          externalCallKindEnv)
       ((ContractDecl.directOrdinaryFunctions decl).filter
         FunctionDecl.isCoreEntrypoint)
   some (getters ++ functions)
@@ -9677,7 +9830,7 @@ def ContractDecl.constructorBodyForDeployment?
     (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
     (storageNames : List Name) (constants : ConstantEnv)
-    (stateEnv : TypeEnv)
+    (stateEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl)
     (targetName : Name) (baseArgs : List Expr) (decl : ContractDecl) :
@@ -9730,8 +9883,8 @@ def ContractDecl.constructorBodyForDeployment?
             (ModifierInvocation.expandUsing allContracts usingDecls env)
       let bodyCore ←
         functionExpandModifiersToCoreWithInternalCallsFull?
-          defaultInternalCallInlineFuel storageRefEnv env storageNames []
-          modifiers functions freeFunctions [] ctorModifiers body
+          defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
+          storageNames [] modifiers functions freeFunctions [] ctorModifiers body
       if decl.name == targetName then
         some (params, initStmts ++ [bodyCore])
       else
@@ -9864,8 +10017,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let functionGroups ←
     mapOption
       (ContractDecl.directCoreFunctions?
-        storageNames constants stateEnv allContracts dispatchOrder sourceUsingDecls
-        modifiers availableFunctions sourceFunctions)
+        storageNames constants stateEnv externalCallKindEnv allContracts
+        dispatchOrder sourceUsingDecls modifiers availableFunctions
+        sourceFunctions)
       dispatchOrder
   let functions := concatLists functionGroups
   let immutableFields ←
@@ -10027,7 +10181,8 @@ def ContractDecl.constructorFunctionFromOrders?
               targetDecl derived decl
         ContractDecl.constructorBodyForDeployment?
           allContracts sourceUsingDecls storageNames constants stateEnv
-          modifiers availableFunctions sourceFunctions targetName baseArgs decl)
+          externalCallKindEnv modifiers availableFunctions sourceFunctions
+          targetName baseArgs decl)
       storageOrder
   let params := concatLists (pieces.map Prod.fst)
   let stmts := concatLists (pieces.map Prod.snd)
@@ -17101,6 +17256,105 @@ def highLevelExternalReturnMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 77)
   | _ => some false
+
+def highLevelExternalNamedArgsTargetContract : ContractDecl :=
+  { name := "NamedArgsTarget"
+    items :=
+      [ ContractItem.function
+          { name := some "quote"
+            visibility := some Visibility.external_
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
+
+def highLevelExternalNamedArgsCallerContract : ContractDecl :=
+  { name := "NamedArgsCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "readNamed"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["NamedArgsTarget"] } }
+              , { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "quote")
+                      [ Arg.named "bonus" (Expr.ident "bonus")
+                      , Arg.named "amount" (Expr.ident "amount") ]))) } ] }
+
+def highLevelExternalDuplicateNamedArgsCallerContract : ContractDecl :=
+  { name := "DuplicateNamedArgsCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badNamed"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["NamedArgsTarget"] } }
+              , { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "quote")
+                      [ Arg.named "amount" (Expr.ident "amount")
+                      , Arg.named "amount" (Expr.ident "bonus") ]))) } ] }
+
+def highLevelExternalNamedArgsContracts : List ContractDecl :=
+  [ highLevelExternalNamedArgsTargetContract
+  , highLevelExternalNamedArgsCallerContract ]
+
+def highLevelExternalNamedArgsReorderedMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      highLevelExternalNamedArgsContracts
+      highLevelExternalNamedArgsCallerContract
+  let function ← contract.findFunctionByName? "readNamed"
+  let callData ←
+    externalCalldata? "quote(uint256,uint256)"
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 42]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def highLevelExternalDuplicateNamedArgsRejected : Option Bool :=
+  match
+    ContractDecl.toCoreWithBases?
+      [ highLevelExternalNamedArgsTargetContract
+      , highLevelExternalDuplicateNamedArgsCallerContract ]
+      highLevelExternalDuplicateNamedArgsCallerContract with
+  | some _ => some false
+  | none => some true
 
 def highLevelExternalVarDeclFunction : FunctionDecl :=
   { name := some "readViaLocal"
