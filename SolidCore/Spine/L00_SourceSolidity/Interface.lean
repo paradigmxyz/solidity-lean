@@ -3281,6 +3281,67 @@ def sourceIdentCore (storageNames : List Name) (name : Name) : CoreExpr :=
       else
         SolidCore.Solidity.Source.Expr.var name
 
+def externalFunctionSignature? (name : Name) (argTys : List Ty) :
+    Option String := do
+  let canonicals ← Ty.listAbiCanonical? argTys
+  some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
+
+structure ExternalCallKindEntry where
+  contractName : Name
+  functionName : Name
+  paramTys : List Ty := []
+  mutability : StateMutability := StateMutability.nonpayable
+  deriving Repr
+
+abbrev ExternalCallKindEnv := List ExternalCallKindEntry
+
+def ExternalCallKindEnv.lookup? (env : ExternalCallKindEnv)
+    (contractName functionName : Name) (paramTys : List Ty) :
+    Option CoreLowLevelCallKind :=
+  match env with
+  | [] => none
+  | entry :: rest =>
+      if entry.contractName == contractName &&
+          entry.functionName == functionName &&
+          entry.paramTys == paramTys then
+        some (StateMutability.externalFunctionCallKind entry.mutability)
+      else
+        ExternalCallKindEnv.lookup? rest contractName functionName paramTys
+
+def externalCallKindTypeEnvPrefix : Name :=
+  "__external_call_kind:"
+
+def externalCallKindTypeEnvName? (contractName functionName : Name)
+    (paramTys : List Ty) : Option Name := do
+  let signature ← externalFunctionSignature? functionName paramTys
+  some (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature)
+
+def ExternalCallKindEntry.toTypeEnvEntry?
+    (entry : ExternalCallKindEntry) : Option (Name × Ty) := do
+  let key ←
+    externalCallKindTypeEnvName?
+      entry.contractName entry.functionName entry.paramTys
+  some
+    ( key
+    , Ty.function entry.paramTys [] entry.mutability Visibility.external_ )
+
+def ExternalCallKindEnv.toTypeEnv? (env : ExternalCallKindEnv) :
+    Option TypeEnv :=
+  mapOption ExternalCallKindEntry.toTypeEnvEntry? env
+
+def TypeEnv.externalCallKindEntries (env : TypeEnv) : TypeEnv :=
+  env.filter (fun entry => entry.fst.startsWith externalCallKindTypeEnvPrefix)
+
+def TypeEnv.lookupExternalCallKind? (env : TypeEnv)
+    (contractName functionName : Name) (paramTys : List Ty) :
+    Option CoreLowLevelCallKind := do
+  let key ← externalCallKindTypeEnvName? contractName functionName paramTys
+  let ty ← TypeEnv.lookup? env key
+  match ty with
+  | Ty.function _ _ mutability Visibility.external_ =>
+      some (StateMutability.externalFunctionCallKind mutability)
+  | _ => none
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -4195,11 +4256,6 @@ def TupleItems.toAbiEncodeSource? (storageNames : List Name) :
   | TupleItem.hole :: _ => none
 termination_by items => (sizeOf items, 0)
 
-def externalFunctionSignature? (name : Name) (argTys : List Ty) :
-    Option String := do
-  let canonicals ← Ty.listAbiCanonical? argTys
-  some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
-
 def Expr.functionPointerSelectorCore? (storageNames : List Name)
     (functionPointer : Expr) (argTys : List Ty) : Option CoreExpr :=
   match functionPointer with
@@ -4229,7 +4285,34 @@ def Expr.externalCallKindForTarget (target : Expr) : CoreLowLevelCallKind :=
       | none => SolidCore.Solidity.Source.LowLevelCallKind.call
   | _ => SolidCore.Solidity.Source.LowLevelCallKind.call
 
-def Expr.toExternalCall? (storageNames : List Name) :
+def Expr.externalCallKindForTargetWithEnv (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (target : Expr)
+    (name : Name) (argTys : List Ty) : CoreLowLevelCallKind :=
+  let defaultKind := Expr.externalCallKindForTarget target
+  if defaultKind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall then
+    defaultKind
+  else
+    let targetTy? :=
+      match target with
+      | Expr.ident targetName => TypeEnv.lookup? env targetName
+      | _ => none
+    match targetTy? with
+    | some ty =>
+        match Ty.contractName? ty with
+        | some contractName =>
+            match TypeEnv.lookupExternalCallKind?
+                env contractName name argTys with
+            | some kind => kind
+            | none =>
+                match ExternalCallKindEnv.lookup?
+                    externalCallKindEnv contractName name argTys with
+                | some kind => kind
+                | none => defaultKind
+        | none => defaultKind
+    | none => defaultKind
+
+def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv) :
     Expr ->
       Option
         (CoreLowLevelCallKind × CoreExpr × CoreExpr × CoreExpr ×
@@ -4245,10 +4328,12 @@ def Expr.toExternalCall? (storageNames : List Name) :
         none
       else
         some ()
-      let kind := Expr.externalCallKindForTarget target
       let targetCore ← Expr.toCore? storageNames target
       let (sourceTys, coreTys, coreExprs) ←
         Args.toAbiEncodeSource? storageNames args
+      let kind :=
+        Expr.externalCallKindForTargetWithEnv
+          env externalCallKindEnv target name sourceTys
       let signature ← externalFunctionSignature? name sourceTys
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -4273,15 +4358,18 @@ def Expr.toExternalCall? (storageNames : List Name) :
         none
       else
         some ()
-      let kind := Expr.externalCallKindForTarget target
       let targetCore ← Expr.toCore? storageNames target
+      let (sourceTys, coreTys, coreExprs) ←
+        Args.toAbiEncodeSource? storageNames args
+      let kind :=
+        Expr.externalCallKindForTargetWithEnv
+          env externalCallKindEnv target name sourceTys
       let (valueCore, gasCore?, gasFirst) ←
-        if kind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall then
+        if kind == SolidCore.Solidity.Source.LowLevelCallKind.delegatecall ||
+            kind == SolidCore.Solidity.Source.LowLevelCallKind.staticcall then
           CallOptions.lowLevelDelegateGasCore? storageNames options
         else
           CallOptions.lowLevelCallValueGasCore? storageNames options
-      let (sourceTys, coreTys, coreExprs) ←
-        Args.toAbiEncodeSource? storageNames args
       let signature ← externalFunctionSignature? name sourceTys
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -4290,6 +4378,20 @@ def Expr.toExternalCall? (storageNames : List Name) :
           coreTys coreExprs
       some (kind, targetCore, callData, valueCore, gasCore?, gasFirst)
   | _ => none
+
+def Expr.toExternalCallWithTypeEnv? (storageNames : List Name)
+    (env : TypeEnv) : Expr ->
+      Option
+        (CoreLowLevelCallKind × CoreExpr × CoreExpr × CoreExpr ×
+          Option CoreExpr × Bool) :=
+  Expr.toExternalCallWithKindEnv? storageNames env []
+
+def Expr.toExternalCall? (storageNames : List Name) :
+    Expr ->
+      Option
+        (CoreLowLevelCallKind × CoreExpr × CoreExpr × CoreExpr ×
+          Option CoreExpr × Bool) :=
+  Expr.toExternalCallWithKindEnv? storageNames [] []
 
 def Expr.toContractCreation? (storageNames : List Name) :
     Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr)
@@ -4358,53 +4460,111 @@ def Expr.transferCore? (storageNames : List Name)
       (some (SolidCore.Solidity.Source.Expr.word 2300))
       false [] SolidCore.Solidity.Source.Stmt.skip [])
 
-def Expr.externalCallWithReturnsCore? (storageNames : List Name)
+def Expr.externalCallWithReturnsCoreWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (namePrefix : String) (returnTys : List Ty) (expr : Expr)
     (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt := do
   let (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
-    Expr.toExternalCall? storageNames expr
+    Expr.toExternalCallWithKindEnv? storageNames env externalCallKindEnv expr
   let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
       kind targetCore calldataCore valueCore gasCore? gasFirst returnBindings
       (successBody returnBindings) [])
 
-def Expr.externalCallDiscardCore? (storageNames : List Name)
+def Expr.externalCallWithReturnsCoreWithTypeEnv? (storageNames : List Name)
+    (env : TypeEnv)
+    (namePrefix : String) (returnTys : List Ty) (expr : Expr)
+    (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt :=
+  Expr.externalCallWithReturnsCoreWithKindEnv?
+    storageNames env [] namePrefix returnTys expr successBody
+
+def Expr.externalCallWithReturnsCore? (storageNames : List Name)
+    (namePrefix : String) (returnTys : List Ty) (expr : Expr)
+    (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt :=
+  Expr.externalCallWithReturnsCoreWithKindEnv?
+    storageNames [] [] namePrefix returnTys expr successBody
+
+def Expr.externalCallDiscardCoreWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (expr : Expr) : Option CoreStmt :=
-  Expr.externalCallWithReturnsCore?
-    storageNames "__ext" [] expr
+  Expr.externalCallWithReturnsCoreWithKindEnv?
+    storageNames env externalCallKindEnv "__ext" [] expr
     (fun _ => SolidCore.Solidity.Source.Stmt.skip)
 
-def Expr.externalCallSingleReturnCore? (storageNames : List Name)
+def Expr.externalCallDiscardCoreWithTypeEnv? (storageNames : List Name)
+    (env : TypeEnv) (expr : Expr) : Option CoreStmt :=
+  Expr.externalCallDiscardCoreWithKindEnv? storageNames env [] expr
+
+def Expr.externalCallDiscardCore? (storageNames : List Name)
+    (expr : Expr) : Option CoreStmt :=
+  Expr.externalCallDiscardCoreWithKindEnv? storageNames [] [] expr
+
+def Expr.externalCallSingleReturnCoreWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (expectedTy : Ty) (expr : Expr) (useResult : CoreExpr -> CoreStmt) :
     Option CoreStmt := do
-  Expr.externalCallWithReturnsCore?
-    storageNames "__ext" [expectedTy] expr
+  Expr.externalCallWithReturnsCoreWithKindEnv?
+    storageNames env externalCallKindEnv "__ext" [expectedTy] expr
     (fun bindings =>
       match bindings with
       | [binding] =>
           useResult (SolidCore.Solidity.Source.Expr.var binding.name)
       | _ => SolidCore.Solidity.Source.Stmt.skip)
 
-def Expr.externalCallAssignVarsCore? (storageNames : List Name)
+def Expr.externalCallSingleReturnCoreWithTypeEnv? (storageNames : List Name)
+    (env : TypeEnv) (expectedTy : Ty) (expr : Expr)
+    (useResult : CoreExpr -> CoreStmt) : Option CoreStmt :=
+  Expr.externalCallSingleReturnCoreWithKindEnv?
+    storageNames env [] expectedTy expr useResult
+
+def Expr.externalCallSingleReturnCore? (storageNames : List Name)
+    (expectedTy : Ty) (expr : Expr) (useResult : CoreExpr -> CoreStmt) :
+    Option CoreStmt := do
+  Expr.externalCallSingleReturnCoreWithKindEnv?
+    storageNames [] [] expectedTy expr useResult
+
+def Expr.externalCallAssignVarsCoreWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (returnTys : List Ty) (targetNames : List Name) (expr : Expr) :
     Option CoreStmt := do
   if targetNames.length == returnTys.length then
-    Expr.externalCallWithReturnsCore?
-      storageNames "__ext" returnTys expr
+    Expr.externalCallWithReturnsCoreWithKindEnv?
+      storageNames env externalCallKindEnv "__ext" returnTys expr
       (fun bindings =>
         SolidCore.Solidity.Source.Stmt.block
           (CoreBindingDecls.assignToVars targetNames bindings))
   else
     none
 
-def Expr.externalCallReturnCore? (storageNames : List Name)
+def Expr.externalCallAssignVarsCoreWithTypeEnv? (storageNames : List Name)
+    (env : TypeEnv) (returnTys : List Ty) (targetNames : List Name)
+    (expr : Expr) : Option CoreStmt :=
+  Expr.externalCallAssignVarsCoreWithKindEnv?
+    storageNames env [] returnTys targetNames expr
+
+def Expr.externalCallAssignVarsCore? (storageNames : List Name)
+    (returnTys : List Ty) (targetNames : List Name) (expr : Expr) :
+    Option CoreStmt := do
+  Expr.externalCallAssignVarsCoreWithKindEnv?
+    storageNames [] [] returnTys targetNames expr
+
+def Expr.externalCallReturnCoreWithKindEnv? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (returnTys : List Ty) (expr : Expr) : Option CoreStmt :=
-  Expr.externalCallWithReturnsCore?
-    storageNames "__extret" returnTys expr
+  Expr.externalCallWithReturnsCoreWithKindEnv?
+    storageNames env externalCallKindEnv "__extret" returnTys expr
     (fun bindings =>
       SolidCore.Solidity.Source.Stmt.returnValues
         (CoreBindingDecls.toVarExprs bindings))
+
+def Expr.externalCallReturnCoreWithTypeEnv? (storageNames : List Name)
+    (env : TypeEnv) (returnTys : List Ty) (expr : Expr) : Option CoreStmt :=
+  Expr.externalCallReturnCoreWithKindEnv? storageNames env [] returnTys expr
+
+def Expr.externalCallReturnCore? (storageNames : List Name)
+    (returnTys : List Ty) (expr : Expr) : Option CoreStmt :=
+  Expr.externalCallReturnCoreWithKindEnv? storageNames [] [] returnTys expr
 
 def TupleItems.toAbiDecodeSourceTypes? :
     List TupleItem -> Option (List Ty)
@@ -6622,7 +6782,8 @@ def FunctionDecl.internalCallParts?
       let returnDecls := Parameters.toDefaultVarDecls "_ret" callee.returns
       let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
       let body ← callee.body
-      let calleeEnv := FunctionDecl.typeEnv [] callee
+      let calleeEnv :=
+        FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
       let calleeStorageRefEnv :=
         Parameters.extendStorageRefEnv "_arg" [] callee.params
       let body := Stmt.annotateAbi calleeEnv body
@@ -6653,7 +6814,8 @@ def FunctionDecl.internalCallParts?
       let returnDecls := Parameters.toDefaultVarDecls "_ret" callee.returns
       let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
       let body ← callee.body
-      let calleeEnv := FunctionDecl.typeEnv [] callee
+      let calleeEnv :=
+        FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
       let calleeStorageRefEnv :=
         Parameters.extendStorageRefEnv "_arg" [] callee.params
       let body := Stmt.annotateAbi calleeEnv body
@@ -6757,11 +6919,11 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           match Expr.localStorageArrayMemberStmtCore?
               storageRefEnv env storageNames expr with
           | some coreStmt => some coreStmt
-          | none => Expr.externalCallDiscardCore? storageNames expr
+          | none => Expr.externalCallDiscardCoreWithTypeEnv? storageNames env expr
   | Stmt.expr expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
       | some coreStmt => some coreStmt
-      | none => Expr.externalCallDiscardCore? storageNames expr
+      | none => Expr.externalCallDiscardCoreWithTypeEnv? storageNames env expr
   | Stmt.expr
       (Expr.assign
         (Expr.call (Expr.member (Expr.ident name) "push") [])
@@ -6793,8 +6955,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.toCoreLValue? storageNames lhs,
           Expr.abiTyWithEnv? env lhs with
       | some lhsCore, some expectedTy =>
-          match Expr.externalCallSingleReturnCore?
-              storageNames expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithTypeEnv?
+              storageNames env expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
@@ -6807,8 +6969,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.toCoreLValue? storageNames lhs,
           Expr.abiTyWithEnv? env lhs with
       | some lhsCore, some expectedTy =>
-          match Expr.externalCallSingleReturnCore?
-              storageNames expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithTypeEnv?
+              storageNames env expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
@@ -6856,8 +7018,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCore?
-              storageNames expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithTypeEnv?
+              storageNames env expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -6876,8 +7038,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCore?
-              storageNames expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithTypeEnv?
+              storageNames env expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -6952,8 +7114,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       let returnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCore?
-          storageNames returnTys names expr
+        Expr.externalCallAssignVarsCoreWithTypeEnv?
+          storageNames env returnTys names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) => do
@@ -6961,8 +7123,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       let returnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCore?
-          storageNames returnTys names expr
+        Expr.externalCallAssignVarsCoreWithTypeEnv?
+          storageNames env returnTys names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) => do
@@ -6986,12 +7148,14 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           storageNames env names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
-      match Expr.externalCallReturnCore? storageNames returnTys expr with
+      match Expr.externalCallReturnCoreWithTypeEnv?
+          storageNames env returnTys expr with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
-      match Expr.externalCallReturnCore? storageNames returnTys expr with
+      match Expr.externalCallReturnCoreWithTypeEnv?
+          storageNames env returnTys expr with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues (some expr@(Expr.call (Expr.ident name) args)) =>
@@ -7108,7 +7272,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       some (SolidCore.Solidity.Source.Stmt.forLoop
         initCore condCore postCore bodyCore)
   | Stmt.tryCatch expr clauses => do
-      match Expr.toExternalCall? storageNames expr with
+      match Expr.toExternalCallWithTypeEnv? storageNames env expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let catchCore ←
             CatchClause.listToCoreWithInternalCalls?
@@ -7144,7 +7308,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
       let successEnv := Parameters.extendTypeEnv "_try" env returns
-      match Expr.toExternalCall? storageNames expr with
+      match Expr.toExternalCallWithTypeEnv? storageNames env expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let successCore ←
             Stmt.toCoreWithInternalCalls?
@@ -7307,8 +7471,8 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) :: rest =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCore?
-              storageNames expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithTypeEnv?
+              storageNames env expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7365,8 +7529,8 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) :: rest =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
-          match Expr.externalCallSingleReturnCore?
-              storageNames expectedTy expr
+          match Expr.externalCallSingleReturnCoreWithTypeEnv?
+              storageNames env expectedTy expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7528,8 +7692,8 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       let callReturnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCore?
-          storageNames callReturnTys names expr
+        Expr.externalCallAssignVarsCoreWithTypeEnv?
+          storageNames env callReturnTys names expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -7543,8 +7707,8 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       let callReturnTys ← VarBindings.sourceTys? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        Expr.externalCallAssignVarsCore?
-          storageNames callReturnTys names expr
+        Expr.externalCallAssignVarsCoreWithTypeEnv?
+          storageNames env callReturnTys names expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -7796,7 +7960,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
             CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env storageNames modifiers
               functions freeFunctions returnTys returnNames replacement clauses
-          match Expr.toExternalCall? storageNames expr with
+          match Expr.toExternalCallWithTypeEnv? storageNames env expr with
           | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
@@ -7829,7 +7993,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
             CatchClause.listToCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env storageNames modifiers
               functions freeFunctions returnTys returnNames replacement clauses
-          match Expr.toExternalCall? storageNames expr with
+          match Expr.toExternalCallWithTypeEnv? storageNames env expr with
           | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
@@ -8639,6 +8803,46 @@ def ContractDecl.directOrdinaryFunctions (decl : ContractDecl) : List FunctionDe
   (ContractDecl.directFunctions decl).filter
     (fun fn => !FunctionDecl.isConstructor fn)
 
+def FunctionDecl.externalCallKindEntry? (contractName : Name)
+    (decl : FunctionDecl) : Option ExternalCallKindEntry :=
+  match decl.kind, decl.name, decl.visibility with
+  | FunctionKind.function, some _, some Visibility.internal_ => none
+  | FunctionKind.function, some _, some Visibility.private_ => none
+  | FunctionKind.function, some functionName, _ =>
+      some
+        { contractName := contractName
+          functionName := functionName
+          paramTys := decl.params.map Parameter.ty
+          mutability := decl.mutability }
+  | _, _, _ => none
+
+def StateVarDecl.externalGetterParamTys? (decl : StateVarDecl) :
+    Option (List Ty) :=
+  match decl.visibility, decl.ty with
+  | some Visibility.public_, Ty.mapping keyTy _ => some [keyTy]
+  | some Visibility.public_, Ty.array _ _ => some [Ty.uint 256]
+  | some Visibility.public_, _ => some []
+  | _, _ => none
+
+def StateVarDecl.externalCallKindEntry? (contractName : Name)
+    (decl : StateVarDecl) : Option ExternalCallKindEntry := do
+  let params ← StateVarDecl.externalGetterParamTys? decl
+  some
+    { contractName := contractName
+      functionName := decl.name
+      paramTys := params
+      mutability := StateMutability.view }
+
+def ContractDecl.directExternalCallKindEntriesAs
+    (targetName : Name) (decl : ContractDecl) : List ExternalCallKindEntry :=
+  let functionEntries :=
+    (ContractDecl.directOrdinaryFunctions decl).filterMap
+      (FunctionDecl.externalCallKindEntry? targetName)
+  let getterEntries :=
+    (ContractDecl.directStateVars decl).filterMap
+      (StateVarDecl.externalCallKindEntry? targetName)
+  functionEntries ++ getterEntries
+
 def ContractDecl.isInterface (decl : ContractDecl) : Bool :=
   match decl.kind with
   | ContractKind.interface => true
@@ -9012,6 +9216,22 @@ def ContractDecl.dispatchOrderWithFuel?
 def ContractDecl.dispatchOrder? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
   ContractDecl.dispatchOrderWithFuel? (contracts.length + 1) contracts decl
+
+def ContractDecl.externalCallKindEntries? (contracts : List ContractDecl)
+    (decl : ContractDecl) : Option (List ExternalCallKindEntry) :=
+  let entriesFrom (decls : List ContractDecl) :=
+    concatMapList
+      (ContractDecl.directExternalCallKindEntriesAs decl.name)
+      decls
+  match ContractDecl.dispatchOrder? contracts decl with
+  | some dispatchOrder => some (entriesFrom dispatchOrder)
+  | none => some (ContractDecl.directExternalCallKindEntriesAs decl.name decl)
+
+def ExternalCallKindEnv.fromContracts? (contracts : List ContractDecl) :
+    Option ExternalCallKindEnv := do
+  let groups ←
+    mapOption (ContractDecl.externalCallKindEntries? contracts) contracts
+  some (concatLists groups)
 
 def ContractDecl.storageFieldsFrom (transient : Bool) (slot : Nat) :
     List StateVarDecl -> List CoreStorageField
@@ -9495,7 +9715,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
   let storageNames :=
     stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
-  let stateEnv := StateVars.extendTypeEnv [] stateVars
+  let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
+  let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
+  let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
   let modifiers :=
     (concatMapList ContractDecl.directModifiers dispatchOrder).map
       (ModifierDecl.inlineConstants constants)
@@ -9643,7 +9865,9 @@ def ContractDecl.constructorFunctionFromOrders?
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
   let storageNames :=
     stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
-  let stateEnv := StateVars.extendTypeEnv [] stateVars
+  let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
+  let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
+  let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
   let modifiers :=
     (concatMapList ContractDecl.directModifiers dispatchOrder).map
       (ModifierDecl.inlineConstants constants)
@@ -16491,6 +16715,180 @@ def highLevelExternalFailureBubblesRaw : Option Bool := do
       (SolidCore.Solidity.Source.RevertData.raw bytes) =>
       some (bytes == [0xdd, 0xee])
   | _ => some false
+
+def highLevelExternalViewTargetContract : ContractDecl :=
+  { name := "ViewTarget"
+    items :=
+      [ ContractItem.function
+          { name := some "get"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.external_
+            mutability := StateMutability.view }
+      , ContractItem.function
+          { name := some "pureGet"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.external_
+            mutability := StateMutability.pure }
+      , ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_ } ] }
+
+def highLevelExternalViewCallerContract : ContractDecl :=
+  { name := "ViewCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "readView"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["ViewTarget"] } } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "get") []))) }
+      , ContractItem.function
+          { name := some "readPureWithGas"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["ViewTarget"] } } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "pureGet")
+                      [ CallOption.named "gas"
+                          (Expr.literal (Literal.number "4321")) ]
+                      []))) }
+      , ContractItem.function
+          { name := some "readGetter"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["ViewTarget"] } } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "x") []))) } ] }
+
+def highLevelExternalViewBadValueCallerContract : ContractDecl :=
+  { name := "ViewBadValueCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badValueOnView"
+            params :=
+              [ { name := some "target"
+                  ty := Ty.user { segments := ["ViewTarget"] } } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "get")
+                      [ CallOption.named "value"
+                          (Expr.literal (Literal.number "1")) ]
+                      []))) } ] }
+
+def highLevelExternalViewContracts : List ContractDecl :=
+  [highLevelExternalViewTargetContract, highLevelExternalViewCallerContract]
+
+def highLevelExternalViewStaticcallMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      highLevelExternalViewContracts highLevelExternalViewCallerContract
+  let function ← contract.findFunctionByName? "readView"
+  let callData ← externalCalldata? "get()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 77]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 77)
+  | _ => some false
+
+def highLevelExternalPureGasStaticcallMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      highLevelExternalViewContracts highLevelExternalViewCallerContract
+  let function ← contract.findFunctionByName? "readPureWithGas"
+  let callData ← externalCalldata? "pureGet()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 88]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              gas? := some 4321
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 88)
+  | _ => some false
+
+def highLevelExternalGetterStaticcallMatches : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases?
+      highLevelExternalViewContracts highLevelExternalViewCallerContract
+  let function ← contract.findFunctionByName? "readGetter"
+  let callData ← externalCalldata? "x()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 99]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 99)
+  | _ => some false
+
+def highLevelExternalViewValueOptionRejected : Option Bool := do
+  match
+    ContractDecl.toCoreWithBases?
+      [ highLevelExternalViewTargetContract
+      , highLevelExternalViewBadValueCallerContract ]
+      highLevelExternalViewBadValueCallerContract with
+  | some _ => some false
+  | none => some true
 
 def sendValueFunction : FunctionDecl :=
   { name := some "sendValue"
