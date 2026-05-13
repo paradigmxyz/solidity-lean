@@ -15822,6 +15822,87 @@ def tryCatchUnmatchedPropagatesRaw : Option Bool := do
       some (bytes == [0xaa, 0xbb])
   | _ => some false
 
+def tryCatchMalformedErrorFallsThroughFunction : FunctionDecl :=
+  { name := some "readMalformedError"
+    params := [{ name := some "target", ty := Ty.address false }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.tryCatchReturns
+          (Expr.call (Expr.member (Expr.ident "target") "get") [])
+          [{ name := some "value", ty := Ty.uint 256 }]
+          (Stmt.returnValues (some (Expr.ident "value")))
+          [ CatchClause.clause (some "Error")
+              [{ name := some "reason"
+                 ty := Ty.string
+                 location := some DataLocation.memory }]
+              (Stmt.returnValues
+                (some (Expr.literal (Literal.number "111"))))
+          , CatchClause.clause none
+              [{ name := some "data"
+                 ty := Ty.bytes
+                 location := some DataLocation.memory }]
+              (Stmt.returnValues
+                (some (Expr.member (Expr.ident "data") "length"))) ]) }
+
+def tryCatchMalformedErrorFallsThroughMatches : Option Bool := do
+  let callData ← externalCalldata? "get()" [] []
+  let malformedError :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      SolidCore.Solidity.Source.ABI.errorSelector
+  let result ←
+    FunctionDecl.call? 16 [] []
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := malformedError } ] }
+      SolidCore.Solidity.Source.State.empty
+      tryCatchMalformedErrorFallsThroughFunction
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 4)
+  | _ => some false
+
+def tryCatchReturnDecodeFailureFunction : FunctionDecl :=
+  { name := some "readMalformedReturn"
+    params := [{ name := some "target", ty := Ty.address false }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.tryCatchReturns
+          (Expr.call (Expr.member (Expr.ident "target") "get") [])
+          [{ name := some "value", ty := Ty.uint 256 }]
+          (Stmt.returnValues (some (Expr.ident "value")))
+          [ CatchClause.clause none []
+              (Stmt.returnValues
+                (some (Expr.literal (Literal.number "999")))) ]) }
+
+def tryCatchReturnDecodeFailureNotCaught : Option Bool := do
+  let callData ← externalCalldata? "get()" [] []
+  let result ←
+    FunctionDecl.call? 16 [] []
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := [0xaa, 0xbb] } ] }
+      SolidCore.Solidity.Source.State.empty
+      tryCatchReturnDecodeFailureFunction
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _ revert =>
+      match revert with
+      | .typeMismatch => some true
+      | _ => some false
+  | _ => some false
+
 def highLevelExternalReturnFunction : FunctionDecl :=
   { name := some "readExternal"
     params := [{ name := some "target", ty := Ty.address false }]
