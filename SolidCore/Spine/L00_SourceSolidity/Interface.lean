@@ -11764,6 +11764,33 @@ def msgSigCalldataResult :
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     8 contract SolidCore.Solidity.Source.State.empty calldata
 
+def abiSelfAddressFunction : FunctionDecl :=
+  { name := some "who"
+    returns := [{ name := some "out", ty := Ty.address false }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call (Expr.typeName (Ty.address false))
+              [Arg.positional (Expr.ident "this")]))) }
+
+def abiSelfAddressContract : ContractDecl :=
+  { name := "SelfAddress"
+    items := [ContractItem.function abiSelfAddressFunction] }
+
+def abiSelfAddressAtMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? abiSelfAddressContract
+  let function ← contract.findFunctionByName? "who"
+  let calldata ← SolidCore.Solidity.Source.ABI.calldataFor? function []
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldataAt?
+      8 contract SolidCore.Solidity.Source.State.empty 0xcafe calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0xcafe]
+  some (result.success && result.output == expected)
+
 def fixedBytesEchoFunction : FunctionDecl :=
   { name := some "echo4"
     params := [{ name := some "value", ty := Ty.bytesN 4 }]

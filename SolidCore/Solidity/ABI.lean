@@ -477,19 +477,24 @@ def FunctionDef.encodeFallbackOutput? (function : FunctionDef)
       some (normalizeBytes bytes)
   | _, _ => encodeValues? (function.returns.map BindingDecl.ty) values
 
-def Contract.callContext (contract : Contract)
-    (sender value : Word) (calldata : Bytes) : Context :=
+def Contract.callContextAt (contract : Contract)
+    (self sender value : Word) (calldata : Bytes) : Context :=
   { contract.context with
     calldata := normalizeBytes calldata
+    self := SharedSemantics.norm self
     sender := SharedSemantics.norm sender
     value := SharedSemantics.norm value }
 
-def Contract.callFallbackFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (sender value : Word) (calldata : Bytes) :
+def Contract.callContext (contract : Contract)
+    (sender value : Word) (calldata : Bytes) : Context :=
+  Contract.callContextAt contract 0 sender value calldata
+
+def Contract.callFallbackAtFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
     Option AbiCallResult := do
   let function ← Contract.findFallback? contract
   let args ← FunctionDef.fallbackArgs? function calldata
-  let context := Contract.callContext contract sender value calldata
+  let context := Contract.callContextAt contract self sender value calldata
   if function.acceptsValue value then
     match FunctionDef.call? fuel context function state args with
     | some (CallResult.returned state' values) => do
@@ -502,17 +507,22 @@ def Contract.callFallbackFrom? (fuel : Nat) (contract : Contract)
   else
     Contract.rejectedValueCall? contract state
 
+def Contract.callFallbackFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callFallbackAtFrom? fuel contract state 0 sender value calldata
+
 def Contract.callFallback? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callFallbackFrom? fuel contract state 0 0 calldata
 
-def Contract.callReceiveOrFallbackFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (sender value : Word) (calldata : Bytes) :
+def Contract.callReceiveOrFallbackAtFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
     Option AbiCallResult :=
   if calldata.isEmpty then
     match Contract.findReceive? contract with
     | some function =>
-        let context := Contract.callContext contract sender value []
+        let context := Contract.callContextAt contract self sender value []
         if function.acceptsValue value then
           match FunctionDef.call? fuel context function state [] with
           | some (CallResult.returned state' values) => do
@@ -525,17 +535,23 @@ def Contract.callReceiveOrFallbackFrom? (fuel : Nat) (contract : Contract)
           | none => none
         else
           Contract.rejectedValueCall? contract state
-    | none => Contract.callFallbackFrom? fuel contract state
-        sender value calldata
+    | none => Contract.callFallbackAtFrom? fuel contract state
+        self sender value calldata
   else
-    Contract.callFallbackFrom? fuel contract state sender value calldata
+    Contract.callFallbackAtFrom? fuel contract state self sender value calldata
+
+def Contract.callReceiveOrFallbackFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callReceiveOrFallbackAtFrom? fuel contract state 0 sender value
+    calldata
 
 def Contract.callReceiveOrFallback? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callReceiveOrFallbackFrom? fuel contract state 0 0 calldata
 
-def Contract.callCalldataFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (sender value : Word) (calldata : Bytes) :
+def Contract.callCalldataAtFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
     Option AbiCallResult := do
   match readSelector? calldata with
   | some selector =>
@@ -544,7 +560,8 @@ def Contract.callCalldataFrom? (fuel : Nat) (contract : Contract)
           let args ←
             decodeArgs? (function.params.map BindingDecl.ty)
               (calldata.drop selectorBytes)
-          let context := Contract.callContext contract sender value calldata
+          let context :=
+            Contract.callContextAt contract self sender value calldata
           if function.acceptsValue value then
             match function.call? fuel context state args with
             | some (CallResult.returned state' values) => do
@@ -558,21 +575,46 @@ def Contract.callCalldataFrom? (fuel : Nat) (contract : Contract)
           else
             Contract.rejectedValueCall? contract state
       | none =>
-          Contract.callFallbackFrom? fuel contract state sender value calldata
+          Contract.callFallbackAtFrom? fuel contract state
+            self sender value calldata
   | none =>
-      Contract.callReceiveOrFallbackFrom? fuel contract state sender value calldata
+      Contract.callReceiveOrFallbackAtFrom? fuel contract state
+        self sender value calldata
+
+def Contract.callCalldataFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataAtFrom? fuel contract state 0 sender value calldata
+
+def Contract.callCalldataAt? (fuel : Nat) (contract : Contract)
+    (state : State) (self : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataAtFrom? fuel contract state self 0 0 calldata
 
 def Contract.callCalldata? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callCalldataFrom? fuel contract state 0 0 calldata
 
-def Contract.callCalldataTransactionFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (sender value : Word) (calldata : Bytes) :
+def Contract.callCalldataTransactionAtFrom? (fuel : Nat)
+    (contract : Contract) (state : State) (self sender value : Word)
+    (calldata : Bytes) :
     Option AbiCallResult := do
   let result ←
-    Contract.callCalldataFrom?
-      fuel contract state.clearTransient sender value calldata
+    Contract.callCalldataAtFrom?
+      fuel contract state.clearTransient self sender value calldata
   some result.clearTransient
+
+def Contract.callCalldataTransactionFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataTransactionAtFrom? fuel contract state 0 sender value
+    calldata
+
+def Contract.callCalldataTransactionAt? (fuel : Nat) (contract : Contract)
+    (state : State) (self : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataTransactionAtFrom? fuel contract state self 0 0
+    calldata
 
 def Contract.callCalldataTransaction? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
