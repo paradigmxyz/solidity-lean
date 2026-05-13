@@ -22809,6 +22809,53 @@ def modifierCallResult : Option CoreCallResult :=
     (SolidCore.Solidity.Source.CallTarget.name "run")
     SolidCore.Solidity.Source.State.empty []
 
+def modifierCallMatches : Option Bool := do
+  let result ← modifierCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      some (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
+  | _ => some false
+
+def multiPlaceholderModifier : ModifierDecl :=
+  { name := "twice"
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.modifierPlaceholder
+          , Stmt.expr
+              (Expr.assign (Expr.ident "x") AssignOp.addAssign
+                (Expr.literal (Literal.number "10")))
+          , Stmt.modifierPlaceholder
+          , Stmt.expr
+              (Expr.assign (Expr.ident "x") AssignOp.addAssign
+                (Expr.literal (Literal.number "100"))) ]) }
+
+def multiPlaceholderModifierFunction : FunctionDecl :=
+  { name := some "run"
+    modifiers := [{ target := { segments := ["twice"] } }]
+    body :=
+      some
+        (Stmt.expr
+          (Expr.assign (Expr.ident "x") AssignOp.addAssign
+            (Expr.literal (Literal.number "1")))) }
+
+def multiPlaceholderModifierContract : ContractDecl :=
+  { name := "MultiPlaceholder"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.modifierDecl multiPlaceholderModifier
+      , ContractItem.function multiPlaceholderModifierFunction ] }
+
+def multiPlaceholderModifierMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 multiPlaceholderModifierContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      some (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 112)
+  | _ => some false
+
 def namedArgsModifier : ModifierDecl :=
   { name := "bumpBy"
     params :=
