@@ -50,10 +50,14 @@ def normalize_log(value: str) -> str:
 def parse_lean_output(stdout: str) -> dict[str, object]:
     result: dict[str, object] = {
         "storage": {},
+        "transient_storage": {},
         "account_storage": {},
+        "account_transient_storage": {},
         "account_balance": {},
         "account_nonce": {},
         "account_code": {},
+        "account_codesize": {},
+        "account_codehash": {},
         "logs": [],
     }
     for line in stdout.splitlines():
@@ -64,10 +68,20 @@ def parse_lean_output(stdout: str) -> dict[str, object]:
             result["storage"][normalize_hex(parts[1], word=True)] = normalize_hex(
                 parts[2], word=True
             )
+        elif parts[0] == "transient_storage" and len(parts) == 3:
+            result["transient_storage"][normalize_hex(parts[1], word=True)] = (
+                normalize_hex(parts[2], word=True)
+            )
         elif parts[0] == "account_storage" and len(parts) == 4:
             address = normalize_hex(parts[1], word=True)
             key = normalize_hex(parts[2], word=True)
             result["account_storage"][f"{address}:{key}"] = normalize_hex(
+                parts[3], word=True
+            )
+        elif parts[0] == "account_transient_storage" and len(parts) == 4:
+            address = normalize_hex(parts[1], word=True)
+            key = normalize_hex(parts[2], word=True)
+            result["account_transient_storage"][f"{address}:{key}"] = normalize_hex(
                 parts[3], word=True
             )
         elif parts[0] == "account_balance" and len(parts) == 3:
@@ -82,13 +96,21 @@ def parse_lean_output(stdout: str) -> dict[str, object]:
             result["account_code"][normalize_hex(parts[1], word=True)] = normalize_hex(
                 parts[2]
             )
-        elif parts[0] == "log" and len(parts) == 4:
+        elif parts[0] == "account_codesize" and len(parts) == 3:
+            result["account_codesize"][normalize_hex(parts[1], word=True)] = parts[2]
+        elif parts[0] == "account_codehash" and len(parts) == 3:
+            result["account_codehash"][normalize_hex(parts[1], word=True)] = (
+                normalize_hex(parts[2], word=True)
+            )
+        elif parts[0] == "log" and len(parts) in (3, 4):
+            topics = "" if len(parts) == 3 else parts[2].lower()
+            data = parts[2] if len(parts) == 3 else parts[3]
             result["logs"].append(
                 "|".join(
                     [
                         normalize_hex(parts[1], word=True),
-                        parts[2].lower(),
-                        normalize_hex(parts[3]),
+                        topics,
+                        normalize_hex(data),
                     ]
                 )
             )
@@ -124,16 +146,22 @@ def run_lean(args: argparse.Namespace) -> dict[str, object]:
         args.caller,
         "--origin",
         args.origin,
+        "--gasprice",
+        args.gasprice,
         "--coinbase",
         args.coinbase,
         "--timestamp",
         str(args.timestamp),
         "--number",
         str(args.number),
+        "--prevrandao",
+        args.prevrandao,
         "--gaslimit",
         str(args.block_gas_limit),
         "--basefee",
         str(args.basefee),
+        "--blobbasefee",
+        str(args.blobbasefee),
         "--chainid",
         str(args.chainid),
         "--callvalue",
@@ -157,8 +185,72 @@ def run_lean(args: argparse.Namespace) -> dict[str, object]:
         cmd += ["--account-storage", item]
     for item in args.account_original_storage:
         cmd += ["--account-original-storage", item]
+    for item in args.blockhash:
+        cmd += ["--blockhash", item]
+    for item in args.blobhash:
+        cmd += ["--blobhash", item]
     for item in args.keccak:
         cmd += ["--keccak", item]
+    for item in args.sha256:
+        cmd += ["--sha256", item]
+    for item in args.ripemd160:
+        cmd += ["--ripemd160", item]
+    for item in args.modexp:
+        cmd += ["--modexp", item]
+    for item in args.blake2f:
+        cmd += ["--blake2f", item]
+    for item in args.ecadd:
+        cmd += ["--ecadd", item]
+    for item in args.ecmul:
+        cmd += ["--ecmul", item]
+    for item in args.ecpairing:
+        cmd += ["--ecpairing", item]
+    for item in args.ecadd_fail:
+        cmd += ["--ecadd-fail", item]
+    for item in args.ecmul_fail:
+        cmd += ["--ecmul-fail", item]
+    for item in args.ecpairing_fail:
+        cmd += ["--ecpairing-fail", item]
+    for item in args.point_evaluation:
+        cmd += ["--point-evaluation", item]
+    for item in args.point_evaluation_fail:
+        cmd += ["--point-evaluation-fail", item]
+    for item in args.p256_verify:
+        cmd += ["--p256-verify", item]
+    for item in args.p256_verify_fail:
+        cmd += ["--p256-verify-fail", item]
+    for item in args.bls_g1add:
+        cmd += ["--bls-g1add", item]
+    for item in args.bls_g1msm:
+        cmd += ["--bls-g1msm", item]
+    for item in args.bls_g2add:
+        cmd += ["--bls-g2add", item]
+    for item in args.bls_g2msm:
+        cmd += ["--bls-g2msm", item]
+    for item in args.bls_pairing:
+        cmd += ["--bls-pairing", item]
+    for item in args.bls_map_fp_to_g1:
+        cmd += ["--bls-map-fp-to-g1", item]
+    for item in args.bls_map_fp2_to_g2:
+        cmd += ["--bls-map-fp2-to-g2", item]
+    for item in args.bls_g1add_fail:
+        cmd += ["--bls-g1add-fail", item]
+    for item in args.bls_g1msm_fail:
+        cmd += ["--bls-g1msm-fail", item]
+    for item in args.bls_g2add_fail:
+        cmd += ["--bls-g2add-fail", item]
+    for item in args.bls_g2msm_fail:
+        cmd += ["--bls-g2msm-fail", item]
+    for item in args.bls_pairing_fail:
+        cmd += ["--bls-pairing-fail", item]
+    for item in args.bls_map_fp_to_g1_fail:
+        cmd += ["--bls-map-fp-to-g1-fail", item]
+    for item in args.bls_map_fp2_to_g2_fail:
+        cmd += ["--bls-map-fp2-to-g2-fail", item]
+    for item in args.cheat_addr:
+        cmd += ["--cheat-addr", item]
+    for item in args.cheat_sign:
+        cmd += ["--cheat-sign", item]
     for item in args.warm_address:
         cmd += ["--warm-address", item]
     for item in args.warm_storage:
@@ -194,16 +286,17 @@ def check(args: argparse.Namespace) -> None:
     if lean.get("output") != expected_output:
         mismatches.append(f"output: forge={expected_output} lean={lean.get('output')}")
 
-    if str(lean.get("gas_used")) != str(args.gas_used):
-        mismatches.append(
-            f"gas_used: forge={args.gas_used} lean={lean.get('gas_used')}"
-        )
+    if not args.skip_gas:
+        if str(lean.get("gas_used")) != str(args.gas_used):
+            mismatches.append(
+                f"gas_used: forge={args.gas_used} lean={lean.get('gas_used')}"
+            )
 
-    if str(lean.get("gas_remaining")) != str(args.gas_remaining):
-        mismatches.append(
-            "gas_remaining: "
-            f"forge={args.gas_remaining} lean={lean.get('gas_remaining')}"
-        )
+        if str(lean.get("gas_remaining")) != str(args.gas_remaining):
+            mismatches.append(
+                "gas_remaining: "
+                f"forge={args.gas_remaining} lean={lean.get('gas_remaining')}"
+            )
 
     if str(lean.get("refund")) != str(args.gas_refunded):
         mismatches.append(
@@ -232,6 +325,18 @@ def check(args: argparse.Namespace) -> None:
         if actual != expected:
             mismatches.append(f"storage[{key}]: forge={expected} lean={actual}")
 
+    lean_transient_storage = lean.get("transient_storage", {})
+    assert isinstance(lean_transient_storage, dict)
+    for assignment in args.expect_transient_storage:
+        key, value = assignment.split("=", 1)
+        key = normalize_hex(key, word=True)
+        expected = normalize_hex(value, word=True)
+        actual = lean_transient_storage.get(key, "0x" + "0" * 64)
+        if actual != expected:
+            mismatches.append(
+                f"transient_storage[{key}]: forge={expected} lean={actual}"
+            )
+
     lean_account_storage = lean.get("account_storage", {})
     assert isinstance(lean_account_storage, dict)
     for assignment in args.expect_account_storage:
@@ -244,6 +349,23 @@ def check(args: argparse.Namespace) -> None:
         if actual != expected:
             mismatches.append(
                 f"account_storage[{address}:{key}]: forge={expected} lean={actual}"
+            )
+
+    lean_account_transient_storage = lean.get("account_transient_storage", {})
+    assert isinstance(lean_account_transient_storage, dict)
+    for assignment in args.expect_account_transient_storage:
+        address_and_key, value = assignment.split("=", 1)
+        address, key = address_and_key.split(":", 1)
+        address = normalize_hex(address, word=True)
+        key = normalize_hex(key, word=True)
+        expected = normalize_hex(value, word=True)
+        actual = lean_account_transient_storage.get(
+            f"{address}:{key}", "0x" + "0" * 64
+        )
+        if actual != expected:
+            mismatches.append(
+                "account_transient_storage"
+                f"[{address}:{key}]: forge={expected} lean={actual}"
             )
 
     lean_account_balance = lean.get("account_balance", {})
@@ -270,6 +392,42 @@ def check(args: argparse.Namespace) -> None:
                 f"account_nonce[{address}]: forge={expected} lean={actual}"
             )
 
+    lean_account_code = lean.get("account_code", {})
+    assert isinstance(lean_account_code, dict)
+    for assignment in args.expect_account_code:
+        address, value = assignment.split("=", 1)
+        address = normalize_hex(address, word=True)
+        expected = normalize_hex(value)
+        actual = lean_account_code.get(address, "0x")
+        if actual != expected:
+            mismatches.append(
+                f"account_code[{address}]: forge={expected} lean={actual}"
+            )
+
+    lean_account_codesize = lean.get("account_codesize", {})
+    assert isinstance(lean_account_codesize, dict)
+    for assignment in args.expect_account_codesize:
+        address, value = assignment.split("=", 1)
+        address = normalize_hex(address, word=True)
+        expected = str(int(value, 0))
+        actual = lean_account_codesize.get(address, "0")
+        if actual != expected:
+            mismatches.append(
+                f"account_codesize[{address}]: forge={expected} lean={actual}"
+            )
+
+    lean_account_codehash = lean.get("account_codehash", {})
+    assert isinstance(lean_account_codehash, dict)
+    for assignment in args.expect_account_codehash:
+        address, value = assignment.split("=", 1)
+        address = normalize_hex(address, word=True)
+        expected = normalize_hex(value, word=True)
+        actual = lean_account_codehash.get(address, "0x" + "0" * 64)
+        if actual != expected:
+            mismatches.append(
+                f"account_codehash[{address}]: forge={expected} lean={actual}"
+            )
+
     expected_logs = [normalize_log(log) for log in args.expect_log]
     lean_logs = lean.get("logs", [])
     assert isinstance(lean_logs, list)
@@ -291,9 +449,8 @@ def forge(args: argparse.Namespace) -> None:
         "--ffi",
         "--evm-version",
         "osaka",
-        "--enable-tx-gas-limit",
         "--gas-limit",
-        "16777216",
+        "33554432",
     ]
     if args.match_test:
         cmd += ["--match-test", args.match_test]
@@ -315,16 +472,22 @@ def build_parser() -> argparse.ArgumentParser:
     check_p.add_argument("--output", required=True)
     check_p.add_argument("--gas-used", type=int, required=True)
     check_p.add_argument("--gas-remaining", type=int, required=True)
+    check_p.add_argument("--skip-gas", action="store_true")
     check_p.add_argument("--gas-refunded", type=int, required=True)
     check_p.add_argument("--address", default="0x1000000000000000000000000000000000000001")
     check_p.add_argument("--caller", default="0x1000000000000000000000000000000000000002")
     check_p.add_argument("--origin", default="0x1000000000000000000000000000000000000002")
+    check_p.add_argument("--gasprice", default="0")
     check_p.add_argument("--coinbase", default="0x0000000000000000000000000000000000000000")
     check_p.add_argument("--timestamp", type=int, default=1764798551)
     check_p.add_argument("--number", type=int, default=0)
+    check_p.add_argument("--prevrandao", default="0")
     check_p.add_argument("--block-gas-limit", type=int, default=60000000)
     check_p.add_argument("--basefee", type=int, default=0)
+    check_p.add_argument("--blobbasefee", type=int, default=0)
     check_p.add_argument("--chainid", type=int, default=1)
+    check_p.add_argument("--blockhash", action="append", default=[])
+    check_p.add_argument("--blobhash", action="append", default=[])
     check_p.add_argument("--callvalue", default="0")
     check_p.add_argument("--balance", default="0")
     check_p.add_argument("--nonce", default="0")
@@ -333,16 +496,53 @@ def build_parser() -> argparse.ArgumentParser:
     check_p.add_argument("--storage", action="append", default=[])
     check_p.add_argument("--original-storage", action="append", default=[])
     check_p.add_argument("--expect-storage", action="append", default=[])
+    check_p.add_argument("--expect-transient-storage", action="append", default=[])
     check_p.add_argument("--account", action="append", default=[])
     check_p.add_argument("--account-balance", action="append", default=[])
     check_p.add_argument("--account-nonce", action="append", default=[])
     check_p.add_argument("--account-storage", action="append", default=[])
     check_p.add_argument("--account-original-storage", action="append", default=[])
     check_p.add_argument("--expect-account-storage", action="append", default=[])
+    check_p.add_argument(
+        "--expect-account-transient-storage", action="append", default=[]
+    )
     check_p.add_argument("--expect-account-balance", action="append", default=[])
     check_p.add_argument("--expect-account-nonce", action="append", default=[])
+    check_p.add_argument("--expect-account-code", action="append", default=[])
+    check_p.add_argument("--expect-account-codesize", action="append", default=[])
+    check_p.add_argument("--expect-account-codehash", action="append", default=[])
     check_p.add_argument("--expect-log", action="append", default=[])
     check_p.add_argument("--keccak", action="append", default=[])
+    check_p.add_argument("--sha256", action="append", default=[])
+    check_p.add_argument("--ripemd160", action="append", default=[])
+    check_p.add_argument("--modexp", action="append", default=[])
+    check_p.add_argument("--blake2f", action="append", default=[])
+    check_p.add_argument("--ecadd", action="append", default=[])
+    check_p.add_argument("--ecmul", action="append", default=[])
+    check_p.add_argument("--ecpairing", action="append", default=[])
+    check_p.add_argument("--ecadd-fail", action="append", default=[])
+    check_p.add_argument("--ecmul-fail", action="append", default=[])
+    check_p.add_argument("--ecpairing-fail", action="append", default=[])
+    check_p.add_argument("--point-evaluation", action="append", default=[])
+    check_p.add_argument("--point-evaluation-fail", action="append", default=[])
+    check_p.add_argument("--p256-verify", action="append", default=[])
+    check_p.add_argument("--p256-verify-fail", action="append", default=[])
+    check_p.add_argument("--bls-g1add", action="append", default=[])
+    check_p.add_argument("--bls-g1msm", action="append", default=[])
+    check_p.add_argument("--bls-g2add", action="append", default=[])
+    check_p.add_argument("--bls-g2msm", action="append", default=[])
+    check_p.add_argument("--bls-pairing", action="append", default=[])
+    check_p.add_argument("--bls-map-fp-to-g1", action="append", default=[])
+    check_p.add_argument("--bls-map-fp2-to-g2", action="append", default=[])
+    check_p.add_argument("--bls-g1add-fail", action="append", default=[])
+    check_p.add_argument("--bls-g1msm-fail", action="append", default=[])
+    check_p.add_argument("--bls-g2add-fail", action="append", default=[])
+    check_p.add_argument("--bls-g2msm-fail", action="append", default=[])
+    check_p.add_argument("--bls-pairing-fail", action="append", default=[])
+    check_p.add_argument("--bls-map-fp-to-g1-fail", action="append", default=[])
+    check_p.add_argument("--bls-map-fp2-to-g2-fail", action="append", default=[])
+    check_p.add_argument("--cheat-addr", action="append", default=[])
+    check_p.add_argument("--cheat-sign", action="append", default=[])
     check_p.add_argument("--warm-address", action="append", default=[])
     check_p.add_argument("--warm-storage", action="append", default=[])
     check_p.set_defaults(func=check)

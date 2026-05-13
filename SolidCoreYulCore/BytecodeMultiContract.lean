@@ -1,6 +1,10 @@
+import SharedSemantics.External
 import SolidCoreYulCore.BytecodeGas
 
 namespace SolidCoreYulCore
+
+open SharedSemantics
+
 namespace BytecodeMultiContract
 
 open BytecodeEvm
@@ -32,14 +36,24 @@ def createRuntimeCode (state : MeteredState) : Bytes :=
   | some HaltKind.returned => state.evm.output
   | _ => []
 
+def maxRuntimeCodeSize : Nat := 24576
+
 def createReturndata (state : MeteredState) : Bytes :=
   match state.evm.halt? with
-  | some HaltKind.returned => state.evm.output
   | some HaltKind.reverted => state.evm.output
   | _ => []
 
 def subBalance? (balance value : Word) : Option Word :=
   if norm value <= norm balance then some (norm balance - norm value) else none
+
+def accountMapBalance (accounts : AccountMap) (address : Word) : Word :=
+  match lookupAccount? accounts address with
+  | some account => norm account.balance
+  | none => 0
+
+def hasSufficientBalance
+    (accounts : AccountMap) (address value : Word) : Bool :=
+  norm value <= norm (accountMapBalance accounts address)
 
 def incrementNonce (account : Account) : Account :=
   { account with nonce := addWord account.nonce 1, destroyed := false }
@@ -49,7 +63,7 @@ def accountCollision (account : Account) : Bool :=
 
 def transferValue? (accounts : AccountMap) (fromAddr toAddr value : Word) :
     Option AccountMap :=
-  if norm value = 0 || norm fromAddr = norm toAddr then
+  if norm value = 0 then
     some accounts
   else
     let fromAccount :=
@@ -59,25 +73,32 @@ def transferValue? (accounts : AccountMap) (fromAddr toAddr value : Word) :
     match subBalance? fromAccount.balance value with
     | none => none
     | some fromBalance =>
-        let toAccount :=
-          match lookupAccount? accounts toAddr with
-          | some account => account
-          | none => {}
-        let accountsAfterDebit :=
-          writeAccount accounts fromAddr
-            { fromAccount with balance := fromBalance, destroyed := false }
-        some
-          (writeAccount accountsAfterDebit toAddr
-            { toAccount with
-              balance := addWord toAccount.balance value,
-              destroyed := false })
+        if norm fromAddr = norm toAddr then
+          some accounts
+        else
+          let toAccount :=
+            match lookupAccount? accounts toAddr with
+            | some account => account
+            | none => {}
+          let accountsAfterDebit :=
+            writeAccount accounts fromAddr
+              { fromAccount with balance := fromBalance, destroyed := false }
+          some
+            (writeAccount accountsAfterDebit toAddr
+              { toAccount with
+                balance := addWord toAccount.balance value,
+                destroyed := false })
 
 def accountsBeforeCall? (parent : State) (call : ExternalCall) :
     Option AccountMap :=
   match call.kind with
   | ExternalCallKind.call =>
       transferValue? parent.accounts call.caller call.to call.value
-  | ExternalCallKind.callcode => some parent.accounts
+  | ExternalCallKind.callcode =>
+      if hasSufficientBalance parent.accounts call.caller call.value then
+        some parent.accounts
+      else
+        none
   | ExternalCallKind.delegatecall => some parent.accounts
   | ExternalCallKind.staticcall => some parent.accounts
 
@@ -85,7 +106,7 @@ def addressBytes20 (address : Word) : Bytes :=
   (wordToBytes32 address).drop 12
 
 def low160 (value : Word) : Word :=
-  norm value % (2 ^ 160)
+  addressWord value
 
 def dropLeadingZeroBytes : Bytes → Bytes
   | [] => []
@@ -123,16 +144,16 @@ def createdAddressFromState (state : State) (create : ExternalCreate) :
   | ExternalCreateKind.create =>
       let nonce := (rawAccount state create.creator).nonce
       let preimage := createAddressPreimage create.creator nonce
-      match lookupHash? state.keccakHashes preimage with
+      match SharedSemantics.External.lookupHash? state.keccakHashes preimage with
       | some hash => AddressDerivation.ok (low160 hash)
       | none => AddressDerivation.missingHash preimage
   | ExternalCreateKind.create2 =>
-      match lookupHash? state.keccakHashes create.initCode with
+      match SharedSemantics.External.lookupHash? state.keccakHashes create.initCode with
       | none => AddressDerivation.missingHash create.initCode
       | some initCodeHash =>
           let preimage := create2AddressPreimage create.creator
             ((create.salt?).getD 0) initCodeHash
-          match lookupHash? state.keccakHashes preimage with
+          match SharedSemantics.External.lookupHash? state.keccakHashes preimage with
           | some hash => AddressDerivation.ok (low160 hash)
           | none => AddressDerivation.missingHash preimage
 
@@ -169,15 +190,52 @@ def accountsBeforeCreate? (parent : State) (create : ExternalCreate)
             (writeAccount parent.accounts create.creator creatorFinal)
             address createdAccount)
 
+def accountExecutionCode (state : State) (address : Word) : Bytes :=
+  match delegatedAddress? state address with
+  | none => accountCode state address
+  | some delegated =>
+      if wordIn delegated precompileAddresses then
+        []
+      else
+        accountCode state delegated
+
 def childCode (parent : State) (accounts : AccountMap) (call : ExternalCall) :
     Bytes :=
-  accountCode { parent with accounts := accounts } call.to
+  accountExecutionCode { parent with accounts := accounts } call.to
 
 def childState (parent : State) (accounts : AccountMap) (call : ExternalCall) :
     State :=
   { State.empty with
     code := childCode parent accounts call,
     keccakHashes := parent.keccakHashes,
+    sha256Hashes := parent.sha256Hashes,
+    ripemd160Hashes := parent.ripemd160Hashes,
+    modexpResults := parent.modexpResults,
+    blake2fResults := parent.blake2fResults,
+    ecaddResults := parent.ecaddResults,
+    ecmulResults := parent.ecmulResults,
+    ecpairingResults := parent.ecpairingResults,
+    ecaddFailures := parent.ecaddFailures,
+    ecmulFailures := parent.ecmulFailures,
+    ecpairingFailures := parent.ecpairingFailures,
+    pointEvaluationProofs := parent.pointEvaluationProofs,
+    pointEvaluationFailures := parent.pointEvaluationFailures,
+    p256VerifyProofs := parent.p256VerifyProofs,
+    p256VerifyFailures := parent.p256VerifyFailures,
+    blsG1AddResults := parent.blsG1AddResults,
+    blsG1MsmResults := parent.blsG1MsmResults,
+    blsG2AddResults := parent.blsG2AddResults,
+    blsG2MsmResults := parent.blsG2MsmResults,
+    blsPairingResults := parent.blsPairingResults,
+    blsMapFpToG1Results := parent.blsMapFpToG1Results,
+    blsMapFp2ToG2Results := parent.blsMapFp2ToG2Results,
+    blsG1AddFailures := parent.blsG1AddFailures,
+    blsG1MsmFailures := parent.blsG1MsmFailures,
+    blsG2AddFailures := parent.blsG2AddFailures,
+    blsG2MsmFailures := parent.blsG2MsmFailures,
+    blsPairingFailures := parent.blsPairingFailures,
+    blsMapFpToG1Failures := parent.blsMapFpToG1Failures,
+    blsMapFp2ToG2Failures := parent.blsMapFp2ToG2Failures,
     cheatcodeAddresses := parent.cheatcodeAddresses,
     cheatcodeSignatures := parent.cheatcodeSignatures,
     accounts := accounts,
@@ -199,6 +257,34 @@ def createChildState
   { State.empty with
     code := create.initCode,
     keccakHashes := parent.keccakHashes,
+    sha256Hashes := parent.sha256Hashes,
+    ripemd160Hashes := parent.ripemd160Hashes,
+    modexpResults := parent.modexpResults,
+    blake2fResults := parent.blake2fResults,
+    ecaddResults := parent.ecaddResults,
+    ecmulResults := parent.ecmulResults,
+    ecpairingResults := parent.ecpairingResults,
+    ecaddFailures := parent.ecaddFailures,
+    ecmulFailures := parent.ecmulFailures,
+    ecpairingFailures := parent.ecpairingFailures,
+    pointEvaluationProofs := parent.pointEvaluationProofs,
+    pointEvaluationFailures := parent.pointEvaluationFailures,
+    p256VerifyProofs := parent.p256VerifyProofs,
+    p256VerifyFailures := parent.p256VerifyFailures,
+    blsG1AddResults := parent.blsG1AddResults,
+    blsG1MsmResults := parent.blsG1MsmResults,
+    blsG2AddResults := parent.blsG2AddResults,
+    blsG2MsmResults := parent.blsG2MsmResults,
+    blsPairingResults := parent.blsPairingResults,
+    blsMapFpToG1Results := parent.blsMapFpToG1Results,
+    blsMapFp2ToG2Results := parent.blsMapFp2ToG2Results,
+    blsG1AddFailures := parent.blsG1AddFailures,
+    blsG1MsmFailures := parent.blsG1MsmFailures,
+    blsG2AddFailures := parent.blsG2AddFailures,
+    blsG2MsmFailures := parent.blsG2MsmFailures,
+    blsPairingFailures := parent.blsPairingFailures,
+    blsMapFpToG1Failures := parent.blsMapFpToG1Failures,
+    blsMapFp2ToG2Failures := parent.blsMapFp2ToG2Failures,
     cheatcodeAddresses := parent.cheatcodeAddresses,
     cheatcodeSignatures := parent.cheatcodeSignatures,
     accounts := accounts,
@@ -218,21 +304,23 @@ def externalCallWithValue? (state : State)
     (kind : ExternalCallKind) : Option ExternalCall :=
   match state.stack with
   | gas :: to :: value :: argsOffset :: argsSize :: retOffset :: retSize :: _ =>
-      if state.call.isStatic = true ∧ norm value ≠ 0 then
+      let target := addressWord to
+      if state.call.isStatic = true ∧ kind = ExternalCallKind.call ∧
+          norm value ≠ 0 then
         none
       else
         let input := readMemoryBytes state.memory argsOffset argsSize
         some
           { kind := kind,
             gas := gas,
-            to := to,
+            to := target,
             value := value,
             input := input,
             retOffset := retOffset,
             retSize := retSize,
             caller := state.call.address,
             address :=
-              if kind = ExternalCallKind.call then to else state.call.address,
+              if kind = ExternalCallKind.call then target else state.call.address,
             isStatic := state.call.isStatic }
   | _ => none
 
@@ -240,6 +328,7 @@ def externalCallNoValue? (state : State)
     (kind : ExternalCallKind) : Option ExternalCall :=
   match state.stack with
   | gas :: to :: argsOffset :: argsSize :: retOffset :: retSize :: _ =>
+      let target := addressWord to
       let input := readMemoryBytes state.memory argsOffset argsSize
       let actionCaller :=
         if kind = ExternalCallKind.delegatecall then
@@ -250,7 +339,7 @@ def externalCallNoValue? (state : State)
         if kind = ExternalCallKind.delegatecall then
           state.call.address
         else
-          to
+          target
       let actionStatic :=
         if kind = ExternalCallKind.staticcall then true else state.call.isStatic
       let actionValue :=
@@ -258,7 +347,7 @@ def externalCallNoValue? (state : State)
       some
         { kind := kind,
           gas := gas,
-          to := to,
+          to := target,
           value := actionValue,
           input := input,
           retOffset := retOffset,
@@ -332,6 +421,14 @@ def createChildInitialMeteredState
     accessedStorageKeys := afterCreateAccess.accessedStorageKeys,
     refund := afterCreateAccess.refund }
 
+def createFailureAccessState
+    (parent : MeteredState) (effects : MeterEffects) (createdAddress : Word) :
+    MeteredState :=
+  let afterCreateAccess := applyMeterEffects effects parent
+  { afterCreateAccess with
+    accessedAddresses :=
+      insertWordSet createdAddress afterCreateAccess.accessedAddresses }
+
 def failedCallResult (accounts : AccountMap) (gasRemaining : Gas) :
     ExternalResult :=
   { success := false,
@@ -386,13 +483,59 @@ def precompileEcrecoverResult?
       some
         { success := false,
           returndata := [],
-          accounts? := some accounts,
+          accounts? := some parent.accounts,
           gasRemaining := 0 }
   else
     none
 
+def precompileSha256Result?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 2 then
+    let cost :=
+      GasConst.precompileSha256Base +
+        GasConst.precompileSha256PerWord * wordsForBytes call.input.length
+    if cost <= childGas then
+      match SharedSemantics.External.lookupHash? parent.sha256Hashes call.input with
+      | some digest =>
+          some
+            (Except.ok
+              { success := true,
+                returndata := wordToBytes32 digest,
+                accounts? := some accounts,
+                gasRemaining := childGas - cost })
+      | none => some (Except.error call.input)
+    else
+      some
+        (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def precompileRipemd160Result?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 3 then
+    let cost :=
+      GasConst.precompileRipemd160Base +
+        GasConst.precompileRipemd160PerWord * wordsForBytes call.input.length
+    if cost <= childGas then
+      match SharedSemantics.External.lookupHash? parent.ripemd160Hashes call.input with
+      | some digest =>
+          some
+            (Except.ok
+              { success := true,
+                returndata := wordToBytes32 (low160 digest),
+                accounts? := some accounts,
+                gasRemaining := childGas - cost })
+      | none => some (Except.error call.input)
+    else
+      some
+        (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
 def precompileIdentityResult?
-    (call : ExternalCall) (childGas : Gas) (accounts : AccountMap) :
+    (parent : State) (call : ExternalCall) (childGas : Gas) (accounts : AccountMap) :
     Option ExternalResult :=
   if norm call.to = 4 then
     let cost :=
@@ -405,20 +548,488 @@ def precompileIdentityResult?
           accounts? := some accounts,
           gasRemaining := childGas - cost }
     else
+      some (failedCallResult parent.accounts 0)
+  else
+    none
+
+def modexpExponentHead (input : Bytes) (baseLength exponentLength : Gas) :
+    Word :=
+  bytesToWordBE
+    (readBytes input (96 + norm baseLength) (min (norm exponentLength) 32))
+
+def precompileModexpResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 5 then
+    let baseLength := norm (readWordFromBytes call.input 0)
+    let exponentLength := norm (readWordFromBytes call.input 32)
+    let modulusLength := norm (readWordFromBytes call.input 64)
+    let exponentHead := modexpExponentHead call.input baseLength exponentLength
+    let cost :=
+      if modexpInputWithinOsakaBounds baseLength exponentLength modulusLength then
+        modexpGasCost baseLength modulusLength exponentLength exponentHead
+      else
+        childGas + 1
+    if cost <= childGas then
+      if modulusLength = 0 then
+        some
+          (Except.ok
+            { success := true,
+              returndata := [],
+              accounts? := some accounts,
+              gasRemaining := childGas - cost })
+      else
+        match SharedSemantics.External.lookupBytes? parent.modexpResults call.input with
+        | some output =>
+            some
+              (Except.ok
+                { success := true,
+                  returndata := readBytes output 0 (norm modulusLength),
+                  accounts? := some accounts,
+                  gasRemaining := childGas - cost })
+        | none => some (Except.error call.input)
+    else
       some
-        { success := false,
-          returndata := [],
-          accounts? := some accounts,
-          gasRemaining := 0 }
+        (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def bytesAllZero : Bytes → Bool
+  | [] => true
+  | value :: rest => byte value = 0 && bytesAllZero rest
+
+def precompileEcaddResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 6 then
+    let cost := GasConst.precompileEcadd
+    let input := readBytes call.input 0 128
+    if cost <= childGas then
+      if SharedSemantics.External.containsBytes parent.ecaddFailures input then
+        some (Except.ok (failedCallResult parent.accounts 0))
+      else if bytesAllZero input then
+        some
+          (Except.ok
+            { success := true,
+              returndata := zeroBytes 64,
+              accounts? := some accounts,
+              gasRemaining := childGas - cost })
+      else
+        match SharedSemantics.External.lookupBytes? parent.ecaddResults input with
+        | some output =>
+            some
+              (Except.ok
+                { success := true,
+                  returndata := readBytes output 0 64,
+                  accounts? := some accounts,
+                  gasRemaining := childGas - cost })
+        | none => some (Except.error input)
+    else
+      some (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def precompileEcmulResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 7 then
+    let cost := GasConst.precompileEcmul
+    let input := readBytes call.input 0 96
+    if cost <= childGas then
+      if SharedSemantics.External.containsBytes parent.ecmulFailures input then
+        some (Except.ok (failedCallResult parent.accounts 0))
+      else if bytesAllZero input then
+        some
+          (Except.ok
+            { success := true,
+              returndata := zeroBytes 64,
+              accounts? := some accounts,
+              gasRemaining := childGas - cost })
+      else
+        match SharedSemantics.External.lookupBytes? parent.ecmulResults input with
+        | some output =>
+            some
+              (Except.ok
+                { success := true,
+                  returndata := readBytes output 0 64,
+                  accounts? := some accounts,
+                  gasRemaining := childGas - cost })
+        | none => some (Except.error input)
+    else
+      some (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def precompileEcpairingResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 8 then
+    if call.input.length % 192 = 0 then
+      let pairCount := call.input.length / 192
+      let cost :=
+        GasConst.precompileEcpairingBase +
+          GasConst.precompileEcpairingPerPoint * pairCount
+      if cost <= childGas then
+        if call.input.length = 0 then
+          some
+            (Except.ok
+              { success := true,
+                returndata := wordToBytes32 1,
+                accounts? := some accounts,
+                gasRemaining := childGas - cost })
+        else if SharedSemantics.External.containsBytes parent.ecpairingFailures call.input then
+          some (Except.ok (failedCallResult parent.accounts 0))
+        else
+          match SharedSemantics.External.lookupBytes? parent.ecpairingResults call.input with
+          | some output =>
+              some
+                (Except.ok
+                  { success := true,
+                    returndata := readBytes output 0 32,
+                    accounts? := some accounts,
+                    gasRemaining := childGas - cost })
+          | none => some (Except.error call.input)
+      else
+        some (Except.ok (failedCallResult parent.accounts 0))
+    else
+      some (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def pointEvaluationInputLength : Nat := 192
+
+def fieldElementsPerBlob : Word := 4096
+
+def blsModulus : Word :=
+  0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
+
+def pointEvaluationOutput : Bytes :=
+  wordToBytes32 fieldElementsPerBlob ++ wordToBytes32 blsModulus
+
+def precompilePointEvaluationResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 10 then
+    let cost := GasConst.precompilePointEvaluation
+    if cost <= childGas then
+      if call.input.length = pointEvaluationInputLength then
+        if SharedSemantics.External.containsBytes parent.pointEvaluationProofs call.input then
+          some
+            (Except.ok
+              { success := true,
+                returndata := pointEvaluationOutput,
+                accounts? := some accounts,
+                gasRemaining := childGas - cost })
+        else if SharedSemantics.External.containsBytes parent.pointEvaluationFailures call.input then
+          some (Except.ok (failedCallResult parent.accounts 0))
+        else
+          some (Except.error call.input)
+      else
+        some (Except.ok (failedCallResult parent.accounts 0))
+    else
+      some (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def blsG1PointLength : Nat := 128
+def blsG2PointLength : Nat := 256
+def blsScalarLength : Nat := 32
+def blsFpLength : Nat := 64
+def blsFp2Length : Nat := 128
+def blsG1AddInputLength : Nat := 2 * blsG1PointLength
+def blsG2AddInputLength : Nat := 2 * blsG2PointLength
+def blsG1MsmPairLength : Nat := blsG1PointLength + blsScalarLength
+def blsG2MsmPairLength : Nat := blsG2PointLength + blsScalarLength
+def blsPairingPairLength : Nat := blsG1PointLength + blsG2PointLength
+
+def blsG1MsmDiscounts : List Gas :=
+  [ 0,
+    1000, 949, 848, 797, 764, 750, 738, 728, 719, 712, 705, 698, 692, 687, 682,
+    677, 673, 669, 665, 661, 658, 654, 651, 648, 645, 642, 640, 637, 635, 632,
+    630, 627, 625, 623, 621, 619, 617, 615, 613, 611, 609, 608, 606, 604, 603,
+    601, 599, 598, 596, 595, 593, 592, 591, 589, 588, 586, 585, 584, 582, 581,
+    580, 579, 577, 576, 575, 574, 573, 572, 570, 569, 568, 567, 566, 565, 564,
+    563, 562, 561, 560, 559, 558, 557, 556, 555, 554, 553, 552, 551, 550, 549,
+    548, 547, 547, 546, 545, 544, 543, 542, 541, 540, 540, 539, 538, 537, 536,
+    536, 535, 534, 533, 532, 532, 531, 530, 529, 528, 528, 527, 526, 525, 525,
+    524, 523, 522, 522, 521, 520, 520, 519 ]
+
+def blsG2MsmDiscounts : List Gas :=
+  [ 0,
+    1000, 1000, 923, 884, 855, 832, 812, 796, 782, 770, 759, 749, 740, 732,
+    724, 717, 711, 704, 699, 693, 688, 683, 679, 674, 670, 666, 663, 659, 655,
+    652, 649, 646, 643, 640, 637, 634, 632, 629, 627, 624, 622, 620, 618, 615,
+    613, 611, 609, 607, 606, 604, 602, 600, 598, 597, 595, 593, 592, 590, 589,
+    587, 586, 584, 583, 582, 580, 579, 578, 576, 575, 574, 573, 571, 570, 569,
+    568, 567, 566, 565, 563, 562, 561, 560, 559, 558, 557, 556, 555, 554, 553,
+    552, 552, 551, 550, 549, 548, 547, 546, 545, 545, 544, 543, 542, 541, 541,
+    540, 539, 538, 537, 537, 536, 535, 535, 534, 533, 532, 532, 531, 530, 530,
+    529, 528, 528, 527, 526, 526, 525, 524, 524 ]
+
+def blsMsmDiscount (table : List Gas) (maxDiscount : Gas) (k : Nat) : Gas :=
+  if k = 0 then 0 else (table[k]?).getD maxDiscount
+
+def blsMsmGasCost
+    (inputLength pairLength multiplicationCost maxDiscount : Gas)
+    (discounts : List Gas) : Gas :=
+  let k := inputLength / pairLength
+  if k = 0 then
+    0
+  else
+    (k * multiplicationCost * blsMsmDiscount discounts maxDiscount k) / 1000
+
+def blsPairingGasCost (inputLength : Gas) : Gas :=
+  GasConst.precompileBlsPairingBase +
+    GasConst.precompileBlsPairingPerPair * (inputLength / blsPairingPairLength)
+
+def successfulBytesPrecompileResult
+    (accounts : AccountMap) (childGas cost : Gas) (output : Bytes) :
+    ExternalResult :=
+  { success := true,
+    returndata := output,
+    accounts? := some accounts,
+    gasRemaining := childGas - cost }
+
+def precompileFixedBytesResult?
+    (call : ExternalCall) (childGas : Gas)
+    (accounts rollbackAccounts : AccountMap) (address : Word) (cost : Gas)
+    (inputLength outputLength : Nat) (results : BytesMap) (failures : BytesSet) :
+    Option (Except Bytes ExternalResult) :=
+  if norm call.to = norm address then
+    if cost <= childGas then
+      if call.input.length = inputLength then
+        if SharedSemantics.External.containsBytes failures call.input then
+          some (Except.ok (failedCallResult rollbackAccounts 0))
+        else
+          match SharedSemantics.External.lookupBytes? results call.input with
+          | some output =>
+              some
+                (Except.ok
+                  (successfulBytesPrecompileResult accounts childGas cost
+                    (readBytes output 0 outputLength)))
+          | none => some (Except.error call.input)
+      else
+        some (Except.ok (failedCallResult rollbackAccounts 0))
+    else
+      some (Except.ok (failedCallResult rollbackAccounts 0))
+  else
+    none
+
+def precompileVariableBytesResult?
+    (call : ExternalCall) (childGas : Gas)
+    (accounts rollbackAccounts : AccountMap) (address : Word) (cost pairLength : Gas)
+    (outputLength : Nat) (results : BytesMap) (failures : BytesSet) :
+    Option (Except Bytes ExternalResult) :=
+  if norm call.to = norm address then
+    if cost <= childGas then
+      if call.input.length ≠ 0 ∧ call.input.length % pairLength = 0 then
+        if SharedSemantics.External.containsBytes failures call.input then
+          some (Except.ok (failedCallResult rollbackAccounts 0))
+        else
+          match SharedSemantics.External.lookupBytes? results call.input with
+          | some output =>
+              some
+                (Except.ok
+                  (successfulBytesPrecompileResult accounts childGas cost
+                    (readBytes output 0 outputLength)))
+          | none => some (Except.error call.input)
+      else
+        some (Except.ok (failedCallResult rollbackAccounts 0))
+    else
+      some (Except.ok (failedCallResult rollbackAccounts 0))
+  else
+    none
+
+def precompileBlsG1AddResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  precompileFixedBytesResult? call childGas accounts parent.accounts 0x0b
+    GasConst.precompileBlsG1Add blsG1AddInputLength blsG1PointLength
+    parent.blsG1AddResults parent.blsG1AddFailures
+
+def precompileBlsG1MsmResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  let cost :=
+    blsMsmGasCost call.input.length blsG1MsmPairLength
+      GasConst.precompileBlsG1Mul 519 blsG1MsmDiscounts
+  precompileVariableBytesResult? call childGas accounts parent.accounts 0x0c cost
+    blsG1MsmPairLength blsG1PointLength parent.blsG1MsmResults
+    parent.blsG1MsmFailures
+
+def precompileBlsG2AddResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  precompileFixedBytesResult? call childGas accounts parent.accounts 0x0d
+    GasConst.precompileBlsG2Add blsG2AddInputLength blsG2PointLength
+    parent.blsG2AddResults parent.blsG2AddFailures
+
+def precompileBlsG2MsmResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  let cost :=
+    blsMsmGasCost call.input.length blsG2MsmPairLength
+      GasConst.precompileBlsG2Mul 524 blsG2MsmDiscounts
+  precompileVariableBytesResult? call childGas accounts parent.accounts 0x0e cost
+    blsG2MsmPairLength blsG2PointLength parent.blsG2MsmResults
+    parent.blsG2MsmFailures
+
+def precompileBlsPairingResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  precompileVariableBytesResult? call childGas accounts parent.accounts 0x0f
+    (blsPairingGasCost call.input.length) blsPairingPairLength 32
+    parent.blsPairingResults parent.blsPairingFailures
+
+def precompileBlsMapFpToG1Result?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  precompileFixedBytesResult? call childGas accounts parent.accounts 0x10
+    GasConst.precompileBlsG1Map blsFpLength blsG1PointLength
+    parent.blsMapFpToG1Results parent.blsMapFpToG1Failures
+
+def precompileBlsMapFp2ToG2Result?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  precompileFixedBytesResult? call childGas accounts parent.accounts 0x11
+    GasConst.precompileBlsG2Map blsFp2Length blsG2PointLength
+    parent.blsMapFp2ToG2Results parent.blsMapFp2ToG2Failures
+
+def precompileBlsResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  match precompileBlsG1AddResult? parent call childGas accounts with
+  | some result => some result
+  | none =>
+      match precompileBlsG1MsmResult? parent call childGas accounts with
+      | some result => some result
+      | none =>
+          match precompileBlsG2AddResult? parent call childGas accounts with
+          | some result => some result
+          | none =>
+              match precompileBlsG2MsmResult? parent call childGas accounts with
+              | some result => some result
+              | none =>
+                  match precompileBlsPairingResult? parent call childGas accounts with
+                  | some result => some result
+                  | none =>
+                      match precompileBlsMapFpToG1Result? parent call childGas accounts with
+                      | some result => some result
+                      | none => precompileBlsMapFp2ToG2Result? parent call childGas accounts
+
+def p256VerifyInputLength : Nat := 160
+
+def p256VerifyOutput : Bytes :=
+  wordToBytes32 1
+
+def precompileP256VerifyResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 0x100 then
+    let cost := GasConst.precompileP256Verify
+    if cost <= childGas then
+      if call.input.length = p256VerifyInputLength then
+        if SharedSemantics.External.containsBytes parent.p256VerifyProofs call.input then
+          some
+            (Except.ok
+              { success := true,
+                returndata := p256VerifyOutput,
+                accounts? := some accounts,
+                gasRemaining := childGas - cost })
+        else if SharedSemantics.External.containsBytes parent.p256VerifyFailures call.input then
+          some
+            (Except.ok
+              { success := true,
+                returndata := [],
+                accounts? := some accounts,
+                gasRemaining := childGas - cost })
+        else
+          some (Except.error call.input)
+      else
+        some
+          (Except.ok
+            { success := true,
+              returndata := [],
+              accounts? := some accounts,
+              gasRemaining := childGas - cost })
+    else
+      some (Except.ok (failedCallResult parent.accounts 0))
+  else
+    none
+
+def blake2fInputLength : Nat := 213
+
+def blake2fOutputLength : Nat := 64
+
+def blake2fRounds (input : Bytes) : Gas :=
+  bytesToWordBE (readBytes input 0 4)
+
+def blake2fFinalFlag (input : Bytes) : Byte :=
+  readByte input 212
+
+def precompileBlake2fResult?
+    (parent : State) (call : ExternalCall) (childGas : Gas)
+    (accounts : AccountMap) : Option (Except Bytes ExternalResult) :=
+  if norm call.to = 9 then
+    if call.input.length = blake2fInputLength then
+      let cost := blake2fRounds call.input
+      if cost <= childGas then
+        let finalFlag := blake2fFinalFlag call.input
+        if finalFlag = 0 || finalFlag = 1 then
+          match SharedSemantics.External.lookupBytes? parent.blake2fResults call.input with
+          | some output =>
+              some
+                (Except.ok
+                  { success := true,
+                    returndata := readBytes output 0 blake2fOutputLength,
+                    accounts? := some accounts,
+                    gasRemaining := childGas - cost })
+          | none => some (Except.error call.input)
+        else
+          some (Except.ok (failedCallResult parent.accounts 0))
+      else
+        some (Except.ok (failedCallResult parent.accounts 0))
+    else
+      some (Except.ok (failedCallResult parent.accounts 0))
   else
     none
 
 def precompileResult?
     (parent : State) (call : ExternalCall) (childGas : Gas) (accounts : AccountMap) :
-    Option ExternalResult :=
+    Option (Except Bytes ExternalResult) :=
   match precompileEcrecoverResult? parent call childGas accounts with
-  | some result => some result
-  | none => precompileIdentityResult? call childGas accounts
+  | some result => some (Except.ok result)
+  | none =>
+      match precompileSha256Result? parent call childGas accounts with
+      | some result => some result
+      | none =>
+          match precompileRipemd160Result? parent call childGas accounts with
+          | some result => some result
+          | none =>
+              match precompileIdentityResult? parent call childGas accounts with
+              | some result => some (Except.ok result)
+              | none =>
+                  match precompileModexpResult? parent call childGas accounts with
+                  | some result => some result
+                  | none =>
+                      match precompileEcaddResult? parent call childGas accounts with
+                      | some result => some result
+                      | none =>
+                          match precompileEcmulResult? parent call childGas accounts with
+                          | some result => some result
+                          | none =>
+                              match precompileEcpairingResult? parent call childGas accounts with
+                              | some result => some result
+                              | none =>
+                                  match precompileBlake2fResult? parent call childGas accounts with
+                                  | some result => some result
+                                  | none =>
+                                      match precompilePointEvaluationResult? parent call childGas accounts with
+                                      | some result => some result
+                                      | none =>
+                                          match precompileBlsResult? parent call childGas accounts with
+                                          | some result => some result
+                                          | none => precompileP256VerifyResult? parent call childGas accounts
 
 structure CallOutcome where
   result : ExternalResult
@@ -454,7 +1065,8 @@ def selectorBytes (a b c d : Nat) : Bytes :=
   [byte a, byte b, byte c, byte d]
 
 def isSelector (input selector : Bytes) : Bool :=
-  normalizeBytes (input.take 4) = normalizeBytes selector
+  SharedSemantics.External.normalizeBytes (input.take 4) =
+    SharedSemantics.External.normalizeBytes selector
 
 def successfulCheatcodeResult (childGas : Gas) (accounts : AccountMap) :
     ExternalResult :=
@@ -900,15 +1512,112 @@ def applyPrankToCall (state : State) (call : ExternalCall) :
         { state with
           cheatcodes := { state.cheatcodes with prankCaller? := none } } )
 
+def frameFailure (state : MeteredState) : Bool :=
+  state.gasError?.isSome || state.evm.error?.isSome ||
+    match state.evm.halt? with
+    | some HaltKind.reverted => true
+    | some HaltKind.exceptional => true
+    | _ => false
+
+def rollbackFailedFrame (initial final : MeteredState) : MeteredState :=
+  if frameFailure final then
+    { final with
+      evm :=
+        { final.evm with
+          accounts := initial.rollbackAccounts,
+          logs := initial.evm.logs } }
+  else
+    final
+
+def clearTransientAccount (account : Account) : Account :=
+  { account with transientStorage := [] }
+
+def clearTransientAccounts (accounts : AccountMap) : AccountMap :=
+  accounts.map (fun entry => (entry.1, clearTransientAccount entry.2))
+
+def clearTransientStorage (state : MeteredState) : MeteredState :=
+  { state with
+    rollbackAccounts := clearTransientAccounts state.rollbackAccounts,
+    evm :=
+      { state.evm with
+        accounts := clearTransientAccounts state.evm.accounts } }
+
+def finalizedAccountCodeHash?
+    (hashes : SharedSemantics.External.HashMap) (account : Account) :
+    Option Word :=
+  if norm account.codeHash ≠ 0 then
+    some (norm account.codeHash)
+  else if account.code = [] then
+    some 0
+  else
+    SharedSemantics.External.lookupHash? hashes account.code
+
+def missingFinalizedAccountCodeHash?
+    (hashes : SharedSemantics.External.HashMap) : AccountMap → Option Bytes
+  | [] => none
+  | (_, account) :: rest =>
+      if account.destroyed then
+        if norm account.codeHash = 0 then
+          if account.code = [] then
+            missingFinalizedAccountCodeHash? hashes rest
+          else
+            match SharedSemantics.External.lookupHash? hashes account.code with
+            | none => some account.code
+            | some _ => missingFinalizedAccountCodeHash? hashes rest
+        else
+          missingFinalizedAccountCodeHash? hashes rest
+      else
+        missingFinalizedAccountCodeHash? hashes rest
+
+def finalizedAccountView
+    (hashes : SharedSemantics.External.HashMap) (account : Account) : Account :=
+  if account.destroyed then
+    { account with
+      balance := 0,
+      code := [],
+      codeHash := (finalizedAccountCodeHash? hashes account).getD 0,
+      storage := [],
+      transientStorage := [] }
+  else
+    account
+
+def finalizeDestroyedAccounts
+    (hashes : SharedSemantics.External.HashMap) (accounts : AccountMap) :
+    AccountMap :=
+  accounts.map (fun entry => (entry.1, finalizedAccountView hashes entry.2))
+
+def finalizeTransactionState (state : MeteredState) : MeteredState :=
+  match missingFinalizedAccountCodeHash? state.evm.keccakHashes state.evm.accounts with
+  | some code => { state with evm := setError state.evm (StepError.missingHash code) }
+  | none =>
+      { state with
+        rollbackAccounts :=
+          finalizeDestroyedAccounts state.evm.keccakHashes state.rollbackAccounts,
+        originalAccounts :=
+          finalizeDestroyedAccounts state.evm.keccakHashes state.originalAccounts,
+        evm :=
+          { state.evm with
+            accounts :=
+              finalizeDestroyedAccounts state.evm.keccakHashes state.evm.accounts } }
+
 mutual
 
-partial def runFuel : Nat → Nat → Nat → MeteredState → MeteredState
+partial def runFuelCore : Nat → Nat → Nat → MeteredState → MeteredState
   | _, _, 0, state => state
   | callFuel, stepFuel, fuel + 1, state =>
       if state.stopped then
         state
       else
-        runFuel callFuel stepFuel fuel (step callFuel stepFuel state)
+        runFuelCore callFuel stepFuel fuel (step callFuel stepFuel state)
+
+partial def runFuel (callFuel stepFuel fuel : Nat)
+    (state : MeteredState) : MeteredState :=
+  rollbackFailedFrame state (runFuelCore callFuel stepFuel fuel state)
+
+partial def runTransaction (callFuel stepFuel fuel : Nat)
+    (state : MeteredState) : MeteredState :=
+  finalizeTransactionState
+    (clearTransientStorage (runFuel callFuel stepFuel fuel state))
 
 partial def step (callFuel stepFuel : Nat) (state : MeteredState) : MeteredState :=
   if state.stopped then
@@ -961,12 +1670,15 @@ partial def stepExternalCall
                   meteredStepOpcode osakaCostModel opcode stateWithResult
               | some accountsForChild =>
                   match precompileResult? parentState.evm callForChild childGas accountsForChild with
-                  | some result =>
+                  | some (Except.ok result) =>
                       finishExternalCall opcode parentState
                         { result := result,
                           parentEvm := parentState.evm,
                           logs := parentState.evm.logs,
                           accessState := applyMeterEffects effects parentState }
+                  | some (Except.error data) =>
+                      { parentState with
+                        evm := setError parentState.evm (StepError.missingHash data) }
                   | none =>
                       let childStart :=
                         childInitialMeteredState parentState effects callForChild childGas accountsForChild
@@ -1024,79 +1736,156 @@ partial def stepExternalCreate
       match chargeGas effects.cost state with
       | none => setOutOfGas effects.cost state
       | some _ =>
-          match createdAddressFromState state.evm create with
-          | AddressDerivation.missingHash data =>
-              { state with
-                evm := setError state.evm (StepError.missingHash data) }
-          | AddressDerivation.ok createdAddress =>
-              let failureAccounts :=
-                createFailureAccounts state.evm.accounts create.creator
-              match accountsBeforeCreate? state.evm create createdAddress with
-              | none =>
-                  let result := failedCreateResult failureAccounts childGas
-                  let stateWithResult :=
+          match subBalance? (rawAccount state.evm create.creator).balance create.value with
+          | none =>
+              let result := failedCreateResult state.evm.accounts childGas
+              let stateWithResult :=
+                { state with
+                  evm :=
+                    { state.evm with
+                      externalResults := result :: state.evm.externalResults } }
+              meteredStepOpcode osakaCostModel opcode stateWithResult
+          | some _ =>
+              if BytecodeGas.maxInitCodeSize < create.initCode.length then
+                let result :=
+                  failedCreateResult
+                    (createFailureAccounts state.evm.accounts create.creator)
+                    childGas
+                let stateWithResult :=
+                  { state with
+                    evm :=
+                      { state.evm with
+                        externalResults := result :: state.evm.externalResults } }
+                meteredStepOpcode osakaCostModel opcode stateWithResult
+              else
+                match createdAddressFromState state.evm create with
+                | AddressDerivation.missingHash data =>
                     { state with
-                      evm :=
-                        { state.evm with
-                          externalResults := result :: state.evm.externalResults } }
-                  meteredStepOpcode osakaCostModel opcode stateWithResult
-              | some accountsForChild =>
-                  let childStart :=
-                    createChildInitialMeteredState state effects create
-                      createdAddress childGas accountsForChild
-                  let childFinal :=
-                    match callFuel with
-                    | 0 => childStart
-                    | depth + 1 => runFuel depth stepFuel stepFuel childStart
-                  match missingHashError? childFinal with
-                  | some data =>
-                      { state with
-                        evm := setError state.evm (StepError.missingHash data) }
-                  | none =>
-                      let runtime := createRuntimeCode childFinal
-                      let depositCost := codeDepositCost runtime
-                      let initSuccess := createSuccess childFinal
-                      let depositSuccess := depositCost <= childFinal.gasRemaining
-                      let success := initSuccess && depositSuccess
-                      let resultGasRemaining :=
-                        if success then
-                          childFinal.gasRemaining - depositCost
-                        else if initSuccess then
-                          0
-                        else
-                          childFinal.gasRemaining
-                      let committedAccounts :=
-                        if success then
-                          setCreatedCode childFinal.evm.accounts createdAddress runtime
-                        else
-                          failureAccounts
-                      let committedLogs :=
-                        if success then childFinal.evm.logs else state.evm.logs
-                      let committedAccessState :=
-                        if success then
-                          { childFinal with gasRemaining := resultGasRemaining }
-                        else
-                          applyMeterEffects effects state
-                      let result : ExternalResult :=
-                        { success := success,
-                          returndata := createReturndata childFinal,
-                          createdAddress := createdAddress,
-                          accounts? := some committedAccounts,
-                          gasRemaining := resultGasRemaining }
-                      let stateWithResult :=
-                        { state with
-                          evm :=
-                            { state.evm with
-                              externalResults := result :: state.evm.externalResults } }
-                      let parentAfter :=
-                        meteredStepOpcode osakaCostModel opcode stateWithResult
-                      { parentAfter with
-                        accessedAddresses := committedAccessState.accessedAddresses,
-                        accessedStorageKeys := committedAccessState.accessedStorageKeys,
-                        refund := committedAccessState.refund,
-                        evm := { parentAfter.evm with logs := committedLogs } }
+                      evm := setError state.evm (StepError.missingHash data) }
+                | AddressDerivation.ok createdAddress =>
+                    let failureGasRemaining :=
+                      match subBalance? (rawAccount state.evm create.creator).balance create.value with
+                      | none => childGas
+                      | some _ =>
+                          if accountCollision (rawAccount state.evm createdAddress) then
+                            0
+                          else
+                            childGas
+                    let failureAccounts :=
+                      match subBalance? (rawAccount state.evm create.creator).balance create.value with
+                      | none => state.evm.accounts
+                      | some _ => createFailureAccounts state.evm.accounts create.creator
+                    match accountsBeforeCreate? state.evm create createdAddress with
+                    | none =>
+                        let result := failedCreateResult failureAccounts failureGasRemaining
+                        let stateWithResult :=
+                          { state with
+                            evm :=
+                              { state.evm with
+                                externalResults := result :: state.evm.externalResults } }
+                        let parentAfter :=
+                          meteredStepOpcode osakaCostModel opcode stateWithResult
+                        let committedAccessState :=
+                          createFailureAccessState state effects createdAddress
+                        { parentAfter with
+                          accessedAddresses := committedAccessState.accessedAddresses,
+                          accessedStorageKeys := committedAccessState.accessedStorageKeys,
+                          refund := committedAccessState.refund }
+                    | some accountsForChild =>
+                        let childStart :=
+                          createChildInitialMeteredState state effects create
+                            createdAddress childGas accountsForChild
+                        let childFinal :=
+                          match callFuel with
+                          | 0 => childStart
+                          | depth + 1 => runFuel depth stepFuel stepFuel childStart
+                        match missingHashError? childFinal with
+                        | some data =>
+                            { state with
+                              evm := setError state.evm (StepError.missingHash data) }
+                        | none =>
+                            let runtime := createRuntimeCode childFinal
+                            let depositCost := codeDepositCost runtime
+                            let initSuccess := createSuccess childFinal
+                            let codeSizeSuccess := runtime.length <= maxRuntimeCodeSize
+                            let depositSuccess := depositCost <= childFinal.gasRemaining
+                            let success := initSuccess && codeSizeSuccess && depositSuccess
+                            let resultGasRemaining :=
+                              if success then
+                                childFinal.gasRemaining - depositCost
+                              else if initSuccess then
+                                0
+                              else
+                                childFinal.gasRemaining
+                            let committedAccounts :=
+                              if success then
+                                setCreatedCode childFinal.evm.accounts createdAddress runtime
+                              else
+                                failureAccounts
+                            let committedLogs :=
+                              if success then childFinal.evm.logs else state.evm.logs
+                            let committedAccessState :=
+                              if success then
+                                { childFinal with gasRemaining := resultGasRemaining }
+                              else
+                                createFailureAccessState state effects createdAddress
+                            let result : ExternalResult :=
+                              { success := success,
+                                returndata := createReturndata childFinal,
+                                createdAddress := createdAddress,
+                                accounts? := some committedAccounts,
+                                gasRemaining := resultGasRemaining }
+                            let stateWithResult :=
+                              { state with
+                                evm :=
+                                  { state.evm with
+                                    externalResults := result :: state.evm.externalResults } }
+                            let parentAfter :=
+                              meteredStepOpcode osakaCostModel opcode stateWithResult
+                            { parentAfter with
+                              accessedAddresses := committedAccessState.accessedAddresses,
+                              accessedStorageKeys := committedAccessState.accessedStorageKeys,
+                              refund := committedAccessState.refund,
+                              evm := { parentAfter.evm with logs := committedLogs } }
 
 end
+
+def finalizedDestroyedMissingHashExampleState : MeteredState :=
+  BytecodeGas.MeteredState.ofStateOsaka
+    { State.empty with
+      accounts :=
+        [(0x42, { ({} : Account) with code := [0xaa], destroyed := true })] }
+    1000
+
+example :
+    (runTransaction 0 0 0 finalizedDestroyedMissingHashExampleState).evm.error? =
+      some (StepError.missingHash [0xaa]) := by
+  native_decide
+
+def finalizedDestroyedHasHashExampleState : MeteredState :=
+  BytecodeGas.MeteredState.ofStateOsaka
+    { State.empty with
+      keccakHashes := [([0xaa], 0xbeef)],
+      accounts :=
+        [(0x42, { ({} : Account) with code := [0xaa], destroyed := true })] }
+    1000
+
+example :
+    (runTransaction 0 0 0 finalizedDestroyedHasHashExampleState).evm.error? =
+      none := by
+  native_decide
+
+example :
+    (rawAccount
+      (runTransaction 0 0 0 finalizedDestroyedHasHashExampleState).evm
+      0x42).code = [] := by
+  native_decide
+
+example :
+    (rawAccount
+      (runTransaction 0 0 0 finalizedDestroyedHasHashExampleState).evm
+      0x42).codeHash = 0xbeef := by
+  native_decide
 
 end BytecodeMultiContract
 end SolidCoreYulCore

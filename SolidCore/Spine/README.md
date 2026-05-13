@@ -9,7 +9,8 @@ L00_SourceSolidity
   -> L03_GeneratedYul
   -> L04_StackCfg
   -> L05_Bytecode
-  -> L06_Evm
+  -> L06_Evm            # shared External EVM boundary
+  -> L07_MeteredEvm     # exact executable metered EVM
 ```
 
 Each `LNN_*` folder exposes one layer interface. `Passes/` contains the adjacent

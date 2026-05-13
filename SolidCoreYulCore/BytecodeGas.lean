@@ -1,6 +1,10 @@
+import SharedSemantics.Word
 import SolidCoreYulCore.BytecodeEvm
 
 namespace SolidCoreYulCore
+
+open SharedSemantics
+
 namespace BytecodeGas
 
 open BytecodeEvm
@@ -28,6 +32,7 @@ structure MeteredState where
   gasRemaining : Gas := 0
   gasUsed : Gas := 0
   gasError? : Option GasError := none
+  rollbackAccounts : AccountMap := []
   originalAccounts : AccountMap := []
   accessedAddresses : List Word := []
   accessedStorageKeys : List StorageAccessKey := []
@@ -43,7 +48,10 @@ structure MeterEffects where
 deriving DecidableEq, Repr
 
 def MeteredState.ofState (evm : State) (gasRemaining : Gas) : MeteredState :=
-  { evm := evm, gasRemaining := gasRemaining, originalAccounts := evm.accounts }
+  { evm := evm,
+    gasRemaining := gasRemaining,
+    rollbackAccounts := evm.accounts,
+    originalAccounts := evm.accounts }
 
 def MeteredState.stopped (state : MeteredState) : Bool :=
   state.gasError?.isSome || state.evm.halt?.isSome || state.evm.error?.isSome
@@ -112,6 +120,8 @@ def precompileBlsG1Map : Gas := 5500
 def precompileBlsG2Add : Gas := 600
 def precompileBlsG2Mul : Gas := 22500
 def precompileBlsG2Map : Gas := 23800
+def precompileBlsPairingBase : Gas := 37700
+def precompileBlsPairingPerPair : Gas := 32600
 def precompileEcadd : Gas := 150
 def precompileEcmul : Gas := 6000
 def precompileEcpairingBase : Gas := 45000
@@ -143,15 +153,16 @@ end GasConst
 def wordIn (value : Word) : List Word → Bool
   | [] => false
   | candidate :: rest =>
-      if norm candidate = norm value then true else wordIn value rest
+      if addressWord candidate = addressWord value then true else wordIn value rest
 
 def insertWordSet (value : Word) (values : List Word) : List Word :=
-  if wordIn value values then values else norm value :: values
+  if wordIn value values then values else addressWord value :: values
 
 def storageKeyIn (key : StorageAccessKey) : List StorageAccessKey → Bool
   | [] => false
   | candidate :: rest =>
-      if norm candidate.1 = norm key.1 ∧ norm candidate.2 = norm key.2 then
+      if addressWord candidate.1 = addressWord key.1 ∧
+          norm candidate.2 = norm key.2 then
         true
       else
         storageKeyIn key rest
@@ -159,7 +170,7 @@ def storageKeyIn (key : StorageAccessKey) : List StorageAccessKey → Bool
 def insertStorageKeySet
     (key : StorageAccessKey) (keys : List StorageAccessKey) :
     List StorageAccessKey :=
-  if storageKeyIn key keys then keys else (norm key.1, norm key.2) :: keys
+  if storageKeyIn key keys then keys else (addressWord key.1, norm key.2) :: keys
 
 def addAccessedAddresses (addresses : List Word) (state : MeteredState) :
     MeteredState :=
@@ -187,7 +198,10 @@ def precompileAddresses : List Word :=
 def initialOsakaAccessedAddresses (state : State) : List Word :=
   precompileAddresses.foldl
     (fun acc address => insertWordSet address acc)
-    [norm state.call.address, norm state.tx.origin, norm state.block.coinbase]
+    [ addressWord state.call.address,
+      addressWord state.call.caller,
+      addressWord state.tx.origin,
+      addressWord state.block.coinbase ]
 
 def MeteredState.ofStateOsaka
     (evm : State) (gasRemaining : Gas) : MeteredState :=
@@ -207,6 +221,8 @@ def bytesForWord (value : Word) : Gas :=
 
 def wordsForBytes (bytes : Nat) : Gas :=
   (bytes + 31) / 32
+
+def maxInitCodeSize : Nat := 49152
 
 def initCodeCost (initCodeLength : Nat) : Gas :=
   GasConst.codeInitPerWord * wordsForBytes initCodeLength
@@ -564,7 +580,7 @@ def calculateMessageCallGas
 def callEffects
     (targetIndex valueIndex : Nat) (chargesNewAccount : Bool)
     (usesDelegation : Bool) (state : MeteredState) : MeterEffects :=
-  let target := stackWordD state.evm targetIndex
+  let target := addressWord (stackWordD state.evm targetIndex)
   let value := stackWordD state.evm valueIndex
   let requestedGas := stackWordD state.evm 0
   let memoryCost :=
@@ -591,7 +607,7 @@ def callEffects
 def callNoValueEffects
     (targetIndex : Nat) (usesDelegation : Bool) (opcode : Opcode)
     (state : MeteredState) : MeterEffects :=
-  let target := stackWordD state.evm targetIndex
+  let target := addressWord (stackWordD state.evm targetIndex)
   let requestedGas := stackWordD state.evm 0
   let memoryCost :=
     memoryExpansionCostForRanges state.evm.memory
@@ -632,18 +648,23 @@ def createEffects (kind : ExternalCreateKind) (state : MeteredState) :
     { cost := initialCost }
 
 def selfdestructEffects (state : MeteredState) : MeterEffects :=
-  let beneficiary := stackWordD state.evm 0
-  let access := accountAccessEffect beneficiary state
+  let beneficiary := addressWord (stackWordD state.evm 0)
+  let accessCost :=
+    if wordIn beneficiary state.accessedAddresses then
+      0
+    else
+      GasConst.coldAccountAccess
   let currentBalance := (rawAccount state.evm state.evm.call.address).balance
   let newAccountCost :=
     if !accountAlive state.evm beneficiary && norm currentBalance ≠ 0 then
       GasConst.selfdestructNewAccount
     else
       0
-  { access with cost := GasConst.selfdestruct + access.cost + newAccountCost }
+  { cost := GasConst.selfdestruct + accessCost + newAccountCost,
+    accessedAddresses := [beneficiary] }
 
 def extcodecopyEffects (state : MeteredState) : MeterEffects :=
-  let address := stackWordD state.evm 0
+  let address := addressWord (stackWordD state.evm 0)
   let copyCost := GasConst.copy * wordsForBytes (stackWordD state.evm 3)
   let memoryCost :=
     memoryExpansionCostForRanges state.evm.memory
@@ -654,9 +675,9 @@ def extcodecopyEffects (state : MeteredState) : MeterEffects :=
 def osakaOpcodeEffects (opcode : Opcode) (state : MeteredState) :
     MeterEffects :=
   match opcode with
-  | Opcode.balance => accountAccessEffect (stackWordD state.evm 0) state
-  | Opcode.extcodesize => accountAccessEffect (stackWordD state.evm 0) state
-  | Opcode.extcodehash => accountAccessEffect (stackWordD state.evm 0) state
+  | Opcode.balance => accountAccessEffect (addressWord (stackWordD state.evm 0)) state
+  | Opcode.extcodesize => accountAccessEffect (addressWord (stackWordD state.evm 0)) state
+  | Opcode.extcodehash => accountAccessEffect (addressWord (stackWordD state.evm 0)) state
   | Opcode.extcodecopy => extcodecopyEffects state
   | Opcode.sload => sloadEffects state
   | Opcode.sstore => sstoreEffects state
@@ -988,6 +1009,46 @@ example :
           caller := 1,
           address := 2,
           isStatic := false }] := by
+  native_decide
+
+def delegationDesignatorTo3 : Bytes :=
+  [0xef, 0x01, 0x00] ++ zeroBytes 19 ++ [3]
+
+def delegatedCallAccessExampleState : MeteredState :=
+  { MeteredState.ofState
+      { State.empty with
+        stack := [0, 2, 0, 0, 0, 0, 0],
+        call := { ({} : CallContext) with address := 1 },
+        accounts :=
+          [ (2, { ({} : Account) with code := delegationDesignatorTo3 }),
+            (3, { ({} : Account) with code := [0x00] }) ] }
+      10000 with
+    accessedAddresses := [] }
+
+example :
+    (osakaOpcodeEffects Opcode.call delegatedCallAccessExampleState).cost =
+      GasConst.coldAccountAccess + GasConst.coldAccountAccess := by
+  native_decide
+
+example :
+    wordIn 2
+      (osakaOpcodeEffects Opcode.call
+        delegatedCallAccessExampleState).accessedAddresses = true := by
+  native_decide
+
+example :
+    wordIn 3
+      (osakaOpcodeEffects Opcode.call
+        delegatedCallAccessExampleState).accessedAddresses = true := by
+  native_decide
+
+def delegatedCallWarmAccessExampleState : MeteredState :=
+  { delegatedCallAccessExampleState with
+    accessedAddresses := [2, 3] }
+
+example :
+    (osakaOpcodeEffects Opcode.call delegatedCallWarmAccessExampleState).cost =
+      GasConst.warmAccess + GasConst.warmAccess := by
   native_decide
 
 end BytecodeGas

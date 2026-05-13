@@ -1,6 +1,10 @@
+import SharedSemantics.Word
 import SolidCoreYulCore.FullYul
 
 namespace SolidCoreYulCore
+
+open SharedSemantics
+
 namespace ConcreteYul
 
 abbrev Byte := Nat
@@ -643,7 +647,7 @@ def State.createResponse (state : State) (builtin : Evm.Builtin)
   | some response => response
   | none => { address := state.createdAddress, returndata := state.returndata }
 
-structure HashOracle where
+structure External where
   keccak256 : Bytes -> Word
   verbatim : Evm.Builtin -> List Word -> Word := fun _ _ => 0
   verbatimValues : Evm.Builtin -> List Word -> List Word := fun builtin _ =>
@@ -979,7 +983,7 @@ theorem halt?_of_returnUnit_haltWith
   rw [state_eq_of_returnUnit_some hEval]
   rfl
 
-def evalBuiltin (hash : HashOracle) (builtin : Evm.Builtin)
+def evalBuiltin (hash : External) (builtin : Evm.Builtin)
     (args : List Word) (state : State) : Option (Word × State) :=
   match builtin, args with
   | Evm.Builtin.stopOp, [] =>
@@ -1202,12 +1206,12 @@ def evalBuiltin (hash : HashOracle) (builtin : Evm.Builtin)
   | _, _ => none
 
 theorem evalBuiltin_opaque_none
-    (hash : HashOracle) (id : Nat) (args : List Word) (state : State) :
+    (hash : External) (id : Nat) (args : List Word) (state : State) :
     evalBuiltin hash (Evm.Builtin.opaque id) args state = none := by
   rfl
 
 theorem evalBuiltin_sload_present
-    (hash : HashOracle) (state : State) (key value : Word)
+    (hash : External) (state : State) (key value : Word)
     (hLookup :
       lookupAccountWordMap? state.storage state.address key = some value) :
     evalBuiltin hash Evm.Builtin.sload [key] state =
@@ -1220,7 +1224,7 @@ theorem evalBuiltin_sload_present
   rw [hLookup]
 
 theorem evalBuiltin_sload_missing
-    (hash : HashOracle) (state : State) (key : Word)
+    (hash : External) (state : State) (key : Word)
     (hLookup :
       lookupAccountWordMap? state.storage state.address key = none) :
     evalBuiltin hash Evm.Builtin.sload [key] state =
@@ -1233,7 +1237,7 @@ theorem evalBuiltin_sload_missing
   rw [hLookup]
 
 theorem evalBuiltin_tload_present
-    (hash : HashOracle) (state : State) (key value : Word)
+    (hash : External) (state : State) (key value : Word)
     (hLookup :
       lookupAccountWordMap? state.transientStorage state.address key =
         some value) :
@@ -1247,7 +1251,7 @@ theorem evalBuiltin_tload_present
   rw [hLookup]
 
 theorem evalBuiltin_tload_missing
-    (hash : HashOracle) (state : State) (key : Word)
+    (hash : External) (state : State) (key : Word)
     (hLookup :
       lookupAccountWordMap? state.transientStorage state.address key = none) :
     evalBuiltin hash Evm.Builtin.tloadOp [key] state =
@@ -1260,7 +1264,7 @@ theorem evalBuiltin_tload_missing
   rw [hLookup]
 
 theorem evalBuiltin_sstore_words
-    (hash : HashOracle) (state : State) (key value : Word) :
+    (hash : External) (state : State) (key value : Word) :
     evalBuiltin hash Evm.Builtin.sstore [key, value] state =
       returnUnit
         { state with
@@ -1279,7 +1283,7 @@ theorem storage_lookup_of_returnUnit_sstore
   exact lookupAccountWordMap_write_same state.storage state.address key value
 
 theorem evalBuiltin_sstore_lookup_same
-    (hash : HashOracle) (state : State) (key value result : Word)
+    (hash : External) (state : State) (key value result : Word)
     (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.sstore [key, value] state =
@@ -1290,7 +1294,7 @@ theorem evalBuiltin_sstore_lookup_same
   exact storage_lookup_of_returnUnit_sstore hEval
 
 theorem evalBuiltin_sload_after_sstore_same
-    (hash : HashOracle) (state : State) (key value result : Word)
+    (hash : External) (state : State) (key value result : Word)
     (state' : State)
     (hStore :
       evalBuiltin hash Evm.Builtin.sstore [key, value] state =
@@ -1302,7 +1306,7 @@ theorem evalBuiltin_sload_after_sstore_same
       hStore)
 
 theorem evalBuiltin_tstore_words
-    (hash : HashOracle) (state : State) (key value : Word) :
+    (hash : External) (state : State) (key value : Word) :
     evalBuiltin hash Evm.Builtin.tstoreOp [key, value] state =
       returnUnit
         { state with
@@ -1324,7 +1328,7 @@ theorem transientStorage_lookup_of_returnUnit_tstore
   exact lookupAccountWordMap_write_same state.transientStorage state.address key value
 
 theorem evalBuiltin_tstore_lookup_same
-    (hash : HashOracle) (state : State) (key value result : Word)
+    (hash : External) (state : State) (key value result : Word)
     (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.tstoreOp [key, value] state =
@@ -1335,7 +1339,7 @@ theorem evalBuiltin_tstore_lookup_same
   exact transientStorage_lookup_of_returnUnit_tstore hEval
 
 theorem evalBuiltin_tload_after_tstore_same
-    (hash : HashOracle) (state : State) (key value result : Word)
+    (hash : External) (state : State) (key value result : Word)
     (state' : State)
     (hStore :
       evalBuiltin hash Evm.Builtin.tstoreOp [key, value] state =
@@ -1347,13 +1351,13 @@ theorem evalBuiltin_tload_after_tstore_same
       hStore)
 
 theorem evalBuiltin_stop
-    (hash : HashOracle) (state : State) :
+    (hash : External) (state : State) :
     evalBuiltin hash Evm.Builtin.stopOp [] state =
       returnUnit (haltWith Evm.HaltKind.stop [] state) := by
   rfl
 
 theorem evalBuiltin_stop_halt?
-    (hash : HashOracle) (state : State) (result : Word) (state' : State)
+    (hash : External) (state : State) (result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.stopOp [] state =
         some (result, state')) :
@@ -1363,19 +1367,19 @@ theorem evalBuiltin_stop_halt?
   exact halt?_of_returnUnit_haltWith hEval
 
 theorem evalBuiltin_pop_word
-    (hash : HashOracle) (state : State) (value : Word) :
+    (hash : External) (state : State) (value : Word) :
     evalBuiltin hash Evm.Builtin.popOp [value] state =
       returnUnit state := by
   rfl
 
 theorem evalBuiltin_invalid
-    (hash : HashOracle) (state : State) :
+    (hash : External) (state : State) :
     evalBuiltin hash Evm.Builtin.invalidOp [] state =
       returnUnit (haltWith Evm.HaltKind.invalid [] state) := by
   rfl
 
 theorem evalBuiltin_invalid_halt?
-    (hash : HashOracle) (state : State) (result : Word) (state' : State)
+    (hash : External) (state : State) (result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.invalidOp [] state =
         some (result, state')) :
@@ -1385,7 +1389,7 @@ theorem evalBuiltin_invalid_halt?
   exact halt?_of_returnUnit_haltWith hEval
 
 theorem evalBuiltin_selfdestruct_word
-    (hash : HashOracle) (state : State) (target : Word) :
+    (hash : External) (state : State) (target : Word) :
     evalBuiltin hash Evm.Builtin.selfdestructOp [target] state =
       returnUnit
         (haltWith Evm.HaltKind.stop []
@@ -1393,7 +1397,7 @@ theorem evalBuiltin_selfdestruct_word
   rfl
 
 theorem evalBuiltin_selfdestruct_halt?
-    {hash : HashOracle} {state state' : State} {target result : Word}
+    {hash : External} {state state' : State} {target result : Word}
     (hEval :
       evalBuiltin hash Evm.Builtin.selfdestructOp [target] state =
         some (result, state')) :
@@ -1403,7 +1407,7 @@ theorem evalBuiltin_selfdestruct_halt?
   exact halt?_of_returnUnit_haltWith hEval
 
 theorem evalBuiltin_call_finishExternalCall
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address value argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.callOp
         [gas, address, value, argsOffset, argsSize, retOffset, retSize]
@@ -1417,7 +1421,7 @@ theorem evalBuiltin_call_finishExternalCall
   rfl
 
 theorem evalBuiltin_callcode_finishExternalCall
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address value argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.callcodeOp
         [gas, address, value, argsOffset, argsSize, retOffset, retSize]
@@ -1431,7 +1435,7 @@ theorem evalBuiltin_callcode_finishExternalCall
   rfl
 
 theorem evalBuiltin_delegatecall_finishExternalCall
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.delegatecallOp
         [gas, address, argsOffset, argsSize, retOffset, retSize] state =
@@ -1443,7 +1447,7 @@ theorem evalBuiltin_delegatecall_finishExternalCall
   rfl
 
 theorem evalBuiltin_staticcall_finishExternalCall
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.staticcallOp
         [gas, address, argsOffset, argsSize, retOffset, retSize] state =
@@ -1455,7 +1459,7 @@ theorem evalBuiltin_staticcall_finishExternalCall
   rfl
 
 theorem evalBuiltin_create_finishCreate
-    (hash : HashOracle) (state : State) (value offset size : Word) :
+    (hash : External) (state : State) (value offset size : Word) :
     evalBuiltin hash Evm.Builtin.createOp [value, offset, size] state =
       let args := [value, offset, size]
       let outcome := finishCreate Evm.Builtin.createOp args offset size state
@@ -1463,7 +1467,7 @@ theorem evalBuiltin_create_finishCreate
   rfl
 
 theorem evalBuiltin_create2_finishCreate
-    (hash : HashOracle) (state : State) (value offset size salt : Word) :
+    (hash : External) (state : State) (value offset size salt : Word) :
     evalBuiltin hash Evm.Builtin.create2Op [value, offset, size, salt] state =
       let args := [value, offset, size, salt]
       let outcome := finishCreate Evm.Builtin.create2Op args offset size state
@@ -1471,7 +1475,7 @@ theorem evalBuiltin_create2_finishCreate
   rfl
 
 theorem evalBuiltin_call_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address value argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.callOp
         [gas, address, value, argsOffset, argsSize, retOffset, retSize]
@@ -1487,7 +1491,7 @@ theorem evalBuiltin_call_words
   rfl
 
 theorem evalBuiltin_callcode_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address value argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.callcodeOp
         [gas, address, value, argsOffset, argsSize, retOffset, retSize]
@@ -1503,7 +1507,7 @@ theorem evalBuiltin_callcode_words
   rfl
 
 theorem evalBuiltin_delegatecall_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.delegatecallOp
         [gas, address, argsOffset, argsSize, retOffset, retSize] state =
@@ -1517,7 +1521,7 @@ theorem evalBuiltin_delegatecall_words
   rfl
 
 theorem evalBuiltin_staticcall_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (gas address argsOffset argsSize retOffset retSize : Word) :
     evalBuiltin hash Evm.Builtin.staticcallOp
         [gas, address, argsOffset, argsSize, retOffset, retSize] state =
@@ -1531,7 +1535,7 @@ theorem evalBuiltin_staticcall_words
   rfl
 
 theorem evalBuiltin_create_words
-    (hash : HashOracle) (state : State) (value offset size : Word) :
+    (hash : External) (state : State) (value offset size : Word) :
     evalBuiltin hash Evm.Builtin.createOp [value, offset, size] state =
       let args := [value, offset, size]
       let response := state.createResponse Evm.Builtin.createOp args
@@ -1542,7 +1546,7 @@ theorem evalBuiltin_create_words
   rfl
 
 theorem evalBuiltin_create2_words
-    (hash : HashOracle) (state : State) (value offset size salt : Word) :
+    (hash : External) (state : State) (value offset size salt : Word) :
     evalBuiltin hash Evm.Builtin.create2Op [value, offset, size, salt] state =
       let args := [value, offset, size, salt]
       let response := state.createResponse Evm.Builtin.create2Op args
@@ -1553,7 +1557,7 @@ theorem evalBuiltin_create2_words
   rfl
 
 theorem evalBuiltin_verbatim_zero_args
-    (hash : HashOracle) (state : State) (inputs : Nat) (args : List Word)
+    (hash : External) (state : State) (inputs : Nat) (args : List Word)
     (hArgs : args.length = inputs) :
     evalBuiltin hash (Evm.Builtin.verbatimOp inputs 0) args state =
       returnUnit
@@ -1569,7 +1573,7 @@ theorem evalBuiltin_verbatim_zero_args
   simp [hArgs]
 
 theorem evalBuiltin_verbatim_one_args
-    (hash : HashOracle) (state : State) (inputs : Nat) (args : List Word)
+    (hash : External) (state : State) (inputs : Nat) (args : List Word)
     (hArgs : args.length = inputs) :
     evalBuiltin hash (Evm.Builtin.verbatimOp inputs 1) args state =
       returnWord (hash.verbatim (Evm.Builtin.verbatimOp inputs 1) args)
@@ -1585,7 +1589,7 @@ theorem evalBuiltin_verbatim_one_args
   simp [hArgs]
 
 theorem evalBuiltin_log0_words
-    (hash : HashOracle) (state : State) (offset size : Word) :
+    (hash : External) (state : State) (offset size : Word) :
     evalBuiltin hash Evm.Builtin.log0Op [offset, size] state =
       returnUnit
         { expandMemory state offset size with
@@ -1593,7 +1597,7 @@ theorem evalBuiltin_log0_words
   rfl
 
 theorem evalBuiltin_log1_words
-    (hash : HashOracle) (state : State) (offset size topic0 : Word) :
+    (hash : External) (state : State) (offset size topic0 : Word) :
     evalBuiltin hash Evm.Builtin.log1Op [offset, size, topic0] state =
       returnUnit
         { expandMemory state offset size with
@@ -1603,7 +1607,7 @@ theorem evalBuiltin_log1_words
   rfl
 
 theorem evalBuiltin_log2_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (offset size topic0 topic1 : Word) :
     evalBuiltin hash Evm.Builtin.log2Op
         [offset, size, topic0, topic1] state =
@@ -1616,7 +1620,7 @@ theorem evalBuiltin_log2_words
   rfl
 
 theorem evalBuiltin_log3_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (offset size topic0 topic1 topic2 : Word) :
     evalBuiltin hash Evm.Builtin.log3Op
         [offset, size, topic0, topic1, topic2] state =
@@ -1629,7 +1633,7 @@ theorem evalBuiltin_log3_words
   rfl
 
 theorem evalBuiltin_log4_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (offset size topic0 topic1 topic2 topic3 : Word) :
     evalBuiltin hash Evm.Builtin.log4Op
         [offset, size, topic0, topic1, topic2, topic3] state =
@@ -1642,13 +1646,13 @@ theorem evalBuiltin_log4_words
   rfl
 
 theorem evalBuiltin_memoryguard_word
-    (hash : HashOracle) (state : State) (size : Word) :
+    (hash : External) (state : State) (size : Word) :
     evalBuiltin hash Evm.Builtin.memoryguardOp [size] state =
       returnWord size state := by
   rfl
 
 theorem evalBuiltin_contextWord_returns_word
-    (hash : HashOracle) (state : State) {builtin : Evm.Builtin}
+    (hash : External) (state : State) {builtin : Evm.Builtin}
     (hBuiltin : FullYul.CompilerProfile.ContextWordBuiltin builtin) :
     ∃ value,
       evalBuiltin hash builtin [] state = returnWord value state := by
@@ -1671,7 +1675,7 @@ theorem evalBuiltin_contextWord_returns_word
   · exact ⟨state.blobbasefee, rfl⟩
 
 theorem evalBuiltin_contextWord_preserves_state
-    {hash : HashOracle} {state state' : State} {value : Word}
+    {hash : External} {state state' : State} {value : Word}
     {builtin : Evm.Builtin}
     (hBuiltin : FullYul.CompilerProfile.ContextWordBuiltin builtin)
     (hEval : evalBuiltin hash builtin [] state = some (value, state')) :
@@ -1695,73 +1699,73 @@ theorem evalBuiltin_contextWord_preserves_state
   · exact state_eq_of_returnWord_some hEval
 
 theorem evalBuiltin_calldatasize
-    (hash : HashOracle) (state : State) :
+    (hash : External) (state : State) :
     evalBuiltin hash Evm.Builtin.calldatasizeOp [] state =
       returnWord state.calldata.length state := by
   rfl
 
 theorem evalBuiltin_calldataload_word
-    (hash : HashOracle) (state : State) (offset : Word) :
+    (hash : External) (state : State) (offset : Word) :
     evalBuiltin hash Evm.Builtin.calldataloadOp [offset] state =
       returnWord (readWord state.calldata offset) state := by
   rfl
 
 theorem evalBuiltin_returndataload_word
-    (hash : HashOracle) (state : State) (offset : Word) :
+    (hash : External) (state : State) (offset : Word) :
     evalBuiltin hash Evm.Builtin.returndataloadOp [offset] state =
       returnWord (readWord state.returndata offset) state := by
   rfl
 
 theorem evalBuiltin_returndatasize
-    (hash : HashOracle) (state : State) :
+    (hash : External) (state : State) :
     evalBuiltin hash Evm.Builtin.returndatasizeOp [] state =
       returnWord state.returndata.length state := by
   rfl
 
 theorem evalBuiltin_codesize
-    (hash : HashOracle) (state : State) :
+    (hash : External) (state : State) :
     evalBuiltin hash Evm.Builtin.codesizeOp [] state =
       returnWord state.code.length state := by
   rfl
 
 theorem evalBuiltin_blockhash_word
-    (hash : HashOracle) (state : State) (blockNumber : Word) :
+    (hash : External) (state : State) (blockNumber : Word) :
     evalBuiltin hash Evm.Builtin.blockhashOp [blockNumber] state =
       returnWord (state.blockhash blockNumber) state := by
   rfl
 
 theorem evalBuiltin_balance_word
-    (hash : HashOracle) (state : State) (address : Word) :
+    (hash : External) (state : State) (address : Word) :
     evalBuiltin hash Evm.Builtin.balanceOp [address] state =
       returnWord (state.balance address) state := by
   rfl
 
 theorem evalBuiltin_extcodesize_word
-    (hash : HashOracle) (state : State) (address : Word) :
+    (hash : External) (state : State) (address : Word) :
     evalBuiltin hash Evm.Builtin.extcodesizeOp [address] state =
       returnWord (state.extcode address).length state := by
   rfl
 
 theorem evalBuiltin_extcodehash_word
-    (hash : HashOracle) (state : State) (address : Word) :
+    (hash : External) (state : State) (address : Word) :
     evalBuiltin hash Evm.Builtin.extcodehashOp [address] state =
       returnWord (hash.keccak256 (state.extcode address)) state := by
   rfl
 
 theorem evalBuiltin_blobhash_word
-    (hash : HashOracle) (state : State) (index : Word) :
+    (hash : External) (state : State) (index : Word) :
     evalBuiltin hash Evm.Builtin.blobhashOp [index] state =
       returnWord (state.blobhash index) state := by
   rfl
 
 theorem evalBuiltin_mload_word
-    (hash : HashOracle) (state : State) (offset : Word) :
+    (hash : External) (state : State) (offset : Word) :
     evalBuiltin hash Evm.Builtin.mload [offset] state =
       returnWord (readWord state.memory offset) (expandMemory state offset 32) := by
   rfl
 
 theorem evalBuiltin_mstore_words
-    (hash : HashOracle) (state : State) (offset value : Word) :
+    (hash : External) (state : State) (offset value : Word) :
     evalBuiltin hash Evm.Builtin.mstore [offset, value] state =
       returnUnit
         (setMemoryAfterAccess state (writeWord state.memory offset value)
@@ -1769,7 +1773,7 @@ theorem evalBuiltin_mstore_words
   rfl
 
 theorem evalBuiltin_mstore_readBytes_same
-    (hash : HashOracle) (state : State) (offset value result : Word)
+    (hash : External) (state : State) (offset value result : Word)
     (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.mstore [offset, value] state =
@@ -1779,7 +1783,7 @@ theorem evalBuiltin_mstore_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_writeWord hEval
 
 theorem evalBuiltin_mstore8_words
-    (hash : HashOracle) (state : State) (offset value : Word) :
+    (hash : External) (state : State) (offset value : Word) :
     evalBuiltin hash Evm.Builtin.mstore8 [offset, value] state =
       returnUnit
         (setMemoryAfterAccess state (writeByteWord state.memory offset value)
@@ -1787,7 +1791,7 @@ theorem evalBuiltin_mstore8_words
   rfl
 
 theorem evalBuiltin_mstore8_readBytes_same
-    (hash : HashOracle) (state : State) (offset value result : Word)
+    (hash : External) (state : State) (offset value result : Word)
     (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.mstore8 [offset, value] state =
@@ -1797,14 +1801,14 @@ theorem evalBuiltin_mstore8_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_writeByteWord hEval
 
 theorem evalBuiltin_keccak256_words
-    (hash : HashOracle) (state : State) (offset size : Word) :
+    (hash : External) (state : State) (offset size : Word) :
     evalBuiltin hash Evm.Builtin.keccak256Op [offset, size] state =
       returnWord (hash.keccak256 (readBytes state.memory offset size))
         (expandMemory state offset size) := by
   rfl
 
 theorem evalBuiltin_return_words
-    (hash : HashOracle) (state : State) (offset size : Word) :
+    (hash : External) (state : State) (offset size : Word) :
     evalBuiltin hash Evm.Builtin.returnOp [offset, size] state =
       returnUnit
         (haltWith Evm.HaltKind.returned
@@ -1813,7 +1817,7 @@ theorem evalBuiltin_return_words
   rfl
 
 theorem evalBuiltin_return_halt?
-    (hash : HashOracle) (state : State) (offset size result : Word)
+    (hash : External) (state : State) (offset size result : Word)
     (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.returnOp [offset, size] state =
@@ -1826,7 +1830,7 @@ theorem evalBuiltin_return_halt?
   exact halt?_of_returnUnit_haltWith hEval
 
 theorem evalBuiltin_revert_words
-    (hash : HashOracle) (state : State) (offset size : Word) :
+    (hash : External) (state : State) (offset size : Word) :
     evalBuiltin hash Evm.Builtin.revertOp [offset, size] state =
       returnUnit
         (haltWith Evm.HaltKind.reverted
@@ -1835,7 +1839,7 @@ theorem evalBuiltin_revert_words
   rfl
 
 theorem evalBuiltin_revert_halt?
-    (hash : HashOracle) (state : State) (offset size result : Word)
+    (hash : External) (state : State) (offset size result : Word)
     (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.revertOp [offset, size] state =
@@ -1848,7 +1852,7 @@ theorem evalBuiltin_revert_halt?
   exact halt?_of_returnUnit_haltWith hEval
 
 theorem evalBuiltin_calldatacopy_words
-    (hash : HashOracle) (state : State) (dest offset size : Word) :
+    (hash : External) (state : State) (dest offset size : Word) :
     evalBuiltin hash Evm.Builtin.calldatacopyOp [dest, offset, size] state =
       returnUnit
         (setMemoryAfterAccess state
@@ -1856,7 +1860,7 @@ theorem evalBuiltin_calldatacopy_words
   rfl
 
 theorem evalBuiltin_calldatacopy_readBytes_same
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (dest offset size result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.calldatacopyOp [dest, offset, size] state =
@@ -1867,7 +1871,7 @@ theorem evalBuiltin_calldatacopy_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_copyBytes hEval
 
 theorem evalBuiltin_returndatacopy_words
-    (hash : HashOracle) (state : State) (dest offset size : Word) :
+    (hash : External) (state : State) (dest offset size : Word) :
     evalBuiltin hash Evm.Builtin.returndatacopyOp [dest, offset, size] state =
       returnUnit
         (setMemoryAfterAccess state
@@ -1875,7 +1879,7 @@ theorem evalBuiltin_returndatacopy_words
   rfl
 
 theorem evalBuiltin_returndatacopy_readBytes_same
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (dest offset size result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.returndatacopyOp [dest, offset, size]
@@ -1887,7 +1891,7 @@ theorem evalBuiltin_returndatacopy_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_copyBytes hEval
 
 theorem evalBuiltin_codecopy_words
-    (hash : HashOracle) (state : State) (dest offset size : Word) :
+    (hash : External) (state : State) (dest offset size : Word) :
     evalBuiltin hash Evm.Builtin.codecopyOp [dest, offset, size] state =
       returnUnit
         (setMemoryAfterAccess state
@@ -1895,7 +1899,7 @@ theorem evalBuiltin_codecopy_words
   rfl
 
 theorem evalBuiltin_codecopy_readBytes_same
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (dest offset size result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.codecopyOp [dest, offset, size] state =
@@ -1906,7 +1910,7 @@ theorem evalBuiltin_codecopy_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_copyBytes hEval
 
 theorem evalBuiltin_datacopy_words
-    (hash : HashOracle) (state : State) (dest offset size : Word) :
+    (hash : External) (state : State) (dest offset size : Word) :
     evalBuiltin hash Evm.Builtin.datacopyOp [dest, offset, size] state =
       returnUnit
         (setMemoryAfterAccess state
@@ -1914,7 +1918,7 @@ theorem evalBuiltin_datacopy_words
   rfl
 
 theorem evalBuiltin_datacopy_readBytes_same
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (dest offset size result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.datacopyOp [dest, offset, size] state =
@@ -1925,7 +1929,7 @@ theorem evalBuiltin_datacopy_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_copyBytes hEval
 
 theorem evalBuiltin_extcodecopy_words
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (address dest offset size : Word) :
     evalBuiltin hash Evm.Builtin.extcodecopyOp
         [address, dest, offset, size] state =
@@ -1936,7 +1940,7 @@ theorem evalBuiltin_extcodecopy_words
   rfl
 
 theorem evalBuiltin_extcodecopy_readBytes_same
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (address dest offset size result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.extcodecopyOp
@@ -1948,7 +1952,7 @@ theorem evalBuiltin_extcodecopy_readBytes_same
   exact readBytes_of_returnUnit_setMemoryAfterAccess_copyBytes hEval
 
 theorem evalBuiltin_mcopy_words
-    (hash : HashOracle) (state : State) (dest source size : Word) :
+    (hash : External) (state : State) (dest source size : Word) :
     evalBuiltin hash Evm.Builtin.mcopyOp [dest, source, size] state =
       returnUnit
         { expandMemory
@@ -1959,7 +1963,7 @@ theorem evalBuiltin_mcopy_words
   rfl
 
 theorem evalBuiltin_mcopy_readBytes_same
-    (hash : HashOracle) (state : State)
+    (hash : External) (state : State)
     (dest source size result : Word) (state' : State)
     (hEval :
       evalBuiltin hash Evm.Builtin.mcopyOp [dest, source, size] state =
@@ -1974,7 +1978,7 @@ theorem evalBuiltin_mcopy_readBytes_same
       (by rfl) hEval
 
 theorem evalBuiltin_mcopy_zero_size_of_normalized_memorySize
-    (hash : HashOracle) (state : State) (dest source : Word)
+    (hash : External) (state : State) (dest source : Word)
     (hMemorySize : norm state.memorySize = state.memorySize) :
     evalBuiltin hash Evm.Builtin.mcopyOp [dest, source, 0] state =
       returnUnit state := by
@@ -1984,7 +1988,7 @@ theorem evalBuiltin_mcopy_zero_size_of_normalized_memorySize
     copyBytes_zero_size, hMemorySize, hZero]
 
 theorem evalBuiltin_loadimmutable_present
-    (hash : HashOracle) (state : State) (key value : Word)
+    (hash : External) (state : State) (key value : Word)
     (hLookup : lookupWordMap? state.immutables key = some value) :
     evalBuiltin hash Evm.Builtin.loadimmutableOp [key] state =
       returnWord value state := by
@@ -1996,7 +2000,7 @@ theorem evalBuiltin_loadimmutable_present
   rw [hLookup]
 
 theorem evalBuiltin_loadimmutable_missing
-    (hash : HashOracle) (state : State) (key : Word)
+    (hash : External) (state : State) (key : Word)
     (hLookup : lookupWordMap? state.immutables key = none) :
     evalBuiltin hash Evm.Builtin.loadimmutableOp [key] state =
       returnWord 0 state := by
@@ -2008,7 +2012,7 @@ theorem evalBuiltin_loadimmutable_missing
   rw [hLookup]
 
 theorem evalBuiltin_linkersymbol_present
-    (hash : HashOracle) (state : State) (key value : Word)
+    (hash : External) (state : State) (key value : Word)
     (hLookup : lookupWordMap? state.linkerSymbols key = some value) :
     evalBuiltin hash Evm.Builtin.linkersymbolOp [key] state =
       returnWord value state := by
@@ -2020,7 +2024,7 @@ theorem evalBuiltin_linkersymbol_present
   rw [hLookup]
 
 theorem evalBuiltin_linkersymbol_missing
-    (hash : HashOracle) (state : State) (key : Word)
+    (hash : External) (state : State) (key : Word)
     (hLookup : lookupWordMap? state.linkerSymbols key = none) :
     evalBuiltin hash Evm.Builtin.linkersymbolOp [key] state =
       returnWord 0 state := by
@@ -2032,7 +2036,7 @@ theorem evalBuiltin_linkersymbol_missing
   rw [hLookup]
 
 theorem evalBuiltin_setimmutable_no_positions
-    (hash : HashOracle) (state : State) (offset key value : Word)
+    (hash : External) (state : State) (offset key value : Word)
     (hPositions : lookupWordListMap? state.immutablePositions key = none) :
     evalBuiltin hash Evm.Builtin.setimmutableOp [offset, key, value] state =
       returnUnit { state with immutables := writeWordMap state.immutables key value } := by
@@ -2046,7 +2050,7 @@ theorem evalBuiltin_setimmutable_no_positions
   simp [hPositions]
 
 theorem evalBuiltin_setimmutable_positions
-    (hash : HashOracle) (state : State) (offset key value : Word)
+    (hash : External) (state : State) (offset key value : Word)
     (positions : List Word)
     (hPositions : lookupWordListMap? state.immutablePositions key =
       some positions) :
@@ -2067,7 +2071,7 @@ theorem evalBuiltin_setimmutable_positions
           offset positions value)
   simp [hPositions]
 
-def evalBuiltinValues (hash : HashOracle) (builtin : Evm.Builtin)
+def evalBuiltinValues (hash : External) (builtin : Evm.Builtin)
     (args : List Word) (state : State) : Option (List Word × State) :=
   match builtin with
   | Evm.Builtin.verbatimOp inputs outputs =>
@@ -2097,12 +2101,12 @@ def evalBuiltinValues (hash : HashOracle) (builtin : Evm.Builtin)
       | none => none
 
 theorem evalBuiltinValues_opaque_none
-    (hash : HashOracle) (id : Nat) (args : List Word) (state : State) :
+    (hash : External) (id : Nat) (args : List Word) (state : State) :
     evalBuiltinValues hash (Evm.Builtin.opaque id) args state = none := by
   simp [evalBuiltinValues, Evm.Builtin.signature?]
 
 theorem evalBuiltinValues_zero_match_length
-    {hash : HashOracle} {builtin : Evm.Builtin} {args : List Word}
+    {hash : External} {builtin : Evm.Builtin} {args : List Word}
     {state state' : State} {values : List Word}
     (hEval :
       (match evalBuiltin hash builtin args state with
@@ -2120,7 +2124,7 @@ theorem evalBuiltinValues_zero_match_length
           rfl
 
 theorem evalBuiltinValues_one_match_length
-    {hash : HashOracle} {builtin : Evm.Builtin} {args : List Word}
+    {hash : External} {builtin : Evm.Builtin} {args : List Word}
     {state state' : State} {values : List Word}
     (hEval :
       (match evalBuiltin hash builtin args state with
@@ -2138,7 +2142,7 @@ theorem evalBuiltinValues_one_match_length
           rfl
 
 theorem evalBuiltinValues_length_of_signature
-    {hash : HashOracle} {builtin : Evm.Builtin} {args : List Word}
+    {hash : External} {builtin : Evm.Builtin} {args : List Word}
     {state state' : State} {values : List Word}
     {sig : Evm.BuiltinSignature}
     (hSig : builtin.signature? = some sig)
@@ -2237,7 +2241,7 @@ inductive Expr where
   deriving Repr
 
 mutual
-  def evalExpr (hash : HashOracle) : Expr -> Config -> Option (Word × Config)
+  def evalExpr (hash : External) : Expr -> Config -> Option (Word × Config)
     | Expr.word value, config => some (norm value, config)
     | Expr.var name, config =>
         match lookup? config.env name with
@@ -2280,7 +2284,7 @@ mutual
         | some _ => some (label, config)
         | none => none
 
-  def evalExprs (hash : HashOracle) : List Expr -> Config ->
+  def evalExprs (hash : External) : List Expr -> Config ->
       Option (List Word × Config)
     | [], config => some ([], config)
     | expr :: rest, config =>
@@ -2292,7 +2296,7 @@ mutual
         | none => none
 end
 
-def evalExprsAsYulValues (hash : HashOracle) (exprs : List Expr)
+def evalExprsAsYulValues (hash : External) (exprs : List Expr)
     (config : Config) : Option (List Word × Config) :=
   match exprs with
   | [Expr.builtin builtin args] =>
@@ -2408,7 +2412,7 @@ def switchTarget? (value : Word) : List (Word × Stmt) -> Option Stmt ->
       if norm label = norm value then some branch else switchTarget? value rest defaultBranch
 
 mutual
-  def evalStmtFuel (hash : HashOracle) : Nat -> Config -> Stmt -> Option Result
+  def evalStmtFuel (hash : External) : Nat -> Config -> Stmt -> Option Result
     | 0, _, _ => none
     | _fuel + 1, config, Stmt.skip => some (normalResult config)
     | _fuel + 1, config, Stmt.expr expr =>
@@ -2495,7 +2499,7 @@ mutual
     | _fuel + 1, config, Stmt.leave =>
         some { flow := Flow.left, config := config }
 
-  def evalBlockFuel (hash : HashOracle) : Nat -> Config -> List Stmt ->
+  def evalBlockFuel (hash : External) : Nat -> Config -> List Stmt ->
       Option Result
     | 0, _, _ => none
     | _fuel + 1, config, [] => some (normalResult config)
@@ -2506,7 +2510,7 @@ mutual
         | some result => some result
         | none => none
 
-  def evalForFuel (hash : HashOracle) : Nat -> Config -> Config -> Expr ->
+  def evalForFuel (hash : External) : Nat -> Config -> Config -> Expr ->
       Stmt -> Stmt -> Option Result
     | 0, _, _, _, _, _ => none
     | fuel + 1, outer, loopConfig, cond, post, body =>
@@ -2617,7 +2621,7 @@ def initFunctionEnv (params : List Name) (args : List Word)
   | none => none
 
 mutual
-  def evalProgramStmtFuel (hash : HashOracle) (funcs : FunctionEnv) :
+  def evalProgramStmtFuel (hash : External) (funcs : FunctionEnv) :
       Nat -> Config -> Stmt -> Option Result
     | 0, _, _ => none
     | _fuel + 1, config, Stmt.skip => some (normalResult config)
@@ -2723,7 +2727,7 @@ mutual
     | _fuel + 1, config, Stmt.leave =>
         some { flow := Flow.left, config := config }
 
-  def evalProgramBlockFuel (hash : HashOracle) (funcs : FunctionEnv) :
+  def evalProgramBlockFuel (hash : External) (funcs : FunctionEnv) :
       Nat -> Config -> List Stmt -> Option Result
     | 0, _, _ => none
     | _fuel + 1, config, [] => some (normalResult config)
@@ -2734,7 +2738,7 @@ mutual
         | some result => some result
         | none => none
 
-  def evalProgramForFuel (hash : HashOracle) (funcs : FunctionEnv) :
+  def evalProgramForFuel (hash : External) (funcs : FunctionEnv) :
       Nat -> Config -> Config -> Expr -> Stmt -> Stmt -> Option Result
     | 0, _, _, _, _, _ => none
     | fuel + 1, outer, loopConfig, cond, post, body =>
@@ -2799,7 +2803,7 @@ mutual
               | none => none
         | none => none
 
-  def evalFunctionFuel (hash : HashOracle) (funcs : FunctionEnv) :
+  def evalFunctionFuel (hash : External) (funcs : FunctionEnv) :
       Nat -> Name -> List Word -> Config -> Option (List Word × Config)
     | 0, _, _, _ => none
     | fuel + 1, fnName, args, callerConfig =>
@@ -2877,13 +2881,13 @@ def runtimeResultAfterExpr (config : RuntimeConfig) : RuntimeResult :=
   | some _ => { flow := CompleteFlow.halted, config := config }
   | none => runtimeNormalResult config
 
-def evalRuntimeExpr (hash : HashOracle) (expr : Expr)
+def evalRuntimeExpr (hash : External) (expr : Expr)
     (config : RuntimeConfig) : Option (Word × RuntimeConfig) :=
   match evalExpr hash expr config.toConfig with
   | some (value, config') => some (value, config.withConfig config')
   | none => none
 
-def evalRuntimeExprs (hash : HashOracle) :
+def evalRuntimeExprs (hash : External) :
     List Expr -> RuntimeConfig -> Option (List Word × RuntimeConfig)
   | [], config => some ([], config)
   | expr :: rest, config =>
@@ -2894,7 +2898,7 @@ def evalRuntimeExprs (hash : HashOracle) :
           | none => none
       | none => none
 
-def evalRuntimeExprsAsYulValues (hash : HashOracle) (exprs : List Expr)
+def evalRuntimeExprsAsYulValues (hash : External) (exprs : List Expr)
     (config : RuntimeConfig) : Option (List Word × RuntimeConfig) :=
   match evalExprsAsYulValues hash exprs config.toConfig with
   | some (values, config') => some (values, config.withConfig config')
@@ -2913,7 +2917,7 @@ def withRestoredRuntimeConfig (outer : RuntimeConfig)
   | none => none
 
 mutual
-  def evalRuntimeStmtFuel (hash : HashOracle) :
+  def evalRuntimeStmtFuel (hash : External) :
       Nat -> RuntimeConfig -> Stmt -> Option RuntimeResult
     | 0, _, _ => none
     | _fuel + 1, config, Stmt.skip => some (runtimeNormalResult config)
@@ -3031,7 +3035,7 @@ mutual
     | _fuel + 1, config, Stmt.leave =>
         some { flow := CompleteFlow.left, config := config }
 
-  def evalRuntimeBlockFuel (hash : HashOracle) :
+  def evalRuntimeBlockFuel (hash : External) :
       Nat -> RuntimeConfig -> List Stmt -> Option RuntimeResult
     | 0, _, _ => none
     | _fuel + 1, config, [] => some (runtimeNormalResult config)
@@ -3042,7 +3046,7 @@ mutual
         | some result => some result
         | none => none
 
-  def evalRuntimeForFuel (hash : HashOracle) :
+  def evalRuntimeForFuel (hash : External) :
       Nat -> RuntimeConfig -> RuntimeConfig -> Expr -> Stmt -> Stmt ->
         Option RuntimeResult
     | 0, _, _, _, _, _ => none
@@ -3108,7 +3112,7 @@ mutual
               | none => none
         | none => none
 
-  def evalRuntimeFunctionFuel (hash : HashOracle) :
+  def evalRuntimeFunctionFuel (hash : External) :
       Nat -> Name -> List Word -> RuntimeConfig ->
         Option (List Word × RuntimeConfig)
     | 0, _, _, _ => none
@@ -3146,16 +3150,16 @@ mutual
         | none => none
 end
 
-def runStmtFuel (hash : HashOracle) (fuel : Nat) (stmt : Stmt) :
+def runStmtFuel (hash : External) (fuel : Nat) (stmt : Stmt) :
     Option RuntimeResult :=
   evalRuntimeStmtFuel hash fuel RuntimeConfig.empty stmt
 
-def runProgramFuel (hash : HashOracle) (fuel : Nat)
+def runProgramFuel (hash : External) (fuel : Nat)
     (program : Program) : Option RuntimeResult :=
   evalRuntimeStmtFuel hash fuel (RuntimeConfig.forProgram program) program.body
 
 theorem evalRuntimeFunctionFuel_restores_caller_frame
-    {hash : HashOracle} {fuel : Nat}
+    {hash : External} {fuel : Nat}
     {fnName : Name} {args values : List Word}
     {callerConfig afterConfig : RuntimeConfig}
     (h : evalRuntimeFunctionFuel hash fuel fnName args callerConfig =
@@ -3174,7 +3178,7 @@ theorem evalRuntimeFunctionFuel_restores_caller_frame
         | cases h; constructor <;> rfl
 
 theorem evalFunctionFuel_restores_caller_env
-    {hash : HashOracle} {funcs : FunctionEnv} {fuel : Nat}
+    {hash : External} {funcs : FunctionEnv} {fuel : Nat}
     {fnName : Name} {args values : List Word} {callerConfig afterConfig : Config}
     (h : evalFunctionFuel hash funcs fuel fnName args callerConfig =
       some (values, afterConfig)) :
@@ -3195,62 +3199,62 @@ theorem readBytes_pads_past_end :
   rfl
 
 theorem evalStmtFuel_zero
-    (hash : HashOracle) (config : Config) (stmt : Stmt) :
+    (hash : External) (config : Config) (stmt : Stmt) :
     evalStmtFuel hash 0 config stmt = none := by
   rfl
 
 theorem evalBlockFuel_zero
-    (hash : HashOracle) (config : Config) (stmts : List Stmt) :
+    (hash : External) (config : Config) (stmts : List Stmt) :
     evalBlockFuel hash 0 config stmts = none := by
   rfl
 
 theorem evalForFuel_zero
-    (hash : HashOracle) (outer loopConfig : Config) (cond : Expr)
+    (hash : External) (outer loopConfig : Config) (cond : Expr)
     (post body : Stmt) :
     evalForFuel hash 0 outer loopConfig cond post body = none := by
   rfl
 
 theorem evalProgramStmtFuel_zero
-    (hash : HashOracle) (funcs : FunctionEnv) (config : Config) (stmt : Stmt) :
+    (hash : External) (funcs : FunctionEnv) (config : Config) (stmt : Stmt) :
     evalProgramStmtFuel hash funcs 0 config stmt = none := by
   rfl
 
 theorem evalProgramBlockFuel_zero
-    (hash : HashOracle) (funcs : FunctionEnv) (config : Config)
+    (hash : External) (funcs : FunctionEnv) (config : Config)
     (stmts : List Stmt) :
     evalProgramBlockFuel hash funcs 0 config stmts = none := by
   rfl
 
 theorem evalProgramForFuel_zero
-    (hash : HashOracle) (funcs : FunctionEnv) (outer loopConfig : Config)
+    (hash : External) (funcs : FunctionEnv) (outer loopConfig : Config)
     (cond : Expr) (post body : Stmt) :
     evalProgramForFuel hash funcs 0 outer loopConfig cond post body = none := by
   rfl
 
 theorem evalFunctionFuel_zero
-    (hash : HashOracle) (funcs : FunctionEnv) (name : Name)
+    (hash : External) (funcs : FunctionEnv) (name : Name)
     (args : List Word) (callerConfig : Config) :
     evalFunctionFuel hash funcs 0 name args callerConfig = none := by
   rfl
 
 theorem evalRuntimeStmtFuel_zero
-    (hash : HashOracle) (config : RuntimeConfig) (stmt : Stmt) :
+    (hash : External) (config : RuntimeConfig) (stmt : Stmt) :
     evalRuntimeStmtFuel hash 0 config stmt = none := by
   rfl
 
 theorem evalRuntimeBlockFuel_zero
-    (hash : HashOracle) (config : RuntimeConfig) (stmts : List Stmt) :
+    (hash : External) (config : RuntimeConfig) (stmts : List Stmt) :
     evalRuntimeBlockFuel hash 0 config stmts = none := by
   rfl
 
 theorem evalRuntimeForFuel_zero
-    (hash : HashOracle) (outer loopConfig : RuntimeConfig) (cond : Expr)
+    (hash : External) (outer loopConfig : RuntimeConfig) (cond : Expr)
     (post body : Stmt) :
     evalRuntimeForFuel hash 0 outer loopConfig cond post body = none := by
   rfl
 
 theorem evalRuntimeFunctionFuel_zero
-    (hash : HashOracle) (name : Name) (args : List Word)
+    (hash : External) (name : Name) (args : List Word)
     (callerConfig : RuntimeConfig) :
     evalRuntimeFunctionFuel hash 0 name args callerConfig = none := by
   rfl
@@ -3263,29 +3267,29 @@ theorem bytesToWord_single_low_byte :
     bytesToWord (zeroBytes 31 ++ [7]) = 7 := by
   rfl
 
-theorem mstore_writes_word_bytes (hash : HashOracle) :
+theorem mstore_writes_word_bytes (hash : External) :
     evalBuiltin hash Evm.Builtin.mstore [0, 7] State.empty =
       some (0, { State.empty with memory := writeWord [] 0 7, memorySize := 32 }) := by
   rfl
 
-theorem mload_reads_concrete_word (hash : HashOracle) :
+theorem mload_reads_concrete_word (hash : External) :
     evalBuiltin hash Evm.Builtin.mload [0]
         { State.empty with memory := zeroBytes 31 ++ [7] } =
       some (7, { State.empty with memory := zeroBytes 31 ++ [7], memorySize := 32 }) := by
   rfl
 
-theorem mstore8_writes_low_byte_and_expands (hash : HashOracle) :
+theorem mstore8_writes_low_byte_and_expands (hash : External) :
     evalBuiltin hash Evm.Builtin.mstore8 [31, 263] State.empty =
       some (0, { State.empty with memory := zeroBytes 31 ++ [7], memorySize := 32 }) := by
   rfl
 
-theorem msize_tracks_active_memory_not_backing_length (hash : HashOracle) :
+theorem msize_tracks_active_memory_not_backing_length (hash : External) :
     evalBuiltin hash Evm.Builtin.msizeOp []
         { State.empty with memory := zeroBytes 64, memorySize := 32 } =
       some (32, { State.empty with memory := zeroBytes 64, memorySize := 32 }) := by
   rfl
 
-theorem calldatacopy_writes_concrete_bytes (hash : HashOracle) :
+theorem calldatacopy_writes_concrete_bytes (hash : External) :
     evalBuiltin hash Evm.Builtin.calldatacopyOp [2, 1, 3]
         { State.empty with calldata := [10, 11, 12, 13] } =
       some
@@ -3296,12 +3300,12 @@ theorem calldatacopy_writes_concrete_bytes (hash : HashOracle) :
             memory := [0, 0, 11, 12, 13] } ) := by
   rfl
 
-theorem zero_length_copy_does_not_expand_memory (hash : HashOracle) :
+theorem zero_length_copy_does_not_expand_memory (hash : External) :
     evalBuiltin hash Evm.Builtin.calldatacopyOp [100, 0, 0] State.empty =
       some (0, State.empty) := by
   rfl
 
-theorem mcopy_overlap_reads_original_bytes (hash : HashOracle) :
+theorem mcopy_overlap_reads_original_bytes (hash : External) :
     evalBuiltin hash Evm.Builtin.mcopyOp [1, 0, 3]
         { State.empty with memory := [1, 2, 3, 4] } =
       some
@@ -3309,7 +3313,7 @@ theorem mcopy_overlap_reads_original_bytes (hash : HashOracle) :
         , { State.empty with memory := [1, 1, 2, 3], memorySize := 32 } ) := by
   rfl
 
-theorem datacopy_writes_concrete_code_bytes (hash : HashOracle) :
+theorem datacopy_writes_concrete_code_bytes (hash : External) :
     evalBuiltin hash Evm.Builtin.datacopyOp [2, 1, 3]
         { State.empty with code := [10, 11, 12, 13] } =
       some
@@ -3320,7 +3324,7 @@ theorem datacopy_writes_concrete_code_bytes (hash : HashOracle) :
             memory := [0, 0, 11, 12, 13] } ) := by
   rfl
 
-theorem keccak_reads_concrete_memory_slice (hash : HashOracle) :
+theorem keccak_reads_concrete_memory_slice (hash : External) :
     evalBuiltin hash Evm.Builtin.keccak256Op [1, 3]
         { State.empty with memory := [10, 11, 12, 13, 14] } =
       some
@@ -3328,7 +3332,7 @@ theorem keccak_reads_concrete_memory_slice (hash : HashOracle) :
         , { State.empty with memory := [10, 11, 12, 13, 14], memorySize := 32 } ) := by
   rfl
 
-theorem return_halts_with_memory_slice (hash : HashOracle) :
+theorem return_halts_with_memory_slice (hash : External) :
     evalBuiltin hash Evm.Builtin.returnOp [1, 3]
         { State.empty with memory := [10, 11, 12, 13, 14] } =
       some
@@ -3341,7 +3345,7 @@ theorem return_halts_with_memory_slice (hash : HashOracle) :
                 returndata := [11, 12, 13] } } ) := by
   rfl
 
-theorem concrete_extra_builtin_ops (hash : HashOracle) :
+theorem concrete_extra_builtin_ops (hash : External) :
     evalBuiltin hash Evm.Builtin.signextendOp [0, 128] State.empty =
       some (norm (signextendWord 0 128), State.empty) ∧
     evalBuiltin hash Evm.Builtin.clzOp [0] State.empty =
@@ -3352,13 +3356,13 @@ theorem concrete_extra_builtin_ops (hash : HashOracle) :
   · rfl
   constructor <;> rfl
 
-theorem setimmutable_loadimmutable_concrete_roundtrip (hash : HashOracle) :
+theorem setimmutable_loadimmutable_concrete_roundtrip (hash : External) :
     evalBuiltin hash Evm.Builtin.loadimmutableOp [1]
         { State.empty with immutables := [(1, 9)] } =
       some (9, { State.empty with immutables := [(1, 9)] }) := by
   rfl
 
-theorem setimmutable_writes_known_memory_positions (hash : HashOracle) :
+theorem setimmutable_writes_known_memory_positions (hash : External) :
     evalBuiltin hash Evm.Builtin.setimmutableOp [4, 1, 7]
         { State.empty with immutablePositions := [(1, [0, 32])] } =
       some
@@ -3370,10 +3374,10 @@ theorem setimmutable_writes_known_memory_positions (hash : HashOracle) :
             memorySize := 96 } ) := by
   rfl
 
-def sampleHash : HashOracle :=
+def sampleHash : External :=
   { keccak256 := fun bytes => bytes.length }
 
-def sampleVerbatimHash : HashOracle :=
+def sampleVerbatimHash : External :=
   { sampleHash with verbatimValues := fun _ _ => [7, 9] }
 
 def sampleObjectData : Object :=
@@ -3435,7 +3439,7 @@ theorem evalRuntime_multi_output_verbatim_letMany :
                     [{ builtin := Evm.Builtin.verbatimOp 1 2, args := [5] }] } } } := by
   rfl
 
-theorem evalBuiltin_environment_maps (hash : HashOracle) :
+theorem evalBuiltin_environment_maps (hash : External) :
     evalBuiltin hash Evm.Builtin.blockhashOp [5]
         { State.empty with blockhashes := [(5, 99)] } =
       some (99, { State.empty with blockhashes := [(5, 99)] }) ∧
@@ -3543,13 +3547,13 @@ theorem evalStmt_return_stops_sequence :
                       returndata := [] } } } } := by
   rfl
 
-theorem sload_reads_latest_storage_write (hash : HashOracle) :
+theorem sload_reads_latest_storage_write (hash : External) :
     evalBuiltin hash Evm.Builtin.sload [0]
         { State.empty with storage := [(0, [(0, 9), (0, 7)])] } =
       some (9, { State.empty with storage := [(0, [(0, 9), (0, 7)])] }) := by
   rfl
 
-theorem tload_reads_latest_transient_write (hash : HashOracle) :
+theorem tload_reads_latest_transient_write (hash : External) :
     evalBuiltin hash Evm.Builtin.tloadOp [0]
         { State.empty with transientStorage := [(0, [(0, 9), (0, 7)])] } =
       some

@@ -1,8 +1,12 @@
+import SharedSemantics.Word
 import SolidCoreYulCore.Evm
 
 set_option maxHeartbeats 1000000
 
 namespace SolidCoreYulCore
+
+open SharedSemantics
+
 namespace FullYul
 
 abbrev Name := Nat

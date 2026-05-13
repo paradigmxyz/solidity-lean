@@ -1,3 +1,4 @@
+import SharedSemantics.Word
 import SolidCoreYulCore.Evm
 import SolidCoreYulCore.BytecodeEvm
 import SolidCoreYulCore.BytecodeGas

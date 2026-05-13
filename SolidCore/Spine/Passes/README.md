@@ -14,3 +14,6 @@ P06_BytecodeToEvm
 Each pass owns its compiler or checker function, success soundness, and any
 accepted-input completeness theorem that belongs at that boundary. A pass should
 import only adjacent layer interfaces plus shared foundations.
+
+P06 targets the L06 shared External EVM boundary. Exact metered bytecode
+execution lives below that boundary in L07.

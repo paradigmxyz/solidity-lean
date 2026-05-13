@@ -1,8 +1,12 @@
+import SharedSemantics.Word
 import SolidCoreYulCore.ConcreteYul
 
 set_option maxHeartbeats 1000000
 
 namespace SolidCoreYulCore
+
+open SharedSemantics
+
 namespace StackCfg
 
 abbrev Label := Nat
@@ -191,7 +195,7 @@ abbrev CallSem :=
   Nat -> ConcreteYul.Name -> List Word -> ConcreteYul.State ->
     Option (List Word × ConcreteYul.State)
 
-def CallSemCorrectBelow (hash : ConcreteYul.HashOracle)
+def CallSemCorrectBelow (hash : ConcreteYul.External)
     (funcs : ConcreteYul.FunctionEnv) (callSem : CallSem)
     (fuel : Nat) : Prop :=
   ∀ {m fnName args callerConfig returnValues resultConfig},
@@ -202,7 +206,7 @@ def CallSemCorrectBelow (hash : ConcreteYul.HashOracle)
         some (returnValues, resultConfig.state)
 
 theorem CallSemCorrectBelow.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {callSem : CallSem}
     {low high : Nat}
     (hCorrect : CallSemCorrectBelow hash funcs callSem high)
@@ -226,7 +230,7 @@ def ContextualCallSem.toCallSem (sem : ContextualCallSem)
     (ctx : CallContext) : CallSem :=
   fun fuel fnName args state => sem fuel ctx fnName args state
 
-def CallSemCorrectBelowAtObject (hash : ConcreteYul.HashOracle)
+def CallSemCorrectBelowAtObject (hash : ConcreteYul.External)
     (funcs : ConcreteYul.FunctionEnv) (callSem : CallSem)
     (object : ConcreteYul.Object) (fuel : Nat) : Prop :=
   ∀ {m fnName args callerConfig returnValues resultConfig},
@@ -237,7 +241,7 @@ def CallSemCorrectBelowAtObject (hash : ConcreteYul.HashOracle)
       callSem m fnName (args.map norm) callerConfig.state =
         some (returnValues, resultConfig.state)
 
-def CallSemCorrectForConfig (hash : ConcreteYul.HashOracle)
+def CallSemCorrectForConfig (hash : ConcreteYul.External)
     (funcs : ConcreteYul.FunctionEnv) (callSem : CallSem)
     (callerConfig : ConcreteYul.Config) (fuel : Nat) : Prop :=
   ∀ {m fnName args returnValues resultConfig},
@@ -247,13 +251,13 @@ def CallSemCorrectForConfig (hash : ConcreteYul.HashOracle)
       callSem m fnName (args.map norm) callerConfig.state =
         some (returnValues, resultConfig.state)
 
-def ContextualCallSemCorrectBelowAt (hash : ConcreteYul.HashOracle)
+def ContextualCallSemCorrectBelowAt (hash : ConcreteYul.External)
     (funcs : ConcreteYul.FunctionEnv) (sem : ContextualCallSem)
     (ctx : CallContext) (fuel : Nat) : Prop :=
   CallSemCorrectBelowAtObject hash funcs (sem.toCallSem ctx) ctx.object fuel
 
 theorem CallSemCorrectBelow.atObject
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {fuel : Nat}
     (hCorrect : CallSemCorrectBelow hash funcs callSem fuel) :
@@ -263,7 +267,7 @@ theorem CallSemCorrectBelow.atObject
   exact hCorrect hLt hEval
 
 theorem CallSemCorrectBelowAtObject.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {low high : Nat}
     (hCorrect :
@@ -275,7 +279,7 @@ theorem CallSemCorrectBelowAtObject.mono
   exact hCorrect (Nat.lt_of_lt_of_le hLt hLe) hObject hEval
 
 theorem CallSemCorrectBelow.forConfig
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {callSem : CallSem}
     {callerConfig : ConcreteYul.Config} {fuel : Nat}
     (hCorrect : CallSemCorrectBelow hash funcs callSem fuel) :
@@ -284,7 +288,7 @@ theorem CallSemCorrectBelow.forConfig
   exact hCorrect hLt hEval
 
 theorem CallSemCorrectBelowAtObject.forConfig
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object}
     {callerConfig : ConcreteYul.Config} {fuel : Nat}
@@ -296,7 +300,7 @@ theorem CallSemCorrectBelowAtObject.forConfig
   exact hCorrect hLt hObject hEval
 
 theorem CallSemCorrectForConfig.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {callSem : CallSem}
     {callerConfig : ConcreteYul.Config} {low high : Nat}
     (hCorrect :
@@ -5559,7 +5563,7 @@ theorem flowOrExitTarget?_seq
   · exact hFirst
 
 theorem evalStmtFuel_seq_first_normal
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source firstConfig : ConcreteYul.Config}
     {first second : ConcreteYul.Stmt} {result : ConcreteYul.Result}
     (hFirst :
@@ -5576,7 +5580,7 @@ theorem evalStmtFuel_seq_first_normal
   exact hEval
 
 theorem evalStmtFuel_seq_first_abnormal
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config}
     {first second : ConcreteYul.Stmt}
     {firstResult result : ConcreteYul.Result}
@@ -8723,7 +8727,7 @@ def FunctionRunWithCalls (ctx : CallContext)
       extractFunctionResult? compiled target₁ =
         some (returnValues.map norm, resultState)
 
-def CompiledCallSemRealizesBelow (hash : ConcreteYul.HashOracle)
+def CompiledCallSemRealizesBelow (hash : ConcreteYul.External)
     (sourceFns : ConcreteYul.FunctionEnv)
     (compiledFns : CompiledFunctionEnv) (callSem : CallSem)
     (fuel : Nat) : Prop :=
@@ -8760,7 +8764,7 @@ def CompiledCallSemRealizesBelow (hash : ConcreteYul.HashOracle)
           (returnValues.map (fun value => Atom.word (norm value))) tail
           target'
 
-def CompiledCallSemRealizesRunsBelow (hash : ConcreteYul.HashOracle)
+def CompiledCallSemRealizesRunsBelow (hash : ConcreteYul.External)
     (sourceFns : ConcreteYul.FunctionEnv)
     (compiledFns : CompiledFunctionEnv) (callSem : CallSem)
     (fuel : Nat) : Prop :=
@@ -8778,7 +8782,7 @@ def CompiledCallSemRealizesRunsBelow (hash : ConcreteYul.HashOracle)
         callSem callFuel fnName (args.map norm) callerConfig.state
         returnValues resultConfig.state
 
-def CompiledCallSemRealizesBelowAtObject (hash : ConcreteYul.HashOracle)
+def CompiledCallSemRealizesBelowAtObject (hash : ConcreteYul.External)
     (sourceFns : ConcreteYul.FunctionEnv)
     (compiledFns : CompiledFunctionEnv) (callSem : CallSem)
     (object : ConcreteYul.Object) (fuel : Nat) : Prop :=
@@ -8817,7 +8821,7 @@ def CompiledCallSemRealizesBelowAtObject (hash : ConcreteYul.HashOracle)
           target'
 
 def CompiledCallSemRealizesRunsBelowAtObject
-    (hash : ConcreteYul.HashOracle)
+    (hash : ConcreteYul.External)
     (sourceFns : ConcreteYul.FunctionEnv)
     (compiledFns : CompiledFunctionEnv) (callSem : CallSem)
     (object : ConcreteYul.Object) (fuel : Nat) : Prop :=
@@ -8837,7 +8841,7 @@ def CompiledCallSemRealizesRunsBelowAtObject
         returnValues resultConfig.state
 
 theorem CompiledCallSemRealizesBelow.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {low high : Nat}
@@ -8851,7 +8855,7 @@ theorem CompiledCallSemRealizesBelow.mono
     hRel
 
 theorem CompiledCallSemRealizesRunsBelow.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {low high : Nat}
@@ -8865,7 +8869,7 @@ theorem CompiledCallSemRealizesRunsBelow.mono
   exact hRealizes (Nat.lt_of_lt_of_le hLt hLe) hNoHalt hLookup hInit hEval
 
 theorem CompiledCallSemRealizesBelowAtObject.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {low high : Nat}
@@ -8881,7 +8885,7 @@ theorem CompiledCallSemRealizesBelowAtObject.mono
     hInit hEval hRel
 
 theorem CompiledCallSemRealizesRunsBelowAtObject.mono
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {low high : Nat}
@@ -9347,7 +9351,7 @@ theorem initFunctionEnv_norm_args
   rw [declareMany?_map_norm_values]
 
 theorem evalFunctionFuel_norm_args
-    (hash : ConcreteYul.HashOracle) (funcs : ConcreteYul.FunctionEnv)
+    (hash : ConcreteYul.External) (funcs : ConcreteYul.FunctionEnv)
     (fuel : Nat) (fnName : ConcreteYul.Name)
     (args : List Word) (callerConfig : ConcreteYul.Config) :
     ConcreteYul.evalFunctionFuel hash funcs fuel fnName
@@ -9361,7 +9365,7 @@ theorem evalFunctionFuel_norm_args
       simp [ConcreteYul.evalFunctionFuel, initFunctionEnv_norm_args]
 
 theorem evalFunctionFuel_replace_env
-    (hash : ConcreteYul.HashOracle) (funcs : ConcreteYul.FunctionEnv)
+    (hash : ConcreteYul.External) (funcs : ConcreteYul.FunctionEnv)
     (fuel : Nat) (fnName : ConcreteYul.Name) (args : List Word)
     (callerConfig : ConcreteYul.Config) (env : ConcreteYul.Env) :
     ConcreteYul.evalFunctionFuel hash funcs fuel fnName args
@@ -9422,7 +9426,7 @@ theorem evalFunctionFuel_replace_env
                       · simp [ConcreteYul.evalFunctionFuel, hLookup,
                           hInit, hBody]
 
-def sourceBackedCallSemAtObject (hash : ConcreteYul.HashOracle)
+def sourceBackedCallSemAtObject (hash : ConcreteYul.External)
     (funcs : ConcreteYul.FunctionEnv) (object : ConcreteYul.Object) :
     CallSem :=
   fun fuel fnName args state =>
@@ -9433,13 +9437,13 @@ def sourceBackedCallSemAtObject (hash : ConcreteYul.HashOracle)
     | some (returns, resultConfig) => some (returns, resultConfig.state)
     | none => none
 
-def sourceBackedContextualCallSem (hash : ConcreteYul.HashOracle)
+def sourceBackedContextualCallSem (hash : ConcreteYul.External)
     (funcs : ConcreteYul.FunctionEnv) : ContextualCallSem :=
   fun fuel ctx fnName args state =>
     sourceBackedCallSemAtObject hash funcs ctx.object fuel fnName args state
 
 theorem sourceBackedCallSemAtObject_correctBelowAtObject
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {object : ConcreteYul.Object} {fuel : Nat} :
     CallSemCorrectBelowAtObject hash funcs
       (sourceBackedCallSemAtObject hash funcs object) object fuel := by
@@ -9468,7 +9472,7 @@ theorem sourceBackedCallSemAtObject_correctBelowAtObject
   rw [hEvalEmptyNorm]
 
 theorem sourceBackedContextualCallSem_correctBelowAt
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {ctx : CallContext} {fuel : Nat} :
     ContextualCallSemCorrectBelowAt hash funcs
       (sourceBackedContextualCallSem hash funcs) ctx fuel := by
@@ -9705,7 +9709,7 @@ theorem replaceAt?_frameOfSlots_assign
 
 theorem compileExprAt_execList_correct
     {layout : Layout} {expr : ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {source source' : ConcreteYul.Config}
+    {hash : ConcreteYul.External} {source source' : ConcreteYul.Config}
     {value : Word} {temps tail : Stack} {target : TargetState}
     (hCompile : compileExprAt layout temps.length expr = some code)
     (hEval : ConcreteYul.evalExpr hash expr source = some (value, source'))
@@ -9767,7 +9771,7 @@ theorem compileExprAt_execList_correct
 
 theorem compileExprAt_eval_config_eq
     {layout : Layout} {tempDepth : Nat} {expr : ConcreteYul.Expr}
-    {code : List Instr} {hash : ConcreteYul.HashOracle}
+    {code : List Instr} {hash : ConcreteYul.External}
     {source source' : ConcreteYul.Config} {value : Word}
     (hCompile : compileExprAt layout tempDepth expr = some code)
     (hEval : ConcreteYul.evalExpr hash expr source = some (value, source')) :
@@ -9803,7 +9807,7 @@ theorem compileExprAt_eval_config_eq
 theorem compileExprsAt_eval_config_eq
     {layout : Layout} {tempDepth : Nat}
     {exprs : List ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {source source' : ConcreteYul.Config} {values : List Word}
     (hCompile : compileExprsAt layout tempDepth exprs = some code)
     (hEval :
@@ -9860,7 +9864,7 @@ theorem compileExprsAt_eval_config_eq
                                   hHeadEval
 
 theorem evalExprs_length
-    {hash : ConcreteYul.HashOracle} {exprs : List ConcreteYul.Expr}
+    {hash : ConcreteYul.External} {exprs : List ConcreteYul.Expr}
     {source source' : ConcreteYul.Config} {values : List Word}
     (hEval :
       ConcreteYul.evalExprs hash exprs source = some (values, source')) :
@@ -9895,7 +9899,7 @@ theorem evalExprs_length
                       exact congrArg Nat.succ (ih hRestEval)
 
 theorem evalExprs_returnValueExprs_of_valuesForNames?
-    {hash : ConcreteYul.HashOracle} {names : List ConcreteYul.Name}
+    {hash : ConcreteYul.External} {names : List ConcreteYul.Name}
     {source : ConcreteYul.Config} {values : List Word}
     (hValues :
       ConcreteYul.valuesForNames? source.env names = some values) :
@@ -9963,7 +9967,7 @@ theorem valuesForNames?_length
 theorem compileExprsSourceAt_eval_config_eq
     {layout : Layout} {tempDepth : Nat}
     {exprs : List ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {source source' : ConcreteYul.Config} {values : List Word}
     (hCompile : compileExprsSourceAt layout tempDepth exprs = some code)
     (hEval :
@@ -10021,7 +10025,7 @@ theorem compileExprsSourceAt_eval_config_eq
 
 theorem compileExprsAt_execList_correct
     {layout : Layout} {exprs : List ConcreteYul.Expr}
-    {code : List Instr} {hash : ConcreteYul.HashOracle}
+    {code : List Instr} {hash : ConcreteYul.External}
     {source source' : ConcreteYul.Config} {values : List Word}
     {temps tail : Stack} {target : TargetState}
     (hCompile :
@@ -10138,7 +10142,7 @@ theorem compileExprsAt_execList_correct
 
 theorem compileExprsSourceAt_execList_correct
     {layout : Layout} {exprs : List ConcreteYul.Expr}
-    {code : List Instr} {hash : ConcreteYul.HashOracle}
+    {code : List Instr} {hash : ConcreteYul.External}
     {source source' : ConcreteYul.Config} {values : List Word}
     {temps tail : Stack} {target : TargetState}
     (hCompile :
@@ -10266,7 +10270,7 @@ theorem compileExprsSourceAt_execList_correct
 
 theorem compileReturnValuesFrom_execList_correct
     {layout : Layout} {names : List ConcreteYul.Name}
-    {code : List Instr} {hash : ConcreteYul.HashOracle}
+    {code : List Instr} {hash : ConcreteYul.External}
     {source : ConcreteYul.Config} {values : List Word}
     {tail : Stack} {target : TargetState}
     (hCompile : compileReturnValuesFrom layout names = some code)
@@ -10292,7 +10296,7 @@ theorem compileReturnValuesFrom_execList_correct
 theorem evalExprsAsYulValues_eq_evalExprs_of_compileExprsAt
     {layout : Layout} {tempDepth : Nat}
     {exprs : List ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {source : ConcreteYul.Config}
+    {hash : ConcreteYul.External} {source : ConcreteYul.Config}
     (hCompile : compileExprsAt layout tempDepth exprs = some code) :
     ConcreteYul.evalExprsAsYulValues hash exprs source =
       ConcreteYul.evalExprs hash exprs source := by
@@ -10311,7 +10315,7 @@ theorem evalExprsAsYulValues_eq_evalExprs_of_compileExprsAt
 theorem evalExprsAsYulValues_eq_evalExprs_of_compileExprsSourceAt
     {layout : Layout} {tempDepth : Nat}
     {exprs : List ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {source : ConcreteYul.Config}
+    {hash : ConcreteYul.External} {source : ConcreteYul.Config}
     (hCompile : compileExprsSourceAt layout tempDepth exprs = some code) :
     ConcreteYul.evalExprsAsYulValues hash exprs source =
       ConcreteYul.evalExprs hash exprs source := by
@@ -10329,7 +10333,7 @@ theorem evalExprsAsYulValues_eq_evalExprs_of_compileExprsSourceAt
 
 theorem compileExprAt_cfg_correct
     {layout : Layout} {expr : ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {source source' : ConcreteYul.Config}
+    {hash : ConcreteYul.External} {source source' : ConcreteYul.Config}
     {value : Word} {temps tail : Stack} {target : TargetState}
     (hCompile : compileExprAt layout temps.length expr = some code)
     (hEval : ConcreteYul.evalExpr hash expr source = some (value, source'))
@@ -10346,7 +10350,7 @@ theorem compileExprAt_cfg_correct
 
 theorem compileExprStmtAt_execList_correct
     {layout : Layout} {expr : ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hCompile : compileExprStmtAt layout expr = some code)
@@ -10404,7 +10408,7 @@ theorem compileExprStmtAt_execList_correct
 
 theorem compileStmtAt_execList_correct
     {layout : Layout} {stmt : ConcreteYul.Stmt} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hCompile : compileStmtAt layout stmt = some code)
@@ -10464,7 +10468,7 @@ theorem compileStmtAt_execList_correct
 
 theorem compileStmtAt_cfg_correct
     {layout : Layout} {stmt : ConcreteYul.Stmt} {code : List Instr}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hCompile : compileStmtAt layout stmt = some code)
@@ -10689,7 +10693,7 @@ theorem functionEntryLayout?_bound_initFunctionEnv
 theorem compileLetManyInit_execList_correct
     {layout outLayout : Layout} {names : List ConcreteYul.Name}
     {exprs : List ConcreteYul.Expr} {code : List Instr}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {source exprSource : ConcreteYul.Config} {values : List Word}
     {declaredEnv : ConcreteYul.Env}
     {tail : Stack} {target : TargetState}
@@ -11204,7 +11208,7 @@ theorem callSetupCode_stackRel_correct
     {callerLayout entryLayout : Layout}
     {params returns : List ConcreteYul.Name}
     {argExprs : List ConcreteYul.Expr} {argCode : List Instr}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {source argSource : ConcreteYul.Config}
     {argValues : List Word} {callEnv : ConcreteYul.Env}
     {tail : Stack} {target : TargetState}
@@ -11350,7 +11354,7 @@ theorem compileLetManyNone_execList_correct
 
 theorem compileStmtFrom_execList_correct
     {layout : Layout} {stmt : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -11729,7 +11733,7 @@ theorem compileStmtFrom_execList_correct
 
 theorem compileStmtFrom_cfg_correct
     {layout : Layout} {stmt : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -11751,7 +11755,7 @@ theorem compileStmtFrom_cfg_correct
 
 theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileStmtFrom
     {layout : Layout} {stmt : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {fuel : Nat} {source : ConcreteYul.Config}
     (hCompile : compileStmtFrom layout stmt = some gen) :
     ConcreteYul.evalProgramStmtFuel hash funcs fuel source stmt =
@@ -11805,7 +11809,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileStmtFrom
 
 theorem compileStmtFrom_program_execList_correct
     {layout : Layout} {stmt : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {fuel : Nat} {source : ConcreteYul.Config}
     {result : ConcreteYul.Result} {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -11830,7 +11834,7 @@ theorem compileStmtFrom_program_execList_correct
 
 theorem compileSeqFrom_execList_correct
     {layout : Layout} {first second : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -11887,7 +11891,7 @@ theorem compileSeqFrom_execList_correct
 
 theorem compileSeqFrom_program_execList_correct
     {layout : Layout} {first second : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {fuel : Nat} {source : ConcreteYul.Config}
     {result : ConcreteYul.Result} {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -11945,7 +11949,7 @@ theorem compileSeqFrom_program_execList_correct
 
 theorem compileSeqFrom_cfg_correct
     {layout : Layout} {first second : ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -16260,7 +16264,7 @@ theorem compileCfgStmtOpenCtxRecAutoFrom_outLayout_wf
 
 theorem compileFuelFrom_execList_correct_pair (compileFuel : Nat) :
     (∀ {layout : Layout} {stmt : ConcreteYul.Stmt} {gen : Codegen}
-        {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+        {hash : ConcreteYul.External} {evalFuel : Nat}
         {source : ConcreteYul.Config} {result : ConcreteYul.Result}
         {tail : Stack} {target : TargetState},
       layout.WellFormed ->
@@ -16276,7 +16280,7 @@ theorem compileFuelFrom_execList_correct_pair (compileFuel : Nat) :
           result.config.state.halt? = none ∧
           gen.outLayout.WellFormed) ∧
     (∀ {layout : Layout} {stmts : List ConcreteYul.Stmt} {gen : Codegen}
-        {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+        {hash : ConcreteYul.External} {evalFuel : Nat}
         {source : ConcreteYul.Config} {result : ConcreteYul.Result}
         {tail : Stack} {target : TargetState},
       layout.WellFormed ->
@@ -16595,7 +16599,7 @@ theorem compileFuelFrom_execList_correct_pair (compileFuel : Nat) :
 
 theorem compileStmtFuelFrom_execList_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {gen : Codegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -16617,7 +16621,7 @@ theorem compileStmtFuelFrom_execList_correct
 
 theorem compileBlockFuelBodyFrom_execList_correct
     {compileFuel : Nat} {layout : Layout} {stmts : List ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {gen : Codegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -16640,13 +16644,13 @@ theorem compileBlockFuelBodyFrom_execList_correct
 
 theorem evalProgramFuel_eq_evalFuel_of_compile_pair (compileFuel : Nat) :
     (∀ {layout : Layout} {stmt : ConcreteYul.Stmt} {gen : Codegen}
-        {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+        {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
         {evalFuel : Nat} {source : ConcreteYul.Config},
       compileStmtFuelFrom compileFuel layout stmt = some gen ->
       ConcreteYul.evalProgramStmtFuel hash funcs evalFuel source stmt =
         ConcreteYul.evalStmtFuel hash evalFuel source stmt) ∧
     (∀ {layout : Layout} {stmts : List ConcreteYul.Stmt} {gen : Codegen}
-        {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+        {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
         {evalFuel : Nat} {source : ConcreteYul.Config},
       compileBlockFuelBodyFrom compileFuel layout stmts = some gen ->
       ConcreteYul.evalProgramBlockFuel hash funcs evalFuel source stmts =
@@ -16818,7 +16822,7 @@ theorem evalProgramFuel_eq_evalFuel_of_compile_pair (compileFuel : Nat) :
 
 theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileStmtFuelFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle}
+    {gen : Codegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile : compileStmtFuelFrom compileFuel layout stmt = some gen) :
@@ -16828,7 +16832,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileStmtFuelFrom
 
 theorem evalProgramBlockFuel_eq_evalBlockFuel_of_compileBlockFuelBodyFrom
     {compileFuel : Nat} {layout : Layout} {stmts : List ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle}
+    {gen : Codegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -16839,7 +16843,7 @@ theorem evalProgramBlockFuel_eq_evalBlockFuel_of_compileBlockFuelBodyFrom
 
 theorem compileStmtFuelFrom_program_execList_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle}
+    {gen : Codegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -16866,7 +16870,7 @@ theorem compileStmtFuelFrom_program_execList_correct
 theorem compileBlockFuelBodyFrom_program_execList_correct
     {compileFuel : Nat} {layout : Layout}
     {stmts : List ConcreteYul.Stmt} {gen : Codegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat} {source : ConcreteYul.Config}
     {result : ConcreteYul.Result} {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -16892,7 +16896,7 @@ theorem compileBlockFuelBodyFrom_program_execList_correct
 
 theorem compileStmtFuelFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {gen : Codegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -16917,7 +16921,7 @@ theorem compileStmtFuelFrom_cfg_correct
 
 theorem compileStmtFuelFrom_program_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle}
+    {gen : Codegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -16943,7 +16947,7 @@ theorem compileStmtFuelFrom_program_cfg_correct
 
 theorem compileLinearCfgStmtFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -16972,7 +16976,7 @@ theorem compileLinearCfgStmtFrom_cfg_correct
 
 theorem compileLinearCfgStmtFrom_program_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -17002,7 +17006,7 @@ theorem compileLinearCfgStmtFrom_program_cfg_correct
 
 theorem compileStmtFuelFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {gen : Codegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry exit : Label}
     (hLayout : layout.WellFormed)
@@ -17027,7 +17031,7 @@ theorem compileStmtFuelFrom_to_cfg_correct
 
 theorem compileStmtFuelFrom_to_extends_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {gen : Codegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {gen : Codegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry exit : Label}
     {program : Program}
@@ -17064,7 +17068,7 @@ theorem compileForLoopCondFalseTo_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {pre post body : ConcreteYul.Stmt} {cond : ConcreteYul.Expr}
     {preGen : Codegen} {condCode : List Instr}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source loopConfig condConfig restoredConfig : ConcreteYul.Config}
     {condValue : Word} {tail : Stack} {target : TargetState}
     {entry condLabel bodyLabel cleanupLabel exitLabel : Label}
@@ -17141,7 +17145,7 @@ theorem compileForLoopLinearEval_reaches
     {cond : ConcreteYul.Expr} {post body : ConcreteYul.Stmt}
     {preCode condCode : List Instr} {bodyGen postGen : Codegen}
     {localSlots : List ConcreteYul.Name}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {outer loopConfig : ConcreteYul.Config}
     {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -17320,7 +17324,7 @@ theorem compileForLoopLinearEval_reaches
 theorem compileForLoopLinearFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {pre post body : ConcreteYul.Stmt} {cond : ConcreteYul.Expr}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -17430,7 +17434,7 @@ theorem compileForLoopLinearFrom_cfg_correct
 theorem evalProgramForFuel_eq_evalForFuel_of_compileStmtFuelFrom
     {compileFuel : Nat} {layout : Layout}
     {post body : ConcreteYul.Stmt} {bodyGen postGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat} {outer loopConfig : ConcreteYul.Config}
     {cond : ConcreteYul.Expr}
     (hBody :
@@ -17531,7 +17535,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileForLoopLinearFrom
     {compileFuel : Nat} {layout : Layout}
     {pre post body : ConcreteYul.Stmt} {cond : ConcreteYul.Expr}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat} {source : ConcreteYul.Config}
     (hCompile :
       compileForLoopLinearFrom compileFuel layout pre cond post body =
@@ -17608,7 +17612,7 @@ theorem compileForLoopLinearFrom_program_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {pre post body : ConcreteYul.Stmt} {cond : ConcreteYul.Expr}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -17638,7 +17642,7 @@ theorem compileIfThenTo_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
     {condCode : List Instr} {bodyGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry thenLabel joinLabel : Label}
@@ -17712,7 +17716,7 @@ theorem compileIfThenTo_extends_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
     {condCode : List Instr} {bodyGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry thenLabel joinLabel : Label} {program : Program}
@@ -17826,7 +17830,7 @@ theorem compileIfThenTo_extends_cfg_correct
 theorem compileIfThenFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -17928,7 +17932,7 @@ theorem compileIfThenFrom_cfg_correct
 theorem compileIfThenFrom_program_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -18032,7 +18036,7 @@ theorem compileSwitchOneNoDefaultFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {body : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -18158,7 +18162,7 @@ theorem compileSwitchOneNoDefaultTo_cfg_correct
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {body : ConcreteYul.Stmt}
     {discrCode : List Instr} {bodyGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry caseLabel missLabel joinLabel : Label}
@@ -18249,7 +18253,7 @@ theorem compileSwitchOneNoDefaultTo_extends_cfg_correct
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {body : ConcreteYul.Stmt}
     {discrCode : List Instr} {bodyGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry caseLabel missLabel joinLabel : Label} {program : Program}
@@ -18401,7 +18405,7 @@ theorem compileSwitchOneDefaultFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody defaultBody : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -18560,7 +18564,7 @@ theorem compileSwitchOneDefaultTo_cfg_correct
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseGen defaultGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry caseLabel defaultLabel joinLabel : Label}
@@ -18662,7 +18666,7 @@ theorem compileSwitchOneDefaultTo_extends_cfg_correct
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseGen defaultGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry caseLabel defaultLabel joinLabel : Label} {program : Program}
@@ -18834,7 +18838,7 @@ theorem compileSwitchTwoNoDefaultFrom_cfg_correct
     {discr : ConcreteYul.Expr}
     {firstValue secondValue : Word}
     {firstBody secondBody : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -19052,7 +19056,7 @@ theorem compileSwitchTwoNoDefaultTo_cfg_correct
     {firstValue secondValue : Word}
     {firstBody secondBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {firstGen secondGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry firstLabel testLabel secondLabel missLabel joinLabel : Label}
@@ -19200,7 +19204,7 @@ theorem compileSwitchTwoNoDefaultTo_extends_cfg_correct
     {firstValue secondValue : Word}
     {firstBody secondBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {firstGen secondGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry firstLabel testLabel secondLabel missLabel joinLabel : Label}
@@ -19490,7 +19494,7 @@ theorem compileSwitchTwoDefaultFrom_cfg_correct
     {discr : ConcreteYul.Expr}
     {firstValue secondValue : Word}
     {firstBody secondBody defaultBody : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -19753,7 +19757,7 @@ theorem compileSwitchTwoDefaultTo_cfg_correct
     {firstValue secondValue : Word}
     {firstBody secondBody defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {firstGen secondGen defaultGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry firstLabel testLabel secondLabel defaultLabel joinLabel : Label}
@@ -19914,7 +19918,7 @@ theorem compileSwitchTwoDefaultTo_extends_cfg_correct
     {firstValue secondValue : Word}
     {firstBody secondBody defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {firstGen secondGen defaultGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry firstLabel testLabel secondLabel defaultLabel joinLabel : Label}
@@ -20228,7 +20232,7 @@ theorem compileSwitchTwoDefaultTo_extends_cfg_correct
 
 theorem compileSwitchChainEmptyNoDefaultTo_cfg_correct
     {layout : Layout} {discr : ConcreteYul.Expr}
-    {discrCode : List Instr} {hash : ConcreteYul.HashOracle}
+    {discrCode : List Instr} {hash : ConcreteYul.External}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -20322,7 +20326,7 @@ theorem compileSwitchChainFrom_empty_noDefault_to_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {entry caseLabelStart joinLabel : Label}
     {discr : ConcreteYul.Expr} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryBefore : entry < caseLabelStart)
@@ -20359,7 +20363,7 @@ theorem compileSwitchCasesFrom_target_some_exec
     {cases : List (Word × ConcreteYul.Stmt)}
     {caseCodes : List SwitchCaseCode}
     {discrValue : Word} {selectedBody : ConcreteYul.Stmt}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {discrTarget : TargetState} {stackRest tail : Stack}
     (hLayout : layout.WellFormed)
@@ -20430,7 +20434,7 @@ theorem compileSwitchChainSelectedTo_extends_cfg_correct
     {selectedBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseCodes : List SwitchCaseCode}
     {defaultCode? : Option (List Instr)} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source discrConfig : ConcreteYul.Config} {result : ConcreteYul.Result}
     {discrValue : Word} {tail : Stack} {target : TargetState}
     (hExtends :
@@ -20551,7 +20555,7 @@ theorem compileSwitchChainNoDefaultNoMatchTo_extends_cfg_correct
     {cases : List (Word × ConcreteYul.Stmt)}
     {discrCode : List Instr} {caseCodes : List SwitchCaseCode}
     {program : Program}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {source discrConfig : ConcreteYul.Config} {discrValue : Word}
     {tail : Stack} {target : TargetState}
     (hExtends :
@@ -20645,7 +20649,7 @@ theorem compileSwitchChainDefaultNoMatchTo_extends_cfg_correct
     {defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseCodes : List SwitchCaseCode}
     {defaultGen : Codegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source discrConfig : ConcreteYul.Config} {result : ConcreteYul.Result}
     {discrValue : Word} {tail : Stack} {target : TargetState}
     (hExtends :
@@ -20766,7 +20770,7 @@ theorem compileSwitchChainNoDefaultTo_extends_cfg_correct
     {cases : List (Word × ConcreteYul.Stmt)}
     {discrCode : List Instr} {caseCodes : List SwitchCaseCode}
     {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends :
@@ -20840,7 +20844,7 @@ theorem compileSwitchChainDefaultTo_extends_cfg_correct
     {defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseCodes : List SwitchCaseCode}
     {defaultGen : Codegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends :
@@ -20928,7 +20932,7 @@ theorem compileSwitchChainFrom_to_cfg_correct
     {cases : List (Word × ConcreteYul.Stmt)}
     {defaultBranch : Option ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryBefore : entry < caseLabelStart)
@@ -21024,7 +21028,7 @@ theorem compileSwitchChainClosedFrom_cfg_correct
     {cases : List (Word × ConcreteYul.Stmt)}
     {defaultBranch : Option ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -21140,7 +21144,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_switchTarget_compile
     {caseCodes : List SwitchCaseCode}
     {defaultCode? : Option (List Instr)}
     {value : Word} {selected : ConcreteYul.Stmt}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat} {source : ConcreteYul.Config}
     (hCases :
       compileSwitchCasesFrom compileFuel layout cases = some caseCodes)
@@ -21204,7 +21208,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileSwitchChainClosedFrom
     {cases : List (Word × ConcreteYul.Stmt)}
     {defaultBranch : Option ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat} {source : ConcreteYul.Config}
     (hCompile :
       compileSwitchChainClosedFrom compileFuel layout discr cases
@@ -21267,7 +21271,7 @@ theorem compileSwitchChainClosedFrom_program_cfg_correct
     {cases : List (Word × ConcreteYul.Stmt)}
     {defaultBranch : Option ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -21299,7 +21303,7 @@ theorem compileSwitchChainOneNoDefaultTo_cfg_correct
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry caseLabelStart joinLabel : Label}
@@ -21464,7 +21468,7 @@ theorem compileSwitchChainFrom_one_noDefault_to_cfg_correct
     {entry caseLabelStart joinLabel : Label}
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryBefore : entry < caseLabelStart)
@@ -21509,7 +21513,7 @@ theorem compileSwitchChainOneDefaultTo_cfg_correct
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody defaultBody : ConcreteYul.Stmt}
     {discrCode : List Instr} {caseGen defaultGen : Codegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     {entry caseLabelStart joinLabel : Label}
@@ -21691,7 +21695,7 @@ theorem compileSwitchChainFrom_one_default_to_cfg_correct
     {entry caseLabelStart joinLabel : Label}
     {discr : ConcreteYul.Expr} {caseValue : Word}
     {caseBody defaultBody : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryBefore : entry < caseLabelStart)
@@ -21750,7 +21754,7 @@ theorem compileSwitchChainFrom_two_noDefault_to_cfg_correct
     {discr : ConcreteYul.Expr}
     {firstValue secondValue : Word}
     {firstBody secondBody : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryBefore : entry < caseLabelStart)
@@ -21865,7 +21869,7 @@ theorem compileSwitchChainFrom_two_default_to_cfg_correct
     {firstValue secondValue : Word}
     {firstBody secondBody defaultBody : ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryBefore : entry < caseLabelStart)
@@ -22011,7 +22015,7 @@ theorem compileSwitchChainFrom_two_default_to_cfg_correct
 
 theorem compileCfgStmtFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -22098,7 +22102,7 @@ theorem compileCfgStmtFrom_cfg_correct
 
 theorem compileCfgStmtFrom_program_cfg_correct_of_bridge
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -22185,7 +22189,7 @@ theorem compileCfgStmtFrom_program_cfg_correct_of_bridge
 
 theorem compileCfgStmtFrom_program_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -22274,7 +22278,7 @@ theorem compileCfgStmtFrom_program_cfg_correct
 theorem compileCfgStmtFrom_program_cfg_correct_withCalls
     {compileFuel callFuel : Nat} {layout : Layout}
     {stmt : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {callSem : CallSem} {hash : ConcreteYul.HashOracle}
+    {callSem : CallSem} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -22301,7 +22305,7 @@ theorem compileCfgStmtFrom_program_cfg_correct_withCalls
       hRel', hFlow⟩
 
 theorem evalFunctionFuel_restores_caller_env
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {fuel : Nat} {fnName : ConcreteYul.Name}
     {args returnValues : List Word}
     {callerConfig resultConfig : ConcreteYul.Config}
@@ -22357,7 +22361,7 @@ theorem compileLetCallFrom_callSem_cfg_correct
     {layout : Layout} {names : List ConcreteYul.Name}
     {fnName : ConcreteYul.Name} {args : List ConcreteYul.Expr}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -22542,7 +22546,7 @@ theorem compileLetCallOpenFrom_callSem_cfg_correct
     {names : List ConcreteYul.Name}
     {fnName : ConcreteYul.Name} {args : List ConcreteYul.Expr}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -22730,7 +22734,7 @@ theorem compileAssignCallFrom_callSem_cfg_correct
     {layout : Layout} {names : List ConcreteYul.Name}
     {fnName : ConcreteYul.Name} {args : List ConcreteYul.Expr}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -22883,7 +22887,7 @@ theorem compileAssignCallOpenFrom_callSem_cfg_correct
     {names : List ConcreteYul.Name}
     {fnName : ConcreteYul.Name} {args : List ConcreteYul.Expr}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -23036,7 +23040,7 @@ theorem compileAssignCallOpenFrom_callSem_cfg_correct
 theorem compileCfgStmtWithCallsFrom_program_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -23162,7 +23166,7 @@ theorem compileCfgStmtWithCallsFrom_program_cfg_correct
 theorem compileCfgStmtWithCallsFrom_program_cfg_correct_of_callSemCorrectBelow
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -23186,7 +23190,7 @@ theorem compileCfgStmtWithCallsFrom_program_cfg_correct_of_callSemCorrectBelow
 theorem compileCfgStmtWithCallsFrom_program_cfg_correct_atObject
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {cfg : CfgCodegen} {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {object : ConcreteYul.Object} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -23214,7 +23218,7 @@ theorem compileCfgStmtWithCallsFrom_program_cfg_correct_atObject
 theorem compileCfgStmtWithCallsFrom_program_cfg_correct_sourceBacked
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -23239,7 +23243,7 @@ theorem compileCfgStmtWithCallsFrom_program_cfg_correct_sourceBacked
     rfl hEval hNoHalt hRel
 
 theorem evalRuntimeFunctionFuel_restores_caller_frame
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {fuel : Nat} {fnName : ConcreteYul.Name}
     {args returnValues : List Word}
     {callerConfig resultConfig : ConcreteYul.RuntimeConfig}
@@ -23301,7 +23305,7 @@ theorem evalRuntimeFunctionFuel_restores_caller_frame
 
 theorem compileControlExitFrom_cfg_correct
     {dest : ControlDest} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hCompile : compileControlExitFrom dest layout stmt = some cfg)
@@ -23368,7 +23372,7 @@ theorem compileControlExitFrom_cfg_correct
 
 theorem compileControlExitTo_cfg_correct
     {dest : ControlDest} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry label : Label}
     (hControl : controlExitLabel? dest stmt = some label)
@@ -23438,7 +23442,7 @@ theorem compileControlExitTargetTo_cfg_correct_sameLayout
     {ctx : ControlCtx} {normalLabel : Label}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {exitTarget : ExitTarget}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     (hTarget : controlExitTarget? ctx stmt = some exitTarget)
@@ -23616,7 +23620,7 @@ theorem compileControlExitTargetCleanupTo_cfg_correct
     {ctx : ControlCtx} {normalLabel : Label} {normalLayout : Layout}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {exitTarget : ExitTarget} {localSlots : List ConcreteYul.Name}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     (hTarget : controlExitTarget? ctx stmt = some exitTarget)
@@ -23700,7 +23704,7 @@ theorem compileControlExitTargetCleanupTo_extends_cfg_correct
     {ctx : ControlCtx} {normalLabel : Label} {normalLayout : Layout}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {exitTarget : ExitTarget} {localSlots : List ConcreteYul.Name}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     {program : Program}
@@ -23788,7 +23792,7 @@ theorem compileControlExitTargetCleanupTo_wrapper_cfg_correct
     {ctx : ControlCtx} {normalLabel : Label} {normalLayout : Layout}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {localSlots : List ConcreteYul.Name} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     (hCompile :
@@ -23830,7 +23834,7 @@ theorem compileControlExitTargetCleanupTo_wrapper_extends_cfg_correct
     {ctx : ControlCtx} {normalLabel : Label} {normalLayout : Layout}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {localSlots : List ConcreteYul.Name} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     {program : Program}
@@ -23874,7 +23878,7 @@ theorem compileControlExitTargetCleanupAutoTo_wrapper_extends_cfg_correct
     {ctx : ControlCtx} {normalLabel : Label} {normalLayout : Layout}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     {program : Program}
@@ -23918,7 +23922,7 @@ theorem compileControlExitTargetCleanupAutoTo_wrapper_cfg_correct
     {ctx : ControlCtx} {normalLabel : Label} {normalLayout : Layout}
     {layout : Layout} {stmt : ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry : Label}
     (hCompile :
@@ -23949,7 +23953,7 @@ theorem flowOrExitLabel?_of_flowLabel?
 theorem compileCfgStmtOpenFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -24162,7 +24166,7 @@ theorem compileCfgStmtOpenRecFrom_next_le_aux
 theorem compileCfgStmtOpenFrom_to_extends_cfg_correct_for_rec
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label} {cfg : CfgCodegen}
-    {program : Program} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {program : Program} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -24261,7 +24265,7 @@ theorem compileCfgStmtOpenFrom_to_extends_cfg_correct_for_rec
 theorem compileCfgStmtOpenFrom_to_extends_exit_correct_sameLayout
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label} {cfg : CfgCodegen}
-    {program : Program} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {program : Program} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -24293,7 +24297,7 @@ theorem compileCfgStmtOpenCtxFrom_to_extends_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {localSlots : List ConcreteYul.Name} {cfg : CfgCodegen}
-    {program : Program} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {program : Program} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -24371,7 +24375,7 @@ theorem compileCfgStmtOpenCtxFrom_to_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {localSlots : List ConcreteYul.Name} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -24397,7 +24401,7 @@ theorem compileCfgStmtOpenCtxAutoFrom_to_extends_exit_correct_with_normalLayout
     {compileFuel : Nat} {layout normalLayout : Layout}
     {stmt : ConcreteYul.Stmt} {ctx : ControlCtx}
     {entry normalLabel : Label} {cfg : CfgCodegen}
-    {program : Program} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {program : Program} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -24482,7 +24486,7 @@ theorem compileCfgStmtOpenCtxAutoFrom_to_extends_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen}
-    {program : Program} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {program : Program} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -24560,7 +24564,7 @@ theorem compileCfgStmtOpenCtxAutoFrom_to_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -24587,7 +24591,7 @@ theorem compileIfThenOpenCtxAutoFrom_to_extends_exit_correct
     {entry thenLabel normalLabel : Label}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
     {cfg : CfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryThen : entry ≠ thenLabel)
@@ -24702,7 +24706,7 @@ theorem compileIfThenOpenCtxAutoFrom_to_exit_correct
     {entry thenLabel normalLabel : Label}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryThen : entry ≠ thenLabel)
@@ -24730,7 +24734,7 @@ theorem compileCfgStmtOpenCtxOneFrom_to_extends_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -24781,7 +24785,7 @@ theorem compileCfgStmtOpenCtxOneFrom_to_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -24805,7 +24809,7 @@ theorem compileCfgStmtOpenCtxOneFrom_to_exit_correct
 theorem compileCfgStmtOpenCtxAutoFrom_eval_normal_noHalt
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External}
     {evalFuel : Nat} {source resultConfig : ConcreteYul.Config}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -24848,7 +24852,7 @@ theorem compileCfgStmtOpenCtxAutoFrom_eval_normal_noHalt
 theorem compileCfgStmtOpenCtxOneFrom_eval_normal_noHalt
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External}
     {evalFuel : Nat} {source resultConfig : ConcreteYul.Config}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -24912,7 +24916,7 @@ theorem compileSeqOpenCtxOneAutoFrom_to_extends_exit_correct
     {entry normalLabel : Label}
     {first second : ConcreteYul.Stmt}
     {cfg : CfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -25012,7 +25016,7 @@ theorem compileSeqOpenCtxOneAutoFrom_to_exit_correct
     {entry normalLabel : Label}
     {first second : ConcreteYul.Stmt}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -25038,7 +25042,7 @@ theorem compileCfgStmtOpenCtxSeqFrom_to_extends_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -25078,7 +25082,7 @@ theorem compileCfgStmtOpenCtxSeqFrom_to_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -25103,7 +25107,7 @@ theorem compileCfgStmtOpenCtxRecFrom_to_extends_exit_correct_with_normal_noHalt
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel next : Label}
     {openCfg : OpenCfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryNext : entry < next)
@@ -25462,7 +25466,7 @@ theorem compileCfgStmtOpenCtxRecFrom_to_extends_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel next : Label}
     {openCfg : OpenCfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryNext : entry < next)
@@ -25488,7 +25492,7 @@ theorem compileCfgStmtOpenCtxRecFrom_to_extends_exit_correct
 theorem compileCfgStmtOpenCtxRecFrom_eval_normal_noHalt
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel next : Label}
-    {openCfg : OpenCfgCodegen} {hash : ConcreteYul.HashOracle}
+    {openCfg : OpenCfgCodegen} {hash : ConcreteYul.External}
     {evalFuel : Nat} {source resultConfig : ConcreteYul.Config}
     {tail : Stack} {target : TargetState}
     (hEntryNext : entry < next)
@@ -25513,7 +25517,7 @@ theorem compileCfgStmtOpenCtxRecAutoFrom_to_extends_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {openCfg : OpenCfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends openCfg.program program)
@@ -25540,7 +25544,7 @@ theorem compileCfgStmtOpenCtxRecAutoFrom_to_exit_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -26004,7 +26008,7 @@ theorem compileCfgStmtOpenRecAutoFrom_callFree
 theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileCfgStmtOpenFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -26043,7 +26047,7 @@ theorem compileCfgStmtOpenWithCallsFrom_to_cfg_correct_of_openFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {callSem : CallSem} {hash : ConcreteYul.HashOracle}
+    {callSem : CallSem} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -26091,7 +26095,7 @@ theorem compileCfgStmtOpenWithCallsFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {callSem : CallSem} {hash : ConcreteYul.HashOracle}
+    {callSem : CallSem} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -26225,7 +26229,7 @@ theorem compileCfgStmtOpenWithCallsFrom_to_cfg_correct_of_callSemCorrectBelow
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {callSem : CallSem} {hash : ConcreteYul.HashOracle}
+    {callSem : CallSem} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -26253,7 +26257,7 @@ theorem compileCfgStmtOpenWithCallsFrom_to_cfg_correct_atObject
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {callSem : CallSem} {hash : ConcreteYul.HashOracle}
+    {callSem : CallSem} {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv}
     {object : ConcreteYul.Object} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
@@ -26285,7 +26289,7 @@ theorem compileCfgStmtOpenWithCallsFrom_to_cfg_correct_sourceBacked
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
@@ -26317,7 +26321,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileCfgStmtOpenRecFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -26438,7 +26442,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileCfgStmtOpenRecAutoFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -26452,7 +26456,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileCfgStmtOpenCtxAutoFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -26493,7 +26497,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileCfgStmtOpenCtxRecFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel next : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -26605,7 +26609,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileCfgStmtOpenCtxRecAutoFrom
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {ctx : ControlCtx} {entry normalLabel : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -26620,7 +26624,7 @@ theorem compileCfgStmtOpenRecFrom_to_extends_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryNext : entry < next)
@@ -26929,7 +26933,7 @@ theorem compileCfgStmtOpenRecFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryNext : entry < next)
@@ -26954,7 +26958,7 @@ theorem compileCfgStmtOpenRecFrom_to_extends_exit_correct_sameLayout
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit next : Label}
     {openCfg : OpenCfgCodegen} {program : Program}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryNext : entry < next)
@@ -26988,7 +26992,7 @@ theorem compileCfgStmtOpenRecAutoFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label}
     {openCfg : OpenCfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -27012,7 +27016,7 @@ theorem compileFunctionBodyWithReturnFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27103,7 +27107,7 @@ theorem compileFunctionBodyWithReturnCtxSameLayoutFrom_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27329,7 +27333,7 @@ theorem compileFunctionBodyWithReturnCtxSameLayoutFrom_cfg_correct_withCalls
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27368,7 +27372,7 @@ theorem compileFunctionBodyWithReturnFrom_cfg_correct_withCalls
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27407,7 +27411,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileFunctionBodyWithReturnFrom
     {compileFuel : Nat} {layout : Layout}
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -27443,7 +27447,7 @@ theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileFunctionBodyWithReturnCtxS
     {compileFuel : Nat} {layout : Layout}
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -27484,7 +27488,7 @@ theorem compileFunctionBodyWithReturnCtxSameLayoutFrom_program_cfg_correct_withC
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
@@ -27521,7 +27525,7 @@ theorem compileFunctionBodyWithReturnFrom_program_cfg_correct_withCalls
     {returns : List ConcreteYul.Name} {entry returnLabel : Label}
     {body : ConcreteYul.Stmt} {cfg : CfgCodegen}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
@@ -27580,7 +27584,7 @@ theorem compileFunctionDefFrom_callFree
 theorem compileFunctionDefFrom_body_correct
     {compileFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27627,7 +27631,7 @@ theorem compileFunctionDefFrom_body_correct_withCalls
     {compileFuel callFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27664,7 +27668,7 @@ theorem compileFunctionDefFrom_body_correct_withCalls
 theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileFunctionDefFrom
     {compileFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -27694,7 +27698,7 @@ theorem compileFunctionDefFrom_body_program_correct_withCalls
     {compileFuel callFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
@@ -27779,7 +27783,7 @@ theorem compileFunctionDefCtxSameLayoutFrom_outLayout_eq_entryLayout
 theorem compileFunctionDefCtxSameLayoutFrom_body_correct
     {compileFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27829,7 +27833,7 @@ theorem compileFunctionDefCtxSameLayoutFrom_body_correct_withCalls
     {compileFuel callFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -27863,7 +27867,7 @@ theorem compileFunctionDefCtxSameLayoutFrom_body_correct_withCalls
 theorem evalProgramStmtFuel_eq_evalStmtFuel_of_compileFunctionDefCtxSameLayoutFrom
     {compileFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {funcs : ConcreteYul.FunctionEnv} {evalFuel : Nat}
     {source : ConcreteYul.Config}
     (hCompile :
@@ -27893,7 +27897,7 @@ theorem compileFunctionDefCtxSameLayoutFrom_body_program_correct_withCalls
     {compileFuel callFuel : Nat} {entry returnLabel : Label}
     {fn : ConcreteYul.FunctionDef} {compiled : CompiledFunction}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {funcs : ConcreteYul.FunctionEnv}
+    {hash : ConcreteYul.External} {funcs : ConcreteYul.FunctionEnv}
     {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
@@ -28241,7 +28245,7 @@ theorem CompiledFunctionEnvCovers_body_correct_withCalls
     {compiledFns : CompiledFunctionEnv}
     {fnName : ConcreteYul.Name} {fn : ConcreteYul.FunctionDef}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -28291,7 +28295,7 @@ theorem CompiledFunctionEnvCovers_body_program_correct_withCalls
     {compiledFns : CompiledFunctionEnv}
     {fnName : ConcreteYul.Name} {fn : ConcreteYul.FunctionDef}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -28342,7 +28346,7 @@ theorem CompiledFunctionEnvCoversCtxSameLayout_body_program_correct_withCalls
     {compiledFns : CompiledFunctionEnv}
     {fnName : ConcreteYul.Name} {fn : ConcreteYul.FunctionDef}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {returnValues : List Word}
     {tail : Stack} {target : TargetState}
@@ -28387,7 +28391,7 @@ theorem CompiledFunctionEnvCovers_evalFunction_body_program_correct_withCalls
     {callerConfig resultConfig : ConcreteYul.Config}
     {callEnv : ConcreteYul.Env}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {tail : Stack} {target : TargetState}
     (hCovers :
       CompiledFunctionEnvCovers compileFuel sourceFns compiledFns)
@@ -28535,7 +28539,7 @@ theorem CompiledFunctionEnvCovers_evalFunction_run_withCalls
     {callerConfig resultConfig : ConcreteYul.Config}
     {callEnv : ConcreteYul.Env}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     (hCovers :
       CompiledFunctionEnvCovers compileFuel sourceFns compiledFns)
     (hLookup :
@@ -28619,7 +28623,7 @@ theorem CompiledFunctionEnvCovers_evalFunction_normArgs_run_withCalls
     {callerConfig resultConfig : ConcreteYul.Config}
     {callEnv : ConcreteYul.Env}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     (hCovers :
       CompiledFunctionEnvCovers compileFuel sourceFns compiledFns)
     (hLookup :
@@ -28659,7 +28663,7 @@ theorem compileFunctionEnvFrom_evalFunction_normArgs_run_withCalls
     {callerConfig resultConfig : ConcreteYul.Config}
     {callEnv : ConcreteYul.Env}
     {callSem : CallSem}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     (hCompile :
       compileFunctionEnvFrom compileFuel start sourceFns =
         some compiledFns)
@@ -28681,7 +28685,7 @@ theorem compileFunctionEnvFrom_evalFunction_normArgs_run_withCalls
     hLookup hInit hEval hNoHalt
 
 theorem CompiledCallSemRealizesRunsBelow.of_callSemCorrect_and_covers
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {compileFuel fuel : Nat}
@@ -28702,7 +28706,7 @@ theorem CompiledCallSemRealizesRunsBelow.of_callSemCorrect_and_covers
           (callFuel := callFuel) hCovers hLookup hInit hEval hNoHalt
 
 theorem CompiledCallSemRealizesRunsBelow.of_callSemCorrect_and_compile
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {compileFuel start fuel : Nat}
@@ -28716,7 +28720,7 @@ theorem CompiledCallSemRealizesRunsBelow.of_callSemCorrect_and_compile
     (compileFunctionEnvFrom_covers hCompile)
 
 theorem CompiledCallSemRealizesRunsBelowAtObject.of_callSemCorrect_and_covers
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {compileFuel fuel : Nat}
@@ -28738,7 +28742,7 @@ theorem CompiledCallSemRealizesRunsBelowAtObject.of_callSemCorrect_and_covers
           (callFuel := callFuel) hCovers hLookup hInit hEval hNoHalt
 
 theorem CompiledCallSemRealizesRunsBelowAtObject.of_callSemCorrect_and_compile
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {compileFuel start fuel : Nat}
@@ -28754,7 +28758,7 @@ theorem CompiledCallSemRealizesRunsBelowAtObject.of_callSemCorrect_and_compile
 
 theorem
     CompiledCallSemRealizesRunsBelowAtObject.sourceBacked_of_compile
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv}
     {object : ConcreteYul.Object} {compileFuel start fuel : Nat}
@@ -28767,7 +28771,7 @@ theorem
     sourceBackedCallSemAtObject_correctBelowAtObject hCompile
 
 theorem CompiledCallSemRealizesBelow.of_callSemCorrect_and_covers
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {compileFuel fuel : Nat}
@@ -28787,7 +28791,7 @@ theorem CompiledCallSemRealizesBelow.of_callSemCorrect_and_covers
           (callFuel := callFuel) hCovers hLookup hInit hEval hNoHalt hRel
 
 theorem CompiledCallSemRealizesBelow.of_callSemCorrect_and_compile
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {compileFuel start fuel : Nat}
@@ -28800,7 +28804,7 @@ theorem CompiledCallSemRealizesBelow.of_callSemCorrect_and_compile
     (compileFunctionEnvFrom_covers hCompile)
 
 theorem CompiledCallSemRealizesBelowAtObject.of_callSemCorrect_and_covers
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {compileFuel fuel : Nat}
@@ -28822,7 +28826,7 @@ theorem CompiledCallSemRealizesBelowAtObject.of_callSemCorrect_and_covers
           (callFuel := callFuel) hCovers hLookup hInit hEval hNoHalt hRel
 
 theorem CompiledCallSemRealizesBelowAtObject.of_callSemCorrect_and_compile
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv} {callSem : CallSem}
     {object : ConcreteYul.Object} {compileFuel start fuel : Nat}
@@ -28837,7 +28841,7 @@ theorem CompiledCallSemRealizesBelowAtObject.of_callSemCorrect_and_compile
     (compileFunctionEnvFrom_covers hCompile)
 
 theorem CompiledCallSemRealizesBelowAtObject.sourceBacked_of_compile
-    {hash : ConcreteYul.HashOracle}
+    {hash : ConcreteYul.External}
     {sourceFns : ConcreteYul.FunctionEnv}
     {compiledFns : CompiledFunctionEnv}
     {object : ConcreteYul.Object} {compileFuel start fuel : Nat}
@@ -28851,7 +28855,7 @@ theorem CompiledCallSemRealizesBelowAtObject.sourceBacked_of_compile
 
 theorem compileControlExitTo_extends_cfg_correct
     {dest : ControlDest} {layout : Layout} {stmt : ConcreteYul.Stmt}
-    {hash : ConcreteYul.HashOracle} {fuel : Nat}
+    {hash : ConcreteYul.External} {fuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState} {entry label : Label}
     {program : Program}
@@ -28927,7 +28931,7 @@ theorem compileControlExitTo_extends_cfg_correct
 theorem compileCfgStmtOpenFrom_to_extends_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label} {cfg : CfgCodegen}
-    {program : Program} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {program : Program} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hExtends : Program.Extends cfg.program program)
@@ -28980,7 +28984,7 @@ theorem compileIfThenOpenFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {dest : ControlDest} {entry thenLabel exit : Label}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hEntryThen : entry ≠ thenLabel)
@@ -29092,7 +29096,7 @@ theorem compileIfThenOpenAutoFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout}
     {dest : ControlDest} {entry exit : Label}
     {cond : ConcreteYul.Expr} {body : ConcreteYul.Stmt}
-    {cfg : CfgCodegen} {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {cfg : CfgCodegen} {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)
@@ -29118,7 +29122,7 @@ theorem compileIfThenOpenAutoFrom_to_cfg_correct
 theorem compileCfgStmtOpenOneFrom_to_cfg_correct
     {compileFuel : Nat} {layout : Layout} {stmt : ConcreteYul.Stmt}
     {dest : ControlDest} {entry exit : Label} {cfg : CfgCodegen}
-    {hash : ConcreteYul.HashOracle} {evalFuel : Nat}
+    {hash : ConcreteYul.External} {evalFuel : Nat}
     {source : ConcreteYul.Config} {result : ConcreteYul.Result}
     {tail : Stack} {target : TargetState}
     (hLayout : layout.WellFormed)

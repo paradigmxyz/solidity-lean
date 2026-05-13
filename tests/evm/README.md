@@ -5,4 +5,4 @@ This folder holds executable evidence for the public EVM model. The Lean module
 
 `forge-parity/` compares Foundry execution with the Lean EVM model on selected
 bytecode cases and replay scenarios. These tests are fidelity evidence for
-`L06_Evm`; they are not a substitute for compiler correctness theorems.
+`L07_MeteredEvm`; they are not a substitute for compiler correctness theorems.

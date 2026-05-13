@@ -1,32 +1,40 @@
-import SolidCoreYulCore.Evm
+import SharedSemantics.External
 
 namespace SolidCoreYulCore
+
+open SharedSemantics
+
 namespace BytecodeEvm
 
 /--
 Bytecode-level EVM execution with gas accounting deliberately excluded.
 `Opcode.gas` is the single decoded opcode that reports an unsupported semantic
 boundary; `KECCAK256` and external call/create effects are supplied by explicit
-state oracles so single-contract execution remains deterministic and executable.
+external tables so single-contract execution remains deterministic and
+executable.
 -/
 
-abbrev Byte := Nat
+abbrev Byte := SharedSemantics.External.Byte
 abbrev Bytes := List Byte
 abbrev Stack := List Word
 abbrev WordMap := List (Word × Word)
 abbrev ByteMap := List (Word × Byte)
-abbrev HashMap := List (Bytes × Word)
+abbrev HashMap := SharedSemantics.External.HashMap
+abbrev BytesMap := SharedSemantics.External.BytesMap
+abbrev BytesSet := SharedSemantics.External.BytesSet
 
 def maxStackDepth : Nat := 1024
+def addressModulus : Nat :=
+  SharedSemantics.External.addressModulus
 
 def byte (n : Nat) : Byte :=
-  n % 256
+  SharedSemantics.External.byte n
 
 def readByte (code : Bytes) (pc : Nat) : Byte :=
   byte ((code[pc]?).getD 0)
 
 def normalizeBytes (bytes : Bytes) : Bytes :=
-  bytes.map byte
+  SharedSemantics.External.normalizeBytes bytes
 
 def zeroBytes : Nat → Bytes
   | 0 => []
@@ -105,13 +113,14 @@ def copyBytesToMemory (memory : Memory) (dest : Word) (source : Bytes)
     (sourceOffset size : Word) : Memory :=
   writeMemoryBytes memory dest (readBytes source (norm sourceOffset) (norm size))
 
-def lookupHash? : HashMap → Bytes → Option Word
-  | [], _ => none
-  | (candidate, value) :: rest, bytes =>
-      if normalizeBytes candidate = normalizeBytes bytes then
-        some (norm value)
-      else
-        lookupHash? rest bytes
+def lookupHash? : HashMap → Bytes → Option Word :=
+  SharedSemantics.External.lookupHash?
+
+def lookupBytes? : BytesMap → Bytes → Option Bytes :=
+  SharedSemantics.External.lookupBytes?
+
+def containsBytes : BytesSet → Bytes → Bool :=
+  SharedSemantics.External.containsBytes
 
 inductive Opcode where
   | stop
@@ -309,11 +318,8 @@ def writeWord : WordMap → Word → Word → WordMap
       else
         (candidate, oldValue) :: writeWord rest key value
 
-structure CheatcodeSignature where
-  v : Word := 0
-  r : Word := 0
-  s : Word := 0
-deriving DecidableEq, Repr
+abbrev CheatcodeSignature :=
+  SharedSemantics.External.EcrecoverSignature
 
 abbrev CheatcodeSignatureMap := List (Word × Word × CheatcodeSignature)
 
@@ -338,6 +344,9 @@ def lookupCheatcodeSignatureSigner? :
       else
         lookupCheatcodeSignatureSigner? rest digest signature
 
+def addressWord (address : Word) : Word :=
+  SharedSemantics.External.addressWord address
+
 structure Account where
   nonce : Word := 0
   balance : Word := 0
@@ -354,13 +363,16 @@ abbrev AccountMap := List (Word × Account)
 def lookupAccount? : AccountMap → Word → Option Account
   | [], _ => none
   | (candidate, account) :: rest, address =>
-      if norm candidate = norm address then some account else lookupAccount? rest address
+      if addressWord candidate = addressWord address then
+        some account
+      else
+        lookupAccount? rest address
 
 def writeAccount : AccountMap → Word → Account → AccountMap
-  | [], address, account => [(norm address, account)]
+  | [], address, account => [(addressWord address, account)]
   | (candidate, oldAccount) :: rest, address, account =>
-      if norm candidate = norm address then
-        (candidate, account) :: rest
+      if addressWord candidate = addressWord address then
+        (addressWord address, account) :: rest
       else
         (candidate, oldAccount) :: writeAccount rest address account
 
@@ -398,17 +410,46 @@ structure LogEntry where
   data : Bytes
 deriving DecidableEq, Repr
 
-inductive ExternalCallKind where
-  | call
-  | callcode
-  | delegatecall
-  | staticcall
-deriving DecidableEq, Repr
+abbrev ExternalCallKind := SharedSemantics.External.ExternalCallKind
+namespace ExternalCallKind
 
-inductive ExternalCreateKind where
-  | create
-  | create2
-deriving DecidableEq, Repr
+abbrev call : ExternalCallKind :=
+  SharedSemantics.External.ExternalCallKind.call
+
+abbrev callcode : ExternalCallKind :=
+  SharedSemantics.External.ExternalCallKind.callcode
+
+abbrev delegatecall : ExternalCallKind :=
+  SharedSemantics.External.ExternalCallKind.delegatecall
+
+abbrev staticcall : ExternalCallKind :=
+  SharedSemantics.External.ExternalCallKind.staticcall
+
+end ExternalCallKind
+
+notation "ExternalCallKind.call" => SharedSemantics.External.ExternalCallKind.call
+notation "ExternalCallKind.callcode" =>
+  SharedSemantics.External.ExternalCallKind.callcode
+notation "ExternalCallKind.delegatecall" =>
+  SharedSemantics.External.ExternalCallKind.delegatecall
+notation "ExternalCallKind.staticcall" =>
+  SharedSemantics.External.ExternalCallKind.staticcall
+
+abbrev ExternalCreateKind := SharedSemantics.External.ExternalCreateKind
+namespace ExternalCreateKind
+
+abbrev create : ExternalCreateKind :=
+  SharedSemantics.External.ExternalCreateKind.create
+
+abbrev create2 : ExternalCreateKind :=
+  SharedSemantics.External.ExternalCreateKind.create2
+
+end ExternalCreateKind
+
+notation "ExternalCreateKind.create" =>
+  SharedSemantics.External.ExternalCreateKind.create
+notation "ExternalCreateKind.create2" =>
+  SharedSemantics.External.ExternalCreateKind.create2
 
 structure ExternalCall where
   kind : ExternalCallKind
@@ -491,6 +532,34 @@ structure State where
   memory : Memory := {}
   code : Bytes := []
   keccakHashes : HashMap := []
+  sha256Hashes : HashMap := []
+  ripemd160Hashes : HashMap := []
+  modexpResults : BytesMap := []
+  blake2fResults : BytesMap := []
+  ecaddResults : BytesMap := []
+  ecmulResults : BytesMap := []
+  ecpairingResults : BytesMap := []
+  ecaddFailures : BytesSet := []
+  ecmulFailures : BytesSet := []
+  ecpairingFailures : BytesSet := []
+  pointEvaluationProofs : BytesSet := []
+  pointEvaluationFailures : BytesSet := []
+  p256VerifyProofs : BytesSet := []
+  p256VerifyFailures : BytesSet := []
+  blsG1AddResults : BytesMap := []
+  blsG1MsmResults : BytesMap := []
+  blsG2AddResults : BytesMap := []
+  blsG2MsmResults : BytesMap := []
+  blsPairingResults : BytesMap := []
+  blsMapFpToG1Results : BytesMap := []
+  blsMapFp2ToG2Results : BytesMap := []
+  blsG1AddFailures : BytesSet := []
+  blsG1MsmFailures : BytesSet := []
+  blsG2AddFailures : BytesSet := []
+  blsG2MsmFailures : BytesSet := []
+  blsPairingFailures : BytesSet := []
+  blsMapFpToG1Failures : BytesSet := []
+  blsMapFp2ToG2Failures : BytesSet := []
   cheatcodeAddresses : WordMap := []
   cheatcodeSignatures : CheatcodeSignatureMap := []
   accounts : AccountMap := []
@@ -529,10 +598,7 @@ def updateAccount (state : State) (address : Word) (account : Account) : State :
   { state with accounts := writeAccount state.accounts address account }
 
 def accountAt? (state : State) (address : Word) : Option Account :=
-  match lookupAccount? state.accounts address with
-  | some account =>
-      if account.destroyed then none else some account
-  | none => none
+  lookupAccount? state.accounts address
 
 def accountBalance (state : State) (address : Word) : Word :=
   match accountAt? state address with
@@ -544,17 +610,34 @@ def accountCode (state : State) (address : Word) : Bytes :=
   | some account => account.code
   | none => []
 
-def accountCodeHash (state : State) (address : Word) : Word :=
+def emptyCodeHash : Word :=
+  0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
+
+/-- `EXTCODEHASH` uses the external Keccak table for non-empty code when no
+explicit account `codeHash` was installed in the world state. -/
+def accountCodeHash? (state : State) (address : Word) : Option Word :=
   match accountAt? state address with
-  | some account => norm account.codeHash
-  | none => 0
+  | none => some 0
+  | some account =>
+      if norm account.codeHash ≠ 0 then
+        some (norm account.codeHash)
+      else if account.code = [] then
+        some emptyCodeHash
+      else
+        SharedSemantics.External.lookupHash? state.keccakHashes account.code
+
+def accountCodeHash (state : State) (address : Word) : Word :=
+  (accountCodeHash? state address).getD 0
 
 def setAccountBalance (state : State) (address balance : Word) : State :=
   let account := rawAccount state address
   updateAccount state address { account with balance := norm balance, destroyed := false }
 
 def blobHashAt (tx : TxContext) (index : Word) : Word :=
-  norm ((tx.blobhashes[norm index]?).getD 0)
+  SharedSemantics.External.blobHashAt tx.blobhashes index
+
+def blockhashNumberInRange (current requested : Word) : Bool :=
+  SharedSemantics.External.blockhashNumberInRange current requested
 
 def returndataInBounds (returndata : Bytes) (offset size : Word) : Bool :=
   decide (norm offset + norm size <= returndata.length)
@@ -692,7 +775,7 @@ def jumpOrError (state : State) (destination : Word) (stack : Stack) : State :=
 
 def keccakOrError (state : State) (nextPc : Nat)
     (stack : Stack) (data : Bytes) : State :=
-  match lookupHash? state.keccakHashes data with
+  match SharedSemantics.External.lookupHash? state.keccakHashes data with
   | some hash => pushWithStackOrError state nextPc stack hash
   | none => setError state (StepError.missingHash data)
 
@@ -842,12 +925,22 @@ def stepAccountUnary (state : State) (nextPc : Nat)
   match popStack state.stack with
   | none => setError state StepError.stackUnderflow
   | some (address, stack) =>
-      pushWithStackOrError state nextPc stack (op state address)
+      pushWithStackOrError state nextPc stack (op state (addressWord address))
+
+def stepExtcodehash (state : State) (nextPc : Nat) : State :=
+  match popStack state.stack with
+  | none => setError state StepError.stackUnderflow
+  | some (address, stack) =>
+      let address := addressWord address
+      match accountCodeHash? state address with
+      | some hash => pushWithStackOrError state nextPc stack hash
+      | none => setError state (StepError.missingHash (accountCode state address))
 
 def stepExtcodecopy (state : State) (nextPc : Nat) : State :=
   match popStack state.stack with
   | none => setError state StepError.stackUnderflow
   | some (address, stackAfterAddress) =>
+      let address := addressWord address
       match popStack stackAfterAddress with
       | none => setError state StepError.stackUnderflow
       | some (dest, stackAfterDest) =>
@@ -870,7 +963,10 @@ def stepBlockhash (state : State) (nextPc : Nat) : State :=
   | none => setError state StepError.stackUnderflow
   | some (blockNumber, stack) =>
       pushWithStackOrError state nextPc stack
-        ((lookupWord? state.block.blockhashes blockNumber).getD 0)
+        (if blockhashNumberInRange state.block.number blockNumber then
+          (lookupWord? state.block.blockhashes blockNumber).getD 0
+        else
+          0)
 
 def stepBlobhash (state : State) (nextPc : Nat) : State :=
   match popStack state.stack with
@@ -931,6 +1027,7 @@ def stepSelfdestruct (state : State) (nextPc : Nat) : State :=
   match popStack state.stack with
   | none => setError state StepError.stackUnderflow
   | some (beneficiary, stack) =>
+      let beneficiary := addressWord beneficiary
       if state.call.isStatic then
         setError state StepError.staticStateChange
       else
@@ -942,18 +1039,20 @@ def stepSelfdestruct (state : State) (nextPc : Nat) : State :=
           if sameAddress then
             state
           else
-            let beneficiaryAccount := rawAccount state beneficiary
-            setAccountBalance state beneficiary
-              (addWord beneficiaryAccount.balance amount)
+            match accountAt? state beneficiary with
+            | none =>
+                if norm amount = 0 then
+                  state
+                else
+                  setAccountBalance state beneficiary amount
+            | some beneficiaryAccount =>
+                setAccountBalance state beneficiary
+                  (addWord beneficiaryAccount.balance amount)
         let currentAfterTransfer := rawAccount stateAfterTransfer currentAddress
         let currentFinal :=
           if current.createdInTransaction then
             { currentAfterTransfer with
               balance := 0,
-              code := [],
-              codeHash := 0,
-              storage := [],
-              transientStorage := [],
               destroyed := true }
           else if sameAddress then
             currentAfterTransfer
@@ -1008,6 +1107,7 @@ def stepExternalCallWithValue (state : State) (nextPc : Nat)
       match popStack stackAfterGas with
       | none => setError state StepError.stackUnderflow
       | some (to, stackAfterTo) =>
+          let target := addressWord to
           match popStack stackAfterTo with
           | none => setError state StepError.stackUnderflow
           | some (value, stackAfterValue) =>
@@ -1023,7 +1123,9 @@ def stepExternalCallWithValue (state : State) (nextPc : Nat)
                           match popStack stackAfterRetOffset with
                           | none => setError state StepError.stackUnderflow
                           | some (retSize, stack) =>
-                              if state.call.isStatic = true ∧ norm value ≠ 0 then
+                              if state.call.isStatic = true ∧
+                                  kind = ExternalCallKind.call ∧
+                                  norm value ≠ 0 then
                                 setError state StepError.staticStateChange
                               else
                                 let input := readMemoryBytes state.memory argsOffset argsSize
@@ -1035,7 +1137,7 @@ def stepExternalCallWithValue (state : State) (nextPc : Nat)
                                   ExternalAction.call
                                     { kind := kind,
                                       gas := gas,
-                                      to := to,
+                                      to := target,
                                       value := value,
                                       input := input,
                                       retOffset := retOffset,
@@ -1043,7 +1145,7 @@ def stepExternalCallWithValue (state : State) (nextPc : Nat)
                                       caller := state.call.address,
                                       address :=
                                         if kind = ExternalCallKind.call then
-                                          to
+                                          target
                                         else
                                           state.call.address,
                                       isStatic := state.call.isStatic }
@@ -1061,6 +1163,7 @@ def stepExternalCallNoValue (state : State) (nextPc : Nat)
       match popStack stackAfterGas with
       | none => setError state StepError.stackUnderflow
       | some (to, stackAfterTo) =>
+          let target := addressWord to
           match popStack stackAfterTo with
           | none => setError state StepError.stackUnderflow
           | some (argsOffset, stackAfterArgsOffset) =>
@@ -1087,7 +1190,7 @@ def stepExternalCallNoValue (state : State) (nextPc : Nat)
                             if kind = ExternalCallKind.delegatecall then
                               state.call.address
                             else
-                              to
+                              target
                           let actionStatic :=
                             if kind = ExternalCallKind.staticcall then
                               true
@@ -1102,7 +1205,7 @@ def stepExternalCallNoValue (state : State) (nextPc : Nat)
                             ExternalAction.call
                               { kind := kind,
                                 gas := gas,
-                                to := to,
+                                to := target,
                                 value := actionValue,
                                 input := input,
                                 retOffset := retOffset,
@@ -1263,7 +1366,7 @@ def stepOpcode (opcode : Opcode) (state : State) : State :=
   | Opcode.returndatacopy =>
       stepReturndatacopy state nextPc
   | Opcode.extcodehash =>
-      stepAccountUnary state nextPc accountCodeHash
+      stepExtcodehash state nextPc
   | Opcode.blockhash =>
       stepBlockhash state nextPc
   | Opcode.coinbase =>

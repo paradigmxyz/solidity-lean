@@ -1,8 +1,10 @@
+import SharedSemantics.Word
 import SolidCoreYulCore.BytecodeMultiContract
 
-open SolidCoreYulCore
+open SharedSemantics
 open SolidCoreYulCore.BytecodeEvm
 open SolidCoreYulCore.BytecodeGas
+open SolidCoreYulCore.BytecodeMultiContract
 
 namespace SolidCore.Tests.EvmParityCli
 
@@ -15,12 +17,17 @@ structure Config where
   address : Word := 1
   caller : Word := 0x1000
   origin : Word := 0x1000
+  gasprice : Word := 0
+  blobhashes : List Word := []
   coinbase : Word := 0
   timestamp : Word := GasConst.osakaMainnetTimestamp
   number : Word := 0
+  prevrandao : Word := 0
   gaslimit : Word := GasConst.defaultBlockGasLimit
   basefee : Word := 0
+  blobbasefee : Word := 0
   chainid : Word := 1
+  blockhashes : WordMap := []
   callvalue : Word := 0
   balance : Word := 0
   nonce : Word := 0
@@ -30,6 +37,34 @@ structure Config where
   accounts : AccountMap := []
   originalAccounts : AccountMap := []
   keccakHashes : HashMap := []
+  sha256Hashes : HashMap := []
+  ripemd160Hashes : HashMap := []
+  modexpResults : BytesMap := []
+  blake2fResults : BytesMap := []
+  ecaddResults : BytesMap := []
+  ecmulResults : BytesMap := []
+  ecpairingResults : BytesMap := []
+  ecaddFailures : BytesSet := []
+  ecmulFailures : BytesSet := []
+  ecpairingFailures : BytesSet := []
+  pointEvaluationProofs : BytesSet := []
+  pointEvaluationFailures : BytesSet := []
+  p256VerifyProofs : BytesSet := []
+  p256VerifyFailures : BytesSet := []
+  blsG1AddResults : BytesMap := []
+  blsG1MsmResults : BytesMap := []
+  blsG2AddResults : BytesMap := []
+  blsG2MsmResults : BytesMap := []
+  blsPairingResults : BytesMap := []
+  blsMapFpToG1Results : BytesMap := []
+  blsMapFp2ToG2Results : BytesMap := []
+  blsG1AddFailures : BytesSet := []
+  blsG1MsmFailures : BytesSet := []
+  blsG2AddFailures : BytesSet := []
+  blsG2MsmFailures : BytesSet := []
+  blsPairingFailures : BytesSet := []
+  blsMapFpToG1Failures : BytesSet := []
+  blsMapFp2ToG2Failures : BytesSet := []
   cheatcodeAddresses : WordMap := []
   cheatcodeSignatures : CheatcodeSignatureMap := []
   warmAddresses : List Word := []
@@ -126,6 +161,16 @@ def parseKeccakAssignment (raw : String) : Except String (Bytes × Word) := do
   let (data, hash) ← splitAssignment raw
   return (← parseHexBytes data, ← parseWord hash)
 
+def parseSha256Assignment (raw : String) : Except String (Bytes × Word) :=
+  parseKeccakAssignment raw
+
+def parseRipemd160Assignment (raw : String) : Except String (Bytes × Word) :=
+  parseKeccakAssignment raw
+
+def parseBytesAssignment (raw : String) : Except String (Bytes × Bytes) := do
+  let (data, output) ← splitAssignment raw
+  return (← parseHexBytes data, ← parseHexBytes output)
+
 def parseCheatcodeAddressAssignment (raw : String) : Except String (Word × Word) :=
   parseStorageAssignment raw
 
@@ -196,18 +241,28 @@ partial def parseArgs : List String → Config → Except String Config
       parseArgs rest { cfg with caller := ← parseWord value }
   | "--origin" :: value :: rest, cfg => do
       parseArgs rest { cfg with origin := ← parseWord value }
+  | "--gasprice" :: value :: rest, cfg => do
+      parseArgs rest { cfg with gasprice := ← parseWord value }
+  | "--blobhash" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blobhashes := cfg.blobhashes ++ [← parseWord value] }
   | "--coinbase" :: value :: rest, cfg => do
       parseArgs rest { cfg with coinbase := ← parseWord value }
   | "--timestamp" :: value :: rest, cfg => do
       parseArgs rest { cfg with timestamp := ← parseWord value }
   | "--number" :: value :: rest, cfg => do
       parseArgs rest { cfg with number := ← parseWord value }
+  | "--prevrandao" :: value :: rest, cfg => do
+      parseArgs rest { cfg with prevrandao := ← parseWord value }
   | "--gaslimit" :: value :: rest, cfg => do
       parseArgs rest { cfg with gaslimit := ← parseWord value }
   | "--basefee" :: value :: rest, cfg => do
       parseArgs rest { cfg with basefee := ← parseWord value }
+  | "--blobbasefee" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blobbasefee := ← parseWord value }
   | "--chainid" :: value :: rest, cfg => do
       parseArgs rest { cfg with chainid := ← parseWord value }
+  | "--blockhash" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blockhashes := (← parseStorageAssignment value) :: cfg.blockhashes }
   | "--callvalue" :: value :: rest, cfg => do
       parseArgs rest { cfg with callvalue := ← parseWord value }
   | "--balance" :: value :: rest, cfg => do
@@ -249,6 +304,62 @@ partial def parseArgs : List String → Config → Except String Config
             upsertAccountStorage cfg.originalAccounts address key storageValue }
   | "--keccak" :: value :: rest, cfg => do
       parseArgs rest { cfg with keccakHashes := (← parseKeccakAssignment value) :: cfg.keccakHashes }
+  | "--sha256" :: value :: rest, cfg => do
+      parseArgs rest { cfg with sha256Hashes := (← parseSha256Assignment value) :: cfg.sha256Hashes }
+  | "--ripemd160" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ripemd160Hashes := (← parseRipemd160Assignment value) :: cfg.ripemd160Hashes }
+  | "--modexp" :: value :: rest, cfg => do
+      parseArgs rest { cfg with modexpResults := (← parseBytesAssignment value) :: cfg.modexpResults }
+  | "--blake2f" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blake2fResults := (← parseBytesAssignment value) :: cfg.blake2fResults }
+  | "--ecadd" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ecaddResults := (← parseBytesAssignment value) :: cfg.ecaddResults }
+  | "--ecmul" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ecmulResults := (← parseBytesAssignment value) :: cfg.ecmulResults }
+  | "--ecpairing" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ecpairingResults := (← parseBytesAssignment value) :: cfg.ecpairingResults }
+  | "--ecadd-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ecaddFailures := (← parseHexBytes value) :: cfg.ecaddFailures }
+  | "--ecmul-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ecmulFailures := (← parseHexBytes value) :: cfg.ecmulFailures }
+  | "--ecpairing-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with ecpairingFailures := (← parseHexBytes value) :: cfg.ecpairingFailures }
+  | "--point-evaluation" :: value :: rest, cfg => do
+      parseArgs rest { cfg with pointEvaluationProofs := (← parseHexBytes value) :: cfg.pointEvaluationProofs }
+  | "--point-evaluation-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with pointEvaluationFailures := (← parseHexBytes value) :: cfg.pointEvaluationFailures }
+  | "--p256-verify" :: value :: rest, cfg => do
+      parseArgs rest { cfg with p256VerifyProofs := (← parseHexBytes value) :: cfg.p256VerifyProofs }
+  | "--p256-verify-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with p256VerifyFailures := (← parseHexBytes value) :: cfg.p256VerifyFailures }
+  | "--bls-g1add" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG1AddResults := (← parseBytesAssignment value) :: cfg.blsG1AddResults }
+  | "--bls-g1msm" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG1MsmResults := (← parseBytesAssignment value) :: cfg.blsG1MsmResults }
+  | "--bls-g2add" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG2AddResults := (← parseBytesAssignment value) :: cfg.blsG2AddResults }
+  | "--bls-g2msm" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG2MsmResults := (← parseBytesAssignment value) :: cfg.blsG2MsmResults }
+  | "--bls-pairing" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsPairingResults := (← parseBytesAssignment value) :: cfg.blsPairingResults }
+  | "--bls-map-fp-to-g1" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsMapFpToG1Results := (← parseBytesAssignment value) :: cfg.blsMapFpToG1Results }
+  | "--bls-map-fp2-to-g2" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsMapFp2ToG2Results := (← parseBytesAssignment value) :: cfg.blsMapFp2ToG2Results }
+  | "--bls-g1add-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG1AddFailures := (← parseHexBytes value) :: cfg.blsG1AddFailures }
+  | "--bls-g1msm-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG1MsmFailures := (← parseHexBytes value) :: cfg.blsG1MsmFailures }
+  | "--bls-g2add-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG2AddFailures := (← parseHexBytes value) :: cfg.blsG2AddFailures }
+  | "--bls-g2msm-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsG2MsmFailures := (← parseHexBytes value) :: cfg.blsG2MsmFailures }
+  | "--bls-pairing-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsPairingFailures := (← parseHexBytes value) :: cfg.blsPairingFailures }
+  | "--bls-map-fp-to-g1-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsMapFpToG1Failures := (← parseHexBytes value) :: cfg.blsMapFpToG1Failures }
+  | "--bls-map-fp2-to-g2-fail" :: value :: rest, cfg => do
+      parseArgs rest { cfg with blsMapFp2ToG2Failures := (← parseHexBytes value) :: cfg.blsMapFp2ToG2Failures }
   | "--cheat-addr" :: value :: rest, cfg => do
       parseArgs rest
         { cfg with
@@ -278,17 +389,48 @@ def initialState (cfg : Config) : State :=
   { State.empty with
     code := cfg.code,
     keccakHashes := cfg.keccakHashes,
+    sha256Hashes := cfg.sha256Hashes,
+    ripemd160Hashes := cfg.ripemd160Hashes,
+    modexpResults := cfg.modexpResults,
+    blake2fResults := cfg.blake2fResults,
+    ecaddResults := cfg.ecaddResults,
+    ecmulResults := cfg.ecmulResults,
+    ecpairingResults := cfg.ecpairingResults,
+    ecaddFailures := cfg.ecaddFailures,
+    ecmulFailures := cfg.ecmulFailures,
+    ecpairingFailures := cfg.ecpairingFailures,
+    pointEvaluationProofs := cfg.pointEvaluationProofs,
+    pointEvaluationFailures := cfg.pointEvaluationFailures,
+    p256VerifyProofs := cfg.p256VerifyProofs,
+    p256VerifyFailures := cfg.p256VerifyFailures,
+    blsG1AddResults := cfg.blsG1AddResults,
+    blsG1MsmResults := cfg.blsG1MsmResults,
+    blsG2AddResults := cfg.blsG2AddResults,
+    blsG2MsmResults := cfg.blsG2MsmResults,
+    blsPairingResults := cfg.blsPairingResults,
+    blsMapFpToG1Results := cfg.blsMapFpToG1Results,
+    blsMapFp2ToG2Results := cfg.blsMapFp2ToG2Results,
+    blsG1AddFailures := cfg.blsG1AddFailures,
+    blsG1MsmFailures := cfg.blsG1MsmFailures,
+    blsG2AddFailures := cfg.blsG2AddFailures,
+    blsG2MsmFailures := cfg.blsG2MsmFailures,
+    blsPairingFailures := cfg.blsPairingFailures,
+    blsMapFpToG1Failures := cfg.blsMapFpToG1Failures,
+    blsMapFp2ToG2Failures := cfg.blsMapFp2ToG2Failures,
     cheatcodeAddresses := cfg.cheatcodeAddresses,
     cheatcodeSignatures := cfg.cheatcodeSignatures,
     accounts := accounts,
-    tx := { origin := cfg.origin },
+    tx := { origin := cfg.origin, gasprice := cfg.gasprice, blobhashes := cfg.blobhashes },
     block :=
       { coinbase := cfg.coinbase,
         timestamp := cfg.timestamp,
         number := cfg.number,
+        prevrandao := cfg.prevrandao,
         gaslimit := cfg.gaslimit,
         chainid := cfg.chainid,
-        basefee := cfg.basefee },
+        basefee := cfg.basefee,
+        blobbasefee := cfg.blobbasefee,
+        blockhashes := cfg.blockhashes },
     call :=
       { address := cfg.address,
         caller := cfg.caller,
@@ -297,6 +439,14 @@ def initialState (cfg : Config) : State :=
 
 def initialMeteredState (cfg : Config) : MeteredState :=
   let base := MeteredState.ofStateOsaka (initialState cfg) cfg.gas
+  let preCallBalance :=
+    match subBalance? cfg.balance cfg.callvalue with
+    | some balance => balance
+    | none => cfg.balance
+  let preCallAccount :=
+    { rawAccount base.evm cfg.address with balance := preCallBalance }
+  let rollbackAccounts :=
+    writeAccount base.evm.accounts cfg.address preCallAccount
   let originalStorage :=
     if cfg.originalStorageSpecified then cfg.originalStorage else cfg.storage
   let originalAccount : Account :=
@@ -320,6 +470,7 @@ def initialMeteredState (cfg : Config) : MeteredState :=
         writeAccount acc address original)
       []
   { base with
+    rollbackAccounts := rollbackAccounts,
     originalAccounts := originalAccounts,
     accessedAddresses :=
       cfg.warmAddresses.foldl
@@ -411,13 +562,23 @@ def printResult (cfg : Config) (result : MeteredState) : IO Unit := do
   IO.println s!"destroyed {if account.destroyed then "1" else "0"}"
   for (key, value) in account.storage do
     IO.println s!"storage {wordHex32 key} {wordHex32 value}"
+  for (key, value) in account.transientStorage do
+    IO.println s!"transient_storage {wordHex32 key} {wordHex32 value}"
   for (address, account) in result.evm.accounts do
     IO.println s!"account_nonce {wordHex32 address} {wordHex32 account.nonce}"
     IO.println s!"account_balance {wordHex32 address} {wordHex32 account.balance}"
     IO.println s!"account_destroyed {wordHex32 address} {if account.destroyed then "1" else "0"}"
+    IO.println s!"account_codesize {wordHex32 address} {account.code.length}"
     IO.println s!"account_code {wordHex32 address} {bytesHex account.code}"
+    match accountCodeHash? result.evm address with
+    | some codeHash =>
+        IO.println s!"account_codehash {wordHex32 address} {wordHex32 codeHash}"
+    | none => pure ()
     for (key, value) in account.storage do
       IO.println s!"account_storage {wordHex32 address} {wordHex32 key} {wordHex32 value}"
+    for (key, value) in account.transientStorage do
+      IO.println
+        s!"account_transient_storage {wordHex32 address} {wordHex32 key} {wordHex32 value}"
   for log in result.evm.logs.reverse do
     IO.println
       s!"log {wordHex32 log.address} {joinStrings "," (log.topics.map wordHex32)} {bytesHex log.data}"
@@ -447,7 +608,7 @@ def main (args : List String) : IO UInt32 := do
       return 2
   | Except.ok cfg =>
       let result :=
-        SolidCoreYulCore.BytecodeMultiContract.runFuel
+        SolidCoreYulCore.BytecodeMultiContract.runTransaction
           cfg.callDepth cfg.fuel cfg.fuel
           (SolidCore.Tests.EvmParityCli.initialMeteredState cfg)
       SolidCore.Tests.EvmParityCli.printResult cfg result

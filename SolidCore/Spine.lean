@@ -5,6 +5,8 @@ import SolidCore.Spine.L03_GeneratedYul.Interface
 import SolidCore.Spine.L04_StackCfg.Interface
 import SolidCore.Spine.L05_Bytecode.Interface
 import SolidCore.Spine.L06_Evm.Interface
+import SolidCore.Spine.L07_MeteredEvm.Interface
+import SolidCore.Spine.YulEvm
 import SolidCore.Spine.Passes.P01_SourceSolidityToValidSolidity.Interface
 import SolidCore.Spine.Passes.P02_ValidSolidityToAbstractYul.Interface
 import SolidCore.Spine.Passes.P03_AbstractYulToGeneratedYul.Interface
