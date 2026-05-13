@@ -15576,11 +15576,25 @@ def fallbackDispatchResult :
     16 contract SolidCore.Solidity.Source.State.empty
     [0xde, 0xad, 0xbe, 0xef]
 
+def fallbackDispatchMatches : Option Bool := do
+  let result ← fallbackDispatchResult
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 1 &&
+      result.output == [])
+
 def receiveDispatchResult :
     Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
   let contract ← ContractDecl.toCore? fallbackReceiveContract
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     16 contract SolidCore.Solidity.Source.State.empty []
+
+def receiveDispatchMatches : Option Bool := do
+  let result ← receiveDispatchResult
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 2 &&
+      result.output == [])
 
 def fallbackBytesContract : ContractDecl :=
   { name := "FallbackBytes"
@@ -15603,6 +15617,10 @@ def fallbackBytesDispatchResult :
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     16 contract SolidCore.Solidity.Source.State.empty [1, 2, 3]
 
+def fallbackBytesDispatchMatches : Option Bool := do
+  let result ← fallbackBytesDispatchResult
+  some (result.success && result.output == [1, 2, 3])
+
 def fallbackMsgDataContract : ContractDecl :=
   { name := "FallbackMsgData"
     items :=
@@ -15623,6 +15641,10 @@ def fallbackMsgDataDispatchResult :
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     16 contract SolidCore.Solidity.Source.State.empty [4, 5, 6]
 
+def fallbackMsgDataDispatchMatches : Option Bool := do
+  let result ← fallbackMsgDataDispatchResult
+  some (result.success && result.output == [4, 5, 6])
+
 def receiveMsgValueContract : ContractDecl :=
   { name := "ReceiveValue"
     items :=
@@ -15642,6 +15664,13 @@ def receiveMsgValueDispatchResult :
   SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
     16 contract SolidCore.Solidity.Source.State.empty
     0xabc 77 []
+
+def receiveMsgValueDispatchMatches : Option Bool := do
+  let result ← receiveMsgValueDispatchResult
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 77 &&
+      result.output == [])
 
 def fallbackMsgSenderContract : ContractDecl :=
   { name := "FallbackSender"
