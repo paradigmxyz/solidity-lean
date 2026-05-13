@@ -85,6 +85,7 @@ def Ty.staticAbiHeadWords? : Ty -> Option Nat
   | Ty.uint256 => some 1
   | Ty.int256 => some 1
   | Ty.fixedBytes _ => some 1
+  | Ty.externalFunction => some 1
   | Ty.fixedArray size elementTy =>
       if Ty.isDynamicAbi elementTy then
         none
@@ -150,6 +151,11 @@ def encodeStaticValue? : Ty -> Value -> Option Bytes
           List.replicate (wordBytes - size) 0)
       else
         none
+  | Ty.externalFunction, Value.externalFunction addr selector =>
+      some
+        (wordToBytesBE 20 addr ++
+          wordToBytesBE selectorBytes selector ++
+          List.replicate (wordBytes - 20 - selectorBytes) 0)
   | Ty.fixedArray size elementTy, Value.fixedArray values =>
       if values.length == size && !Ty.isDynamicAbi elementTy then
         let rec encodeArrayValues? : List Value -> Option Bytes
@@ -313,6 +319,13 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
         some (Value.word (bytesToWordBE bytes))
       else
         none
+  | _fuel + 1, argData, headIndex, Ty.externalFunction => do
+      let bytes ← readBytes? argData (wordBytes * headIndex) 24
+      let addressBytes ← readBytes? bytes 0 20
+      let selectorPart ← readBytes? bytes 20 selectorBytes
+      some
+        (Value.externalFunction
+          (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
   | _fuel + 1, argData, headIndex, Ty.bytesCalldata => do
       let offset ← readWord? argData (wordBytes * headIndex)
       let length ← readWord? argData offset

@@ -12466,6 +12466,78 @@ def abiEncodeCallExternalFunctionPointerSource :
 def abiEncodeCallExternalFunctionPointerAccepted : Bool :=
   sourceUnitAccepted? abiEncodeCallExternalFunctionPointerSource
 
+def externalFunctionPointerMembersSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ExternalFunctionPointerMembers"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "members"
+                    params :=
+                      [ { name := some "setter"
+                          ty := externalUintSetterFunctionTy
+                          location := none } ]
+                    returns :=
+                      [ { name := some "selector"
+                          ty := bytes4
+                          location := none }
+                      , { name := some "target"
+                          ty := addressTy
+                          location := none } ]
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.tuple
+                              [ L00_SourceSolidity.TupleItem.value
+                                  (L00_SourceSolidity.Expr.member
+                                    (L00_SourceSolidity.Expr.ident
+                                      "setter")
+                                    "selector")
+                              , L00_SourceSolidity.TupleItem.value
+                                  (L00_SourceSolidity.Expr.member
+                                    (L00_SourceSolidity.Expr.ident
+                                      "setter")
+                                    "address") ]))) } ] } ] }
+
+def externalFunctionPointerMembersAccepted : Bool :=
+  sourceUnitAccepted? externalFunctionPointerMembersSource
+
+def badInternalFunctionPointerSelectorSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadInternalFunctionPointerSelector"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "selector"
+                    params :=
+                      [ { name := some "setter"
+                          ty := internalUintSetterFunctionTy
+                          location := none } ]
+                    returns :=
+                      [{ name := some "selector"
+                         ty := bytes4
+                         location := none }]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "setter")
+                              "selector"))) } ] } ] }
+
+def badInternalFunctionPointerSelectorRejected : Bool :=
+  Result.isError
+    (SourceUnit.check badInternalFunctionPointerSelectorSource)
+
 def badAbiEncodeCallInternalFunctionPointerSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

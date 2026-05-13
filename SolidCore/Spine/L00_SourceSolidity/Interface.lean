@@ -2246,6 +2246,8 @@ def Ty.toCore? : Ty -> Option CoreTy
       let coreTys ← Ty.listToCore? tys
       some (SolidCore.Solidity.Source.Ty.tuple coreTys)
   | Ty.user _ => some SolidCore.Solidity.Source.Ty.address
+  | Ty.function _ _ _ Visibility.external_ =>
+      some SolidCore.Solidity.Source.Ty.externalFunction
   | _ => none
 
 def Ty.listToCore? : List Ty -> Option (List CoreTy)
@@ -3407,6 +3409,14 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let baseCore ← Expr.toCore? storageNames base
       some (SolidCore.Solidity.Source.Expr.envLookup
         SolidCore.Solidity.Source.EnvLookup.accountCodehash baseCore)
+  | Expr.member base "selector" => do
+      let baseCore ← Expr.toCore? storageNames base
+      some
+        (SolidCore.Solidity.Source.Expr.externalFunctionSelector baseCore)
+  | Expr.member base "address" => do
+      let baseCore ← Expr.toCore? storageNames base
+      some
+        (SolidCore.Solidity.Source.Expr.externalFunctionAddress baseCore)
   | Expr.member (Expr.ident "msg") "data" =>
       some SolidCore.Solidity.Source.Expr.calldata
   | Expr.member (Expr.ident "msg") "sig" =>
@@ -3594,15 +3604,14 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           tys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
       [Arg.positional functionPointer, Arg.positional (Expr.tuple items)] => do
-      let functionName ← Expr.functionPointerName? functionPointer
       let (sourceTys, coreTys, coreExprs) ←
         TupleItems.toAbiEncodeSource? storageNames items
-      let signature ← externalFunctionSignature? functionName sourceTys
+      let selectorCore ←
+        Expr.functionPointerSelectorCore?
+          storageNames functionPointer sourceTys
       some
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
-          (SolidCore.Solidity.Source.Expr.word
-            (SolidCore.Solidity.Source.ABI.selectorFromSignature
-              signature))
+          selectorCore
           coreTys coreExprs)
   | Expr.call (Expr.ident "blockhash") [Arg.positional number] => do
       let numberCore ← Expr.toCore? storageNames number
@@ -4145,14 +4154,33 @@ def externalFunctionSignature? (name : Name) (argTys : List Ty) :
   let canonicals ← Ty.listAbiCanonical? argTys
   some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
 
-def Expr.functionPointerName? : Expr -> Option Name
-  | Expr.member _ name =>
+def Expr.functionPointerSelectorCore? (storageNames : List Name)
+    (functionPointer : Expr) (argTys : List Ty) : Option CoreExpr :=
+  match functionPointer with
+  | Expr.member _ name => do
       if name == "call" || name == "staticcall" ||
           name == "delegatecall" || name == "send" ||
           name == "transfer" then
         none
       else
-        some name
+        some ()
+      let signature ← externalFunctionSignature? name argTys
+      some
+        (SolidCore.Solidity.Source.Expr.word
+          (SolidCore.Solidity.Source.ABI.selectorFromSignature signature))
+  | Expr.ident name =>
+      let pointerCore :=
+        if name == "this" then
+          SolidCore.Solidity.Source.Expr.self
+        else if stateNameIsStorage name storageNames then
+          SolidCore.Solidity.Source.Expr.storage name
+        else if stateNameIsImmutable name storageNames then
+          SolidCore.Solidity.Source.Expr.immutable name
+        else
+          SolidCore.Solidity.Source.Expr.var name
+      some
+        (SolidCore.Solidity.Source.Expr.externalFunctionSelector
+          pointerCore)
   | _ => none
 
 def Expr.toExternalCall? (storageNames : List Name) :
@@ -4803,6 +4831,16 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
           | Expr.member base "length" => do
               let _ ← Expr.abiTyWithEnv? env base
               some (Ty.uint 256)
+          | Expr.member base "selector" => do
+              match Expr.abiTyWithEnv? env base with
+              | some (Ty.function _ _ _ Visibility.external_) =>
+                  some (Ty.bytesN 4)
+              | _ => none
+          | Expr.member base "address" => do
+              match Expr.abiTyWithEnv? env base with
+              | some (Ty.function _ _ _ Visibility.external_) =>
+                  some (Ty.address false)
+              | _ => none
           | _ => none
 
 def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
@@ -11928,6 +11966,86 @@ def abiEncodeCallSourceMatchesExpected : Option Bool := do
       | some bytes => some (bytes == expected)
       | none => none
   | _ => none
+
+def externalUintSetterTy : Ty :=
+  Ty.function [Ty.uint 256] []
+    StateMutability.nonpayable Visibility.external_
+
+def abiEncodeCallExternalPointerFunction : FunctionDecl :=
+  { name := some "callDataByExternalPointer"
+    params :=
+      [ { name := some "setter", ty := externalUintSetterTy }
+      , { name := some "x", ty := Ty.uint 256 } ]
+    returns := [{ name := some "out", ty := Ty.bytes }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member (Expr.ident "abi") "encodeCall")
+              [ Arg.positional (Expr.ident "setter")
+              , Arg.positional
+                  (Expr.tuple [TupleItem.value (Expr.ident "x")]) ]))) }
+
+def abiEncodeCallExternalPointerResult : Option CoreCallResult :=
+  FunctionDecl.call? 12 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty
+    abiEncodeCallExternalPointerFunction
+    [ SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef selectorEncodingSelector
+    , SolidCore.Solidity.Source.Value.word 7 ]
+
+def abiEncodeCallExternalPointerExpected : Option (List Byte) := do
+  let encodedArgs ←
+    SolidCore.Solidity.Source.abiEncodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  some
+    (SolidCore.Solidity.Source.wordToBytesBE
+      SolidCore.Solidity.Source.selectorBytes
+      selectorEncodingSelector ++ encodedArgs)
+
+def abiEncodeCallExternalPointerMatchesExpected : Option Bool := do
+  let result ← abiEncodeCallExternalPointerResult
+  let expected ← abiEncodeCallExternalPointerExpected
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      match value.asBytes? with
+      | some bytes => some (bytes == expected)
+      | none => none
+  | _ => none
+
+def externalFunctionMembersFunction : FunctionDecl :=
+  { name := some "externalFunctionMembers"
+    params := [{ name := some "setter", ty := externalUintSetterTy }]
+    returns :=
+      [ { name := some "selector", ty := Ty.bytesN 4 }
+      , { name := some "target", ty := Ty.address false } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.member (Expr.ident "setter") "selector")
+              , TupleItem.value
+                  (Expr.member (Expr.ident "setter") "address") ]))) }
+
+def externalFunctionMembersResult : Option CoreCallResult :=
+  FunctionDecl.call? 12 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty
+    externalFunctionMembersFunction
+    [SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef selectorEncodingSelector]
+
+def externalFunctionMembersMatch : Option Bool := do
+  let result ← externalFunctionMembersResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word selector
+      , SolidCore.Solidity.Source.Value.word target ] =>
+      some (selector == selectorEncodingSelector && target == 0xbeef)
+  | _ => some false
 
 def abiEncodePackedSourceFunction : FunctionDecl :=
   { name := some "packed"

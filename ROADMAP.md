@@ -21,6 +21,9 @@
       precompile calls where useful.
 - [x] Route Solidity call gas options and `send`/`transfer` stipends through
       gas-aware shared low-level call requests.
+- [x] Model external function pointer ABI values as address-plus-selector
+      runtime values, including `.address`, `.selector`, and
+      `abi.encodeCall` over external function-typed variables.
 - [ ] Deepen the named adapters with direct Nethermind state/log/call semantics
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.

@@ -71,6 +71,7 @@ inductive Ty where
   | int256 : Ty
   | fixedBytes : Nat -> Ty
   | bytesCalldata : Ty
+  | externalFunction : Ty
   | fixedArray : Nat -> Ty -> Ty
   | dynamicArray : Ty -> Ty
   | tuple : List Ty -> Ty
@@ -80,6 +81,7 @@ inductive Value where
   | word : Word -> Value
   | int : Word -> Value
   | bytes : List Byte -> Value
+  | externalFunction : Word -> Word -> Value
   | fixedArray : List Value -> Value
   | dynamicArray : List Value -> Value
   | tuple : List Value -> Value
@@ -93,6 +95,7 @@ def Ty.defaultValue : Ty -> Value
   | Ty.int256 => Value.int 0
   | Ty.fixedBytes _ => Value.word 0
   | Ty.bytesCalldata => Value.bytes []
+  | Ty.externalFunction => Value.externalFunction 0 0
   | Ty.fixedArray size elementTy =>
       Value.fixedArray (List.replicate size elementTy.defaultValue)
   | Ty.dynamicArray _ => Value.dynamicArray []
@@ -119,12 +122,14 @@ def Value.length? : Value -> Option Nat
   | Value.tuple values => some values.length
   | Value.word _ => none
   | Value.int _ => none
+  | Value.externalFunction _ _ => none
   | Value.storageRef _ => none
 
 def Value.defaultLike : Value -> Value
   | Value.word _ => Value.word 0
   | Value.int _ => Value.int 0
   | Value.bytes _ => Value.bytes []
+  | Value.externalFunction _ _ => Value.externalFunction 0 0
   | Value.fixedArray values => Value.fixedArray (values.map Value.defaultLike)
   | Value.dynamicArray _ => Value.dynamicArray []
   | Value.tuple values => Value.tuple (values.map Value.defaultLike)
@@ -205,6 +210,8 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.int256, Value.word value => some (Value.int value)
   | Ty.fixedBytes _, Value.word value => some (Value.word value)
   | Ty.bytesCalldata, Value.bytes bytes => some (Value.bytes bytes)
+  | Ty.externalFunction, Value.externalFunction addr selector =>
+      some (Value.externalFunction addr selector)
   | Ty.fixedArray size elementTy, Value.fixedArray values =>
       if values.length == size then
         match Ty.coerceValueList? elementTy values with
@@ -258,6 +265,8 @@ def Value.coerceLike? : Value -> Value -> Option Value
   | Value.int _, Value.int value => some (Value.int value)
   | Value.int _, Value.word value => some (Value.int value)
   | Value.bytes _, Value.bytes bs => some (Value.bytes bs)
+  | Value.externalFunction _ _, Value.externalFunction addr selector =>
+      some (Value.externalFunction addr selector)
   | Value.fixedArray oldValues, Value.fixedArray values =>
       match Value.coerceLikeList? oldValues values with
       | some coerced => some (Value.fixedArray coerced)
@@ -304,6 +313,8 @@ def Value.index? (container : Value) (index : Word) :
   | Value.word _ =>
       Except.error RevertData.typeMismatch
   | Value.int _ =>
+      Except.error RevertData.typeMismatch
+  | Value.externalFunction _ _ =>
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
@@ -409,6 +420,8 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
   | Value.word _ =>
       Except.error RevertData.typeMismatch
   | Value.int _ =>
+      Except.error RevertData.typeMismatch
+  | Value.externalFunction _ _ =>
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
@@ -1391,6 +1404,11 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
             List.replicate (wordBytes - size) 0)
       else
         none
+  | Ty.externalFunction, Value.externalFunction addr selector =>
+      some
+        (wordToBytesBE 20 addr ++
+          wordToBytesBE selectorBytes selector ++
+          List.replicate (wordBytes - 20 - selectorBytes) 0)
   | _, _ => none
 
 def abiPaddingLength (length : Nat) : Nat :=
@@ -1422,6 +1440,7 @@ def Ty.staticAbiHeadWords? : Ty -> Option Nat
   | Ty.uint256 => some 1
   | Ty.int256 => some 1
   | Ty.fixedBytes _ => some 1
+  | Ty.externalFunction => some 1
   | Ty.fixedArray size elementTy =>
       if Ty.isDynamicAbi elementTy then
         none
@@ -1648,6 +1667,13 @@ def abiDecodeValueAtWithFuel? :
         some (Value.word (bytesToWordBE bytes))
       else
         none
+  | _fuel + 1, argData, headIndex, Ty.externalFunction => do
+      let bytes ← readBytes? argData (wordBytes * headIndex) 24
+      let addressBytes ← readBytes? bytes 0 20
+      let selectorPart ← readBytes? bytes 20 selectorBytes
+      some
+        (Value.externalFunction
+          (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
   | _fuel + 1, argData, headIndex, Ty.bytesCalldata => do
       let offset ← readWord? argData (wordBytes * headIndex)
       let length ← readWord? argData offset
@@ -1825,6 +1851,10 @@ def abiEncodePackedValue? : Ty -> Value -> Option (List Byte)
         some (wordToBytesBE size value)
       else
         none
+  | Ty.externalFunction, Value.externalFunction addr selector =>
+      some
+        (wordToBytesBE 20 addr ++
+          wordToBytesBE selectorBytes selector)
   | Ty.bytesCalldata, Value.bytes bytes => some (bytes.map normByte)
   | Ty.fixedArray size elementTy, Value.fixedArray values =>
       if values.length == size then
@@ -1910,6 +1940,8 @@ inductive Expr where
   | storage : String -> Expr
   | storageBytes : String -> Expr
   | storageIndex : String -> Expr -> Expr
+  | externalFunctionSelector : Expr -> Expr
+  | externalFunctionAddress : Expr -> Expr
   | unary : UnaryOp -> Expr -> Expr
   | preIncrement : Expr -> Expr
   | preDecrement : Expr -> Expr
@@ -2301,6 +2333,16 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.storageIndex name idx => do
       let indexValue ← idx.eval context runtime
       runtime.loadStorageIndex context name indexValue
+  | Expr.externalFunctionSelector expr => do
+      let value ← expr.eval context runtime
+      match value with
+      | Value.externalFunction _ selector => Except.ok (Value.word selector)
+      | _ => Except.error RevertData.typeMismatch
+  | Expr.externalFunctionAddress expr => do
+      let value ← expr.eval context runtime
+      match value with
+      | Value.externalFunction addr _ => Except.ok (Value.word addr)
+      | _ => Except.error RevertData.typeMismatch
   | Expr.unary op expr => do
       let value ← expr.eval context runtime
       op.apply context.checked value
@@ -2848,6 +2890,18 @@ def Expr.evalWithRuntime (context : Context) :
       let (indexValue, runtime') ← idx.evalWithRuntime context runtime
       let value ← runtime'.loadStorageIndex context name indexValue
       Except.ok (value, runtime')
+  | runtime, Expr.externalFunctionSelector expr => do
+      let (value, runtime') ← expr.evalWithRuntime context runtime
+      match value with
+      | Value.externalFunction _ selector =>
+          Except.ok (Value.word selector, runtime')
+      | _ => Except.error RevertData.typeMismatch
+  | runtime, Expr.externalFunctionAddress expr => do
+      let (value, runtime') ← expr.evalWithRuntime context runtime
+      match value with
+      | Value.externalFunction addr _ =>
+          Except.ok (Value.word addr, runtime')
+      | _ => Except.error RevertData.typeMismatch
   | runtime, Expr.unary op expr => do
       let (value, runtime') ← expr.evalWithRuntime context runtime
       let result ← op.apply context.checked value
