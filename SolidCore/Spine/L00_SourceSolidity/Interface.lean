@@ -3643,11 +3643,10 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           none false)
   | Expr.callWithOptions (Expr.member target "staticcall")
       options [Arg.positional payload] => do
-      let _ ← CallOptions.lowLevelGasOnly? options
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
       let (valueCore, gasCore?, gasFirst) ←
-        CallOptions.lowLevelCallValueGasCore? storageNames options
+        CallOptions.lowLevelDelegateGasCore? storageNames options
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.staticcall
@@ -3662,11 +3661,10 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           none false)
   | Expr.callWithOptions (Expr.member target "delegatecall")
       options [Arg.positional payload] => do
-      let _ ← CallOptions.lowLevelGasOnly? options
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
       let (valueCore, gasCore?, gasFirst) ←
-        CallOptions.lowLevelCallValueGasCore? storageNames options
+        CallOptions.lowLevelDelegateGasCore? storageNames options
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
@@ -4047,6 +4045,7 @@ def CallOptions.lowLevelDelegateGasCore? (storageNames : List Name) :
       let gasCore ← Expr.toCore? storageNames gas
       some (CoreExpr.zero, some gasCore, true)
   | _ => none
+termination_by options => (sizeOf options, 0)
 
 def CallOptions.contractCreationValueSaltCore? (storageNames : List Name) :
     List CallOption -> Option (Option CoreExpr × Option CoreExpr)
@@ -14715,6 +14714,105 @@ def lowLevelStaticCallOptionGasEffectsMatches : Option Bool := do
           gasSeen == 12)
   | SolidCore.Solidity.Source.CallResult.reverted _ _ => some false
   | _ => none
+
+def lowLevelStaticCallValueOptionFunction : FunctionDecl :=
+  { name := some "badStaticValue"
+    params :=
+      [ { name := some "target", ty := Ty.address false }
+      , { name := some "payload", ty := Ty.bytes } ]
+    returns := [{ name := some "out", ty := lowLevelCallReturnTy }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.callWithOptions
+              (Expr.member (Expr.ident "target") "staticcall")
+              [CallOption.named "value"
+                (Expr.literal (Literal.number "1"))]
+              [Arg.positional (Expr.ident "payload")]))) }
+
+def lowLevelStaticCallValueOptionRejected : Bool :=
+  match
+    FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      lowLevelStaticCallValueOptionFunction
+      [ SolidCore.Solidity.Source.Value.word 0xcafe
+      , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
+  with
+  | none => true
+  | some _ => false
+
+def lowLevelDelegateCallOptionGasFunction : FunctionDecl :=
+  { name := some "delegateGas"
+    params :=
+      [ { name := some "target", ty := Ty.address false }
+      , { name := some "payload", ty := Ty.bytes } ]
+    returns := [{ name := some "out", ty := lowLevelCallReturnTy }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.callWithOptions
+              (Expr.member (Expr.ident "target") "delegatecall")
+              [CallOption.named "gas"
+                (Expr.literal (Literal.number "900"))]
+              [Arg.positional (Expr.ident "payload")]))) }
+
+def lowLevelDelegateCallOptionGasContext : CoreContext :=
+  { SolidCore.Solidity.Source.Context.empty with
+    lowLevelCallResults :=
+      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
+          target := 0xcafe
+          calldata := [7, 7]
+          value := 0
+          gas? := some 900
+          success := true
+          output := [9, 0] } ] }
+
+def lowLevelDelegateCallOptionGasResult : Option CoreCallResult :=
+  FunctionDecl.call? 8 [] [] lowLevelDelegateCallOptionGasContext
+    SolidCore.Solidity.Source.State.empty
+    lowLevelDelegateCallOptionGasFunction
+    [ SolidCore.Solidity.Source.Value.word 0xcafe
+    , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
+
+def lowLevelDelegateCallGasOptionMatches : Option Bool := do
+  let result ← lowLevelDelegateCallOptionGasResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← CoreValue.asLowLevelReturn? value
+      some
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [9, 0])
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => some false
+  | _ => none
+
+def lowLevelDelegateCallValueOptionFunction : FunctionDecl :=
+  { name := some "badDelegateValue"
+    params :=
+      [ { name := some "target", ty := Ty.address false }
+      , { name := some "payload", ty := Ty.bytes } ]
+    returns := [{ name := some "out", ty := lowLevelCallReturnTy }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.callWithOptions
+              (Expr.member (Expr.ident "target") "delegatecall")
+              [CallOption.named "value"
+                (Expr.literal (Literal.number "1"))]
+              [Arg.positional (Expr.ident "payload")]))) }
+
+def lowLevelDelegateCallValueOptionRejected : Bool :=
+  match
+    FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      lowLevelDelegateCallValueOptionFunction
+      [ SolidCore.Solidity.Source.Value.word 0xcafe
+      , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
+  with
+  | none => true
+  | some _ => false
 
 def lowLevelMissingResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
