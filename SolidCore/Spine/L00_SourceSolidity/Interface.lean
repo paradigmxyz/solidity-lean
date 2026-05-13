@@ -12604,6 +12604,122 @@ def ecrecoverBuiltinMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq missing 0)
   | _ => some false
 
+def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
+  { name := some "precompileBuiltinsAndCalls"
+    returns :=
+      [ { name := some "sha", ty := Ty.bytesN 32 }
+      , { name := some "shaProbe", ty := lowLevelCallReturnTy }
+      , { name := some "ripe", ty := Ty.bytesN 20 }
+      , { name := some "ripeProbe", ty := lowLevelCallReturnTy }
+      , { name := some "recovered", ty := Ty.address false }
+      , { name := some "recoverProbe", ty := lowLevelCallReturnTy } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.call (Expr.ident "sha256")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [1, 2]))])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.sha256)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [1, 2]))])
+              , TupleItem.value
+                  (Expr.call (Expr.ident "ripemd160")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [3, 4]))])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.ripemd160)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [3, 4]))])
+              , TupleItem.value
+                  (Expr.call (Expr.ident "ecrecover")
+                    [ Arg.positional (Expr.literal (Literal.number "17"))
+                    , Arg.positional (Expr.literal (Literal.number "27"))
+                    , Arg.positional (Expr.literal (Literal.number "34"))
+                    , Arg.positional (Expr.literal (Literal.number "51")) ])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.ecrecover)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal
+                        (Literal.bytes
+                          (SharedSemantics.Precompile.ecrecoverInput
+                            17 27 34 51)))]) ]))) }
+
+def precompileBuiltinsStaticcallSharedResultsContext : CoreContext :=
+  { SolidCore.Solidity.Source.Context.empty with
+    lowLevelCallResults :=
+      [ successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa
+      , successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.ripemd160 [3, 4] 0xbbbb
+      , successfulPrecompileWordCall
+          SharedSemantics.Precompile.Kind.ecrecover
+          (SharedSemantics.Precompile.ecrecoverInput 17 27 34 51)
+          0xcafe ] }
+
+def precompileBuiltinsStaticcallSharedResultsCallResult :
+    Option CoreCallResult :=
+  FunctionDecl.call? 8 [] []
+    precompileBuiltinsStaticcallSharedResultsContext
+    SolidCore.Solidity.Source.State.empty
+    precompileBuiltinsStaticcallSharedResultsFunction []
+
+def precompileBuiltinsStaticcallSharedResultsMatches : Option Bool := do
+  let result ← precompileBuiltinsStaticcallSharedResultsCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word sha
+      , shaProbe
+      , SolidCore.Solidity.Source.Value.word ripe
+      , ripeProbe
+      , SolidCore.Solidity.Source.Value.word recovered
+      , recoverProbe ] => do
+      let (shaSuccess, shaOutput) ← CoreValue.asLowLevelReturn? shaProbe
+      let (ripeSuccess, ripeOutput) ← CoreValue.asLowLevelReturn? ripeProbe
+      let (recoverSuccess, recoverOutput) ←
+        CoreValue.asLowLevelReturn? recoverProbe
+      let shaExpected :=
+        SolidCore.Solidity.Source.wordToBytesBE
+          SolidCore.Solidity.Source.wordBytes 0xaaaa
+      let ripeExpected :=
+        SolidCore.Solidity.Source.wordToBytesBE
+          SolidCore.Solidity.Source.wordBytes 0xbbbb
+      let recoverExpected :=
+        SolidCore.Solidity.Source.wordToBytesBE
+          SolidCore.Solidity.Source.wordBytes 0xcafe
+      some
+        (SolidCore.Solidity.Source.wordEq sha 0xaaaa &&
+          SolidCore.Solidity.Source.wordEq shaSuccess 1 &&
+          shaOutput == shaExpected &&
+          SolidCore.Solidity.Source.wordEq ripe 0xbbbb &&
+          SolidCore.Solidity.Source.wordEq ripeSuccess 1 &&
+          ripeOutput == ripeExpected &&
+          SolidCore.Solidity.Source.wordEq recovered 0xcafe &&
+          SolidCore.Solidity.Source.wordEq recoverSuccess 1 &&
+          recoverOutput == recoverExpected)
+  | _ => some false
+
 def abiEncodeCoreExprStatement : SolidCore.Solidity.Source.Stmt :=
   SolidCore.Solidity.Source.Stmt.returnValues
     [ SolidCore.Solidity.Source.Expr.abiEncode
