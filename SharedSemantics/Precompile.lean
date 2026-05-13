@@ -50,7 +50,8 @@ def callKind : Call.ExternalCallKind :=
 
 def lookup? (results : List Result) (kind : Kind) (input : Bytes) :
     Option Result :=
-  Call.Result.lookup? results callKind (address kind) (normalizeBytes input) 0
+  Call.Result.lookup? results callKind (address kind) (normalizeBytes input)
+    0 none
 
 def outputWord? (result : Result) : Option Word :=
   if result.success then

@@ -3490,50 +3490,56 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.call
-          targetCore payloadCore (SolidCore.Solidity.Source.Expr.word 0))
+          targetCore payloadCore (SolidCore.Solidity.Source.Expr.word 0)
+          none false)
   | Expr.callWithOptions (Expr.member target "call")
       options [Arg.positional payload] => do
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
-      let valueCore ← CallOptions.lowLevelCallValueCore? storageNames options
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelCallValueGasCore? storageNames options
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.call
-          targetCore payloadCore valueCore)
+          targetCore payloadCore valueCore gasCore? gasFirst)
   | Expr.call (Expr.member target "staticcall") [Arg.positional payload] => do
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-          targetCore payloadCore (SolidCore.Solidity.Source.Expr.word 0))
+          targetCore payloadCore (SolidCore.Solidity.Source.Expr.word 0)
+          none false)
   | Expr.callWithOptions (Expr.member target "staticcall")
       options [Arg.positional payload] => do
       let _ ← CallOptions.lowLevelGasOnly? options
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
-      let valueCore ← CallOptions.lowLevelCallValueCore? storageNames options
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelCallValueGasCore? storageNames options
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-          targetCore payloadCore valueCore)
+          targetCore payloadCore valueCore gasCore? gasFirst)
   | Expr.call (Expr.member target "delegatecall") [Arg.positional payload] => do
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
-          targetCore payloadCore (SolidCore.Solidity.Source.Expr.word 0))
+          targetCore payloadCore (SolidCore.Solidity.Source.Expr.word 0)
+          none false)
   | Expr.callWithOptions (Expr.member target "delegatecall")
       options [Arg.positional payload] => do
       let _ ← CallOptions.lowLevelGasOnly? options
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
-      let valueCore ← CallOptions.lowLevelCallValueCore? storageNames options
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelCallValueGasCore? storageNames options
       some
         (SolidCore.Solidity.Source.Expr.lowLevelCall
           SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
-          targetCore payloadCore valueCore)
+          targetCore payloadCore valueCore gasCore? gasFirst)
   | Expr.call (Expr.member target "send") [Arg.positional value] => do
       let targetCore ← Expr.toCore? storageNames target
       let valueCore ← Expr.toCore? storageNames value
@@ -3543,7 +3549,9 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
             SolidCore.Solidity.Source.LowLevelCallKind.call
             targetCore
             (SolidCore.Solidity.Source.Expr.byteArray [])
-            valueCore)
+            valueCore
+            (some (SolidCore.Solidity.Source.Expr.word 2300))
+            false)
           (SolidCore.Solidity.Source.Expr.word 0))
   | Expr.call (Expr.member (Expr.ident "abi") "encode") args => do
       let (tys, exprs) ← Args.toAbiEncode? storageNames args
@@ -3882,40 +3890,23 @@ decreasing_by
 def CoreExpr.zero : CoreExpr :=
   SolidCore.Solidity.Source.Expr.word 0
 
-def CoreExpr.ignoreThen (ignored result : CoreExpr) : CoreExpr :=
-  SolidCore.Solidity.Source.Expr.binary
-    SolidCore.Solidity.Source.BinaryOp.add
-    (SolidCore.Solidity.Source.Expr.binary
-      SolidCore.Solidity.Source.BinaryOp.mul
-      ignored
-      CoreExpr.zero)
-    result
-
-def CoreExpr.returnThenIgnore (result ignored : CoreExpr) : CoreExpr :=
-  SolidCore.Solidity.Source.Expr.binary
-    SolidCore.Solidity.Source.BinaryOp.add
-    result
-    (SolidCore.Solidity.Source.Expr.binary
-      SolidCore.Solidity.Source.BinaryOp.mul
-      ignored
-      CoreExpr.zero)
-
-def CallOptions.lowLevelCallValueCore? (storageNames : List Name) :
-    List CallOption -> Option CoreExpr
-  | [] => some CoreExpr.zero
+def CallOptions.lowLevelCallValueGasCore? (storageNames : List Name) :
+    List CallOption -> Option (CoreExpr × Option CoreExpr × Bool)
+  | [] => some (CoreExpr.zero, none, false)
   | [CallOption.named "gas" gas] => do
       let gasCore ← Expr.toCore? storageNames gas
-      some (CoreExpr.ignoreThen gasCore CoreExpr.zero)
-  | [CallOption.named "value" value] =>
-      Expr.toCore? storageNames value
+      some (CoreExpr.zero, some gasCore, true)
+  | [CallOption.named "value" value] => do
+      let valueCore ← Expr.toCore? storageNames value
+      some (valueCore, none, false)
   | [CallOption.named "gas" gas, CallOption.named "value" value] => do
       let gasCore ← Expr.toCore? storageNames gas
       let valueCore ← Expr.toCore? storageNames value
-      some (CoreExpr.ignoreThen gasCore valueCore)
+      some (valueCore, some gasCore, true)
   | [CallOption.named "value" value, CallOption.named "gas" gas] => do
       let valueCore ← Expr.toCore? storageNames value
       let gasCore ← Expr.toCore? storageNames gas
-      some (CoreExpr.returnThenIgnore valueCore gasCore)
+      some (valueCore, some gasCore, false)
   | _ => none
 termination_by options => (sizeOf options, 0)
 
@@ -4165,7 +4156,7 @@ def Expr.functionPointerName? : Expr -> Option Name
   | _ => none
 
 def Expr.toExternalCall? (storageNames : List Name) :
-    Expr -> Option (CoreExpr × CoreExpr × CoreExpr)
+    Expr -> Option (CoreExpr × CoreExpr × CoreExpr × Option CoreExpr × Bool)
   | Expr.call (Expr.member target name) args => do
       if name == "call" || name == "staticcall" ||
           name == "delegatecall" || name == "send" ||
@@ -4189,7 +4180,9 @@ def Expr.toExternalCall? (storageNames : List Name) :
       some
         ( targetCore
         , callData
-        , SolidCore.Solidity.Source.Expr.word 0 )
+        , SolidCore.Solidity.Source.Expr.word 0
+        , none
+        , false )
   | Expr.callWithOptions (Expr.member target name) options args => do
       if name == "call" || name == "staticcall" ||
           name == "delegatecall" || name == "send" ||
@@ -4202,7 +4195,8 @@ def Expr.toExternalCall? (storageNames : List Name) :
       else
         some ()
       let targetCore ← Expr.toCore? storageNames target
-      let valueCore ← CallOptions.lowLevelCallValueCore? storageNames options
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelCallValueGasCore? storageNames options
       let (sourceTys, coreTys, coreExprs) ←
         Args.toAbiEncodeSource? storageNames args
       let signature ← externalFunctionSignature? name sourceTys
@@ -4211,7 +4205,7 @@ def Expr.toExternalCall? (storageNames : List Name) :
           (SolidCore.Solidity.Source.Expr.word
             (SolidCore.Solidity.Source.ABI.selectorFromSignature signature))
           coreTys coreExprs
-      some (targetCore, callData, valueCore)
+      some (targetCore, callData, valueCore, gasCore?, gasFirst)
   | _ => none
 
 def Expr.toContractCreation? (storageNames : List Name) :
@@ -4276,17 +4270,19 @@ def Expr.transferCore? (storageNames : List Name)
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
       targetCore
       (SolidCore.Solidity.Source.Expr.byteArray [])
-      valueCore [] SolidCore.Solidity.Source.Stmt.skip [])
+      valueCore
+      (some (SolidCore.Solidity.Source.Expr.word 2300))
+      false [] SolidCore.Solidity.Source.Stmt.skip [])
 
 def Expr.externalCallWithReturnsCore? (storageNames : List Name)
     (namePrefix : String) (returnTys : List Ty) (expr : Expr)
     (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt := do
-  let (targetCore, calldataCore, valueCore) ←
+  let (targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
     Expr.toExternalCall? storageNames expr
   let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-      targetCore calldataCore valueCore returnBindings
+      targetCore calldataCore valueCore gasCore? gasFirst returnBindings
       (successBody returnBindings) [])
 
 def Expr.externalCallDiscardCore? (storageNames : List Name)
@@ -4669,11 +4665,11 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       some (SolidCore.Solidity.Source.Stmt.forLoop initCore condCore postCore bodyCore)
   | Stmt.tryCatch expr clauses => do
       match Expr.toExternalCall? storageNames expr with
-      | some (targetCore, calldataCore, valueCore) => do
+      | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let catchCore ← CatchClause.listToCore? storageNames clauses
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              targetCore calldataCore valueCore []
+              targetCore calldataCore valueCore gasCore? gasFirst []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -4686,13 +4682,13 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
       match Expr.toExternalCall? storageNames expr with
-      | some (targetCore, calldataCore, valueCore) => do
+      | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let successCore ← Stmt.toCore? storageNames success
           let catchCore ← CatchClause.listToCore? storageNames clauses
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              targetCore calldataCore valueCore returnBindings successCore
-              catchCore)
+              targetCore calldataCore valueCore gasCore? gasFirst
+              returnBindings successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -5075,10 +5071,10 @@ def Stmt.toCoreReplacingModifierPlaceholder?
         CatchClause.listToCoreReplacingModifierPlaceholder?
           storageNames returnNames replacement clauses
       match Expr.toExternalCall? storageNames expr with
-      | some (targetCore, calldataCore, valueCore) =>
+      | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              targetCore calldataCore valueCore []
+              targetCore calldataCore valueCore gasCore? gasFirst []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -5096,11 +5092,11 @@ def Stmt.toCoreReplacingModifierPlaceholder?
         CatchClause.listToCoreReplacingModifierPlaceholder?
           storageNames returnNames replacement clauses
       match Expr.toExternalCall? storageNames expr with
-      | some (targetCore, calldataCore, valueCore) =>
+      | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              targetCore calldataCore valueCore returnBindings successCore
-              catchCore)
+              targetCore calldataCore valueCore gasCore? gasFirst
+              returnBindings successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -6809,14 +6805,14 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         initCore condCore postCore bodyCore)
   | Stmt.tryCatch expr clauses => do
       match Expr.toExternalCall? storageNames expr with
-      | some (targetCore, calldataCore, valueCore) => do
+      | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let catchCore ←
             CatchClause.listToCoreWithInternalCalls?
               internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
               returnTys clauses
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              targetCore calldataCore valueCore []
+              targetCore calldataCore valueCore gasCore? gasFirst []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -6833,7 +6829,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
       let successEnv := Parameters.extendTypeEnv "_try" env returns
       match Expr.toExternalCall? storageNames expr with
-      | some (targetCore, calldataCore, valueCore) => do
+      | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let successCore ←
             Stmt.toCoreWithInternalCalls?
               (internalFuel := internalFuel)
@@ -6851,8 +6847,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               returnTys clauses
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              targetCore calldataCore valueCore returnBindings successCore
-              catchCore)
+              targetCore calldataCore valueCore gasCore? gasFirst
+              returnBindings successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -7383,10 +7379,10 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env storageNames modifiers
               functions freeFunctions returnTys returnNames replacement clauses
           match Expr.toExternalCall? storageNames expr with
-          | some (targetCore, calldataCore, valueCore) =>
+          | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                  targetCore calldataCore valueCore []
+                  targetCore calldataCore valueCore gasCore? gasFirst []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
@@ -7408,11 +7404,11 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env storageNames modifiers
               functions freeFunctions returnTys returnNames replacement clauses
           match Expr.toExternalCall? storageNames expr with
-          | some (targetCore, calldataCore, valueCore) =>
+          | some (targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                  targetCore calldataCore valueCore returnBindings
-                  successCore catchCore)
+                  targetCore calldataCore valueCore gasCore? gasFirst
+                  returnBindings successCore catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
                 Expr.toContractCreation? storageNames expr
@@ -13085,6 +13081,7 @@ def lowLevelCallValueContext : CoreContext :=
           target := 0xbeef
           calldata := [1, 2]
           value := 5
+          gas? := some 1000000
           success := true
           output := [4, 5, 6] } ] }
 
@@ -13102,6 +13099,27 @@ def lowLevelCallValueMatches : Option Bool := do
           output == [4, 5, 6])
   | SolidCore.Solidity.Source.CallResult.reverted _ _ => some false
   | _ => none
+
+def lowLevelCallGasMismatchReturnsFalse : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] []
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := [1, 2]
+              value := 5
+              gas? := some 999999
+              success := true
+              output := [4, 5, 6] } ] }
+      SolidCore.Solidity.Source.State.empty lowLevelCallValueFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← CoreValue.asLowLevelReturn? value
+      some
+        (SolidCore.Solidity.Source.wordEq success 0 &&
+          output == [])
+  | _ => some false
 
 def lowLevelCallOptionGasEffectsFunction : FunctionDecl :=
   { name := some "payWithGasExpr"
@@ -13145,6 +13163,7 @@ def lowLevelCallOptionGasEffectsContext : CoreContext :=
           target := 0xbeef
           calldata := [1, 2]
           value := 5
+          gas? := some 11
           success := true
           output := [4, 5, 6] } ] }
 
@@ -13198,6 +13217,7 @@ def lowLevelStaticDelegateContext : CoreContext :=
       [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
           target := 0xcafe
           calldata := [7, 7]
+          gas? := some 50000
           success := true
           output := [1] }
       , { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
@@ -13262,6 +13282,7 @@ def lowLevelStaticCallOptionGasEffectsContext : CoreContext :=
           target := 0xcafe
           calldata := [7, 7]
           value := 0
+          gas? := some 12
           success := true
           output := [1] } ] }
 
@@ -15177,6 +15198,50 @@ def highLevelExternalValueMatches : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq value 9)
   | _ => some false
 
+def highLevelExternalGasValueFunction : FunctionDecl :=
+  { name := some "payExternalWithGas"
+    params :=
+      [ { name := some "target", ty := Ty.address false }
+      , { name := some "amount", ty := Ty.uint 256 } ]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.callWithOptions
+              (Expr.member (Expr.ident "target") "quote")
+              [ CallOption.named "gas"
+                  (Expr.literal (Literal.number "12345"))
+              , CallOption.named "value" (Expr.ident "amount") ]
+              []))) }
+
+def highLevelExternalGasValueMatches : Option Bool := do
+  let callData ← externalCalldata? "quote()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 9]
+  let result ←
+    FunctionDecl.call? 16 [] []
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              value := 5
+              gas? := some 12345
+              success := true
+              output := output } ] }
+      SolidCore.Solidity.Source.State.empty
+      highLevelExternalGasValueFunction
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 9)
+  | _ => some false
+
 def highLevelExternalAssignContract : ContractDecl :=
   { name := "ExternalAssign"
     items :=
@@ -15284,6 +15349,7 @@ def sendValueMatches : Option Bool := do
               target := 0xbeef
               calldata := []
               value := 5
+              gas? := some 2300
               success := true
               output := [] } ] }
       SolidCore.Solidity.Source.State.empty
@@ -15305,6 +15371,7 @@ def sendValueFailureReturnsFalse : Option Bool := do
               target := 0xbeef
               calldata := []
               value := 5
+              gas? := some 2300
               success := false
               output := [0xde, 0xad] } ] }
       SolidCore.Solidity.Source.State.empty
@@ -15351,6 +15418,7 @@ def transferValueSuccessMatches : Option Bool := do
               target := 0xbeef
               calldata := []
               value := 5
+              gas? := some 2300
               success := true
               output := [] } ] }
       function SolidCore.Solidity.Source.State.empty
@@ -15372,6 +15440,7 @@ def transferValueFailureReverts : Option Bool := do
               target := 0xbeef
               calldata := []
               value := 5
+              gas? := some 2300
               success := false
               output := [0xba, 0xad] } ] }
       function SolidCore.Solidity.Source.State.empty

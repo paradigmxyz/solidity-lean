@@ -20,7 +20,10 @@ source Solidity and future Yul/EVM adapters: block fields, transaction fields,
 balance/code/codehash lookup.
 
 `Call.lean` owns low-level call and contract-creation request/result surfaces,
-including the EVM-shaped call/create oracle boundary.
+including the EVM-shaped call/create oracle boundary. Call requests include the
+optional source-specified gas value so Solidity `{gas: ...}` options and
+`send`/`transfer` stipends are visible to every layer that uses the shared call
+surface.
 
 `Log.lean` owns the shared log append surface used by Solidity event emission
 while Solidity keeps source-level event declaration and ABI encoding rules.

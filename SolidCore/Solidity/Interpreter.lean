@@ -707,8 +707,9 @@ end ExternalHashKind
 
 def LowLevelCallResult.matches (result : LowLevelCallResult)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
-    (value : Word) : Bool :=
+    (value : Word) (gas? : Option Word := none) : Bool :=
   SharedSemantics.Call.Result.matchesRequest result kind target calldata value
+    gas?
 
 def ContractCreationResult.matches (result : ContractCreationResult)
     (contractName : String) (constructorArgs : List Byte)
@@ -833,9 +834,9 @@ def Context.eventDecl? (context : Context) (name : String) :
 
 def Context.lookupLowLevelCall? (context : Context)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
-    (value : Word) : Option LowLevelCallResult :=
+    (value : Word) (gas? : Option Word) : Option LowLevelCallResult :=
   SharedSemantics.Call.Result.lookup?
-    context.lowLevelCallResults kind target calldata value
+    context.lowLevelCallResults kind target calldata value gas?
 
 def Context.lookupContractCreation? (context : Context)
     (contractName : String) (constructorArgs : List Byte)
@@ -1932,7 +1933,8 @@ inductive Expr where
   | abiEncodeWithSelector : Expr -> List Ty -> List Expr -> Expr
   | abiEncodePacked : List Ty -> List Expr -> Expr
   | abiDecode : List Ty -> Expr -> Expr
-  | lowLevelCall : LowLevelCallKind -> Expr -> Expr -> Expr -> Expr
+  | lowLevelCall :
+      LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool -> Expr
   | contractCreate : String -> Expr -> Expr -> Option Expr -> Expr
   | newBytes : Expr -> Expr
   | newDynamicArray : Ty -> Expr -> Expr
@@ -2446,7 +2448,7 @@ def Expr.eval (context : Context) (runtime : Runtime) :
           | some decoded => Except.ok (Value.tuple decoded)
           | none => Except.error RevertData.typeMismatch
       | none => Except.error RevertData.typeMismatch
-  | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr => do
+  | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr gasExpr? gasFirst => do
       let targetValue ← targetExpr.eval context runtime
       let target ← targetValue.expectWord
       let calldataValue ← calldataExpr.eval context runtime
@@ -2454,9 +2456,26 @@ def Expr.eval (context : Context) (runtime : Runtime) :
         match calldataValue.asBytes? with
         | some bytes => Except.ok bytes
         | none => Except.error RevertData.typeMismatch
-      let valueValue ← valueExpr.eval context runtime
-      let value ← valueValue.expectWord
-      match context.lookupLowLevelCall? kind target calldata value with
+      let (value, gas?) ←
+        match gasExpr? with
+        | none => do
+            let valueValue ← valueExpr.eval context runtime
+            let value ← valueValue.expectWord
+            Except.ok (value, none)
+        | some gasExpr =>
+            if gasFirst then do
+              let gasValue ← gasExpr.eval context runtime
+              let gas ← gasValue.expectWord
+              let valueValue ← valueExpr.eval context runtime
+              let value ← valueValue.expectWord
+              Except.ok (value, some gas)
+            else do
+              let valueValue ← valueExpr.eval context runtime
+              let value ← valueValue.expectWord
+              let gasValue ← gasExpr.eval context runtime
+              let gas ← gasValue.expectWord
+              Except.ok (value, some gas)
+      match context.lookupLowLevelCall? kind target calldata value gas? with
       | some result =>
           Except.ok
             (Value.tuple
@@ -3004,7 +3023,8 @@ def Expr.evalWithRuntime (context : Context) :
           | some decoded => Except.ok (Value.tuple decoded, runtime')
           | none => Except.error RevertData.typeMismatch
       | none => Except.error RevertData.typeMismatch
-  | runtime, Expr.lowLevelCall kind targetExpr calldataExpr valueExpr => do
+  | runtime, Expr.lowLevelCall kind targetExpr calldataExpr valueExpr
+      gasExpr? gasFirst => do
       let (targetValue, runtime') ← targetExpr.evalWithRuntime context runtime
       let target ← targetValue.expectWord
       let (calldataValue, runtime'') ←
@@ -3013,9 +3033,31 @@ def Expr.evalWithRuntime (context : Context) :
         match calldataValue.asBytes? with
         | some bytes => Except.ok bytes
         | none => Except.error RevertData.typeMismatch
-      let (valueValue, runtime''') ← valueExpr.evalWithRuntime context runtime''
-      let value ← valueValue.expectWord
-      match context.lookupLowLevelCall? kind target calldata value with
+      let (value, gas?, runtime''') ←
+        match gasExpr? with
+        | none => do
+            let (valueValue, runtime''') ←
+              valueExpr.evalWithRuntime context runtime''
+            let value ← valueValue.expectWord
+            Except.ok (value, none, runtime''')
+        | some gasExpr =>
+            if gasFirst then do
+              let (gasValue, runtimeGas) ←
+                gasExpr.evalWithRuntime context runtime''
+              let gas ← gasValue.expectWord
+              let (valueValue, runtimeValue) ←
+                valueExpr.evalWithRuntime context runtimeGas
+              let value ← valueValue.expectWord
+              Except.ok (value, some gas, runtimeValue)
+            else do
+              let (valueValue, runtimeValue) ←
+                valueExpr.evalWithRuntime context runtime''
+              let value ← valueValue.expectWord
+              let (gasValue, runtimeGas) ←
+                gasExpr.evalWithRuntime context runtimeValue
+              let gas ← gasValue.expectWord
+              Except.ok (value, some gas, runtimeGas)
+      match context.lookupLowLevelCall? kind target calldata value gas? with
       | some result =>
           Except.ok
             ( Value.tuple
@@ -3204,7 +3246,7 @@ inductive Stmt where
   | doWhile : Stmt -> Expr -> Stmt
   | forLoop : Stmt -> Expr -> Stmt -> Stmt -> Stmt
   | tryExternalCall :
-      Expr -> Expr -> Expr -> List BindingDecl -> Stmt ->
+      Expr -> Expr -> Expr -> Option Expr -> Bool -> List BindingDecl -> Stmt ->
       List TryCatchClause -> Stmt
   | tryContractCreate :
       String -> Expr -> Expr -> Option Expr -> List BindingDecl -> Stmt ->
@@ -3627,8 +3669,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | none => none
           | some result => some (result.mapRuntime Runtime.popScope)
           | none => none
-        | Stmt.tryExternalCall targetExpr calldataExpr valueExpr
-            returns successBody catchClauses =>
+        | Stmt.tryExternalCall targetExpr calldataExpr valueExpr gasExpr?
+            gasFirst returns successBody catchClauses =>
             match targetExpr.evalWithRuntime context runtime with
             | Except.ok (targetValue, runtime') =>
                 match targetValue.expectWord with
@@ -3637,62 +3679,122 @@ def Stmt.eval (fuel : Nat) (context : Context)
                     | Except.ok (calldataValue, runtime'') =>
                         match calldataValue.asBytes? with
                         | some calldata =>
-                            match valueExpr.evalWithRuntime context runtime'' with
-                            | Except.ok (valueValue, runtime''') =>
-                                match valueValue.expectWord with
-                                | Except.ok value =>
+                            let valueGasResult? :
+                                Except (Runtime × RevertData)
+                                  (Word × Option Word × Runtime) :=
+                              match gasExpr? with
+                              | none =>
+                                  match valueExpr.evalWithRuntime context runtime'' with
+                                  | Except.ok (valueValue, runtimeValue) =>
+                                      match valueValue.expectWord with
+                                      | Except.ok value =>
+                                          Except.ok (value, none, runtimeValue)
+                                      | Except.error err =>
+                                          Except.error (runtimeValue, err)
+                                  | Except.error err =>
+                                      Except.error (runtime'', err)
+                              | some gasExpr =>
+                                  if gasFirst then
+                                    match gasExpr.evalWithRuntime context runtime'' with
+                                    | Except.ok (gasValue, runtimeGas) =>
+                                        match gasValue.expectWord with
+                                        | Except.ok gas =>
+                                            match valueExpr.evalWithRuntime
+                                                context runtimeGas with
+                                            | Except.ok
+                                                (valueValue, runtimeValue) =>
+                                                match valueValue.expectWord with
+                                                | Except.ok value =>
+                                                    Except.ok
+                                                      (value, some gas,
+                                                        runtimeValue)
+                                                | Except.error err =>
+                                                    Except.error
+                                                      (runtimeValue, err)
+                                            | Except.error err =>
+                                                Except.error (runtimeGas, err)
+                                        | Except.error err =>
+                                            Except.error (runtimeGas, err)
+                                    | Except.error err =>
+                                        Except.error (runtime'', err)
+                                  else
+                                    match valueExpr.evalWithRuntime
+                                        context runtime'' with
+                                    | Except.ok (valueValue, runtimeValue) =>
+                                        match valueValue.expectWord with
+                                        | Except.ok value =>
+                                            match gasExpr.evalWithRuntime
+                                                context runtimeValue with
+                                            | Except.ok (gasValue, runtimeGas) =>
+                                                match gasValue.expectWord with
+                                                | Except.ok gas =>
+                                                    Except.ok
+                                                      (value, some gas,
+                                                        runtimeGas)
+                                                | Except.error err =>
+                                                    Except.error
+                                                      (runtimeGas, err)
+                                            | Except.error err =>
+                                                Except.error
+                                                  (runtimeValue, err)
+                                        | Except.error err =>
+                                            Except.error (runtimeValue, err)
+                                    | Except.error err =>
+                                        Except.error (runtime'', err)
+                            match valueGasResult? with
+                            | Except.ok (value, gas?, runtime''') =>
                                     let callResult? :=
-                                    context.lookupLowLevelCall?
-                                      LowLevelCallKind.call target calldata value
-                                  let success :=
-                                    match callResult? with
-                                    | some result => result.success
-                                    | none => false
-                                  let output :=
-                                    match callResult? with
-                                    | some result => result.output.map normByte
-                                    | none => []
-                                  if success then
-                                    match abiDecodeValues?
-                                        (returns.map BindingDecl.ty) output with
-                                      | some decoded =>
-                                          match BindingDecl.bindArgs?
-                                              returns decoded with
-                                          | some frame =>
-                                              match Stmt.eval fuel context
-                                                  (runtime'''.withFrame frame)
-                                                  successBody with
-                                              | some result =>
-                                                  some
-                                                  (result.mapRuntime
-                                                    Runtime.popScope)
-                                              | none => none
-                                          | none =>
-                                              some
-                                                (Result.reverted runtime'''
-                                                  RevertData.typeMismatch)
-                                      | none =>
-                                          some
-                                            (Result.reverted runtime'''
-                                              RevertData.typeMismatch)
+                                      context.lookupLowLevelCall?
+                                        LowLevelCallKind.call target calldata
+                                        value gas?
+                                    let success :=
+                                      match callResult? with
+                                      | some result => result.success
+                                      | none => false
+                                    let output :=
+                                      match callResult? with
+                                      | some result => result.output.map normByte
+                                      | none => []
+                                    if success then
+                                      match abiDecodeValues?
+                                          (returns.map BindingDecl.ty) output with
+                                        | some decoded =>
+                                            match BindingDecl.bindArgs?
+                                                returns decoded with
+                                            | some frame =>
+                                                match Stmt.eval fuel context
+                                                    (runtime'''.withFrame frame)
+                                                    successBody with
+                                                | some result =>
+                                                    some
+                                                    (result.mapRuntime
+                                                      Runtime.popScope)
+                                                | none => none
+                                            | none =>
+                                                some
+                                                  (Result.reverted runtime'''
+                                                    RevertData.typeMismatch)
+                                        | none =>
+                                            some
+                                              (Result.reverted runtime'''
+                                                RevertData.typeMismatch)
                                     else
-                                      match TryCatchClause.findMatch?
-                                          output catchClauses with
-                                      | some (frame, body) =>
-                                          match Stmt.eval fuel context
-                                              (runtime'''.withFrame frame) body with
-                                          | some result =>
-                                              some
-                                              (result.mapRuntime
-                                                Runtime.popScope)
-                                          | none => none
-                                      | none =>
-                                          some
-                                            (Result.reverted runtime'''
-                                              (RevertData.fromRawBytes output))
-                                | Except.error err =>
-                                    some (Result.reverted runtime''' err)
-                            | Except.error err => some (Result.reverted runtime'' err)
+                                        match TryCatchClause.findMatch?
+                                            output catchClauses with
+                                        | some (frame, body) =>
+                                            match Stmt.eval fuel context
+                                                (runtime'''.withFrame frame) body with
+                                            | some result =>
+                                                some
+                                                (result.mapRuntime
+                                                  Runtime.popScope)
+                                            | none => none
+                                        | none =>
+                                            some
+                                              (Result.reverted runtime'''
+                                                (RevertData.fromRawBytes output))
+                            | Except.error (runtimeFailed, err) =>
+                                some (Result.reverted runtimeFailed err)
                         | none =>
                             some (Result.reverted runtime'' RevertData.typeMismatch)
                     | Except.error err => some (Result.reverted runtime' err)

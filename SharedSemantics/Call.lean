@@ -38,16 +38,19 @@ structure Request (Kind : Type) where
   target : Word
   calldata : Bytes
   value : Word := 0
+  gas? : Option Word := none
   deriving Repr
 
 namespace Request
 
 def matchesRequest [BEq Kind] (request : Request Kind)
-    (kind : Kind) (target : Word) (calldata : Bytes) (value : Word) : Bool :=
+    (kind : Kind) (target : Word) (calldata : Bytes) (value : Word)
+    (gas? : Option Word) : Bool :=
   request.kind == kind &&
     wordEq request.target target &&
     bytesEq request.calldata calldata &&
-    wordEq request.value value
+    wordEq request.value value &&
+    optionWordEq request.gas? gas?
 
 end Request
 
@@ -59,13 +62,15 @@ structure Result (Kind : Type) extends Request Kind where
 namespace Result
 
 def matchesRequest [BEq Kind] (result : Result Kind)
-    (kind : Kind) (target : Word) (calldata : Bytes) (value : Word) : Bool :=
-  result.toRequest.matchesRequest kind target calldata value
+    (kind : Kind) (target : Word) (calldata : Bytes) (value : Word)
+    (gas? : Option Word) : Bool :=
+  result.toRequest.matchesRequest kind target calldata value gas?
 
 def lookup? [BEq Kind] (results : List (Result Kind))
     (kind : Kind) (target : Word) (calldata : Bytes)
-    (value : Word) : Option (Result Kind) :=
-  results.find? (fun result => result.matchesRequest kind target calldata value)
+    (value : Word) (gas? : Option Word) : Option (Result Kind) :=
+  results.find?
+    (fun result => result.matchesRequest kind target calldata value gas?)
 
 end Result
 
@@ -140,7 +145,8 @@ def toRequest (request : EvmCallRequest) : Request ExternalCallKind :=
   { kind := request.kind
     target := request.target
     calldata := request.calldata
-    value := request.value }
+    value := request.value
+    gas? := some request.gas }
 
 end EvmCallRequest
 

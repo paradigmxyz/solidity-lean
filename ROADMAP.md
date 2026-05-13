@@ -19,6 +19,8 @@
       named shared adapters.
 - [x] Replace remaining generic hash/ecrecover maps with address-keyed shared
       precompile calls where useful.
+- [x] Route Solidity call gas options and `send`/`transfer` stipends through
+      gas-aware shared low-level call requests.
 - [ ] Deepen the named adapters with direct Nethermind state/log/call semantics
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.
