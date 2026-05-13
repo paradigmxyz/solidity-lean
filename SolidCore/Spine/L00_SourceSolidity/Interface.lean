@@ -13730,6 +13730,49 @@ def eventAbiDataBytesMatchExpected : Option Bool := do
   let event ← eventAbiEmittedLog
   some (event.dataBytes == eventAbiExpectedDataBytes)
 
+def anonymousEventAbiContract : ContractDecl :=
+  { name := "AnonymousEvents"
+    items :=
+      [ ContractItem.eventDecl
+          { name := "Four"
+            anonymous := true
+            params :=
+              [ { name := some "a", ty := Ty.uint 256, indexed := true }
+              , { name := some "b", ty := Ty.uint 256, indexed := true }
+              , { name := some "c", ty := Ty.uint 256, indexed := true }
+              , { name := some "d", ty := Ty.uint 256, indexed := true } ] }
+      , ContractItem.function
+          { name := some "emitIt"
+            body :=
+              some
+                (Stmt.emitEvent
+                  (Expr.call (Expr.ident "Four")
+                    [ Arg.positional (Expr.literal (Literal.number "1"))
+                    , Arg.positional (Expr.literal (Literal.number "2"))
+                    , Arg.positional (Expr.literal (Literal.number "3"))
+                    , Arg.positional (Expr.literal (Literal.number "4")) ])) } ] }
+
+def anonymousEventAbiCallResult : Option CoreCallResult :=
+  ContractDecl.call? 16 anonymousEventAbiContract
+    (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+    SolidCore.Solidity.Source.State.empty []
+
+def anonymousEventAbiEmittedLog :
+    Option SolidCore.Solidity.Source.Event := do
+  let result ← anonymousEventAbiCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      state.events.head?
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def anonymousEventAbiTopicsMatchExpected : Option Bool := do
+  let event ← anonymousEventAbiEmittedLog
+  some (event.topics == [1, 2, 3, 4])
+
+def anonymousEventAbiDataBytesEmpty : Option Bool := do
+  let event ← anonymousEventAbiEmittedLog
+  some event.dataBytes.isEmpty
+
 def revertedEventRollbackDropsLog : Option Bool := do
   let result ←
     ContractDecl.call? 16 eventAbiContract
