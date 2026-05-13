@@ -2017,6 +2017,14 @@ def FunctionDecl.typeEnv (extra : TypeEnv) (decl : FunctionDecl) :
   let withParams := Parameters.extendTypeEnv "_arg" extra decl.params
   Parameters.extendTypeEnv "_ret" withParams decl.returns
 
+def TypeEnv.extendThis (env : TypeEnv) (contractName? : Option Name) :
+    TypeEnv :=
+  match contractName? with
+  | some contractName =>
+      TypeEnv.extend? env (some "this")
+        (some (Ty.user { segments := [contractName] }))
+  | none => env
+
 mutual
 
 def Stmt.resolveStructsInSeqFuel :
@@ -8647,7 +8655,8 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   let params ← Parameters.toCoreBindings? "_arg" decl.params
   let returns ← Parameters.toCoreBindings? "_ret" decl.returns
   let body ← decl.body
-  let env := FunctionDecl.typeEnv extraEnv decl
+  let env := FunctionDecl.typeEnv
+    (TypeEnv.extendThis extraEnv contractName?) decl
   let body :=
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       body
@@ -16889,6 +16898,91 @@ def highLevelExternalViewValueOptionRejected : Option Bool := do
       highLevelExternalViewBadValueCallerContract with
   | some _ => some false
   | none => some true
+
+def highLevelThisStaticcallContract : ContractDecl :=
+  { name := "ThisStatic"
+    items :=
+      [ ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "get"
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.literal (Literal.number "0")))) }
+      , ContractItem.function
+          { name := some "readThisView"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "this") "get") []))) }
+      , ContractItem.function
+          { name := some "readThisGetter"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "this") "x") []))) } ] }
+
+def highLevelThisViewStaticcallMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? highLevelThisStaticcallContract
+  let function ← contract.findFunctionByName? "readThisView"
+  let callData ← externalCalldata? "get()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 123]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        self := 0xcafe
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xcafe
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 123)
+  | _ => some false
+
+def highLevelThisGetterStaticcallMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? highLevelThisStaticcallContract
+  let function ← contract.findFunctionByName? "readThisGetter"
+  let callData ← externalCalldata? "x()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 456]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        self := 0xcafe
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xcafe
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 456)
+  | _ => some false
 
 def sendValueFunction : FunctionDecl :=
   { name := some "sendValue"
