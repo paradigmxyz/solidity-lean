@@ -1,5 +1,8 @@
+import SharedSemantics.Account
 import SharedSemantics.External
 import SharedSemantics.Block
+import SharedSemantics.Call
+import SharedSemantics.Log
 import SolidCore.Solidity.Keccak
 
 namespace SolidCore
@@ -7,7 +10,7 @@ namespace Solidity
 namespace Source
 
 abbrev Word := SharedSemantics.Word
-abbrev Byte := SharedSemantics.External.Byte
+abbrev Byte := SharedSemantics.Account.Byte
 
 def wordModulus : Nat :=
   SharedSemantics.wordModulus
@@ -16,7 +19,7 @@ def normWord (value : Nat) : Word :=
   SharedSemantics.norm value
 
 def normByte (value : Nat) : Byte :=
-  SharedSemantics.External.byte value
+  SharedSemantics.Account.byte value
 
 def bytesToWordBE (bytes : List Byte) : Word :=
   SharedSemantics.norm
@@ -507,8 +510,8 @@ def State.recordSelfdestruct
   { state with
     selfdestructs :=
       state.selfdestructs ++
-        [ ( SharedSemantics.External.addressWord self
-          , SharedSemantics.External.addressWord recipient) ] }
+        [ ( SharedSemantics.Account.addressWord self
+          , SharedSemantics.Account.addressWord recipient) ] }
 
 abbrev Frame := List (String × Value)
 abbrev LocalEnv := List Frame
@@ -667,26 +670,26 @@ def TxEnv.empty : TxEnv :=
   SharedSemantics.Block.TxEnv.empty
 
 abbrev LowLevelCallKind :=
-  SharedSemantics.External.ExternalCallKind
+  SharedSemantics.Call.ExternalCallKind
 
 namespace LowLevelCallKind
 
 abbrev call : LowLevelCallKind :=
-  SharedSemantics.External.ExternalCallKind.call
+  SharedSemantics.Call.ExternalCallKind.call
 
 abbrev staticcall : LowLevelCallKind :=
-  SharedSemantics.External.ExternalCallKind.staticcall
+  SharedSemantics.Call.ExternalCallKind.staticcall
 
 abbrev delegatecall : LowLevelCallKind :=
-  SharedSemantics.External.ExternalCallKind.delegatecall
+  SharedSemantics.Call.ExternalCallKind.delegatecall
 
 end LowLevelCallKind
 
 abbrev LowLevelCallResult :=
-  SharedSemantics.External.CallResult LowLevelCallKind
+  SharedSemantics.Call.Result LowLevelCallKind
 
 abbrev ContractCreationResult :=
-  SharedSemantics.External.ContractCreationResult
+  SharedSemantics.Call.CreationResult
 
 inductive ExternalHashKind where
   | sha256
@@ -696,13 +699,13 @@ inductive ExternalHashKind where
 def LowLevelCallResult.matches (result : LowLevelCallResult)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) : Bool :=
-  SharedSemantics.External.CallResult.matchesRequest result kind target calldata value
+  SharedSemantics.Call.Result.matchesRequest result kind target calldata value
 
 def ContractCreationResult.matches (result : ContractCreationResult)
     (contractName : String) (constructorArgs : List Byte)
     (value : Word) (salt? : Option Word) : Bool :=
-  SharedSemantics.External.ContractCreationResult.matchesRequest result
-    contractName constructorArgs value salt?
+  SharedSemantics.Call.CreationResult.matchesRequest result contractName
+    constructorArgs value salt?
 
 structure Context where
   storageFields : List StorageField
@@ -717,11 +720,11 @@ structure Context where
   accountBalances : WordMap
   accountCodes : ByteMap
   accountCodehashes : WordMap
-  contractCreationCodes : SharedSemantics.External.NamedBytesMap := []
-  contractRuntimeCodes : SharedSemantics.External.NamedBytesMap := []
+  contractCreationCodes : SharedSemantics.Call.NamedBytesMap := []
+  contractRuntimeCodes : SharedSemantics.Call.NamedBytesMap := []
   sha256Hashes : SharedSemantics.External.HashMap
   ripemd160Hashes : SharedSemantics.External.HashMap
-  ecrecoverResults : SharedSemantics.External.EcrecoverMap
+  ecrecoverResults : SharedSemantics.Account.EcrecoverMap
   lowLevelCallResults : List LowLevelCallResult
   contractCreationResults : List ContractCreationResult
   blockEnv : BlockEnv
@@ -831,13 +834,13 @@ def Context.eventDecl? (context : Context) (name : String) :
 def Context.lookupLowLevelCall? (context : Context)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) : Option LowLevelCallResult :=
-  SharedSemantics.External.CallResult.lookup?
+  SharedSemantics.Call.Result.lookup?
     context.lowLevelCallResults kind target calldata value
 
 def Context.lookupContractCreation? (context : Context)
     (contractName : String) (constructorArgs : List Byte)
     (value : Word) (salt? : Option Word) : Option ContractCreationResult :=
-  SharedSemantics.External.ContractCreationResult.lookup?
+  SharedSemantics.Call.CreationResult.lookup?
     context.contractCreationResults contractName constructorArgs value salt?
 
 inductive EnvWord where
@@ -907,13 +910,9 @@ def EnvLookup.eval (which : EnvLookup) (context : Context) (key : Word) :
   | EnvLookup.blobhash =>
       SharedSemantics.Block.TxEnv.blobhash context.txEnv key
   | EnvLookup.accountBalance =>
-      match WordMap.lookup? context.accountBalances key with
-      | some value => value
-      | none => 0
+      SharedSemantics.Account.balanceAt context.accountBalances key
   | EnvLookup.accountCodehash =>
-      match WordMap.lookup? context.accountCodehashes key with
-      | some value => value
-      | none => 0
+      SharedSemantics.Account.codehashAt context.accountCodehashes key
 
 inductive EnvBytesLookup where
   | accountCode : EnvBytesLookup
@@ -924,9 +923,7 @@ def EnvBytesLookup.eval
     List Byte :=
   match which with
   | EnvBytesLookup.accountCode =>
-      match ByteMap.lookup? context.accountCodes key with
-      | some value => value
-      | none => []
+      SharedSemantics.Account.codeAt context.accountCodes key
 
 def loadStorageWordAs (state : State) (slot : Word) (ty : Ty) :
     Except RevertData Value :=
@@ -2265,12 +2262,12 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.contractCreationCode name =>
       Except.ok
         (Value.bytes
-          (SharedSemantics.External.namedBytesAt
+          (SharedSemantics.Call.namedBytesAt
             context.contractCreationCodes name))
   | Expr.contractRuntimeCode name =>
       Except.ok
         (Value.bytes
-          (SharedSemantics.External.namedBytesAt
+          (SharedSemantics.Call.namedBytesAt
             context.contractRuntimeCodes name))
   | Expr.calldata => Except.ok (Value.bytes (context.calldata.map normByte))
   | Expr.msgSig => Except.ok (Value.word (calldataSelectorWord context.calldata))
@@ -2410,14 +2407,11 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       let v ← vValue.expectWord
       let r ← rValue.expectWord
       let s ← sValue.expectWord
-      let signature : SharedSemantics.External.EcrecoverSignature :=
+      let signature : SharedSemantics.Account.EcrecoverSignature :=
         { v := v, r := r, s := s }
       let address :=
-        match
-            SharedSemantics.External.lookupEcrecover?
-              context.ecrecoverResults digest signature with
-        | some address => address
-        | none => 0
+        SharedSemantics.Account.ecrecoverAt
+          context.ecrecoverResults digest signature
       Except.ok (Value.word address)
   | Expr.tuple exprs => do
       let values ← Expr.evalList context runtime exprs
@@ -2786,13 +2780,13 @@ def Expr.evalWithRuntime (context : Context) :
   | runtime, Expr.contractCreationCode name =>
       Except.ok
         ( Value.bytes
-            (SharedSemantics.External.namedBytesAt
+            (SharedSemantics.Call.namedBytesAt
               context.contractCreationCodes name)
         , runtime )
   | runtime, Expr.contractRuntimeCode name =>
       Except.ok
         ( Value.bytes
-            (SharedSemantics.External.namedBytesAt
+            (SharedSemantics.Call.namedBytesAt
               context.contractRuntimeCodes name)
         , runtime )
   | runtime, Expr.calldata =>
@@ -2971,14 +2965,11 @@ def Expr.evalWithRuntime (context : Context) :
       let v ← vValue.expectWord
       let r ← rValue.expectWord
       let s ← sValue.expectWord
-      let signature : SharedSemantics.External.EcrecoverSignature :=
+      let signature : SharedSemantics.Account.EcrecoverSignature :=
         { v := v, r := r, s := s }
       let address :=
-        match
-            SharedSemantics.External.lookupEcrecover?
-              context.ecrecoverResults digest signature with
-        | some address => address
-        | none => 0
+        SharedSemantics.Account.ecrecoverAt
+          context.ecrecoverResults digest signature
       Except.ok (Value.word address, runtime'''')
   | runtime, Expr.tuple exprs => do
       let (values, runtime') ← Expr.evalListWithRuntime context runtime exprs
@@ -3310,7 +3301,8 @@ def Runtime.emitEvent (context : Context)
           Except.ok
             { runtime with
               state := { runtime.state with
-                events := runtime.state.events ++ [event] } }
+                events := SharedSemantics.Log.append
+                  runtime.state.events event } }
       | none => Except.error RevertData.typeMismatch
   | none => Except.error RevertData.typeMismatch
 

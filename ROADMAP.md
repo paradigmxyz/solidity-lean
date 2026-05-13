@@ -15,7 +15,11 @@
       compatibility primitive surface.
 - [x] Route block/transaction environment reads and `blockhash`/`blobhash`
       through shared block semantics.
-- [ ] Route remaining account/log/call wrappers through named shared adapters
+- [x] Route account, log, low-level call, and contract-creation wrappers through
+      named shared adapters.
+- [ ] Replace remaining generic hash/precompile external maps with named shared
+      adapters where useful.
+- [ ] Deepen the named adapters with direct Nethermind state/log/call semantics
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.
 - [ ] Finish executable source semantics for try/catch, libraries, payable,

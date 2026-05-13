@@ -52,10 +52,10 @@ layer surface. Supporting source files, such as `TypeCheck.lean`, live beside it
 when the implementation is too large for the interface file.
 
 `SharedSemantics/` contains small cross-layer semantic foundations. It should
-wrap EVM/Yul primitives for word-level, Keccak, ambient block/transaction, and
-host-facing behavior instead of growing a second EVM model. Solidity storage and
-memory remain source-level models because they carry source data-location and
-type behavior.
+wrap EVM/Yul primitives for word-level, Keccak, ambient block/transaction,
+account, log, call, and host-facing behavior instead of growing a second EVM
+model. Solidity storage and memory remain source-level models because they carry
+source data-location and type behavior.
 
 ## Removed Scope
 

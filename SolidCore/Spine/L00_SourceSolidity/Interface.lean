@@ -2979,7 +2979,7 @@ def Expr.toCoreAddressLiteral? : Expr -> Option CoreExpr
   | Expr.literal (Literal.address value) =>
       some
         (SolidCore.Solidity.Source.Expr.word
-          (SharedSemantics.External.addressWord value))
+          (SharedSemantics.Account.addressWord value))
   | Expr.literal (Literal.number text) => do
       let value ← parseNumberNat? text
       if addressLiteralFits value then
@@ -2998,7 +2998,7 @@ def Expr.toCorePayableLiteral? : Expr -> Option CoreExpr
   | Expr.literal (Literal.address value) =>
       some
         (SolidCore.Solidity.Source.Expr.word
-          (SharedSemantics.External.addressWord value))
+          (SharedSemantics.Account.addressWord value))
   | Expr.literal (Literal.number text) => do
       let value ← parseNumberNat? text
       if value == 0 then
@@ -3110,7 +3110,7 @@ def Literal.toCoreExpr? : Literal -> Option CoreExpr
   | Literal.address value =>
       some
         (SolidCore.Solidity.Source.Expr.word
-          (SharedSemantics.External.addressWord value))
+          (SharedSemantics.Account.addressWord value))
   | Literal.bytes bytes => some (SolidCore.Solidity.Source.Expr.byteArray bytes)
   | Literal.hexString text => do
       let bytes ← parseHexString? text

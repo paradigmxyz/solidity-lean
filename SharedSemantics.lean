@@ -1,3 +1,6 @@
+import SharedSemantics.Account
 import SharedSemantics.Block
+import SharedSemantics.Call
 import SharedSemantics.External
+import SharedSemantics.Log
 import SharedSemantics.Word
