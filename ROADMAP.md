@@ -24,6 +24,9 @@
 - [x] Model external function pointer ABI values as address-plus-selector
       runtime values, including `.address`, `.selector`, and
       `abi.encodeCall` over external function-typed variables.
+- [x] Execute calls through external function-typed values via the stored
+      address and selector, including return decoding, `{gas, value}` options,
+      and `try/catch` routing.
 - [ ] Deepen the named adapters with direct Nethermind state/log/call semantics
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.

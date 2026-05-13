@@ -3236,20 +3236,23 @@ def Expr.memberCallIsBuiltin? : Expr -> Name -> Bool
   | Expr.ident "string", "concat" => true
   | _, _ => false
 
+def sourceIdentCore (storageNames : List Name) (name : Name) : CoreExpr :=
+  if name == "this" then
+    SolidCore.Solidity.Source.Expr.self
+  else if stateNameIsStorage name storageNames then
+    SolidCore.Solidity.Source.Expr.storage name
+  else if stateNameIsImmutable name storageNames then
+    SolidCore.Solidity.Source.Expr.immutable name
+  else
+    SolidCore.Solidity.Source.Expr.var name
+
 set_option maxHeartbeats 1000000 in
 mutual
 
 def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.literal literal => Literal.toCoreExpr? literal
   | Expr.ident name =>
-      if name == "this" then
-        some SolidCore.Solidity.Source.Expr.self
-      else if stateNameIsStorage name storageNames then
-        some (SolidCore.Solidity.Source.Expr.storage name)
-      else if stateNameIsImmutable name storageNames then
-        some (SolidCore.Solidity.Source.Expr.immutable name)
-      else
-        some (SolidCore.Solidity.Source.Expr.var name)
+      some (sourceIdentCore storageNames name)
   | Expr.member (Expr.typeName ty) member =>
       Ty.typeInfoExpr? ty member
   | Expr.call (Expr.typeName (Ty.address _))
@@ -4169,15 +4172,7 @@ def Expr.functionPointerSelectorCore? (storageNames : List Name)
         (SolidCore.Solidity.Source.Expr.word
           (SolidCore.Solidity.Source.ABI.selectorFromSignature signature))
   | Expr.ident name =>
-      let pointerCore :=
-        if name == "this" then
-          SolidCore.Solidity.Source.Expr.self
-        else if stateNameIsStorage name storageNames then
-          SolidCore.Solidity.Source.Expr.storage name
-        else if stateNameIsImmutable name storageNames then
-          SolidCore.Solidity.Source.Expr.immutable name
-        else
-          SolidCore.Solidity.Source.Expr.var name
+      let pointerCore := sourceIdentCore storageNames name
       some
         (SolidCore.Solidity.Source.Expr.externalFunctionSelector
           pointerCore)
@@ -4842,6 +4837,126 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
                   some (Ty.address false)
               | _ => none
           | _ => none
+
+def Expr.externalFunctionValueCallCore? (storageNames : List Name)
+    (env : TypeEnv) :
+    Expr -> Option
+      (List Ty × CoreExpr × CoreExpr × CoreExpr × Option CoreExpr × Bool)
+  | Expr.call fn args => do
+      let fnTy ← Expr.abiTyWithEnv? env fn
+      match fnTy with
+      | Ty.function paramTys returnTys _ Visibility.external_ => do
+          if paramTys.length == args.length then
+            let coreTys ← Ty.listToCore? paramTys
+            let coreExprs ← Args.toCoreExprs? storageNames args
+            let fnCore ← Expr.toCore? storageNames fn
+            let calldataCore :=
+              SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
+                (SolidCore.Solidity.Source.Expr.externalFunctionSelector
+                  fnCore)
+                coreTys coreExprs
+            some
+              ( returnTys
+              , SolidCore.Solidity.Source.Expr.externalFunctionAddress fnCore
+              , calldataCore
+              , CoreExpr.zero
+              , none
+              , false )
+          else
+            none
+      | _ => none
+  | Expr.callWithOptions fn options args => do
+      let fnTy ← Expr.abiTyWithEnv? env fn
+      match fnTy with
+      | Ty.function paramTys returnTys _ Visibility.external_ => do
+          if paramTys.length == args.length then
+            let coreTys ← Ty.listToCore? paramTys
+            let coreExprs ← Args.toCoreExprs? storageNames args
+            let (valueCore, gasCore?, gasFirst) ←
+              CallOptions.lowLevelCallValueGasCore? storageNames options
+            let fnCore ← Expr.toCore? storageNames fn
+            let calldataCore :=
+              SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
+                (SolidCore.Solidity.Source.Expr.externalFunctionSelector
+                  fnCore)
+                coreTys coreExprs
+            some
+              ( returnTys
+              , SolidCore.Solidity.Source.Expr.externalFunctionAddress fnCore
+              , calldataCore
+              , valueCore
+              , gasCore?
+              , gasFirst )
+          else
+            none
+      | _ => none
+  | _ => none
+
+def Expr.externalFunctionValueCallWithReturnsCore?
+    (storageNames : List Name) (env : TypeEnv)
+    (namePrefix : String) (expr : Expr)
+    (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt := do
+  let (returnTys, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
+    Expr.externalFunctionValueCallCore? storageNames env expr
+  let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
+  some
+    (SolidCore.Solidity.Source.Stmt.tryExternalCall
+      targetCore calldataCore valueCore gasCore? gasFirst returnBindings
+      (successBody returnBindings) [])
+
+def Expr.externalFunctionValueCallDiscardCore?
+    (storageNames : List Name) (env : TypeEnv) (expr : Expr) :
+    Option CoreStmt := do
+  let (_, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
+    Expr.externalFunctionValueCallCore? storageNames env expr
+  some
+    (SolidCore.Solidity.Source.Stmt.tryExternalCall
+      targetCore calldataCore valueCore gasCore? gasFirst []
+      SolidCore.Solidity.Source.Stmt.skip [])
+
+def Expr.externalFunctionValueCallSingleReturnCore?
+    (storageNames : List Name) (env : TypeEnv) (expr : Expr)
+    (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
+  let (returnTys, _, _, _, _, _) ←
+    Expr.externalFunctionValueCallCore? storageNames env expr
+  match returnTys with
+  | [_] =>
+      Expr.externalFunctionValueCallWithReturnsCore?
+        storageNames env "__extfn" expr
+        (fun bindings =>
+          match bindings with
+          | [binding] =>
+              useResult (SolidCore.Solidity.Source.Expr.var binding.name)
+          | _ => SolidCore.Solidity.Source.Stmt.skip)
+  | _ => none
+
+def Expr.externalFunctionValueCallAssignVarsCore?
+    (storageNames : List Name) (env : TypeEnv)
+    (targetNames : List Name) (expr : Expr) : Option CoreStmt := do
+  let (returnTys, _, _, _, _, _) ←
+    Expr.externalFunctionValueCallCore? storageNames env expr
+  if targetNames.length == returnTys.length then
+    Expr.externalFunctionValueCallWithReturnsCore?
+      storageNames env "__extfn" expr
+      (fun bindings =>
+        SolidCore.Solidity.Source.Stmt.block
+          (CoreBindingDecls.assignToVars targetNames bindings))
+  else
+    none
+
+def Expr.externalFunctionValueCallReturnCore?
+    (storageNames : List Name) (env : TypeEnv)
+    (declaredReturnTys : List Ty) (expr : Expr) : Option CoreStmt := do
+  let (returnTys, _, _, _, _, _) ←
+    Expr.externalFunctionValueCallCore? storageNames env expr
+  if declaredReturnTys.length == returnTys.length then
+    Expr.externalFunctionValueCallWithReturnsCore?
+      storageNames env "__extfnret" expr
+      (fun bindings =>
+        SolidCore.Solidity.Source.Stmt.returnValues
+          (CoreBindingDecls.toVarExprs bindings))
+  else
+    none
 
 def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
   | 0, _, expr => expr
@@ -6590,13 +6705,20 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Expr.assign
               (Expr.call (Expr.member (Expr.ident name) "push") [])
               AssignOp.assign rhs))
-  | Stmt.expr (Expr.call (Expr.ident name) args) =>
-      match FunctionDecl.internalStatementCallCore?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          name args with
+  | Stmt.expr expr@(Expr.call (Expr.ident name) args) =>
+      match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames
-          (Stmt.expr (Expr.call (Expr.ident name) args))
+      | none =>
+          match FunctionDecl.internalStatementCallCore?
+              internalFuel storageRefEnv env storageNames modifiers functions
+              freeFunctions name args with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames
+              (Stmt.expr (Expr.call (Expr.ident name) args))
+  | Stmt.expr expr@(Expr.callWithOptions (Expr.ident _) _ _) =>
+      match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames (Stmt.expr expr)
   | Stmt.expr (Expr.assign lhs AssignOp.assign
       expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.toCoreLValue? storageNames lhs,
@@ -6626,23 +6748,42 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | _, _ => Stmt.toCore? storageNames
           (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
   | Stmt.expr (Expr.assign lhs AssignOp.assign
-      (Expr.call (Expr.ident name) args)) =>
+      expr@(Expr.call (Expr.ident name) args)) =>
       match Expr.toCoreLValue? storageNames lhs with
       | some lhsCore =>
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              name args
+          match Expr.externalFunctionValueCallSingleReturnCore?
+              storageNames env expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames
-              (Stmt.expr
-                (Expr.assign lhs AssignOp.assign
-                  (Expr.call (Expr.ident name) args)))
+          | none =>
+              match FunctionDecl.internalSingleReturnCallCore?
+                  internalFuel storageRefEnv env storageNames modifiers functions
+                  freeFunctions name args
+                  (fun retExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames
+                  (Stmt.expr
+                    (Expr.assign lhs AssignOp.assign
+                      (Expr.call (Expr.ident name) args)))
       | none => Stmt.toCore? storageNames
           (Stmt.expr
             (Expr.assign lhs AssignOp.assign
               (Expr.call (Expr.ident name) args)))
+  | Stmt.expr (Expr.assign lhs AssignOp.assign
+      expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
+      match Expr.toCoreLValue? storageNames lhs with
+      | some lhsCore =>
+          match Expr.externalFunctionValueCallSingleReturnCore?
+              storageNames env expr
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames
+              (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+      | none => Stmt.toCore? storageNames
+          (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
@@ -6682,12 +6823,47 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Stmt.varDecl [binding] (some expr))
       | _, _ => Stmt.toCore? storageNames
           (Stmt.varDecl [binding] (some expr))
-  | Stmt.varDecl [binding] (some (Expr.call (Expr.ident name) args)) =>
+  | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.ident name) args)) =>
       match binding.name with
       | some localName =>
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              name args
+          match Expr.externalFunctionValueCallSingleReturnCore?
+              storageNames env expr
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  retExpr) with
+          | some assignBlock => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [declCore, assignBlock])
+          | none =>
+              match FunctionDecl.internalSingleReturnCallCore?
+                  internalFuel storageRefEnv env storageNames modifiers functions
+                  freeFunctions name args
+                  (fun retExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      retExpr) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [declCore, assignBlock])
+              | none => Stmt.toCore? storageNames
+                  (Stmt.varDecl [binding]
+                    (some (Expr.call (Expr.ident name) args)))
+      | none => Stmt.toCore? storageNames
+          (Stmt.varDecl [binding]
+            (some (Expr.call (Expr.ident name) args)))
+  | Stmt.varDecl [binding]
+      (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
+      match binding.name with
+      | some localName =>
+          match Expr.externalFunctionValueCallSingleReturnCore?
+              storageNames env expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -6699,11 +6875,9 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
           | none => Stmt.toCore? storageNames
-              (Stmt.varDecl [binding]
-                (some (Expr.call (Expr.ident name) args)))
+              (Stmt.varDecl [binding] (some expr))
       | none => Stmt.toCore? storageNames
-          (Stmt.varDecl [binding]
-            (some (Expr.call (Expr.ident name) args)))
+          (Stmt.varDecl [binding] (some expr))
   | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) => do
       let names ← VarBindings.names? bindings
       let returnTys ← VarBindings.sourceTys? bindings
@@ -6721,13 +6895,26 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         Expr.externalCallAssignVarsCore?
           storageNames returnTys names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
-  | Stmt.varDecl bindings (some (Expr.call (Expr.ident name) args)) => do
+  | Stmt.varDecl bindings
+      (some expr@(Expr.call (Expr.ident name) args)) => do
       let names ← VarBindings.names? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        FunctionDecl.internalAssignReturnCallCore?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          name args names
+        match Expr.externalFunctionValueCallAssignVarsCore?
+            storageNames env names expr with
+        | some coreStmt => some coreStmt
+        | none =>
+            FunctionDecl.internalAssignReturnCallCore?
+              internalFuel storageRefEnv env storageNames modifiers functions
+              freeFunctions name args names
+      some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+  | Stmt.varDecl bindings
+      (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) => do
+      let names ← VarBindings.names? bindings
+      let decls ← VarBindings.toCoreDecls? bindings
+      let callCore ←
+        Expr.externalFunctionValueCallAssignVarsCore?
+          storageNames env names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.externalCallReturnCore? storageNames returnTys expr with
@@ -6738,16 +6925,26 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.externalCallReturnCore? storageNames returnTys expr with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
-  | Stmt.returnValues (some (Expr.call (Expr.ident name) args)) =>
-      match FunctionDecl.internalSingleReturnCallCore?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          name args
-          (fun retExpr =>
-            SolidCore.Solidity.Source.Stmt.returnValues [retExpr]) with
+  | Stmt.returnValues (some expr@(Expr.call (Expr.ident name) args)) =>
+      match Expr.externalFunctionValueCallReturnCore?
+          storageNames env returnTys expr with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames
-          (Stmt.returnValues
-            (some (Expr.call (Expr.ident name) args)))
+      | none =>
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env storageNames modifiers functions
+              freeFunctions name args
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.returnValues [retExpr]) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames
+              (Stmt.returnValues
+                (some (Expr.call (Expr.ident name) args)))
+  | Stmt.returnValues
+      (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
+      match Expr.externalFunctionValueCallReturnCore?
+          storageNames env returnTys expr with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.ifElse cond thenBranch elseBranch => do
       let condCore ← Expr.toCore? storageNames cond
       let thenCore ←
@@ -6853,16 +7050,27 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               targetCore calldataCore valueCore gasCore? gasFirst []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
-          let (contractName, argsCore, valueCore, saltCore?) ←
-            Expr.toContractCreation? storageNames expr
-          let catchCore ←
-            CatchClause.listToCoreWithInternalCalls?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              returnTys clauses
-          some
-            (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? []
-              SolidCore.Solidity.Source.Stmt.skip catchCore)
+          match Expr.externalFunctionValueCallCore? storageNames env expr with
+          | some (_, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
+              let catchCore ←
+                CatchClause.listToCoreWithInternalCalls?
+                  internalFuel storageRefEnv env storageNames modifiers
+                  functions freeFunctions returnTys clauses
+              some
+                (SolidCore.Solidity.Source.Stmt.tryExternalCall
+                  targetCore calldataCore valueCore gasCore? gasFirst []
+                  SolidCore.Solidity.Source.Stmt.skip catchCore)
+          | none => do
+              let (contractName, argsCore, valueCore, saltCore?) ←
+                Expr.toContractCreation? storageNames expr
+              let catchCore ←
+                CatchClause.listToCoreWithInternalCalls?
+                  internalFuel storageRefEnv env storageNames modifiers
+                  functions freeFunctions returnTys clauses
+              some
+                (SolidCore.Solidity.Source.Stmt.tryContractCreate
+                  contractName argsCore valueCore saltCore? []
+                  SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
       let successEnv := Parameters.extendTypeEnv "_try" env returns
@@ -6888,27 +7096,49 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               targetCore calldataCore valueCore gasCore? gasFirst
               returnBindings successCore catchCore)
       | none => do
-          let (contractName, argsCore, valueCore, saltCore?) ←
-            Expr.toContractCreation? storageNames expr
-          let successCore ←
-            Stmt.toCoreWithInternalCalls?
-              (internalFuel := internalFuel)
-              (storageRefEnv := storageRefEnv)
-              (env := successEnv)
-              (storageNames := storageNames)
-              (modifiers := modifiers)
-              (functions := functions)
-              (freeFunctions := freeFunctions)
-              (returnTys := returnTys)
-              (stmt := success)
-          let catchCore ←
-            CatchClause.listToCoreWithInternalCalls?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              returnTys clauses
-          some
-            (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? returnBindings
-              successCore catchCore)
+          match Expr.externalFunctionValueCallCore? storageNames env expr with
+          | some (_, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
+              let successCore ←
+                Stmt.toCoreWithInternalCalls?
+                  (internalFuel := internalFuel)
+                  (storageRefEnv := storageRefEnv)
+                  (env := successEnv)
+                  (storageNames := storageNames)
+                  (modifiers := modifiers)
+                  (functions := functions)
+                  (freeFunctions := freeFunctions)
+                  (returnTys := returnTys)
+                  (stmt := success)
+              let catchCore ←
+                CatchClause.listToCoreWithInternalCalls?
+                  internalFuel storageRefEnv env storageNames modifiers
+                  functions freeFunctions returnTys clauses
+              some
+                (SolidCore.Solidity.Source.Stmt.tryExternalCall
+                  targetCore calldataCore valueCore gasCore? gasFirst
+                  returnBindings successCore catchCore)
+          | none => do
+              let (contractName, argsCore, valueCore, saltCore?) ←
+                Expr.toContractCreation? storageNames expr
+              let successCore ←
+                Stmt.toCoreWithInternalCalls?
+                  (internalFuel := internalFuel)
+                  (storageRefEnv := storageRefEnv)
+                  (env := successEnv)
+                  (storageNames := storageNames)
+                  (modifiers := modifiers)
+                  (functions := functions)
+                  (freeFunctions := freeFunctions)
+                  (returnTys := returnTys)
+                  (stmt := success)
+              let catchCore ←
+                CatchClause.listToCoreWithInternalCalls?
+                  internalFuel storageRefEnv env storageNames modifiers
+                  functions freeFunctions returnTys clauses
+              some
+                (SolidCore.Solidity.Source.Stmt.tryContractCreate
+                  contractName argsCore valueCore saltCore? returnBindings
+                  successCore catchCore)
   | Stmt.unchecked body => do
       let bodyCore ←
         Stmt.toCoreWithInternalCalls?
@@ -7118,12 +7348,74 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               (VarBinding.extendTypeEnv env binding)
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
-  | Stmt.varDecl [binding] (some (Expr.call (Expr.ident name) args)) :: rest =>
+  | Stmt.varDecl [binding]
+      (some expr@(Expr.call (Expr.ident name) args)) :: rest =>
       match binding.name with
       | some localName =>
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-              name args
+          match Expr.externalFunctionValueCallSingleReturnCore?
+              storageNames env expr
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  retExpr) with
+          | some assignBlock => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (declCore :: assignBlock :: tail)
+          | none => do
+              match FunctionDecl.internalSingleReturnCallCore?
+                  internalFuel storageRefEnv env storageNames modifiers functions
+                  freeFunctions name args
+                  (fun retExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      retExpr) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (declCore :: assignBlock :: tail)
+              | none => do
+                  let head ←
+                    Stmt.toCore? storageNames
+                      (Stmt.varDecl [binding]
+                        (some (Expr.call (Expr.ident name) args)))
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCore? storageNames
+              (Stmt.varDecl [binding]
+                (some (Expr.call (Expr.ident name) args)))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+  | Stmt.varDecl [binding]
+      (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) :: rest =>
+      match binding.name with
+      | some localName =>
+          match Expr.externalFunctionValueCallSingleReturnCore?
+              storageNames env expr
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -7141,8 +7433,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           | none => do
               let head ←
                 Stmt.toCore? storageNames
-                  (Stmt.varDecl [binding]
-                    (some (Expr.call (Expr.ident name) args)))
+                  (Stmt.varDecl [binding] (some expr))
               let tail ←
                 Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
@@ -7153,8 +7444,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       | none => do
           let head ←
             Stmt.toCore? storageNames
-              (Stmt.varDecl [binding]
-                (some (Expr.call (Expr.ident name) args)))
+              (Stmt.varDecl [binding] (some expr))
           let tail ←
             Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
@@ -7191,13 +7481,32 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (VarBindings.extendTypeEnv env bindings)
           storageNames modifiers functions freeFunctions returnTys rest
       some (decls ++ [callCore] ++ tail)
-  | Stmt.varDecl bindings (some (Expr.call (Expr.ident name) args)) :: rest => do
+  | Stmt.varDecl bindings
+      (some expr@(Expr.call (Expr.ident name) args)) :: rest => do
       let names ← VarBindings.names? bindings
       let decls ← VarBindings.toCoreDecls? bindings
       let callCore ←
-        FunctionDecl.internalAssignReturnCallCore?
-          internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
-          name args names
+        match Expr.externalFunctionValueCallAssignVarsCore?
+            storageNames env names expr with
+        | some coreStmt => some coreStmt
+        | none =>
+            FunctionDecl.internalAssignReturnCallCore?
+              internalFuel storageRefEnv env storageNames modifiers functions
+              freeFunctions name args names
+      let tail ←
+        Stmt.listToCoreWithInternalCallsWithRefs?
+          internalFuel
+          (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+          (VarBindings.extendTypeEnv env bindings)
+          storageNames modifiers functions freeFunctions returnTys rest
+      some (decls ++ [callCore] ++ tail)
+  | Stmt.varDecl bindings
+      (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) :: rest => do
+      let names ← VarBindings.names? bindings
+      let decls ← VarBindings.toCoreDecls? bindings
+      let callCore ←
+        Expr.externalFunctionValueCallAssignVarsCore?
+          storageNames env names expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -7423,12 +7732,20 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   targetCore calldataCore valueCore gasCore? gasFirst []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
-              let (contractName, argsCore, valueCore, saltCore?) ←
-                Expr.toContractCreation? storageNames expr
-              some
-                (SolidCore.Solidity.Source.Stmt.tryContractCreate
-                  contractName argsCore valueCore saltCore? []
-                  SolidCore.Solidity.Source.Stmt.skip catchCore)
+              match Expr.externalFunctionValueCallCore? storageNames env expr with
+              | some (_, targetCore, calldataCore, valueCore, gasCore?,
+                  gasFirst) =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.tryExternalCall
+                      targetCore calldataCore valueCore gasCore? gasFirst []
+                      SolidCore.Solidity.Source.Stmt.skip catchCore)
+              | none => do
+                  let (contractName, argsCore, valueCore, saltCore?) ←
+                    Expr.toContractCreation? storageNames expr
+                  some
+                    (SolidCore.Solidity.Source.Stmt.tryContractCreate
+                      contractName argsCore valueCore saltCore? []
+                      SolidCore.Solidity.Source.Stmt.skip catchCore)
       | Stmt.tryCatchReturns expr returns success clauses => do
           let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
           let successEnv := Parameters.extendTypeEnv "_try" env returns
@@ -7448,12 +7765,20 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   targetCore calldataCore valueCore gasCore? gasFirst
                   returnBindings successCore catchCore)
           | none => do
-              let (contractName, argsCore, valueCore, saltCore?) ←
-                Expr.toContractCreation? storageNames expr
-              some
-                (SolidCore.Solidity.Source.Stmt.tryContractCreate
-                  contractName argsCore valueCore saltCore? returnBindings
-                  successCore catchCore)
+              match Expr.externalFunctionValueCallCore? storageNames env expr with
+              | some (_, targetCore, calldataCore, valueCore, gasCore?,
+                  gasFirst) =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.tryExternalCall
+                      targetCore calldataCore valueCore gasCore? gasFirst
+                      returnBindings successCore catchCore)
+              | none => do
+                  let (contractName, argsCore, valueCore, saltCore?) ←
+                    Expr.toContractCreation? storageNames expr
+                  some
+                    (SolidCore.Solidity.Source.Stmt.tryContractCreate
+                      contractName argsCore valueCore saltCore? returnBindings
+                      successCore catchCore)
       | Stmt.unchecked body => do
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
@@ -12045,6 +12370,164 @@ def externalFunctionMembersMatch : Option Bool := do
       [ SolidCore.Solidity.Source.Value.word selector
       , SolidCore.Solidity.Source.Value.word target ] =>
       some (selector == selectorEncodingSelector && target == 0xbeef)
+  | _ => some false
+
+def externalUintGetterTy : Ty :=
+  Ty.function [] [Ty.uint 256]
+    StateMutability.view Visibility.external_
+
+def externalFunctionPointerGetterSelector : Word :=
+  SolidCore.Solidity.Source.ABI.selectorFromSignature "get()"
+
+def externalFunctionPointerGetterCalldata : List Byte :=
+  SolidCore.Solidity.Source.wordToBytesBE
+    SolidCore.Solidity.Source.selectorBytes
+    externalFunctionPointerGetterSelector
+
+def externalFunctionPointerGetterOutput (value : Word) :
+    Option (List Byte) :=
+  SolidCore.Solidity.Source.abiEncodeValues?
+    [SolidCore.Solidity.Source.Ty.uint256]
+    [SolidCore.Solidity.Source.Value.word value]
+
+def externalFunctionPointerCallFunction : FunctionDecl :=
+  { name := some "callGetter"
+    params := [{ name := some "getter", ty := externalUintGetterTy }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some (Expr.call (Expr.ident "getter") []))) }
+
+def externalFunctionPointerCallContext : Option CoreContext := do
+  let output ← externalFunctionPointerGetterOutput 99
+  some
+    { SolidCore.Solidity.Source.Context.empty with
+      lowLevelCallResults :=
+        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+            target := 0xbeef
+            calldata := externalFunctionPointerGetterCalldata
+            success := true
+            output := output } ] }
+
+def externalFunctionPointerCallResult : Option CoreCallResult := do
+  let context ← externalFunctionPointerCallContext
+  FunctionDecl.call? 16 [] [] context
+    SolidCore.Solidity.Source.State.empty
+    externalFunctionPointerCallFunction
+    [SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef externalFunctionPointerGetterSelector]
+
+def externalFunctionPointerCallMatches : Option Bool := do
+  let result ← externalFunctionPointerCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 99)
+  | _ => some false
+
+def externalPayableUintSetterTy : Ty :=
+  Ty.function [Ty.uint 256] []
+    StateMutability.payable Visibility.external_
+
+def externalFunctionPointerPayableCallFunction : FunctionDecl :=
+  { name := some "callSetter"
+    params :=
+      [ { name := some "setter", ty := externalPayableUintSetterTy }
+      , { name := some "x", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.expr
+          (Expr.callWithOptions
+            (Expr.ident "setter")
+            [ CallOption.named "value" (Expr.literal (Literal.number "5"))
+            , CallOption.named "gas" (Expr.literal (Literal.number "1000")) ]
+            [Arg.positional (Expr.ident "x")])) }
+
+def externalFunctionPointerPayableCallContext : Option CoreContext := do
+  let encodedArgs ←
+    SolidCore.Solidity.Source.abiEncodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  some
+    { SolidCore.Solidity.Source.Context.empty with
+      lowLevelCallResults :=
+        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+            target := 0xbeef
+            calldata :=
+              SolidCore.Solidity.Source.wordToBytesBE
+                SolidCore.Solidity.Source.selectorBytes
+                selectorEncodingSelector ++ encodedArgs
+            value := 5
+            gas? := some 1000
+            success := true
+            output := [] } ] }
+
+def externalFunctionPointerPayableCallResult : Option CoreCallResult := do
+  let context ← externalFunctionPointerPayableCallContext
+  FunctionDecl.call? 16 [] [] context
+    SolidCore.Solidity.Source.State.empty
+    externalFunctionPointerPayableCallFunction
+    [ SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef selectorEncodingSelector
+    , SolidCore.Solidity.Source.Value.word 7 ]
+
+def externalFunctionPointerPayableCallMatches : Option Bool := do
+  let result ← externalFunctionPointerPayableCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] => some true
+  | _ => some false
+
+def externalFunctionPointerTryCatchFunction : FunctionDecl :=
+  { name := some "tryGetter"
+    params := [{ name := some "getter", ty := externalUintGetterTy }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.tryCatchReturns
+          (Expr.call (Expr.ident "getter") [])
+          [{ name := some "value", ty := Ty.uint 256 }]
+          (Stmt.returnValues (some (Expr.ident "value")))
+          [ CatchClause.clause none []
+              (Stmt.returnValues
+                (some (Expr.literal (Literal.number "7")))) ]) }
+
+def externalFunctionPointerTryCatchSuccessContext : Option CoreContext := do
+  let output ← externalFunctionPointerGetterOutput 55
+  some
+    { SolidCore.Solidity.Source.Context.empty with
+      lowLevelCallResults :=
+        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+            target := 0xbeef
+            calldata := externalFunctionPointerGetterCalldata
+            success := true
+            output := output } ] }
+
+def externalFunctionPointerTryCatchResult
+    (context : CoreContext) : Option CoreCallResult :=
+  FunctionDecl.call? 16 [] [] context
+    SolidCore.Solidity.Source.State.empty
+    externalFunctionPointerTryCatchFunction
+    [SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef externalFunctionPointerGetterSelector]
+
+def externalFunctionPointerTryCatchSuccessMatches : Option Bool := do
+  let context ← externalFunctionPointerTryCatchSuccessContext
+  let result ← externalFunctionPointerTryCatchResult context
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 55)
+  | _ => some false
+
+def externalFunctionPointerTryCatchCatchMatches : Option Bool := do
+  let result ←
+    externalFunctionPointerTryCatchResult
+      SolidCore.Solidity.Source.Context.empty
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 7)
   | _ => some false
 
 def abiEncodePackedSourceFunction : FunctionDecl :=
