@@ -884,6 +884,9 @@ def Context.lookupLowLevelCall? (context : Context)
   SharedSemantics.Call.Result.lookup?
     context.lowLevelCallResults kind target calldata value gas?
 
+def Context.accountHasCode (context : Context) (target : Word) : Bool :=
+  !(SharedSemantics.Account.codeAt context.accountCodes target).isEmpty
+
 def Context.lookupContractCreation? (context : Context)
     (contractName : String) (constructorArgs : List Byte)
     (value : Word) (salt? : Option Word) : Option ContractCreationResult :=
@@ -3342,7 +3345,7 @@ inductive Stmt where
   | forLoop : Stmt -> Expr -> Stmt -> Stmt -> Stmt
   | tryExternalCall :
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool ->
-      List BindingDecl -> Stmt -> List TryCatchClause -> Stmt
+      Bool -> List BindingDecl -> Stmt -> List TryCatchClause -> Stmt
   | tryContractCreate :
       String -> Expr -> Expr -> Option Expr -> List BindingDecl -> Stmt ->
       List TryCatchClause -> Stmt
@@ -3765,7 +3768,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
           | some result => some (result.mapRuntime Runtime.popScope)
           | none => none
         | Stmt.tryExternalCall kind targetExpr calldataExpr valueExpr
-            gasExpr? gasFirst returns successBody catchClauses =>
+            gasExpr? gasFirst checkTargetCode returns successBody
+            catchClauses =>
             match targetExpr.evalWithRuntime context runtime with
             | Except.ok (targetValue, runtime') =>
                 match targetValue.expectWord with
@@ -3838,9 +3842,15 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                         Except.error (runtime'', err)
                             match valueGasResult? with
                             | Except.ok (value, gas?, runtime''') =>
+                                    let missingCode :=
+                                      checkTargetCode &&
+                                        !(context.accountHasCode target)
                                     let callResult? :=
-                                      context.lookupLowLevelCall?
-                                        kind target calldata value gas?
+                                      if missingCode then
+                                        none
+                                      else
+                                        context.lookupLowLevelCall?
+                                          kind target calldata value gas?
                                     let success :=
                                       match callResult? with
                                       | some result => result.success

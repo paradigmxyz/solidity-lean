@@ -4379,6 +4379,28 @@ def StateMutability.externalCallOptionsCore? (storageNames : List Name)
     | none =>
         CallOptions.lowLevelCallValueGasCore? storageNames options
 
+def Expr.externalCallTargetNeedsCodeCheckWithEnv
+    (env : TypeEnv) : Expr -> Bool
+  | Expr.ident name =>
+      match generatedLibraryAddressName? name with
+      | some _ => true
+      | none =>
+          match TypeEnv.lookup? env name with
+          | some (Ty.user _) => true
+          | _ => false
+  | Expr.call (Expr.typeName (Ty.user _)) [_] => true
+  | _ => false
+
+def Expr.externalCallNeedsCodeCheckWithEnv (env : TypeEnv)
+    (returnTys : List Ty) : Expr -> Bool
+  | Expr.call (Expr.member target _) _ =>
+      returnTys.isEmpty &&
+        Expr.externalCallTargetNeedsCodeCheckWithEnv env target
+  | Expr.callWithOptions (Expr.member target _) _ _ =>
+      returnTys.isEmpty &&
+        Expr.externalCallTargetNeedsCodeCheckWithEnv env target
+  | _ => false
+
 def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv) :
     Expr ->
@@ -4526,7 +4548,7 @@ def Expr.transferCore? (storageNames : List Name)
       (SolidCore.Solidity.Source.Expr.byteArray [])
       valueCore
       (some (SolidCore.Solidity.Source.Expr.word 2300))
-      false [] SolidCore.Solidity.Source.Stmt.skip [])
+      false false [] SolidCore.Solidity.Source.Stmt.skip [])
 
 def Expr.externalCallWithReturnsCoreWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
@@ -4535,10 +4557,12 @@ def Expr.externalCallWithReturnsCoreWithKindEnv? (storageNames : List Name)
   let (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
     Expr.toExternalCallWithKindEnv? storageNames env externalCallKindEnv expr
   let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
+  let checkTargetCode :=
+    Expr.externalCallNeedsCodeCheckWithEnv env returnTys expr
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-      kind targetCore calldataCore valueCore gasCore? gasFirst returnBindings
-      (successBody returnBindings) [])
+      kind targetCore calldataCore valueCore gasCore? gasFirst
+      checkTargetCode returnBindings (successBody returnBindings) [])
 
 def Expr.externalCallWithReturnsCoreWithTypeEnv? (storageNames : List Name)
     (env : TypeEnv)
@@ -4979,9 +5003,12 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       match Expr.toExternalCall? storageNames expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let catchCore ← CatchClause.listToCore? storageNames clauses
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv [] [] expr
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              kind targetCore calldataCore valueCore gasCore? gasFirst []
+              kind targetCore calldataCore valueCore gasCore? gasFirst
+              checkTargetCode []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -4997,10 +5024,13 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let successCore ← Stmt.toCore? storageNames success
           let catchCore ← CatchClause.listToCore? storageNames clauses
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv []
+              (returns.map Parameter.ty) expr
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              returnBindings successCore catchCore)
+              checkTargetCode returnBindings successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -5200,10 +5230,11 @@ def Expr.externalFunctionValueCallWithReturnsCore?
     gasFirst) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
+  let checkTargetCode := returnTys.isEmpty
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-      kind targetCore calldataCore valueCore gasCore? gasFirst returnBindings
-      (successBody returnBindings) [])
+      kind targetCore calldataCore valueCore gasCore? gasFirst
+      checkTargetCode returnBindings (successBody returnBindings) [])
 
 def Expr.externalFunctionValueCallDiscardCore?
     (storageNames : List Name) (env : TypeEnv) (expr : Expr) :
@@ -5212,7 +5243,7 @@ def Expr.externalFunctionValueCallDiscardCore?
     Expr.externalFunctionValueCallCore? storageNames env expr
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-      kind targetCore calldataCore valueCore gasCore? gasFirst []
+      kind targetCore calldataCore valueCore gasCore? gasFirst true []
       SolidCore.Solidity.Source.Stmt.skip [])
 
 def Expr.externalFunctionValueCallSingleReturnCore?
@@ -5526,9 +5557,12 @@ def Stmt.toCoreReplacingModifierPlaceholder?
           storageNames returnNames replacement clauses
       match Expr.toExternalCall? storageNames expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv [] [] expr
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              kind targetCore calldataCore valueCore gasCore? gasFirst []
+              kind targetCore calldataCore valueCore gasCore? gasFirst
+              checkTargetCode []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -5547,10 +5581,13 @@ def Stmt.toCoreReplacingModifierPlaceholder?
           storageNames returnNames replacement clauses
       match Expr.toExternalCall? storageNames expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv []
+              (returns.map Parameter.ty) expr
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              returnBindings successCore catchCore)
+              checkTargetCode returnBindings successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -7350,9 +7387,12 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             CatchClause.listToCoreWithInternalCalls?
               internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
               returnTys clauses
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv env [] expr
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              kind targetCore calldataCore valueCore gasCore? gasFirst []
+              kind targetCore calldataCore valueCore gasCore? gasFirst
+              checkTargetCode []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           match Expr.externalFunctionValueCallCore? storageNames env expr with
@@ -7364,7 +7404,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                  kind targetCore calldataCore valueCore gasCore? gasFirst []
+                  kind targetCore calldataCore valueCore gasCore? gasFirst
+                  true []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
@@ -7397,10 +7438,13 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             CatchClause.listToCoreWithInternalCalls?
               internalFuel storageRefEnv env storageNames modifiers functions freeFunctions
               returnTys clauses
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv env
+              (returns.map Parameter.ty) expr
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              returnBindings successCore catchCore)
+              checkTargetCode returnBindings successCore catchCore)
       | none => do
           match Expr.externalFunctionValueCallCore? storageNames env expr with
           | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
@@ -7420,10 +7464,11 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 CatchClause.listToCoreWithInternalCalls?
                   internalFuel storageRefEnv env storageNames modifiers
                   functions freeFunctions returnTys clauses
+              let checkTargetCode := returns.isEmpty
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
-                  returnBindings successCore catchCore)
+                  checkTargetCode returnBindings successCore catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
                 Expr.toContractCreation? storageNames expr
@@ -8034,9 +8079,12 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               functions freeFunctions returnTys returnNames replacement clauses
           match Expr.toExternalCallWithTypeEnv? storageNames env expr with
           | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
+              let checkTargetCode :=
+                Expr.externalCallNeedsCodeCheckWithEnv env [] expr
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                  kind targetCore calldataCore valueCore gasCore? gasFirst []
+                  kind targetCore calldataCore valueCore gasCore? gasFirst
+                  checkTargetCode []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               match Expr.externalFunctionValueCallCore? storageNames env expr with
@@ -8044,7 +8092,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   gasFirst) =>
                   some
                     (SolidCore.Solidity.Source.Stmt.tryExternalCall
-                      kind targetCore calldataCore valueCore gasCore? gasFirst []
+                      kind targetCore calldataCore valueCore gasCore? gasFirst
+                      true []
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
@@ -8067,18 +8116,22 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               functions freeFunctions returnTys returnNames replacement clauses
           match Expr.toExternalCallWithTypeEnv? storageNames env expr with
           | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
+              let checkTargetCode :=
+                Expr.externalCallNeedsCodeCheckWithEnv env
+                  (returns.map Parameter.ty) expr
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
-                  returnBindings successCore catchCore)
+                  checkTargetCode returnBindings successCore catchCore)
           | none => do
               match Expr.externalFunctionValueCallCore? storageNames env expr with
               | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
                   gasFirst) =>
+                  let checkTargetCode := returns.isEmpty
                   some
                     (SolidCore.Solidity.Source.Stmt.tryExternalCall
                       kind targetCore calldataCore valueCore gasCore? gasFirst
-                      returnBindings successCore catchCore)
+                      checkTargetCode returnBindings successCore catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
                     Expr.toContractCreation? storageNames expr
@@ -17282,6 +17335,128 @@ def highLevelExternalDiscardMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _ [] => some true
+  | _ => some false
+
+def highLevelExternalExistenceTargetContract : ContractDecl :=
+  { name := "ExistenceTarget"
+    items :=
+      [ ContractItem.function
+          { name := some "notify"
+            visibility := some Visibility.external_ }
+      , ContractItem.function
+          { name := some "get"
+            visibility := some Visibility.external_
+            returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
+
+def highLevelExternalExistenceCallerContract : ContractDecl :=
+  { name := "ExistenceCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "notifyOrCatch"
+            params :=
+              [{ name := some "target"
+                 ty := Ty.user { segments := ["ExistenceTarget"] } }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.tryCatchReturns
+                  (Expr.call (Expr.member (Expr.ident "target") "notify")
+                  [])
+                  []
+                  (Stmt.returnValues
+                    (some (Expr.literal (Literal.number "1"))))
+                  [ CatchClause.clause none []
+                      (Stmt.returnValues
+                        (some (Expr.literal (Literal.number "2")))) ]) }
+      , ContractItem.function
+          { name := some "readNoCodeReturn"
+            params :=
+              [{ name := some "target"
+                 ty := Ty.user { segments := ["ExistenceTarget"] } }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "get") []))) } ] }
+
+def highLevelExternalExistenceContracts : List ContractDecl :=
+  [ highLevelExternalExistenceTargetContract
+  , highLevelExternalExistenceCallerContract ]
+
+def highLevelExternalNoReturnMissingCodeCaught : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases? highLevelExternalExistenceContracts
+      highLevelExternalExistenceCallerContract
+  let function ← contract.findFunctionByName? "notifyOrCatch"
+  let callData ← externalCalldata? "notify()" [] []
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := [] } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 2)
+  | _ => some false
+
+def highLevelExternalNoReturnCodePresentSucceeds : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases? highLevelExternalExistenceContracts
+      highLevelExternalExistenceCallerContract
+  let function ← contract.findFunctionByName? "notifyOrCatch"
+  let callData ← externalCalldata? "notify()" [] []
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        accountCodes := [(0xbeef, [1])]
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := [] } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 1)
+  | _ => some false
+
+def highLevelExternalReturnNoCodeUsesReturndata : Option Bool := do
+  let contract ←
+    ContractDecl.toCoreWithBases? highLevelExternalExistenceContracts
+      highLevelExternalExistenceCallerContract
+  let function ← contract.findFunctionByName? "readNoCodeReturn"
+  let callData ← externalCalldata? "get()" [] []
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 5]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 16
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 5)
   | _ => some false
 
 def highLevelExternalFailureBubblesRaw : Option Bool := do
