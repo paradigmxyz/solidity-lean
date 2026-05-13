@@ -11,6 +11,8 @@
       primitive API used by the source semantics.
 - [x] Route word-level Solidity wrappers through the shared `EvmYul.UInt256`
       adapter.
+- [x] Route Solidity Keccak/selector helpers through an `EvmYul.SpongeHash`
+      compatibility primitive surface.
 - [ ] Route environment/storage/log/call wrappers through named shared adapters
       where Nethermind exposes the matching primitive.
 - [ ] Finish source typechecking coverage for Solidity 0.8.35 features.

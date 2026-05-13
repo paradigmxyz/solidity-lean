@@ -9,6 +9,9 @@ Nethermind reference checkout lives at `external/nethermind/EVMYulLean`; the
 top-level `EvmYul.UInt256` module is the buildable compatibility surface used
 until that package can be imported directly under this repo's Lean toolchain.
 
+`EvmYul/SpongeHash/Keccak256.lean` is the matching buildable Keccak primitive
+surface used by Solidity ABI/event selectors and source-level `keccak256`.
+
 `External.lean` defines explicit host/external-world records used by the
 Solidity source semantics for hashes, account lookups, low-level calls, and
 contract creation. These remain source-level oracle boundaries until the source

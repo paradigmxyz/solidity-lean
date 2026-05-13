@@ -35,12 +35,12 @@ It is checked out as the reference submodule at
 `external/nethermind/EVMYulLean`.
 
 Because upstream currently targets a different Lean toolchain, this branch keeps
-a local `EvmYul.UInt256` compatibility module for the word primitive slice used
-by Solidity source semantics. The source layer may adapt these EVM/Yul-shaped
-primitives into local `Word`, byte, external-call, storage, and environment
-APIs, but the adapter should remain small and named. External contracts and the
-host world may still be represented by explicit `External` records/oracles at
-the Solidity layer.
+local `EvmYul.UInt256` and `EvmYul.SpongeHash.Keccak256` compatibility modules
+for the primitive slices used by Solidity source semantics. The source layer may
+adapt these EVM/Yul-shaped primitives into local `Word`, byte, external-call,
+storage, and environment APIs, but the adapter should remain small and named.
+External contracts and the host world may still be represented by explicit
+`External` records/oracles at the Solidity layer.
 
 ## Layout
 
