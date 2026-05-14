@@ -1887,6 +1887,23 @@ def Arg.name? : L00_SourceSolidity.Arg -> Option Name
   | L00_SourceSolidity.Arg.positional _ => none
   | L00_SourceSolidity.Arg.named name _ => some name
 
+namespace Args
+
+def anyNamed : List L00_SourceSolidity.Arg -> Bool
+  | [] => false
+  | L00_SourceSolidity.Arg.named _ _ :: _ => true
+  | L00_SourceSolidity.Arg.positional _ :: rest => anyNamed rest
+
+def positionalExprs? : List L00_SourceSolidity.Arg ->
+    Option (List L00_SourceSolidity.Expr)
+  | [] => some []
+  | L00_SourceSolidity.Arg.positional expr :: rest => do
+      let tail ← positionalExprs? rest
+      some (expr :: tail)
+  | L00_SourceSolidity.Arg.named _ _ :: _ => none
+
+end Args
+
 def checkedArgInfos : List L00_SourceSolidity.Arg -> List CheckedExpr ->
     List ArgInfo
   | [], [] => []
@@ -3153,6 +3170,80 @@ def checkInternalFunctionValueAssignable?
               Except.ok ())
   | _, _ => none
 
+def exprContextuallyAssignableTo
+    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    Bool :=
+  match checkInternalFunctionValueAssignable? env expr expected with
+  | some (Except.ok _) => true
+  | _ =>
+      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      | some actual =>
+          TypeContext.canImplicitlyConvert env.types actual expected ||
+            implicitLiteralFits expected expr
+      | none => false
+
+def exprContextuallyStorageOk
+    (env : CheckEnv) (expr : L00_SourceSolidity.Expr)
+    (needsStorage : Bool) : Bool :=
+  if needsStorage then
+    match expr with
+    | L00_SourceSolidity.Expr.ident name =>
+        (env.isStateName name && !env.isLocalName name) ||
+          env.isLocalStorageRef name
+    | _ => false
+  else
+    true
+
+def exprsContextuallyMatchParamTys (env : CheckEnv) :
+    List L00_SourceSolidity.Expr -> List Ty -> Bool
+  | [], [] => true
+  | expr :: exprRest, ty :: tyRest =>
+      exprContextuallyAssignableTo env expr ty &&
+        exprsContextuallyMatchParamTys env exprRest tyRest
+  | _, _ => false
+
+def exprsContextuallyMatchParams (env : CheckEnv) :
+    List L00_SourceSolidity.Expr -> List Ty -> List Bool -> Bool
+  | [], [], [] => true
+  | expr :: exprRest, ty :: tyRest, storage :: storageRest =>
+      exprContextuallyAssignableTo env expr ty &&
+        exprContextuallyStorageOk env expr storage &&
+        exprsContextuallyMatchParams env exprRest tyRest storageRest
+  | exprs, tys, [] =>
+      exprsContextuallyMatchParamTys env exprs tys
+  | _, _, _ => false
+
+def FunctionSig.contextuallyMatchesArgs
+    (env : CheckEnv) (sig : FunctionSig)
+    (args : List L00_SourceSolidity.Arg) : Bool :=
+  match Args.positionalExprs? args with
+  | some exprs =>
+      exprsContextuallyMatchParams env exprs sig.params
+        sig.paramStorageRefs
+  | none => false
+
+namespace FunctionSigs
+
+def resolveContextualLoop (env : CheckEnv)
+    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    Option FunctionSig -> List FunctionSig -> Except TypeError FunctionSig
+  | none, [] => Except.error (TypeError.unknownFunction target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target && sig.contextuallyMatchesArgs env args then
+        match found? with
+        | none => resolveContextualLoop env target args (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveContextualLoop env target args found? rest
+
+def resolveContextual (env : CheckEnv)
+    (functions : List FunctionSig) (target : Name)
+    (args : List L00_SourceSolidity.Arg) : Except TypeError FunctionSig :=
+  resolveContextualLoop env target args none functions
+
+end FunctionSigs
+
 mutual
 
 def checkExpr (env : CheckEnv) :
@@ -3472,43 +3563,79 @@ def checkExpr (env : CheckEnv) :
       | _ => checkTypeConversion
   | expr@(L00_SourceSolidity.Expr.call
       (L00_SourceSolidity.Expr.ident name) args) => do
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfos args checkedArgs
-      let checkedInfos := checkedArgInfosFull args checkedArgs
-      match env.lookupVar? name with
-      | some (L00_SourceSolidity.Ty.function params returns mutability _) => do
-          require (!ArgInfos.anyNamed argInfos)
-            (TypeError.unsupported
-              "named arguments for function-typed expression")
-          checkCheckedExprsAssignableToFor env.types "function call"
-            checkedArgs params
-          requireCallMutabilityAllowed env mutability
-          Except.ok
-            { source := expr, ty := resultTyFromReturns returns,
-              lvalue := false }
-      | _ =>
-          match FunctionSigs.resolveChecked env.types env.functions name
-              checkedInfos with
-          | Except.ok sig => do
-              require sig.internallyCallable
-                (TypeError.invalidFunctionHeader
-                  "external function requires external call syntax")
-              requireCallMutabilityAllowed env sig.mutability
+      match checkArgs env args with
+      | Except.ok checkedArgs =>
+          let argInfos := checkedArgInfos args checkedArgs
+          let checkedInfos := checkedArgInfosFull args checkedArgs
+          match env.lookupVar? name with
+          | some (L00_SourceSolidity.Ty.function params returns mutability _) => do
+              require (!ArgInfos.anyNamed argInfos)
+                (TypeError.unsupported
+                  "named arguments for function-typed expression")
+              checkCheckedExprsAssignableToFor env.types "function call"
+                checkedArgs params
+              requireCallMutabilityAllowed env mutability
               Except.ok
-                { source := expr, ty := resultTyFromReturns sig.returns,
+                { source := expr, ty := resultTyFromReturns returns,
                   lvalue := false }
-          | Except.error _ =>
-              match checkBuiltinIdentCall env name argInfos checkedArgs with
-              | Except.ok (some ty) =>
-                  Except.ok { source := expr, ty := ty, lvalue := false }
-              | Except.ok none =>
-                  match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
-                      env.vars expr with
-                  | some ty => do
-                      requireBuiltinIdentCallAllowed env name
+          | _ =>
+              match FunctionSigs.resolveChecked env.types env.functions name
+                  checkedInfos with
+              | Except.ok sig => do
+                  require sig.internallyCallable
+                    (TypeError.invalidFunctionHeader
+                      "external function requires external call syntax")
+                  requireCallMutabilityAllowed env sig.mutability
+                  Except.ok
+                    { source := expr, ty := resultTyFromReturns sig.returns,
+                      lvalue := false }
+              | Except.error _ =>
+                  match checkBuiltinIdentCall env name argInfos checkedArgs with
+                  | Except.ok (some ty) =>
                       Except.ok { source := expr, ty := ty, lvalue := false }
-                  | none => Except.error (TypeError.unknownFunction name)
-              | Except.error err => Except.error err
+                  | Except.ok none =>
+                      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+                          env.vars expr with
+                      | some ty => do
+                          requireBuiltinIdentCallAllowed env name
+                          Except.ok { source := expr, ty := ty, lvalue := false }
+                      | none => Except.error (TypeError.unknownFunction name)
+                  | Except.error err => Except.error err
+      | Except.error argErr =>
+          if Args.anyNamed args then
+            Except.error argErr
+          else
+            match env.lookupVar? name with
+            | some (L00_SourceSolidity.Ty.function params returns mutability _) =>
+                match
+                    checkPositionalArgsAssignableToParamsFor
+                      env "function call" args params with
+                | Except.ok _ => do
+                    requireCallMutabilityAllowed env mutability
+                    Except.ok
+                      { source := expr
+                        ty := resultTyFromReturns returns
+                        lvalue := false }
+                | Except.error _ => Except.error argErr
+            | _ =>
+                match
+                    FunctionSigs.resolveContextual
+                      env env.functions name args with
+                | Except.ok sig => do
+                    let checkedArgs ←
+                      checkPositionalArgsAssignableToParamsFor
+                        env "function call" args sig.params
+                    checkCheckedExprsStorageRefsFor "function call"
+                      checkedArgs sig.paramStorageRefs
+                    require sig.internallyCallable
+                      (TypeError.invalidFunctionHeader
+                        "external function requires external call syntax")
+                    requireCallMutabilityAllowed env sig.mutability
+                    Except.ok
+                      { source := expr
+                        ty := resultTyFromReturns sig.returns
+                        lvalue := false }
+                | Except.error _ => Except.error argErr
   | expr@(L00_SourceSolidity.Expr.call
       (L00_SourceSolidity.Expr.member
         (L00_SourceSolidity.Expr.ident "abi") "encodeCall") args) => do
@@ -4375,6 +4502,48 @@ termination_by args => sizeOf args
 decreasing_by
   all_goals
     try subst expr
+    simp_wf
+    try omega
+
+def checkArgAssignableToParam (env : CheckEnv) (expected : Ty) :
+    L00_SourceSolidity.Arg -> Except TypeError CheckedExpr
+  | L00_SourceSolidity.Arg.positional expr
+  | L00_SourceSolidity.Arg.named _ expr =>
+      match checkInternalFunctionValueAssignable? env expr expected with
+      | some (Except.ok _) =>
+          Except.ok
+            { source := expr
+              ty := expected
+              lvalue := false
+              stateLValue := false }
+      | some (Except.error err) => Except.error err
+      | none => do
+          let checked ← checkExpr env expr
+          checked.expectAssignableToIn env.types expected
+          Except.ok checked
+termination_by arg => sizeOf arg
+decreasing_by
+  all_goals
+    try subst expr
+    simp_wf
+    try omega
+
+def checkPositionalArgsAssignableToParamsFor
+    (env : CheckEnv) (what : String) :
+    List L00_SourceSolidity.Arg -> List Ty ->
+    Except TypeError (List CheckedExpr)
+  | [], [] => Except.ok []
+  | arg :: argRest, ty :: tyRest => do
+      let checked ← checkArgAssignableToParam env ty arg
+      let tail ←
+        checkPositionalArgsAssignableToParamsFor env what argRest tyRest
+      Except.ok (checked :: tail)
+  | actual, expected =>
+      Except.error
+        (TypeError.arityMismatch what expected.length actual.length)
+termination_by args _tys => sizeOf args
+decreasing_by
+  all_goals
     simp_wf
     try omega
 
@@ -15407,6 +15576,54 @@ def internalFunctionPointerParamSource :
 
 def internalFunctionPointerParamAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerParamSource
+
+def internalFunctionPointerOverloadedTarget :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasTarget with
+    params :=
+      [ { name := some "x"
+          ty := uint256
+          location := none }
+      , { name := some "y"
+          ty := uint256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "x"))) }
+
+def internalFunctionPointerParamBareOverloadedCallerFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callApplyPointerBare"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "applyPointer")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "double")
+              , L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "x") ]))) }
+
+def internalFunctionPointerParamOverloadedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerParamOverloaded"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerOverloadedTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerParamApplyFunction
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerParamBareOverloadedCallerFunction ] } ] }
+
+def internalFunctionPointerParamOverloadedAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerParamOverloadedSource
 
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=

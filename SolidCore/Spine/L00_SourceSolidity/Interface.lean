@@ -7180,7 +7180,8 @@ def FunctionDecl.findInternalCallee? (functions : List FunctionDecl)
             FunctionDecl.isExternallyNamedFunction fn
       | none => false)
   match candidates.find? (fun fn =>
-      match Parameters.matchArgsWithEnv? env fn.params args with
+      match Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+          env fn.params args with
       | some true => true
       | _ => false) with
   | some fn => some fn
@@ -7204,7 +7205,9 @@ def FunctionDecl.findInternalCalleeWithArgs?
   match candidates.find? (fun fn =>
       match FunctionDecl.orderedArgs? fn args with
       | some orderedArgs =>
-          match Parameters.matchArgsWithEnv? env fn.params orderedArgs with
+          match
+              Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+                env fn.params orderedArgs with
           | some true => true
           | _ => false
       | none => false) with
@@ -29278,6 +29281,18 @@ def internalFunctionPointerParamContract : ContractDecl :=
           { name := some "double"
             visibility := some Visibility.internal_
             mutability := StateMutability.pure
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.ident "left"))) }
+      , ContractItem.function
+          { name := some "double"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -29326,6 +29341,18 @@ def internalFunctionPointerParamContract : ContractDecl :=
                           [ Arg.positional (Expr.ident "fp")
                           , Arg.positional (Expr.ident "value") ])) ]) }
       , ContractItem.function
+          { name := some "runDirect"
+            mutability := StateMutability.pure
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call (Expr.ident "apply")
+                      [ Arg.positional (Expr.ident "double")
+                      , Arg.positional (Expr.ident "value") ]))) }
+      , ContractItem.function
           { name := some "runUnbound"
             mutability := StateMutability.pure
             params := [{ name := some "value", ty := Ty.uint 256 }]
@@ -29351,6 +29378,18 @@ def internalFunctionPointerParamMatches : Option Bool := do
   let result ←
     ContractDecl.call? 128 internalFunctionPointerParamContract
       (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def internalFunctionPointerParamOverloadedDirectMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 128 internalFunctionPointerParamContract
+      (SolidCore.Solidity.Source.CallTarget.name "runDirect")
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 21]
   match result with
