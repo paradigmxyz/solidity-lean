@@ -444,6 +444,18 @@ def StateMutability.externalFunctionCallKind :
   | StateMutability.nonpayable | StateMutability.payable =>
       SolidCore.Solidity.Source.LowLevelCallKind.call
 
+def StateMutability.canImplicitlyConvertFunction
+    (actual expected : StateMutability) : Bool :=
+  if actual == expected then
+    true
+  else
+    match actual, expected with
+    | StateMutability.pure, StateMutability.view => true
+    | StateMutability.pure, StateMutability.nonpayable => true
+    | StateMutability.view, StateMutability.nonpayable => true
+    | StateMutability.payable, StateMutability.nonpayable => true
+    | _, _ => false
+
 def pathMatchesName (path : Path) (name : Name) : Bool :=
   match pathLast? path with
   | some candidate => candidate == name
@@ -3009,6 +3021,71 @@ def Ty.isIntOrUint : Ty -> Bool
   | Ty.int _ => true
   | _ => false
 
+def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
+  if actual == expected then
+    true
+  else
+    match actual, expected with
+    | Ty.address true, Ty.address false => true
+    | Ty.uint actualBits, Ty.uint expectedBits =>
+        let actualBits := if actualBits == 0 then 256 else actualBits
+        let expectedBits := if expectedBits == 0 then 256 else expectedBits
+        actualBits <= expectedBits
+    | Ty.int actualBits, Ty.int expectedBits =>
+        let actualBits := if actualBits == 0 then 256 else actualBits
+        let expectedBits := if expectedBits == 0 then 256 else expectedBits
+        actualBits <= expectedBits
+    | Ty.uint actualBits, Ty.int expectedBits =>
+        let actualBits := if actualBits == 0 then 256 else actualBits
+        let expectedBits := if expectedBits == 0 then 256 else expectedBits
+        actualBits < expectedBits
+    | Ty.bytesN actualSize, Ty.bytesN expectedSize =>
+        actualSize <= expectedSize
+    | Ty.fixedBytes actualSize, Ty.fixedBytes expectedSize =>
+        actualSize <= expectedSize
+    | Ty.bytesN actualSize, Ty.fixedBytes expectedSize =>
+        actualSize <= expectedSize
+    | Ty.fixedBytes actualSize, Ty.bytesN expectedSize =>
+        actualSize <= expectedSize
+    | Ty.function actualParams actualReturns actualMutability actualVisibility,
+      Ty.function expectedParams expectedReturns expectedMutability expectedVisibility =>
+        actualParams == expectedParams &&
+          actualReturns == expectedReturns &&
+          actualVisibility == expectedVisibility &&
+          StateMutability.canImplicitlyConvertFunction
+            actualMutability expectedMutability
+    | _, _ => false
+
+def Ty.commonImplicit? (left right : Ty) : Option Ty :=
+  if left == right then
+    some left
+  else
+    match left, right with
+    | Ty.address _, Ty.address _ => some (Ty.address false)
+    | Ty.uint leftBits, Ty.uint rightBits =>
+        let leftBits := if leftBits == 0 then 256 else leftBits
+        let rightBits := if rightBits == 0 then 256 else rightBits
+        some (Ty.uint (max leftBits rightBits))
+    | Ty.int leftBits, Ty.int rightBits =>
+        let leftBits := if leftBits == 0 then 256 else leftBits
+        let rightBits := if rightBits == 0 then 256 else rightBits
+        some (Ty.int (max leftBits rightBits))
+    | Ty.bytesN leftSize, Ty.bytesN rightSize =>
+        some (Ty.bytesN (max leftSize rightSize))
+    | Ty.fixedBytes leftSize, Ty.fixedBytes rightSize =>
+        some (Ty.fixedBytes (max leftSize rightSize))
+    | Ty.bytesN leftSize, Ty.fixedBytes rightSize =>
+        some (Ty.fixedBytes (max leftSize rightSize))
+    | Ty.fixedBytes leftSize, Ty.bytesN rightSize =>
+        some (Ty.fixedBytes (max leftSize rightSize))
+    | _, _ =>
+        if Ty.canImplicitlyConvert left right then
+          some right
+        else if Ty.canImplicitlyConvert right left then
+          some left
+        else
+          none
+
 def Ty.fixedBytesCastWordSourceSize? (targetSize : Nat) (sourceTy : Ty) :
     Option Nat :=
   match Ty.fixedBytesSize? sourceTy with
@@ -4030,7 +4107,9 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let coreExprs ← TupleItems.toCoreExprs? storageNames items
       some (SolidCore.Solidity.Source.Expr.tuple coreExprs)
   | Expr.array exprs => do
-      let coreExprs ← Expr.listToCore? storageNames exprs
+      let targetTy ← Expr.arrayLiteralCommonTy? storageNames exprs
+      let coreExprs ←
+        Expr.arrayLiteralCoreExprsAs? storageNames targetTy exprs
       some (SolidCore.Solidity.Source.Expr.fixedArray coreExprs)
   | Expr.payableConversion
       (Expr.call (Expr.typeName (Ty.address _))
@@ -4199,27 +4278,122 @@ def Expr.listToCore? (storageNames : List Name) :
       some (head :: tail)
 termination_by exprs => (sizeOf exprs, 1)
 
-def Expr.arrayLiteralElementsMatch? (storageNames : List Name)
-    (canonical : String) : List Expr -> Option Unit
-  | [] => some ()
+def Expr.isDirectLiteral : Expr -> Bool
+  | Expr.literal _ => true
+  | _ => false
+
+def implicitLiteralFits (target : Ty) (expr : Expr) : Bool :=
+  match Expr.toCoreNumericLiteralAs? target expr with
+  | some _ => true
+  | none =>
+      match Expr.toCoreFixedBytesLiteralAs? target expr with
+      | some _ => true
+      | none => false
+
+def arrayLiteralCommonInfo?
+    (left right : Expr × Ty) : Option (Expr × Ty) :=
+  if Expr.isDirectLiteral right.fst &&
+      implicitLiteralFits left.snd right.fst then
+    some (left.fst, left.snd)
+  else if Expr.isDirectLiteral left.fst &&
+      implicitLiteralFits right.snd left.fst then
+    some (right.fst, right.snd)
+  else do
+    let ty ← Ty.commonImplicit? left.snd right.snd
+    some (right.fst, ty)
+
+def Expr.arrayLiteralCommonInfoFrom? (storageNames : List Name)
+    (current : Expr × Ty) :
+    List Expr -> Option (Expr × Ty)
+  | [] => some current
   | expr :: rest => do
       let ty ← Expr.abiTy? storageNames expr
-      let exprCanonical ← Ty.abiCanonical? ty
-      if exprCanonical == canonical then
-        Expr.arrayLiteralElementsMatch? storageNames canonical rest
-      else
-        none
+      let next ← arrayLiteralCommonInfo? current (expr, ty)
+      Expr.arrayLiteralCommonInfoFrom? storageNames next rest
 termination_by exprs => (sizeOf exprs, 1)
+
+def Expr.arrayLiteralCommonTy? (storageNames : List Name) :
+    List Expr -> Option Ty
+  | [] => none
+  | first :: rest => do
+      let firstTy ← Expr.abiTy? storageNames first
+      let info ←
+        Expr.arrayLiteralCommonInfoFrom? storageNames (first, firstTy) rest
+      some info.snd
+termination_by exprs => (sizeOf exprs, 2)
+
+def Expr.toCoreAs? (storageNames : List Name)
+    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match Expr.toCoreFixedBytesLiteralAs? targetTy expr with
+  | some coreExpr => some coreExpr
+  | none =>
+      if Ty.isFixedBytes targetTy &&
+          Expr.isFixedBytesLiteralCandidate expr then
+        none
+      else
+        match Expr.toCoreNumericLiteralAs? targetTy expr with
+        | some coreExpr => some coreExpr
+        | none =>
+            if Ty.isIntOrUint targetTy &&
+                Expr.isNumberLiteralExpression expr then
+              none
+            else do
+              let sourceTy ← Expr.abiTy? storageNames expr
+              let coreExpr ← Expr.toCore? storageNames expr
+              if sourceTy == targetTy then
+                some coreExpr
+              else
+                match targetTy with
+                | Ty.uint bits => do
+                    let bits := if bits == 0 then 256 else bits
+                    let _ ← Ty.allowsUintCastSource? bits sourceTy
+                    some
+                      (SolidCore.Solidity.Source.Expr.uintCast
+                        bits coreExpr)
+                | Ty.int bits => do
+                    let bits := if bits == 0 then 256 else bits
+                    let _ ← Ty.allowsIntCastSource? bits sourceTy
+                    some
+                      (SolidCore.Solidity.Source.Expr.intCast
+                        bits coreExpr)
+                | Ty.bytesN targetSize
+                | Ty.fixedBytes targetSize =>
+                    match sourceTy with
+                    | Ty.bytes =>
+                        some
+                          (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
+                            targetSize coreExpr)
+                    | _ => do
+                        let sourceSize ←
+                          Ty.fixedBytesCastWordSourceSize?
+                            targetSize sourceTy
+                        some
+                          (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                            targetSize sourceSize coreExpr)
+                | _ =>
+                    if Ty.canImplicitlyConvert sourceTy targetTy then
+                      some coreExpr
+                    else
+                      none
+termination_by (sizeOf expr, 1)
+
+def Expr.arrayLiteralCoreExprsAs? (storageNames : List Name)
+    (targetTy : Ty) : List Expr -> Option (List CoreExpr)
+  | [] => some []
+  | expr :: rest => do
+      let head ← Expr.toCoreAs? storageNames targetTy expr
+      let tail ← Expr.arrayLiteralCoreExprsAs? storageNames targetTy rest
+      some (head :: tail)
+termination_by exprs => (sizeOf exprs, 2)
 
 def Expr.arrayLiteralTy? (storageNames : List Name) :
     List Expr -> Option Ty
   | [] => none
   | first :: rest => do
-      let firstTy ← Expr.abiTy? storageNames first
-      let canonical ← Ty.abiCanonical? firstTy
-      let _ ← Expr.arrayLiteralElementsMatch? storageNames canonical rest
-      some (Ty.array firstTy (some (first :: rest).length))
-termination_by exprs => (sizeOf exprs, 1)
+      let exprs := first :: rest
+      let elementTy ← Expr.arrayLiteralCommonTy? storageNames exprs
+      some (Ty.array elementTy (some exprs.length))
+termination_by exprs => (sizeOf exprs, 3)
 
 def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
   | Expr.literal literal => Literal.abiTy? literal
@@ -14072,6 +14246,52 @@ def arrayLiteralAbiEncodeMatchesExpected : Option Bool := do
       | SolidCore.Solidity.Source.Value.bytes bytes =>
           some (bytes == expected)
       | _ => some false
+  | _ => some false
+
+def bytes1TwelveArrayLiteralExpr : Expr :=
+  Expr.call (Expr.typeName (Ty.bytesN 1))
+    [Arg.positional (Expr.literal (Literal.bytes [0x12]))]
+
+def bytes2ThirtyFourArrayLiteralExpr : Expr :=
+  Expr.call (Expr.typeName (Ty.bytesN 2))
+    [Arg.positional (Expr.literal (Literal.bytes [0x34, 0x56]))]
+
+def arrayLiteralFixedBytesWidenFunction : FunctionDecl :=
+  { name := some "encodeFixedBytesArrayLiteral"
+    params := []
+    returns := [{ name := some "out", ty := Ty.bytes }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call (Expr.member (Expr.ident "abi") "encode")
+              [ Arg.positional
+                  (Expr.array
+                    [ bytes1TwelveArrayLiteralExpr
+                    , bytes2ThirtyFourArrayLiteralExpr ]) ]))) }
+
+def arrayLiteralFixedBytesWidenExpected : Option (List Byte) :=
+  SolidCore.Solidity.Source.ABI.encodeValues?
+    [ SolidCore.Solidity.Source.Ty.fixedArray 2
+        (SolidCore.Solidity.Source.Ty.fixedBytes 2) ]
+    [ SolidCore.Solidity.Source.Value.fixedArray
+        [ SolidCore.Solidity.Source.Value.word
+            (SolidCore.Solidity.Source.bytesToWordBE [0x12, 0])
+        , SolidCore.Solidity.Source.Value.word
+            (SolidCore.Solidity.Source.bytesToWordBE [0x34, 0x56]) ] ]
+
+def arrayLiteralFixedBytesWidenCallResult : Option CoreCallResult :=
+  FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty
+    arrayLiteralFixedBytesWidenFunction []
+
+def arrayLiteralFixedBytesWidenMatchesExpected : Option Bool := do
+  let result ← arrayLiteralFixedBytesWidenCallResult
+  let expected ← arrayLiteralFixedBytesWidenExpected
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      some (bytes == expected)
   | _ => some false
 
 def memoryArrayAllocationFunction : FunctionDecl :=

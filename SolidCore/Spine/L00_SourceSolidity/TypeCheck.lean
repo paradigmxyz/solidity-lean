@@ -17848,6 +17848,51 @@ def arrayLiteralWideningSource : L00_SourceSolidity.SourceUnit :=
 def arrayLiteralWideningAccepted : Bool :=
   sourceUnitAccepted? arrayLiteralWideningSource
 
+def bytes1TwelveExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.bytesN 1))
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.literal
+        (L00_SourceSolidity.Literal.bytes [0x12]))]
+
+def bytes2ThirtyFourExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.bytesN 2))
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.literal
+        (L00_SourceSolidity.Literal.bytes [0x34, 0x56]))]
+
+def fixedBytesArrayLiteralWideningFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "fixedBytesArrayWiden"
+    returns :=
+      [ { name := none
+          ty :=
+            L00_SourceSolidity.Ty.array
+              (L00_SourceSolidity.Ty.bytesN 2) (some 2)
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.array
+              [bytes1TwelveExpr, bytes2ThirtyFourExpr]))) }
+
+def fixedBytesArrayLiteralWideningSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "FixedBytesArrayLiteralWidening"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                fixedBytesArrayLiteralWideningFunction] } ] }
+
+def fixedBytesArrayLiteralWideningAccepted : Bool :=
+  sourceUnitAccepted? fixedBytesArrayLiteralWideningSource
+
 def badArrayLiteralCommonTypeFunction :
     L00_SourceSolidity.FunctionDecl :=
   { arrayLiteralWideningFunction with
