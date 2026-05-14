@@ -4247,6 +4247,10 @@ def checkExpr (env : CheckEnv) :
       | L00_SourceSolidity.UnaryOp.delete =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner
+          match checked.ty with
+          | L00_SourceSolidity.Ty.mapping _ _ =>
+              Except.error (TypeError.unsupported "delete mapping")
+          | _ => Except.ok ()
           match Expr.directIdentName? inner with
           | some name =>
               require (!env.isLocalStorageRef name)
@@ -9551,6 +9555,65 @@ def mappingReadSource : L00_SourceSolidity.SourceUnit :=
 
 def mappingReadAccepted : Bool :=
   sourceUnitAccepted? mappingReadSource
+
+def deleteMappingValueFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "deleteMapValue"
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.unary
+                L00_SourceSolidity.UnaryOp.delete
+                (L00_SourceSolidity.Expr.index
+                  (L00_SourceSolidity.Expr.ident "m")
+                  (numberExpr "1")))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def deleteMappingValueSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "DeleteMappingValue"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "m"
+                    ty := L00_SourceSolidity.Ty.mapping
+                      uint256 uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  deleteMappingValueFunction ] } ] }
+
+def deleteMappingValueAccepted : Bool :=
+  sourceUnitAccepted? deleteMappingValueSource
+
+def deleteMappingVariableFunction : L00_SourceSolidity.FunctionDecl :=
+  { deleteMappingValueFunction with
+    name := some "deleteMap"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.unary
+                L00_SourceSolidity.UnaryOp.delete
+                (L00_SourceSolidity.Expr.ident "m"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def deleteMappingVariableSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadDeleteMappingVariable"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "m"
+                    ty := L00_SourceSolidity.Ty.mapping
+                      uint256 uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  deleteMappingVariableFunction ] } ] }
+
+def deleteMappingVariableRejected : Bool :=
+  Result.isError (SourceUnit.check deleteMappingVariableSource)
 
 def badMappingIndexFunction : L00_SourceSolidity.FunctionDecl :=
   { mappingReadFunction with
