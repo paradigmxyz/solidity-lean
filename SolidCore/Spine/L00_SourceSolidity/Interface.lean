@@ -19860,6 +19860,79 @@ def publicStructGetterCalldataMatches : Option Bool := do
       , SolidCore.Solidity.Source.Value.word 1 ]
   some (result.success && result.output == expected)
 
+def publicMappingStructGetterContract : ContractDecl :=
+  { name := "PublicMappingStructGetter"
+    items :=
+      [ ContractItem.stateVar
+          { name := "entries"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.mapping (Ty.uint 256) (Ty.uint 256)
+                  , Ty.bytes
+                  , Ty.array (Ty.uint 256) none
+                  , Ty.bool ])
+            visibility := some Visibility.public_ } ] }
+
+def publicMappingStructGetterState : CoreState :=
+  let entrySlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 0 11
+  let rawSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 2
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot entrySlot 456
+    |>.storeSlot rawSlot 3
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 0) 70
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 1) 71
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 2) 72
+    |>.storeSlot
+        (SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 3) 9
+    |>.storeSlot
+        (SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 4) 1
+
+def publicMappingStructGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicMappingStructGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "entries")
+      publicMappingStructGetterState
+      [SolidCore.Solidity.Source.Value.word 11]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word amount
+      , SolidCore.Solidity.Source.Value.bytes raw
+      , SolidCore.Solidity.Source.Value.word ok ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq amount 456 &&
+          raw == [70, 71, 72] &&
+          SolidCore.Solidity.Source.wordEq ok 1)
+  | _ => some false
+
+def publicMappingStructGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? publicMappingStructGetterContract
+  let function ← contract.findFunctionByName? "entries"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 11]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract publicMappingStructGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.bytesCalldata
+      , SolidCore.Solidity.Source.Ty.bool ]
+      [ SolidCore.Solidity.Source.Value.word 456
+      , SolidCore.Solidity.Source.Value.bytes [70, 71, 72]
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  some (result.success && result.output == expected)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=
