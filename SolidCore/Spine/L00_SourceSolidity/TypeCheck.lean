@@ -11589,6 +11589,87 @@ def deleteFixedArrayStructSource : L00_SourceSolidity.SourceUnit :=
 def deleteFixedArrayStructAccepted : Bool :=
   sourceUnitAccepted? deleteFixedArrayStructSource
 
+def assignFixedStructArrayStruct : L00_SourceSolidity.StructDecl :=
+  { name := "FixedStructArrayRecord"
+    fields :=
+      [ { name := "amount", ty := uint256 }
+      , { name := "flag", ty := L00_SourceSolidity.Ty.bool } ] }
+
+def assignFixedStructArrayRecordTy : L00_SourceSolidity.Ty :=
+  L00_SourceSolidity.Ty.user (userPath "FixedStructArrayRecord")
+
+def assignFixedStructArraySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          assignFixedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AssignFixedStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "records"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        assignFixedStructArrayRecordTy (some 2)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              assignFixedStructArrayRecordTy (some 2)
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident "records")
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident "values"))) } ] } ] }
+
+def assignFixedStructArrayAccepted : Bool :=
+  sourceUnitAccepted? assignFixedStructArraySource
+
+def assignDynamicStructArraySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          assignFixedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AssignDynamicStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "records"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        assignFixedStructArrayRecordTy none
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              assignFixedStructArrayRecordTy none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident "records")
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident "values"))) } ] } ] }
+
+def assignDynamicStructArrayAccepted : Bool :=
+  sourceUnitAccepted? assignDynamicStructArraySource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

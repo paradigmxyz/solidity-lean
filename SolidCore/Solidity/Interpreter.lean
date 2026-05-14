@@ -1136,20 +1136,23 @@ def State.storeStorageLayoutAt (state : State) (slot : Word)
             ((State.storeBytesSlots state slot 0 bytes)
               |>.storeSlot slot bytes.length)
       | _ => Except.error RevertData.typeMismatch
-  | StorageLayout.fixedArray size (StorageLayout.scalar elementTy) =>
-      match (Ty.fixedArray size elementTy).coerceValue? value with
-      | some (Value.fixedArray values) =>
-          State.storeFixedArraySlots state slot elementTy 0 values
+  | StorageLayout.fixedArray size elementLayout =>
+      match value with
+      | Value.fixedArray values =>
+          if values.length == size then
+            State.storeFixedArrayLayoutSlots
+              state slot elementLayout 0 values
+          else
+            Except.error RevertData.typeMismatch
       | _ => Except.error RevertData.typeMismatch
-  | StorageLayout.dynamicArray (StorageLayout.scalar elementTy) =>
-      match (Ty.dynamicArray elementTy).coerceValue? value with
-      | some (Value.dynamicArray values) => do
+  | StorageLayout.dynamicArray elementLayout =>
+      match value with
+      | Value.dynamicArray values => do
           let state ←
-            State.storeDynamicArraySlots state slot elementTy 0 values
+            State.storeDynamicArrayLayoutSlots
+              state slot elementLayout 0 values
           Except.ok (state.storeSlot slot values.length)
       | _ => Except.error RevertData.typeMismatch
-  | StorageLayout.fixedArray _ _
-  | StorageLayout.dynamicArray _
   | StorageLayout.mapping _ _ =>
       Except.error RevertData.typeMismatch
 
@@ -1164,6 +1167,30 @@ def State.storeStructSlots (state : State) (slot : Word) :
       State.storeStructSlots
         state slot (offset + StorageLayout.slotSpan layout) layouts values
   | _, _, _ => Except.error RevertData.typeMismatch
+
+def State.storeFixedArrayLayoutSlots (state : State) (slot : Word)
+    (elementLayout : StorageLayout) :
+    Nat -> List Value -> Except RevertData State
+  | _, [] => Except.ok state
+  | index, value :: rest => do
+      let state ←
+        State.storeStorageLayoutAt state
+          (fixedArrayLayoutStorageSlot slot index elementLayout)
+          elementLayout value
+      State.storeFixedArrayLayoutSlots state slot elementLayout
+        (index + 1) rest
+
+def State.storeDynamicArrayLayoutSlots (state : State) (slot : Word)
+    (elementLayout : StorageLayout) :
+    Nat -> List Value -> Except RevertData State
+  | _, [] => Except.ok state
+  | index, value :: rest => do
+      let state ←
+        State.storeStorageLayoutAt state
+          (dynamicArrayLayoutStorageSlot slot index elementLayout)
+          elementLayout value
+      State.storeDynamicArrayLayoutSlots state slot elementLayout
+        (index + 1) rest
 
 end
 
@@ -1241,20 +1268,10 @@ def Runtime.storeStorageField (context : Context)
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
   match field.layout? with
-  | some (StorageLayout.dynamicArray elementLayout) => do
-      let elementTy ←
-        match elementLayout.scalarTy? with
-        | some elementTy => Except.ok elementTy
-        | none => Except.error RevertData.typeMismatch
-      match (Ty.dynamicArray elementTy).coerceValue? value with
-      | some (Value.dynamicArray values) => do
-          let state ←
-            State.storeDynamicArraySlots
-              runtime.state field.slot elementTy 0 values
-          Except.ok
-            { runtime with
-              state := state.storeSlot field.slot values.length }
-      | _ => Except.error RevertData.typeMismatch
+  | some layout@(StorageLayout.dynamicArray _) => do
+      let state ←
+        State.storeStorageLayoutAt runtime.state field.slot layout value
+      Except.ok { runtime with state }
   | some StorageLayout.bytes =>
       match value with
       | Value.bytes bytes =>
@@ -1273,25 +1290,14 @@ def Runtime.storeStorageField (context : Context)
                 (State.storeBytesSlots runtime.state field.slot 0 bytes)
                   |>.storeSlot field.slot bytes.length }
       | _ => Except.error RevertData.typeMismatch
-  | some (StorageLayout.struct tys) =>
-      match value with
-      | Value.tuple values => do
-          let state ←
-            State.storeStructSlots runtime.state field.slot 0 tys values
-          Except.ok { runtime with state }
-      | _ => Except.error RevertData.typeMismatch
-  | some (StorageLayout.fixedArray size elementLayout) => do
-      let elementTy ←
-        match elementLayout.scalarTy? with
-        | some elementTy => Except.ok elementTy
-        | none => Except.error RevertData.typeMismatch
-      match (Ty.fixedArray size elementTy).coerceValue? value with
-      | some (Value.fixedArray values) => do
-          let state ←
-            State.storeFixedArraySlots
-              runtime.state field.slot elementTy 0 values
-          Except.ok { runtime with state }
-      | _ => Except.error RevertData.typeMismatch
+  | some layout@(StorageLayout.struct _) => do
+      let state ←
+        State.storeStorageLayoutAt runtime.state field.slot layout value
+      Except.ok { runtime with state }
+  | some layout@(StorageLayout.fixedArray _ _) => do
+      let state ←
+        State.storeStorageLayoutAt runtime.state field.slot layout value
+      Except.ok { runtime with state }
   | some (StorageLayout.mapping _ _) =>
       Except.error RevertData.typeMismatch
   | some (StorageLayout.scalar ty) => do
