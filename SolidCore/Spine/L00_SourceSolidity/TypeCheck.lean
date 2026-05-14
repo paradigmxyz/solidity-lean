@@ -425,6 +425,31 @@ def StructFields.containsMapping (types : TypeContext) (fuel : Nat) :
 
 end
 
+def structGetterReturnTys (types : TypeContext) :
+    List L00_SourceSolidity.StructField -> List Ty
+  | [] => []
+  | field :: rest =>
+      if Ty.containsMapping types 64 field.ty then
+        structGetterReturnTys types rest
+      else
+        field.ty :: structGetterReturnTys types rest
+
+def Ty.publicGetterShape? (types : TypeContext) :
+    Nat -> Ty -> Option (List Ty × List Ty)
+  | 0, _ => none
+  | fuel + 1, L00_SourceSolidity.Ty.mapping key value => do
+      let tail ← Ty.publicGetterShape? types fuel value
+      some (key :: tail.fst, tail.snd)
+  | fuel + 1, L00_SourceSolidity.Ty.array element _ => do
+      let tail ← Ty.publicGetterShape? types fuel element
+      some (L00_SourceSolidity.Ty.uint 256 :: tail.fst, tail.snd)
+  | _ + 1, L00_SourceSolidity.Ty.user path =>
+      match types.lookupStruct? path with
+      | some structDecl =>
+          some ([], structGetterReturnTys types structDecl.fields)
+      | none => some ([], [L00_SourceSolidity.Ty.user path])
+  | _ + 1, ty => some ([], [ty])
+
 mutual
 
 def TypeContext.abiCanonicalFuel? (types : TypeContext) :
@@ -1403,6 +1428,38 @@ def ContractDecl.directFunctionSigs
           FunctionDecl.signature? fn
       | _ => none)
 
+def StateVarDecl.publicGetterFunctionSig?
+    (types : TypeContext) (decl : L00_SourceSolidity.StateVarDecl) :
+    Option FunctionSig :=
+  match decl.visibility with
+  | some L00_SourceSolidity.Visibility.public_ => do
+      let shape ← Ty.publicGetterShape? types 64 decl.ty
+      some
+        { name := decl.name
+          params := shape.fst
+          paramNames := List.replicate shape.fst.length none
+          paramStorageRefs := List.replicate shape.fst.length false
+          returns := shape.snd
+          visibility := some L00_SourceSolidity.Visibility.external_
+          mutability := L00_SourceSolidity.StateMutability.view }
+  | _ => none
+
+def ContractDecl.directPublicGetterSigs
+    (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
+    List FunctionSig :=
+  decl.items.filterMap
+    (fun item =>
+      match item with
+      | L00_SourceSolidity.ContractItem.stateVar stateVar =>
+          StateVarDecl.publicGetterFunctionSig? types stateVar
+      | _ => none)
+
+def ContractDecl.directExternalFunctionSigs
+    (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
+    List FunctionSig :=
+  ContractDecl.directFunctionSigs decl ++
+    ContractDecl.directPublicGetterSigs types decl
+
 def ContractDecl.directModifierDecls
     (decl : L00_SourceSolidity.ContractDecl) :
     List L00_SourceSolidity.ModifierDecl :=
@@ -1458,19 +1515,19 @@ def ContractDecl.modifierDeclsFromOrder
     List L00_SourceSolidity.ModifierDecl :=
   ContractDecl.modifierDeclsFromOrderFrom [] order
 
-def ContractDecl.externalFunctionSigsFromOrderFrom
+def ContractDecl.externalFunctionSigsFromOrderFrom (types : TypeContext)
     (sigs : List FunctionSig) :
     List L00_SourceSolidity.ContractDecl -> List FunctionSig
   | [] => sigs
   | decl :: rest =>
-      ContractDecl.externalFunctionSigsFromOrderFrom
+      ContractDecl.externalFunctionSigsFromOrderFrom types
         (FunctionSigs.addExternalAllIfNewSignature sigs
-          (ContractDecl.directFunctionSigs decl))
+          (ContractDecl.directExternalFunctionSigs types decl))
         rest
 
-def ContractDecl.externalFunctionSigsFromOrder
+def ContractDecl.externalFunctionSigsFromOrder (types : TypeContext)
     (order : List L00_SourceSolidity.ContractDecl) : List FunctionSig :=
-  ContractDecl.externalFunctionSigsFromOrderFrom [] order
+  ContractDecl.externalFunctionSigsFromOrderFrom types [] order
 
 def ContractDecl.nonPrivateFunctionSigsFromOrderFrom
     (sigs : List FunctionSig) :
@@ -1492,7 +1549,7 @@ def TypeContext.lookupContractExternalFunctionSigs?
   let order ←
     L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
       (types.contractDecls.map Prod.snd) decl
-  some (ContractDecl.externalFunctionSigsFromOrder order)
+  some (ContractDecl.externalFunctionSigsFromOrder types order)
 
 def TypeContext.resolveContractMemberFunction
     (types : TypeContext) (path : Path) (member : Name)
@@ -4582,31 +4639,6 @@ def checkCatchClauses (env : CheckEnv) :
       checkCatchClauses env rest
 
 end
-
-def structGetterReturnTys (types : TypeContext) :
-    List L00_SourceSolidity.StructField -> List Ty
-  | [] => []
-  | field :: rest =>
-      if Ty.containsMapping types 64 field.ty then
-        structGetterReturnTys types rest
-      else
-        field.ty :: structGetterReturnTys types rest
-
-def Ty.publicGetterShape? (types : TypeContext) :
-    Nat -> Ty -> Option (List Ty × List Ty)
-  | 0, _ => none
-  | fuel + 1, L00_SourceSolidity.Ty.mapping key value => do
-      let tail ← Ty.publicGetterShape? types fuel value
-      some (key :: tail.fst, tail.snd)
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ => do
-      let tail ← Ty.publicGetterShape? types fuel element
-      some (L00_SourceSolidity.Ty.uint 256 :: tail.fst, tail.snd)
-  | _ + 1, L00_SourceSolidity.Ty.user path =>
-      match types.lookupStruct? path with
-      | some structDecl =>
-          some ([], structGetterReturnTys types structDecl.fields)
-      | none => some ([], [L00_SourceSolidity.Ty.user path])
-  | _ + 1, ty => some ([], [ty])
 
 def StateVarDecl.check (env : CheckEnv)
     (decl : L00_SourceSolidity.StateVarDecl) : Except TypeError Unit := do
@@ -11250,6 +11282,63 @@ def nestedPublicGetterSource : L00_SourceSolidity.SourceUnit :=
 
 def nestedPublicGetterAccepted : Bool :=
   sourceUnitAccepted? nestedPublicGetterSource
+
+def nestedPublicGetterMemberCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NestedPublicGetterMemberCalls"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "nested"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.mapping uint256 uint256)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "buckets"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.array uint256 none)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "readNested"
+                    visibility := some L00_SourceSolidity.Visibility.public_
+                    returns := [{ name := none, ty := uint256 }]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "this")
+                                "nested")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "4")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "5") ]))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "readBucket"
+                    visibility := some L00_SourceSolidity.Visibility.public_
+                    returns := [{ name := none, ty := uint256 }]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "this")
+                                "buckets")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "7")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "1") ]))) } ] } ] }
+
+def nestedPublicGetterMemberCallsAccepted : Bool :=
+  sourceUnitAccepted? nestedPublicGetterMemberCallSource
 
 def tryCatchZeroClause : L00_SourceSolidity.CatchClause :=
   L00_SourceSolidity.CatchClause.clause none []

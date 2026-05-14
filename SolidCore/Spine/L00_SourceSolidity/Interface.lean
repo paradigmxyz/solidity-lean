@@ -19396,7 +19396,20 @@ def nestedPublicGetterContract : ContractDecl :=
             ty :=
               Ty.mapping (Ty.uint 256)
                 (Ty.array (Ty.uint 256) none)
-            visibility := some Visibility.public_ } ] }
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "readNested"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "this") "nested")
+                      [ Arg.positional
+                          (Expr.literal (Literal.number "4"))
+                      , Arg.positional
+                          (Expr.literal (Literal.number "5")) ]))) } ] }
 
 def nestedPublicGetterState : CoreState :=
   let nestedOuterSlot :=
@@ -19465,6 +19478,36 @@ def mappingArrayPublicGetterOutOfBounds : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.reverted _
       (SolidCore.Solidity.Source.RevertData.panic code) =>
       some (SolidCore.Solidity.Source.wordEq code 0x32)
+  | _ => some false
+
+def nestedPublicGetterThisCallStaticcallMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? nestedPublicGetterContract
+  let function ← contract.findFunctionByName? "readNested"
+  let callData ←
+    externalCalldata? "nested(uint256,uint256)"
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 4
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 77]
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 24
+      { contract.context with
+        self := 0xcafe
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xcafe
+              calldata := callData
+              success := true
+              output := output } ] }
+      function SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 77)
   | _ => some false
 
 def dynamicStorageArrayContract : ContractDecl :=
