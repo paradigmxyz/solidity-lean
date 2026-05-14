@@ -646,7 +646,7 @@ def Runtime.assignNamedValues? (runtime : Runtime) :
 
 inductive StorageLayout where
   | scalar : Ty -> StorageLayout
-  | struct : List Ty -> StorageLayout
+  | struct : List StorageLayout -> StorageLayout
   | fixedArray : Nat -> StorageLayout -> StorageLayout
   | dynamicArray : StorageLayout -> StorageLayout
   | bytes : StorageLayout
@@ -1020,30 +1020,103 @@ def State.storeBytesSlots (state : State) (slot : Word) :
           (normByte byte))
         slot (index + 1) rest
 
-def State.loadStructSlots (state : State) (slot : Word) :
-    Nat -> List Ty -> Except RevertData (List Value)
-  | _, [] => Except.ok []
-  | index, ty :: rest => do
-      let value ← loadStorageWordAs state (fixedArrayStorageSlot slot index) ty
-      let tail ← State.loadStructSlots state slot (index + 1) rest
-      Except.ok (value :: tail)
-
-def State.storeStructSlots (state : State) (slot : Word) :
-    Nat -> List Ty -> List Value -> Except RevertData State
-  | _, [], [] => Except.ok state
-  | index, ty :: tys, value :: values => do
-      let word ← coerceStorageWordAs ty value
-      State.storeStructSlots
-        (state.storeSlot (fixedArrayStorageSlot slot index) word)
-        slot (index + 1) tys values
-  | _, _, _ => Except.error RevertData.typeMismatch
-
 def State.loadBytesSlots (state : State) (slot : Word) :
     Nat -> Nat -> List Byte
   | _, 0 => []
   | index, remaining + 1 =>
       normByte (state.loadSlot (dynamicArrayStorageSlot slot index)) ::
         State.loadBytesSlots state slot (index + 1) remaining
+
+mutual
+
+def State.loadStorageLayoutAt (state : State) (slot : Word) :
+    StorageLayout -> Except RevertData Value
+  | StorageLayout.scalar ty =>
+      loadStorageWordAs state slot ty
+  | StorageLayout.struct layouts => do
+      let values ← State.loadStructSlots state slot 0 layouts
+      Except.ok (Value.tuple values)
+  | StorageLayout.bytes =>
+      let length := SharedSemantics.norm (state.loadSlot slot)
+      Except.ok
+        (Value.bytes (State.loadBytesSlots state slot 0 length))
+  | StorageLayout.string =>
+      let length := SharedSemantics.norm (state.loadSlot slot)
+      Except.ok
+        (Value.bytes (State.loadBytesSlots state slot 0 length))
+  | StorageLayout.fixedArray _ _
+  | StorageLayout.dynamicArray _
+  | StorageLayout.mapping _ _ =>
+      Except.error RevertData.typeMismatch
+
+def State.loadStructSlots (state : State) (slot : Word) :
+    Nat -> List StorageLayout -> Except RevertData (List Value)
+  | _, [] => Except.ok []
+  | index, layout :: rest => do
+      let value ←
+        State.loadStorageLayoutAt state
+          (fixedArrayStorageSlot slot index) layout
+      let tail ← State.loadStructSlots state slot (index + 1) rest
+      Except.ok (value :: tail)
+
+end
+
+mutual
+
+def State.storeStorageLayoutAt (state : State) (slot : Word)
+    (layout : StorageLayout) (value : Value) : Except RevertData State :=
+  match layout with
+  | StorageLayout.scalar ty => do
+      let word ← coerceStorageWordAs ty value
+      Except.ok (state.storeSlot slot word)
+  | StorageLayout.struct layouts =>
+      match value with
+      | Value.tuple values =>
+          State.storeStructSlots state slot 0 layouts values
+      | _ => Except.error RevertData.typeMismatch
+  | StorageLayout.bytes =>
+      match value with
+      | Value.bytes bytes =>
+          Except.ok
+            ((State.storeBytesSlots state slot 0 bytes)
+              |>.storeSlot slot bytes.length)
+      | _ => Except.error RevertData.typeMismatch
+  | StorageLayout.string =>
+      match value with
+      | Value.bytes bytes =>
+          Except.ok
+            ((State.storeBytesSlots state slot 0 bytes)
+              |>.storeSlot slot bytes.length)
+      | _ => Except.error RevertData.typeMismatch
+  | StorageLayout.fixedArray size (StorageLayout.scalar elementTy) =>
+      match (Ty.fixedArray size elementTy).coerceValue? value with
+      | some (Value.fixedArray values) =>
+          State.storeFixedArraySlots state slot elementTy 0 values
+      | _ => Except.error RevertData.typeMismatch
+  | StorageLayout.dynamicArray (StorageLayout.scalar elementTy) =>
+      match (Ty.dynamicArray elementTy).coerceValue? value with
+      | some (Value.dynamicArray values) => do
+          let state ←
+            State.storeDynamicArraySlots state slot elementTy 0 values
+          Except.ok (state.storeSlot slot values.length)
+      | _ => Except.error RevertData.typeMismatch
+  | StorageLayout.fixedArray _ _
+  | StorageLayout.dynamicArray _
+  | StorageLayout.mapping _ _ =>
+      Except.error RevertData.typeMismatch
+
+def State.storeStructSlots (state : State) (slot : Word) :
+    Nat -> List StorageLayout -> List Value -> Except RevertData State
+  | _, [], [] => Except.ok state
+  | index, layout :: layouts, value :: values => do
+      let state ←
+        State.storeStorageLayoutAt state
+          (fixedArrayStorageSlot slot index) layout value
+      State.storeStructSlots
+        state slot (index + 1) layouts values
+  | _, _, _ => Except.error RevertData.typeMismatch
+
+end
 
 def StorageField.scalarTy? (field : StorageField) : Option Ty :=
   match field.layout? with
@@ -1226,6 +1299,42 @@ def State.clearFixedArraySlots (state : State) (slot defaultWord : Word) :
         (state.storeSlot (fixedArrayStorageSlot slot index) defaultWord)
         slot defaultWord (index + 1) remaining
 
+mutual
+
+def State.clearStorageLayoutAt (state : State) (slot : Word) :
+    StorageLayout -> Except RevertData State
+  | StorageLayout.scalar ty => do
+      let defaultWord ← coerceStorageWordAs ty ty.defaultValue
+      Except.ok (state.storeSlot slot defaultWord)
+  | StorageLayout.struct layouts =>
+      State.clearStructLayoutSlots state slot 0 layouts
+  | StorageLayout.bytes =>
+      Except.ok (state.storeSlot slot 0)
+  | StorageLayout.string =>
+      Except.ok (state.storeSlot slot 0)
+  | StorageLayout.dynamicArray _ =>
+      Except.ok (state.storeSlot slot 0)
+  | StorageLayout.mapping _ _ =>
+      Except.ok state
+  | StorageLayout.fixedArray size (StorageLayout.scalar elementTy) => do
+      let defaultWord ←
+        coerceStorageWordAs elementTy elementTy.defaultValue
+      Except.ok
+        (State.clearFixedArraySlots state slot defaultWord 0 size)
+  | StorageLayout.fixedArray _ _ =>
+      Except.ok state
+
+def State.clearStructLayoutSlots (state : State) (slot : Word) :
+    Nat -> List StorageLayout -> Except RevertData State
+  | _, [] => Except.ok state
+  | index, layout :: rest => do
+      let state ←
+        State.clearStorageLayoutAt state
+          (fixedArrayStorageSlot slot index) layout
+      State.clearStructLayoutSlots state slot (index + 1) rest
+
+end
+
 def Runtime.deleteStorageField (context : Context)
     (runtime : Runtime) (name : String) :
     Except RevertData Runtime := do
@@ -1243,10 +1352,10 @@ def Runtime.deleteStorageField (context : Context)
   | some StorageLayout.string =>
       Except.ok
         { runtime with state := runtime.state.storeSlot field.slot 0 }
-  | some (StorageLayout.struct tys) => do
+  | some (StorageLayout.struct layouts) => do
       let state ←
-        State.storeStructSlots runtime.state field.slot 0 tys
-          (tys.map Ty.defaultValue)
+        State.clearStorageLayoutAt runtime.state field.slot
+          (StorageLayout.struct layouts)
       Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let elementTy ←
@@ -1271,26 +1380,6 @@ def Runtime.deleteStorageField (context : Context)
       Except.ok
         { runtime with state := runtime.state.storeFieldSlot field 0 }
 
-def State.loadStorageLayoutAt (state : State) (slot : Word) :
-    StorageLayout -> Except RevertData Value
-  | StorageLayout.scalar ty =>
-      loadStorageWordAs state slot ty
-  | StorageLayout.struct tys => do
-      let values ← State.loadStructSlots state slot 0 tys
-      Except.ok (Value.tuple values)
-  | StorageLayout.bytes =>
-      let length := SharedSemantics.norm (state.loadSlot slot)
-      Except.ok
-        (Value.bytes (State.loadBytesSlots state slot 0 length))
-  | StorageLayout.string =>
-      let length := SharedSemantics.norm (state.loadSlot slot)
-      Except.ok
-        (Value.bytes (State.loadBytesSlots state slot 0 length))
-  | StorageLayout.fixedArray _ _
-  | StorageLayout.dynamicArray _
-  | StorageLayout.mapping _ _ =>
-      Except.error RevertData.typeMismatch
-
 def State.resolveStoragePathSlot (state : State) :
     Word -> StorageLayout -> List Value ->
     Except RevertData (Word × StorageLayout)
@@ -1313,6 +1402,13 @@ def State.resolveStoragePathSlot (state : State) :
       else
         State.resolveStoragePathSlot state
           (fixedArrayStorageSlot slot key) elementLayout rest
+  | slot, StorageLayout.struct layouts, index :: rest => do
+      let key ← index.expectWord
+      match listGet? layouts (SharedSemantics.norm key) with
+      | some fieldLayout =>
+          State.resolveStoragePathSlot state
+            (fixedArrayStorageSlot slot key) fieldLayout rest
+      | none => Except.error RevertData.indexOutOfBounds
   | _, _, _ :: _ =>
       Except.error RevertData.typeMismatch
 
@@ -1377,12 +1473,12 @@ def Runtime.loadStorageIndex (context : Context)
       else
         runtime.state.loadStorageLayoutAt
           (fixedArrayStorageSlot field.slot key) elementLayout
-  | some (StorageLayout.struct tys) => do
+  | some (StorageLayout.struct layouts) => do
       let key ← index.expectWord
-      match listGet? tys (SharedSemantics.norm key) with
-      | some fieldTy =>
-          loadStorageWordAs runtime.state
-            (fixedArrayStorageSlot field.slot key) fieldTy
+      match listGet? layouts (SharedSemantics.norm key) with
+      | some fieldLayout =>
+          runtime.state.loadStorageLayoutAt
+            (fixedArrayStorageSlot field.slot key) fieldLayout
       | none => Except.error RevertData.indexOutOfBounds
   | some (StorageLayout.scalar _) =>
       Except.error RevertData.typeMismatch
@@ -1435,11 +1531,12 @@ def Runtime.storeStorageIndex (context : Context)
           | some elementTy =>
               Except.ok (fixedArrayStorageSlot field.slot key, elementTy)
           | none => Except.error RevertData.typeMismatch
-    | some (StorageLayout.struct tys) => do
+    | some (StorageLayout.struct layouts) => do
         let key ← index.expectWord
-        match listGet? tys (SharedSemantics.norm key) with
-        | some fieldTy =>
+        match listGet? layouts (SharedSemantics.norm key) with
+        | some (StorageLayout.scalar fieldTy) =>
             Except.ok (fixedArrayStorageSlot field.slot key, fieldTy)
+        | some _ => Except.error RevertData.typeMismatch
         | none => Except.error RevertData.indexOutOfBounds
     | some (StorageLayout.scalar _) =>
         Except.error RevertData.typeMismatch

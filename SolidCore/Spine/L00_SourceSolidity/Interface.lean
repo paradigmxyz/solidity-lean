@@ -2310,11 +2310,13 @@ def Ty.toCoreMappingKey? : Ty -> Option CoreTy
   | Ty.string => some SolidCore.Solidity.Source.Ty.bytesCalldata
   | ty => Ty.toCoreStorageWord? ty
 
+mutual
+
 def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
   | Ty.bytes => some SolidCore.Solidity.Source.StorageLayout.bytes
   | Ty.string => some SolidCore.Solidity.Source.StorageLayout.string
   | Ty.tuple tys => do
-      let fields ← mapOption Ty.toCoreStorageWord? tys
+      let fields ← Tys.toCoreStorageLayouts? tys
       some (SolidCore.Solidity.Source.StorageLayout.struct fields)
   | Ty.array elementTy none => do
       let element ← Ty.toCoreStorageLayout? elementTy
@@ -2330,12 +2332,58 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
       let scalar ← Ty.toCoreStorageWord? ty
       some (SolidCore.Solidity.Source.StorageLayout.scalar scalar)
 
+def Tys.toCoreStorageLayouts? : List Ty -> Option (List CoreStorageLayout)
+  | [] => some []
+  | ty :: rest => do
+      let head ← Ty.toCoreStorageLayout? ty
+      let tail ← Tys.toCoreStorageLayouts? rest
+      some (head :: tail)
+
+end
+
 def Ty.hasStorageArrayMembers : Ty -> Bool
   | Ty.array _ none => true
   | Ty.bytes => true
   | _ => false
 
-def Ty.publicGetterShape? : Nat -> Ty -> Option (List Ty × Ty)
+mutual
+
+def Ty.omittedFromStructPublicGetter? : Nat -> Ty -> Bool
+  | 0, _ => true
+  | _ + 1, Ty.mapping _ _ => true
+  | _ + 1, Ty.array _ _ => true
+  | fuel + 1, Ty.tuple tys =>
+      Tys.omittedFromStructPublicGetter? fuel tys
+  | _ + 1, _ => false
+
+def Tys.omittedFromStructPublicGetter? (fuel : Nat) :
+    List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      Ty.omittedFromStructPublicGetter? fuel ty ||
+        Tys.omittedFromStructPublicGetter? fuel rest
+
+end
+
+def Ty.publicGetterStructReturnFields? (fuel : Nat) :
+    Nat -> List Ty -> Option (List (List Nat × Ty))
+  | _, [] => some []
+  | index, ty :: rest => do
+      let tail ← Ty.publicGetterStructReturnFields? fuel (index + 1) rest
+      if Ty.omittedFromStructPublicGetter? fuel ty then
+        some tail
+      else
+        some (([index], ty) :: tail)
+
+def Ty.publicGetterReturnFields? : Nat -> Ty ->
+    Option (List (List Nat × Ty))
+  | 0, _ => none
+  | fuel + 1, Ty.tuple tys =>
+      Ty.publicGetterStructReturnFields? fuel 0 tys
+  | _ + 1, ty => some [([], ty)]
+
+def Ty.publicGetterShape? : Nat -> Ty ->
+    Option (List Ty × List (List Nat × Ty))
   | 0, _ => none
   | fuel + 1, Ty.mapping keyTy valueTy => do
       let tail ← Ty.publicGetterShape? fuel valueTy
@@ -2343,7 +2391,9 @@ def Ty.publicGetterShape? : Nat -> Ty -> Option (List Ty × Ty)
   | fuel + 1, Ty.array elementTy _ => do
       let tail ← Ty.publicGetterShape? fuel elementTy
       some (Ty.uint 256 :: tail.fst, tail.snd)
-  | _ + 1, ty => some ([], ty)
+  | fuel + 1, ty => do
+      let returns ← Ty.publicGetterReturnFields? fuel ty
+      some ([], returns)
 
 def joinStringsWith (sep : String) : List String -> String
   | [] => ""
@@ -9871,25 +9921,46 @@ def StateVarDecl.publicGetterParamsCore?
   some (pairs.map Prod.fst, pairs.map Prod.snd)
 
 def StateVarDecl.publicGetterBodyExpr
-    (name : Name) (returnTy : Ty) (indexes : List CoreExpr) : CoreExpr :=
-  match indexes with
+    (name : Name) (returnTy : Ty) (indexes : List CoreExpr)
+    (fieldPath : List Nat) : CoreExpr :=
+  let path :=
+    indexes ++
+      fieldPath.map (fun index =>
+        SolidCore.Solidity.Source.Expr.word index)
+  match path with
   | [] =>
       match returnTy with
       | Ty.bytes | Ty.string =>
           SolidCore.Solidity.Source.Expr.storageBytes name
       | _ => SolidCore.Solidity.Source.Expr.storage name
   | _ :: _ =>
-      SolidCore.Solidity.Source.Expr.storagePath name indexes
+      SolidCore.Solidity.Source.Expr.storagePath name path
+
+def StateVarDecl.publicGetterReturnCore? (index : Nat)
+    (entry : List Nat × Ty) : Option CoreBindingDecl := do
+  let ty ← Ty.toCore? entry.snd
+  some { name := "_value" ++ toString index, ty }
+
+def StateVarDecl.publicGetterReturnsCore?
+    (entries : List (List Nat × Ty)) : Option (List CoreBindingDecl) :=
+  mapOptionIdx StateVarDecl.publicGetterReturnCore? 0 entries
+
+def StateVarDecl.publicGetterBodyExprs (name : Name)
+    (indexes : List CoreExpr) (entries : List (List Nat × Ty)) :
+    List CoreExpr :=
+  entries.map (fun entry =>
+    StateVarDecl.publicGetterBodyExpr name entry.snd indexes entry.fst)
 
 def StateVarDecl.toCoreRecursiveGetterIfPublic?
     (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
   match decl.visibility with
   | some Visibility.public_ => do
       let shape ← Ty.publicGetterShape? 64 decl.ty
-      let (paramTys, returnTy) := shape
+      let (paramTys, returnsWithPaths) := shape
       let (params, indexes) ←
         StateVarDecl.publicGetterParamsCore? paramTys
-      let returnTyCore ← Ty.toCore? returnTy
+      let returns ←
+        StateVarDecl.publicGetterReturnsCore? returnsWithPaths
       let signature ←
         StateVarDecl.publicGetterSignature? decl
       some
@@ -9900,11 +9971,11 @@ def StateVarDecl.toCoreRecursiveGetterIfPublic?
                 (SolidCore.Solidity.Source.ABI.selectorFromSignature
                   signature)
             params := params
-            returns := [{ name := "_value", ty := returnTyCore }]
+            returns := returns
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
-                [StateVarDecl.publicGetterBodyExpr
-                  decl.name returnTy indexes] })
+                (StateVarDecl.publicGetterBodyExprs
+                  decl.name indexes returnsWithPaths) })
   | _ => some none
 
 def StateVarDecl.toCoreMappingGetterIfPublic?
@@ -19726,6 +19797,68 @@ def publicFixedBytesArrayGetterOutOfBounds : Option Bool := do
       (SolidCore.Solidity.Source.RevertData.panic code) =>
       some (SolidCore.Solidity.Source.wordEq code 0x32)
   | _ => some false
+
+def publicStructGetterContract : ContractDecl :=
+  { name := "PublicStructGetter"
+    items :=
+      [ ContractItem.stateVar
+          { name := "entry"
+            ty :=
+              Ty.tuple
+                [ Ty.uint 256
+                , Ty.mapping (Ty.uint 256) (Ty.uint 256)
+                , Ty.bytes
+                , Ty.array (Ty.uint 256) none
+                , Ty.bool ]
+            visibility := some Visibility.public_ } ] }
+
+def publicStructGetterState : CoreState :=
+  let rawSlot : SolidCore.Solidity.Source.Word := 2
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 123
+    |>.storeSlot rawSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 0) 65
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 1) 66
+    |>.storeSlot 3 7
+    |>.storeSlot 4 1
+
+def publicStructGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicStructGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "entry")
+      publicStructGetterState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word amount
+      , SolidCore.Solidity.Source.Value.bytes raw
+      , SolidCore.Solidity.Source.Value.word ok ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq amount 123 &&
+          raw == [65, 66] &&
+          SolidCore.Solidity.Source.wordEq ok 1)
+  | _ => some false
+
+def publicStructGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? publicStructGetterContract
+  let function ← contract.findFunctionByName? "entry"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function []
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract publicStructGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.bytesCalldata
+      , SolidCore.Solidity.Source.Ty.bool ]
+      [ SolidCore.Solidity.Source.Value.word 123
+      , SolidCore.Solidity.Source.Value.bytes [65, 66]
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  some (result.success && result.output == expected)
 
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"

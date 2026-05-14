@@ -425,11 +425,45 @@ def StructFields.containsMapping (types : TypeContext) (fuel : Nat) :
 
 end
 
+mutual
+
+def Ty.omittedFromStructPublicGetter? (types : TypeContext) :
+    Nat -> Ty -> Bool
+  | 0, _ => true
+  | _ + 1, L00_SourceSolidity.Ty.mapping _ _ => true
+  | _ + 1, L00_SourceSolidity.Ty.array _ _ => true
+  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+      Tys.omittedFromStructPublicGetter? types fuel tys
+  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+      match types.lookupStruct? path with
+      | some structDecl =>
+          StructFields.omittedFromStructPublicGetter?
+            types fuel structDecl.fields
+      | none => false
+  | _ + 1, _ => false
+
+def Tys.omittedFromStructPublicGetter? (types : TypeContext)
+    (fuel : Nat) : List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      Ty.omittedFromStructPublicGetter? types fuel ty ||
+        Tys.omittedFromStructPublicGetter? types fuel rest
+
+def StructFields.omittedFromStructPublicGetter?
+    (types : TypeContext) (fuel : Nat) :
+    List L00_SourceSolidity.StructField -> Bool
+  | [] => false
+  | field :: rest =>
+      Ty.omittedFromStructPublicGetter? types fuel field.ty ||
+        StructFields.omittedFromStructPublicGetter? types fuel rest
+
+end
+
 def structGetterReturnTys (types : TypeContext) :
     List L00_SourceSolidity.StructField -> List Ty
   | [] => []
   | field :: rest =>
-      if Ty.containsMapping types 64 field.ty then
+      if Ty.omittedFromStructPublicGetter? types 64 field.ty then
         structGetterReturnTys types rest
       else
         field.ty :: structGetterReturnTys types rest
@@ -11327,6 +11361,51 @@ def publicFixedBytesArrayGetterSource : L00_SourceSolidity.SourceUnit :=
 
 def publicFixedBytesArrayGetterAccepted : Bool :=
   sourceUnitAccepted? publicFixedBytesArrayGetterSource
+
+def publicStructGetterShapeStruct : L00_SourceSolidity.StructDecl :=
+  { name := "PublicStructData"
+    fields :=
+      [ { name := "amount", ty := uint256 }
+      , { name := "skipMap"
+          ty := L00_SourceSolidity.Ty.mapping uint256 uint256 }
+      , { name := "raw", ty := L00_SourceSolidity.Ty.bytes }
+      , { name := "skipItems"
+          ty := L00_SourceSolidity.Ty.array uint256 none }
+      , { name := "ok", ty := L00_SourceSolidity.Ty.bool } ] }
+
+def publicStructGetterShapeStateVar :
+    L00_SourceSolidity.StateVarDecl :=
+  { name := "entry"
+    ty := L00_SourceSolidity.Ty.user (userPath "PublicStructData")
+    visibility := some L00_SourceSolidity.Visibility.public_ }
+
+def publicStructGetterShapeTypes : TypeContext :=
+  { TypeContext.empty with
+    structs :=
+      [(userPath "PublicStructData", publicStructGetterShapeStruct)] }
+
+def publicStructGetterShapeReturns : Bool :=
+  match StateVarDecl.publicGetterFunctionSig?
+      publicStructGetterShapeTypes publicStructGetterShapeStateVar with
+  | some sig =>
+      sig.returns ==
+        [ uint256
+        , L00_SourceSolidity.Ty.bytes
+        , L00_SourceSolidity.Ty.bool ]
+  | none => false
+
+def publicStructGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          publicStructGetterShapeStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PublicStructGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  publicStructGetterShapeStateVar ] } ] }
+
+def publicStructGetterAccepted : Bool :=
+  sourceUnitAccepted? publicStructGetterSource
 
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
