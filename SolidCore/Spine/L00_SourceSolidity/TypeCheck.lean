@@ -12111,6 +12111,184 @@ def deleteNestedIndexedStorageSource :
 def deleteNestedIndexedStorageAccepted : Bool :=
   sourceUnitAccepted? deleteNestedIndexedStorageSource
 
+def nestedStoragePathSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NestedStoragePath"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "matrix"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        (L00_SourceSolidity.Ty.array
+                          uint256 none)
+                        none }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "nested"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.mapping
+                          uint256 uint256) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setMatrixCell"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "matrix")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident "inner"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearMatrixCell"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "matrix")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident
+                                "inner")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "readMatrixCell"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none } ]
+                    returns := [{ name := none, ty := uint256 }]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "matrix")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident
+                                "inner")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setNested"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "left"
+                          ty := uint256
+                          location := none }
+                      , { name := some "right"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "nested")
+                                (L00_SourceSolidity.Expr.ident
+                                  "left"))
+                              (L00_SourceSolidity.Expr.ident
+                                "right"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearNested"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "left"
+                          ty := uint256
+                          location := none }
+                      , { name := some "right"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "nested")
+                                (L00_SourceSolidity.Expr.ident
+                                  "left"))
+                              (L00_SourceSolidity.Expr.ident
+                                "right")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "readNested"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "left"
+                          ty := uint256
+                          location := none }
+                      , { name := some "right"
+                          ty := uint256
+                          location := none } ]
+                    returns := [{ name := none, ty := uint256 }]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "nested")
+                                (L00_SourceSolidity.Expr.ident
+                                  "left"))
+                              (L00_SourceSolidity.Expr.ident
+                                "right")))) } ] } ] }
+
+def nestedStoragePathAccepted : Bool :=
+  sourceUnitAccepted? nestedStoragePathSource
+
 def pushNestedDynamicArraySource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

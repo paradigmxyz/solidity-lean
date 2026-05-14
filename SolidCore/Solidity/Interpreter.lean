@@ -1837,6 +1837,55 @@ def Runtime.loadStoragePath (context : Context)
     State.resolveStoragePathSlot runtime.state field.slot layout indexes
   runtime.state.loadStorageLayoutAt slot valueLayout
 
+def Runtime.storeStoragePathWithDeepClear (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value)
+    (value : Value) : Except RevertData Runtime := do
+  let field ←
+    match context.storageField? name with
+    | some field => Except.ok field
+    | none => Except.error RevertData.typeMismatch
+  if field.transient && !indexes.isEmpty then
+    Except.error RevertData.typeMismatch
+  else
+    pure ()
+  let layout ←
+    match field.layout? with
+    | some layout => Except.ok layout
+    | none =>
+        match field.ty? with
+        | some ty => Except.ok (StorageLayout.scalar ty)
+        | none => Except.error RevertData.typeMismatch
+  let (slot, valueLayout) ←
+    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+  let state ←
+    State.storeStorageLayoutAtWithDeepClear
+      runtime.state slot valueLayout value
+  Except.ok { runtime with state }
+
+def Runtime.deleteStoragePath (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Runtime := do
+  let field ←
+    match context.storageField? name with
+    | some field => Except.ok field
+    | none => Except.error RevertData.typeMismatch
+  if field.transient && !indexes.isEmpty then
+    Except.error RevertData.typeMismatch
+  else
+    pure ()
+  let layout ←
+    match field.layout? with
+    | some layout => Except.ok layout
+    | none =>
+        match field.ty? with
+        | some ty => Except.ok (StorageLayout.scalar ty)
+        | none => Except.error RevertData.typeMismatch
+  let (slot, valueLayout) ←
+    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+  let state ←
+    State.clearStorageLayoutAtDeep runtime.state slot valueLayout
+  Except.ok { runtime with state }
+
 def Runtime.loadStorageIndex (context : Context)
     (runtime : Runtime) (name : String) (index : Value) :
     Except RevertData Value := do
@@ -2654,6 +2703,13 @@ inductive Expr where
   | slice : Expr -> Option Expr -> Option Expr -> Expr
   deriving Repr
 
+def Expr.hasStorageRoot : Expr -> Bool
+  | Expr.storage _ => true
+  | Expr.storageIndex _ _ => true
+  | Expr.storagePath _ _ => true
+  | Expr.index base _ => Expr.hasStorageRoot base
+  | _ => false
+
 inductive LValue where
   | var : String -> LValue
   | immutable : String -> LValue
@@ -3429,8 +3485,16 @@ inductive ResolvedLValue where
   | immutable : String -> ResolvedLValue
   | storageField : String -> ResolvedLValue
   | storageIndex : String -> Value -> ResolvedLValue
+  | storagePath : String -> List Value -> ResolvedLValue
   | valueIndex : ResolvedLValue -> Word -> ResolvedLValue
   deriving Repr
+
+def ResolvedLValue.asStoragePath? :
+    ResolvedLValue -> Option (String × List Value)
+  | ResolvedLValue.storageField name => some (name, [])
+  | ResolvedLValue.storageIndex name index => some (name, [index])
+  | ResolvedLValue.storagePath name indexes => some (name, indexes)
+  | _ => none
 
 def ResolvedLValue.read (context : Context) (runtime : Runtime) :
     ResolvedLValue -> Except RevertData Value
@@ -3444,6 +3508,8 @@ def ResolvedLValue.read (context : Context) (runtime : Runtime) :
       runtime.loadStorageField context name
   | ResolvedLValue.storageIndex name index =>
       runtime.loadStorageIndex context name index
+  | ResolvedLValue.storagePath name indexes =>
+      runtime.loadStoragePath context name indexes
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       baseValue.index? index
@@ -3462,6 +3528,8 @@ def ResolvedLValue.write (context : Context) (runtime : Runtime)
       runtime.storeStorageFieldWithDeepClear context name value
   | ResolvedLValue.storageIndex name index =>
       runtime.storeStorageIndexWithDeepClear context name index value
+  | ResolvedLValue.storagePath name indexes =>
+      runtime.storeStoragePathWithDeepClear context name indexes value
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let updatedBase ← baseValue.setIndex? index value
@@ -3483,6 +3551,8 @@ def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
       runtime.deleteStorageField context name
   | ResolvedLValue.storageIndex name index =>
       runtime.deleteStorageIndex context name index
+  | ResolvedLValue.storagePath name indexes =>
+      runtime.deleteStoragePath context name indexes
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let oldValue ← baseValue.index? index
@@ -3526,6 +3596,14 @@ def Expr.resolveLValueWithRuntime (context : Context) :
       match baseTarget with
       | ResolvedLValue.storageField name =>
           Except.ok (ResolvedLValue.storageIndex name indexValue, runtime'')
+      | ResolvedLValue.storageIndex name firstIndex =>
+          Except.ok
+            (ResolvedLValue.storagePath name [firstIndex, indexValue],
+              runtime'')
+      | ResolvedLValue.storagePath name indexes =>
+          Except.ok
+            (ResolvedLValue.storagePath name (indexes ++ [indexValue]),
+              runtime'')
       | _ =>
           let indexWord ← indexValue.expectWord
           Except.ok
@@ -3915,25 +3993,37 @@ def Expr.evalWithRuntime (context : Context) :
           | some len => Except.ok (Value.word len, runtime')
           | none => Except.error RevertData.typeMismatch
   | runtime, Expr.index base idx => do
-      match base with
-      | Expr.var name =>
-          match runtime.lookupStorageRef? name with
-          | some target =>
-              let (indexValue, runtime') ← idx.evalWithRuntime context runtime
-              let value ← runtime'.loadStorageIndex context target indexValue
-              Except.ok (value, runtime')
-          | none =>
-              let (baseValue, runtime') ← base.evalWithRuntime context runtime
-              let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
-              let indexWord ← indexValue.expectWord
-              let value ← baseValue.index? indexWord
-              Except.ok (value, runtime'')
-      | _ =>
-          let (baseValue, runtime') ← base.evalWithRuntime context runtime
-          let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
-          let indexWord ← indexValue.expectWord
-          let value ← baseValue.index? indexWord
-          Except.ok (value, runtime'')
+      if base.hasStorageRoot then
+        let (baseTarget, runtime') ←
+          base.resolveLValueWithRuntime context runtime
+        match baseTarget.asStoragePath? with
+        | some (name, indexes) =>
+            let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
+            let value ←
+              runtime''.loadStoragePath context name
+                (indexes ++ [indexValue])
+            Except.ok (value, runtime'')
+        | none => Except.error RevertData.typeMismatch
+      else
+        match base with
+        | Expr.var name =>
+            match runtime.lookupStorageRef? name with
+            | some target =>
+                let (indexValue, runtime') ← idx.evalWithRuntime context runtime
+                let value ← runtime'.loadStorageIndex context target indexValue
+                Except.ok (value, runtime')
+            | none =>
+                let (baseValue, runtime') ← base.evalWithRuntime context runtime
+                let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
+                let indexWord ← indexValue.expectWord
+                let value ← baseValue.index? indexWord
+                Except.ok (value, runtime'')
+        | _ =>
+            let (baseValue, runtime') ← base.evalWithRuntime context runtime
+            let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
+            let indexWord ← indexValue.expectWord
+            let value ← baseValue.index? indexWord
+            Except.ok (value, runtime'')
   | runtime, Expr.slice base start stop => do
       let (baseValue, runtime') ← base.evalWithRuntime context runtime
       let (startWord?, runtime'') ←

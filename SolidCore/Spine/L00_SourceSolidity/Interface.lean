@@ -21250,6 +21250,255 @@ def deleteNestedIndexedStorageMappingClearsNestedData :
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             nestedSlot 1)) 0)
 
+def nestedStoragePathContract : ContractDecl :=
+  { name := "NestedStoragePath"
+    items :=
+      [ ContractItem.stateVar
+          { name := "matrix"
+            ty :=
+              Ty.array
+                (Ty.array (Ty.uint 256) none)
+                none }
+      , ContractItem.stateVar
+          { name := "nested"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.mapping (Ty.uint 256) (Ty.uint 256)) }
+      , ContractItem.function
+          { name := some "setMatrixCell"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 }
+              , { name := some "value", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "matrix")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner"))
+                    AssignOp.assign
+                    (Expr.ident "value"))) }
+      , ContractItem.function
+          { name := some "clearMatrixCell"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "matrix")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner")))) }
+      , ContractItem.function
+          { name := some "readMatrixCell"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "matrix")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner")))) }
+      , ContractItem.function
+          { name := some "setNested"
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 }
+              , { name := some "value", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "nested")
+                        (Expr.ident "left"))
+                      (Expr.ident "right"))
+                    AssignOp.assign
+                    (Expr.ident "value"))) }
+      , ContractItem.function
+          { name := some "clearNested"
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "nested")
+                        (Expr.ident "left"))
+                      (Expr.ident "right")))) }
+      , ContractItem.function
+          { name := some "readNested"
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "nested")
+                        (Expr.ident "left"))
+                      (Expr.ident "right")))) } ] }
+
+def nestedStoragePathMatrixInitialState : CoreState :=
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 1
+    |>.storeSlot innerSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 0) 11
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 1) 22
+
+def nestedStoragePathMatrixSetState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "setMatrixCell")
+      nestedStoragePathMatrixInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1
+      , SolidCore.Solidity.Source.Value.word 77 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedStoragePathMatrixSetMatches : Option Bool := do
+  let state ← nestedStoragePathMatrixSetState
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "readMatrixCell")
+      state
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (state.loadSlot innerSlot) 2 &&
+          SolidCore.Solidity.Source.wordEq
+            (state.loadSlot
+              (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+                innerSlot 1)) 77 &&
+          SolidCore.Solidity.Source.wordEq value 77)
+  | _ => some false
+
+def nestedStoragePathMatrixClearState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearMatrixCell")
+      nestedStoragePathMatrixInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedStoragePathMatrixClearMatches : Option Bool := do
+  let state ← nestedStoragePathMatrixClearState
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot innerSlot) 2 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 0)) 11 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 1)) 0)
+
+def nestedStoragePathMappingSlot : Word :=
+  SolidCore.Solidity.Source.mappingStorageSlot
+    (SolidCore.Solidity.Source.mappingStorageSlot 1 3) 4
+
+def nestedStoragePathMappingSetState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "setNested")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 3
+      , SolidCore.Solidity.Source.Value.word 4
+      , SolidCore.Solidity.Source.Value.word 55 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedStoragePathMappingSetMatches : Option Bool := do
+  let state ← nestedStoragePathMappingSetState
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "readNested")
+      state
+      [ SolidCore.Solidity.Source.Value.word 3
+      , SolidCore.Solidity.Source.Value.word 4 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq
+          (state.loadSlot nestedStoragePathMappingSlot) 55 &&
+          SolidCore.Solidity.Source.wordEq value 55)
+  | _ => some false
+
+def nestedStoragePathMappingClearInitialState : CoreState :=
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot nestedStoragePathMappingSlot 55
+
+def nestedStoragePathMappingClearState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearNested")
+      nestedStoragePathMappingClearInitialState
+      [ SolidCore.Solidity.Source.Value.word 3
+      , SolidCore.Solidity.Source.Value.word 4 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedStoragePathMappingClearMatches : Option Bool := do
+  let state ← nestedStoragePathMappingClearState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot nestedStoragePathMappingSlot) 0)
+
 def pushNestedDynamicArrayContract : ContractDecl :=
   { name := "PushNestedDynamicArray"
     items :=
