@@ -12456,7 +12456,8 @@ def structStoragePathRecord : L00_SourceSolidity.StructDecl :=
     fields :=
       [ { name := "count", ty := uint256 }
       , { name := "values"
-          ty := L00_SourceSolidity.Ty.array uint256 none } ] }
+          ty := L00_SourceSolidity.Ty.array uint256 none }
+      , { name := "blob", ty := L00_SourceSolidity.Ty.bytes } ] }
 
 def structStoragePathRecordTy : L00_SourceSolidity.Ty :=
   L00_SourceSolidity.Ty.user (userPath "StoragePathRecord")
@@ -12747,6 +12748,75 @@ def structStoragePathSource :
                                 (L00_SourceSolidity.Expr.member
                                   (L00_SourceSolidity.Expr.ident
                                     "vals")
+                                  "pop")
+                                []) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasBlobPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "blob"
+                                  ty := some L00_SourceSolidity.Ty.bytes
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "blob"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident
+                                    "blob")
+                                  "push")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.ident
+                                      "value") ]) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasBlobPop"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "blob"
+                                  ty := some L00_SourceSolidity.Ty.bytes
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "blob"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident
+                                    "blob")
                                   "pop")
                                 []) ]) } ] } ] }
 

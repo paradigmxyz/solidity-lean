@@ -3551,20 +3551,25 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           else
             match Ty.fixedBytesSize? ty with
             | some targetSize => do
-                let sourceTy ← Expr.abiTy? storageNames expr
-                match sourceTy with
-                | Ty.bytes => do
-                    let coreExpr ← Expr.toCore? storageNames expr
-                    some
-                      (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
-                        targetSize coreExpr)
-                | _ => do
-                    let sourceSize ←
-                      Ty.fixedBytesCastWordSourceSize? targetSize sourceTy
-                    let coreExpr ← Expr.toCore? storageNames expr
-                    some
-                      (SolidCore.Solidity.Source.Expr.fixedBytesCast
-                        targetSize sourceSize coreExpr)
+                match Expr.abiTy? storageNames expr with
+                | some sourceTy =>
+                    match sourceTy with
+                    | Ty.bytes => do
+                        let coreExpr ← Expr.toCore? storageNames expr
+                        some
+                          (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
+                            targetSize coreExpr)
+                    | _ => do
+                        let sourceSize ←
+                          Ty.fixedBytesCastWordSourceSize?
+                            targetSize sourceTy
+                        let coreExpr ← Expr.toCore? storageNames expr
+                        some
+                          (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                            targetSize sourceSize coreExpr)
+                | none => do
+                    let _ ← Ty.toCore? ty
+                    Expr.toCore? storageNames expr
             | none =>
                 match Expr.toCoreNumericLiteralAs? ty expr with
                 | some coreExpr => some coreExpr
@@ -21736,7 +21741,8 @@ def structStoragePathRecordDecl : StructDecl :=
   { name := "StoragePathRecord"
     fields :=
       [ { name := "count", ty := Ty.uint 256 }
-      , { name := "values", ty := Ty.array (Ty.uint 256) none } ] }
+      , { name := "values", ty := Ty.array (Ty.uint 256) none }
+      , { name := "blob", ty := Ty.bytes } ] }
 
 def structStoragePathSourceUnit : SourceUnit :=
   { items :=
@@ -21917,6 +21923,48 @@ def structStoragePathSourceUnit : SourceUnit :=
                           , Stmt.expr
                               (Expr.call
                                 (Expr.member (Expr.ident "vals") "pop")
+                                []) ]) }
+              , ContractItem.function
+                  { name := some "aliasBlobPush"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.bytesN 1 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "blob"
+                                  ty := some Ty.bytes
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "blob"))
+                          , Stmt.expr
+                              (Expr.call
+                                (Expr.member (Expr.ident "blob") "push")
+                                [Arg.positional (Expr.ident "value")]) ]) }
+              , ContractItem.function
+                  { name := some "aliasBlobPop"
+                    params := [{ name := some "key", ty := Ty.uint 256 }]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "blob"
+                                  ty := some Ty.bytes
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "blob"))
+                          , Stmt.expr
+                              (Expr.call
+                                (Expr.member (Expr.ident "blob") "pop")
                                 []) ]) } ] } ] }
 
 def structStoragePathEntrySlot : Word :=
@@ -21925,11 +21973,18 @@ def structStoragePathEntrySlot : Word :=
 def structStoragePathValuesSlot : Word :=
   structStoragePathEntrySlot + 1
 
+def structStoragePathBlobSlot : Word :=
+  structStoragePathEntrySlot + 2
+
 def structStoragePathValueSlot (index : Word) : Word :=
   SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
     structStoragePathValuesSlot index
     (SolidCore.Solidity.Source.StorageLayout.scalar
       SolidCore.Solidity.Source.Ty.uint256)
+
+def structStoragePathBlobValueSlot (index : Word) : Word :=
+  SolidCore.Solidity.Source.dynamicArrayStorageSlot
+    structStoragePathBlobSlot index
 
 def structStoragePathInitialState : CoreState :=
   SolidCore.Solidity.Source.State.empty
@@ -21937,6 +21992,9 @@ def structStoragePathInitialState : CoreState :=
     |>.storeSlot structStoragePathValuesSlot 2
     |>.storeSlot (structStoragePathValueSlot 0) 4
     |>.storeSlot (structStoragePathValueSlot 1) 9
+    |>.storeSlot structStoragePathBlobSlot 2
+    |>.storeSlot (structStoragePathBlobValueSlot 0) 30
+    |>.storeSlot (structStoragePathBlobValueSlot 1) 40
 
 def structStoragePathCountAddState : Option CoreState := do
   let result ←
@@ -22092,6 +22150,45 @@ def structStoragePathAliasArrayPopMatches : Option Bool := do
       (state.loadSlot structStoragePathValuesSlot) 1 &&
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathValueSlot 1)) 0)
+
+def structStoragePathAliasBlobPushState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasBlobPush")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasBlobPushMatches : Option Bool := do
+  let state ← structStoragePathAliasBlobPushState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathBlobValueSlot 2)) 5)
+
+def structStoragePathAliasBlobPopState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasBlobPop")
+      structStoragePathInitialState
+      [SolidCore.Solidity.Source.Value.word 7]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasBlobPopMatches : Option Bool := do
+  let state ← structStoragePathAliasBlobPopState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathBlobSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathBlobValueSlot 1)) 0)
 
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"
