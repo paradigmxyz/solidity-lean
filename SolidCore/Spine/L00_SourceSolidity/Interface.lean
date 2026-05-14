@@ -5385,6 +5385,13 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               Expr.abiTyWithEnv? env inner
           | Expr.unary UnaryOp.neg inner =>
               Expr.abiTyWithEnv? env inner
+          | Expr.unary UnaryOp.preIncrement inner
+          | Expr.unary UnaryOp.preDecrement inner
+          | Expr.unary UnaryOp.postIncrement inner
+          | Expr.unary UnaryOp.postDecrement inner =>
+              Expr.abiTyWithEnv? env inner
+          | Expr.assign lhs _ _ =>
+              Expr.abiTyWithEnv? env lhs
           | Expr.binary op lhs _ =>
               match op with
               | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
@@ -7652,6 +7659,40 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   (Expr.call (Expr.ident name) args)
                   rhs))
           Stmt.toCore? storageNames fallback
+  | Stmt.returnValues
+      (some
+        (Expr.binary op
+          lhs
+          (Expr.call (Expr.ident name) args))) =>
+      let fallback :=
+        Stmt.returnValues
+          (some
+            (Expr.binary op lhs
+              (Expr.call (Expr.ident name) args)))
+      match op with
+      | BinaryOp.boolAnd
+      | BinaryOp.boolOr => Stmt.toCore? storageNames fallback
+      | _ => do
+          let coreOp ← BinaryOp.toCore? op
+          let lhsCore ← Expr.toCore? storageNames lhs
+          let lhsTy ← Expr.abiTyWithEnv? env lhs
+          let lhsCoreTy ← Ty.toCore? lhsTy
+          let lhsTmp := "_sol_ret_lhs"
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.returnValues
+                  [SolidCore.Solidity.Source.Expr.binary coreOp
+                    (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                    retExpr]) with
+          | some coreStmt =>
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [ SolidCore.Solidity.Source.Stmt.varDecl
+                      lhsCoreTy lhsTmp (some lhsCore)
+                  , coreStmt ])
+          | none => Stmt.toCore? storageNames fallback
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.externalCallReturnCoreWithKindEnv?
           storageNames env externalCallKindEnv returnTys expr with
@@ -26227,6 +26268,43 @@ def internalReturnSubexpressionMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def internalReturnRightSubexpressionContract : ContractDecl :=
+  { name := "InternalReturnRightSubexpression"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "read"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.ident "x"))) }
+      , ContractItem.function
+          { name := some "run"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.add
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "5")))
+                      (Expr.call (Expr.ident "read") [])))) } ] }
+
+def internalReturnRightSubexpressionMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 48 internalReturnRightSubexpressionContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq value 10 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot state 0) 5)
   | _ => some false
 
 def internalNamedArgsContract : ContractDecl :=

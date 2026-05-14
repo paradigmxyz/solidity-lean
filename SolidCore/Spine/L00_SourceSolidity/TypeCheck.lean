@@ -8701,6 +8701,48 @@ def internalReturnSubexpressionSource : L00_SourceSolidity.SourceUnit :=
 def internalReturnSubexpressionAccepted : Bool :=
   sourceUnitAccepted? internalReturnSubexpressionSource
 
+def internalReturnRightSubexpressionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalReturnRightSubexpression"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "read"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (L00_SourceSolidity.Expr.ident "x"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "run"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.add
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "5"))
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "read")
+                                [])))) } ] } ] }
+
+def internalReturnRightSubexpressionAccepted : Bool :=
+  sourceUnitAccepted? internalReturnRightSubexpressionSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"
