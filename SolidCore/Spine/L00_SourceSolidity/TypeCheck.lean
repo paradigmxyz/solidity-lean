@@ -10009,6 +10009,80 @@ def continueOutsideLoopSource : L00_SourceSolidity.SourceUnit :=
 def continueOutsideLoopRejected : Bool :=
   Result.isError (SourceUnit.check continueOutsideLoopSource)
 
+def namedReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NamedReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "stop"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "99")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runFallthrough"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident "out")
+                            L00_SourceSolidity.AssignOp.assign
+                            (numberExpr "9"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runDefault"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body := some L00_SourceSolidity.Stmt.empty } ] } ] }
+
+def namedReturnAccepted : Bool :=
+  sourceUnitAccepted? namedReturnSource
+
+def namedBareReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NamedBareReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues none) } ] } ] }
+
+def namedBareReturnRejected : Bool :=
+  Result.isError (SourceUnit.check namedBareReturnSource)
+
 def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract

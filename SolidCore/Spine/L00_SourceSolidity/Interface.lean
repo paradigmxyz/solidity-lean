@@ -28577,6 +28577,61 @@ def loopBreakContinueMatches : Option Bool := do
               runContinueState 0) 5)
   | _, _ => some false
 
+def namedReturnContract : ContractDecl :=
+  { name := "NamedReturn"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "stop"
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "runFallthrough"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "out") AssignOp.assign
+                    (Expr.literal (Literal.number "9")))) }
+      , ContractItem.function
+          { name := some "runDefault"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body := some Stmt.empty } ] }
+
+def namedReturnMatches : Option Bool := do
+  let stop ←
+    ContractDecl.call? 32 namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "stop")
+      SolidCore.Solidity.Source.State.empty []
+  let runFallthrough ←
+    ContractDecl.call? 32 namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "runFallthrough")
+      SolidCore.Solidity.Source.State.empty []
+  let runDefault ←
+    ContractDecl.call? 32 namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "runDefault")
+      SolidCore.Solidity.Source.State.empty []
+  match stop, runFallthrough, runDefault with
+  | SolidCore.Solidity.Source.CallResult.returned stopState [],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runFallthroughValue],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runDefaultValue] =>
+      some
+        (SolidCore.Solidity.Source.wordEq
+          (SolidCore.Solidity.Source.State.loadSlot stopState 0) 1 &&
+          SolidCore.Solidity.Source.wordEq runFallthroughValue 9 &&
+          SolidCore.Solidity.Source.wordEq runDefaultValue 0)
+  | _, _, _ => some false
+
 def internalRequireConditionCallContract : ContractDecl :=
   { name := "InternalRequireConditionCall"
     items :=
