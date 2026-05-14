@@ -10318,51 +10318,86 @@ def UsingDecl.targetMatches? (env : TypeEnv)
       some (Ty.matchesShape receiverTy targetTy)
   | none => some true
 
+def FunctionDecl.usingFreeFunctionArgs? (freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (functionName : Name)
+    (args : List Arg) : Option (List Expr) := do
+  let candidates :=
+    freeFunctions.filter (fun fn =>
+      match fn.name with
+      | some fnName =>
+          fnName == functionName &&
+            fn.params.length == args.length + 1 &&
+            FunctionDecl.isExternallyNamedFunction fn
+      | none => false)
+  let fn ←
+    candidates.find? (fun fn =>
+      match Args.toExprsForParams? (fn.params.drop 1) args with
+      | some orderedArgs =>
+          match Parameters.matchArgsWithEnv? env fn.params
+              (receiver :: orderedArgs) with
+          | some true => true
+          | _ => false
+      | none => false)
+  let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
+  some (receiver :: orderedArgs)
+
 def UsingFunction.rewriteCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) (binding : UsingFunction) : Option Expr := do
   let (libraryPath, functionName) ← pathInitLast? binding.function
-  if functionName == method && !libraryPath.segments.isEmpty then
+  if functionName == method then
     some ()
   else
     none
-  let libraryName ← pathLast? libraryPath
-  let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-  let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl functionName
-  let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
-  if firstMatches then
-    some ()
+  if libraryPath.segments.isEmpty then
+    let orderedArgs ←
+      FunctionDecl.usingFreeFunctionArgs?
+        freeFunctions env receiver functionName args
+    some
+      (Expr.call (Expr.ident functionName)
+        (orderedArgs.map Arg.positional))
   else
-    none
-  let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-  match Parameters.matchArgsWithEnv? env fn.params (receiver :: orderedArgs) with
-  | some true =>
-      some
-        (Expr.call (Expr.ident (libraryHelperName libraryName functionName))
-          ((receiver :: orderedArgs).map Arg.positional))
-  | _ => none
+    let libraryName ← pathLast? libraryPath
+    let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
+    let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl functionName
+    let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
+    if firstMatches then
+      some ()
+    else
+      none
+    let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
+    match Parameters.matchArgsWithEnv? env fn.params
+        (receiver :: orderedArgs) with
+    | some true =>
+        some
+          (Expr.call (Expr.ident (libraryHelperName libraryName functionName))
+            ((receiver :: orderedArgs).map Arg.positional))
+    | _ => none
 
 def UsingFunctions.rewriteCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) : List UsingFunction -> Option Expr
   | [] => none
   | binding :: rest =>
       match
           UsingFunction.rewriteCall?
-            contracts env receiver method args binding with
+            contracts freeFunctions env receiver method args binding with
       | some rewritten => some rewritten
       | none =>
           UsingFunctions.rewriteCall?
-            contracts env receiver method args rest
+            contracts freeFunctions env receiver method args rest
 
 def UsingDecl.rewriteCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) (decl : UsingDecl) : Option Expr :=
   match UsingDecl.targetMatches? env receiver decl with
   | some true =>
       if !decl.functions.isEmpty then
         UsingFunctions.rewriteCall?
-          contracts env receiver method args decl.functions
+          contracts freeFunctions env receiver method args decl.functions
       else
         do
         let libraryName ← pathLast? decl.library
@@ -10454,15 +10489,18 @@ def UsingDecl.rewriteExternalCall? (contracts : List ContractDecl)
   | _ => none
 
 def UsingDecls.rewriteCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) : List UsingDecl -> Option Expr
   | [] => none
   | decl :: rest =>
       match
           UsingDecl.rewriteCall?
-            contracts env receiver method args decl with
+            contracts freeFunctions env receiver method args decl with
       | some rewritten => some rewritten
-      | none => UsingDecls.rewriteCall? contracts env receiver method args rest
+      | none =>
+          UsingDecls.rewriteCall?
+            contracts freeFunctions env receiver method args rest
 
 def UsingDecls.rewriteExternalCall? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -10514,14 +10552,18 @@ def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
 mutual
 
 def Expr.expandUsingFuel :
-    Nat -> List ContractDecl -> List UsingDecl -> TypeEnv -> Expr -> Expr
-  | 0, _, _, _, expr => expr
-  | fuel + 1, contracts, usingDecls, env, expr =>
-      let expand := Expr.expandUsingFuel fuel contracts usingDecls env
-      let expandArg := Arg.expandUsingFuel fuel contracts usingDecls env
-      let expandOption := CallOption.expandUsingFuel fuel contracts usingDecls env
+    Nat -> List ContractDecl -> List FunctionDecl -> List UsingDecl ->
+    TypeEnv -> Expr -> Expr
+  | 0, _, _, _, _, expr => expr
+  | fuel + 1, contracts, freeFunctions, usingDecls, env, expr =>
+      let expand :=
+        Expr.expandUsingFuel fuel contracts freeFunctions usingDecls env
+      let expandArg :=
+        Arg.expandUsingFuel fuel contracts freeFunctions usingDecls env
+      let expandOption :=
+        CallOption.expandUsingFuel fuel contracts freeFunctions usingDecls env
       let expandTupleItem :=
-        TupleItem.expandUsingFuel fuel contracts usingDecls env
+        TupleItem.expandUsingFuel fuel contracts freeFunctions usingDecls env
       match expr with
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name
@@ -10552,7 +10594,8 @@ def Expr.expandUsingFuel :
               | some rewritten => rewritten
               | none =>
                   match UsingDecls.rewriteCall?
-                      contracts env receiver' method args' usingDecls with
+                      contracts freeFunctions env receiver' method args'
+                      usingDecls with
                   | some rewritten => rewritten
                   | none =>
                       match UsingDecls.rewriteExternalCall?
@@ -10580,7 +10623,8 @@ def Expr.expandUsingFuel :
                   | other => other
               | none =>
                   match UsingDecls.rewriteCall?
-                      contracts env receiver' method args' usingDecls with
+                      contracts freeFunctions env receiver' method args'
+                      usingDecls with
                   | some rewritten =>
                       match rewritten with
                       | Expr.call fn args =>
@@ -10613,29 +10657,33 @@ def Expr.expandUsingFuel :
       | Expr.payableConversion inner => Expr.payableConversion (expand inner)
 
 def Arg.expandUsingFuel :
-    Nat -> List ContractDecl -> List UsingDecl -> TypeEnv -> Arg -> Arg
-  | 0, _, _, _, arg => arg
-  | fuel + 1, contracts, usingDecls, env, arg =>
-      let expand := Expr.expandUsingFuel fuel contracts usingDecls env
+    Nat -> List ContractDecl -> List FunctionDecl -> List UsingDecl ->
+    TypeEnv -> Arg -> Arg
+  | 0, _, _, _, _, arg => arg
+  | fuel + 1, contracts, freeFunctions, usingDecls, env, arg =>
+      let expand :=
+        Expr.expandUsingFuel fuel contracts freeFunctions usingDecls env
       match arg with
       | Arg.positional expr => Arg.positional (expand expr)
       | Arg.named name expr => Arg.named name (expand expr)
 
 def CallOption.expandUsingFuel :
-    Nat -> List ContractDecl -> List UsingDecl -> TypeEnv -> CallOption ->
-    CallOption
-  | 0, _, _, _, option => option
-  | fuel + 1, contracts, usingDecls, env, option =>
-      let expand := Expr.expandUsingFuel fuel contracts usingDecls env
+    Nat -> List ContractDecl -> List FunctionDecl -> List UsingDecl ->
+    TypeEnv -> CallOption -> CallOption
+  | 0, _, _, _, _, option => option
+  | fuel + 1, contracts, freeFunctions, usingDecls, env, option =>
+      let expand :=
+        Expr.expandUsingFuel fuel contracts freeFunctions usingDecls env
       match option with
       | CallOption.named name expr => CallOption.named name (expand expr)
 
 def TupleItem.expandUsingFuel :
-    Nat -> List ContractDecl -> List UsingDecl -> TypeEnv -> TupleItem ->
-    TupleItem
-  | 0, _, _, _, item => item
-  | fuel + 1, contracts, usingDecls, env, item =>
-      let expand := Expr.expandUsingFuel fuel contracts usingDecls env
+    Nat -> List ContractDecl -> List FunctionDecl -> List UsingDecl ->
+    TypeEnv -> TupleItem -> TupleItem
+  | 0, _, _, _, _, item => item
+  | fuel + 1, contracts, freeFunctions, usingDecls, env, item =>
+      let expand :=
+        Expr.expandUsingFuel fuel contracts freeFunctions usingDecls env
       match item with
       | TupleItem.hole => TupleItem.hole
       | TupleItem.value expr => TupleItem.value (expand expr)
@@ -10645,34 +10693,45 @@ end
 def defaultExpandUsingFuel : Nat := 1024
 
 def Expr.expandUsing (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv) (expr : Expr) : Expr :=
-  Expr.expandUsingFuel defaultExpandUsingFuel contracts usingDecls env expr
+  Expr.expandUsingFuel
+    defaultExpandUsingFuel contracts freeFunctions usingDecls env expr
 
 def Arg.expandUsing (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv) (arg : Arg) : Arg :=
-  Arg.expandUsingFuel defaultExpandUsingFuel contracts usingDecls env arg
+  Arg.expandUsingFuel
+    defaultExpandUsingFuel contracts freeFunctions usingDecls env arg
 
 def ModifierInvocation.expandUsing (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv)
     (invocation : ModifierInvocation) : ModifierInvocation :=
   { invocation with
-    args := invocation.args.map (Arg.expandUsing contracts usingDecls env) }
+    args :=
+      invocation.args.map
+        (Arg.expandUsing contracts freeFunctions usingDecls env) }
 
 def Stmt.expandUsingInSeqFuel :
-    Nat -> List ContractDecl -> List UsingDecl -> TypeEnv -> Stmt ->
+    Nat -> List ContractDecl -> List FunctionDecl -> List UsingDecl ->
+    TypeEnv -> Stmt ->
     Stmt × TypeEnv
-  | 0, _, _, env, stmt => (stmt, env)
-  | fuel + 1, contracts, usingDecls, env, stmt =>
-      let expandExpr := Expr.expandUsingFuel fuel contracts usingDecls env
+  | 0, _, _, _, env, stmt => (stmt, env)
+  | fuel + 1, contracts, freeFunctions, usingDecls, env, stmt =>
+      let expandExpr :=
+        Expr.expandUsingFuel fuel contracts freeFunctions usingDecls env
       let expandStmt (child : Stmt) :=
-        (Stmt.expandUsingInSeqFuel fuel contracts usingDecls env child).fst
+        (Stmt.expandUsingInSeqFuel
+          fuel contracts freeFunctions usingDecls env child).fst
       let expandSeq (seqEnv : TypeEnv) (body : List Stmt) :
           List Stmt × TypeEnv :=
         let step (acc : List Stmt × TypeEnv) (head : Stmt) :
             List Stmt × TypeEnv :=
           let (done, seqEnv) := acc
           let (head', seqEnv') :=
-            Stmt.expandUsingInSeqFuel fuel contracts usingDecls seqEnv head
+            Stmt.expandUsingInSeqFuel
+              fuel contracts freeFunctions usingDecls seqEnv head
           (head' :: done, seqEnv')
         let (revBody, finalEnv) :=
           body.foldl step (([] : List Stmt), seqEnv)
@@ -10682,7 +10741,7 @@ def Stmt.expandUsingInSeqFuel :
             let clauseEnv := Parameters.extendTypeEnv "_catch" env params
             CatchClause.clause name params
               ((Stmt.expandUsingInSeqFuel
-                fuel contracts usingDecls clauseEnv body).fst)
+                fuel contracts freeFunctions usingDecls clauseEnv body).fst)
       match stmt with
       | Stmt.empty => (Stmt.empty, env)
       | Stmt.block body =>
@@ -10706,14 +10765,15 @@ def Stmt.expandUsingInSeqFuel :
             | some initStmt =>
                 let (stmt', env') :=
                   Stmt.expandUsingInSeqFuel
-                    fuel contracts usingDecls env initStmt
+                    fuel contracts freeFunctions usingDecls env initStmt
                 (some stmt', env')
             | none => (none, env)
           let expandLoopExpr :=
-            Expr.expandUsingFuel fuel contracts usingDecls loopEnv
+            Expr.expandUsingFuel
+              fuel contracts freeFunctions usingDecls loopEnv
           let body' :=
             (Stmt.expandUsingInSeqFuel
-              fuel contracts usingDecls loopEnv body).fst
+              fuel contracts freeFunctions usingDecls loopEnv body).fst
           (Stmt.forLoop init' (cond.map expandLoopExpr)
             (post.map expandLoopExpr) body', env)
       | Stmt.tryCatch expr clauses =>
@@ -10722,7 +10782,7 @@ def Stmt.expandUsingInSeqFuel :
           let successEnv := Parameters.extendTypeEnv "_try" env returns
           let success' :=
             (Stmt.expandUsingInSeqFuel
-              fuel contracts usingDecls successEnv success).fst
+              fuel contracts freeFunctions usingDecls successEnv success).fst
           (Stmt.tryCatchReturns (expandExpr expr) returns success'
             (clauses.map expandClause), env)
       | Stmt.emitEvent expr => (Stmt.emitEvent (expandExpr expr), env)
@@ -10736,17 +10796,20 @@ def Stmt.expandUsingInSeqFuel :
       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, env)
 
 def Stmt.expandUsing (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv) (stmt : Stmt) : Stmt :=
   (Stmt.expandUsingInSeqFuel
-    defaultExpandUsingFuel contracts usingDecls env stmt).fst
+    defaultExpandUsingFuel contracts freeFunctions usingDecls env stmt).fst
 
 def ModifierDecl.expandUsing (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv)
     (decl : ModifierDecl) : ModifierDecl :=
   let modifierEnv := Parameters.extendTypeEnv "_mod" env decl.params
   { decl with
     body := decl.body.map
-      (fun body => Stmt.expandUsing contracts usingDecls modifierEnv body) }
+      (fun body =>
+        Stmt.expandUsing contracts freeFunctions usingDecls modifierEnv body) }
 
 def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     (extraEnv : TypeEnv)
@@ -10773,18 +10836,19 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       body
     else
-      Stmt.expandUsing contracts usingDecls env body
+      Stmt.expandUsing contracts freeFunctions usingDecls env body
   let modifiers :=
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       modifiers
     else
-      modifiers.map (ModifierDecl.expandUsing contracts usingDecls env)
+      modifiers.map
+        (ModifierDecl.expandUsing contracts freeFunctions usingDecls env)
   let modifierInvocations :=
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       decl.modifiers
     else
       decl.modifiers.map
-        (ModifierInvocation.expandUsing contracts usingDecls env)
+        (ModifierInvocation.expandUsing contracts freeFunctions usingDecls env)
   let body :=
     match contractName? with
     | some contractName => Stmt.rewriteSuperCalls contractName body
@@ -11843,12 +11907,13 @@ def ContractDecl.constructorBodyForDeployment?
         if usingDecls.isEmpty && !ContractDecls.hasLibrary allContracts then
           body
         else
-          Stmt.expandUsing allContracts usingDecls env body
+          Stmt.expandUsing allContracts freeFunctions usingDecls env body
       let modifiers :=
         if usingDecls.isEmpty && !ContractDecls.hasLibrary allContracts then
           modifiers
         else
-          modifiers.map (ModifierDecl.expandUsing allContracts usingDecls env)
+          modifiers.map
+            (ModifierDecl.expandUsing allContracts freeFunctions usingDecls env)
       let body := Stmt.annotateAbi env body
       let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] ctor.params
       let ctorModifiers :=
@@ -11859,7 +11924,8 @@ def ContractDecl.constructorBodyForDeployment?
           ctorModifiers
         else
           ctorModifiers.map
-            (ModifierInvocation.expandUsing allContracts usingDecls env)
+            (ModifierInvocation.expandUsing
+              allContracts freeFunctions usingDecls env)
       let bodyCore ←
         functionExpandModifiersToCoreWithInternalCallsFull?
           defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
@@ -31705,6 +31771,36 @@ def usingExplicitFunctionContract : ContractDecl :=
                       [Arg.positional
                         (Expr.literal (Literal.number "2"))]))) } ] }
 
+def usingFreeIncFunction : FunctionDecl :=
+  { name := some "freeInc"
+    params := [{ name := some "self", ty := Ty.uint 256 }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.binary BinaryOp.add
+              (Expr.ident "self")
+              (Expr.literal (Literal.number "1"))))) }
+
+def usingExplicitFreeFunctionContract : ContractDecl :=
+  { name := "UsingExplicitFreeFunction"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := [] }
+            functions := [{ function := { segments := ["freeInc"] } }]
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call (Expr.member (Expr.ident "x") "freeInc")
+                      []))) } ] }
+
 def usingNamedDirectContract : ContractDecl :=
   { name := "UsingNamedDirect"
     items :=
@@ -31724,6 +31820,7 @@ def usingNamedDirectContract : ContractDecl :=
 def usingLibraryUnit : SourceUnit :=
   { items :=
       [ SourceItem.contract usingMathLibrary
+      , SourceItem.freeFunction usingFreeIncFunction
       , SourceItem.contract usingMethodContract
       , SourceItem.contract usingDirectContract
       , SourceItem.usingDecl
@@ -31733,6 +31830,7 @@ def usingLibraryUnit : SourceUnit :=
       , SourceItem.contract usingStorageContract
       , SourceItem.contract usingNamedMethodContract
       , SourceItem.contract usingExplicitFunctionContract
+      , SourceItem.contract usingExplicitFreeFunctionContract
       , SourceItem.contract usingNamedDirectContract ] }
 
 def usingLibraryMethodMatches : Option Bool := do
@@ -31804,6 +31902,18 @@ def usingExplicitFunctionMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def usingExplicitFreeFunctionMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 32 usingLibraryUnit "UsingExplicitFreeFunction"
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 8]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 9)
   | _ => some false
 
 def usingNamedDirectCallMatches : Option Bool := do

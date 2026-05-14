@@ -2119,18 +2119,24 @@ def UsingFunction.memberCandidates (env : CheckEnv)
     match L00_SourceSolidity.Executable.pathInitLast? binding.function with
     | some parts => Except.ok parts
     | none => Except.error (TypeError.unknownFunction member)
-  if functionName == member && !libraryPath.segments.isEmpty then
-    let libraryDecl ←
-      match env.types.lookupContractDecl? libraryPath with
-      | some libraryDecl => Except.ok libraryDecl
-      | none => Except.error (TypeError.unknownType libraryPath)
-    require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
-      (TypeError.invalidContractHeader "using target is not a library")
-    Except.ok
-      (FunctionSigs.usingMemberCandidates env.types receiver member
-        ((FunctionSigs.nonPrivate
-          (ContractDecl.directFunctionSigs libraryDecl)).filter
+  if functionName == member then
+    if libraryPath.segments.isEmpty then
+      Except.ok
+        (FunctionSigs.usingMemberCandidates env.types receiver member
+          ((FunctionSigs.nonPrivate env.functions).filter
             (fun sig => sig.name == functionName)))
+    else
+      let libraryDecl ←
+        match env.types.lookupContractDecl? libraryPath with
+        | some libraryDecl => Except.ok libraryDecl
+        | none => Except.error (TypeError.unknownType libraryPath)
+      require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+        (TypeError.invalidContractHeader "using target is not a library")
+      Except.ok
+        (FunctionSigs.usingMemberCandidates env.types receiver member
+          ((FunctionSigs.nonPrivate
+            (ContractDecl.directFunctionSigs libraryDecl)).filter
+              (fun sig => sig.name == functionName)))
   else
     Except.ok []
 
@@ -5946,19 +5952,22 @@ def UsingFunction.check (env : CheckEnv)
     match L00_SourceSolidity.Executable.pathInitLast? binding.function with
     | some parts => Except.ok parts
     | none => Except.error (TypeError.unknownFunction "")
-  require (!libraryPath.segments.isEmpty)
-    (TypeError.invalidContractHeader
-      "explicit using function must be library-qualified")
-  let libraryDecl ←
-    match env.types.lookupContractDecl? libraryPath with
-    | some libraryDecl => Except.ok libraryDecl
-    | none => Except.error (TypeError.unknownType libraryPath)
-  require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
-    (TypeError.invalidContractHeader "using target is not a library")
-  let candidates :=
-    (FunctionSigs.nonPrivate
-      (ContractDecl.directFunctionSigs libraryDecl)).filter
-        (fun sig => sig.name == functionName)
+  let candidates ←
+    if libraryPath.segments.isEmpty then
+      Except.ok
+        ((FunctionSigs.nonPrivate env.functions).filter
+          (fun sig => sig.name == functionName))
+    else
+      let libraryDecl ←
+        match env.types.lookupContractDecl? libraryPath with
+        | some libraryDecl => Except.ok libraryDecl
+        | none => Except.error (TypeError.unknownType libraryPath)
+      require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+        (TypeError.invalidContractHeader "using target is not a library")
+      Except.ok
+        ((FunctionSigs.nonPrivate
+          (ContractDecl.directFunctionSigs libraryDecl)).filter
+            (fun sig => sig.name == functionName))
   require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
 
 def UsingFunctions.check (env : CheckEnv) :
@@ -12362,6 +12371,60 @@ def explicitUsingLibraryMethodSource : L00_SourceSolidity.SourceUnit :=
 
 def explicitUsingLibraryMethodAccepted : Bool :=
   sourceUnitAccepted? explicitUsingLibraryMethodSource
+
+def freeUsingPlusOneFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "freeInc"
+    params := [{ name := some "self", ty := uint256, location := none }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.add
+              (L00_SourceSolidity.Expr.ident "self")
+              (numberExpr "1")))) }
+
+def usingFreeFunctionMethodFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "usingFreeFunction"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member (numberExpr "3") "freeInc")
+              []))) }
+
+def explicitUsingFreeFunctionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeFunction
+          freeUsingPlusOneFunction
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["freeInc"] } }]
+            target := some uint256 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ExplicitUsingFree"
+            items := [L00_SourceSolidity.ContractItem.function
+              usingFreeFunctionMethodFunction] } ] }
+
+def explicitUsingFreeFunctionAccepted : Bool :=
+  sourceUnitAccepted? explicitUsingFreeFunctionSource
+
+def badExplicitUsingFreeFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["missingFree"] } }]
+            target := some uint256 } ] }
+
+def badExplicitUsingFreeFunctionRejected : Bool :=
+  Result.isError (SourceUnit.check badExplicitUsingFreeFunctionSource)
 
 def badExplicitUsingFunctionSource : L00_SourceSolidity.SourceUnit :=
   { items :=
