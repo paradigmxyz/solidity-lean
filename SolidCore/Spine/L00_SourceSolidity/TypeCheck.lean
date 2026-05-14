@@ -9385,6 +9385,64 @@ def internalEmitArgumentCallSource : L00_SourceSolidity.SourceUnit :=
 def internalEmitArgumentCallAccepted : Bool :=
   sourceUnitAccepted? internalEmitArgumentCallSource
 
+def internalRevertArgumentCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalRevertArgumentCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  { name := "Bad"
+                    params :=
+                      [{ name := some "value"
+                         ty := uint256
+                         location := none }] }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "value"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "7"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "run"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.revertCall
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "Bad")
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident "value")
+                                    [])])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+
+def internalRevertArgumentCallAccepted : Bool :=
+  sourceUnitAccepted? internalRevertArgumentCallSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"
