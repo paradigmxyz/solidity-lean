@@ -483,10 +483,18 @@ structure AbiCallResult where
 def AbiCallResult.clearTransient (result : AbiCallResult) : AbiCallResult :=
   { result with state := result.state.clearTransient }
 
-def Contract.rejectedValueCall? (contract : Contract)
+def Contract.revertedEmptyCall? (contract : Contract)
     (state : State) : Option AbiCallResult := do
   let output ← Contract.encodeRevertData? contract RevertData.empty
   some { success := false, output, state := state }
+
+def Contract.rejectedValueCall? (contract : Contract)
+    (state : State) : Option AbiCallResult :=
+  Contract.revertedEmptyCall? contract state
+
+def Contract.missingFallbackCall? (contract : Contract)
+    (state : State) : Option AbiCallResult :=
+  Contract.revertedEmptyCall? contract state
 
 def Contract.findReceive? (contract : Contract) : Option FunctionDef :=
   contract.findFunctionByName? "__receive"
@@ -526,21 +534,24 @@ def Contract.callContext (contract : Contract)
 
 def Contract.callFallbackAtFrom? (fuel : Nat) (contract : Contract)
     (state : State) (self sender value : Word) (calldata : Bytes) :
-    Option AbiCallResult := do
-  let function ← Contract.findFallback? contract
-  let args ← FunctionDef.fallbackArgs? function calldata
-  let context := Contract.callContextAt contract self sender value calldata
-  if function.acceptsValue value then
-    match FunctionDef.call? fuel context function state args with
-    | some (CallResult.returned state' values) => do
-        let output ← FunctionDef.encodeFallbackOutput? function values
-        some { success := true, output, state := state' }
-    | some (CallResult.reverted state' revert) => do
-        let output ← Contract.encodeRevertData? contract revert
-        some { success := false, output, state := state' }
-    | none => none
-  else
-    Contract.rejectedValueCall? contract state
+    Option AbiCallResult :=
+  match Contract.findFallback? contract with
+  | some function => do
+      let args ← FunctionDef.fallbackArgs? function calldata
+      let context := Contract.callContextAt contract self sender value calldata
+      if function.acceptsValue value then
+        match FunctionDef.call? fuel context function state args with
+        | some (CallResult.returned state' values) => do
+            let output ← FunctionDef.encodeFallbackOutput? function values
+            some { success := true, output, state := state' }
+        | some (CallResult.reverted state' revert) => do
+            let output ← Contract.encodeRevertData? contract revert
+            some { success := false, output, state := state' }
+        | none => none
+      else
+        Contract.rejectedValueCall? contract state
+  | none =>
+      Contract.missingFallbackCall? contract state
 
 def Contract.callFallbackFrom? (fuel : Nat) (contract : Contract)
     (state : State) (sender value : Word) (calldata : Bytes) :

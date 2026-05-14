@@ -20013,6 +20013,74 @@ def payableFallbackValueDispatchMatches : Option Bool := do
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 33 &&
       result.output == [])
 
+def payableFallbackPlainEtherDispatchResult :
+    Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
+  let contract ← ContractDecl.toCore? payableFallbackValueContract
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
+    16 contract SolidCore.Solidity.Source.State.empty
+    0xabc 44 []
+
+def payableFallbackPlainEtherDispatchMatches : Option Bool := do
+  let result ← payableFallbackPlainEtherDispatchResult
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 44 &&
+      result.output == [])
+
+def nonpayableFallbackRejectsValueDispatchResult :
+    Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
+  let contract ← ContractDecl.toCore? fallbackReceiveContract
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
+    16 contract SolidCore.Solidity.Source.State.empty
+    0xabc 1 [0xff, 0xff, 0xff, 0xff]
+
+def nonpayableFallbackRejectsValueDispatchMatches : Option Bool := do
+  let result ← nonpayableFallbackRejectsValueDispatchResult
+  some
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def missingFallbackContract : ContractDecl :=
+  { name := "MissingFallback"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "touch"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.assign
+                    (Expr.literal (Literal.number "9")))) } ] }
+
+def missingFallbackSelectorDispatchResult :
+    Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
+  let contract ← ContractDecl.toCore? missingFallbackContract
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
+    16 contract SolidCore.Solidity.Source.State.empty
+    0xabc 0 [0xde, 0xad, 0xbe, 0xef]
+
+def missingFallbackSelectorDispatchMatches : Option Bool := do
+  let result ← missingFallbackSelectorDispatchResult
+  some
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def missingReceiveFallbackPlainEtherDispatchResult :
+    Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
+  let contract ← ContractDecl.toCore? missingFallbackContract
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
+    16 contract SolidCore.Solidity.Source.State.empty
+    0xabc 1 []
+
+def missingReceiveFallbackPlainEtherDispatchMatches : Option Bool := do
+  let result ← missingReceiveFallbackPlainEtherDispatchResult
+  some
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
 def payableFunctionValueContract : ContractDecl :=
   { name := "PayableValue"
     items :=
