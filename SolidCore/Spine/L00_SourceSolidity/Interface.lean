@@ -9741,12 +9741,31 @@ def ContractDecl.toCoreStorageFieldsFrom (transient : Bool)
     (stateVars : List StateVarDecl) : List CoreStorageField :=
   ContractDecl.toCoreStorageFieldsFromSlot transient 0 stateVars
 
+def Expr.layoutBaseSlotValue? : Expr -> Option Word
+  | expr =>
+      match Expr.numberLiteralNat? expr with
+      | some value => some value
+      | none =>
+          match expr with
+          | Expr.call (Expr.ident "erc7201") [Arg.positional _] => do
+              let core ← Expr.toCore? [] expr
+              match SolidCore.Solidity.Source.Expr.eval
+                  SolidCore.Solidity.Source.Context.empty
+                  (SolidCore.Solidity.Source.Runtime.ofState
+                    SolidCore.Solidity.Source.State.empty)
+                  core with
+              | Except.ok (SolidCore.Solidity.Source.Value.word value) =>
+                  some value
+              | _ => none
+          | _ => none
+
 def ContractDecl.layoutBaseSlot? (constants : ConstantEnv)
     (decl : ContractDecl) : Option Word :=
   match decl.layoutBase with
   | none => some 0
   | some expr => do
-      let value ← Expr.numberLiteralNat? (Expr.inlineConstants constants expr)
+      let expr := Expr.inlineConstants constants expr
+      let value ← Expr.layoutBaseSlotValue? expr
       if value < SharedSemantics.wordModulus then
         some value
       else
@@ -23376,6 +23395,65 @@ def customStorageLayoutInitMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq (state.loadSlot 5) 7 &&
           SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 11)
   | _ => some false
+
+def erc7201StorageLayoutContract : ContractDecl :=
+  { name := "Erc7201Layout"
+    layoutBase :=
+      some
+        (Expr.call (Expr.ident "erc7201")
+          [Arg.positional
+            (Expr.literal (Literal.string "example.main"))])
+    items :=
+      [ ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            init := some (Expr.literal (Literal.number "7")) } ] }
+
+def erc7201StorageLayoutUnit : SourceUnit :=
+  { items := [SourceItem.contract erc7201StorageLayoutContract] }
+
+def erc7201StorageLayoutSlot : Word :=
+  SolidCore.Solidity.Source.erc7201Slot
+    (stringUtf8Bytes "example.main")
+
+def erc7201StorageLayoutFieldsMatch : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? erc7201StorageLayoutUnit
+    "Erc7201Layout"
+  match contract.storageFields with
+  | [x] =>
+      some
+        (x.name == "x" &&
+          SolidCore.Solidity.Source.wordEq x.slot
+            erc7201StorageLayoutSlot)
+  | _ => some false
+
+def erc7201StorageLayoutInitMatches : Option Bool := do
+  let result ←
+    SourceUnit.constructContract? 32 erc7201StorageLayoutUnit
+      "Erc7201Layout" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      some
+        (SolidCore.Solidity.Source.wordEq
+          (state.loadSlot erc7201StorageLayoutSlot) 7)
+  | _ => some false
+
+def keccakStorageLayoutRejected : Option Bool :=
+  match SourceUnit.toCoreContract?
+      { items :=
+          [ SourceItem.contract
+              { name := "KeccakLayout"
+                layoutBase :=
+                  some
+                    (Expr.call (Expr.ident "keccak256")
+                      [Arg.positional
+                        (Expr.literal (Literal.string "example.main"))])
+                items :=
+                  [ContractItem.stateVar
+                    { name := "x", ty := Ty.uint 256 }] } ] }
+      "KeccakLayout" with
+  | none => some true
+  | some _ => some false
 
 def inheritedConstructorDeployResult : Option CoreCallResult :=
   SourceUnit.constructContract? 16 inheritanceUnit "Derived"

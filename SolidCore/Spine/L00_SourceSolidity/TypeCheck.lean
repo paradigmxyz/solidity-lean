@@ -2316,6 +2316,13 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         payload.expectBytesLike
         Except.ok (some (L00_SourceSolidity.Ty.bytesN 32))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
+  else if name == "erc7201" then do
+    requireNoNamedArgs name argInfos
+    match checkedArgs with
+    | [id] => do
+        id.expectStringLike
+        Except.ok (some (L00_SourceSolidity.Ty.uint 256))
+    | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "ripemd160" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
@@ -3861,7 +3868,8 @@ end
 
 def constantBuiltinIdentCallAllowed (name : Name) : Bool :=
   name == "keccak256" || name == "sha256" || name == "ripemd160" ||
-    name == "ecrecover" || name == "addmod" || name == "mulmod"
+    name == "ecrecover" || name == "addmod" || name == "mulmod" ||
+    name == "erc7201"
 
 def constantAbiMemberCallAllowed (member : Name) : Bool :=
   member == "encode" || member == "encodePacked" ||
@@ -3983,6 +3991,27 @@ end
 def Expr.isCompileTimeConstant (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) : Bool :=
   exprIsCompileTimeConstant env expr
+
+def exprIsStorageLayoutBaseComptime (env : CheckEnv) :
+    L00_SourceSolidity.Expr -> Bool
+  | L00_SourceSolidity.Expr.literal (L00_SourceSolidity.Literal.number _) =>
+      true
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.unitNumber _ _) => true
+  | L00_SourceSolidity.Expr.ident name => env.isConstantName name
+  | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident "erc7201")
+      [L00_SourceSolidity.Arg.positional id] =>
+      exprIsCompileTimeConstant env id
+  | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
+      exprIsStorageLayoutBaseComptime env inner
+  | L00_SourceSolidity.Expr.binary _ lhs rhs =>
+      exprIsStorageLayoutBaseComptime env lhs &&
+        exprIsStorageLayoutBaseComptime env rhs
+  | _ => false
+
+def Expr.isStorageLayoutBaseComptime (env : CheckEnv)
+    (expr : L00_SourceSolidity.Expr) : Bool :=
+  exprIsStorageLayoutBaseComptime env expr
 
 def Exprs.allCompileTimeConstant (env : CheckEnv)
     (exprs : List L00_SourceSolidity.Expr) : Bool :=
@@ -5956,7 +5985,7 @@ def ContractDecl.checkStorageLayoutBase (env : CheckEnv)
       require (!contract.abstract)
         (TypeError.invalidContractHeader
           "storage layout on abstract contract")
-      require (Expr.isCompileTimeConstant env expr)
+      require (Expr.isStorageLayoutBaseComptime env expr)
         (TypeError.invalidContractHeader
           "storage layout base is not compile-time constant")
       let checked ← checkExpr env expr
@@ -10023,6 +10052,66 @@ def storageLayoutAcceptedSource : L00_SourceSolidity.SourceUnit :=
 
 def storageLayoutAccepted : Bool :=
   sourceUnitAccepted? storageLayoutAcceptedSource
+
+def erc7201StorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Erc7201StorageLayout"
+            layoutBase :=
+              some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "erc7201")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.string
+                          "example.main")) ])
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def erc7201StorageLayoutAccepted : Bool :=
+  sourceUnitAccepted? erc7201StorageLayoutSource
+
+def badErc7201StorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadErc7201StorageLayout"
+            layoutBase :=
+              some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "erc7201")
+                  [L00_SourceSolidity.Arg.positional (numberExpr "1")])
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def badErc7201StorageLayoutRejected : Bool :=
+  Result.isError (SourceUnit.check badErc7201StorageLayoutSource)
+
+def badKeccakStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadKeccakStorageLayout"
+            layoutBase :=
+              some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "keccak256")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.string
+                          "example.main")) ])
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def badKeccakStorageLayoutRejected : Bool :=
+  Result.isError (SourceUnit.check badKeccakStorageLayoutSource)
 
 def inheritedStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
   { items :=
