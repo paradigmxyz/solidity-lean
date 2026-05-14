@@ -7131,6 +7131,25 @@ def Expr.localStorageArrayMemberStmtCore?
 
 def defaultInternalCallInlineFuel : Nat := 64
 
+def Ty.internalCallConversionCore? (targetTy : Ty) :
+    Option (CoreExpr -> CoreExpr) :=
+  match targetTy with
+  | Ty.bool => some id
+  | Ty.address _ => some id
+  | Ty.uint bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (fun expr => SolidCore.Solidity.Source.Expr.uintCast bits expr)
+      else
+        none
+  | Ty.int bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (fun expr => SolidCore.Solidity.Source.Expr.intCast bits expr)
+      else
+        none
+  | _ => none
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -7361,6 +7380,24 @@ def FunctionDecl.internalUnarySingleReturnUseCore?
         (fun retExpr =>
           useResult
             (SolidCore.Solidity.Source.Expr.unary coreOp retExpr))
+  | _ => none
+termination_by (internalFuel, 0, 2)
+
+def FunctionDecl.internalTypeConversionSingleReturnUseCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (targetTy : Ty) (expr : Expr) (useResult : CoreExpr -> CoreStmt) :
+    Option CoreStmt :=
+  match expr with
+  | Expr.call (Expr.ident name) args => do
+      let convert ← Ty.internalCallConversionCore? targetTy
+      FunctionDecl.internalSingleReturnCallCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions name args
+        (fun retExpr => useResult (convert retExpr))
   | _ => none
 termination_by (internalFuel, 0, 2)
 
@@ -7957,6 +7994,26 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
       (Expr.assign target AssignOp.assign
+        (Expr.call (Expr.typeName targetTy)
+          [Arg.positional inner])) =>
+      let fallback :=
+        Stmt.expr
+          (Expr.assign target AssignOp.assign
+            (Expr.call (Expr.typeName targetTy)
+              [Arg.positional inner]))
+      match Expr.toCoreLValue? storageNames target with
+      | some targetCore =>
+          match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions targetTy inner
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  targetCore resultExpr) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames fallback
+      | none => Stmt.toCore? storageNames fallback
+  | Stmt.expr
+      (Expr.assign target AssignOp.assign
         (Expr.binary op lhs rhs)) =>
       let fallback :=
         Stmt.expr
@@ -7983,6 +8040,31 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           match FunctionDecl.internalBinarySingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions op lhs rhs
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  resultExpr) with
+          | some assignBlock => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [declCore, assignBlock])
+          | none => Stmt.toCore? storageNames fallback
+      | none => Stmt.toCore? storageNames fallback
+  | Stmt.varDecl [binding]
+      (some (Expr.call (Expr.typeName targetTy)
+        [Arg.positional inner])) =>
+      let fallback :=
+        Stmt.varDecl [binding]
+          (some
+            (Expr.call (Expr.typeName targetTy)
+              [Arg.positional inner]))
+      match binding.name with
+      | some localName =>
+          match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions targetTy inner
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
@@ -8608,6 +8690,21 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                       lhsCoreTy lhsTmp (some lhsCore)
                   , coreStmt ])
           | none => Stmt.toCore? storageNames fallback
+  | Stmt.returnValues
+      (some (Expr.call (Expr.typeName targetTy)
+        [Arg.positional inner])) =>
+      let fallback :=
+        Stmt.returnValues
+          (some
+            (Expr.call (Expr.typeName targetTy)
+              [Arg.positional inner]))
+      match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions targetTy inner
+          (fun resultExpr =>
+            SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames fallback
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.externalCallReturnCoreWithKindEnv?
           storageNames env externalCallKindEnv returnTys expr with
@@ -9195,6 +9292,77 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               (returnTys := returnTys)
               (stmt := Stmt.varDecl [binding]
                 (some (Expr.unary op expr)))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+  | Stmt.varDecl [binding]
+      (some (Expr.call (Expr.typeName targetTy)
+        [Arg.positional inner])) :: rest =>
+      match binding.name with
+      | some localName =>
+          match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions targetTy inner
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  resultExpr) with
+          | some assignBlock => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (declCore :: assignBlock :: tail)
+          | none => do
+              let head ←
+                Stmt.toCoreWithInternalCalls?
+                  (internalFuel := internalFuel)
+                  (storageRefEnv := storageRefEnv)
+                  (env := env)
+                  (externalCallKindEnv := externalCallKindEnv)
+                  (storageNames := storageNames)
+                  (modifiers := modifiers)
+                  (functions := functions)
+                  (freeFunctions := freeFunctions)
+                  (returnTys := returnTys)
+                  (stmt := Stmt.varDecl [binding]
+                    (some
+                      (Expr.call (Expr.typeName targetTy)
+                        [Arg.positional inner])))
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := Stmt.varDecl [binding]
+                (some
+                  (Expr.call (Expr.typeName targetTy)
+                    [Arg.positional inner])))
           let tail ←
             Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
@@ -31514,6 +31682,149 @@ def usingNamedDirectCallMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def globalPriceMathLibrary : ContractDecl :=
+  { name := "GlobalPriceMath"
+    kind := ContractKind.library
+    items :=
+      [ ContractItem.function
+          { name := some "inc"
+            visibility := some Visibility.internal_
+            params := [{ name := some "self", ty := priceTy }]
+            returns := [{ name := some "out", ty := priceTy }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.typeName priceTy) "wrap")
+                      [ Arg.positional
+                          (Expr.binary BinaryOp.add
+                            (Expr.call
+                              (Expr.member (Expr.typeName priceTy)
+                                "unwrap")
+                              [Arg.positional (Expr.ident "self")])
+                            (Expr.literal (Literal.number "1"))) ]))) } ] }
+
+def globalUsingPriceContract : ContractDecl :=
+  { name := "GlobalUsingPrice"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            params := [{ name := some "raw", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "price", ty := some priceTy }]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "wrap")
+                          [Arg.positional (Expr.ident "raw")]))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "unwrap")
+                          [ Arg.positional
+                              (Expr.call
+                                (Expr.member (Expr.ident "price") "inc")
+                                []) ])) ]) }
+      , ContractItem.function
+          { name := some "runLocal"
+            params := [{ name := some "raw", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "price", ty := some priceTy }]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "wrap")
+                          [Arg.positional (Expr.ident "raw")]))
+                  , Stmt.varDecl
+                      [{ name := some "bumped", ty := some (Ty.uint 256) }]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "unwrap")
+                          [ Arg.positional
+                              (Expr.call
+                                (Expr.member (Expr.ident "price") "inc")
+                                []) ]))
+                  , Stmt.returnValues (some (Expr.ident "bumped")) ]) }
+      , ContractItem.function
+          { name := some "runAssign"
+            params := [{ name := some "raw", ty := Ty.uint 256 }]
+            returns := [{ name := none, ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "price", ty := some priceTy }]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "wrap")
+                          [Arg.positional (Expr.ident "raw")]))
+                  , Stmt.varDecl
+                      [{ name := some "bumped", ty := some (Ty.uint 256) }]
+                      none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "bumped") AssignOp.assign
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "unwrap")
+                          [ Arg.positional
+                              (Expr.call
+                                (Expr.member (Expr.ident "price") "inc")
+                                []) ]))
+                  , Stmt.returnValues (some (Expr.ident "bumped")) ]) }
+      ] }
+
+def globalUsingPriceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeUserValueType priceTypeDecl
+      , SourceItem.contract globalPriceMathLibrary
+      , SourceItem.usingDecl
+          { library := { segments := ["GlobalPriceMath"] }
+            target := some priceTy
+            global := true }
+      , SourceItem.contract globalUsingPriceContract ] }
+
+def globalUsingPriceMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 48 globalUsingPriceUnit "GlobalUsingPrice"
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 41]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def globalUsingPriceLocalMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 48 globalUsingPriceUnit "GlobalUsingPrice"
+      (SolidCore.Solidity.Source.CallTarget.name "runLocal")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 9]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 10)
+  | _ => some false
+
+def globalUsingPriceAssignMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 48 globalUsingPriceUnit "GlobalUsingPrice"
+      (SolidCore.Solidity.Source.CallTarget.name "runAssign")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 17]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 18)
   | _ => some false
 
 def externalLibraryMath : ContractDecl :=

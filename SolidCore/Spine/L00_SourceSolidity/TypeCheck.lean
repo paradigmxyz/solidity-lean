@@ -17236,6 +17236,122 @@ def badUserValueUnwrapSource : L00_SourceSolidity.SourceUnit :=
 def badUserValueUnwrapRejected : Bool :=
   Result.isError (SourceUnit.check badUserValueUnwrapSource)
 
+def priceMathPlusOneFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "inc"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    params :=
+      [{ name := some "self"
+         ty := priceTy
+         location := none }]
+    returns :=
+      [{ name := some "out"
+         ty := priceTy
+         location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.binary
+                    L00_SourceSolidity.BinaryOp.add
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.typeName priceTy)
+                        "unwrap")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "self")])
+                    (numberExpr "1")) ]))) }
+
+def priceMathLibrary : L00_SourceSolidity.ContractDecl :=
+  { kind := L00_SourceSolidity.ContractKind.library
+    name := "PriceMath"
+    items :=
+      [L00_SourceSolidity.ContractItem.function
+        priceMathPlusOneFunction] }
+
+def globalUsingPriceFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "run"
+    params :=
+      [{ name := some "raw"
+         ty := uint256
+         location := none }]
+    returns :=
+      [{ name := some "out"
+         ty := uint256
+         location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "price"
+                 ty := some priceTy
+                 location := none }]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "raw")]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.typeName priceTy) "unwrap")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.ident "price") "inc")
+                        []) ])) ]) }
+
+def globalUsingPriceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.contract priceMathLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "PriceMath"
+            target := some priceTy
+            global := true }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "GlobalUsingPrice"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                globalUsingPriceFunction] } ] }
+
+def globalUsingPriceAccepted : Bool :=
+  sourceUnitAccepted? globalUsingPriceSource
+
+def contractGlobalUsingSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.contract priceMathLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadContractGlobalUsing"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "PriceMath"
+                    target := some priceTy
+                    global := true } ] } ] }
+
+def contractGlobalUsingRejected : Bool :=
+  Result.isError (SourceUnit.check contractGlobalUsingSource)
+
+def globalUsingNonUserValueSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.contract priceMathLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "PriceMath"
+            target := some uint256
+            global := true } ] }
+
+def globalUsingNonUserValueRejected : Bool :=
+  Result.isError (SourceUnit.check globalUsingNonUserValueSource)
+
 def bytesReturnFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     returns :=
