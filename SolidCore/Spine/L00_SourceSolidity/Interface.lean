@@ -15989,6 +15989,50 @@ def addmodZeroModulusResult : Option CoreResult :=
       SolidCore.Solidity.Source.State.empty)
     addmodZeroModulusStatement
 
+def modularArithmeticVariableModulusFunction
+    (name builtin : Name) : FunctionDecl :=
+  { name := some name
+    params := [{ name := some "modulus", ty := Ty.uint 256 }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call (Expr.ident builtin)
+              [ Arg.positional (Expr.literal (Literal.number "1"))
+              , Arg.positional (Expr.literal (Literal.number "2"))
+              , Arg.positional (Expr.ident "modulus") ]))) }
+
+def addmodVariableZeroModulusFunction : FunctionDecl :=
+  modularArithmeticVariableModulusFunction "addmodZero" "addmod"
+
+def addmodVariableZeroModulusPanics : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      addmodVariableZeroModulusFunction
+      [SolidCore.Solidity.Source.Value.word 0]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x12)
+  | _ => some false
+
+def mulmodVariableZeroModulusFunction : FunctionDecl :=
+  modularArithmeticVariableModulusFunction "mulmodZero" "mulmod"
+
+def mulmodVariableZeroModulusPanics : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      mulmodVariableZeroModulusFunction
+      [SolidCore.Solidity.Source.Value.word 0]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x12)
+  | _ => some false
+
 def keccakBuiltinFunction : FunctionDecl :=
   { name := some "hash"
     returns := [{ name := some "out", ty := Ty.bytesN 32 }]

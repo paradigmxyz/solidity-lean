@@ -762,6 +762,14 @@ def implicitLiteralFits (target : Ty)
       | some _ => true
       | none => false
 
+def exprIsUint256ZeroLiteral (expr : L00_SourceSolidity.Expr) : Bool :=
+  match
+      L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs?
+        (L00_SourceSolidity.Ty.uint 256) expr with
+  | some (SolidCore.Solidity.Source.Expr.word value) =>
+      SolidCore.Solidity.Source.wordEq value 0
+  | _ => false
+
 def Ty.canExplicitlyConvert (types : TypeContext)
     (sourceExpr : L00_SourceSolidity.Expr) (actual target : Ty) : Bool :=
   if actual == target then
@@ -2845,6 +2853,8 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         lhs.expectInteger
         rhs.expectInteger
         modulus.expectInteger
+        require (!exprIsUint256ZeroLiteral modulus.source)
+          (TypeError.unsupported (name ++ " zero modulus"))
         Except.ok (some (L00_SourceSolidity.Ty.uint 256))
     | _ => Except.error (TypeError.arityMismatch name 3 checkedArgs.length)
   else if name == "keccak256" || name == "sha256" then do
@@ -8921,6 +8931,82 @@ def addmodConstantSource : L00_SourceSolidity.SourceUnit :=
 
 def addmodConstantAccepted : Bool :=
   sourceUnitAccepted? addmodConstantSource
+
+def addmodVariableModulusSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AddmodVariableModulus"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "modded"
+                    params :=
+                      [{ name := some "m"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "addmod")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "1")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "2")
+                              , L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident "m") ]))) } ] } ] }
+
+def addmodVariableModulusAccepted : Bool :=
+  sourceUnitAccepted? addmodVariableModulusSource
+
+def addmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAddmodZeroLiteral"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badAddmod"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "addmod")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "1")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "2")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "0") ]))) } ] } ] }
+
+def addmodZeroLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check addmodZeroLiteralSource)
+
+def mulmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadMulmodZeroLiteral"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badMulmod"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "mulmod")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "1")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "2")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "0") ]))) } ] } ] }
+
+def mulmodZeroLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check mulmodZeroLiteralSource)
 
 def constantFromStateSource : L00_SourceSolidity.SourceUnit :=
   { items :=
