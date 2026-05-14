@@ -873,6 +873,16 @@ def erc7201Slot (id : List Byte) : Word :=
 def mappingStorageSlot (slot key : Word) : Word :=
   keccakWord (storageWordBytes key ++ storageWordBytes slot)
 
+def coerceMappingKeyWordAs (ty : Ty) (value : Value) :
+    Except RevertData Word := do
+  let coerced ←
+    match ty.coerceValue? value with
+    | some coerced => Except.ok coerced
+    | none => Except.error RevertData.typeMismatch
+  match coerced.asStorageWord? with
+  | some word => Except.ok word
+  | none => Except.error RevertData.typeMismatch
+
 def mappingStorageSlotForKey (slot : Word) (keyTy : Ty)
     (key : Value) : Except RevertData Word :=
   match keyTy with
@@ -882,7 +892,7 @@ def mappingStorageSlotForKey (slot : Word) (keyTy : Ty)
           Except.ok (keccakWord (bytes ++ storageWordBytes slot))
       | none => Except.error RevertData.typeMismatch
   | _ => do
-      let word ← key.expectWord
+      let word ← coerceMappingKeyWordAs keyTy key
       Except.ok (mappingStorageSlot slot word)
 
 def dynamicArrayDataSlot (slot : Word) : Word :=

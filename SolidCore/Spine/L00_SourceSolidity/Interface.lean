@@ -19349,6 +19349,70 @@ def publicStringMappingGetterCalldataMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word 55]
   some (result.success && result.output == expected)
 
+def signedMappingKeyContract : ContractDecl :=
+  { name := "SignedMappingKey"
+    items :=
+      [ ContractItem.stateVar
+          { name := "values"
+            ty := Ty.mapping (Ty.int 256) (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "set"
+            params :=
+              [ { name := some "key", ty := Ty.int 256 }
+              , { name := some "value", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.ident "values")
+                      (Expr.ident "key"))
+                    AssignOp.assign
+                    (Expr.ident "value"))) }
+      , ContractItem.function
+          { name := some "read"
+            params := [{ name := some "key", ty := Ty.int 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.index
+                      (Expr.ident "values")
+                      (Expr.ident "key")))) } ] }
+
+def signedMappingKeyWord : Word :=
+  SharedSemantics.signedToWord (-5)
+
+def signedMappingKeySetState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 32 signedMappingKeyContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.int signedMappingKeyWord
+      , SolidCore.Solidity.Source.Value.word 123 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def signedMappingKeyReadMatches : Option Bool := do
+  let state ← signedMappingKeySetState
+  let slot :=
+    SolidCore.Solidity.Source.mappingStorageSlot
+      0 signedMappingKeyWord
+  let result ←
+    ContractDecl.call? 32 signedMappingKeyContract
+      (SolidCore.Solidity.Source.CallTarget.name "read")
+      state [SolidCore.Solidity.Source.Value.int signedMappingKeyWord]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq
+          (state.loadSlot slot) 123 &&
+          SolidCore.Solidity.Source.wordEq value 123)
+  | _ => some false
+
 def publicArrayGetterContract : ContractDecl :=
   { name := "PublicArray"
     items :=

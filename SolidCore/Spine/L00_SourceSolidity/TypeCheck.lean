@@ -8337,6 +8337,61 @@ def userValueMappingKeySource : L00_SourceSolidity.SourceUnit :=
 def userValueMappingKeyAccepted : Bool :=
   sourceUnitAccepted? userValueMappingKeySource
 
+def signedMappingKeySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SignedMappingKey"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "values"
+                    ty := L00_SourceSolidity.Ty.mapping
+                      int256 uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := int256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident
+                                "values")
+                              (L00_SourceSolidity.Expr.ident
+                                "key"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "read"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := int256
+                          location := none } ]
+                    returns := [{ name := none, ty := uint256 }]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident
+                                "values")
+                              (L00_SourceSolidity.Expr.ident
+                                "key")))) } ] } ] }
+
+def signedMappingKeyAccepted : Bool :=
+  sourceUnitAccepted? signedMappingKeySource
+
 def stringLengthSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
