@@ -818,7 +818,10 @@ def Ty.canExplicitlyConvert (types : TypeContext)
     | _, L00_SourceSolidity.Ty.address false =>
         typeConversionLiteralFits target sourceExpr
     | _, L00_SourceSolidity.Ty.uint _ =>
-        Ty.integerExplicitConversionAllowed actual target ||
+        (match actual with
+        | L00_SourceSolidity.Ty.user path => types.isEnumPath path
+        | _ => false) ||
+          Ty.integerExplicitConversionAllowed actual target ||
           Ty.fixedBytesIntegerSameSize actual target ||
           (match actual with
           | L00_SourceSolidity.Ty.address _ =>
@@ -9704,6 +9707,45 @@ def enumTypedOutOfRangeConversionAccepted : Bool :=
         (L00_SourceSolidity.Expr.call
           (L00_SourceSolidity.Expr.typeName uint256)
           [L00_SourceSolidity.Arg.positional (numberExpr "2")])))
+
+def enumToUintFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "asUint"
+    params := [{ name := some "choice", ty := colorTy, location := none }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.typeName uint256)
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "choice")]))) }
+
+def enumToUintAccepted : Bool :=
+  sourceUnitAccepted?
+    (enumConversionSource "EnumToUint" enumToUintFunction)
+
+def enumToIntSource : L00_SourceSolidity.SourceUnit :=
+  enumConversionSource "BadEnumToInt"
+    { enumToUintFunction with
+      name := some "asInt"
+      returns :=
+        [{ name := none
+           ty := L00_SourceSolidity.Ty.int 16
+           location := none }]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.typeName
+                  (L00_SourceSolidity.Ty.int 16))
+                [L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "choice")]))) }
+
+def enumToIntRejected : Bool :=
+  Result.isError (SourceUnit.check enumToIntSource)
 
 def typeMaxFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
