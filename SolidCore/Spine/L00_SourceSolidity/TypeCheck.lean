@@ -11825,6 +11825,18 @@ def pushStructArraySource : L00_SourceSolidity.SourceUnit :=
                             (L00_SourceSolidity.Expr.member
                               (L00_SourceSolidity.Expr.ident "records")
                               "push")
+                            [])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "popOne"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "records")
+                              "pop")
                             [])) } ] } ] }
 
 def pushStructArrayAccepted : Bool :=

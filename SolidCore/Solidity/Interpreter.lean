@@ -1699,18 +1699,30 @@ def Runtime.storageArrayPop (context : Context)
     Except.error RevertData.popEmptyArray
   else
     let newLength := SharedSemantics.subWord length 1
-    let elementSlot :=
-      match field.layout? with
-      | some (StorageLayout.dynamicArray _) =>
-          dynamicArrayStorageSlot field.slot newLength
-      | some StorageLayout.bytes =>
-          dynamicArrayStorageSlot field.slot newLength
-      | _ => legacyIndexedStorageSlot field.slot newLength
-    Except.ok
-      { runtime with
-        state :=
-          (runtime.state.storeSlot elementSlot 0)
-            |>.storeSlot field.slot newLength }
+    match field.layout? with
+    | some (StorageLayout.dynamicArray elementLayout) => do
+        let state ←
+          State.clearStorageLayoutAt runtime.state
+            (dynamicArrayLayoutStorageSlot
+              field.slot newLength elementLayout)
+            elementLayout
+        Except.ok
+          { runtime with state := state.storeSlot field.slot newLength }
+    | some StorageLayout.bytes =>
+        Except.ok
+          { runtime with
+            state :=
+              (runtime.state.storeSlot
+                (dynamicArrayStorageSlot field.slot newLength) 0)
+                |>.storeSlot field.slot newLength }
+    | none =>
+        Except.ok
+          { runtime with
+            state :=
+              (runtime.state.storeSlot
+                (legacyIndexedStorageSlot field.slot newLength) 0)
+                |>.storeSlot field.slot newLength }
+    | _ => Except.error RevertData.typeMismatch
 
 def abiStaticBytes? : Ty -> Value -> Option (List Byte)
   | Ty.bool, Value.word value =>

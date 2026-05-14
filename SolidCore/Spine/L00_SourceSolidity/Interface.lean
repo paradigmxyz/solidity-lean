@@ -20565,6 +20565,14 @@ def pushStructArrayContract : ContractDecl :=
                 (Stmt.expr
                   (Expr.call
                     (Expr.member (Expr.ident "records") "push")
+                    [])) }
+      , ContractItem.function
+          { name := some "popOne"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.ident "records") "pop")
                     [])) } ] }
 
 def pushStructArrayValueState : Option CoreState := do
@@ -20631,6 +20639,38 @@ def pushStructArrayDefaultClearsElement : Option Bool := do
         (SolidCore.Solidity.Source.wordEq amount 0 &&
           SolidCore.Solidity.Source.wordEq flag 0)
   | _ => some false
+
+def popStructArrayInitialState : CoreState :=
+  pushStructArrayStaleState.storeSlot 0 1
+
+def popStructArrayState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 48 pushStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "popOne")
+      popStructArrayInitialState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def popStructArrayClearsElement : Option Bool := do
+  let state ← popStructArrayState
+  let elementLayout :=
+    SolidCore.Solidity.Source.StorageLayout.struct
+      [ SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.bool ]
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0 elementLayout
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot elementSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.fixedArrayStorageSlot
+            elementSlot 1)) 0)
 
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
