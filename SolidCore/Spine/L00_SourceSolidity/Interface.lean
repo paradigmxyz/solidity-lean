@@ -8807,7 +8807,18 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         | none => some (SolidCore.Solidity.Source.Expr.word 1)
       let postCore ←
         match post with
-        | some expr => Stmt.toCore? storageNames (Stmt.expr expr)
+        | some expr =>
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := Stmt.expr expr)
         | none => some SolidCore.Solidity.Source.Stmt.skip
       let bodyCore ←
         Stmt.toCoreWithInternalCalls?
@@ -28425,6 +28436,51 @@ def internalWhileConditionCallContract : ContractDecl :=
 def internalWhileConditionCallMatches : Option Bool := do
   let result ←
     ContractDecl.call? 128 internalWhileConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq value 3 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot state 0) 3)
+  | _ => some false
+
+def internalForPostCallContract : ContractDecl :=
+  { name := "InternalForPostCall"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "bump"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.addAssign
+                    (Expr.literal (Literal.number "1")))) }
+      , ContractItem.function
+          { name := some "run"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "0")))
+                  , Stmt.forLoop
+                      none
+                      (some
+                        (Expr.binary BinaryOp.lt
+                          (Expr.ident "x")
+                          (Expr.literal (Literal.number "3"))))
+                      (some (Expr.call (Expr.ident "bump") []))
+                      Stmt.continue
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) } ] }
+
+def internalForPostCallMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 128 internalForPostCallContract
       (SolidCore.Solidity.Source.CallTarget.name "run")
       SolidCore.Solidity.Source.State.empty []
   match result with

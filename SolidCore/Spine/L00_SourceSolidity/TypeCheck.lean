@@ -9831,6 +9831,60 @@ def internalWhileConditionCallSource : L00_SourceSolidity.SourceUnit :=
 def internalWhileConditionCallAccepted : Bool :=
   sourceUnitAccepted? internalWhileConditionCallSource
 
+def internalForPostCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalForPostCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "bump"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident "x")
+                            L00_SourceSolidity.AssignOp.addAssign
+                            (numberExpr "1"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "run"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "0"))
+                          , L00_SourceSolidity.Stmt.forLoop
+                              none
+                              (some
+                                (L00_SourceSolidity.Expr.binary
+                                  L00_SourceSolidity.BinaryOp.lt
+                                  (L00_SourceSolidity.Expr.ident "x")
+                                  (numberExpr "3")))
+                              (some
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.ident "bump")
+                                  []))
+                              L00_SourceSolidity.Stmt.continue
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+
+def internalForPostCallAccepted : Bool :=
+  sourceUnitAccepted? internalForPostCallSource
+
 def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
