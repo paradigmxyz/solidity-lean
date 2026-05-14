@@ -5957,15 +5957,13 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
   if specifier.args.isEmpty then
     Except.ok ()
   else
-    let argExprs :=
-      specifier.args.map L00_SourceSolidity.Arg.positional
-    require (Exprs.allCompileTimeConstant env specifier.args)
+    require (argsAllCompileTimeConstant env specifier.args)
       (TypeError.invalidContractHeader
         "base constructor argument is not compile-time constant")
-    let checkedArgs ← checkArgs env argExprs
+    let checkedArgs ← checkArgs env specifier.args
     checkCheckedArgsAssignableToFunctionSig env.types
       ("base constructor " ++ baseDecl.name)
-      (ContractDecl.constructorSignature baseDecl) argExprs checkedArgs
+      (ContractDecl.constructorSignature baseDecl) specifier.args checkedArgs
 
 def BaseSpecifiers.check (env : CheckEnv) (sourceTypes : TypeContext)
     (contractKind : L00_SourceSolidity.ContractKind) (contractName : Name) :
@@ -8645,7 +8643,9 @@ def baseConstructorContract : L00_SourceSolidity.ContractDecl :=
 
 def derivedBaseConstructorGood : L00_SourceSolidity.ContractDecl :=
   { name := "CtorDerived"
-    bases := [{ base := userPath "CtorBase", args := [numberExpr "4"] }]
+    bases :=
+      [{ base := userPath "CtorBase"
+         args := [L00_SourceSolidity.Arg.positional (numberExpr "4")] }]
     items :=
       [L00_SourceSolidity.ContractItem.function simpleReturnFunction] }
 
@@ -8657,6 +8657,55 @@ def baseConstructorArgsSource : L00_SourceSolidity.SourceUnit :=
 
 def baseConstructorArgsAccepted : Bool :=
   sourceUnitAccepted? baseConstructorArgsSource
+
+def namedBaseConstructorContract : L00_SourceSolidity.ContractDecl :=
+  { name := "NamedCtorBase"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { kind := L00_SourceSolidity.FunctionKind.constructor
+            params :=
+              [ { name := some "left"
+                  ty := uint256
+                  location := none }
+              , { name := some "right"
+                  ty := uint256
+                  location := none } ]
+            body := some L00_SourceSolidity.Stmt.empty } ] }
+
+def namedBaseConstructorArgsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract namedBaseConstructorContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "NamedCtorDerived"
+            bases :=
+              [{ base := userPath "NamedCtorBase"
+                 args :=
+                  [ L00_SourceSolidity.Arg.named "right" (numberExpr "2")
+                  , L00_SourceSolidity.Arg.named "left" (numberExpr "1") ] }]
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def namedBaseConstructorArgsAccepted : Bool :=
+  sourceUnitAccepted? namedBaseConstructorArgsSource
+
+def duplicateNamedBaseConstructorArgsSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract namedBaseConstructorContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateNamedCtorDerived"
+            bases :=
+              [{ base := userPath "NamedCtorBase"
+                 args :=
+                  [ L00_SourceSolidity.Arg.named "left" (numberExpr "1")
+                  , L00_SourceSolidity.Arg.named "left" (numberExpr "2") ] }]
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def duplicateNamedBaseConstructorArgsRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateNamedBaseConstructorArgsSource)
 
 def baseConstructorFileConstantSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -8671,7 +8720,8 @@ def baseConstructorFileConstantSource : L00_SourceSolidity.SourceUnit :=
             bases :=
               [{ base := userPath "CtorBase"
                  args :=
-                  [L00_SourceSolidity.Expr.ident "BASE_SEED"] }]
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "BASE_SEED")] }]
             items :=
               [L00_SourceSolidity.ContractItem.function
                 simpleReturnFunction] } ] }
@@ -8686,7 +8736,9 @@ def baseConstructorStateArgSource : L00_SourceSolidity.SourceUnit :=
           { name := "BadStateCtorArg"
             bases :=
               [{ base := userPath "CtorBase"
-                 args := [L00_SourceSolidity.Expr.ident "seed"] }]
+                 args :=
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "seed")] }]
             items :=
               [ L00_SourceSolidity.ContractItem.stateVar
                   { name := "seed"
@@ -8702,7 +8754,8 @@ def derivedBaseConstructorBad : L00_SourceSolidity.ContractDecl :=
   { derivedBaseConstructorGood with
     name := "BadCtorDerived"
     bases :=
-      [{ base := userPath "CtorBase", args := [boolExpr true] }] }
+      [{ base := userPath "CtorBase"
+         args := [L00_SourceSolidity.Arg.positional (boolExpr true)] }] }
 
 def badBaseConstructorArgsSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -8748,7 +8801,9 @@ def derivedBaseConstructorDuplicate :
     L00_SourceSolidity.ContractDecl :=
   { derivedBaseConstructorModifierGood with
     name := "DuplicateCtorArgs"
-    bases := [{ base := userPath "CtorBase", args := [numberExpr "1"] }] }
+    bases :=
+      [{ base := userPath "CtorBase"
+         args := [L00_SourceSolidity.Arg.positional (numberExpr "1")] }] }
 
 def duplicateBaseConstructorArgsSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -8823,7 +8878,9 @@ def indirectBaseConstructorModifierArgsAccepted : Bool :=
 def nonconstructorBaseConstructorInvocation :
     L00_SourceSolidity.ContractDecl :=
   { name := "NonconstructorBaseInvocation"
-    bases := [{ base := userPath "CtorBase", args := [numberExpr "1"] }]
+    bases :=
+      [{ base := userPath "CtorBase"
+         args := [L00_SourceSolidity.Arg.positional (numberExpr "1")] }]
     items :=
       [ L00_SourceSolidity.ContractItem.function
           { simpleReturnFunction with

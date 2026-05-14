@@ -324,7 +324,7 @@ structure UsingDecl where
 
 structure BaseSpecifier where
   base : Path
-  args : List Expr := []
+  args : List Arg := []
   deriving Repr
 
 inductive ContractItem where
@@ -601,7 +601,7 @@ def ModifierInvocation.inlineConstants (constants : ConstantEnv)
 
 def BaseSpecifier.inlineConstants (constants : ConstantEnv)
     (specifier : BaseSpecifier) : BaseSpecifier :=
-  { specifier with args := specifier.args.map (Expr.inlineConstants constants) }
+  { specifier with args := specifier.args.map (Arg.inlineConstants constants) }
 
 def FunctionDecl.inlineConstants (constants : ConstantEnv)
     (decl : FunctionDecl) : FunctionDecl :=
@@ -1319,7 +1319,7 @@ def ContractDecl.resolveUserTypes (env : UserTypeEnv)
   { decl with
     bases :=
       decl.bases.map (fun spec =>
-        { spec with args := spec.args.map (Expr.resolveUserTypes env) })
+        { spec with args := spec.args.map (Arg.resolveUserTypes env) })
     items := decl.items.map (ContractItem.resolveUserTypes env) }
 
 def SourceItem.resolveUserTypes (env : UserTypeEnv) :
@@ -1628,7 +1628,7 @@ def ContractDecl.resolveEnums (env : EnumEnv)
   { decl with
     bases :=
       decl.bases.map (fun spec =>
-        { spec with args := spec.args.map (Expr.resolveEnums env) })
+        { spec with args := spec.args.map (Arg.resolveEnums env) })
     items := decl.items.map (ContractItem.resolveEnums env) }
 
 def SourceItem.resolveEnums (env : EnumEnv) :
@@ -2184,7 +2184,7 @@ def ContractDecl.resolveStructs (env : StructEnv)
   { decl with
     bases :=
       decl.bases.map (fun spec =>
-        { spec with args := spec.args.map (Expr.resolveStructs env []) })
+        { spec with args := spec.args.map (Arg.resolveStructs env []) })
     items := decl.items.map (ContractItem.resolveStructsWithTypeEnv env typeEnv) }
 
 def SourceItem.resolveStructs (env : StructEnv) :
@@ -6235,6 +6235,10 @@ def Expr.resolveSelectors (env : SelectorEnv) (expr : Expr) : Expr :=
 def Arg.resolveSelectors (env : SelectorEnv) (arg : Arg) : Arg :=
   Arg.resolveSelectorsFuel defaultResolveSelectorsFuel env arg
 
+def BaseSpecifier.resolveSelectors (env : SelectorEnv)
+    (spec : BaseSpecifier) : BaseSpecifier :=
+  { spec with args := spec.args.map (Arg.resolveSelectors env) }
+
 def ModifierInvocation.resolveSelectors (env : SelectorEnv)
     (invocation : ModifierInvocation) : ModifierInvocation :=
   { invocation with args := invocation.args.map (Arg.resolveSelectors env) }
@@ -6317,7 +6321,9 @@ def ContractItem.resolveSelectors (env : SelectorEnv) :
 
 def ContractDecl.resolveSelectors (env : SelectorEnv)
     (decl : ContractDecl) : ContractDecl :=
-  { decl with items := decl.items.map (ContractItem.resolveSelectors env) }
+  { decl with
+    bases := decl.bases.map (BaseSpecifier.resolveSelectors env)
+    items := decl.items.map (ContractItem.resolveSelectors env) }
 
 mutual
 
@@ -6394,6 +6400,10 @@ def Expr.resolveFunctionAddresses (env : SelectorEnv) (expr : Expr) : Expr :=
 
 def Arg.resolveFunctionAddresses (env : SelectorEnv) (arg : Arg) : Arg :=
   Arg.resolveFunctionAddressesFuel defaultResolveFunctionAddressesFuel env arg
+
+def BaseSpecifier.resolveFunctionAddresses (env : SelectorEnv)
+    (spec : BaseSpecifier) : BaseSpecifier :=
+  { spec with args := spec.args.map (Arg.resolveFunctionAddresses env) }
 
 def ModifierInvocation.resolveFunctionAddresses (env : SelectorEnv)
     (invocation : ModifierInvocation) : ModifierInvocation :=
@@ -6482,6 +6492,7 @@ def ContractItem.resolveFunctionAddresses (env : SelectorEnv) :
 def ContractDecl.resolveFunctionAddresses (env : SelectorEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
+    bases := decl.bases.map (BaseSpecifier.resolveFunctionAddresses env)
     items := decl.items.map (ContractItem.resolveFunctionAddresses env) }
 
 def Args.toPositionalExprs? : List Arg -> Option (List Expr)
@@ -9344,7 +9355,7 @@ def ContractItem.resolveInterfaceIds (env : InterfaceIdEnv) :
 
 def BaseSpecifier.resolveInterfaceIds (env : InterfaceIdEnv)
     (spec : BaseSpecifier) : BaseSpecifier :=
-  { spec with args := spec.args.map (Expr.resolveInterfaceIds env) }
+  { spec with args := spec.args.map (Arg.resolveInterfaceIds env) }
 
 def ContractDecl.resolveInterfaceIds (env : InterfaceIdEnv)
     (decl : ContractDecl) : ContractDecl :=
@@ -9564,6 +9575,11 @@ def ContractDecl.baseConstructorArgsForDeployment?
     (targetDecl immediateDerived baseDecl : ContractDecl) :
     Option (List Expr) := do
   let spec ← ContractDecl.baseSpecifierFor? immediateDerived baseDecl
+  let baseCtor? ← ContractDecl.directConstructor? baseDecl
+  let baseParams :=
+    match baseCtor? with
+    | some ctor => ctor.params
+    | none => []
   let modifierArgs? ←
     ContractDecl.baseConstructorModifierArgs? targetDecl baseDecl
   match modifierArgs? with
@@ -9571,7 +9587,7 @@ def ContractDecl.baseConstructorArgsForDeployment?
       match spec.args with
       | [] => some args
       | _ :: _ => none
-  | none => some spec.args
+  | none => Args.toExprsForParams? baseParams spec.args
 
 def ContractDecl.baseDecls? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
@@ -23267,7 +23283,7 @@ def baseConstructorArgDerived : ContractDecl :=
   { name := "DerivedArg"
     bases :=
       [ { base := { segments := ["BaseArg"] }
-          args := [Expr.literal (Literal.number "12")] } ]
+          args := [Arg.positional (Expr.literal (Literal.number "12"))] } ]
     items :=
       [ ContractItem.stateVar { name := "y", ty := Ty.uint 256 }
       , ContractItem.function
@@ -23288,6 +23304,71 @@ def inheritedBaseConstructorArgDeployResult : Option CoreCallResult :=
   SourceUnit.constructContract? 16 baseConstructorArgUnit "DerivedArg"
     SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 34]
+
+def baseConstructorNamedArgBase : ContractDecl :=
+  { name := "NamedBaseArg"
+    items :=
+      [ ContractItem.stateVar { name := "leftSlot", ty := Ty.uint 256 }
+      , ContractItem.stateVar { name := "rightSlot", ty := Ty.uint 256 }
+      , ContractItem.function
+          { kind := FunctionKind.constructor
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "leftSlot") AssignOp.assign
+                        (Expr.ident "left"))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "rightSlot") AssignOp.assign
+                        (Expr.ident "right")) ]) } ] }
+
+def baseConstructorNamedArgDerived : ContractDecl :=
+  { name := "NamedDerivedArg"
+    bases :=
+      [ { base := { segments := ["NamedBaseArg"] }
+          args :=
+            [ Arg.named "right" (Expr.literal (Literal.number "9"))
+            , Arg.named "left" (Expr.literal (Literal.number "4")) ] } ]
+    items := [] }
+
+def baseConstructorNamedArgUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract baseConstructorNamedArgBase
+      , SourceItem.contract baseConstructorNamedArgDerived ] }
+
+def inheritedBaseConstructorNamedArgMatches : Option Bool := do
+  let result ←
+    SourceUnit.constructContract? 32 baseConstructorNamedArgUnit
+      "NamedDerivedArg" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      some
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 4 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9)
+  | _ => some false
+
+def baseConstructorDuplicateNamedArgDerived : ContractDecl :=
+  { baseConstructorNamedArgDerived with
+    name := "DuplicateNamedBaseArg"
+    bases :=
+      [ { base := { segments := ["NamedBaseArg"] }
+          args :=
+            [ Arg.named "left" (Expr.literal (Literal.number "1"))
+            , Arg.named "left" (Expr.literal (Literal.number "2")) ] } ] }
+
+def baseConstructorDuplicateNamedArgUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract baseConstructorNamedArgBase
+      , SourceItem.contract baseConstructorDuplicateNamedArgDerived ] }
+
+def inheritedBaseConstructorDuplicateNamedArgRejected : Option Bool :=
+  match SourceUnit.constructContract? 32 baseConstructorDuplicateNamedArgUnit
+      "DuplicateNamedBaseArg" SolidCore.Solidity.Source.State.empty [] with
+  | none => some true
+  | some _ => some false
 
 def baseConstructorModifierArgDerived : ContractDecl :=
   { name := "DerivedModifierArg"
