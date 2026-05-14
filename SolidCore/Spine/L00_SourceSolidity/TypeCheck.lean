@@ -4616,7 +4616,7 @@ def checkCallOption (env : CheckEnv) :
   | L00_SourceSolidity.CallOption.named name expr => do
       let checked ← checkExpr env expr
       if name == "gas" || name == "value" then
-        checked.expectInteger
+        checked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
       else if name == "salt" then
         requireEqTy (L00_SourceSolidity.Ty.bytesN 32) checked.ty
       else
@@ -14953,6 +14953,71 @@ def valueCallToPayableExternalSource : L00_SourceSolidity.SourceUnit :=
 
 def valueCallToPayableExternalAccepted : Bool :=
   sourceUnitAccepted? valueCallToPayableExternalSource
+
+def signedValueOptionExternalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract calleeContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "SignedValueOptionExternal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { externalMemberCallFunction with
+                    name := some "badSignedValueRemote"
+                    mutability := L00_SourceSolidity.StateMutability.payable
+                    params :=
+                      [ { name := some "target"
+                          ty := calleeTy
+                          location := none }
+                      , { name := some "amount"
+                          ty := int256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "pay")
+                              [ L00_SourceSolidity.CallOption.named "value"
+                                  (L00_SourceSolidity.Expr.ident "amount") ]
+                              []))) } ] } ] }
+
+def signedValueOptionExternalRejected : Bool :=
+  Result.isError (SourceUnit.check signedValueOptionExternalSource)
+
+def signedGasOptionExternalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract calleeContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "SignedGasOptionExternal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { externalMemberCallFunction with
+                    name := some "badSignedGasRemote"
+                    mutability := L00_SourceSolidity.StateMutability.payable
+                    params :=
+                      [ { name := some "target"
+                          ty := calleeTy
+                          location := none }
+                      , { name := some "gasAmount"
+                          ty := int256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "pay")
+                              [ L00_SourceSolidity.CallOption.named "gas"
+                                  (L00_SourceSolidity.Expr.ident
+                                    "gasAmount") ]
+                              []))) } ] } ] }
+
+def signedGasOptionExternalRejected : Bool :=
+  Result.isError (SourceUnit.check signedGasOptionExternalSource)
 
 def lowLevelSendFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
