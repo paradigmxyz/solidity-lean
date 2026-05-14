@@ -4317,7 +4317,7 @@ def checkExpr (env : CheckEnv) :
           Except.ok { source := expr, ty := ty }
       | L00_SourceSolidity.BinaryOp.exp =>
           lhsChecked.expectInteger
-          rhsChecked.expectInteger
+          rhsChecked.expectUnsignedInteger
           Except.ok { source := expr, ty := lhsChecked.ty }
       | L00_SourceSolidity.BinaryOp.bitAnd
       | L00_SourceSolidity.BinaryOp.bitOr
@@ -19020,6 +19020,59 @@ def badCallUint8LiteralSource : L00_SourceSolidity.SourceUnit :=
 
 def badCallUint8LiteralRejected : Bool :=
   Result.isError (SourceUnit.check badCallUint8LiteralSource)
+
+def signedBaseUnsignedExponentFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "powSignedBase"
+    params :=
+      [ { name := some "x", ty := int256, location := none }
+      , { name := some "y", ty := uint8, location := none } ]
+    returns := [{ name := none, ty := int256, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.exp
+              (L00_SourceSolidity.Expr.ident "x")
+              (L00_SourceSolidity.Expr.ident "y")))) }
+
+def signedBaseUnsignedExponentSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SignedBaseUnsignedExponent"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  signedBaseUnsignedExponentFunction ] } ] }
+
+def signedBaseUnsignedExponentAccepted : Bool :=
+  sourceUnitAccepted? signedBaseUnsignedExponentSource
+
+def signedExponentFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badSignedExponent"
+    params :=
+      [ { name := some "x", ty := uint256, location := none }
+      , { name := some "y", ty := int8, location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.exp
+              (L00_SourceSolidity.Expr.ident "x")
+              (L00_SourceSolidity.Expr.ident "y")))) }
+
+def signedExponentSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSignedExponent"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  signedExponentFunction ] } ] }
+
+def signedExponentRejected : Bool :=
+  Result.isError (SourceUnit.check signedExponentSource)
 
 def uint16TwoExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
