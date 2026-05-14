@@ -9978,6 +9978,73 @@ def internalTupleRightReturnCallSource : L00_SourceSolidity.SourceUnit :=
 def internalTupleRightReturnCallAccepted : Bool :=
   sourceUnitAccepted? internalTupleRightReturnCallSource
 
+def internalTupleBothReturnCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalTupleBothReturnCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setFive"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "5"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "read"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (L00_SourceSolidity.Expr.ident "x"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "run"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [ { name := some "left"
+                          ty := uint256
+                          location := none }
+                      , { name := some "right"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.tuple
+                              [ L00_SourceSolidity.TupleItem.value
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident "setFive")
+                                    [])
+                              , L00_SourceSolidity.TupleItem.value
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident "read")
+                                    []) ]))) } ] } ] }
+
+def internalTupleBothReturnCallAccepted : Bool :=
+  sourceUnitAccepted? internalTupleBothReturnCallSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"
