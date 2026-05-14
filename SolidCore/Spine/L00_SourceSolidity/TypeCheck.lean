@@ -8590,6 +8590,49 @@ def modifierInvocationSource : L00_SourceSolidity.SourceUnit :=
 def modifierInvocationAccepted : Bool :=
   sourceUnitAccepted? modifierInvocationSource
 
+def returnThroughModifierSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ReturnThroughModifier"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "afterReturn"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.modifierPlaceholder
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "0")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "run"
+                    visibility := some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    modifiers :=
+                      [{ target := userPath "afterReturn"
+                         args := [] }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "7"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "11")) ]) } ] } ] }
+
+def returnThroughModifierAccepted : Bool :=
+  sourceUnitAccepted? returnThroughModifierSource
+
 def uncheckedArithmeticFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "uncheckedArithmetic"

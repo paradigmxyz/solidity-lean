@@ -31146,6 +31146,16 @@ def returnsThroughModifierCallResult : Option CoreCallResult :=
     (SolidCore.Solidity.Source.CallTarget.name "run")
     SolidCore.Solidity.Source.State.empty []
 
+def returnsThroughModifierMatches : Option Bool := do
+  let result ← returnsThroughModifierCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq value 11 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => some false
+
 def tryCatchAroundModifier : ModifierDecl :=
   { name := "aroundTry"
     body :=
