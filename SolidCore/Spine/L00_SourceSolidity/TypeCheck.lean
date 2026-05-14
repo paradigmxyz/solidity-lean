@@ -11298,6 +11298,21 @@ def publicBytesArrayGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicBytesArrayGetterAccepted : Bool :=
   sourceUnitAccepted? publicBytesArrayGetterSource
 
+def publicStringArrayGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PublicStringArrayGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "names"
+                    ty := L00_SourceSolidity.Ty.array
+                      L00_SourceSolidity.Ty.string none
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def publicStringArrayGetterAccepted : Bool :=
+  sourceUnitAccepted? publicStringArrayGetterSource
+
 def nestedPublicGetterMemberCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
