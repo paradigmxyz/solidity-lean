@@ -9419,6 +9419,141 @@ def internalUnaryLocalCallSource : L00_SourceSolidity.SourceUnit :=
 def internalUnaryLocalCallAccepted : Bool :=
   sourceUnitAccepted? internalUnaryLocalCallSource
 
+def internalTernaryCallExpr (name : Name) : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.ident name) []
+
+def internalTernaryAssignXExpr (value : String) :
+    L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.assign
+    (L00_SourceSolidity.Expr.ident "x")
+    L00_SourceSolidity.AssignOp.assign
+    (numberExpr value)
+
+def internalTernaryLocalCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalTernaryLocalCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "flagTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (internalTernaryAssignXExpr "1")
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr true)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "flagFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (internalTernaryAssignXExpr "2")
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr false)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runReturnTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.ternary
+                              (internalTernaryCallExpr "flagTrue")
+                              (internalTernaryAssignXExpr "21")
+                              (internalTernaryAssignXExpr "22")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runReturnFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.ternary
+                              (internalTernaryCallExpr "flagFalse")
+                              (internalTernaryAssignXExpr "21")
+                              (internalTernaryAssignXExpr "22")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runVarTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [{ name := some "y"
+                                 ty := some uint256
+                                 location := none }]
+                              (some
+                                (L00_SourceSolidity.Expr.ternary
+                                  (internalTernaryCallExpr "flagTrue")
+                                  (internalTernaryAssignXExpr "31")
+                                  (internalTernaryAssignXExpr "32")))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "y")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runAssignFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [{ name := some "y"
+                                 ty := some uint256
+                                 location := none }]
+                              none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "y")
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ternary
+                                  (internalTernaryCallExpr "flagFalse")
+                                  (internalTernaryAssignXExpr "41")
+                                  (internalTernaryAssignXExpr "42")))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "y")) ]) } ] } ] }
+
+def internalTernaryLocalCallAccepted : Bool :=
+  sourceUnitAccepted? internalTernaryLocalCallSource
+
 def internalIfConditionCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
