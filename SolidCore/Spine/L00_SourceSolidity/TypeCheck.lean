@@ -3701,7 +3701,13 @@ def checkExpr (env : CheckEnv) :
       let expr :=
         L00_SourceSolidity.Expr.call
           (L00_SourceSolidity.Expr.member target member) args
-      let checkedArgs ← checkArgs env args
+      let checkedArgs ←
+        match checkArgs env args with
+        | Except.ok checkedArgs => Except.ok checkedArgs
+        | Except.error argErr =>
+            match checkMemberCallArgsContextual env target member args with
+            | Except.ok checkedArgs => Except.ok checkedArgs
+            | Except.error _ => Except.error argErr
       let argInfos := checkedArgInfos args checkedArgs
       let checkedInfos := checkedArgInfosFull args checkedArgs
       if lowLevelCallMember member then
@@ -4546,6 +4552,49 @@ decreasing_by
   all_goals
     simp_wf
     try omega
+
+def checkMemberCallArgsContextual
+    (env : CheckEnv) (target : L00_SourceSolidity.Expr)
+    (member : Name) (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (List CheckedExpr) := do
+  require (!Args.anyNamed args)
+    (TypeError.unsupported "contextual named member-call arguments")
+  require (!lowLevelCallMember member)
+    (TypeError.unsupported "contextual low-level member call")
+  let targetChecked ← checkExpr env target
+  require (!targetChecked.arraySlice)
+    (TypeError.unsupported "member call on array slice")
+  let candidates ←
+    match target with
+    | L00_SourceSolidity.Expr.ident libraryName =>
+        match env.lookupVar? libraryName,
+            env.types.lookupContractDecl?
+              (TypeContext.pathOfName libraryName) with
+        | none, some libraryDecl =>
+            if libraryDecl.kind == L00_SourceSolidity.ContractKind.library then
+              Except.ok
+                (FunctionSigs.nonPrivate
+                  (ContractDecl.directFunctionSigs libraryDecl))
+            else
+              UsingDecls.memberCandidates env targetChecked member
+                env.usingDecls
+        | _, _ =>
+            UsingDecls.memberCandidates env targetChecked member
+              env.usingDecls
+    | _ =>
+        UsingDecls.memberCandidates env targetChecked member env.usingDecls
+  let sig ← FunctionSigs.resolveContextual env candidates member args
+  let checkedArgs ←
+    checkPositionalArgsAssignableToParamsFor
+      env "member call" args sig.params
+  checkCheckedExprsStorageRefsFor "member call" checkedArgs
+    sig.paramStorageRefs
+  Except.ok checkedArgs
+termination_by 1 + sizeOf target + sizeOf args
+decreasing_by
+  all_goals
+    simp_wf
+    omega
 
 def checkCallOption (env : CheckEnv) :
     L00_SourceSolidity.CallOption -> Except TypeError Unit
@@ -13680,6 +13729,17 @@ def usingHigherOrderDouble :
               (L00_SourceSolidity.Expr.ident "x")
               (numberExpr "2")))) }
 
+def usingHigherOrderDoubleOverload :
+    L00_SourceSolidity.FunctionDecl :=
+  { usingHigherOrderDouble with
+    params :=
+      [ { name := some "x", ty := uint256, location := none }
+      , { name := some "y", ty := uint256, location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "x"))) }
+
 def usingHigherOrderFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -13706,6 +13766,8 @@ def usingHigherOrderFunctionSource :
               [ L00_SourceSolidity.ContractItem.usingDecl
                   { library := userPath "Apply"
                     target := some uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDoubleOverload
               , L00_SourceSolidity.ContractItem.function
                   usingHigherOrderDouble
               , L00_SourceSolidity.ContractItem.function

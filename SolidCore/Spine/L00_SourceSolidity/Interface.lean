@@ -33701,6 +33701,18 @@ def usingHigherOrderContract : ContractDecl :=
           { name := some "double"
             visibility := some Visibility.internal_
             mutability := StateMutability.pure
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.ident "left"))) }
+      , ContractItem.function
+          { name := some "double"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
