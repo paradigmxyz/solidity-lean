@@ -1061,7 +1061,7 @@ def requireCallExprMutabilityAllowed (env : CheckEnv)
 
 def builtinIdentCallMutability? (name : Name) :
     Option L00_SourceSolidity.StateMutability :=
-  if name == "blockhash" || name == "blobhash" then
+  if name == "gasleft" || name == "blockhash" || name == "blobhash" then
     some L00_SourceSolidity.StateMutability.view
   else
     none
@@ -2826,6 +2826,7 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     Except TypeError (Option Ty) :=
   if name == "gasleft" then do
     requireNoNamedArgs "gasleft" argInfos
+    requireCallMutabilityAllowed env L00_SourceSolidity.StateMutability.view
     require (checkedArgs.length == 0)
       (TypeError.arityMismatch "gasleft" 0 checkedArgs.length)
     Except.ok (some (L00_SourceSolidity.Ty.uint 256))
@@ -18569,6 +18570,130 @@ def pureBlockTimestampSource : L00_SourceSolidity.SourceUnit :=
 
 def pureBlockTimestampRejected : Bool :=
   Result.isError (SourceUnit.check pureBlockTimestampSource)
+
+def viewAmbientBuiltinsFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "ambient"
+    mutability := L00_SourceSolidity.StateMutability.view
+    returns :=
+      [ { name := some "blockHash"
+          ty := L00_SourceSolidity.Ty.bytesN 32
+          location := none }
+      , { name := some "blobHash"
+          ty := L00_SourceSolidity.Ty.bytesN 32
+          location := none }
+      , { name := some "remainingGas"
+          ty := uint256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.tuple
+              [ L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "blockhash")
+                    [L00_SourceSolidity.Arg.positional
+                      (numberExpr "7")])
+              , L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "blobhash")
+                    [L00_SourceSolidity.Arg.positional
+                      (numberExpr "1")])
+              , L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "gasleft")
+                    []) ]))) }
+
+def viewAmbientBuiltinsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ViewAmbientBuiltins"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                viewAmbientBuiltinsFunction] } ] }
+
+def viewAmbientBuiltinsAccepted : Bool :=
+  sourceUnitAccepted? viewAmbientBuiltinsSource
+
+def pureGasleftFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "remainingGas"
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "gasleft")
+              []))) }
+
+def pureGasleftSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PureGasleft"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                pureGasleftFunction] } ] }
+
+def pureGasleftRejected : Bool :=
+  Result.isError (SourceUnit.check pureGasleftSource)
+
+def pureBlockhashFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "blockHash"
+    returns :=
+      [{ name := none
+         ty := L00_SourceSolidity.Ty.bytesN 32
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "blockhash")
+              [L00_SourceSolidity.Arg.positional
+                (numberExpr "7")]))) }
+
+def pureBlockhashSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PureBlockhash"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                pureBlockhashFunction] } ] }
+
+def pureBlockhashRejected : Bool :=
+  Result.isError (SourceUnit.check pureBlockhashSource)
+
+def badBlockhashArgFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badBlockHashArg"
+    returns :=
+      [{ name := none
+         ty := L00_SourceSolidity.Ty.bytesN 32
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "blockhash")
+              [L00_SourceSolidity.Arg.positional
+                (boolExpr true)]))) }
+
+def badBlockhashArgSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadBlockhashArg"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                badBlockhashArgFunction] } ] }
+
+def badBlockhashArgRejected : Bool :=
+  Result.isError (SourceUnit.check badBlockhashArgSource)
 
 def viewAddressEnvMembersFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
