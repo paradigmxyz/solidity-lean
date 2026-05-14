@@ -6629,6 +6629,8 @@ def FunctionDecl.check (baseEnv : CheckEnv)
 def ModifierDecl.check (baseEnv : CheckEnv)
     (modifier : L00_SourceSolidity.ModifierDecl) : Except TypeError Unit := do
   Parameters.check baseEnv.types modifier.params
+  ensureUniqueNames "modifier parameter"
+    ((Parameters.namedTypes modifier.params).map Prod.fst)
   match modifier.body with
   | none =>
       require modifier.virtual
@@ -6687,15 +6689,12 @@ def EventDecl.check (env : CheckEnv)
     (event : L00_SourceSolidity.EventDecl) :
     Except TypeError Unit := do
   EventParams.check env event.params
+  ensureUniqueNames "event parameter"
+    (event.params.filterMap L00_SourceSolidity.EventParam.name)
   require (EventParams.indexedCount event.params <=
       EventDecl.indexedLimit event)
     (TypeError.invalidEventHeader event.name
       "too many indexed event parameters")
-  event.params.foldl
-    (fun acc param => do
-      acc
-      EventParam.check env param)
-    (Except.ok ())
 
 def Parameter.checkErrorParam (types : TypeContext)
     (param : L00_SourceSolidity.Parameter) : Except TypeError Unit := do
@@ -6720,6 +6719,8 @@ def ErrorDecl.check (env : CheckEnv)
   require (!(err.name == "Error" || err.name == "Panic"))
     (TypeError.invalidErrorHeader err.name
       "built-in error cannot be redefined")
+  ensureUniqueNames "error parameter"
+    (err.params.filterMap L00_SourceSolidity.Parameter.name)
   Parameters.checkErrorParams env.types err.params
 
 def pathInList (target : Path) : List Path -> Bool :=
@@ -12860,6 +12861,25 @@ def unknownModifierSource : L00_SourceSolidity.SourceUnit :=
 def unknownModifierRejected : Bool :=
   Result.isError (SourceUnit.check unknownModifierSource)
 
+def duplicateModifierParamNameSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateModifierParamName"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "only"
+                    params :=
+                      [ { name := some "value"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body := some L00_SourceSolidity.Stmt.modifierPlaceholder } ] } ] }
+
+def duplicateModifierParamNameRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateModifierParamNameSource)
+
 def valueOption (amount : String) : L00_SourceSolidity.CallOption :=
   L00_SourceSolidity.CallOption.named "value"
     (L00_SourceSolidity.Expr.literal
@@ -13496,6 +13516,21 @@ def reservedPanicSource : L00_SourceSolidity.SourceUnit :=
 def reservedPanicRejected : Bool :=
   Result.isError (SourceUnit.check reservedPanicSource)
 
+def duplicateErrorParamNameSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeError
+          { name := "DuplicateErrorParam"
+            params :=
+              [ { name := some "value"
+                  ty := uint256
+                  location := none }
+              , { name := some "value"
+                  ty := uint256
+                  location := none } ] } ] }
+
+def duplicateErrorParamNameRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateErrorParamNameSource)
+
 def emitPingFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "emitPing"
@@ -13559,6 +13594,24 @@ def duplicateEventSource : L00_SourceSolidity.SourceUnit :=
 
 def duplicateEventRejected : Bool :=
   Result.isError (SourceUnit.check duplicateEventSource)
+
+def duplicateEventParamNameSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateEventParamName"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  { name := "Seen"
+                    params :=
+                      [ { name := some "value"
+                          ty := uint256
+                          indexed := false }
+                      , { name := some "value"
+                          ty := uint256
+                          indexed := false } ] } ] } ] }
+
+def duplicateEventParamNameRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateEventParamNameSource)
 
 def mappingEventParamSource : L00_SourceSolidity.SourceUnit :=
   { items :=
