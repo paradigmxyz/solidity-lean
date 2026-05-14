@@ -7186,7 +7186,7 @@ def FunctionDecl.findInternalCalleeWithArgs?
 structure InternalFunctionAliasBinding where
   alias : Name
   expected : Ty
-  target : Name
+  target : Option Name
   deriving Repr
 
 abbrev InternalFunctionAliasEnv := List InternalFunctionAliasBinding
@@ -7204,7 +7204,7 @@ def InternalFunctionAliasEnv.lookup? (env : InternalFunctionAliasEnv)
 def InternalFunctionAliasEnv.target? (env : InternalFunctionAliasEnv)
     (name : Name) : Option Name :=
   match InternalFunctionAliasEnv.lookup? env name with
-  | some binding => some binding.target
+  | some binding => binding.target
   | none => none
 
 def InternalFunctionAliasEnv.remove (env : InternalFunctionAliasEnv)
@@ -7287,7 +7287,22 @@ def VarBinding.internalFunctionAliasTarget?
       let target ←
         InternalFunctionAliasEnv.aliasTarget?
           aliasEnv functions freeFunctions expected sourceName
-      some { alias := aliasName, expected := expected, target := target }
+      some
+        { alias := aliasName
+          expected := expected
+          target := some target }
+  | _ => none
+
+def VarBinding.internalFunctionAliasDecl?
+    (binding : VarBinding) : Option InternalFunctionAliasBinding := do
+  let aliasName ← binding.name
+  let expected ← binding.ty
+  match expected with
+  | Ty.function _ _ _ Visibility.internal_ =>
+      some
+        { alias := aliasName
+          expected := expected
+          target := none }
   | _ => none
 
 def InternalFunctionAliasEnv.reassignedTarget?
@@ -7299,7 +7314,7 @@ def InternalFunctionAliasEnv.reassignedTarget?
   let target ←
     InternalFunctionAliasEnv.aliasTarget?
       aliasEnv functions freeFunctions binding.expected sourceName
-  some { binding with target := target }
+  some { binding with target := some target }
 
 def VarBinding.removeInternalFunctionAlias
     (aliasEnv : InternalFunctionAliasEnv)
@@ -7538,6 +7553,23 @@ def Stmt.inlineInternalFunctionAliasSeqFuel
             Stmt.inlineInternalFunctionAliasesFuel functions freeFunctions
               fuel aliasEnv
               (Stmt.varDecl [binding] (some (Expr.ident sourceName)))
+          let aliasEnv' :=
+            VarBinding.removeInternalFunctionAlias aliasEnv binding
+          let (tail, finalEnv) :=
+            Stmt.inlineInternalFunctionAliasSeqFuel
+              functions freeFunctions fuel aliasEnv' rest
+          (head :: tail, finalEnv)
+  | fuel + 1, aliasEnv, Stmt.varDecl [binding] none :: rest =>
+      match VarBinding.internalFunctionAliasDecl? binding with
+      | some aliasBinding =>
+          let aliasEnv' :=
+            InternalFunctionAliasEnv.extend aliasEnv aliasBinding
+          Stmt.inlineInternalFunctionAliasSeqFuel
+            functions freeFunctions fuel aliasEnv' rest
+      | none =>
+          let head :=
+            Stmt.inlineInternalFunctionAliasesFuel functions freeFunctions
+              fuel aliasEnv (Stmt.varDecl [binding] none)
           let aliasEnv' :=
             VarBinding.removeInternalFunctionAlias aliasEnv binding
           let (tail, finalEnv) :=
@@ -28864,6 +28896,57 @@ def internalFunctionPointerReassignMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 63)
+  | _ => some false
+
+def internalFunctionPointerAssignAfterDeclContract : ContractDecl :=
+  { name := "InternalFunctionPointerAssignAfterDecl"
+    items :=
+      [ ContractItem.function
+          { name := some "double"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "value")
+                      (Expr.literal (Literal.number "2"))))) }
+      , ContractItem.function
+          { name := some "run"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "fp") AssignOp.assign
+                        (Expr.ident "double"))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "fp")
+                          [Arg.positional (Expr.ident "value")])) ]) } ] }
+
+def internalFunctionPointerAssignAfterDeclMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 internalFunctionPointerAssignAfterDeclContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
   | _ => some false
 
 def internalReturnSubexpressionContract : ContractDecl :=

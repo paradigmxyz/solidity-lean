@@ -15023,6 +15023,44 @@ def internalFunctionPointerReassignSource :
 def internalFunctionPointerReassignAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerReassignSource
 
+def internalFunctionPointerAssignAfterDeclFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callViaAssignedPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              none
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.ident "fp")
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fp")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "x")])) ]) }
+
+def internalFunctionPointerAssignAfterDeclSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerAssignAfterDecl"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAssignAfterDeclFunction ] } ] }
+
+def internalFunctionPointerAssignAfterDeclAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerAssignAfterDeclSource
+
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
