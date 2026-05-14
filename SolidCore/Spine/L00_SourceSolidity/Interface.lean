@@ -29299,6 +29299,27 @@ def internalFunctionPointerParamContract : ContractDecl :=
                       (some
                         (Expr.call (Expr.ident "apply")
                           [ Arg.positional (Expr.ident "fp")
+                          , Arg.positional (Expr.ident "value") ])) ]) }
+      , ContractItem.function
+          { name := some "runUnbound"
+            mutability := StateMutability.pure
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      none
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "apply")
+                          [ Arg.positional (Expr.ident "fp")
                           , Arg.positional (Expr.ident "value") ])) ]) } ] }
 
 def internalFunctionPointerParamMatches : Option Bool := do
@@ -29311,6 +29332,19 @@ def internalFunctionPointerParamMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def internalFunctionPointerParamUninitializedCallPanics : Option Bool := do
+  let result ←
+    ContractDecl.call? 128 internalFunctionPointerParamContract
+      (SolidCore.Solidity.Source.CallTarget.name "runUnbound")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (SolidCore.Solidity.Source.wordEq
+        code internalFunctionPointerPanicCode)
   | _ => some false
 
 def internalReturnSubexpressionContract : ContractDecl :=

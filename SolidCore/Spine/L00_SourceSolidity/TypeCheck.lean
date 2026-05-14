@@ -15267,6 +15267,27 @@ def internalFunctionPointerParamCallerFunction :
                   , L00_SourceSolidity.Arg.positional
                       (L00_SourceSolidity.Expr.ident "x") ])) ]) }
 
+def internalFunctionPointerParamUninitializedCallerFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callApplyPointerUninitialized"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              none
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "applyPointer")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "fp")
+                  , L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "x") ])) ]) }
+
 def internalFunctionPointerParamSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -15278,7 +15299,9 @@ def internalFunctionPointerParamSource :
               , L00_SourceSolidity.ContractItem.function
                   internalFunctionPointerParamApplyFunction
               , L00_SourceSolidity.ContractItem.function
-                  internalFunctionPointerParamCallerFunction ] } ] }
+                  internalFunctionPointerParamCallerFunction
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerParamUninitializedCallerFunction ] } ] }
 
 def internalFunctionPointerParamAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerParamSource
