@@ -12344,6 +12344,113 @@ def nestedStoragePathSource :
 def nestedStoragePathAccepted : Bool :=
   sourceUnitAccepted? nestedStoragePathSource
 
+def nestedStoragePathCompoundSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NestedStoragePathCompound"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "matrix"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        (L00_SourceSolidity.Ty.array
+                          uint256 none)
+                        none }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "nested"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.mapping
+                          uint256 uint256) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "addMatrix"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none }
+                      , { name := some "delta"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "matrix")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident
+                                "inner"))
+                            L00_SourceSolidity.AssignOp.addAssign
+                            (L00_SourceSolidity.Expr.ident
+                              "delta"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "incMatrix"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none } ]
+                    returns := [{ name := none, ty := uint256 }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.unary
+                              L00_SourceSolidity.UnaryOp.preIncrement
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "matrix")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "outer"))
+                                (L00_SourceSolidity.Expr.ident
+                                  "inner"))))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "addNested"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "left"
+                          ty := uint256
+                          location := none }
+                      , { name := some "right"
+                          ty := uint256
+                          location := none }
+                      , { name := some "delta"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "nested")
+                                (L00_SourceSolidity.Expr.ident
+                                  "left"))
+                              (L00_SourceSolidity.Expr.ident
+                                "right"))
+                            L00_SourceSolidity.AssignOp.addAssign
+                            (L00_SourceSolidity.Expr.ident
+                              "delta"))) } ] } ] }
+
+def nestedStoragePathCompoundAccepted : Bool :=
+  sourceUnitAccepted? nestedStoragePathCompoundSource
+
 def nestedBytesStoragePathSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

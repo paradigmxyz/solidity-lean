@@ -21563,6 +21563,139 @@ def nestedStoragePathMappingClearMatches : Option Bool := do
     (SolidCore.Solidity.Source.wordEq
       (state.loadSlot nestedStoragePathMappingSlot) 0)
 
+def nestedStoragePathCompoundContract : ContractDecl :=
+  { name := "NestedStoragePathCompound"
+    items :=
+      [ ContractItem.stateVar
+          { name := "matrix"
+            ty :=
+              Ty.array
+                (Ty.array (Ty.uint 256) none)
+                none }
+      , ContractItem.stateVar
+          { name := "nested"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.mapping (Ty.uint 256) (Ty.uint 256)) }
+      , ContractItem.function
+          { name := some "addMatrix"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 }
+              , { name := some "delta", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "matrix")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner"))
+                    AssignOp.addAssign
+                    (Expr.ident "delta"))) }
+      , ContractItem.function
+          { name := some "incMatrix"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.unary UnaryOp.preIncrement
+                      (Expr.index
+                        (Expr.index
+                          (Expr.ident "matrix")
+                          (Expr.ident "outer"))
+                        (Expr.ident "inner"))))) }
+      , ContractItem.function
+          { name := some "addNested"
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 }
+              , { name := some "delta", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "nested")
+                        (Expr.ident "left"))
+                      (Expr.ident "right"))
+                    AssignOp.addAssign
+                    (Expr.ident "delta"))) } ] }
+
+def nestedStoragePathCompoundMatrixAddState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathCompoundContract
+      (SolidCore.Solidity.Source.CallTarget.name "addMatrix")
+      nestedStoragePathMatrixInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedStoragePathCompoundMatrixAddMatches : Option Bool := do
+  let state ← nestedStoragePathCompoundMatrixAddState
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 1)) 27)
+
+def nestedStoragePathCompoundMatrixIncMatches : Option Bool := do
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathCompoundContract
+      (SolidCore.Solidity.Source.CallTarget.name "incMatrix")
+      nestedStoragePathMatrixInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq value 23 &&
+          SolidCore.Solidity.Source.wordEq
+            (state.loadSlot
+              (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+                innerSlot 1)) 23)
+  | _ => some false
+
+def nestedStoragePathCompoundMappingAddState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedStoragePathCompoundContract
+      (SolidCore.Solidity.Source.CallTarget.name "addNested")
+      nestedStoragePathMappingClearInitialState
+      [ SolidCore.Solidity.Source.Value.word 3
+      , SolidCore.Solidity.Source.Value.word 4
+      , SolidCore.Solidity.Source.Value.word 7 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedStoragePathCompoundMappingAddMatches : Option Bool := do
+  let state ← nestedStoragePathCompoundMappingAddState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot nestedStoragePathMappingSlot) 62)
+
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"
     items :=
