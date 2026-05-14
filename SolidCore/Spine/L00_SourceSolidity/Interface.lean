@@ -21499,6 +21499,134 @@ def nestedStoragePathMappingClearMatches : Option Bool := do
     (SolidCore.Solidity.Source.wordEq
       (state.loadSlot nestedStoragePathMappingSlot) 0)
 
+def nestedBytesStoragePathContract : ContractDecl :=
+  { name := "NestedBytesStoragePath"
+    items :=
+      [ ContractItem.stateVar
+          { name := "blobs"
+            ty := Ty.array Ty.bytes none }
+      , ContractItem.function
+          { name := some "setByte"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 }
+              , { name := some "value", ty := Ty.bytesN 1 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "blobs")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner"))
+                    AssignOp.assign
+                    (Expr.ident "value"))) }
+      , ContractItem.function
+          { name := some "clearByte"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "blobs")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner")))) }
+      , ContractItem.function
+          { name := some "readByte"
+            params :=
+              [ { name := some "outer", ty := Ty.uint 256 }
+              , { name := some "inner", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.bytesN 1 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.index
+                      (Expr.index
+                        (Expr.ident "blobs")
+                        (Expr.ident "outer"))
+                      (Expr.ident "inner")))) } ] }
+
+def nestedBytesStoragePathInitialState : CoreState :=
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 1
+    |>.storeSlot elementSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 0) 10
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 1) 20
+
+def nestedBytesStoragePathSetState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedBytesStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "setByte")
+      nestedBytesStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1
+      , SolidCore.Solidity.Source.Value.word 90 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedBytesStoragePathSetMatches : Option Bool := do
+  let state ← nestedBytesStoragePathSetState
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
+  let result ←
+    ContractDecl.call? 64 nestedBytesStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "readByte")
+      state
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot elementSlot) 2 &&
+          SolidCore.Solidity.Source.wordEq
+            (state.loadSlot
+              (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+                elementSlot 1)) 90 &&
+          SolidCore.Solidity.Source.wordEq value 90)
+  | _ => some false
+
+def nestedBytesStoragePathClearState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 nestedBytesStoragePathContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearByte")
+      nestedBytesStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def nestedBytesStoragePathClearMatches : Option Bool := do
+  let state ← nestedBytesStoragePathClearState
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot elementSlot) 2 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            elementSlot 0)) 10 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            elementSlot 1)) 0)
+
 def pushNestedDynamicArrayContract : ContractDecl :=
   { name := "PushNestedDynamicArray"
     items :=

@@ -12289,6 +12289,101 @@ def nestedStoragePathSource :
 def nestedStoragePathAccepted : Bool :=
   sourceUnitAccepted? nestedStoragePathSource
 
+def nestedBytesStoragePathSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NestedBytesStoragePath"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "blobs"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        L00_SourceSolidity.Ty.bytes none }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setByte"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "blobs")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident
+                                "inner"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearByte"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "blobs")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident
+                                "inner")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "readByte"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "outer"
+                          ty := uint256
+                          location := none }
+                      , { name := some "inner"
+                          ty := uint256
+                          location := none } ]
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.bytesN 1 } ]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "blobs")
+                                (L00_SourceSolidity.Expr.ident
+                                  "outer"))
+                              (L00_SourceSolidity.Expr.ident
+                                "inner")))) } ] } ] }
+
+def nestedBytesStoragePathAccepted : Bool :=
+  sourceUnitAccepted? nestedBytesStoragePathSource
+
 def pushNestedDynamicArraySource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

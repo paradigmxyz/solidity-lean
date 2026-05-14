@@ -1805,6 +1805,15 @@ def State.resolveStoragePathSlot (state : State) :
         State.resolveStoragePathSlot state
           (fixedArrayLayoutStorageSlot slot key elementLayout)
           elementLayout rest
+  | slot, StorageLayout.bytes, index :: rest => do
+      let key ← index.expectWord
+      let length := state.loadSlot slot
+      if SharedSemantics.norm length <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        State.resolveStoragePathSlot state
+          (dynamicArrayStorageSlot slot key)
+          (StorageLayout.scalar (Ty.fixedBytes 1)) rest
   | slot, StorageLayout.struct layouts, index :: rest => do
       let key ← index.expectWord
       match structFieldStorageSlot? slot layouts (SharedSemantics.norm key) with
