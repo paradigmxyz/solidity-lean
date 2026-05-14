@@ -11781,6 +11781,55 @@ def indexAssignMappingStructSource : L00_SourceSolidity.SourceUnit :=
 def indexAssignMappingStructAccepted : Bool :=
   sourceUnitAccepted? indexAssignMappingStructSource
 
+def pushStructArraySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          assignFixedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PushStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "records"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        assignFixedStructArrayRecordTy none
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "pushValue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "value"
+                          ty := assignFixedStructArrayRecordTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "records")
+                              "push")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "pushDefault"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "records")
+                              "push")
+                            [])) } ] } ] }
+
+def pushStructArrayAccepted : Bool :=
+  sourceUnitAccepted? pushStructArraySource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

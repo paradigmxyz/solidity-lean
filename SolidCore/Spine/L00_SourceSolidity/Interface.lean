@@ -20536,6 +20536,102 @@ def indexAssignMappingStructGetterMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq flag 0)
   | _ => some false
 
+def pushStructArrayContract : ContractDecl :=
+  { name := "PushStructArray"
+    items :=
+      [ ContractItem.stateVar
+          { name := "records"
+            ty :=
+              Ty.array
+                (Ty.tuple [Ty.uint 256, Ty.bool])
+                none
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "pushValue"
+            params :=
+              [ { name := some "value"
+                  ty := Ty.tuple [Ty.uint 256, Ty.bool]
+                  location := some DataLocation.calldata } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.ident "records") "push")
+                    [Arg.positional (Expr.ident "value")])) }
+      , ContractItem.function
+          { name := some "pushDefault"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.ident "records") "push")
+                    [])) } ] }
+
+def pushStructArrayValueState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 48 pushStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "pushValue")
+      SolidCore.Solidity.Source.State.empty
+      [indexAssignStructValue]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def pushStructArrayValueGetterMatches : Option Bool := do
+  let state ← pushStructArrayValueState
+  let result ←
+    ContractDecl.call? 24 pushStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "records")
+      state [SolidCore.Solidity.Source.Value.word 0]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word amount
+      , SolidCore.Solidity.Source.Value.word flag ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq amount 20 &&
+          SolidCore.Solidity.Source.wordEq flag 0)
+  | _ => some false
+
+def pushStructArrayStaleState : CoreState :=
+  let elementLayout :=
+    SolidCore.Solidity.Source.StorageLayout.struct
+      [ SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.bool ]
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0 elementLayout
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot elementSlot 99
+    |>.storeSlot
+        (SolidCore.Solidity.Source.fixedArrayStorageSlot
+          elementSlot 1) 1
+
+def pushStructArrayDefaultState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 48 pushStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "pushDefault")
+      pushStructArrayStaleState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def pushStructArrayDefaultClearsElement : Option Bool := do
+  let state ← pushStructArrayDefaultState
+  let result ←
+    ContractDecl.call? 24 pushStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "records")
+      state [SolidCore.Solidity.Source.Value.word 0]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word amount
+      , SolidCore.Solidity.Source.Value.word flag ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq amount 0 &&
+          SolidCore.Solidity.Source.wordEq flag 0)
+  | _ => some false
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=

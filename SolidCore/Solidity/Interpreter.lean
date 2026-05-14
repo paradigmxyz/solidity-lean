@@ -1629,40 +1629,57 @@ def Runtime.storeStorageIndex (context : Context)
               (legacyIndexedStorageSlot field.slot key) word }
 
 def Runtime.storageArrayPush (context : Context)
-    (runtime : Runtime) (name : String) (value : Value) :
+    (runtime : Runtime) (name : String) (value? : Option Value) :
     Except RevertData Runtime := do
   let field ←
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
-  let elementTy ←
-    match field.layout? with
-    | some (StorageLayout.dynamicArray elementLayout) =>
-        match elementLayout.scalarTy? with
-        | some elementTy => Except.ok elementTy
-        | none => Except.error RevertData.typeMismatch
-    | some StorageLayout.bytes => Except.ok (Ty.fixedBytes 1)
-    | some StorageLayout.string => Except.error RevertData.typeMismatch
-    | none => Except.ok Ty.uint256
-    | _ => Except.error RevertData.typeMismatch
-  let word ← coerceStorageWordAs elementTy value
   let length := runtime.state.loadSlot field.slot
   let rawLength := SharedSemantics.norm length + 1
   if wordModulus <= rawLength then
     Except.error RevertData.overflow
   else
-    let elementSlot :=
-      match field.layout? with
-      | some (StorageLayout.dynamicArray _) =>
-          dynamicArrayStorageSlot field.slot length
-      | some StorageLayout.bytes =>
-          dynamicArrayStorageSlot field.slot length
-      | _ => legacyIndexedStorageSlot field.slot length
-    Except.ok
-      { runtime with
-        state :=
-          (runtime.state.storeSlot elementSlot word)
-            |>.storeSlot field.slot (normWord rawLength) }
+    match field.layout? with
+    | some (StorageLayout.dynamicArray elementLayout) => do
+        let elementSlot :=
+          dynamicArrayLayoutStorageSlot field.slot length elementLayout
+        let state ←
+          match value? with
+          | some value =>
+              State.storeStorageLayoutAt runtime.state
+                elementSlot elementLayout value
+          | none =>
+              State.clearStorageLayoutAt runtime.state
+                elementSlot elementLayout
+        Except.ok
+          { runtime with
+            state := state.storeSlot field.slot (normWord rawLength) }
+    | some StorageLayout.bytes => do
+        let word ←
+          match value? with
+          | some value => coerceStorageWordAs (Ty.fixedBytes 1) value
+          | none => Except.ok 0
+        Except.ok
+          { runtime with
+            state :=
+              (runtime.state.storeSlot
+                (dynamicArrayStorageSlot field.slot length) word)
+                |>.storeSlot field.slot (normWord rawLength) }
+    | some StorageLayout.string =>
+        Except.error RevertData.typeMismatch
+    | none => do
+        let word ←
+          match value? with
+          | some value => coerceStorageWordAs Ty.uint256 value
+          | none => Except.ok 0
+        Except.ok
+          { runtime with
+            state :=
+              (runtime.state.storeSlot
+                (legacyIndexedStorageSlot field.slot length) word)
+                |>.storeSlot field.slot (normWord rawLength) }
+    | _ => Except.error RevertData.typeMismatch
 
 def Runtime.storageArrayPop (context : Context)
     (runtime : Runtime) (name : String) :
@@ -3907,27 +3924,31 @@ def Stmt.eval (fuel : Nat) (context : Context)
                   | Except.error err => some (Result.reverted runtime err)
               | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPush name value? =>
-          let valueResult :=
-            match value? with
-            | some expr => expr.evalWithRuntime context runtime
-            | none => Except.ok (Value.word 0, runtime)
-          match valueResult with
-          | Except.ok (value, runtime') =>
-              match runtime'.storageArrayPush context name value with
+          match value? with
+          | some expr =>
+              match expr.evalWithRuntime context runtime with
+              | Except.ok (value, runtime') =>
+                  match runtime'.storageArrayPush context name (some value) with
+                  | Except.ok updated => some (Result.normal updated)
+                  | Except.error err => some (Result.reverted runtime err)
+              | Except.error err => some (Result.reverted runtime err)
+          | none =>
+              match runtime.storageArrayPush context name none with
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPushRef name value? =>
-          let valueResult :=
-            match value? with
-            | some expr => expr.evalWithRuntime context runtime
-            | none => Except.ok (Value.word 0, runtime)
-          match runtime.lookupStorageRef? name, valueResult with
-          | some target, Except.ok (value, runtime') =>
-              match runtime'.storageArrayPush context target value with
+          match runtime.lookupStorageRef? name, value? with
+          | some target, some expr =>
+              match expr.evalWithRuntime context runtime with
+              | Except.ok (value, runtime') =>
+                  match runtime'.storageArrayPush context target (some value) with
+                  | Except.ok updated => some (Result.normal updated)
+                  | Except.error err => some (Result.reverted runtime err)
+              | Except.error err => some (Result.reverted runtime err)
+          | some target, none =>
+              match runtime.storageArrayPush context target none with
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
-          | some _, Except.error err => some (Result.reverted runtime err)
           | none, _ => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPop name =>
           match runtime.storageArrayPop context name with
