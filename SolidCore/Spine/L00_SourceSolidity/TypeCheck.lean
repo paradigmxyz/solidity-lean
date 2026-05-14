@@ -11228,6 +11228,29 @@ def publicStructInternalFunctionGetterRejected : Bool :=
   Result.isError
     (SourceUnit.check publicStructInternalFunctionGetterSource)
 
+def nestedPublicGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NestedPublicGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "nested"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.mapping uint256 uint256)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "buckets"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.array uint256 none)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def nestedPublicGetterAccepted : Bool :=
+  sourceUnitAccepted? nestedPublicGetterSource
+
 def tryCatchZeroClause : L00_SourceSolidity.CatchClause :=
   L00_SourceSolidity.CatchClause.clause none []
     (L00_SourceSolidity.Stmt.returnValues

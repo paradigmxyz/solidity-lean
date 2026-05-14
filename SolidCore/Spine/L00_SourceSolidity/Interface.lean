@@ -2317,14 +2317,14 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
       let fields ← mapOption Ty.toCoreStorageWord? tys
       some (SolidCore.Solidity.Source.StorageLayout.struct fields)
   | Ty.array elementTy none => do
-      let element ← Ty.toCoreStorageWord? elementTy
+      let element ← Ty.toCoreStorageLayout? elementTy
       some (SolidCore.Solidity.Source.StorageLayout.dynamicArray element)
   | Ty.array elementTy (some size) => do
-      let element ← Ty.toCoreStorageWord? elementTy
+      let element ← Ty.toCoreStorageLayout? elementTy
       some (SolidCore.Solidity.Source.StorageLayout.fixedArray size element)
   | Ty.mapping keyTy valueTy => do
       let key ← Ty.toCoreMappingKey? keyTy
-      let value ← Ty.toCoreStorageWord? valueTy
+      let value ← Ty.toCoreStorageLayout? valueTy
       some (SolidCore.Solidity.Source.StorageLayout.mapping key value)
   | ty => do
       let scalar ← Ty.toCoreStorageWord? ty
@@ -2334,6 +2334,16 @@ def Ty.hasStorageArrayMembers : Ty -> Bool
   | Ty.array _ none => true
   | Ty.bytes => true
   | _ => false
+
+def Ty.publicGetterShape? : Nat -> Ty -> Option (List Ty × Ty)
+  | 0, _ => none
+  | fuel + 1, Ty.mapping keyTy valueTy => do
+      let tail ← Ty.publicGetterShape? fuel valueTy
+      some (keyTy :: tail.fst, tail.snd)
+  | fuel + 1, Ty.array elementTy _ => do
+      let tail ← Ty.publicGetterShape? fuel elementTy
+      some (Ty.uint 256 :: tail.fst, tail.snd)
+  | _ + 1, ty => some ([], ty)
 
 def joinStringsWith (sep : String) : List String -> String
   | [] => ""
@@ -5937,13 +5947,10 @@ def ErrorDecl.selectorEntry? (decl : ErrorDecl) :
 def StateVarDecl.publicGetterSignature? (decl : StateVarDecl) :
     Option String :=
   match decl.visibility with
-  | some Visibility.public_ =>
-      match decl.ty with
-      | Ty.mapping keyTy _ => do
-          let keyCanonical ← Ty.abiCanonical? keyTy
-          some (decl.name ++ "(" ++ keyCanonical ++ ")")
-      | Ty.array _ _ => some (decl.name ++ "(uint256)")
-      | _ => some (decl.name ++ "()")
+  | some Visibility.public_ => do
+      let shape ← Ty.publicGetterShape? 64 decl.ty
+      let canonical ← mapOption Ty.abiCanonical? shape.fst
+      some (decl.name ++ "(" ++ joinStringsWith "," canonical ++ ")")
   | _ => none
 
 def StateVarDecl.selectorEntry? (decl : StateVarDecl) :
@@ -9298,11 +9305,11 @@ def ContractDecl.constructorCallKindEntry?
 
 def StateVarDecl.externalGetterParamTys? (decl : StateVarDecl) :
     Option (List Ty) :=
-  match decl.visibility, decl.ty with
-  | some Visibility.public_, Ty.mapping keyTy _ => some [keyTy]
-  | some Visibility.public_, Ty.array _ _ => some [Ty.uint 256]
-  | some Visibility.public_, _ => some []
-  | _, _ => none
+  match decl.visibility with
+  | some Visibility.public_ => do
+      let shape ← Ty.publicGetterShape? 64 decl.ty
+      some shape.fst
+  | _ => none
 
 def StateVarDecl.externalCallKindEntry? (contractName : Name)
     (decl : StateVarDecl) : Option ExternalCallKindEntry := do
@@ -9852,6 +9859,54 @@ def ErrorDecl.toCore (decl : ErrorDecl) : Option CoreErrorDecl := do
           signature
       fields := fields.map (fun field => field.ty) }
 
+def StateVarDecl.publicGetterParamCore? (index : Nat) (ty : Ty) :
+    Option (CoreBindingDecl × CoreExpr) := do
+  let coreTy ← Ty.toCore? ty
+  let name := "_key" ++ toString index
+  some ({ name, ty := coreTy }, SolidCore.Solidity.Source.Expr.var name)
+
+def StateVarDecl.publicGetterParamsCore?
+    (paramTys : List Ty) : Option (List CoreBindingDecl × List CoreExpr) := do
+  let pairs ← mapOptionIdx StateVarDecl.publicGetterParamCore? 0 paramTys
+  some (pairs.map Prod.fst, pairs.map Prod.snd)
+
+def StateVarDecl.publicGetterBodyExpr
+    (name : Name) (returnTy : Ty) (indexes : List CoreExpr) : CoreExpr :=
+  match indexes with
+  | [] =>
+      match returnTy with
+      | Ty.bytes | Ty.string =>
+          SolidCore.Solidity.Source.Expr.storageBytes name
+      | _ => SolidCore.Solidity.Source.Expr.storage name
+  | _ :: _ =>
+      SolidCore.Solidity.Source.Expr.storagePath name indexes
+
+def StateVarDecl.toCoreRecursiveGetterIfPublic?
+    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+  match decl.visibility with
+  | some Visibility.public_ => do
+      let shape ← Ty.publicGetterShape? 64 decl.ty
+      let (paramTys, returnTy) := shape
+      let (params, indexes) ←
+        StateVarDecl.publicGetterParamsCore? paramTys
+      let returnTyCore ← Ty.toCore? returnTy
+      let signature ←
+        StateVarDecl.publicGetterSignature? decl
+      some
+        (some
+          { name := decl.name
+            selector? :=
+              some
+                (SolidCore.Solidity.Source.ABI.selectorFromSignature
+                  signature)
+            params := params
+            returns := [{ name := "_value", ty := returnTyCore }]
+            body :=
+              SolidCore.Solidity.Source.Stmt.returnValues
+                [StateVarDecl.publicGetterBodyExpr
+                  decl.name returnTy indexes] })
+  | _ => some none
+
 def StateVarDecl.toCoreMappingGetterIfPublic?
     (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
   match decl.visibility, decl.ty with
@@ -10012,36 +10067,8 @@ def StateVarDecl.toCoreGetterIfPublic? (storageNames : List Name)
   | some Visibility.public_, VarMutability.immutable =>
       StateVarDecl.toCoreImmutableGetterIfPublic? decl
   | some Visibility.public_, VarMutability.mutable
-  | some Visibility.public_, VarMutability.transient => do
-      match StateVarDecl.toCoreMappingGetterIfPublic? decl with
-      | some (some getter) => some (some getter)
-      | some none => do
-          match StateVarDecl.toCoreArrayGetterIfPublic? decl with
-          | some (some getter) => some (some getter)
-          | some none => do
-              match StateVarDecl.toCoreStructGetterIfPublic? decl with
-              | some (some getter) => some (some getter)
-              | some none => do
-                  match StateVarDecl.toCoreByteStringGetterIfPublic? decl with
-                  | some (some getter) => some (some getter)
-                  | some none => do
-                      let ty ← Ty.toCoreStorageWord? decl.ty
-                      some
-                        (some
-                          { name := decl.name
-                            selector? :=
-                              some
-                                (SolidCore.Solidity.Source.ABI.selectorFromSignature
-                                  (decl.name ++ "()"))
-                            params := []
-                            returns := [{ name := "_value", ty := ty }]
-                            body :=
-                              SolidCore.Solidity.Source.Stmt.returnValues
-                                [SolidCore.Solidity.Source.Expr.storage decl.name] })
-                  | none => none
-              | none => none
-          | none => none
-      | none => none
+  | some Visibility.public_, VarMutability.transient =>
+      StateVarDecl.toCoreRecursiveGetterIfPublic? decl
   | _, _ => some none
 
 def StateVarDecl.toCoreInit? (storageNames : List Name)
@@ -19354,6 +19381,91 @@ def publicFixedArrayGetterOutOfBoundsResult :
       [SolidCore.Solidity.Source.Value.word 3]
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     16 contract state calldata
+
+def nestedPublicGetterContract : ContractDecl :=
+  { name := "NestedPublicGetter"
+    items :=
+      [ ContractItem.stateVar
+          { name := "nested"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.mapping (Ty.uint 256) (Ty.uint 256))
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "buckets"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.array (Ty.uint 256) none)
+            visibility := some Visibility.public_ } ] }
+
+def nestedPublicGetterState : CoreState :=
+  let nestedOuterSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 0 4
+  let nestedInnerSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot nestedOuterSlot 5
+  let bucketSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 1 7
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot nestedInnerSlot 99
+    |>.storeSlot bucketSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          bucketSlot 1) 88
+
+def nestedMappingPublicGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 nestedPublicGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "nested")
+      nestedPublicGetterState
+      [ SolidCore.Solidity.Source.Value.word 4
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 99)
+  | _ => some false
+
+def nestedMappingPublicGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? nestedPublicGetterContract
+  let function ← contract.findFunctionByName? "nested"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [ SolidCore.Solidity.Source.Value.word 4
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract nestedPublicGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.abiEncodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 99]
+  some (result.success && result.output == expected)
+
+def mappingArrayPublicGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 nestedPublicGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "buckets")
+      nestedPublicGetterState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 88)
+  | _ => some false
+
+def mappingArrayPublicGetterOutOfBounds : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 nestedPublicGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "buckets")
+      nestedPublicGetterState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (SolidCore.Solidity.Source.wordEq code 0x32)
+  | _ => some false
 
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
