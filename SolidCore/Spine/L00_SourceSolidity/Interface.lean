@@ -7987,6 +7987,37 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 [Arg.positional (Expr.call (Expr.ident name) args)]))
   | Stmt.emitEvent
       (Expr.call (Expr.ident eventName)
+        [ Arg.positional (Expr.call (Expr.ident firstName) firstArgs)
+        , Arg.positional (Expr.call (Expr.ident secondName) secondArgs) ]) =>
+      match FunctionDecl.internalTwoSingleReturnCallsCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions firstName firstArgs
+          secondName secondArgs "_sol_event_first"
+          (fun firstExpr secondExpr =>
+            SolidCore.Solidity.Source.Stmt.emitEvent eventName
+              [firstExpr, secondExpr]) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let secondCore ←
+            Expr.toCore? storageNames
+              (Expr.call (Expr.ident secondName) secondArgs)
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions firstName firstArgs
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.emitEvent eventName
+                  [retExpr, secondCore]) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.emitEvent
+                  (Expr.call (Expr.ident eventName)
+                    [ Arg.positional
+                        (Expr.call (Expr.ident firstName) firstArgs)
+                    , Arg.positional
+                        (Expr.call (Expr.ident secondName) secondArgs) ]))
+  | Stmt.emitEvent
+      (Expr.call (Expr.ident eventName)
         [ Arg.positional (Expr.call (Expr.ident name) args)
         , Arg.positional rhs ]) => do
       let rhsCore ← Expr.toCore? storageNames rhs
@@ -8043,6 +8074,37 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Stmt.revertCall
               (Expr.call (Expr.ident errorName)
                 [Arg.positional (Expr.call (Expr.ident name) args)]))
+  | Stmt.revertCall
+      (Expr.call (Expr.ident errorName)
+        [ Arg.positional (Expr.call (Expr.ident firstName) firstArgs)
+        , Arg.positional (Expr.call (Expr.ident secondName) secondArgs) ]) =>
+      match FunctionDecl.internalTwoSingleReturnCallsCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions firstName firstArgs
+          secondName secondArgs "_sol_error_first"
+          (fun firstExpr secondExpr =>
+            SolidCore.Solidity.Source.Stmt.revert errorName
+              [firstExpr, secondExpr]) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let secondCore ←
+            Expr.toCore? storageNames
+              (Expr.call (Expr.ident secondName) secondArgs)
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions firstName firstArgs
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.revert errorName
+                  [retExpr, secondCore]) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.revertCall
+                  (Expr.call (Expr.ident errorName)
+                    [ Arg.positional
+                        (Expr.call (Expr.ident firstName) firstArgs)
+                    , Arg.positional
+                        (Expr.call (Expr.ident secondName) secondArgs) ]))
   | Stmt.revertCall
       (Expr.call (Expr.ident errorName)
         [ Arg.positional (Expr.call (Expr.ident name) args)
@@ -27770,7 +27832,22 @@ def internalEmitTwoArgumentCallContract : ContractDecl :=
                         , Arg.positional
                             (Expr.call (Expr.ident "read") []) ])
                   , Stmt.returnValues
-                      (some (Expr.ident "x")) ]) } ] }
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runBoth"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.emitEvent
+                      (Expr.call (Expr.ident "Seen")
+                        [ Arg.positional
+                            (Expr.call (Expr.ident "value") [])
+                        , Arg.positional
+                            (Expr.call (Expr.ident "read") []) ])
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      ] }
 
 def internalEmitTwoArgumentCallMatches : Option Bool := do
   let leftResult ←
@@ -27781,21 +27858,30 @@ def internalEmitTwoArgumentCallMatches : Option Bool := do
     ContractDecl.call? 64 internalEmitTwoArgumentCallContract
       (SolidCore.Solidity.Source.CallTarget.name "runRight")
       SolidCore.Solidity.Source.State.empty []
-  match leftResult, rightResult with
+  let bothResult ←
+    ContractDecl.call? 64 internalEmitTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBoth")
+      SolidCore.Solidity.Source.State.empty []
+  match leftResult, rightResult, bothResult with
   | SolidCore.Solidity.Source.CallResult.returned leftState
       [SolidCore.Solidity.Source.Value.word leftRet],
     SolidCore.Solidity.Source.CallResult.returned rightState
-      [SolidCore.Solidity.Source.Value.word rightRet] =>
-      match leftState.events, rightState.events with
-      | [leftEvent], [rightEvent] =>
-          match leftEvent.data, rightEvent.data with
+      [SolidCore.Solidity.Source.Value.word rightRet],
+    SolidCore.Solidity.Source.CallResult.returned bothState
+      [SolidCore.Solidity.Source.Value.word bothRet] =>
+      match leftState.events, rightState.events, bothState.events with
+      | [leftEvent], [rightEvent], [bothEvent] =>
+          match leftEvent.data, rightEvent.data, bothEvent.data with
           | [ SolidCore.Solidity.Source.Value.word left0
             , SolidCore.Solidity.Source.Value.word left1 ],
             [ SolidCore.Solidity.Source.Value.word right0
-            , SolidCore.Solidity.Source.Value.word right1 ] =>
+            , SolidCore.Solidity.Source.Value.word right1 ],
+            [ SolidCore.Solidity.Source.Value.word both0
+            , SolidCore.Solidity.Source.Value.word both1 ] =>
               some
                 (leftEvent.name == "Seen" &&
                   rightEvent.name == "Seen" &&
+                  bothEvent.name == "Seen" &&
                   SolidCore.Solidity.Source.wordEq leftRet 7 &&
                   SolidCore.Solidity.Source.wordEq left0 7 &&
                   SolidCore.Solidity.Source.wordEq left1 8 &&
@@ -27807,10 +27893,16 @@ def internalEmitTwoArgumentCallMatches : Option Bool := do
                   SolidCore.Solidity.Source.wordEq right1 5 &&
                   SolidCore.Solidity.Source.wordEq
                     (SolidCore.Solidity.Source.State.loadSlot
-                      rightState 0) 5)
-          | _, _ => some false
-      | _, _ => some false
-  | _, _ => some false
+                      rightState 0) 5 &&
+                  SolidCore.Solidity.Source.wordEq bothRet 7 &&
+                  SolidCore.Solidity.Source.wordEq both0 7 &&
+                  SolidCore.Solidity.Source.wordEq both1 7 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (SolidCore.Solidity.Source.State.loadSlot
+                      bothState 0) 7)
+          | _, _, _ => some false
+      | _, _, _ => some false
+  | _, _, _ => some false
 
 def internalRevertArgumentCallContract : ContractDecl :=
   { name := "InternalRevertArgumentCall"
@@ -27913,6 +28005,20 @@ def internalRevertTwoArgumentCallContract : ContractDecl :=
                         , Arg.positional
                             (Expr.call (Expr.ident "read") []) ])
                   , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runBoth"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.revertCall
+                      (Expr.call (Expr.ident "Bad")
+                        [ Arg.positional
+                            (Expr.call (Expr.ident "value") [])
+                        , Arg.positional
+                            (Expr.call (Expr.ident "read") []) ])
+                  , Stmt.returnValues
                       (some (Expr.ident "x")) ]) } ] }
 
 def internalRevertTwoArgumentCallMatches : Option Bool := do
@@ -27924,7 +28030,11 @@ def internalRevertTwoArgumentCallMatches : Option Bool := do
     ContractDecl.call? 64 internalRevertTwoArgumentCallContract
       (SolidCore.Solidity.Source.CallTarget.name "runRight")
       SolidCore.Solidity.Source.State.empty []
-  match leftResult, rightResult with
+  let bothResult ←
+    ContractDecl.call? 64 internalRevertTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBoth")
+      SolidCore.Solidity.Source.State.empty []
+  match leftResult, rightResult, bothResult with
   | SolidCore.Solidity.Source.CallResult.reverted leftState
       (SolidCore.Solidity.Source.RevertData.custom "Bad"
         [ SolidCore.Solidity.Source.Value.word left0
@@ -27932,7 +28042,11 @@ def internalRevertTwoArgumentCallMatches : Option Bool := do
     SolidCore.Solidity.Source.CallResult.reverted rightState
       (SolidCore.Solidity.Source.RevertData.custom "Bad"
         [ SolidCore.Solidity.Source.Value.word right0
-        , SolidCore.Solidity.Source.Value.word right1 ]) =>
+        , SolidCore.Solidity.Source.Value.word right1 ]),
+    SolidCore.Solidity.Source.CallResult.reverted bothState
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word both0
+        , SolidCore.Solidity.Source.Value.word both1 ]) =>
       some
         (SolidCore.Solidity.Source.wordEq left0 7 &&
           SolidCore.Solidity.Source.wordEq left1 8 &&
@@ -27941,8 +28055,12 @@ def internalRevertTwoArgumentCallMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq right0 5 &&
           SolidCore.Solidity.Source.wordEq right1 5 &&
           SolidCore.Solidity.Source.wordEq
-            (SolidCore.Solidity.Source.State.loadSlot rightState 0) 0)
-  | _, _ => some false
+            (SolidCore.Solidity.Source.State.loadSlot rightState 0) 0 &&
+          SolidCore.Solidity.Source.wordEq both0 7 &&
+          SolidCore.Solidity.Source.wordEq both1 7 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot bothState 0) 0)
+  | _, _, _ => some false
 
 def internalTupleReturnCallContract : ContractDecl :=
   { name := "InternalTupleReturnCall"

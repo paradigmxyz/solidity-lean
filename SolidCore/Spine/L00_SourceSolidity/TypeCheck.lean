@@ -9706,7 +9706,33 @@ def internalEmitTwoArgumentCallSource : L00_SourceSolidity.SourceUnit :=
                                       []) ])
                           , L00_SourceSolidity.Stmt.returnValues
                               (some
-                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBoth"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.emitEvent
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "Seen")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "value")
+                                      [])
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "read")
+                                      []) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              ] } ] }
 
 def internalEmitTwoArgumentCallAccepted : Bool :=
   sourceUnitAccepted? internalEmitTwoArgumentCallSource
@@ -9862,6 +9888,31 @@ def internalRevertTwoArgumentCallSource : L00_SourceSolidity.SourceUnit :=
                                       (L00_SourceSolidity.Expr.ident "x")
                                       L00_SourceSolidity.AssignOp.assign
                                       (numberExpr "5"))
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "read")
+                                      []) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBoth"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.revertCall
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "Bad")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "value")
+                                      [])
                                 , L00_SourceSolidity.Arg.positional
                                     (L00_SourceSolidity.Expr.call
                                       (L00_SourceSolidity.Expr.ident "read")
