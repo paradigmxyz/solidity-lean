@@ -4557,8 +4557,21 @@ def checkStmt (env : CheckEnv) :
       condChecked.expectBool
       let checkedArgs ← checkArgs env errorArgs
       let argInfos := checkedArgInfosFull errorArgs checkedArgs
-      let _ ← ErrorSigs.resolveChecked env.types env.errors errorName argInfos
-      Except.ok { source := stmt }
+      match ErrorSigs.resolveChecked env.types env.errors errorName argInfos with
+      | Except.ok _ => Except.ok { source := stmt }
+      | Except.error err =>
+          if env.errors.any (fun sig => sig.name == errorName) then
+            Except.error err
+          else
+            let _ ← checkExpr env
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "require")
+                [ L00_SourceSolidity.Arg.positional cond
+                , L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.ident errorName)
+                      errorArgs) ])
+            Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }
@@ -9326,6 +9339,117 @@ def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
 
 def internalRequireConditionCallAccepted : Bool :=
   sourceUnitAccepted? internalRequireConditionCallSource
+
+def internalRequireReasonCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalRequireReasonCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  { name := "Bad"
+                    params :=
+                      [{ name := some "value"
+                         ty := uint256
+                         location := none }] }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "note"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.string
+                         location :=
+                           some L00_SourceSolidity.DataLocation.memory }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "9"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.literal
+                                  (L00_SourceSolidity.Literal.string
+                                    "ok"))) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "value"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "7"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runReasonTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.bool true))
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "note")
+                                      []) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runCustomFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.bool false))
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "Bad")
+                                      [L00_SourceSolidity.Arg.positional
+                                        (L00_SourceSolidity.Expr.call
+                                          (L00_SourceSolidity.Expr.ident
+                                            "value")
+                                          [])]) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+
+def internalRequireReasonCallAccepted : Bool :=
+  sourceUnitAccepted? internalRequireReasonCallSource
 
 def internalEmitArgumentCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
