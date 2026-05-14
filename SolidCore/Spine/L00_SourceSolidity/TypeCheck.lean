@@ -12353,6 +12353,10 @@ def gasOption (amount : String) : L00_SourceSolidity.CallOption :=
     (L00_SourceSolidity.Expr.literal
       (L00_SourceSolidity.Literal.number amount))
 
+def saltOption (expr : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.CallOption :=
+  L00_SourceSolidity.CallOption.named "salt" expr
+
 def seedConstructor
     (mutability : L00_SourceSolidity.StateMutability) :
     L00_SourceSolidity.FunctionDecl :=
@@ -12484,6 +12488,84 @@ def payableConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
 
 def payableConstructorCreateAccepted : Bool :=
   sourceUnitAccepted? payableConstructorCreateSource
+
+def saltedConstructorCreateFunction : L00_SourceSolidity.FunctionDecl :=
+  { constructorCreateFunction with
+    name := some "makeSalted"
+    params :=
+      [{ name := some "salt"
+         ty := L00_SourceSolidity.Ty.bytesN 32
+         location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.callWithOptions
+                (L00_SourceSolidity.Expr.newExpr constructorTargetTy [])
+                [saltOption (L00_SourceSolidity.Expr.ident "salt")]
+                [L00_SourceSolidity.Arg.named "seed" (numberExpr "7")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def saltedConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract constructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "SaltedCtorMaker"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                saltedConstructorCreateFunction] } ] }
+
+def saltedConstructorCreateAccepted : Bool :=
+  sourceUnitAccepted? saltedConstructorCreateSource
+
+def uintSaltConstructorCreateFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { saltedConstructorCreateFunction with
+    name := some "makeUintSalted"
+    params :=
+      [{ name := some "salt"
+         ty := uint256
+         location := none }] }
+
+def uintSaltConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract constructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadUintSaltCtorMaker"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                uintSaltConstructorCreateFunction] } ] }
+
+def uintSaltConstructorCreateRejected : Bool :=
+  Result.isError (SourceUnit.check uintSaltConstructorCreateSource)
+
+def literalSaltConstructorCreateFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { constructorCreateFunction with
+    name := some "makeLiteralSalted"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.callWithOptions
+                (L00_SourceSolidity.Expr.newExpr constructorTargetTy [])
+                [saltOption (numberExpr "1")]
+                [L00_SourceSolidity.Arg.named "seed" (numberExpr "7")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def literalSaltConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract constructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadLiteralSaltCtorMaker"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                literalSaltConstructorCreateFunction] } ] }
+
+def literalSaltConstructorCreateRejected : Bool :=
+  Result.isError (SourceUnit.check literalSaltConstructorCreateSource)
 
 def nonpayableConstructorValueFunction :
     L00_SourceSolidity.FunctionDecl :=
