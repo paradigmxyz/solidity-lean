@@ -3141,13 +3141,27 @@ def Expr.negatedNumberLiteralNat? : Expr -> Option Nat
       Expr.negatedNumberLiteralNat? expr
   | _ => none
 
+def Expr.untypedNumberLiteralRat? : Expr -> Option NumberRat
+  | Expr.literal (Literal.number text) => parseNumberRat? text
+  | Expr.literal (Literal.unitNumber text unit) =>
+      parseUnitNumberRat? text unit
+  | Expr.unary UnaryOp.neg inner => do
+      let value ← Expr.untypedNumberLiteralRat? inner
+      if value.num == 0 then some value else none
+  | Expr.binary op lhs rhs => do
+      let lhsValue ← Expr.untypedNumberLiteralRat? lhs
+      let rhsValue ← Expr.untypedNumberLiteralRat? rhs
+      BinaryOp.applyNumberRat? op lhsValue rhsValue
+  | _ => none
+
+def Expr.untypedNumberLiteralNat? (expr : Expr) : Option Nat := do
+  let value ← Expr.untypedNumberLiteralRat? expr
+  value.exactNat?
+
 def Expr.isZeroNumberLiteralExpression (expr : Expr) : Bool :=
-  match Expr.numberLiteralNat? expr with
+  match Expr.untypedNumberLiteralNat? expr with
   | some value => value == 0
-  | none =>
-      match Expr.negatedNumberLiteralNat? expr with
-      | some value => value == 0
-      | none => false
+  | none => false
 
 def Expr.toCoreFixedBytesLiteralAs? (ty : Ty) : Expr -> Option CoreExpr
   | Expr.literal literal => do
@@ -19899,6 +19913,28 @@ def payableZeroExpressionToCoreAccepted : Bool :=
           (Expr.binary BinaryOp.sub
             (Expr.literal (Literal.number "1"))
             (Expr.literal (Literal.number "1"))))
+  with
+  | some (SolidCore.Solidity.Source.Expr.word value) => value == 0
+  | _ => false
+
+def payableTypedUint160ZeroToCoreRejected : Bool :=
+  match
+      Expr.toCore? []
+        (Expr.payableConversion
+          (Expr.call (Expr.typeName (Ty.uint 160))
+            [Arg.positional (Expr.literal (Literal.number "0"))]))
+  with
+  | none => true
+  | some _ => false
+
+def payableAddressUint160ZeroToCoreAccepted : Bool :=
+  match
+      Expr.toCore? []
+        (Expr.payableConversion
+          (Expr.call (Expr.typeName (Ty.address false))
+            [Arg.positional
+              (Expr.call (Expr.typeName (Ty.uint 160))
+                [Arg.positional (Expr.literal (Literal.number "0"))])]))
   with
   | some (SolidCore.Solidity.Source.Expr.word value) => value == 0
   | _ => false

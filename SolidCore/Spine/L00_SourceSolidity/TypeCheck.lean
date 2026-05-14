@@ -19786,10 +19786,20 @@ def uint160OneExpr : L00_SourceSolidity.Expr :=
     (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.uint 160))
     [L00_SourceSolidity.Arg.positional oneExpr]
 
+def uint160ZeroExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.uint 160))
+    [L00_SourceSolidity.Arg.positional zeroExpr]
+
 def addressCastExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
     (L00_SourceSolidity.Expr.typeName addressTy)
     [L00_SourceSolidity.Arg.positional uint160OneExpr]
+
+def addressUint160ZeroExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName addressTy)
+    [L00_SourceSolidity.Arg.positional uint160ZeroExpr]
 
 def literalUint8ReturnSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -20287,6 +20297,46 @@ def payableZeroExpressionSource : L00_SourceSolidity.SourceUnit :=
 
 def payableZeroExpressionAccepted : Bool :=
   sourceUnitAccepted? payableZeroExpressionSource
+
+def payableTypedUint160ZeroSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadPayableUint160Zero"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badPayableUint160Zero"
+                    returns :=
+                      [{ name := none, ty := payableAddressTy, location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.payableConversion
+                              uint160ZeroExpr))) } ] } ] }
+
+def payableTypedUint160ZeroRejected : Bool :=
+  Result.isError (SourceUnit.check payableTypedUint160ZeroSource)
+
+def payableAddressUint160ZeroSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PayableAddressUint160Zero"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "payableAddressUint160Zero"
+                    returns :=
+                      [{ name := none, ty := payableAddressTy, location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.payableConversion
+                              addressUint160ZeroExpr))) } ] } ] }
+
+def payableAddressUint160ZeroAccepted : Bool :=
+  sourceUnitAccepted? payableAddressUint160ZeroSource
 
 def payableOneSource : L00_SourceSolidity.SourceUnit :=
   { items :=
