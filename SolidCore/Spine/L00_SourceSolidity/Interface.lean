@@ -7846,6 +7846,50 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Stmt.emitEvent
               (Expr.call (Expr.ident eventName)
                 [Arg.positional (Expr.call (Expr.ident name) args)]))
+  | Stmt.emitEvent
+      (Expr.call (Expr.ident eventName)
+        [ Arg.positional (Expr.call (Expr.ident name) args)
+        , Arg.positional rhs ]) => do
+      let rhsCore ← Expr.toCore? storageNames rhs
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.emitEvent eventName
+              [retExpr, rhsCore]) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.emitEvent
+              (Expr.call (Expr.ident eventName)
+                [ Arg.positional (Expr.call (Expr.ident name) args)
+                , Arg.positional rhs ]))
+  | Stmt.emitEvent
+      (Expr.call (Expr.ident eventName)
+        [ Arg.positional lhs
+        , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
+      let lhsCore ← Expr.toCore? storageNames lhs
+      let lhsTy ← Expr.abiTyWithEnv? env lhs
+      let lhsCoreTy ← Ty.toCore? lhsTy
+      let lhsTmp := "_sol_event_lhs"
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.emitEvent eventName
+              [SolidCore.Solidity.Source.Expr.var lhsTmp, retExpr]) with
+      | some coreStmt =>
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl
+                  lhsCoreTy lhsTmp (some lhsCore)
+              , coreStmt ])
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.emitEvent
+              (Expr.call (Expr.ident eventName)
+                [ Arg.positional lhs
+                , Arg.positional (Expr.call (Expr.ident name) args) ]))
   | Stmt.revertCall
       (Expr.call (Expr.ident errorName)
         [Arg.positional (Expr.call (Expr.ident name) args)]) =>
@@ -27291,6 +27335,107 @@ def internalEmitArgumentCallMatches : Option Bool := do
           | _ => some false
       | _ => some false
   | _ => some false
+
+def internalEmitTwoArgumentCallContract : ContractDecl :=
+  { name := "InternalEmitTwoArgumentCall"
+    items :=
+      [ ContractItem.eventDecl
+          { name := "Seen"
+            params :=
+              [ { name := some "left"
+                  ty := Ty.uint 256
+                  indexed := false }
+              , { name := some "right"
+                  ty := Ty.uint 256
+                  indexed := false } ] }
+      , ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "value"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "7")))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "read"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some (Stmt.returnValues (some (Expr.ident "x"))) }
+      , ContractItem.function
+          { name := some "runLeft"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.emitEvent
+                      (Expr.call (Expr.ident "Seen")
+                        [ Arg.positional
+                            (Expr.call (Expr.ident "value") [])
+                        , Arg.positional
+                            (Expr.binary BinaryOp.add
+                              (Expr.ident "x")
+                              (Expr.literal (Literal.number "1"))) ])
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runRight"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.emitEvent
+                      (Expr.call (Expr.ident "Seen")
+                        [ Arg.positional
+                            (Expr.assign (Expr.ident "x") AssignOp.assign
+                              (Expr.literal (Literal.number "5")))
+                        , Arg.positional
+                            (Expr.call (Expr.ident "read") []) ])
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) } ] }
+
+def internalEmitTwoArgumentCallMatches : Option Bool := do
+  let leftResult ←
+    ContractDecl.call? 64 internalEmitTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runLeft")
+      SolidCore.Solidity.Source.State.empty []
+  let rightResult ←
+    ContractDecl.call? 64 internalEmitTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runRight")
+      SolidCore.Solidity.Source.State.empty []
+  match leftResult, rightResult with
+  | SolidCore.Solidity.Source.CallResult.returned leftState
+      [SolidCore.Solidity.Source.Value.word leftRet],
+    SolidCore.Solidity.Source.CallResult.returned rightState
+      [SolidCore.Solidity.Source.Value.word rightRet] =>
+      match leftState.events, rightState.events with
+      | [leftEvent], [rightEvent] =>
+          match leftEvent.data, rightEvent.data with
+          | [ SolidCore.Solidity.Source.Value.word left0
+            , SolidCore.Solidity.Source.Value.word left1 ],
+            [ SolidCore.Solidity.Source.Value.word right0
+            , SolidCore.Solidity.Source.Value.word right1 ] =>
+              some
+                (leftEvent.name == "Seen" &&
+                  rightEvent.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq leftRet 7 &&
+                  SolidCore.Solidity.Source.wordEq left0 7 &&
+                  SolidCore.Solidity.Source.wordEq left1 8 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (SolidCore.Solidity.Source.State.loadSlot
+                      leftState 0) 7 &&
+                  SolidCore.Solidity.Source.wordEq rightRet 5 &&
+                  SolidCore.Solidity.Source.wordEq right0 5 &&
+                  SolidCore.Solidity.Source.wordEq right1 5 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (SolidCore.Solidity.Source.State.loadSlot
+                      rightState 0) 5)
+          | _, _ => some false
+      | _, _ => some false
+  | _, _ => some false
 
 def internalRevertArgumentCallContract : ContractDecl :=
   { name := "InternalRevertArgumentCall"
