@@ -7354,6 +7354,75 @@ def VarBindings.removeInternalFunctionAliases :
       VarBindings.removeInternalFunctionAliases
         (VarBinding.removeInternalFunctionAlias aliasEnv binding) rest
 
+def Parameter.internalFunctionAliasArg?
+    (aliasEnv : InternalFunctionAliasEnv)
+    (functions freeFunctions : List FunctionDecl)
+    (fallbackPrefix : String) (index : Nat)
+    (param : Parameter) (arg : Expr) :
+    Option InternalFunctionAliasBinding := do
+  let expected := param.ty
+  match expected, arg with
+  | Ty.function _ _ _ Visibility.internal_, Expr.ident sourceName =>
+      let aliasName := param.name.getD (fallbackPrefix ++ toString index)
+      if sourceName == internalFunctionPointerPanicName then
+        some
+          { alias := aliasName
+            expected := expected
+            target := none }
+      else
+        let target ←
+          InternalFunctionAliasEnv.aliasTarget?
+            aliasEnv functions freeFunctions expected sourceName
+        some
+          { alias := aliasName
+            expected := expected
+            target := some target }
+  | _, _ => none
+
+def Parameter.isInternalFunction (param : Parameter) : Bool :=
+  match param.ty with
+  | Ty.function _ _ _ Visibility.internal_ => true
+  | _ => false
+
+def Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
+    (storageRefEnv : StorageRefEnv) (storageNames : List Name)
+    (functions freeFunctions : List FunctionDecl)
+    (fallbackPrefix : String) :
+    Nat -> InternalFunctionAliasEnv -> List Parameter -> List Expr ->
+    Option (InternalFunctionAliasEnv × List CoreStmt)
+  | _, aliasEnv, [], [] => some (aliasEnv, [])
+  | index, aliasEnv, param :: params, arg :: args =>
+      match
+          Parameter.internalFunctionAliasArg?
+            aliasEnv functions freeFunctions fallbackPrefix index param arg with
+      | some binding => do
+          let aliasEnv' := InternalFunctionAliasEnv.extend aliasEnv binding
+          Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
+            storageRefEnv storageNames functions freeFunctions fallbackPrefix
+            (index + 1) aliasEnv' params args
+      | none => do
+          if Parameter.isInternalFunction param then
+            none
+          else
+            let head ←
+              Parameter.toStorageAwareCoreArgDecl?
+                storageRefEnv storageNames fallbackPrefix index param arg
+            let (aliasEnv', tail) ←
+              Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
+                storageRefEnv storageNames functions freeFunctions fallbackPrefix
+                (index + 1) aliasEnv params args
+            some (aliasEnv', head :: tail)
+  | _, _, _, _ => none
+
+def Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
+    (storageRefEnv : StorageRefEnv) (storageNames : List Name)
+    (functions freeFunctions : List FunctionDecl)
+    (fallbackPrefix : String) (params : List Parameter) (args : List Expr) :
+    Option (InternalFunctionAliasEnv × List CoreStmt) :=
+  Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
+    storageRefEnv storageNames functions freeFunctions fallbackPrefix
+    0 [] params args
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -7361,7 +7430,14 @@ def Expr.inlineInternalFunctionAliasesFuel :
     Nat -> InternalFunctionAliasEnv -> Expr -> Expr
   | 0, _, expr => expr
   | _ + 1, _, Expr.literal literal => Expr.literal literal
-  | _ + 1, _, Expr.ident name => Expr.ident name
+  | _ + 1, aliasEnv, Expr.ident name =>
+      match InternalFunctionAliasEnv.lookup? aliasEnv name with
+      | some binding =>
+          match binding.target with
+          | some _ =>
+              Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name)
+          | none => Expr.ident internalFunctionPointerPanicName
+      | none => Expr.ident name
   | _ + 1, _, Expr.typeName ty => Expr.typeName ty
   | fuel + 1, aliasEnv, Expr.member base member =>
       Expr.member
@@ -8042,9 +8118,10 @@ def FunctionDecl.internalCallParts?
   match FunctionDecl.findInternalCalleeWithArgs?
       functions env name args with
   | some (callee, sourceArgs) => do
-      let paramDecls ←
-        Parameters.toStorageAwareCoreArgDecls?
-          storageRefEnv storageNames "_arg" callee.params sourceArgs
+      let (paramAliasEnv, paramDecls) ←
+        Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
+          storageRefEnv storageNames functions freeFunctions "_arg"
+          callee.params sourceArgs
       let returnDecls := Parameters.toDefaultVarDecls "_ret" callee.returns
       let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
       let body ← callee.body
@@ -8052,6 +8129,10 @@ def FunctionDecl.internalCallParts?
         FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
       let calleeStorageRefEnv :=
         Parameters.extendStorageRefEnv "_arg" [] callee.params
+      let body :=
+        Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions defaultInternalFunctionAliasFuel
+          paramAliasEnv body
       let body := Stmt.annotateAbi calleeEnv body
       let bodyCore ←
         match internalFuel with
@@ -8075,9 +8156,10 @@ def FunctionDecl.internalCallParts?
       let (callee, sourceArgs) ←
         FunctionDecl.findInternalCalleeWithArgs?
           freeFunctions env name args
-      let paramDecls ←
-        Parameters.toStorageAwareCoreArgDecls?
-          storageRefEnv storageNames "_arg" callee.params sourceArgs
+      let (paramAliasEnv, paramDecls) ←
+        Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
+          storageRefEnv storageNames functions freeFunctions "_arg"
+          callee.params sourceArgs
       let returnDecls := Parameters.toDefaultVarDecls "_ret" callee.returns
       let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
       let body ← callee.body
@@ -8085,6 +8167,10 @@ def FunctionDecl.internalCallParts?
         FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
       let calleeStorageRefEnv :=
         Parameters.extendStorageRefEnv "_arg" [] callee.params
+      let body :=
+        Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions defaultInternalFunctionAliasFuel
+          paramAliasEnv body
       let body := Stmt.annotateAbi calleeEnv body
       let bodyCore ←
         match internalFuel with
@@ -29158,6 +29244,73 @@ def internalFunctionPointerCopyMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 105)
+  | _ => some false
+
+def internalFunctionPointerParamContract : ContractDecl :=
+  { name := "InternalFunctionPointerParam"
+    items :=
+      [ ContractItem.function
+          { name := some "double"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "value")
+                      (Expr.literal (Literal.number "2"))))) }
+      , ContractItem.function
+          { name := some "apply"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
+            params :=
+              [ { name := some "fn"
+                  ty :=
+                    Ty.function [Ty.uint 256] [Ty.uint 256]
+                      StateMutability.pure Visibility.internal_ }
+              , { name := some "value", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call (Expr.ident "fn")
+                      [Arg.positional (Expr.ident "value")]))) }
+      , ContractItem.function
+          { name := some "run"
+            mutability := StateMutability.pure
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      (some (Expr.ident "double"))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "apply")
+                          [ Arg.positional (Expr.ident "fp")
+                          , Arg.positional (Expr.ident "value") ])) ]) } ] }
+
+def internalFunctionPointerParamMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 128 internalFunctionPointerParamContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
   | _ => some false
 
 def internalReturnSubexpressionContract : ContractDecl :=

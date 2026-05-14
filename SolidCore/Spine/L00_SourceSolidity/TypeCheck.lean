@@ -15224,6 +15224,65 @@ def internalFunctionPointerCopySource :
 def internalFunctionPointerCopyAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerCopySource
 
+def internalFunctionPointerParamApplyFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "applyPointer"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    params :=
+      [ { name := some "fn"
+          ty := internalPureUintUnaryFunctionTy
+          location := none }
+      , { name := some "x"
+          ty := uint256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "fn")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "x")]))) }
+
+def internalFunctionPointerParamCallerFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callApplyPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "applyPointer")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "fp")
+                  , L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "x") ])) ]) }
+
+def internalFunctionPointerParamSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerParamApplyFunction
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerParamCallerFunction ] } ] }
+
+def internalFunctionPointerParamAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerParamSource
+
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
