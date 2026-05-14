@@ -12823,6 +12823,36 @@ def revertPairNamedSource : L00_SourceSolidity.SourceUnit :=
 def revertPairNamedAccepted : Bool :=
   sourceUnitAccepted? revertPairNamedSource
 
+def requirePairNamedFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "requirePairNamed"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "require")
+                [ L00_SourceSolidity.Arg.positional (boolExpr false)
+                , L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.ident "PairBad")
+                      [ L00_SourceSolidity.Arg.named "right" (numberExpr "2")
+                      , L00_SourceSolidity.Arg.named "left"
+                          (numberExpr "40") ]) ])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def requirePairNamedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeError pairNamedError
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "RequirePairNamed"
+            items := [L00_SourceSolidity.ContractItem.function
+              requirePairNamedFunction] } ] }
+
+def requirePairNamedAccepted : Bool :=
+  sourceUnitAccepted? requirePairNamedSource
+
 def stringErrorWithLocationSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.freeError

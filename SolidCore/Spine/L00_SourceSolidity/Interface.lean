@@ -6761,6 +6761,21 @@ def Stmt.resolveNamedEventErrorArgsFuel :
       | Stmt.empty => Stmt.empty
       | Stmt.block body => Stmt.block (body.map resolveStmt)
       | Stmt.varDecl bindings init => Stmt.varDecl bindings init
+      | Stmt.expr
+          (Expr.call (Expr.ident "require")
+            [ Arg.positional cond
+            , Arg.positional (Expr.call (Expr.ident name) args) ]) =>
+          match NamedArgParamEnv.orderArgs? errorEnv name args with
+          | some ordered =>
+              Stmt.expr
+                (Expr.call (Expr.ident "require")
+                  [ Arg.positional cond
+                  , Arg.positional (Expr.call (Expr.ident name) ordered) ])
+          | none =>
+              Stmt.expr
+                (Expr.call (Expr.ident "require")
+                  [ Arg.positional cond
+                  , Arg.positional (Expr.call (Expr.ident name) args) ])
       | Stmt.expr expr => Stmt.expr expr
       | Stmt.ifElse cond thenBranch elseBranch =>
           Stmt.ifElse cond (resolveStmt thenBranch)
@@ -29572,6 +29587,43 @@ def internalRequireReasonCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot
               bothCustomState 0) 0)
   | _, _, _, _ => some false
+
+def namedRequireCustomErrorArgumentOrderContract : ContractDecl :=
+  { name := "NamedRequireCustomErrorArgumentOrder"
+    items :=
+      [ ContractItem.errorDecl
+          { name := "Bad"
+            params :=
+              [ { name := some "first", ty := Ty.uint 256 }
+              , { name := some "second", ty := Ty.uint 256 } ] }
+      , ContractItem.function
+          { name := some "run"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.call (Expr.ident "require")
+                    [ Arg.positional (Expr.literal (Literal.bool false))
+                    , Arg.positional
+                        (Expr.call (Expr.ident "Bad")
+                          [ Arg.named "second"
+                              (Expr.literal (Literal.number "2"))
+                          , Arg.named "first"
+                              (Expr.literal (Literal.number "40")) ]) ])) } ] }
+
+def namedRequireCustomErrorArgumentOrderMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 16 namedRequireCustomErrorArgumentOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      some
+        (SolidCore.Solidity.Source.wordEq first 40 &&
+          SolidCore.Solidity.Source.wordEq second 2)
+  | _ => some false
 
 def internalEmitArgumentCallContract : ContractDecl :=
   { name := "InternalEmitArgumentCall"
