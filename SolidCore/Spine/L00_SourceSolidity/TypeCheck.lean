@@ -5933,6 +5933,36 @@ def StateVars.allConstant :
   | decl :: rest =>
       StateVarDecl.isConstant decl && StateVars.allConstant rest
 
+def ContractDecl.hasStorageLayoutBase
+    (decl : L00_SourceSolidity.ContractDecl) : Bool :=
+  decl.layoutBase.isSome
+
+def ContractDecls.anyStorageLayoutBase :
+    List L00_SourceSolidity.ContractDecl -> Bool
+  | [] => false
+  | decl :: rest =>
+      ContractDecl.hasStorageLayoutBase decl ||
+        ContractDecls.anyStorageLayoutBase rest
+
+def ContractDecl.checkStorageLayoutBase (env : CheckEnv)
+    (contract : L00_SourceSolidity.ContractDecl) :
+    Except TypeError Unit := do
+  match contract.layoutBase with
+  | none => Except.ok ()
+  | some expr => do
+      require (contract.kind == L00_SourceSolidity.ContractKind.contract)
+        (TypeError.invalidContractHeader
+          "storage layout on non-contract")
+      require (!contract.abstract)
+        (TypeError.invalidContractHeader
+          "storage layout on abstract contract")
+      require (Expr.isCompileTimeConstant env expr)
+        (TypeError.invalidContractHeader
+          "storage layout base is not compile-time constant")
+      let checked ← checkExpr env expr
+      checked.expectAssignableToIn env.types
+        (L00_SourceSolidity.Ty.uint 256)
+
 def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
     (contractKind : L00_SourceSolidity.ContractKind) (contractName : Name)
     (specifier : L00_SourceSolidity.BaseSpecifier) :
@@ -6146,6 +6176,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       functions := [] }
   ContractDecl.checkKindShape baseSpecifierEnv sourceTypes contract stateVars
     functions modifiers
+  ContractDecl.checkStorageLayoutBase baseEnv contract
   let allContracts := sourceTypes.contractDecls.map Prod.snd
   let dispatchOrder ←
     match L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
@@ -6158,6 +6189,10 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let ancestorPaths :=
     (List.drop 1 dispatchOrder).map
       (fun base => TypeContext.pathOfName base.name)
+  require
+    (!ContractDecls.anyStorageLayoutBase (List.drop 1 dispatchOrder))
+    (TypeError.invalidContractHeader
+      "storage layout specified by inherited contract")
   let storageOrder ←
     match L00_SourceSolidity.Executable.ContractDecl.storageOrder?
         allContracts contract with
@@ -9964,6 +9999,71 @@ def explicitBaseCallSource : L00_SourceSolidity.SourceUnit :=
 
 def explicitBaseCallAccepted : Bool :=
   sourceUnitAccepted? explicitBaseCallSource
+
+def storageLayoutBaseContract : L00_SourceSolidity.ContractDecl :=
+  { name := "StorageLayoutBase"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x"
+            ty := uint256
+            init := some (numberExpr "1") } ] }
+
+def storageLayoutAcceptedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract storageLayoutBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "StorageLayoutTop"
+            layoutBase := some (numberExpr "5")
+            bases := [{ base := userPath "StorageLayoutBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "y"
+                    ty := uint256
+                    init := some (numberExpr "2") } ] } ] }
+
+def storageLayoutAccepted : Bool :=
+  sourceUnitAccepted? storageLayoutAcceptedSource
+
+def inheritedStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { storageLayoutBaseContract with
+            name := "InheritedLayoutBase"
+            layoutBase := some (numberExpr "3") }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedLayoutChild"
+            bases := [{ base := userPath "InheritedLayoutBase" }]
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def inheritedStorageLayoutRejected : Bool :=
+  Result.isError (SourceUnit.check inheritedStorageLayoutSource)
+
+def abstractStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractStorageLayout"
+            abstract := true
+            layoutBase := some (numberExpr "5")
+            items := [] } ] }
+
+def abstractStorageLayoutRejected : Bool :=
+  Result.isError (SourceUnit.check abstractStorageLayoutSource)
+
+def mutableStorageLayoutBaseSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MutableStorageLayoutBase"
+            layoutBase := some (L00_SourceSolidity.Expr.ident "x")
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def mutableStorageLayoutBaseRejected : Bool :=
+  Result.isError (SourceUnit.check mutableStorageLayoutBaseSource)
 
 def badExplicitBaseCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=

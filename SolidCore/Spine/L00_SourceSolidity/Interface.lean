@@ -343,6 +343,7 @@ structure ContractDecl where
   kind : ContractKind := ContractKind.contract
   name : Name
   abstract : Bool := false
+  layoutBase : Option Expr := none
   bases : List BaseSpecifier := []
   items : List ContractItem := []
   deriving Repr
@@ -1317,6 +1318,7 @@ def ContractItem.resolveUserTypes (env : UserTypeEnv) :
 def ContractDecl.resolveUserTypes (env : UserTypeEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveUserTypes env)
     bases :=
       decl.bases.map (fun spec =>
         { spec with args := spec.args.map (Arg.resolveUserTypes env) })
@@ -1626,6 +1628,7 @@ def ContractItem.resolveEnums (env : EnumEnv) :
 def ContractDecl.resolveEnums (env : EnumEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveEnums env)
     bases :=
       decl.bases.map (fun spec =>
         { spec with args := spec.args.map (Arg.resolveEnums env) })
@@ -2182,6 +2185,7 @@ def ContractDecl.resolveStructs (env : StructEnv)
       | _ => none)
   let typeEnv := StateVars.extendTypeEnv [] stateVars
   { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveStructs env [])
     bases :=
       decl.bases.map (fun spec =>
         { spec with args := spec.args.map (Arg.resolveStructs env []) })
@@ -6322,6 +6326,7 @@ def ContractItem.resolveSelectors (env : SelectorEnv) :
 def ContractDecl.resolveSelectors (env : SelectorEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveSelectors env)
     bases := decl.bases.map (BaseSpecifier.resolveSelectors env)
     items := decl.items.map (ContractItem.resolveSelectors env) }
 
@@ -6492,6 +6497,7 @@ def ContractItem.resolveFunctionAddresses (env : SelectorEnv) :
 def ContractDecl.resolveFunctionAddresses (env : SelectorEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveFunctionAddresses env)
     bases := decl.bases.map (BaseSpecifier.resolveFunctionAddresses env)
     items := decl.items.map (ContractItem.resolveFunctionAddresses env) }
 
@@ -9360,6 +9366,7 @@ def BaseSpecifier.resolveInterfaceIds (env : InterfaceIdEnv)
 def ContractDecl.resolveInterfaceIds (env : InterfaceIdEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveInterfaceIds env)
     bases := decl.bases.map (BaseSpecifier.resolveInterfaceIds env)
     items := decl.items.map (ContractItem.resolveInterfaceIds env) }
 
@@ -9726,16 +9733,53 @@ def ContractDecl.storageFieldsFrom (transient : Bool) (slot : Nat) :
         transient := transient } ::
         ContractDecl.storageFieldsFrom transient (slot + 1) rest
 
+def ContractDecl.toCoreStorageFieldsFromSlot (transient : Bool) (slot : Word)
+    (stateVars : List StateVarDecl) : List CoreStorageField :=
+  ContractDecl.storageFieldsFrom transient slot stateVars
+
 def ContractDecl.toCoreStorageFieldsFrom (transient : Bool)
     (stateVars : List StateVarDecl) : List CoreStorageField :=
-  ContractDecl.storageFieldsFrom transient 0 stateVars
+  ContractDecl.toCoreStorageFieldsFromSlot transient 0 stateVars
+
+def ContractDecl.layoutBaseSlot? (constants : ConstantEnv)
+    (decl : ContractDecl) : Option Word :=
+  match decl.layoutBase with
+  | none => some 0
+  | some expr => do
+      let value ← Expr.numberLiteralNat? (Expr.inlineConstants constants expr)
+      if value < SharedSemantics.wordModulus then
+        some value
+      else
+        none
+
+def storageLayoutBaseFits (baseSlot : Word)
+    (stateVars : List StateVarDecl) : Bool :=
+  baseSlot + stateVars.length <= SharedSemantics.wordModulus
+
+def ContractDecl.hasLayoutBase (decl : ContractDecl) : Bool :=
+  decl.layoutBase.isSome
+
+def ContractDecl.layoutBaseAllowed (decl : ContractDecl) : Bool :=
+  match decl.layoutBase with
+  | none => true
+  | some _ =>
+      decl.kind == ContractKind.contract && !decl.abstract
+
+def ContractDecls.anyLayoutBase : List ContractDecl -> Bool
+  | [] => false
+  | decl :: rest =>
+      ContractDecl.hasLayoutBase decl ||
+        ContractDecls.anyLayoutBase rest
 
 def ContractDecl.toCoreStorageFields (decl : ContractDecl) :
     List CoreStorageField :=
-  ContractDecl.toCoreStorageFieldsFrom false
-    (ContractDecl.directStorageStateVars decl) ++
-    ContractDecl.toCoreStorageFieldsFrom true
-      (ContractDecl.directTransientStateVars decl)
+  match ContractDecl.layoutBaseSlot? [] decl with
+  | some layoutBaseSlot =>
+      ContractDecl.toCoreStorageFieldsFromSlot false layoutBaseSlot
+        (ContractDecl.directStorageStateVars decl) ++
+        ContractDecl.toCoreStorageFieldsFromSlot true 0
+          (ContractDecl.directTransientStateVars decl)
+  | none => []
 
 def StateVarDecl.toCoreImmutableField?
     (decl : StateVarDecl) : Option (Option CoreImmutableField) :=
@@ -10199,6 +10243,20 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
   let storageNames :=
     stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
+  let targetDecl ← dispatchOrder.head?
+  if !ContractDecl.layoutBaseAllowed targetDecl then
+    none
+  else
+    some ()
+  if ContractDecls.anyLayoutBase (List.drop 1 dispatchOrder) then
+    none
+  else
+    some ()
+  let layoutBaseSlot ← ContractDecl.layoutBaseSlot? constants targetDecl
+  if !storageLayoutBaseFits layoutBaseSlot storageStateVars then
+    none
+  else
+    some ()
   let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
@@ -10238,8 +10296,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
   some
     { storageFields :=
-        ContractDecl.toCoreStorageFieldsFrom false storageStateVars ++
-          ContractDecl.toCoreStorageFieldsFrom true transientStateVars
+        ContractDecl.toCoreStorageFieldsFromSlot false layoutBaseSlot
+          storageStateVars ++
+          ContractDecl.toCoreStorageFieldsFromSlot true 0 transientStateVars
       immutableFields := immutableFields
       eventDecls := eventDecls
       errorDecls := errorDecls
@@ -23261,6 +23320,62 @@ def inheritanceUnit : SourceUnit :=
 def inheritedStorageFields : Option (List CoreStorageField) := do
   let contract ← SourceUnit.toCoreContract? inheritanceUnit "Derived"
   some contract.storageFields
+
+def customStorageLayoutBaseContract : ContractDecl :=
+  { name := "LayoutBase"
+    items :=
+      [ ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            init := some (Expr.literal (Literal.number "7")) } ] }
+
+def customStorageLayoutDerivedContract : ContractDecl :=
+  { name := "LayoutDerived"
+    layoutBase := some (Expr.literal (Literal.number "5"))
+    bases := [{ base := { segments := ["LayoutBase"] } }]
+    items :=
+      [ ContractItem.stateVar
+          { name := "y"
+            ty := Ty.uint 256
+            init := some (Expr.literal (Literal.number "11")) }
+      , ContractItem.stateVar
+          { name := "scratch"
+            ty := Ty.uint 256
+            mutability := VarMutability.transient } ] }
+
+def customStorageLayoutUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract customStorageLayoutBaseContract
+      , SourceItem.contract customStorageLayoutDerivedContract ] }
+
+def customStorageLayoutFieldsMatch : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? customStorageLayoutUnit
+    "LayoutDerived"
+  match contract.storageFields with
+  | [x, y, scratch] =>
+      some
+        (x.name == "x" &&
+          SolidCore.Solidity.Source.wordEq x.slot 5 &&
+          !x.transient &&
+          y.name == "y" &&
+          SolidCore.Solidity.Source.wordEq y.slot 6 &&
+          !y.transient &&
+          scratch.name == "scratch" &&
+          SolidCore.Solidity.Source.wordEq scratch.slot 0 &&
+          scratch.transient)
+  | _ => some false
+
+def customStorageLayoutInitMatches : Option Bool := do
+  let result ←
+    SourceUnit.constructContract? 32 customStorageLayoutUnit
+      "LayoutDerived" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      some
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 5) 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 11)
+  | _ => some false
 
 def inheritedConstructorDeployResult : Option CoreCallResult :=
   SourceUnit.constructContract? 16 inheritanceUnit "Derived"
