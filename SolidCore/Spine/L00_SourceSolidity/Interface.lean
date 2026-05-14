@@ -19812,6 +19812,37 @@ def publicStructGetterContract : ContractDecl :=
                 , Ty.bool ]
             visibility := some Visibility.public_ } ] }
 
+def publicStructGetterCoreLayout : CoreStorageLayout :=
+  SolidCore.Solidity.Source.StorageLayout.struct
+    [ SolidCore.Solidity.Source.StorageLayout.scalar
+        SolidCore.Solidity.Source.Ty.uint256
+    , SolidCore.Solidity.Source.StorageLayout.mapping
+        SolidCore.Solidity.Source.Ty.uint256
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256)
+    , SolidCore.Solidity.Source.StorageLayout.bytes
+    , SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256)
+    , SolidCore.Solidity.Source.StorageLayout.scalar
+        SolidCore.Solidity.Source.Ty.bool ]
+
+def publicStructGetterCoreLayoutSpanMatches : Bool :=
+  SolidCore.Solidity.Source.StorageLayout.slotSpan
+    publicStructGetterCoreLayout == 5
+
+def publicArrayStructGetterElementSlotUsesSpan : Bool :=
+  SolidCore.Solidity.Source.wordEq
+    (SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 1 publicStructGetterCoreLayout)
+    (SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 5)
+
+def publicFixedArrayStructGetterElementSlotUsesSpan : Bool :=
+  SolidCore.Solidity.Source.wordEq
+    (SolidCore.Solidity.Source.fixedArrayLayoutStorageSlot
+      0 1 publicStructGetterCoreLayout)
+    (SolidCore.Solidity.Source.fixedArrayStorageSlot 0 5)
+
 def publicStructGetterState : CoreState :=
   let rawSlot : SolidCore.Solidity.Source.Word := 2
   SolidCore.Solidity.Source.State.empty
@@ -19951,7 +19982,8 @@ def publicArrayStructGetterContract : ContractDecl :=
 
 def publicArrayStructGetterState : CoreState :=
   let recordSlot :=
-    SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 1
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 1 publicStructGetterCoreLayout
   let rawSlot :=
     SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 2
   SolidCore.Solidity.Source.State.empty
@@ -20035,7 +20067,8 @@ def publicFixedArrayStructGetterContract : ContractDecl :=
 
 def publicFixedArrayStructGetterState : CoreState :=
   let recordSlot :=
-    SolidCore.Solidity.Source.fixedArrayStorageSlot 0 1
+    SolidCore.Solidity.Source.fixedArrayLayoutStorageSlot
+      0 1 publicStructGetterCoreLayout
   let rawSlot :=
     SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 2
   SolidCore.Solidity.Source.State.empty
