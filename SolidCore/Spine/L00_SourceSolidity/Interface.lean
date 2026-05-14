@@ -5034,6 +5034,19 @@ def Stmt.replaceTopLevelModifierPlaceholder (replacement : Stmt) : Stmt -> Stmt
   | Stmt.modifierPlaceholder => replacement
   | other => other
 
+def Expr.storagePathCore? (storageNames : List Name) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name =>
+      if stateNameIsStorage name storageNames then
+        some (name, [])
+      else
+        none
+  | Expr.index base index => do
+      let (name, indexes) ← Expr.storagePathCore? storageNames base
+      let indexCore ← Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
+
 def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
   | Stmt.block body => do
@@ -5050,7 +5063,7 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
           match binding.name, binding.ty with
           | some name, some ty =>
               match binding.location, init with
-              | some DataLocation.storage, some (Expr.ident target) => do
+              | some DataLocation.storage, some source => do
                   let _ ←
                     match Ty.toCore? ty with
                     | some _ => some ()
@@ -5058,12 +5071,17 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
                         match Ty.toCoreStorageLayout? ty with
                         | some _ => some ()
                         | none => none
-                  if stateNameIsStorage target storageNames then
-                    some
-                      (SolidCore.Solidity.Source.Stmt.storageAlias
-                        name target)
-                  else
-                    none
+                  let (target, indexes) ←
+                    Expr.storagePathCore? storageNames source
+                  match indexes with
+                  | [] =>
+                      some
+                        (SolidCore.Solidity.Source.Stmt.storageAlias
+                          name target)
+                  | _ =>
+                      some
+                        (SolidCore.Solidity.Source.Stmt.storageAliasPath
+                          name target indexes)
               | some DataLocation.storage, _ => none
               | _, _ => do
                   let coreTy ← Ty.toCore? ty
@@ -21781,7 +21799,52 @@ def structStoragePathSourceUnit : SourceUnit :=
                                   (Expr.ident "entries")
                                   (Expr.ident "key"))
                                 "values")
-                              (Expr.ident "index")))) } ] } ] }
+                              (Expr.ident "index")))) }
+              , ContractItem.function
+                  { name := some "aliasCount"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "delta", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "ref"
+                                  ty := some structStoragePathRecordTy
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.index
+                                  (Expr.ident "entries")
+                                  (Expr.ident "key")))
+                          , Stmt.expr
+                              (Expr.assign
+                                (Expr.member (Expr.ident "ref") "count")
+                                AssignOp.addAssign
+                                (Expr.ident "delta")) ]) }
+              , ContractItem.function
+                  { name := some "aliasValue"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "index", ty := Ty.uint 256 }
+                      , { name := some "delta", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "ref"
+                                  ty := some structStoragePathRecordTy
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.index
+                                  (Expr.ident "entries")
+                                  (Expr.ident "key")))
+                          , Stmt.expr
+                              (Expr.assign
+                                (Expr.index
+                                  (Expr.member (Expr.ident "ref") "values")
+                                  (Expr.ident "index"))
+                                AssignOp.addAssign
+                                (Expr.ident "delta")) ]) } ] } ] }
 
 def structStoragePathEntrySlot : Word :=
   SolidCore.Solidity.Source.mappingStorageSlot 0 7
@@ -21860,6 +21923,43 @@ def structStoragePathValueClearMatches : Option Bool := do
       (state.loadSlot (structStoragePathValueSlot 1)) 0 &&
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot structStoragePathValuesSlot) 2)
+
+def structStoragePathAliasCountAddState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 64 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasCount")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 3 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasCountAddMatches : Option Bool := do
+  let state ← structStoragePathAliasCountAddState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathEntrySlot) 13)
+
+def structStoragePathAliasValueAddState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 64 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasValue")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 1
+      , SolidCore.Solidity.Source.Value.word 4 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasValueAddMatches : Option Bool := do
+  let state ← structStoragePathAliasValueAddState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot (structStoragePathValueSlot 1)) 13)
 
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"

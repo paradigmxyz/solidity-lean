@@ -86,6 +86,7 @@ inductive Value where
   | dynamicArray : List Value -> Value
   | tuple : List Value -> Value
   | storageRef : String -> Value
+  | storagePathRef : String -> List Value -> Value
   deriving Repr
 
 def Ty.defaultValue : Ty -> Value
@@ -124,6 +125,7 @@ def Value.length? : Value -> Option Nat
   | Value.int _ => none
   | Value.externalFunction _ _ => none
   | Value.storageRef _ => none
+  | Value.storagePathRef _ _ => none
 
 def Value.defaultLike : Value -> Value
   | Value.word _ => Value.word 0
@@ -134,6 +136,13 @@ def Value.defaultLike : Value -> Value
   | Value.dynamicArray _ => Value.dynamicArray []
   | Value.tuple values => Value.tuple (values.map Value.defaultLike)
   | Value.storageRef target => Value.storageRef target
+  | Value.storagePathRef target indexes => Value.storagePathRef target indexes
+
+def Value.storageRefForPath (target : String) (indexes : List Value) :
+    Value :=
+  match indexes with
+  | [] => Value.storageRef target
+  | _ => Value.storagePathRef target indexes
 
 def Value.concatBytes? : List Value -> Option (List Byte)
   | [] => some []
@@ -318,6 +327,8 @@ def Value.index? (container : Value) (index : Word) :
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
+  | Value.storagePathRef _ _ =>
+      Except.error RevertData.typeMismatch
 
 def fixedBytesIndex? (size : Nat) (value index : Word) :
     Except RevertData Value :=
@@ -438,6 +449,8 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
   | Value.externalFunction _ _ =>
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
+      Except.error RevertData.typeMismatch
+  | Value.storagePathRef _ _ =>
       Except.error RevertData.typeMismatch
 
 abbrev WordMap := List (Word × Word)
@@ -609,11 +622,31 @@ def Runtime.lookupStorageRef? (runtime : Runtime) (name : String) :
   | some (Value.storageRef target) => some target
   | _ => none
 
+def Runtime.lookupStoragePathRef? (runtime : Runtime) (name : String) :
+    Option (String × List Value) :=
+  match runtime.lookupLocal? name with
+  | some (Value.storageRef target) => some (target, [])
+  | some (Value.storagePathRef target indexes) => some (target, indexes)
+  | _ => none
+
 def Runtime.assignStorageRef?
     (runtime : Runtime) (name target : String) : Option Runtime :=
   match runtime.lookupLocal? name with
-  | some (Value.storageRef _) =>
+  | some (Value.storageRef _) | some (Value.storagePathRef _ _) =>
       match LocalEnv.assign? runtime.locals name (Value.storageRef target) with
+      | some locals => some { runtime with locals }
+      | none => none
+  | _ => none
+
+def Runtime.assignStoragePathRef?
+    (runtime : Runtime) (name target : String) (indexes : List Value) :
+    Option Runtime :=
+  match runtime.lookupLocal? name with
+  | some (Value.storageRef _) | some (Value.storagePathRef _ _) =>
+      match
+        LocalEnv.assign? runtime.locals name
+          (Value.storageRefForPath target indexes)
+      with
       | some locals => some { runtime with locals }
       | none => none
   | _ => none
@@ -3072,8 +3105,10 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       let key ← keyValue.expectWord
       Except.ok (Value.bytes (which.eval context key))
   | Expr.var name =>
-      match runtime.lookupStorageRef? name with
-      | some target => runtime.loadStorageField context target
+      match runtime.lookupStoragePathRef? name with
+      | some (target, []) => runtime.loadStorageField context target
+      | some (target, indexes) =>
+          runtime.loadStoragePath context target indexes
       | none =>
           match runtime.lookupLocal? name with
           | some value => Except.ok value
@@ -3342,8 +3377,10 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.length expr => do
       match expr with
       | Expr.var name =>
-          match runtime.lookupStorageRef? name with
-          | some target => runtime.loadStorageField context target
+          match runtime.lookupStoragePathRef? name with
+          | some (target, []) => runtime.loadStorageField context target
+          | some (target, indexes) =>
+              runtime.loadStoragePath context target indexes
           | none =>
               let value ← expr.eval context runtime
               match value.length? with
@@ -3357,10 +3394,10 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.index base idx => do
       match base with
       | Expr.var name =>
-          match runtime.lookupStorageRef? name with
-          | some target =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
               let indexValue ← idx.eval context runtime
-              runtime.loadStorageIndex context target indexValue
+              runtime.loadStoragePath context target (indexes ++ [indexValue])
           | none =>
               let baseValue ← base.eval context runtime
               let indexValue ← idx.eval context runtime
@@ -3402,8 +3439,10 @@ end
 def LValue.read (context : Context) (runtime : Runtime) :
     LValue -> Except RevertData Value
   | LValue.var name =>
-      match runtime.lookupStorageRef? name with
-      | some target => runtime.loadStorageField context target
+      match runtime.lookupStoragePathRef? name with
+      | some (target, []) => runtime.loadStorageField context target
+      | some (target, indexes) =>
+          runtime.loadStoragePath context target indexes
       | none =>
           match runtime.lookupLocal? name with
           | some value => Except.ok value
@@ -3418,10 +3457,10 @@ def LValue.read (context : Context) (runtime : Runtime) :
   | LValue.index base idx => do
       match base with
       | LValue.var name =>
-          match runtime.lookupStorageRef? name with
-          | some target =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
               let indexValue ← idx.eval context runtime
-              runtime.loadStorageIndex context target indexValue
+              runtime.loadStoragePath context target (indexes ++ [indexValue])
           | none =>
               let baseValue ← base.read context runtime
               let indexValue ← idx.eval context runtime
@@ -3437,9 +3476,11 @@ def LValue.write (context : Context) (runtime : Runtime)
     (target : LValue) (value : Value) : Except RevertData Runtime :=
   match target with
   | LValue.var name =>
-      match runtime.lookupStorageRef? name with
-      | some target =>
+      match runtime.lookupStoragePathRef? name with
+      | some (target, []) =>
           runtime.storeStorageFieldWithDeepClear context target value
+      | some (target, indexes) =>
+          runtime.storeStoragePathWithDeepClear context target indexes value
       | none =>
           match runtime.assignLocal? name value with
           | some updated => Except.ok updated
@@ -3454,11 +3495,11 @@ def LValue.write (context : Context) (runtime : Runtime)
   | LValue.index base idx => do
       match base with
       | LValue.var name =>
-          match runtime.lookupStorageRef? name with
-          | some target =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
               let indexValue ← idx.eval context runtime
-              runtime.storeStorageIndexWithDeepClear
-                context target indexValue value
+              runtime.storeStoragePathWithDeepClear
+                context target (indexes ++ [indexValue]) value
           | none =>
               let baseValue ← base.read context runtime
               let indexValue ← idx.eval context runtime
@@ -3595,9 +3636,11 @@ mutual
 def Expr.resolveLValueWithRuntime (context : Context) :
     Runtime -> Expr -> Except RevertData (ResolvedLValue × Runtime)
   | runtime, Expr.var name =>
-      match runtime.lookupStorageRef? name with
-      | some target =>
+      match runtime.lookupStoragePathRef? name with
+      | some (target, []) =>
           Except.ok (ResolvedLValue.storageField target, runtime)
+      | some (target, indexes) =>
+          Except.ok (ResolvedLValue.storagePath target indexes, runtime)
       | none =>
           match runtime.lookupLocal? name with
           | some _ => Except.ok (ResolvedLValue.local name, runtime)
@@ -3676,9 +3719,12 @@ def Expr.evalWithRuntime (context : Context) :
       let key ← keyValue.expectWord
       Except.ok (Value.bytes (which.eval context key), runtime')
   | runtime, Expr.var name =>
-      match runtime.lookupStorageRef? name with
-      | some target => do
+      match runtime.lookupStoragePathRef? name with
+      | some (target, []) => do
           let value ← runtime.loadStorageField context target
+          Except.ok (value, runtime)
+      | some (target, indexes) => do
+          let value ← runtime.loadStoragePath context target indexes
           Except.ok (value, runtime)
       | none =>
           match runtime.lookupLocal? name with
@@ -3995,9 +4041,14 @@ def Expr.evalWithRuntime (context : Context) :
   | runtime, Expr.length expr => do
       match expr with
       | Expr.var name =>
-          match runtime.lookupStorageRef? name with
-          | some target => do
+          match runtime.lookupStoragePathRef? name with
+          | some (target, []) => do
               let value ← runtime.loadStorageField context target
+              match value.length? with
+              | some len => Except.ok (Value.word len, runtime)
+              | none => Except.error RevertData.typeMismatch
+          | some (target, indexes) => do
+              let value ← runtime.loadStoragePath context target indexes
               match value.length? with
               | some len => Except.ok (Value.word len, runtime)
               | none => Except.error RevertData.typeMismatch
@@ -4026,10 +4077,12 @@ def Expr.evalWithRuntime (context : Context) :
       else
         match base with
         | Expr.var name =>
-            match runtime.lookupStorageRef? name with
-            | some target =>
+            match runtime.lookupStoragePathRef? name with
+            | some (target, indexes) =>
                 let (indexValue, runtime') ← idx.evalWithRuntime context runtime
-                let value ← runtime'.loadStorageIndex context target indexValue
+                let value ←
+                  runtime'.loadStoragePath context target
+                    (indexes ++ [indexValue])
                 Except.ok (value, runtime')
             | none =>
                 let (baseValue, runtime') ← base.evalWithRuntime context runtime
@@ -4099,8 +4152,10 @@ inductive Stmt where
   | block : List Stmt -> Stmt
   | varDecl : Ty -> String -> Option Expr -> Stmt
   | storageAlias : String -> String -> Stmt
+  | storageAliasPath : String -> String -> List Expr -> Stmt
   | storageAliasFrom : String -> String -> Stmt
   | storageAliasAssign : String -> String -> Stmt
+  | storageAliasAssignPath : String -> String -> List Expr -> Stmt
   | storageAliasAssignFrom : String -> String -> Stmt
   | exprStmt : Expr -> Stmt
   | assign : LValue -> Expr -> Stmt
@@ -4318,21 +4373,39 @@ def Stmt.eval (fuel : Nat) (context : Context)
           some
             (Result.normal
               (runtime.declareLocal name (Value.storageRef target)))
-      | Stmt.storageAliasFrom name source =>
-          match runtime.lookupStorageRef? source with
-          | some target =>
+      | Stmt.storageAliasPath name target indexes =>
+          match Expr.evalListWithRuntime context runtime indexes with
+          | Except.ok (indexValues, runtime') =>
               some
                 (Result.normal
-                  (runtime.declareLocal name (Value.storageRef target)))
+                  (runtime'.declareLocal name
+                    (Value.storageRefForPath target indexValues)))
+          | Except.error err => some (Result.reverted runtime err)
+      | Stmt.storageAliasFrom name source =>
+          match runtime.lookupStoragePathRef? source with
+          | some (target, indexes) =>
+              some
+                (Result.normal
+                  (runtime.declareLocal name
+                    (Value.storageRefForPath target indexes)))
           | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssign name target =>
           match runtime.assignStorageRef? name target with
           | some updated => some (Result.normal updated)
           | none => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageAliasAssignPath name target indexes =>
+          match Expr.evalListWithRuntime context runtime indexes with
+          | Except.ok (indexValues, runtime') =>
+              match
+                runtime'.assignStoragePathRef? name target indexValues
+              with
+              | some updated => some (Result.normal updated)
+              | none => some (Result.reverted runtime RevertData.typeMismatch)
+          | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageAliasAssignFrom name source =>
-          match runtime.lookupStorageRef? source with
-          | some target =>
-              match runtime.assignStorageRef? name target with
+          match runtime.lookupStoragePathRef? source with
+          | some (target, indexes) =>
+              match runtime.assignStoragePathRef? name target indexes with
               | some updated => some (Result.normal updated)
               | none => some (Result.reverted runtime RevertData.typeMismatch)
           | none => some (Result.reverted runtime RevertData.typeMismatch)
@@ -4381,7 +4454,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | LValue.var name =>
-              match runtime.lookupStorageRef? name with
+              match runtime.lookupStoragePathRef? name with
               | some _ =>
                   some (Result.reverted runtime RevertData.typeMismatch)
               | none =>
