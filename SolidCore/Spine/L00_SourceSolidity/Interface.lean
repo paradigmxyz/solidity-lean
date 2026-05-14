@@ -10436,6 +10436,25 @@ def UsingFunction.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
     (Expr.call (Expr.ident functionName)
       (orderedArgs.map Arg.positional))
 
+def UsingFunction.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (op : UnaryOp) (operand : Expr)
+    (binding : UsingFunction) : Option Expr := do
+  match binding.operator? with
+  | some (UsingOperator.unary bindingOp) =>
+      if bindingOp == op then some () else none
+  | _ => none
+  let (libraryPath, functionName) ← pathInitLast? binding.function
+  if libraryPath.segments.isEmpty then
+    some ()
+  else
+    none
+  let orderedArgs ←
+    FunctionDecl.usingFreeFunctionOperands?
+      freeFunctions env functionName [operand]
+  some
+    (Expr.call (Expr.ident functionName)
+      (orderedArgs.map Arg.positional))
+
 def UsingFunctions.rewriteCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -10462,6 +10481,19 @@ def UsingFunctions.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
       | none =>
           UsingFunctions.rewriteBinaryOperator?
             freeFunctions env op lhs rhs rest
+
+def UsingFunctions.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (op : UnaryOp) (operand : Expr) :
+    List UsingFunction -> Option Expr
+  | [] => none
+  | binding :: rest =>
+      match
+          UsingFunction.rewriteUnaryOperator?
+            freeFunctions env op operand binding with
+      | some rewritten => some rewritten
+      | none =>
+          UsingFunctions.rewriteUnaryOperator?
+            freeFunctions env op operand rest
 
 def UsingDecl.rewriteCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
@@ -10499,6 +10531,15 @@ def UsingDecl.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
   | some true =>
       UsingFunctions.rewriteBinaryOperator?
         freeFunctions env op lhs rhs decl.functions
+  | _ => none
+
+def UsingDecl.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (op : UnaryOp) (operand : Expr)
+    (decl : UsingDecl) : Option Expr :=
+  match UsingDecl.targetMatches? env operand decl with
+  | some true =>
+      UsingFunctions.rewriteUnaryOperator?
+        freeFunctions env op operand decl.functions
   | _ => none
 
 def libraryExternalCallTarget (libraryName method : Name) : Expr :=
@@ -10599,6 +10640,18 @@ def UsingDecls.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
       | none =>
           UsingDecls.rewriteBinaryOperator?
             freeFunctions env op lhs rhs rest
+
+def UsingDecls.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (op : UnaryOp) (operand : Expr) :
+    List UsingDecl -> Option Expr
+  | [] => none
+  | decl :: rest =>
+      match UsingDecl.rewriteUnaryOperator?
+          freeFunctions env op operand decl with
+      | some rewritten => some rewritten
+      | none =>
+          UsingDecls.rewriteUnaryOperator?
+            freeFunctions env op operand rest
 
 def UsingDecls.rewriteExternalCall? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -10747,7 +10800,12 @@ def Expr.expandUsingFuel :
       | Expr.array exprs => Expr.array (exprs.map expand)
       | Expr.enumFromUInt maxValue inner =>
           Expr.enumFromUInt maxValue (expand inner)
-      | Expr.unary op inner => Expr.unary op (expand inner)
+      | Expr.unary op inner =>
+          let inner' := expand inner
+          match UsingDecls.rewriteUnaryOperator?
+              freeFunctions env op inner' usingDecls with
+          | some rewritten => rewritten
+          | none => Expr.unary op inner'
       | Expr.binary op lhs rhs =>
           let lhs' := expand lhs
           let rhs' := expand rhs
@@ -32213,6 +32271,40 @@ def priceLtFreeFunction : FunctionDecl :=
                 (Expr.member (Expr.typeName priceTy) "unwrap")
                 [Arg.positional (Expr.ident "right")])))) }
 
+def priceNegFreeFunction : FunctionDecl :=
+  { name := some "priceNeg"
+    params := [{ name := some "value", ty := priceTy }]
+    returns := [{ name := some "out", ty := priceTy }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member (Expr.typeName priceTy) "wrap")
+              [ Arg.positional
+                  (Expr.binary BinaryOp.add
+                    (Expr.call
+                      (Expr.member (Expr.typeName priceTy) "unwrap")
+                      [Arg.positional (Expr.ident "value")])
+                    (Expr.literal (Literal.number "1"))) ]))) }
+
+def priceBitNotFreeFunction : FunctionDecl :=
+  { name := some "priceBitNot"
+    params := [{ name := some "value", ty := priceTy }]
+    returns := [{ name := some "out", ty := priceTy }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member (Expr.typeName priceTy) "wrap")
+              [ Arg.positional
+                  (Expr.binary BinaryOp.add
+                    (Expr.call
+                      (Expr.member (Expr.typeName priceTy) "unwrap")
+                      [Arg.positional (Expr.ident "value")])
+                    (Expr.literal (Literal.number "2"))) ]))) }
+
 def globalUsingPriceOperatorContract : ContractDecl :=
   { name := "GlobalUsingPriceOperator"
     items :=
@@ -32268,13 +32360,47 @@ def globalUsingPriceOperatorContract : ContractDecl :=
                   , Stmt.returnValues
                       (some
                         (Expr.binary BinaryOp.lt
-                          (Expr.ident "a") (Expr.ident "b"))) ]) } ] }
+                          (Expr.ident "a") (Expr.ident "b"))) ]) }
+      , ContractItem.function
+          { name := some "unary"
+            params := [{ name := some "raw", ty := Ty.uint 256 }]
+            returns :=
+              [ { name := some "negated", ty := Ty.uint 256 }
+              , { name := some "inverted", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "a", ty := some priceTy }]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.typeName priceTy) "wrap")
+                          [Arg.positional (Expr.ident "raw")]))
+                  , Stmt.varDecl
+                      [{ name := some "negated", ty := some priceTy }]
+                      (some (Expr.unary UnaryOp.neg (Expr.ident "a")))
+                  , Stmt.varDecl
+                      [{ name := some "inverted", ty := some priceTy }]
+                      (some (Expr.unary UnaryOp.bitNot (Expr.ident "a")))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.tuple
+                          [ TupleItem.value
+                              (Expr.call
+                                (Expr.member (Expr.typeName priceTy) "unwrap")
+                                [Arg.positional (Expr.ident "negated")])
+                          , TupleItem.value
+                              (Expr.call
+                                (Expr.member (Expr.typeName priceTy) "unwrap")
+                                [Arg.positional (Expr.ident "inverted")]) ])) ]) } ] }
 
 def globalUsingPriceOperatorUnit : SourceUnit :=
   { items :=
       [ SourceItem.freeUserValueType priceTypeDecl
       , SourceItem.freeFunction priceAddFreeFunction
       , SourceItem.freeFunction priceLtFreeFunction
+      , SourceItem.freeFunction priceNegFreeFunction
+      , SourceItem.freeFunction priceBitNotFreeFunction
       , SourceItem.usingDecl
           { library := { segments := [] }
             functions :=
@@ -32283,7 +32409,13 @@ def globalUsingPriceOperatorUnit : SourceUnit :=
                     (UsingOperator.binary BinaryOp.add) }
               , { function := { segments := ["priceLt"] }
                   operator? := some
-                    (UsingOperator.binary BinaryOp.lt) } ]
+                    (UsingOperator.binary BinaryOp.lt) }
+              , { function := { segments := ["priceNeg"] }
+                  operator? := some
+                    (UsingOperator.unary UnaryOp.neg) }
+              , { function := { segments := ["priceBitNot"] }
+                  operator? := some
+                    (UsingOperator.unary UnaryOp.bitNot) } ]
             target := some priceTy
             global := true }
       , SourceItem.contract globalUsingPriceOperatorContract ] }
@@ -32314,6 +32446,22 @@ def globalUsingPriceLtOperatorMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 1)
+  | _ => some false
+
+def globalUsingPriceUnaryOperatorsMatch : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 48 globalUsingPriceOperatorUnit
+      "GlobalUsingPriceOperator"
+      (SolidCore.Solidity.Source.CallTarget.name "unary")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 14]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word negated
+      , SolidCore.Solidity.Source.Value.word inverted ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq negated 15 &&
+          SolidCore.Solidity.Source.wordEq inverted 16)
   | _ => some false
 
 def externalLibraryMath : ContractDecl :=

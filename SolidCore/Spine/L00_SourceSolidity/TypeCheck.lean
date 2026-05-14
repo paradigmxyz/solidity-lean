@@ -2183,11 +2183,18 @@ def BinaryOp.userDefinedOperatorResultTy? (targetTy : Ty) :
   | L00_SourceSolidity.BinaryOp.ne => some L00_SourceSolidity.Ty.bool
   | _ => none
 
+def UnaryOp.userDefinedOperatorResultTy? (targetTy : Ty) :
+    L00_SourceSolidity.UnaryOp -> Option Ty
+  | L00_SourceSolidity.UnaryOp.bitNot
+  | L00_SourceSolidity.UnaryOp.neg => some targetTy
+  | _ => none
+
 def UsingOperator.userDefinedResultTy? (targetTy : Ty) :
     L00_SourceSolidity.UsingOperator -> Option Ty
   | L00_SourceSolidity.UsingOperator.binary op =>
       BinaryOp.userDefinedOperatorResultTy? targetTy op
-  | L00_SourceSolidity.UsingOperator.unary _ => none
+  | L00_SourceSolidity.UsingOperator.unary op =>
+      UnaryOp.userDefinedOperatorResultTy? targetTy op
 
 def FunctionSig.hasParamTy (targetTy : Ty) : List Ty -> Bool
   | [] => false
@@ -2205,6 +2212,18 @@ def FunctionSig.matchesUserDefinedBinaryOperator
         sig.matchesCheckedArgs types [(none, lhs), (none, rhs)]
   | none => false
 
+def FunctionSig.matchesUserDefinedUnaryOperator
+    (types : TypeContext) (targetTy : Ty)
+    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr)
+    (sig : FunctionSig) : Bool :=
+  match UnaryOp.userDefinedOperatorResultTy? targetTy op with
+  | some resultTy =>
+      sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+        sig.returns == [resultTy] &&
+        FunctionSig.hasParamTy targetTy sig.params &&
+        sig.matchesCheckedArgs types [(none, operand)]
+  | none => false
+
 def FunctionSig.matchesUserDefinedOperatorDecl (targetTy : Ty)
     (operator : L00_SourceSolidity.UsingOperator)
     (sig : FunctionSig) : Bool :=
@@ -2217,7 +2236,14 @@ def FunctionSig.matchesUserDefinedOperatorDecl (targetTy : Ty)
             FunctionSig.hasParamTy targetTy sig.params &&
             sig.returns == [resultTy]
       | none => false
-  | L00_SourceSolidity.UsingOperator.unary _ => false
+  | L00_SourceSolidity.UsingOperator.unary op =>
+      match UnaryOp.userDefinedOperatorResultTy? targetTy op with
+      | some resultTy =>
+          sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+            sig.params.length == 1 &&
+            FunctionSig.hasParamTy targetTy sig.params &&
+            sig.returns == [resultTy]
+      | none => false
 
 def UsingFunction.binaryOperatorCandidates (env : CheckEnv)
     (targetTy : Ty) (op : L00_SourceSolidity.BinaryOp)
@@ -2258,6 +2284,45 @@ def UsingFunctions.binaryOperatorCandidates (env : CheckEnv)
         UsingFunctions.binaryOperatorCandidates env targetTy op lhs rhs rest
       Except.ok (head ++ tail)
 
+def UsingFunction.unaryOperatorCandidates (env : CheckEnv)
+    (targetTy : Ty) (op : L00_SourceSolidity.UnaryOp)
+    (operand : CheckedExpr)
+    (binding : L00_SourceSolidity.UsingFunction) :
+    Except TypeError (List FunctionSig) := do
+  match binding.operator? with
+  | some (L00_SourceSolidity.UsingOperator.unary bindingOp) =>
+      if bindingOp == op then
+        let (libraryPath, functionName) ←
+          match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+          | some parts => Except.ok parts
+          | none => Except.error (TypeError.unknownFunction "operator")
+        if libraryPath.segments.isEmpty then
+          Except.ok
+            ((FunctionSigs.nonPrivate env.functions).filter
+              (fun sig =>
+                sig.name == functionName &&
+                  sig.matchesUserDefinedUnaryOperator
+                    env.types targetTy op operand))
+        else
+          Except.ok []
+      else
+        Except.ok []
+  | _ => Except.ok []
+
+def UsingFunctions.unaryOperatorCandidates (env : CheckEnv)
+    (targetTy : Ty) (op : L00_SourceSolidity.UnaryOp)
+    (operand : CheckedExpr) :
+    List L00_SourceSolidity.UsingFunction ->
+    Except TypeError (List FunctionSig)
+  | [] => Except.ok []
+  | binding :: rest => do
+      let head ←
+        UsingFunction.unaryOperatorCandidates
+          env targetTy op operand binding
+      let tail ←
+        UsingFunctions.unaryOperatorCandidates env targetTy op operand rest
+      Except.ok (head ++ tail)
+
 def UsingDecl.binaryOperatorCandidates (env : CheckEnv)
     (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr)
     (decl : L00_SourceSolidity.UsingDecl) :
@@ -2271,6 +2336,19 @@ def UsingDecl.binaryOperatorCandidates (env : CheckEnv)
         Except.ok []
   | none => Except.ok []
 
+def UsingDecl.unaryOperatorCandidates (env : CheckEnv)
+    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr)
+    (decl : L00_SourceSolidity.UsingDecl) :
+    Except TypeError (List FunctionSig) := do
+  match decl.target with
+  | some targetTy =>
+      if UsingDecl.appliesToReceiver decl operand.ty then
+        UsingFunctions.unaryOperatorCandidates
+          env targetTy op operand decl.functions
+      else
+        Except.ok []
+  | none => Except.ok []
+
 def UsingDecls.binaryOperatorCandidates (env : CheckEnv)
     (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr) :
     List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
@@ -2279,6 +2357,16 @@ def UsingDecls.binaryOperatorCandidates (env : CheckEnv)
       let head ← UsingDecl.binaryOperatorCandidates env op lhs rhs decl
       let tail ←
         UsingDecls.binaryOperatorCandidates env op lhs rhs rest
+      Except.ok (head ++ tail)
+
+def UsingDecls.unaryOperatorCandidates (env : CheckEnv)
+    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr) :
+    List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
+  | [] => Except.ok []
+  | decl :: rest => do
+      let head ← UsingDecl.unaryOperatorCandidates env op operand decl
+      let tail ←
+        UsingDecls.unaryOperatorCandidates env op operand rest
       Except.ok (head ++ tail)
 
 def UsingDecl.memberCandidates (env : CheckEnv)
@@ -2323,6 +2411,16 @@ def CheckEnv.resolveUsingBinaryOperator? (env : CheckEnv)
     Except TypeError (Option FunctionSig) := do
   let candidates ←
     UsingDecls.binaryOperatorCandidates env op lhs rhs env.usingDecls
+  match candidates with
+  | [] => Except.ok none
+  | [sig] => Except.ok (some sig)
+  | _ => Except.error (TypeError.ambiguousFunction "operator")
+
+def CheckEnv.resolveUsingUnaryOperator? (env : CheckEnv)
+    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr) :
+    Except TypeError (Option FunctionSig) := do
+  let candidates ←
+    UsingDecls.unaryOperatorCandidates env op operand env.usingDecls
   match candidates with
   | [] => Except.ok none
   | [sig] => Except.ok (some sig)
@@ -3804,6 +3902,14 @@ def checkExpr (env : CheckEnv) :
           lvalue := false }
   | expr@(L00_SourceSolidity.Expr.unary op inner) => do
       let checked ← checkExpr env inner
+      let usingOperator? ←
+        CheckEnv.resolveUsingUnaryOperator? env op checked
+      match usingOperator? with
+      | some sig =>
+          match sig.returns with
+          | [ty] => Except.ok { source := expr, ty := ty }
+          | _ => Except.error (TypeError.unknownFunction "operator")
+      | none =>
       match op with
       | L00_SourceSolidity.UnaryOp.logicalNot =>
           checked.expectBool
@@ -17716,6 +17822,52 @@ def priceOperatorLtFunction : L00_SourceSolidity.FunctionDecl :=
                 [L00_SourceSolidity.Arg.positional
                   (L00_SourceSolidity.Expr.ident "right")])))) }
 
+def priceOperatorNegFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "priceNeg"
+    params := [{ name := some "value", ty := priceTy, location := none }]
+    returns := [{ name := some "out", ty := priceTy, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.binary
+                    L00_SourceSolidity.BinaryOp.add
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.typeName priceTy)
+                        "unwrap")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "value")])
+                    (numberExpr "1")) ]))) }
+
+def priceOperatorBitNotFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "priceBitNot"
+    params := [{ name := some "value", ty := priceTy, location := none }]
+    returns := [{ name := some "out", ty := priceTy, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.binary
+                    L00_SourceSolidity.BinaryOp.add
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.typeName priceTy)
+                        "unwrap")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "value")])
+                    (numberExpr "2")) ]))) }
+
 def globalUsingPriceOperatorFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -17726,7 +17878,9 @@ def globalUsingPriceOperatorFunction :
     returns :=
       [ { name := some "sum", ty := uint256, location := none }
       , { name := some "less", ty := L00_SourceSolidity.Ty.bool,
-          location := none } ]
+          location := none }
+      , { name := some "negated", ty := uint256, location := none }
+      , { name := some "inverted", ty := uint256, location := none } ]
     body :=
       some
         (L00_SourceSolidity.Stmt.block
@@ -17763,7 +17917,25 @@ def globalUsingPriceOperatorFunction :
                       (L00_SourceSolidity.Expr.binary
                         L00_SourceSolidity.BinaryOp.lt
                         (L00_SourceSolidity.Expr.ident "a")
-                        (L00_SourceSolidity.Expr.ident "b")) ])) ]) }
+                        (L00_SourceSolidity.Expr.ident "b"))
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.typeName priceTy)
+                          "unwrap")
+                        [ L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.unary
+                              L00_SourceSolidity.UnaryOp.neg
+                              (L00_SourceSolidity.Expr.ident "a")) ])
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.typeName priceTy)
+                          "unwrap")
+                        [ L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.unary
+                              L00_SourceSolidity.UnaryOp.bitNot
+                              (L00_SourceSolidity.Expr.ident "a")) ]) ])) ]) }
 
 def globalUsingPriceOperatorSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -17772,6 +17944,10 @@ def globalUsingPriceOperatorSource : L00_SourceSolidity.SourceUnit :=
           priceOperatorAddFunction
       , L00_SourceSolidity.SourceItem.freeFunction
           priceOperatorLtFunction
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorNegFunction
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorBitNotFunction
       , L00_SourceSolidity.SourceItem.usingDecl
           { library := { segments := [] }
             functions :=
@@ -17782,7 +17958,15 @@ def globalUsingPriceOperatorSource : L00_SourceSolidity.SourceUnit :=
               , { function := { segments := ["priceLt"] }
                   operator? := some
                     (L00_SourceSolidity.UsingOperator.binary
-                      L00_SourceSolidity.BinaryOp.lt) } ]
+                      L00_SourceSolidity.BinaryOp.lt) }
+              , { function := { segments := ["priceNeg"] }
+                  operator? := some
+                    (L00_SourceSolidity.UsingOperator.unary
+                      L00_SourceSolidity.UnaryOp.neg) }
+              , { function := { segments := ["priceBitNot"] }
+                  operator? := some
+                    (L00_SourceSolidity.UsingOperator.unary
+                      L00_SourceSolidity.UnaryOp.bitNot) } ]
             target := some priceTy
             global := true }
       , L00_SourceSolidity.SourceItem.contract
