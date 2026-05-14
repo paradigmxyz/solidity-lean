@@ -2903,7 +2903,7 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         Except.ok (some (L00_SourceSolidity.Ty.tuple []))
     | [cond, reason] => do
         cond.expectBool
-        reason.expectAbiEncodable env.types
+        reason.expectStringLike
         Except.ok (some (L00_SourceSolidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 2 checkedArgs.length)
   else if name == "revert" then do
@@ -2911,7 +2911,7 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     match checkedArgs with
     | [] => Except.ok (some (L00_SourceSolidity.Ty.tuple []))
     | [reason] => do
-        reason.expectAbiEncodable env.types
+        reason.expectStringLike
         Except.ok (some (L00_SourceSolidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "selfdestruct" then do
@@ -11886,6 +11886,48 @@ def internalRequireReasonCallSource : L00_SourceSolidity.SourceUnit :=
 
 def internalRequireReasonCallAccepted : Bool :=
   sourceUnitAccepted? internalRequireReasonCallSource
+
+def requireUintReasonSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadRequireUintReason"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badRequireUintReason"
+                    returns := []
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "require")
+                            [ L00_SourceSolidity.Arg.positional
+                                (boolExpr true)
+                            , L00_SourceSolidity.Arg.positional
+                                (numberExpr "7") ])) } ] } ] }
+
+def requireUintReasonRejected : Bool :=
+  Result.isError (SourceUnit.check requireUintReasonSource)
+
+def revertUintReasonSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadRevertUintReason"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badRevertUintReason"
+                    returns := []
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "revert")
+                            [L00_SourceSolidity.Arg.positional
+                              (numberExpr "7")])) } ] } ] }
+
+def revertUintReasonRejected : Bool :=
+  Result.isError (SourceUnit.check revertUintReasonSource)
 
 def internalEmitArgumentCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
