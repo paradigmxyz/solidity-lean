@@ -2843,7 +2843,7 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     requireCallMutabilityAllowed env L00_SourceSolidity.StateMutability.view
     match checkedArgs with
     | [number] => do
-        number.expectInteger
+        number.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
         Except.ok (some (L00_SourceSolidity.Ty.bytesN 32))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "addmod" || name == "mulmod" then do
@@ -19026,6 +19026,58 @@ def badBlockhashArgSource : L00_SourceSolidity.SourceUnit :=
 
 def badBlockhashArgRejected : Bool :=
   Result.isError (SourceUnit.check badBlockhashArgSource)
+
+def signedBlockhashArgFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "signedBlockHashArg"
+    params := [{ name := some "n", ty := int256, location := none }]
+    returns :=
+      [{ name := none
+         ty := L00_SourceSolidity.Ty.bytesN 32
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "blockhash")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "n")]))) }
+
+def signedBlockhashArgSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SignedBlockhashArg"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                signedBlockhashArgFunction] } ] }
+
+def signedBlockhashArgRejected : Bool :=
+  Result.isError (SourceUnit.check signedBlockhashArgSource)
+
+def signedBlobhashArgFunction : L00_SourceSolidity.FunctionDecl :=
+  { signedBlockhashArgFunction with
+    name := some "signedBlobHashArg"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "blobhash")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "n")]))) }
+
+def signedBlobhashArgSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SignedBlobhashArg"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                signedBlobhashArgFunction] } ] }
+
+def signedBlobhashArgRejected : Bool :=
+  Result.isError (SourceUnit.check signedBlobhashArgSource)
 
 def viewAddressEnvMembersFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
