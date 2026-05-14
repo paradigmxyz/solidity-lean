@@ -7629,6 +7629,29 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         Expr.externalFunctionValueCallAssignVarsCore?
           storageNames env names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+  | Stmt.returnValues
+      (some
+        (Expr.binary op
+          (Expr.call (Expr.ident name) args)
+          rhs)) => do
+      let coreOp ← BinaryOp.toCore? op
+      let rhsCore ← Expr.toCore? storageNames rhs
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.returnValues
+              [SolidCore.Solidity.Source.Expr.binary
+                coreOp retExpr rhsCore]) with
+      | some coreStmt => some coreStmt
+      | none =>
+          let fallback :=
+            Stmt.returnValues
+              (some
+                (Expr.binary op
+                  (Expr.call (Expr.ident name) args)
+                  rhs))
+          Stmt.toCore? storageNames fallback
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.externalCallReturnCoreWithKindEnv?
           storageNames env externalCallKindEnv returnTys expr with
@@ -26173,6 +26196,38 @@ def internalReturnCallResult : Option CoreCallResult :=
   ContractDecl.call? 32 internalReturnCallContract
     (SolidCore.Solidity.Source.CallTarget.name "run")
     SolidCore.Solidity.Source.State.empty []
+
+def internalReturnSubexpressionContract : ContractDecl :=
+  { name := "InternalReturnSubexpression"
+    items :=
+      [ ContractItem.function
+          { name := some "base"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.literal (Literal.number "41")))) }
+      , ContractItem.function
+          { name := some "run"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.add
+                      (Expr.call (Expr.ident "base") [])
+                      (Expr.literal (Literal.number "1"))))) } ] }
+
+def internalReturnSubexpressionMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 32 internalReturnSubexpressionContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
 
 def internalNamedArgsContract : ContractDecl :=
   { name := "InternalNamedArgs"

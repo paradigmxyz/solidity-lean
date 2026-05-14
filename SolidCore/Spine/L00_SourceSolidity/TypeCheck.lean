@@ -8665,6 +8665,42 @@ def uncheckedInternalCallSource : L00_SourceSolidity.SourceUnit :=
 def uncheckedInternalCallAccepted : Bool :=
   sourceUnitAccepted? uncheckedInternalCallSource
 
+def internalReturnSubexpressionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalReturnSubexpression"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "base"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (numberExpr "41"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "run"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.add
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "base")
+                                [])
+                              (numberExpr "1")))) } ] } ] }
+
+def internalReturnSubexpressionAccepted : Bool :=
+  sourceUnitAccepted? internalReturnSubexpressionSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"
