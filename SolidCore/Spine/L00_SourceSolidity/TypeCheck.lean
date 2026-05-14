@@ -12869,6 +12869,56 @@ def structStoragePathSource :
                             [ L00_SourceSolidity.Arg.positional
                                 (L00_SourceSolidity.Expr.ident
                                   "value") ])) }
+              , L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "withValues"
+                    params :=
+                      [ { name := some "vals"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              uint256 none
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident
+                                    "vals")
+                                  "push")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.ident
+                                      "value") ])
+                          , L00_SourceSolidity.Stmt.modifierPlaceholder ]) }
+              , L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "withBlob"
+                    params :=
+                      [ { name := some "blob"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident
+                                    "blob")
+                                  "push")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.ident
+                                      "value") ])
+                          , L00_SourceSolidity.Stmt.modifierPlaceholder ]) }
               , L00_SourceSolidity.ContractItem.function
                   { name := some "internalPathArrayPush"
                     visibility :=
@@ -12924,7 +12974,59 @@ def structStoragePathSource :
                                   "blob")
                             , L00_SourceSolidity.Arg.positional
                                 (L00_SourceSolidity.Expr.ident
-                                  "value") ])) } ] } ] }
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "modifierPathArrayPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    modifiers :=
+                      [ { target := userPath "withValues"
+                          args :=
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "values")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ] } ]
+                    body := some L00_SourceSolidity.Stmt.empty }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "modifierPathBlobPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    modifiers :=
+                      [ { target := userPath "withBlob"
+                          args :=
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "blob")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ] } ]
+                    body := some L00_SourceSolidity.Stmt.empty } ] } ] }
 
 def structStoragePathAccepted : Bool :=
   sourceUnitAccepted? structStoragePathSource
