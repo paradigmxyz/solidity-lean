@@ -15173,6 +15173,57 @@ def internalFunctionPointerDeletedCallSource :
 def internalFunctionPointerDeletedCallAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerDeletedCallSource
 
+def internalFunctionPointerCopyFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "copyPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "gp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "fp"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.ident "fp")
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.ident "triple"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.binary
+                  L00_SourceSolidity.BinaryOp.add
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "gp")
+                    [L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "x")])
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "fp")
+                    [L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "x")]))) ]) }
+
+def internalFunctionPointerCopySource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerCopy"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerReassignTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerCopyFunction ] } ] }
+
+def internalFunctionPointerCopyAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerCopySource
+
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
