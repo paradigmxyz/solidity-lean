@@ -770,6 +770,38 @@ def exprIsUint256ZeroLiteral (expr : L00_SourceSolidity.Expr) : Bool :=
       SolidCore.Solidity.Source.wordEq value 0
   | _ => false
 
+def exprIsUntypedNumberLiteralExpression :
+    L00_SourceSolidity.Expr -> Bool
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.number _) => true
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.unitNumber _ _) => true
+  | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
+      exprIsUntypedNumberLiteralExpression inner
+  | L00_SourceSolidity.Expr.binary _ lhs rhs =>
+      exprIsUntypedNumberLiteralExpression lhs &&
+        exprIsUntypedNumberLiteralExpression rhs
+  | _ => false
+
+def enumUntypedLiteralConversionAllowed? (types : TypeContext)
+    (path : Path) (expr : L00_SourceSolidity.Expr) : Option Bool :=
+  if exprIsUntypedNumberLiteralExpression expr then
+    some
+      (match types.lookupEnum? path with
+      | some decl =>
+          match L00_SourceSolidity.Executable.EnumDecl.maxValue? decl with
+          | some maxValue =>
+              match
+                  L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs?
+                    (L00_SourceSolidity.Ty.uint 256) expr with
+              | some (SolidCore.Solidity.Source.Expr.word value) =>
+                  value <= maxValue
+              | _ => false
+          | none => false
+      | none => false)
+  else
+    none
+
 def Ty.canExplicitlyConvert (types : TypeContext)
     (sourceExpr : L00_SourceSolidity.Expr) (actual target : Ty) : Bool :=
   if actual == target then
@@ -816,7 +848,9 @@ def Ty.canExplicitlyConvert (types : TypeContext)
           false
     | _, L00_SourceSolidity.Ty.user path =>
         if types.isEnumPath path then
-          actual.isInteger || typeConversionLiteralFits (L00_SourceSolidity.Ty.uint 8) sourceExpr
+          match enumUntypedLiteralConversionAllowed? types path sourceExpr with
+          | some allowed => allowed
+          | none => actual.isInteger
         else
           false
     | _, _ => false
@@ -9621,6 +9655,55 @@ def badEnumMemberSource : L00_SourceSolidity.SourceUnit :=
 
 def badEnumMemberRejected : Bool :=
   Result.isError (SourceUnit.check badEnumMemberSource)
+
+def enumConversionFunction (name : Name)
+    (inner : L00_SourceSolidity.Expr) : L00_SourceSolidity.FunctionDecl :=
+  { enumMemberFunction with
+    name := some name
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.typeName colorTy)
+              [L00_SourceSolidity.Arg.positional inner]))) }
+
+def enumConversionSource (contractName : Name)
+    (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEnum colorEnum
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items := [L00_SourceSolidity.ContractItem.function fn] } ] }
+
+def enumLiteralConversionAccepted : Bool :=
+  sourceUnitAccepted?
+    (enumConversionSource "EnumLiteralConversion"
+      (enumConversionFunction "fromLiteral" (numberExpr "1")))
+
+def enumOutOfRangeLiteralConversionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (enumConversionSource "BadEnumOutOfRangeLiteral"
+        (enumConversionFunction "fromLiteral" (numberExpr "2"))))
+
+def enumNegativeLiteralConversionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (enumConversionSource "BadEnumNegativeLiteral"
+        (enumConversionFunction "fromLiteral"
+          (L00_SourceSolidity.Expr.unary
+            L00_SourceSolidity.UnaryOp.neg
+            (numberExpr "1")))))
+
+def enumTypedOutOfRangeConversionAccepted : Bool :=
+  sourceUnitAccepted?
+    (enumConversionSource "EnumTypedOutOfRangeConversion"
+      (enumConversionFunction "fromTyped"
+        (L00_SourceSolidity.Expr.call
+          (L00_SourceSolidity.Expr.typeName uint256)
+          [L00_SourceSolidity.Arg.positional (numberExpr "2")])))
 
 def typeMaxFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
