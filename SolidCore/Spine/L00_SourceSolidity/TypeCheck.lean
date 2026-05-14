@@ -6676,9 +6676,17 @@ def EventParam.check (env : CheckEnv)
   require (!Ty.containsMapping env.types 64 param.ty)
     (TypeError.invalidAbiType param.ty)
 
+def EventParams.check (env : CheckEnv) :
+    List L00_SourceSolidity.EventParam -> Except TypeError Unit
+  | [] => Except.ok ()
+  | param :: rest => do
+      EventParam.check env param
+      EventParams.check env rest
+
 def EventDecl.check (env : CheckEnv)
     (event : L00_SourceSolidity.EventDecl) :
     Except TypeError Unit := do
+  EventParams.check env event.params
   require (EventParams.indexedCount event.params <=
       EventDecl.indexedLimit event)
     (TypeError.invalidEventHeader event.name
@@ -13551,6 +13559,63 @@ def duplicateEventSource : L00_SourceSolidity.SourceUnit :=
 
 def duplicateEventRejected : Bool :=
   Result.isError (SourceUnit.check duplicateEventSource)
+
+def mappingEventParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadMappingEventParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  { name := "Bad"
+                    params :=
+                      [ { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.mapping
+                              uint256 uint256
+                          indexed := true } ] } ] } ] }
+
+def mappingEventParamRejected : Bool :=
+  Result.isError (SourceUnit.check mappingEventParamSource)
+
+def internalFunctionEventParamSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadInternalFunctionEventParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  { name := "Bad"
+                    params :=
+                      [ { name := some "fn"
+                          ty :=
+                            L00_SourceSolidity.Ty.function
+                              [uint256] []
+                              L00_SourceSolidity.StateMutability.pure
+                              L00_SourceSolidity.Visibility.internal_
+                          indexed := false } ] } ] } ] }
+
+def internalFunctionEventParamRejected : Bool :=
+  Result.isError (SourceUnit.check internalFunctionEventParamSource)
+
+def externalFunctionEventParamSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ExternalFunctionEventParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  { name := "Good"
+                    params :=
+                      [ { name := some "fn"
+                          ty :=
+                            L00_SourceSolidity.Ty.function
+                              [uint256] []
+                              L00_SourceSolidity.StateMutability.nonpayable
+                              L00_SourceSolidity.Visibility.external_
+                          indexed := false } ] } ] } ] }
+
+def externalFunctionEventParamAccepted : Bool :=
+  sourceUnitAccepted? externalFunctionEventParamSource
 
 def indexedUintEventParam (name : Name) : L00_SourceSolidity.EventParam :=
   { name := some name, ty := uint256, indexed := true }
