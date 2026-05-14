@@ -12457,7 +12457,10 @@ def structStoragePathRecord : L00_SourceSolidity.StructDecl :=
       [ { name := "count", ty := uint256 }
       , { name := "values"
           ty := L00_SourceSolidity.Ty.array uint256 none }
-      , { name := "blob", ty := L00_SourceSolidity.Ty.bytes } ] }
+      , { name := "blob", ty := L00_SourceSolidity.Ty.bytes }
+      , { name := "scores"
+          ty :=
+            L00_SourceSolidity.Ty.mapping uint256 uint256 } ] }
 
 def structStoragePathRecordTy : L00_SourceSolidity.Ty :=
   L00_SourceSolidity.Ty.user (userPath "StoragePathRecord")
@@ -12820,6 +12823,50 @@ def structStoragePathSource :
                                   "pop")
                                 []) ]) }
               , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasScoreSet"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "subkey"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "scores"
+                                  ty :=
+                                    some
+                                      (L00_SourceSolidity.Ty.mapping
+                                        uint256 uint256)
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "scores"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "scores")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "subkey"))
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ident
+                                  "value")) ]) }
+              , L00_SourceSolidity.ContractItem.function
                   { name := some "pushValuesStorage"
                     visibility :=
                       some L00_SourceSolidity.Visibility.internal_
@@ -12869,6 +12916,36 @@ def structStoragePathSource :
                             [ L00_SourceSolidity.Arg.positional
                                 (L00_SourceSolidity.Expr.ident
                                   "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setScoreStorage"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    params :=
+                      [ { name := some "scores"
+                          ty :=
+                            L00_SourceSolidity.Ty.mapping
+                              uint256 uint256
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage }
+                      , { name := some "subkey"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident
+                                "scores")
+                              (L00_SourceSolidity.Expr.ident
+                                "subkey"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
               , L00_SourceSolidity.ContractItem.modifierDecl
                   { name := "withValues"
                     params :=
@@ -12918,6 +12995,36 @@ def structStoragePathSource :
                                 [ L00_SourceSolidity.Arg.positional
                                     (L00_SourceSolidity.Expr.ident
                                       "value") ])
+                          , L00_SourceSolidity.Stmt.modifierPlaceholder ]) }
+              , L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "withScore"
+                    params :=
+                      [ { name := some "scores"
+                          ty :=
+                            L00_SourceSolidity.Ty.mapping
+                              uint256 uint256
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage }
+                      , { name := some "subkey"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "scores")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "subkey"))
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ident
+                                  "value"))
                           , L00_SourceSolidity.Stmt.modifierPlaceholder ]) }
               , L00_SourceSolidity.ContractItem.function
                   { name := some "internalPathArrayPush"
@@ -12976,6 +13083,40 @@ def structStoragePathSource :
                                 (L00_SourceSolidity.Expr.ident
                                   "value") ])) }
               , L00_SourceSolidity.ContractItem.function
+                  { name := some "internalPathScoreSet"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "subkey"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident
+                              "setScoreStorage")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "scores")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "subkey")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
                   { name := some "modifierPathArrayPush"
                     visibility :=
                       some L00_SourceSolidity.Visibility.public_
@@ -13023,6 +13164,38 @@ def structStoragePathSource :
                                     (L00_SourceSolidity.Expr.ident
                                       "key"))
                                   "blob")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ] } ]
+                    body := some L00_SourceSolidity.Stmt.empty }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "modifierPathScoreSet"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "subkey"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    modifiers :=
+                      [ { target := userPath "withScore"
+                          args :=
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "scores")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "subkey")
                             , L00_SourceSolidity.Arg.positional
                                 (L00_SourceSolidity.Expr.ident
                                   "value") ] } ]

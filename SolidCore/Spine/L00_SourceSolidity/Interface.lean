@@ -21750,7 +21750,9 @@ def structStoragePathRecordDecl : StructDecl :=
     fields :=
       [ { name := "count", ty := Ty.uint 256 }
       , { name := "values", ty := Ty.array (Ty.uint 256) none }
-      , { name := "blob", ty := Ty.bytes } ] }
+      , { name := "blob", ty := Ty.bytes }
+      , { name := "scores"
+          ty := Ty.mapping (Ty.uint 256) (Ty.uint 256) } ] }
 
 def structStoragePathSourceUnit : SourceUnit :=
   { items :=
@@ -21975,6 +21977,35 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 (Expr.member (Expr.ident "blob") "pop")
                                 []) ]) }
               , ContractItem.function
+                  { name := some "aliasScoreSet"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "subkey", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "scores"
+                                  ty :=
+                                    some
+                                      (Ty.mapping (Ty.uint 256)
+                                        (Ty.uint 256))
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "scores"))
+                          , Stmt.expr
+                              (Expr.assign
+                                (Expr.index
+                                  (Expr.ident "scores")
+                                  (Expr.ident "subkey"))
+                                AssignOp.assign
+                                (Expr.ident "value")) ]) }
+              , ContractItem.function
                   { name := some "pushValuesStorage"
                     visibility := some Visibility.internal_
                     params :=
@@ -22002,6 +22033,24 @@ def structStoragePathSourceUnit : SourceUnit :=
                           (Expr.call
                             (Expr.member (Expr.ident "blob") "push")
                             [Arg.positional (Expr.ident "value")])) }
+              , ContractItem.function
+                  { name := some "setScoreStorage"
+                    visibility := some Visibility.internal_
+                    params :=
+                      [ { name := some "scores"
+                          ty := Ty.mapping (Ty.uint 256) (Ty.uint 256)
+                          location := some DataLocation.storage }
+                      , { name := some "subkey", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.assign
+                            (Expr.index
+                              (Expr.ident "scores")
+                              (Expr.ident "subkey"))
+                            AssignOp.assign
+                            (Expr.ident "value"))) }
               , ContractItem.modifierDecl
                   { name := "withValues"
                     params :=
@@ -22031,6 +22080,25 @@ def structStoragePathSourceUnit : SourceUnit :=
                               (Expr.call
                                 (Expr.member (Expr.ident "blob") "push")
                                 [Arg.positional (Expr.ident "value")])
+                          , Stmt.modifierPlaceholder ]) }
+              , ContractItem.modifierDecl
+                  { name := "withScore"
+                    params :=
+                      [ { name := some "scores"
+                          ty := Ty.mapping (Ty.uint 256) (Ty.uint 256)
+                          location := some DataLocation.storage }
+                      , { name := some "subkey", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.expr
+                              (Expr.assign
+                                (Expr.index
+                                  (Expr.ident "scores")
+                                  (Expr.ident "subkey"))
+                                AssignOp.assign
+                                (Expr.ident "value"))
                           , Stmt.modifierPlaceholder ]) }
               , ContractItem.function
                   { name := some "internalPathArrayPush"
@@ -22065,6 +22133,24 @@ def structStoragePathSourceUnit : SourceUnit :=
                                   "blob")
                             , Arg.positional (Expr.ident "value") ])) }
               , ContractItem.function
+                  { name := some "internalPathScoreSet"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "subkey", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.call (Expr.ident "setScoreStorage")
+                            [ Arg.positional
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "scores")
+                            , Arg.positional (Expr.ident "subkey")
+                            , Arg.positional (Expr.ident "value") ])) }
+              , ContractItem.function
                   { name := some "modifierPathArrayPush"
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
@@ -22095,6 +22181,24 @@ def structStoragePathSourceUnit : SourceUnit :=
                                     (Expr.ident "key"))
                                   "blob")
                             , Arg.positional (Expr.ident "value") ] } ]
+                    body := some Stmt.empty }
+              , ContractItem.function
+                  { name := some "modifierPathScoreSet"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "subkey", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    modifiers :=
+                      [ { target := { segments := ["withScore"] }
+                          args :=
+                            [ Arg.positional
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "scores")
+                            , Arg.positional (Expr.ident "subkey")
+                            , Arg.positional (Expr.ident "value") ] } ]
                     body := some Stmt.empty } ] } ] }
 
 def structStoragePathEntrySlot : Word :=
@@ -22106,6 +22210,9 @@ def structStoragePathValuesSlot : Word :=
 def structStoragePathBlobSlot : Word :=
   structStoragePathEntrySlot + 2
 
+def structStoragePathScoresSlot : Word :=
+  structStoragePathEntrySlot + 3
+
 def structStoragePathValueSlot (index : Word) : Word :=
   SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
     structStoragePathValuesSlot index
@@ -22115,6 +22222,10 @@ def structStoragePathValueSlot (index : Word) : Word :=
 def structStoragePathBlobValueSlot (index : Word) : Word :=
   SolidCore.Solidity.Source.dynamicArrayStorageSlot
     structStoragePathBlobSlot index
+
+def structStoragePathScoreSlot (key : Word) : Word :=
+  SolidCore.Solidity.Source.mappingStorageSlot
+    structStoragePathScoresSlot key
 
 def structStoragePathInitialState : CoreState :=
   SolidCore.Solidity.Source.State.empty
@@ -22320,6 +22431,25 @@ def structStoragePathAliasBlobPopMatches : Option Bool := do
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathBlobValueSlot 1)) 0)
 
+def structStoragePathAliasScoreSetState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 96 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasScoreSet")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 21
+      , SolidCore.Solidity.Source.Value.word 55 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasScoreSetMatches : Option Bool := do
+  let state ← structStoragePathAliasScoreSetState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot (structStoragePathScoreSlot 21)) 55)
+
 def structStoragePathInternalArrayPushState : Option CoreState := do
   let result ←
     SourceUnit.callContract? 96 structStoragePathSourceUnit
@@ -22360,6 +22490,25 @@ def structStoragePathInternalBlobPushMatches : Option Bool := do
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathBlobValueSlot 2)) 13)
 
+def structStoragePathInternalScoreSetState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 96 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "internalPathScoreSet")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 22
+      , SolidCore.Solidity.Source.Value.word 66 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathInternalScoreSetMatches : Option Bool := do
+  let state ← structStoragePathInternalScoreSetState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot (structStoragePathScoreSlot 22)) 66)
+
 def structStoragePathModifierArrayPushState : Option CoreState := do
   let result ←
     SourceUnit.callContract? 96 structStoragePathSourceUnit
@@ -22399,6 +22548,25 @@ def structStoragePathModifierBlobPushMatches : Option Bool := do
       (state.loadSlot structStoragePathBlobSlot) 3 &&
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathBlobValueSlot 2)) 15)
+
+def structStoragePathModifierScoreSetState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 96 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "modifierPathScoreSet")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 23
+      , SolidCore.Solidity.Source.Value.word 77 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathModifierScoreSetMatches : Option Bool := do
+  let state ← structStoragePathModifierScoreSetState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot (structStoragePathScoreSlot 23)) 77)
 
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"
