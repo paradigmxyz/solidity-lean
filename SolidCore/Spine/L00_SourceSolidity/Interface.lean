@@ -7386,6 +7386,54 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
   | _ => none
 termination_by (internalFuel, 0, 2)
 
+def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (cond thenExpr elseExpr : Expr)
+    (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
+  let condCore ← Expr.toCore? storageNames cond
+  match thenExpr, elseExpr with
+  | Expr.call (Expr.ident thenName) thenArgs,
+    Expr.call (Expr.ident elseName) elseArgs => do
+      let thenCore ←
+        FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions thenName thenArgs
+          (fun retExpr => useResult retExpr)
+      let elseCore ←
+        FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions elseName elseArgs
+          (fun retExpr => useResult retExpr)
+      some
+        (SolidCore.Solidity.Source.Stmt.ifElse
+          condCore thenCore elseCore)
+  | Expr.call (Expr.ident thenName) thenArgs, _ => do
+      let elseCore ← Expr.toCore? storageNames elseExpr
+      let thenCore ←
+        FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions thenName thenArgs
+          (fun retExpr => useResult retExpr)
+      some
+        (SolidCore.Solidity.Source.Stmt.ifElse
+          condCore thenCore (useResult elseCore))
+  | _, Expr.call (Expr.ident elseName) elseArgs => do
+      let thenCore ← Expr.toCore? storageNames thenExpr
+      let elseCore ←
+        FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions elseName elseArgs
+          (fun retExpr => useResult retExpr)
+      some
+        (SolidCore.Solidity.Source.Stmt.ifElse
+          condCore (useResult thenCore) elseCore)
+  | _, _ => none
+termination_by (internalFuel, 0, 2)
+
 def FunctionDecl.internalBinarySingleReturnUseCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -7879,7 +7927,15 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 SolidCore.Solidity.Source.Stmt.assign
                   targetCore resultExpr) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions cond thenExpr elseExpr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      targetCore resultExpr) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
       (Expr.assign target AssignOp.assign
@@ -7959,7 +8015,21 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               some
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions cond thenExpr elseExpr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      resultExpr) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [declCore, assignBlock])
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.varDecl [binding]
       (some (Expr.unary op expr)) =>
@@ -8342,7 +8412,14 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (fun resultExpr =>
             SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames fallback
+      | none =>
+          match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond thenExpr elseExpr
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames fallback
   | Stmt.returnValues
       (some (Expr.unary op expr)) =>
       let fallback :=
@@ -8987,28 +9064,47 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
-          | none => do
-              let head ←
-                Stmt.toCoreWithInternalCalls?
-                  (internalFuel := internalFuel)
-                  (storageRefEnv := storageRefEnv)
-                  (env := env)
-                  (externalCallKindEnv := externalCallKindEnv)
-                  (storageNames := storageNames)
-                  (modifiers := modifiers)
-                  (functions := functions)
-                  (freeFunctions := freeFunctions)
-                  (returnTys := returnTys)
-                  (stmt := Stmt.varDecl [binding]
-                    (some (Expr.ternary cond thenExpr elseExpr)))
-              let tail ←
-                Stmt.listToCoreWithInternalCallsWithRefs?
-                  internalFuel
-                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
-                  (VarBinding.extendTypeEnv env binding)
-                  externalCallKindEnv
-                  storageNames modifiers functions freeFunctions returnTys rest
-              some (head :: tail)
+          | none =>
+              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions cond thenExpr elseExpr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      resultExpr) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (declCore :: assignBlock :: tail)
+              | none => do
+                  let head ←
+                    Stmt.toCoreWithInternalCalls?
+                      (internalFuel := internalFuel)
+                      (storageRefEnv := storageRefEnv)
+                      (env := env)
+                      (externalCallKindEnv := externalCallKindEnv)
+                      (storageNames := storageNames)
+                      (modifiers := modifiers)
+                      (functions := functions)
+                      (freeFunctions := freeFunctions)
+                      (returnTys := returnTys)
+                      (stmt := Stmt.varDecl [binding]
+                        (some (Expr.ternary cond thenExpr elseExpr)))
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (head :: tail)
       | none => do
           let head ←
             Stmt.toCoreWithInternalCalls?
@@ -28082,6 +28178,134 @@ def internalTernaryLocalCallMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot
               runAssignFalseState 0) 42)
+  | _, _, _, _ => some false
+
+def internalTernaryBranchCallContract : ContractDecl :=
+  { name := "InternalTernaryBranchCall"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "markThen"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "21")))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "markElse"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "22")))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runReturnThen"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.ternary
+                      (Expr.literal (Literal.bool true))
+                      (Expr.call (Expr.ident "markThen") [])
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99")))))) }
+      , ContractItem.function
+          { name := some "runReturnElse"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.ternary
+                      (Expr.literal (Literal.bool false))
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99")))
+                      (Expr.call (Expr.ident "markElse") [])))) }
+      , ContractItem.function
+          { name := some "runVarBothFalse"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "y", ty := some (Ty.uint 256) }]
+                      (some
+                        (Expr.ternary
+                          (Expr.literal (Literal.bool false))
+                          (Expr.call (Expr.ident "markThen") [])
+                          (Expr.call (Expr.ident "markElse") [])))
+                  , Stmt.returnValues
+                      (some (Expr.ident "y")) ]) }
+      , ContractItem.function
+          { name := some "runAssignBothTrue"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "y", ty := some (Ty.uint 256) }]
+                      none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "y") AssignOp.assign
+                        (Expr.ternary
+                          (Expr.literal (Literal.bool true))
+                          (Expr.call (Expr.ident "markThen") [])
+                          (Expr.call (Expr.ident "markElse") [])))
+                  , Stmt.returnValues
+                      (some (Expr.ident "y")) ]) } ] }
+
+def internalTernaryBranchCallMatches : Option Bool := do
+  let runReturnThen ←
+    ContractDecl.call? 64 internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runReturnThen")
+      SolidCore.Solidity.Source.State.empty []
+  let runReturnElse ←
+    ContractDecl.call? 64 internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runReturnElse")
+      SolidCore.Solidity.Source.State.empty []
+  let runVarBothFalse ←
+    ContractDecl.call? 64 internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runVarBothFalse")
+      SolidCore.Solidity.Source.State.empty []
+  let runAssignBothTrue ←
+    ContractDecl.call? 64 internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runAssignBothTrue")
+      SolidCore.Solidity.Source.State.empty []
+  match runReturnThen, runReturnElse, runVarBothFalse, runAssignBothTrue with
+  | SolidCore.Solidity.Source.CallResult.returned runReturnThenState
+      [SolidCore.Solidity.Source.Value.word runReturnThenValue],
+    SolidCore.Solidity.Source.CallResult.returned runReturnElseState
+      [SolidCore.Solidity.Source.Value.word runReturnElseValue],
+    SolidCore.Solidity.Source.CallResult.returned runVarBothFalseState
+      [SolidCore.Solidity.Source.Value.word runVarBothFalseValue],
+    SolidCore.Solidity.Source.CallResult.returned runAssignBothTrueState
+      [SolidCore.Solidity.Source.Value.word runAssignBothTrueValue] =>
+      some
+        (SolidCore.Solidity.Source.wordEq runReturnThenValue 21 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              runReturnThenState 0) 21 &&
+          SolidCore.Solidity.Source.wordEq runReturnElseValue 22 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              runReturnElseState 0) 22 &&
+          SolidCore.Solidity.Source.wordEq runVarBothFalseValue 22 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              runVarBothFalseState 0) 22 &&
+          SolidCore.Solidity.Source.wordEq runAssignBothTrueValue 21 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              runAssignBothTrueState 0) 21)
   | _, _, _, _ => some false
 
 def internalIfConditionCallContract : ContractDecl :=
