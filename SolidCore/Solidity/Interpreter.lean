@@ -4325,6 +4325,7 @@ inductive Stmt where
   | revert : String -> List Expr -> Stmt
   | emitEvent : String -> List Expr -> Stmt
   | selfdestruct : Expr -> Stmt
+  | checked : Stmt -> Stmt
   | unchecked : Stmt -> Stmt
   deriving Repr
 
@@ -5075,6 +5076,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
                             context.self recipient })
               | Except.error err => some (Result.reverted runtime' err)
           | Except.error err => some (Result.reverted runtime err)
+      | Stmt.checked body =>
+          Stmt.eval fuel { context with checked := true } runtime body
       | Stmt.unchecked body =>
           Stmt.eval fuel { context with checked := false } runtime body
 

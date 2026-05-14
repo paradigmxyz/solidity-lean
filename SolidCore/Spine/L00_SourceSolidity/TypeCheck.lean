@@ -8593,6 +8593,78 @@ def uncheckedArithmeticSource : L00_SourceSolidity.SourceUnit :=
 def uncheckedArithmeticAccepted : Bool :=
   sourceUnitAccepted? uncheckedArithmeticSource
 
+def uncheckedInternalMaxPlusOneExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.binary
+    L00_SourceSolidity.BinaryOp.add
+    (L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.typeName uint256) "max")
+    (numberExpr "1")
+
+def uncheckedInternalCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UncheckedInternalCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "overflow"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some uncheckedInternalMaxPlusOneExpr)) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "id"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    params :=
+                      [{ name := some "value"
+                         ty := uint256
+                         location := none }]
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.ident "value"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "callOverflow"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.unchecked
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident
+                                  "overflow") [])))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "callWithWrappedArg"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.unchecked
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "id")
+                                [L00_SourceSolidity.Arg.positional
+                                  uncheckedInternalMaxPlusOneExpr])))) } ] } ] }
+
+def uncheckedInternalCallAccepted : Bool :=
+  sourceUnitAccepted? uncheckedInternalCallSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"

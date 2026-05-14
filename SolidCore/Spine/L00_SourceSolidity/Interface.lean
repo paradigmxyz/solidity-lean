@@ -7193,6 +7193,7 @@ def FunctionDecl.internalCallParts?
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
               modifiers functions freeFunctions
               (callee.returns.map Parameter.ty) callee.modifiers body
+      let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
       let prefixCore ←
         Stmt.listToCore? storageNames returnDecls
       let prefixCore := paramDecls ++ prefixCore
@@ -7225,6 +7226,7 @@ def FunctionDecl.internalCallParts?
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
               [] [] freeFunctions
               (callee.returns.map Parameter.ty) callee.modifiers body
+      let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
       let prefixCore ←
         Stmt.listToCore? storageNames returnDecls
       let prefixCore := paramDecls ++ prefixCore
@@ -15010,6 +15012,79 @@ def uncheckedExponentWrapResult : Option CoreResult :=
     (SolidCore.Solidity.Source.Runtime.ofState
       SolidCore.Solidity.Source.State.empty)
     uncheckedExponentWrapStatement
+
+def uncheckedInternalUintMaxPlusOne : Expr :=
+  Expr.binary BinaryOp.add
+    (Expr.member (Expr.typeName (Ty.uint 256)) "max")
+    (Expr.literal (Literal.number "1"))
+
+def uncheckedInternalCallSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "UncheckedInternalCall"
+            items :=
+              [ ContractItem.function
+                  { name := some "overflow"
+                    visibility := some Visibility.internal_
+                    returns := [{ name := some "out", ty := Ty.uint 256 }]
+                    body :=
+                      some
+                        (Stmt.returnValues
+                          (some uncheckedInternalUintMaxPlusOne)) }
+              , ContractItem.function
+                  { name := some "id"
+                    visibility := some Visibility.internal_
+                    params :=
+                      [{ name := some "value", ty := Ty.uint 256 }]
+                    returns := [{ name := some "out", ty := Ty.uint 256 }]
+                    body :=
+                      some
+                        (Stmt.returnValues
+                          (some (Expr.ident "value"))) }
+              , ContractItem.function
+                  { name := some "callOverflow"
+                    returns := [{ name := some "out", ty := Ty.uint 256 }]
+                    body :=
+                      some
+                        (Stmt.unchecked
+                          (Stmt.returnValues
+                            (some
+                              (Expr.call (Expr.ident "overflow") [])))) }
+              , ContractItem.function
+                  { name := some "callWithWrappedArg"
+                    returns := [{ name := some "out", ty := Ty.uint 256 }]
+                    body :=
+                      some
+                        (Stmt.unchecked
+                          (Stmt.returnValues
+                            (some
+                              (Expr.call (Expr.ident "id")
+                                [Arg.positional
+                                  uncheckedInternalUintMaxPlusOne])))) } ] } ] }
+
+def uncheckedInternalCallCalleeOverflowReverts : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 48 uncheckedInternalCallSourceUnit
+      "UncheckedInternalCall"
+      (SolidCore.Solidity.Source.CallTarget.name "callOverflow")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (SolidCore.Solidity.Source.wordEq code 0x11)
+  | _ => some false
+
+def uncheckedInternalCallArgumentWraps : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 48 uncheckedInternalCallSourceUnit
+      "UncheckedInternalCall"
+      (SolidCore.Solidity.Source.CallTarget.name "callWithWrappedArg")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 0)
+  | _ => some false
 
 def requireCustomErrorContract : ContractDecl :=
   { name := "RequireCustom"
