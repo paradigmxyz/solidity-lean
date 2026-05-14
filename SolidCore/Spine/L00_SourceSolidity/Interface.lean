@@ -19884,6 +19884,104 @@ def receiveDispatchMatches : Option Bool := do
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 2 &&
       result.output == [])
 
+def inheritedReceiveFallbackBaseContract : ContractDecl :=
+  { name := "InheritedReceiveFallbackBase"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { kind := FunctionKind.receive
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            virtual := true
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.assign
+                    (Expr.literal (Literal.number "1")))) }
+      , ContractItem.function
+          { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
+            virtual := true
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.assign
+                    (Expr.literal (Literal.number "3")))) } ] }
+
+def inheritedReceiveFallbackChildContract : ContractDecl :=
+  { name := "InheritedReceiveFallbackChild"
+    bases := [{ base := { segments := ["InheritedReceiveFallbackBase"] } }] }
+
+def inheritedReceiveFallbackOverrideContract : ContractDecl :=
+  { name := "InheritedReceiveFallbackOverride"
+    bases := [{ base := { segments := ["InheritedReceiveFallbackBase"] } }]
+    items :=
+      [ ContractItem.function
+          { kind := FunctionKind.receive
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            override? := some { bases := [] }
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.assign
+                    (Expr.literal (Literal.number "2")))) }
+      , ContractItem.function
+          { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
+            override? := some { bases := [] }
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.assign
+                    (Expr.literal (Literal.number "4")))) } ] }
+
+def inheritedReceiveFallbackUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract inheritedReceiveFallbackBaseContract
+      , SourceItem.contract inheritedReceiveFallbackChildContract
+      , SourceItem.contract inheritedReceiveFallbackOverrideContract ] }
+
+def inheritedReceiveFallbackCall?
+    (contractName : Name) (calldata : List Byte) :
+    Option SolidCore.Solidity.Source.ABI.AbiCallResult := do
+  let contract ←
+    SourceUnit.toCoreContract? inheritedReceiveFallbackUnit contractName
+  SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+    16 contract SolidCore.Solidity.Source.State.empty calldata
+
+def inheritedReceiveDispatchMatches : Option Bool := do
+  let result ← inheritedReceiveFallbackCall?
+    "InheritedReceiveFallbackChild" []
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 1 &&
+      result.output == [])
+
+def overriddenReceiveDispatchMatches : Option Bool := do
+  let result ← inheritedReceiveFallbackCall?
+    "InheritedReceiveFallbackOverride" []
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 2 &&
+      result.output == [])
+
+def inheritedFallbackDispatchMatches : Option Bool := do
+  let result ← inheritedReceiveFallbackCall?
+    "InheritedReceiveFallbackChild" [0xde, 0xad, 0xbe, 0xef]
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 3 &&
+      result.output == [])
+
+def overriddenFallbackDispatchMatches : Option Bool := do
+  let result ← inheritedReceiveFallbackCall?
+    "InheritedReceiveFallbackOverride" [0xde, 0xad, 0xbe, 0xef]
+  some
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 4 &&
+      result.output == [])
+
 def fallbackBytesContract : ContractDecl :=
   { name := "FallbackBytes"
     items :=
