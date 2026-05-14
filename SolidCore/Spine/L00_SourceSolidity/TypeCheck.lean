@@ -2115,30 +2115,33 @@ def UsingFunction.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
     (binding : L00_SourceSolidity.UsingFunction) :
     Except TypeError (List FunctionSig) := do
-  let (libraryPath, functionName) ←
-    match L00_SourceSolidity.Executable.pathInitLast? binding.function with
-    | some parts => Except.ok parts
-    | none => Except.error (TypeError.unknownFunction member)
-  if functionName == member then
-    if libraryPath.segments.isEmpty then
-      Except.ok
-        (FunctionSigs.usingMemberCandidates env.types receiver member
-          ((FunctionSigs.nonPrivate env.functions).filter
-            (fun sig => sig.name == functionName)))
-    else
-      let libraryDecl ←
-        match env.types.lookupContractDecl? libraryPath with
-        | some libraryDecl => Except.ok libraryDecl
-        | none => Except.error (TypeError.unknownType libraryPath)
-      require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
-        (TypeError.invalidContractHeader "using target is not a library")
-      Except.ok
-        (FunctionSigs.usingMemberCandidates env.types receiver member
-          ((FunctionSigs.nonPrivate
-            (ContractDecl.directFunctionSigs libraryDecl)).filter
-              (fun sig => sig.name == functionName)))
-  else
-    Except.ok []
+  match binding.operator? with
+  | some _ => Except.ok []
+  | none =>
+      let (libraryPath, functionName) ←
+        match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+        | some parts => Except.ok parts
+        | none => Except.error (TypeError.unknownFunction member)
+      if functionName == member then
+        if libraryPath.segments.isEmpty then
+          Except.ok
+            (FunctionSigs.usingMemberCandidates env.types receiver member
+              ((FunctionSigs.nonPrivate env.functions).filter
+                (fun sig => sig.name == functionName)))
+        else
+          let libraryDecl ←
+            match env.types.lookupContractDecl? libraryPath with
+            | some libraryDecl => Except.ok libraryDecl
+            | none => Except.error (TypeError.unknownType libraryPath)
+          require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+            (TypeError.invalidContractHeader "using target is not a library")
+          Except.ok
+            (FunctionSigs.usingMemberCandidates env.types receiver member
+              ((FunctionSigs.nonPrivate
+                (ContractDecl.directFunctionSigs libraryDecl)).filter
+                  (fun sig => sig.name == functionName)))
+      else
+        Except.ok []
 
 def UsingFunctions.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name) :
@@ -2155,6 +2158,128 @@ def UsingDecl.appliesToReceiver
   match decl.target with
   | some targetTy => receiverTy == targetTy
   | none => true
+
+def UsingDecl.appliesToBinaryOperands
+    (decl : L00_SourceSolidity.UsingDecl) (lhsTy rhsTy : Ty) : Bool :=
+  match decl.target with
+  | some targetTy => lhsTy == targetTy || rhsTy == targetTy
+  | none => true
+
+def BinaryOp.userDefinedOperatorResultTy? (targetTy : Ty) :
+    L00_SourceSolidity.BinaryOp -> Option Ty
+  | L00_SourceSolidity.BinaryOp.add
+  | L00_SourceSolidity.BinaryOp.sub
+  | L00_SourceSolidity.BinaryOp.mul
+  | L00_SourceSolidity.BinaryOp.div
+  | L00_SourceSolidity.BinaryOp.mod
+  | L00_SourceSolidity.BinaryOp.bitAnd
+  | L00_SourceSolidity.BinaryOp.bitOr
+  | L00_SourceSolidity.BinaryOp.bitXor => some targetTy
+  | L00_SourceSolidity.BinaryOp.lt
+  | L00_SourceSolidity.BinaryOp.gt
+  | L00_SourceSolidity.BinaryOp.le
+  | L00_SourceSolidity.BinaryOp.ge
+  | L00_SourceSolidity.BinaryOp.eq
+  | L00_SourceSolidity.BinaryOp.ne => some L00_SourceSolidity.Ty.bool
+  | _ => none
+
+def UsingOperator.userDefinedResultTy? (targetTy : Ty) :
+    L00_SourceSolidity.UsingOperator -> Option Ty
+  | L00_SourceSolidity.UsingOperator.binary op =>
+      BinaryOp.userDefinedOperatorResultTy? targetTy op
+  | L00_SourceSolidity.UsingOperator.unary _ => none
+
+def FunctionSig.hasParamTy (targetTy : Ty) : List Ty -> Bool
+  | [] => false
+  | ty :: rest => ty == targetTy || FunctionSig.hasParamTy targetTy rest
+
+def FunctionSig.matchesUserDefinedBinaryOperator
+    (types : TypeContext) (targetTy : Ty)
+    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr)
+    (sig : FunctionSig) : Bool :=
+  match BinaryOp.userDefinedOperatorResultTy? targetTy op with
+  | some resultTy =>
+      sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+        sig.returns == [resultTy] &&
+        FunctionSig.hasParamTy targetTy sig.params &&
+        sig.matchesCheckedArgs types [(none, lhs), (none, rhs)]
+  | none => false
+
+def FunctionSig.matchesUserDefinedOperatorDecl (targetTy : Ty)
+    (operator : L00_SourceSolidity.UsingOperator)
+    (sig : FunctionSig) : Bool :=
+  match operator with
+  | L00_SourceSolidity.UsingOperator.binary op =>
+      match BinaryOp.userDefinedOperatorResultTy? targetTy op with
+      | some resultTy =>
+          sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+            sig.params.length == 2 &&
+            FunctionSig.hasParamTy targetTy sig.params &&
+            sig.returns == [resultTy]
+      | none => false
+  | L00_SourceSolidity.UsingOperator.unary _ => false
+
+def UsingFunction.binaryOperatorCandidates (env : CheckEnv)
+    (targetTy : Ty) (op : L00_SourceSolidity.BinaryOp)
+    (lhs rhs : CheckedExpr)
+    (binding : L00_SourceSolidity.UsingFunction) :
+    Except TypeError (List FunctionSig) := do
+  match binding.operator? with
+  | some (L00_SourceSolidity.UsingOperator.binary bindingOp) =>
+      if bindingOp == op then
+        let (libraryPath, functionName) ←
+          match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+          | some parts => Except.ok parts
+          | none => Except.error (TypeError.unknownFunction "operator")
+        if libraryPath.segments.isEmpty then
+          Except.ok
+            ((FunctionSigs.nonPrivate env.functions).filter
+              (fun sig =>
+                sig.name == functionName &&
+                  sig.matchesUserDefinedBinaryOperator
+                    env.types targetTy op lhs rhs))
+        else
+          Except.ok []
+      else
+        Except.ok []
+  | _ => Except.ok []
+
+def UsingFunctions.binaryOperatorCandidates (env : CheckEnv)
+    (targetTy : Ty) (op : L00_SourceSolidity.BinaryOp)
+    (lhs rhs : CheckedExpr) :
+    List L00_SourceSolidity.UsingFunction ->
+    Except TypeError (List FunctionSig)
+  | [] => Except.ok []
+  | binding :: rest => do
+      let head ←
+        UsingFunction.binaryOperatorCandidates
+          env targetTy op lhs rhs binding
+      let tail ←
+        UsingFunctions.binaryOperatorCandidates env targetTy op lhs rhs rest
+      Except.ok (head ++ tail)
+
+def UsingDecl.binaryOperatorCandidates (env : CheckEnv)
+    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr)
+    (decl : L00_SourceSolidity.UsingDecl) :
+    Except TypeError (List FunctionSig) := do
+  match decl.target with
+  | some targetTy =>
+      if UsingDecl.appliesToBinaryOperands decl lhs.ty rhs.ty then
+        UsingFunctions.binaryOperatorCandidates
+          env targetTy op lhs rhs decl.functions
+      else
+        Except.ok []
+  | none => Except.ok []
+
+def UsingDecls.binaryOperatorCandidates (env : CheckEnv)
+    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr) :
+    List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
+  | [] => Except.ok []
+  | decl :: rest => do
+      let head ← UsingDecl.binaryOperatorCandidates env op lhs rhs decl
+      let tail ←
+        UsingDecls.binaryOperatorCandidates env op lhs rhs rest
+      Except.ok (head ++ tail)
 
 def UsingDecl.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
@@ -2192,6 +2317,16 @@ def CheckEnv.resolveUsingMemberFunctionChecked (env : CheckEnv)
   let candidates ←
     UsingDecls.memberCandidates env receiver member env.usingDecls
   FunctionSigs.resolveChecked env.types candidates member args
+
+def CheckEnv.resolveUsingBinaryOperator? (env : CheckEnv)
+    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr) :
+    Except TypeError (Option FunctionSig) := do
+  let candidates ←
+    UsingDecls.binaryOperatorCandidates env op lhs rhs env.usingDecls
+  match candidates with
+  | [] => Except.ok none
+  | [sig] => Except.ok (some sig)
+  | _ => Except.error (TypeError.ambiguousFunction "operator")
 
 def TypeContext.resolveLibraryFunctionChecked (types : TypeContext)
     (libraryName member : Name) (args : List CheckedArgInfo) :
@@ -3715,6 +3850,14 @@ def checkExpr (env : CheckEnv) :
   | expr@(L00_SourceSolidity.Expr.binary op lhs rhs) => do
       let lhsChecked ← checkExpr env lhs
       let rhsChecked ← checkExpr env rhs
+      let usingOperator? ←
+        CheckEnv.resolveUsingBinaryOperator? env op lhsChecked rhsChecked
+      match usingOperator? with
+      | some sig =>
+          match sig.returns with
+          | [ty] => Except.ok { source := expr, ty := ty }
+          | _ => Except.error (TypeError.unknownFunction "operator")
+      | none =>
       match op with
       | L00_SourceSolidity.BinaryOp.boolAnd
       | L00_SourceSolidity.BinaryOp.boolOr =>
@@ -5947,35 +6090,71 @@ def UserValueTypeDecl.check (env : CheckEnv)
     (TypeError.invalidUserValueType decl.name decl.underlying)
 
 def UsingFunction.check (env : CheckEnv)
+    (target? : Option Ty) (global : Bool)
     (binding : L00_SourceSolidity.UsingFunction) : Except TypeError Unit := do
   let (libraryPath, functionName) ←
     match L00_SourceSolidity.Executable.pathInitLast? binding.function with
     | some parts => Except.ok parts
     | none => Except.error (TypeError.unknownFunction "")
-  let candidates ←
-    if libraryPath.segments.isEmpty then
-      Except.ok
+  match binding.operator? with
+  | some operator =>
+      require global
+        (TypeError.invalidContractHeader
+          "using operator binding must be global")
+      require libraryPath.segments.isEmpty
+        (TypeError.invalidContractHeader
+          "using operator binding must name a free function")
+      let targetTy ←
+        match target? with
+        | some ty => Except.ok ty
+        | none =>
+            Except.error
+              (TypeError.invalidContractHeader
+                "using operator binding requires a target type")
+      match targetTy with
+      | L00_SourceSolidity.Ty.user path =>
+          require (env.types.isUserValueTypePath path)
+            (TypeError.invalidContractHeader
+              "using operator binding target is not a user value type")
+      | _ =>
+          Except.error
+            (TypeError.invalidContractHeader
+              "using operator binding target is not a user value type")
+      require (UsingOperator.userDefinedResultTy? targetTy operator).isSome
+        (TypeError.invalidContractHeader
+          "unsupported using operator binding")
+      let candidates :=
         ((FunctionSigs.nonPrivate env.functions).filter
-          (fun sig => sig.name == functionName))
-    else
-      let libraryDecl ←
-        match env.types.lookupContractDecl? libraryPath with
-        | some libraryDecl => Except.ok libraryDecl
-        | none => Except.error (TypeError.unknownType libraryPath)
-      require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
-        (TypeError.invalidContractHeader "using target is not a library")
-      Except.ok
-        ((FunctionSigs.nonPrivate
-          (ContractDecl.directFunctionSigs libraryDecl)).filter
-            (fun sig => sig.name == functionName))
-  require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
+          (fun sig =>
+            sig.name == functionName &&
+              sig.matchesUserDefinedOperatorDecl targetTy operator))
+      require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
+  | none =>
+      let candidates ←
+        if libraryPath.segments.isEmpty then
+          Except.ok
+            ((FunctionSigs.nonPrivate env.functions).filter
+              (fun sig => sig.name == functionName))
+        else
+          let libraryDecl ←
+            match env.types.lookupContractDecl? libraryPath with
+            | some libraryDecl => Except.ok libraryDecl
+            | none => Except.error (TypeError.unknownType libraryPath)
+          require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+            (TypeError.invalidContractHeader "using target is not a library")
+          Except.ok
+            ((FunctionSigs.nonPrivate
+              (ContractDecl.directFunctionSigs libraryDecl)).filter
+                (fun sig => sig.name == functionName))
+      require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
 
-def UsingFunctions.check (env : CheckEnv) :
+def UsingFunctions.check (env : CheckEnv)
+    (target? : Option Ty) (global : Bool) :
     List L00_SourceSolidity.UsingFunction -> Except TypeError Unit
   | [] => Except.ok ()
   | binding :: rest => do
-      UsingFunction.check env binding
-      UsingFunctions.check env rest
+      UsingFunction.check env target? global binding
+      UsingFunctions.check env target? global rest
 
 def UsingDecl.checkCore (env : CheckEnv)
     (decl : L00_SourceSolidity.UsingDecl) : Except TypeError Unit := do
@@ -5987,7 +6166,7 @@ def UsingDecl.checkCore (env : CheckEnv)
     require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
       (TypeError.invalidContractHeader "using target is not a library")
   else
-    UsingFunctions.check env decl.functions
+    UsingFunctions.check env decl.target decl.global decl.functions
   match decl.target with
   | some ty => checkTy env.types ty
   | none => Except.ok ()
@@ -17482,6 +17661,181 @@ def globalUsingPriceSource : L00_SourceSolidity.SourceUnit :=
 
 def globalUsingPriceAccepted : Bool :=
   sourceUnitAccepted? globalUsingPriceSource
+
+def priceOperatorAddFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "priceAdd"
+    params :=
+      [ { name := some "left", ty := priceTy, location := none }
+      , { name := some "right", ty := priceTy, location := none } ]
+    returns := [{ name := some "out", ty := priceTy, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.binary
+                    L00_SourceSolidity.BinaryOp.add
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.typeName priceTy)
+                        "unwrap")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "left")])
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.typeName priceTy)
+                        "unwrap")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "right")])) ]))) }
+
+def priceOperatorLtFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "priceLt"
+    params :=
+      [ { name := some "left", ty := priceTy, location := none }
+      , { name := some "right", ty := priceTy, location := none } ]
+    returns := [{ name := some "out", ty := L00_SourceSolidity.Ty.bool }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.lt
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.typeName priceTy) "unwrap")
+                [L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "left")])
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.typeName priceTy) "unwrap")
+                [L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "right")])))) }
+
+def globalUsingPriceOperatorFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "runOperator"
+    params :=
+      [ { name := some "left", ty := uint256, location := none }
+      , { name := some "right", ty := uint256, location := none } ]
+    returns :=
+      [ { name := some "sum", ty := uint256, location := none }
+      , { name := some "less", ty := L00_SourceSolidity.Ty.bool,
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "a", ty := some priceTy, location := none }]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "left")]))
+          , L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "b", ty := some priceTy, location := none }]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.typeName priceTy) "wrap")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "right")]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.typeName priceTy)
+                          "unwrap")
+                        [ L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.add
+                              (L00_SourceSolidity.Expr.ident "a")
+                              (L00_SourceSolidity.Expr.ident "b")) ])
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.binary
+                        L00_SourceSolidity.BinaryOp.lt
+                        (L00_SourceSolidity.Expr.ident "a")
+                        (L00_SourceSolidity.Expr.ident "b")) ])) ]) }
+
+def globalUsingPriceOperatorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorAddFunction
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorLtFunction
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [ { function := { segments := ["priceAdd"] }
+                  operator? := some
+                    (L00_SourceSolidity.UsingOperator.binary
+                      L00_SourceSolidity.BinaryOp.add) }
+              , { function := { segments := ["priceLt"] }
+                  operator? := some
+                    (L00_SourceSolidity.UsingOperator.binary
+                      L00_SourceSolidity.BinaryOp.lt) } ]
+            target := some priceTy
+            global := true }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "GlobalUsingPriceOperator"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  globalUsingPriceOperatorFunction ] } ] }
+
+def globalUsingPriceOperatorAccepted : Bool :=
+  sourceUnitAccepted? globalUsingPriceOperatorSource
+
+def contractUsingOperatorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorAddFunction
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadContractUsingOperator"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := { segments := [] }
+                    functions :=
+                      [{ function := { segments := ["priceAdd"] }
+                         operator? := some
+                          (L00_SourceSolidity.UsingOperator.binary
+                            L00_SourceSolidity.BinaryOp.add) }]
+                    target := some priceTy } ] } ] }
+
+def contractUsingOperatorRejected : Bool :=
+  Result.isError (SourceUnit.check contractUsingOperatorSource)
+
+def nonPurePriceOperatorAddFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { priceOperatorAddFunction with
+    mutability := L00_SourceSolidity.StateMutability.view }
+
+def nonPureUsingOperatorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.freeFunction
+          nonPurePriceOperatorAddFunction
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["priceAdd"] }
+                 operator? := some
+                  (L00_SourceSolidity.UsingOperator.binary
+                    L00_SourceSolidity.BinaryOp.add) }]
+            target := some priceTy
+            global := true } ] }
+
+def nonPureUsingOperatorRejected : Bool :=
+  Result.isError (SourceUnit.check nonPureUsingOperatorSource)
 
 def contractGlobalUsingSource : L00_SourceSolidity.SourceUnit :=
   { items :=
