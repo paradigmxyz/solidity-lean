@@ -9327,6 +9327,64 @@ def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
 def internalRequireConditionCallAccepted : Bool :=
   sourceUnitAccepted? internalRequireConditionCallSource
 
+def internalEmitArgumentCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalEmitArgumentCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  { name := "Seen"
+                    params :=
+                      [{ name := some "value"
+                         ty := uint256
+                         indexed := false }] }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "value"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "7"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "run"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.emitEvent
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "Seen")
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident "value")
+                                    [])])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+
+def internalEmitArgumentCallAccepted : Bool :=
+  sourceUnitAccepted? internalEmitArgumentCallSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"

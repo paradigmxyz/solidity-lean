@@ -7832,6 +7832,20 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         Expr.externalFunctionValueCallAssignVarsCore?
           storageNames env names expr
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+  | Stmt.emitEvent
+      (Expr.call (Expr.ident eventName)
+        [Arg.positional (Expr.call (Expr.ident name) args)]) =>
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.emitEvent eventName [retExpr]) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.emitEvent
+              (Expr.call (Expr.ident eventName)
+                [Arg.positional (Expr.call (Expr.ident name) args)]))
   | Stmt.returnValues
       (some
         (Expr.binary op
@@ -27159,6 +27173,62 @@ def internalRequireConditionCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot
               customFailState 0) 0)
   | _, _, _, _ => some false
+
+def internalEmitArgumentCallContract : ContractDecl :=
+  { name := "InternalEmitArgumentCall"
+    items :=
+      [ ContractItem.eventDecl
+          { name := "Seen"
+            params :=
+              [{ name := some "value"
+                 ty := Ty.uint 256
+                 indexed := false }] }
+      , ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "value"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "7")))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "run"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.emitEvent
+                      (Expr.call (Expr.ident "Seen")
+                        [Arg.positional
+                          (Expr.call (Expr.ident "value") [])])
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) } ] }
+
+def internalEmitArgumentCallMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 internalEmitArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [SolidCore.Solidity.Source.Value.word eventValue] =>
+              some
+                (SolidCore.Solidity.Source.wordEq value 7 &&
+                  event.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq eventValue 7 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (SolidCore.Solidity.Source.State.loadSlot state 0) 7)
+          | _ => some false
+      | _ => some false
+  | _ => some false
 
 def internalNamedArgsContract : ContractDecl :=
   { name := "InternalNamedArgs"
