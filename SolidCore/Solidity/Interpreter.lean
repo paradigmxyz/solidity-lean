@@ -4296,8 +4296,11 @@ inductive Stmt where
   | deleteValue : LValue -> Stmt
   | storageArrayPush : String -> Option Expr -> Stmt
   | storageArrayPushRef : String -> Option Expr -> Stmt
+  | storageArrayPushPath : String -> List Expr -> Option Expr -> Stmt
+  | storageArrayPushPathAssign : String -> List Expr -> Expr -> Stmt
   | storageArrayPop : String -> Stmt
   | storageArrayPopRef : String -> Stmt
+  | storageArrayPopPath : String -> List Expr -> Stmt
   | assertStmt : Expr -> Stmt
   | requireStmt : Expr -> Option String -> Stmt
   | requireErrorExpr : Expr -> Expr -> Stmt
@@ -4633,6 +4636,58 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | none, _ => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageArrayPushPath name indexes value? =>
+          match Expr.evalListWithRuntime context runtime indexes with
+          | Except.ok (indexValues, runtime') =>
+              match value? with
+              | some expr =>
+                  match expr.evalWithRuntime context runtime' with
+                  | Except.ok (value, runtime'') =>
+                      match
+                        runtime''.storageArrayPushPath context name indexValues
+                          (some value)
+                      with
+                      | Except.ok updated => some (Result.normal updated)
+                      | Except.error err => some (Result.reverted runtime err)
+                  | Except.error err => some (Result.reverted runtime' err)
+              | none =>
+                  match
+                    runtime'.storageArrayPushPath context name indexValues none
+                  with
+                  | Except.ok updated => some (Result.normal updated)
+                  | Except.error err => some (Result.reverted runtime err)
+          | Except.error err => some (Result.reverted runtime err)
+      | Stmt.storageArrayPushPathAssign name indexes rhs =>
+          match Expr.evalListWithRuntime context runtime indexes with
+          | Except.ok (indexValues, runtime') =>
+              match runtime'.storageArrayPushPath context name indexValues none with
+              | Except.ok pushed =>
+                  match rhs.evalWithRuntime context pushed with
+                  | Except.ok (value, runtime'') =>
+                      match
+                        runtime''.loadStorageRefPathValue
+                          context name indexValues
+                      with
+                      | Except.ok (Value.word length) =>
+                          let last := SharedSemantics.norm length - 1
+                          match
+                            runtime''.storeStoragePathWithDeepClear
+                              context name
+                              (indexValues ++ [Value.word last])
+                              value
+                          with
+                          | Except.ok updated => some (Result.normal updated)
+                          | Except.error err =>
+                              some (Result.reverted runtime'' err)
+                      | Except.ok _ =>
+                          some
+                            (Result.reverted runtime''
+                              RevertData.typeMismatch)
+                      | Except.error err =>
+                          some (Result.reverted runtime'' err)
+                  | Except.error err => some (Result.reverted pushed err)
+              | Except.error err => some (Result.reverted runtime err)
+          | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPop name =>
           match runtime.storageArrayPop context name with
           | Except.ok updated => some (Result.normal updated)
@@ -4644,6 +4699,13 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | none => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageArrayPopPath name indexes =>
+          match Expr.evalListWithRuntime context runtime indexes with
+          | Except.ok (indexValues, runtime') =>
+              match runtime'.storageArrayPopPath context name indexValues with
+              | Except.ok updated => some (Result.normal updated)
+              | Except.error err => some (Result.reverted runtime err)
+          | Except.error err => some (Result.reverted runtime err)
       | Stmt.assertStmt cond =>
           match cond.evalWithRuntime context runtime with
           | Except.ok (value, runtime') =>

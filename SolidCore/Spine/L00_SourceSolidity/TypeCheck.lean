@@ -12561,6 +12561,133 @@ def structStoragePathSource :
                               (L00_SourceSolidity.Expr.ident
                                 "index")))) }
               , L00_SourceSolidity.ContractItem.function
+                  { name := some "directPathArrayPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "entries")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "key"))
+                                "values")
+                              "push")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "directPathArrayPushAssign"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "values")
+                                "push")
+                              [])
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "directPathArrayPop"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "entries")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "key"))
+                                "values")
+                              "pop")
+                            [])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "directPathBlobPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "entries")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "key"))
+                                "blob")
+                              "push")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "directPathBlobPop"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "entries")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "key"))
+                                "blob")
+                              "pop")
+                            [])) }
+              , L00_SourceSolidity.ContractItem.function
                   { name := some "aliasCount"
                     visibility :=
                       some L00_SourceSolidity.Visibility.public_
