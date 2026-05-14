@@ -20573,7 +20573,14 @@ def pushStructArrayContract : ContractDecl :=
                 (Stmt.expr
                   (Expr.call
                     (Expr.member (Expr.ident "records") "pop")
-                    [])) } ] }
+                    [])) }
+      , ContractItem.function
+          { name := some "deleteAll"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.ident "records"))) } ] }
 
 def pushStructArrayValueState : Option CoreState := do
   let result ←
@@ -20654,6 +20661,35 @@ def popStructArrayState : Option CoreState := do
 
 def popStructArrayClearsElement : Option Bool := do
   let state ← popStructArrayState
+  let elementLayout :=
+    SolidCore.Solidity.Source.StorageLayout.struct
+      [ SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.bool ]
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0 elementLayout
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot elementSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.fixedArrayStorageSlot
+            elementSlot 1)) 0)
+
+def deleteDynamicStructArrayState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 48 pushStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "deleteAll")
+      popStructArrayInitialState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def deleteDynamicStructArrayClearsElement : Option Bool := do
+  let state ← deleteDynamicStructArrayState
   let elementLayout :=
     SolidCore.Solidity.Source.StorageLayout.struct
       [ SolidCore.Solidity.Source.StorageLayout.scalar

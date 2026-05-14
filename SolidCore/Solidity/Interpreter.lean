@@ -1407,6 +1407,25 @@ def State.clearStructLayoutSlots (state : State) (slot : Word) :
 
 end
 
+def State.clearDynamicArrayLayoutSlots (state : State) (slot : Word)
+    (elementLayout : StorageLayout) :
+    Nat -> Nat -> Except RevertData State
+  | _, 0 => Except.ok state
+  | index, remaining + 1 => do
+      let state ←
+        State.clearStorageLayoutAt state
+          (dynamicArrayLayoutStorageSlot slot index elementLayout)
+          elementLayout
+      State.clearDynamicArrayLayoutSlots
+        state slot elementLayout (index + 1) remaining
+
+def State.clearDynamicArrayLayoutAt (state : State) (slot : Word)
+    (elementLayout : StorageLayout) : Except RevertData State := do
+  let length := SharedSemantics.norm (state.loadSlot slot)
+  let state ←
+    State.clearDynamicArrayLayoutSlots state slot elementLayout 0 length
+  Except.ok (state.storeSlot slot 0)
+
 def Runtime.deleteStorageField (context : Context)
     (runtime : Runtime) (name : String) :
     Except RevertData Runtime := do
@@ -1415,9 +1434,11 @@ def Runtime.deleteStorageField (context : Context)
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
   match field.layout? with
-  | some (StorageLayout.dynamicArray _) =>
-      Except.ok
-        { runtime with state := runtime.state.storeSlot field.slot 0 }
+  | some (StorageLayout.dynamicArray elementLayout) => do
+      let state ←
+        State.clearDynamicArrayLayoutAt
+          runtime.state field.slot elementLayout
+      Except.ok { runtime with state }
   | some StorageLayout.bytes =>
       Except.ok
         { runtime with state := runtime.state.storeSlot field.slot 0 }
