@@ -8743,6 +8743,108 @@ def internalReturnRightSubexpressionSource : L00_SourceSolidity.SourceUnit :=
 def internalReturnRightSubexpressionAccepted : Bool :=
   sourceUnitAccepted? internalReturnRightSubexpressionSource
 
+def internalReturnShortCircuitSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalReturnShortCircuit"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "mark"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr true)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "andSkip"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.boolAnd
+                              (boolExpr false)
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "mark")
+                                [])))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "orSkip"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.boolOr
+                              (boolExpr true)
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "mark")
+                                [])))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "andCall"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.boolAnd
+                              (boolExpr true)
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "mark")
+                                [])))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "orCall"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.binary
+                              L00_SourceSolidity.BinaryOp.boolOr
+                              (boolExpr false)
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "mark")
+                                [])))) } ] } ] }
+
+def internalReturnShortCircuitAccepted : Bool :=
+  sourceUnitAccepted? internalReturnShortCircuitSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"
