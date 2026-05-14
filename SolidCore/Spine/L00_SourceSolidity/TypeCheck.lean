@@ -2111,44 +2111,80 @@ def usingMemberCandidates (types : TypeContext)
 
 end FunctionSigs
 
+def UsingFunction.memberCandidates (env : CheckEnv)
+    (receiver : CheckedExpr) (member : Name)
+    (binding : L00_SourceSolidity.UsingFunction) :
+    Except TypeError (List FunctionSig) := do
+  let (libraryPath, functionName) ←
+    match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+    | some parts => Except.ok parts
+    | none => Except.error (TypeError.unknownFunction member)
+  if functionName == member && !libraryPath.segments.isEmpty then
+    let libraryDecl ←
+      match env.types.lookupContractDecl? libraryPath with
+      | some libraryDecl => Except.ok libraryDecl
+      | none => Except.error (TypeError.unknownType libraryPath)
+    require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+      (TypeError.invalidContractHeader "using target is not a library")
+    Except.ok
+      (FunctionSigs.usingMemberCandidates env.types receiver member
+        ((FunctionSigs.nonPrivate
+          (ContractDecl.directFunctionSigs libraryDecl)).filter
+            (fun sig => sig.name == functionName)))
+  else
+    Except.ok []
+
+def UsingFunctions.memberCandidates (env : CheckEnv)
+    (receiver : CheckedExpr) (member : Name) :
+    List L00_SourceSolidity.UsingFunction ->
+    Except TypeError (List FunctionSig)
+  | [] => Except.ok []
+  | binding :: rest => do
+      let head ← UsingFunction.memberCandidates env receiver member binding
+      let tail ← UsingFunctions.memberCandidates env receiver member rest
+      Except.ok (head ++ tail)
+
 def UsingDecl.appliesToReceiver
     (decl : L00_SourceSolidity.UsingDecl) (receiverTy : Ty) : Bool :=
   match decl.target with
   | some targetTy => receiverTy == targetTy
   | none => true
 
-def UsingDecl.memberCandidates (types : TypeContext)
+def UsingDecl.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
     (decl : L00_SourceSolidity.UsingDecl) :
     Except TypeError (List FunctionSig) := do
   if UsingDecl.appliesToReceiver decl receiver.ty then
-    let libraryDecl ←
-      match types.lookupContractDecl? decl.library with
-      | some libraryDecl => Except.ok libraryDecl
-      | none => Except.error (TypeError.unknownType decl.library)
-    require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
-      (TypeError.invalidContractHeader "using target is not a library")
-    Except.ok
-      (FunctionSigs.usingMemberCandidates types receiver member
-        (FunctionSigs.nonPrivate
-          (ContractDecl.directFunctionSigs libraryDecl)))
+    if decl.functions.isEmpty then
+      let libraryDecl ←
+        match env.types.lookupContractDecl? decl.library with
+        | some libraryDecl => Except.ok libraryDecl
+        | none => Except.error (TypeError.unknownType decl.library)
+      require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+        (TypeError.invalidContractHeader "using target is not a library")
+      Except.ok
+        (FunctionSigs.usingMemberCandidates env.types receiver member
+          (FunctionSigs.nonPrivate
+            (ContractDecl.directFunctionSigs libraryDecl)))
+    else
+      UsingFunctions.memberCandidates env receiver member decl.functions
   else
     Except.ok []
 
-def UsingDecls.memberCandidates (types : TypeContext)
+def UsingDecls.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name) :
     List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | decl :: rest => do
-      let head ← UsingDecl.memberCandidates types receiver member decl
-      let tail ← UsingDecls.memberCandidates types receiver member rest
+      let head ← UsingDecl.memberCandidates env receiver member decl
+      let tail ← UsingDecls.memberCandidates env receiver member rest
       Except.ok (head ++ tail)
 
 def CheckEnv.resolveUsingMemberFunctionChecked (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
     (args : List CheckedArgInfo) : Except TypeError FunctionSig := do
   let candidates ←
-    UsingDecls.memberCandidates env.types receiver member env.usingDecls
+    UsingDecls.memberCandidates env receiver member env.usingDecls
   FunctionSigs.resolveChecked env.types candidates member args
 
 def TypeContext.resolveLibraryFunctionChecked (types : TypeContext)
@@ -5904,14 +5940,45 @@ def UserValueTypeDecl.check (env : CheckEnv)
   require (Ty.isBuiltInValueTypeShape decl.underlying)
     (TypeError.invalidUserValueType decl.name decl.underlying)
 
-def UsingDecl.checkCore (env : CheckEnv)
-    (decl : L00_SourceSolidity.UsingDecl) : Except TypeError Unit := do
+def UsingFunction.check (env : CheckEnv)
+    (binding : L00_SourceSolidity.UsingFunction) : Except TypeError Unit := do
+  let (libraryPath, functionName) ←
+    match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+    | some parts => Except.ok parts
+    | none => Except.error (TypeError.unknownFunction "")
+  require (!libraryPath.segments.isEmpty)
+    (TypeError.invalidContractHeader
+      "explicit using function must be library-qualified")
   let libraryDecl ←
-    match env.types.lookupContractDecl? decl.library with
+    match env.types.lookupContractDecl? libraryPath with
     | some libraryDecl => Except.ok libraryDecl
-    | none => Except.error (TypeError.unknownType decl.library)
+    | none => Except.error (TypeError.unknownType libraryPath)
   require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
     (TypeError.invalidContractHeader "using target is not a library")
+  let candidates :=
+    (FunctionSigs.nonPrivate
+      (ContractDecl.directFunctionSigs libraryDecl)).filter
+        (fun sig => sig.name == functionName)
+  require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
+
+def UsingFunctions.check (env : CheckEnv) :
+    List L00_SourceSolidity.UsingFunction -> Except TypeError Unit
+  | [] => Except.ok ()
+  | binding :: rest => do
+      UsingFunction.check env binding
+      UsingFunctions.check env rest
+
+def UsingDecl.checkCore (env : CheckEnv)
+    (decl : L00_SourceSolidity.UsingDecl) : Except TypeError Unit := do
+  if decl.functions.isEmpty then
+    let libraryDecl ←
+      match env.types.lookupContractDecl? decl.library with
+      | some libraryDecl => Except.ok libraryDecl
+      | none => Except.error (TypeError.unknownType decl.library)
+    require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+      (TypeError.invalidContractHeader "using target is not a library")
+  else
+    UsingFunctions.check env decl.functions
   match decl.target with
   | some ty => checkTy env.types ty
   | none => Except.ok ()
@@ -12279,6 +12346,34 @@ def usingLibraryMethodSource : L00_SourceSolidity.SourceUnit :=
 
 def usingLibraryMethodAccepted : Bool :=
   sourceUnitAccepted? usingLibraryMethodSource
+
+def explicitUsingLibraryMethodSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract uintLibraryContract
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["UintLib", "plusOne"] } }]
+            target := some uint256 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ExplicitUsingLibrary"
+            items := [L00_SourceSolidity.ContractItem.function
+              usingLibraryMethodFunction] } ] }
+
+def explicitUsingLibraryMethodAccepted : Bool :=
+  sourceUnitAccepted? explicitUsingLibraryMethodSource
+
+def badExplicitUsingFunctionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract uintLibraryContract
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["UintLib", "missing"] } }]
+            target := some uint256 } ] }
+
+def badExplicitUsingFunctionRejected : Bool :=
+  Result.isError (SourceUnit.check badExplicitUsingFunctionSource)
 
 def badUsingLibraryReceiverSource : L00_SourceSolidity.SourceUnit :=
   { items :=

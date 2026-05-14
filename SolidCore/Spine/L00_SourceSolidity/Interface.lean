@@ -316,8 +316,13 @@ structure UserValueTypeDecl where
   underlying : Ty
   deriving Repr
 
+structure UsingFunction where
+  function : Path
+  deriving Repr
+
 structure UsingDecl where
   library : Path
+  functions : List UsingFunction := []
   target : Option Ty := none
   global : Bool := false
   deriving Repr
@@ -414,6 +419,17 @@ abbrev SourceModifierInvocation :=
 
 def pathLast? (path : Path) : Option Name :=
   path.segments.reverse.head?
+
+def pathInitLast? (path : Path) : Option (Path × Name) :=
+  let rec go : List Name -> Option (List Name × Name)
+    | [] => none
+    | [last] => some ([], last)
+    | head :: tail => do
+        let (init, last) ← go tail
+        some (head :: init, last)
+  match go path.segments with
+  | some (init, last) => some ({ segments := init }, last)
+  | none => none
 
 def StateMutability.externalFunctionCallKind :
     StateMutability -> CoreLowLevelCallKind
@@ -10302,17 +10318,17 @@ def UsingDecl.targetMatches? (env : TypeEnv)
       some (Ty.matchesShape receiverTy targetTy)
   | none => some true
 
-def UsingDecl.rewriteCall? (contracts : List ContractDecl)
+def UsingFunction.rewriteCall? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
-    (args : List Arg) (decl : UsingDecl) : Option Expr := do
-  let receiverMatches ← UsingDecl.targetMatches? env receiver decl
-  if !receiverMatches then
-    none
-  else
+    (args : List Arg) (binding : UsingFunction) : Option Expr := do
+  let (libraryPath, functionName) ← pathInitLast? binding.function
+  if functionName == method && !libraryPath.segments.isEmpty then
     some ()
-  let libraryName ← pathLast? decl.library
+  else
+    none
+  let libraryName ← pathLast? libraryPath
   let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-  let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
+  let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl functionName
   let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
   if firstMatches then
     some ()
@@ -10322,24 +10338,66 @@ def UsingDecl.rewriteCall? (contracts : List ContractDecl)
   match Parameters.matchArgsWithEnv? env fn.params (receiver :: orderedArgs) with
   | some true =>
       some
-        (Expr.call (Expr.ident (libraryHelperName libraryName method))
+        (Expr.call (Expr.ident (libraryHelperName libraryName functionName))
           ((receiver :: orderedArgs).map Arg.positional))
+  | _ => none
+
+def UsingFunctions.rewriteCall? (contracts : List ContractDecl)
+    (env : TypeEnv) (receiver : Expr) (method : Name)
+    (args : List Arg) : List UsingFunction -> Option Expr
+  | [] => none
+  | binding :: rest =>
+      match
+          UsingFunction.rewriteCall?
+            contracts env receiver method args binding with
+      | some rewritten => some rewritten
+      | none =>
+          UsingFunctions.rewriteCall?
+            contracts env receiver method args rest
+
+def UsingDecl.rewriteCall? (contracts : List ContractDecl)
+    (env : TypeEnv) (receiver : Expr) (method : Name)
+    (args : List Arg) (decl : UsingDecl) : Option Expr :=
+  match UsingDecl.targetMatches? env receiver decl with
+  | some true =>
+      if !decl.functions.isEmpty then
+        UsingFunctions.rewriteCall?
+          contracts env receiver method args decl.functions
+      else
+        do
+        let libraryName ← pathLast? decl.library
+        let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
+        let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
+        let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
+        if firstMatches then
+          some ()
+        else
+          none
+        let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
+        match Parameters.matchArgsWithEnv? env fn.params
+            (receiver :: orderedArgs) with
+        | some true =>
+            some
+              (Expr.call (Expr.ident (libraryHelperName libraryName method))
+                ((receiver :: orderedArgs).map Arg.positional))
+        | _ => none
   | _ => none
 
 def libraryExternalCallTarget (libraryName method : Name) : Expr :=
   Expr.member (Expr.ident (generatedLibraryAddressIdent libraryName)) method
 
-def UsingDecl.rewriteExternalCall? (contracts : List ContractDecl)
+def UsingFunction.rewriteExternalCall? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
-    (args : List Arg) (decl : UsingDecl) : Option Expr := do
-  let receiverMatches ← UsingDecl.targetMatches? env receiver decl
-  if !receiverMatches then
-    none
-  else
+    (args : List Arg) (binding : UsingFunction) : Option Expr := do
+  let (libraryPath, functionName) ← pathInitLast? binding.function
+  if functionName == method && !libraryPath.segments.isEmpty then
     some ()
-  let libraryName ← pathLast? decl.library
+  else
+    none
+  let libraryName ← pathLast? libraryPath
   let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-  let fn ← ContractDecl.findExternalLibraryFunctionByName? libraryDecl method
+  let fn ←
+    ContractDecl.findExternalLibraryFunctionByName? libraryDecl functionName
   let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
   if firstMatches then
     some ()
@@ -10349,8 +10407,50 @@ def UsingDecl.rewriteExternalCall? (contracts : List ContractDecl)
   match Parameters.matchArgsWithEnv? env fn.params (receiver :: orderedArgs) with
   | some true =>
       some
-        (Expr.call (libraryExternalCallTarget libraryName method)
+        (Expr.call (libraryExternalCallTarget libraryName functionName)
           ((receiver :: orderedArgs).map Arg.positional))
+  | _ => none
+
+def UsingFunctions.rewriteExternalCall? (contracts : List ContractDecl)
+    (env : TypeEnv) (receiver : Expr) (method : Name)
+    (args : List Arg) : List UsingFunction -> Option Expr
+  | [] => none
+  | binding :: rest =>
+      match
+          UsingFunction.rewriteExternalCall?
+            contracts env receiver method args binding with
+      | some rewritten => some rewritten
+      | none =>
+          UsingFunctions.rewriteExternalCall?
+            contracts env receiver method args rest
+
+def UsingDecl.rewriteExternalCall? (contracts : List ContractDecl)
+    (env : TypeEnv) (receiver : Expr) (method : Name)
+    (args : List Arg) (decl : UsingDecl) : Option Expr :=
+  match UsingDecl.targetMatches? env receiver decl with
+  | some true =>
+      if !decl.functions.isEmpty then
+        UsingFunctions.rewriteExternalCall?
+          contracts env receiver method args decl.functions
+      else
+        do
+        let libraryName ← pathLast? decl.library
+        let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
+        let fn ←
+          ContractDecl.findExternalLibraryFunctionByName? libraryDecl method
+        let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
+        if firstMatches then
+          some ()
+        else
+          none
+        let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
+        match Parameters.matchArgsWithEnv? env fn.params
+            (receiver :: orderedArgs) with
+        | some true =>
+            some
+              (Expr.call (libraryExternalCallTarget libraryName method)
+                ((receiver :: orderedArgs).map Arg.positional))
+        | _ => none
   | _ => none
 
 def UsingDecls.rewriteCall? (contracts : List ContractDecl)
@@ -31585,6 +31685,26 @@ def usingNamedMethodContract : ContractDecl :=
                       [Arg.named "right"
                         (Expr.literal (Literal.number "2"))]))) } ] }
 
+def usingExplicitFunctionContract : ContractDecl :=
+  { name := "UsingExplicitFunction"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["Math", "mix"] } }]
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call (Expr.member (Expr.ident "x") "mix")
+                      [Arg.positional
+                        (Expr.literal (Literal.number "2"))]))) } ] }
+
 def usingNamedDirectContract : ContractDecl :=
   { name := "UsingNamedDirect"
     items :=
@@ -31612,6 +31732,7 @@ def usingLibraryUnit : SourceUnit :=
       , SourceItem.contract usingSourceLevelContract
       , SourceItem.contract usingStorageContract
       , SourceItem.contract usingNamedMethodContract
+      , SourceItem.contract usingExplicitFunctionContract
       , SourceItem.contract usingNamedDirectContract ] }
 
 def usingLibraryMethodMatches : Option Bool := do
@@ -31664,6 +31785,18 @@ def usingStorageReceiverMatches : Option Bool := do
 def usingNamedMethodMatches : Option Bool := do
   let result ←
     SourceUnit.callContract? 32 usingLibraryUnit "UsingNamedMethod"
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 4]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def usingExplicitFunctionMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 32 usingLibraryUnit "UsingExplicitFunction"
       (SolidCore.Solidity.Source.CallTarget.name "run")
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 4]
