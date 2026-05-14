@@ -12631,7 +12631,124 @@ def structStoragePathSource :
                                     "index"))
                                 L00_SourceSolidity.AssignOp.addAssign
                                 (L00_SourceSolidity.Expr.ident
-                                  "delta")) ]) } ] } ] }
+                                  "delta")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasArrayPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "vals"
+                                  ty :=
+                                    some
+                                      (L00_SourceSolidity.Ty.array
+                                        uint256 none)
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "values"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident
+                                    "vals")
+                                  "push")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.ident
+                                      "value") ]) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasArrayPushAssign"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "vals"
+                                  ty :=
+                                    some
+                                      (L00_SourceSolidity.Ty.array
+                                        uint256 none)
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "values"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.member
+                                    (L00_SourceSolidity.Expr.ident
+                                      "vals")
+                                    "push")
+                                  [])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ident
+                                  "value")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasArrayPop"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "vals"
+                                  ty :=
+                                    some
+                                      (L00_SourceSolidity.Ty.array
+                                        uint256 none)
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "values"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident
+                                    "vals")
+                                  "pop")
+                                []) ]) } ] } ] }
 
 def structStoragePathAccepted : Bool :=
   sourceUnitAccepted? structStoragePathSource

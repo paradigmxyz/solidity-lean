@@ -1889,6 +1889,38 @@ def Runtime.loadStoragePath (context : Context)
     State.resolveStoragePathSlot runtime.state field.slot layout indexes
   runtime.state.loadStorageLayoutAt slot valueLayout
 
+def Runtime.loadStorageRefPathValue (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Value := do
+  match indexes with
+  | [] => runtime.loadStorageField context name
+  | _ =>
+      let field ←
+        match context.storageField? name with
+        | some field => Except.ok field
+        | none => Except.error RevertData.typeMismatch
+      if field.transient then
+        Except.error RevertData.typeMismatch
+      else
+        pure ()
+      let layout ←
+        match field.layout? with
+        | some layout => Except.ok layout
+        | none =>
+            match field.ty? with
+            | some ty => Except.ok (StorageLayout.scalar ty)
+            | none => Except.error RevertData.typeMismatch
+      let (slot, valueLayout) ←
+        State.resolveStoragePathSlot runtime.state field.slot layout indexes
+      match valueLayout with
+      | StorageLayout.dynamicArray _ =>
+          Except.ok (Value.word (runtime.state.loadSlot slot))
+      | StorageLayout.bytes =>
+          Except.ok (Value.word (runtime.state.loadSlot slot))
+      | StorageLayout.string =>
+          Except.error RevertData.typeMismatch
+      | _ => runtime.state.loadStorageLayoutAt slot valueLayout
+
 def Runtime.storeStoragePathWithDeepClear (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value)
     (value : Value) : Except RevertData Runtime := do
@@ -2160,6 +2192,106 @@ def Runtime.storageArrayPop (context : Context)
                 (legacyIndexedStorageSlot field.slot newLength) 0)
                 |>.storeSlot field.slot newLength }
     | _ => Except.error RevertData.typeMismatch
+
+def Runtime.storageArrayPushPath (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value)
+    (value? : Option Value) :
+    Except RevertData Runtime := do
+  match indexes with
+  | [] => runtime.storageArrayPush context name value?
+  | _ =>
+      let field ←
+        match context.storageField? name with
+        | some field => Except.ok field
+        | none => Except.error RevertData.typeMismatch
+      if field.transient then
+        Except.error RevertData.typeMismatch
+      else
+        pure ()
+      let layout ←
+        match field.layout? with
+        | some layout => Except.ok layout
+        | none => Except.error RevertData.typeMismatch
+      let (slot, valueLayout) ←
+        State.resolveStoragePathSlot runtime.state field.slot layout indexes
+      let length := runtime.state.loadSlot slot
+      let rawLength := SharedSemantics.norm length + 1
+      if wordModulus <= rawLength then
+        Except.error RevertData.overflow
+      else
+        match valueLayout with
+        | StorageLayout.dynamicArray elementLayout => do
+            let elementSlot :=
+              dynamicArrayLayoutStorageSlot slot length elementLayout
+            let state ←
+              match value? with
+              | some value =>
+                  State.storeStorageLayoutAtWithDeepClear runtime.state
+                    elementSlot elementLayout value
+              | none =>
+                  State.clearStorageLayoutAtDeep runtime.state
+                    elementSlot elementLayout
+            Except.ok
+              { runtime with
+                state := state.storeSlot slot (normWord rawLength) }
+        | StorageLayout.bytes => do
+            let word ←
+              match value? with
+              | some value => coerceStorageWordAs (Ty.fixedBytes 1) value
+              | none => Except.ok 0
+            Except.ok
+              { runtime with
+                state :=
+                  (runtime.state.storeSlot
+                    (dynamicArrayStorageSlot slot length) word)
+                    |>.storeSlot slot (normWord rawLength) }
+        | StorageLayout.string =>
+            Except.error RevertData.typeMismatch
+        | _ => Except.error RevertData.typeMismatch
+
+def Runtime.storageArrayPopPath (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Runtime := do
+  match indexes with
+  | [] => runtime.storageArrayPop context name
+  | _ =>
+      let field ←
+        match context.storageField? name with
+        | some field => Except.ok field
+        | none => Except.error RevertData.typeMismatch
+      if field.transient then
+        Except.error RevertData.typeMismatch
+      else
+        pure ()
+      let layout ←
+        match field.layout? with
+        | some layout => Except.ok layout
+        | none => Except.error RevertData.typeMismatch
+      let (slot, valueLayout) ←
+        State.resolveStoragePathSlot runtime.state field.slot layout indexes
+      let length := runtime.state.loadSlot slot
+      if wordEq length 0 then
+        Except.error RevertData.popEmptyArray
+      else
+        let newLength := SharedSemantics.subWord length 1
+        match valueLayout with
+        | StorageLayout.dynamicArray elementLayout => do
+            let state ←
+              State.clearStorageLayoutAtDeep runtime.state
+                (dynamicArrayLayoutStorageSlot slot newLength elementLayout)
+                elementLayout
+            Except.ok
+              { runtime with state := state.storeSlot slot newLength }
+        | StorageLayout.bytes =>
+            Except.ok
+              { runtime with
+                state :=
+                  (runtime.state.storeSlot
+                    (dynamicArrayStorageSlot slot newLength) 0)
+                    |>.storeSlot slot newLength }
+        | StorageLayout.string =>
+            Except.error RevertData.typeMismatch
+        | _ => Except.error RevertData.typeMismatch
 
 def abiStaticBytes? : Ty -> Value -> Option (List Byte)
   | Ty.bool, Value.word value =>
@@ -3106,9 +3238,8 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       Except.ok (Value.bytes (which.eval context key))
   | Expr.var name =>
       match runtime.lookupStoragePathRef? name with
-      | some (target, []) => runtime.loadStorageField context target
       | some (target, indexes) =>
-          runtime.loadStoragePath context target indexes
+          runtime.loadStorageRefPathValue context target indexes
       | none =>
           match runtime.lookupLocal? name with
           | some value => Except.ok value
@@ -3378,9 +3509,15 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       match expr with
       | Expr.var name =>
           match runtime.lookupStoragePathRef? name with
-          | some (target, []) => runtime.loadStorageField context target
-          | some (target, indexes) =>
-              runtime.loadStoragePath context target indexes
+          | some (target, indexes) => do
+              let value ←
+                runtime.loadStorageRefPathValue context target indexes
+              match value with
+              | Value.word len => Except.ok (Value.word len)
+              | _ =>
+                  match value.length? with
+                  | some len => Except.ok (Value.word len)
+                  | none => Except.error RevertData.typeMismatch
           | none =>
               let value ← expr.eval context runtime
               match value.length? with
@@ -3440,9 +3577,8 @@ def LValue.read (context : Context) (runtime : Runtime) :
     LValue -> Except RevertData Value
   | LValue.var name =>
       match runtime.lookupStoragePathRef? name with
-      | some (target, []) => runtime.loadStorageField context target
       | some (target, indexes) =>
-          runtime.loadStoragePath context target indexes
+          runtime.loadStorageRefPathValue context target indexes
       | none =>
           match runtime.lookupLocal? name with
           | some value => Except.ok value
@@ -3720,11 +3856,8 @@ def Expr.evalWithRuntime (context : Context) :
       Except.ok (Value.bytes (which.eval context key), runtime')
   | runtime, Expr.var name =>
       match runtime.lookupStoragePathRef? name with
-      | some (target, []) => do
-          let value ← runtime.loadStorageField context target
-          Except.ok (value, runtime)
       | some (target, indexes) => do
-          let value ← runtime.loadStoragePath context target indexes
+          let value ← runtime.loadStorageRefPathValue context target indexes
           Except.ok (value, runtime)
       | none =>
           match runtime.lookupLocal? name with
@@ -4042,16 +4175,15 @@ def Expr.evalWithRuntime (context : Context) :
       match expr with
       | Expr.var name =>
           match runtime.lookupStoragePathRef? name with
-          | some (target, []) => do
-              let value ← runtime.loadStorageField context target
-              match value.length? with
-              | some len => Except.ok (Value.word len, runtime)
-              | none => Except.error RevertData.typeMismatch
           | some (target, indexes) => do
-              let value ← runtime.loadStoragePath context target indexes
-              match value.length? with
-              | some len => Except.ok (Value.word len, runtime)
-              | none => Except.error RevertData.typeMismatch
+              let value ←
+                runtime.loadStorageRefPathValue context target indexes
+              match value with
+              | Value.word len => Except.ok (Value.word len, runtime)
+              | _ =>
+                  match value.length? with
+                  | some len => Except.ok (Value.word len, runtime)
+                  | none => Except.error RevertData.typeMismatch
           | none =>
               let (value, runtime') ← expr.evalWithRuntime context runtime
               match value.length? with
@@ -4485,16 +4617,19 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPushRef name value? =>
-          match runtime.lookupStorageRef? name, value? with
-          | some target, some expr =>
+          match runtime.lookupStoragePathRef? name, value? with
+          | some (target, indexes), some expr =>
               match expr.evalWithRuntime context runtime with
               | Except.ok (value, runtime') =>
-                  match runtime'.storageArrayPush context target (some value) with
+                  match
+                    runtime'.storageArrayPushPath context target indexes
+                      (some value)
+                  with
                   | Except.ok updated => some (Result.normal updated)
                   | Except.error err => some (Result.reverted runtime err)
               | Except.error err => some (Result.reverted runtime err)
-          | some target, none =>
-              match runtime.storageArrayPush context target none with
+          | some (target, indexes), none =>
+              match runtime.storageArrayPushPath context target indexes none with
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | none, _ => some (Result.reverted runtime RevertData.typeMismatch)
@@ -4503,9 +4638,9 @@ def Stmt.eval (fuel : Nat) (context : Context)
           | Except.ok updated => some (Result.normal updated)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPopRef name =>
-          match runtime.lookupStorageRef? name with
-          | some target =>
-              match runtime.storageArrayPop context target with
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
+              match runtime.storageArrayPopPath context target indexes with
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | none => some (Result.reverted runtime RevertData.typeMismatch)

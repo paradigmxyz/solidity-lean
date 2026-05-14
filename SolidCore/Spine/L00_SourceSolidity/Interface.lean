@@ -21844,7 +21844,80 @@ def structStoragePathSourceUnit : SourceUnit :=
                                   (Expr.member (Expr.ident "ref") "values")
                                   (Expr.ident "index"))
                                 AssignOp.addAssign
-                                (Expr.ident "delta")) ]) } ] } ] }
+                                (Expr.ident "delta")) ]) }
+              , ContractItem.function
+                  { name := some "aliasArrayPush"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "vals"
+                                  ty :=
+                                    some
+                                      (Ty.array (Ty.uint 256) none)
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "values"))
+                          , Stmt.expr
+                              (Expr.call
+                                (Expr.member (Expr.ident "vals") "push")
+                                [Arg.positional (Expr.ident "value")]) ]) }
+              , ContractItem.function
+                  { name := some "aliasArrayPushAssign"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "vals"
+                                  ty :=
+                                    some
+                                      (Ty.array (Ty.uint 256) none)
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "values"))
+                          , Stmt.expr
+                              (Expr.assign
+                                (Expr.call
+                                  (Expr.member (Expr.ident "vals") "push")
+                                  [])
+                                AssignOp.assign
+                                (Expr.ident "value")) ]) }
+              , ContractItem.function
+                  { name := some "aliasArrayPop"
+                    params := [{ name := some "key", ty := Ty.uint 256 }]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "vals"
+                                  ty :=
+                                    some
+                                      (Ty.array (Ty.uint 256) none)
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "values"))
+                          , Stmt.expr
+                              (Expr.call
+                                (Expr.member (Expr.ident "vals") "pop")
+                                []) ]) } ] } ] }
 
 def structStoragePathEntrySlot : Word :=
   SolidCore.Solidity.Source.mappingStorageSlot 0 7
@@ -21960,6 +22033,65 @@ def structStoragePathAliasValueAddMatches : Option Bool := do
   some
     (SolidCore.Solidity.Source.wordEq
       (state.loadSlot (structStoragePathValueSlot 1)) 13)
+
+def structStoragePathAliasArrayPushState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasArrayPush")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 6 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasArrayPushMatches : Option Bool := do
+  let state ← structStoragePathAliasArrayPushState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathValueSlot 2)) 6)
+
+def structStoragePathAliasArrayPushAssignState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasArrayPushAssign")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 8 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasArrayPushAssignMatches : Option Bool := do
+  let state ← structStoragePathAliasArrayPushAssignState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathValueSlot 2)) 8)
+
+def structStoragePathAliasArrayPopState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasArrayPop")
+      structStoragePathInitialState
+      [SolidCore.Solidity.Source.Value.word 7]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasArrayPopMatches : Option Bool := do
+  let state ← structStoragePathAliasArrayPopState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathValuesSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathValueSlot 1)) 0)
 
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"
