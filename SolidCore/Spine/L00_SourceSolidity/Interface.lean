@@ -28492,6 +28492,91 @@ def internalForPostCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot state 0) 3)
   | _ => some false
 
+def loopBreakContinueContract : ContractDecl :=
+  { name := "LoopBreakContinue"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "runBreak"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "0")))
+                  , Stmt.whileLoop
+                      (Expr.literal (Literal.bool true))
+                      (Stmt.block
+                        [ Stmt.expr
+                            (Expr.assign (Expr.ident "x") AssignOp.addAssign
+                              (Expr.literal (Literal.number "1")))
+                        , Stmt.ifElse
+                            (Expr.binary BinaryOp.eq
+                              (Expr.ident "x")
+                              (Expr.literal (Literal.number "3")))
+                            Stmt.break
+                            none ])
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runContinue"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "0")))
+                  , Stmt.varDecl
+                      [{ name := some "y", ty := some (Ty.uint 256) }]
+                      (some (Expr.literal (Literal.number "0")))
+                  , Stmt.whileLoop
+                      (Expr.binary BinaryOp.lt
+                        (Expr.ident "x")
+                        (Expr.literal (Literal.number "5")))
+                      (Stmt.block
+                        [ Stmt.expr
+                            (Expr.assign (Expr.ident "x") AssignOp.addAssign
+                              (Expr.literal (Literal.number "1")))
+                        , Stmt.ifElse
+                            (Expr.binary BinaryOp.eq
+                              (Expr.binary BinaryOp.mod
+                                (Expr.ident "x")
+                                (Expr.literal (Literal.number "2")))
+                              (Expr.literal (Literal.number "0")))
+                            Stmt.continue
+                            none
+                        , Stmt.expr
+                            (Expr.assign (Expr.ident "y") AssignOp.addAssign
+                              (Expr.ident "x")) ])
+                  , Stmt.returnValues
+                      (some (Expr.ident "y")) ]) } ] }
+
+def loopBreakContinueMatches : Option Bool := do
+  let runBreak ←
+    ContractDecl.call? 128 loopBreakContinueContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBreak")
+      SolidCore.Solidity.Source.State.empty []
+  let runContinue ←
+    ContractDecl.call? 128 loopBreakContinueContract
+      (SolidCore.Solidity.Source.CallTarget.name "runContinue")
+      SolidCore.Solidity.Source.State.empty []
+  match runBreak, runContinue with
+  | SolidCore.Solidity.Source.CallResult.returned runBreakState
+      [SolidCore.Solidity.Source.Value.word runBreakValue],
+    SolidCore.Solidity.Source.CallResult.returned runContinueState
+      [SolidCore.Solidity.Source.Value.word runContinueValue] =>
+      some
+        (SolidCore.Solidity.Source.wordEq runBreakValue 3 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot runBreakState 0) 3 &&
+          SolidCore.Solidity.Source.wordEq runContinueValue 9 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              runContinueState 0) 5)
+  | _, _ => some false
+
 def internalRequireConditionCallContract : ContractDecl :=
   { name := "InternalRequireConditionCall"
     items :=

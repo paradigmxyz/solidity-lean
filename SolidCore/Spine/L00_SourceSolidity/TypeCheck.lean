@@ -9885,6 +9885,130 @@ def internalForPostCallSource : L00_SourceSolidity.SourceUnit :=
 def internalForPostCallAccepted : Bool :=
   sourceUnitAccepted? internalForPostCallSource
 
+def loopBreakContinueSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LoopBreakContinue"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBreak"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "0"))
+                          , L00_SourceSolidity.Stmt.whileLoop
+                              (boolExpr true)
+                              (L00_SourceSolidity.Stmt.block
+                                [ L00_SourceSolidity.Stmt.expr
+                                    (L00_SourceSolidity.Expr.assign
+                                      (L00_SourceSolidity.Expr.ident "x")
+                                      L00_SourceSolidity.AssignOp.addAssign
+                                      (numberExpr "1"))
+                                , L00_SourceSolidity.Stmt.ifElse
+                                    (L00_SourceSolidity.Expr.binary
+                                      L00_SourceSolidity.BinaryOp.eq
+                                      (L00_SourceSolidity.Expr.ident "x")
+                                      (numberExpr "3"))
+                                    L00_SourceSolidity.Stmt.break
+                                    none ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runContinue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "0"))
+                          , L00_SourceSolidity.Stmt.varDecl
+                              [{ name := some "y"
+                                 ty := some uint256
+                                 location := none }]
+                              (some (numberExpr "0"))
+                          , L00_SourceSolidity.Stmt.whileLoop
+                              (L00_SourceSolidity.Expr.binary
+                                L00_SourceSolidity.BinaryOp.lt
+                                (L00_SourceSolidity.Expr.ident "x")
+                                (numberExpr "5"))
+                              (L00_SourceSolidity.Stmt.block
+                                [ L00_SourceSolidity.Stmt.expr
+                                    (L00_SourceSolidity.Expr.assign
+                                      (L00_SourceSolidity.Expr.ident "x")
+                                      L00_SourceSolidity.AssignOp.addAssign
+                                      (numberExpr "1"))
+                                , L00_SourceSolidity.Stmt.ifElse
+                                    (L00_SourceSolidity.Expr.binary
+                                      L00_SourceSolidity.BinaryOp.eq
+                                      (L00_SourceSolidity.Expr.binary
+                                        L00_SourceSolidity.BinaryOp.mod
+                                        (L00_SourceSolidity.Expr.ident "x")
+                                        (numberExpr "2"))
+                                      (numberExpr "0"))
+                                    L00_SourceSolidity.Stmt.continue
+                                    none
+                                , L00_SourceSolidity.Stmt.expr
+                                    (L00_SourceSolidity.Expr.assign
+                                      (L00_SourceSolidity.Expr.ident "y")
+                                      L00_SourceSolidity.AssignOp.addAssign
+                                      (L00_SourceSolidity.Expr.ident "x")) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "y")) ]) } ] } ] }
+
+def loopBreakContinueAccepted : Bool :=
+  sourceUnitAccepted? loopBreakContinueSource
+
+def breakOutsideLoopSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BreakOutsideLoop"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body := some L00_SourceSolidity.Stmt.break } ] } ] }
+
+def breakOutsideLoopRejected : Bool :=
+  Result.isError (SourceUnit.check breakOutsideLoopSource)
+
+def continueOutsideLoopSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContinueOutsideLoop"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body := some L00_SourceSolidity.Stmt.continue } ] } ] }
+
+def continueOutsideLoopRejected : Bool :=
+  Result.isError (SourceUnit.check continueOutsideLoopSource)
+
 def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
