@@ -6691,6 +6691,126 @@ def Args.toExprsForParams? (params : List Parameter)
         none
   | none => Args.toNamedExprsForParams? params args
 
+def Args.toExprsForParamNames? (paramNames : List (Option Name))
+    (args : List Arg) : Option (List Expr) :=
+  match Args.toPositionalExprs? args with
+  | some exprs =>
+      if paramNames.length == exprs.length then
+        some exprs
+      else
+        none
+  | none => do
+      let names ← mapOption (fun name? => name?) paramNames
+      if names.length == paramNames.length then
+        Args.toNamedExprsForNames? names args
+      else
+        none
+
+def Args.toArgsForParamNames? (paramNames : List (Option Name))
+    (args : List Arg) : Option (List Arg) := do
+  let exprs ← Args.toExprsForParamNames? paramNames args
+  some (exprs.map Arg.positional)
+
+abbrev NamedArgParamEnv := List (Name × List (Option Name))
+
+def NamedArgParamEnv.orderArgs? (env : NamedArgParamEnv)
+    (target : Name) (args : List Arg) : Option (List Arg) :=
+  match env with
+  | [] => none
+  | (name, paramNames) :: rest =>
+      if name == target then
+        match Args.toArgsForParamNames? paramNames args with
+        | some ordered => some ordered
+        | none => NamedArgParamEnv.orderArgs? rest target args
+      else
+        NamedArgParamEnv.orderArgs? rest target args
+
+def EventDecl.paramNames (decl : EventDecl) : List (Option Name) :=
+  decl.params.map EventParam.name
+
+def ErrorDecl.paramNames (decl : ErrorDecl) : List (Option Name) :=
+  decl.params.map Parameter.name
+
+def EventDecl.namedArgEntry (decl : EventDecl) :
+    Name × List (Option Name) :=
+  (decl.name, EventDecl.paramNames decl)
+
+def ErrorDecl.namedArgEntry (decl : ErrorDecl) :
+    Name × List (Option Name) :=
+  (decl.name, ErrorDecl.paramNames decl)
+
+def EventDecls.namedArgEnv (decls : List EventDecl) :
+    NamedArgParamEnv :=
+  decls.map EventDecl.namedArgEntry
+
+def ErrorDecls.namedArgEnv (decls : List ErrorDecl) :
+    NamedArgParamEnv :=
+  decls.map ErrorDecl.namedArgEntry
+
+mutual
+
+def Stmt.resolveNamedEventErrorArgsFuel :
+    Nat -> NamedArgParamEnv -> NamedArgParamEnv -> Stmt -> Stmt
+  | 0, _, _, stmt => stmt
+  | fuel + 1, eventEnv, errorEnv, stmt =>
+      let resolveStmt :=
+        Stmt.resolveNamedEventErrorArgsFuel fuel eventEnv errorEnv
+      let resolveClause :=
+        CatchClause.resolveNamedEventErrorArgsFuel fuel eventEnv errorEnv
+      match stmt with
+      | Stmt.empty => Stmt.empty
+      | Stmt.block body => Stmt.block (body.map resolveStmt)
+      | Stmt.varDecl bindings init => Stmt.varDecl bindings init
+      | Stmt.expr expr => Stmt.expr expr
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse cond (resolveStmt thenBranch)
+            (elseBranch.map resolveStmt)
+      | Stmt.whileLoop cond body =>
+          Stmt.whileLoop cond (resolveStmt body)
+      | Stmt.doWhile body cond =>
+          Stmt.doWhile (resolveStmt body) cond
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map resolveStmt) cond post (resolveStmt body)
+      | Stmt.tryCatch expr clauses =>
+          Stmt.tryCatch expr (clauses.map resolveClause)
+      | Stmt.tryCatchReturns expr returns success clauses =>
+          Stmt.tryCatchReturns expr returns
+            (resolveStmt success) (clauses.map resolveClause)
+      | Stmt.emitEvent (Expr.call (Expr.ident name) args) =>
+          match NamedArgParamEnv.orderArgs? eventEnv name args with
+          | some ordered =>
+              Stmt.emitEvent (Expr.call (Expr.ident name) ordered)
+          | none => Stmt.emitEvent (Expr.call (Expr.ident name) args)
+      | Stmt.emitEvent expr => Stmt.emitEvent expr
+      | Stmt.revertCall (Expr.call (Expr.ident name) args) =>
+          match NamedArgParamEnv.orderArgs? errorEnv name args with
+          | some ordered =>
+              Stmt.revertCall (Expr.call (Expr.ident name) ordered)
+          | none => Stmt.revertCall (Expr.call (Expr.ident name) args)
+      | Stmt.revertCall expr => Stmt.revertCall expr
+      | Stmt.returnValues expr? => Stmt.returnValues expr?
+      | Stmt.break => Stmt.break
+      | Stmt.continue => Stmt.continue
+      | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+      | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+
+def CatchClause.resolveNamedEventErrorArgsFuel :
+    Nat -> NamedArgParamEnv -> NamedArgParamEnv -> CatchClause -> CatchClause
+  | 0, _, _, clause => clause
+  | fuel + 1, eventEnv, errorEnv, clause =>
+      match clause with
+      | CatchClause.clause name params body =>
+          CatchClause.clause name params
+            (Stmt.resolveNamedEventErrorArgsFuel fuel eventEnv errorEnv body)
+
+end
+
+def Stmt.resolveNamedEventErrorArgs
+    (eventEnv errorEnv : NamedArgParamEnv) (stmt : Stmt) : Stmt :=
+  Stmt.resolveNamedEventErrorArgsFuel defaultResolveInterfaceIdsFuel
+    eventEnv errorEnv stmt
+
 def modifierParamBindingsWithArgs? (decl : SourceModifierDecl)
     (args : List Arg) : Option (List Stmt) := do
   let orderedArgs ← Args.toExprsForParams? decl.params args
@@ -10981,7 +11101,9 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     (decl : FunctionDecl) (superFunctions : List FunctionDecl := [])
     (contractName? : Option Name := none)
     (baseNames : List Name := [])
-    (externalCallKindEnv : ExternalCallKindEnv := []) :
+    (externalCallKindEnv : ExternalCallKindEnv := [])
+    (eventArgEnv : NamedArgParamEnv := [])
+    (errorArgEnv : NamedArgParamEnv := []) :
     Option CoreFunctionDef := do
   let decl := FunctionDecl.inlineConstants constants decl
   let selectorEnv :=
@@ -11016,6 +11138,13 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     | some contractName => Stmt.rewriteSuperCalls contractName body
     | none => body
   let body := Stmt.rewriteBaseCalls baseNames body
+  let body := Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv body
+  let modifiers :=
+    modifiers.map
+      (fun modifier =>
+        { modifier with
+          body := modifier.body.map
+            (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
   let body := Stmt.annotateAbi env body
   let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] decl.params
   let functions :=
@@ -12012,7 +12141,9 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
     (dispatchOrder : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
     (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
-    (freeFunctions : List FunctionDecl) (decl : ContractDecl) :
+    (freeFunctions : List FunctionDecl)
+    (eventArgEnv errorArgEnv : NamedArgParamEnv)
+    (decl : ContractDecl) :
     Option (List CoreFunctionDef) := do
   let getters ←
     filterMapOption (StateVarDecl.toCoreGetterIfPublic? storageNames constants)
@@ -12026,7 +12157,7 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
           storageNames constants extraEnv contracts usingDecls modifiers functions
           freeFunctions fn (concatMapList ContractDecl.directOrdinaryFunctions supers)
           (some decl.name) (dispatchOrder.map ContractDecl.name)
-          externalCallKindEnv)
+          externalCallKindEnv eventArgEnv errorArgEnv)
       ((ContractDecl.directOrdinaryFunctions decl).filter
         FunctionDecl.isCoreEntrypoint)
   some (getters ++ functions)
@@ -12038,6 +12169,7 @@ def ContractDecl.constructorBodyForDeployment?
     (stateEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl)
+    (eventArgEnv errorArgEnv : NamedArgParamEnv)
     (targetName : Name) (baseArgs : List Expr) (decl : ContractDecl) :
     Option (List CoreBindingDecl × List CoreStmt) := do
   let initStmts ←
@@ -12076,6 +12208,13 @@ def ContractDecl.constructorBodyForDeployment?
         else
           modifiers.map
             (ModifierDecl.expandUsing allContracts freeFunctions usingDecls env)
+      let body := Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv body
+      let modifiers :=
+        modifiers.map
+          (fun modifier =>
+            { modifier with
+              body := modifier.body.map
+                (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
       let body := Stmt.annotateAbi env body
       let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] ctor.params
       let ctorModifiers :=
@@ -12121,6 +12260,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let sourceUsingDecls :=
     (sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)).map
       (UsingDecl.resolveEnums enumEnv)
+  let sourceErrors :=
+    (sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)).map
+      (ErrorDecl.resolveEnums enumEnv)
   let sourceConstants :=
     (sourceConstants.map (StateVarDecl.resolveUserTypes userEnv)).map
       (StateVarDecl.resolveEnums enumEnv)
@@ -12133,6 +12275,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let structEnv := ContractDecl.structEnvFromContracts allContracts
   let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
+  let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
   let storageOrder := storageOrder.map (ContractDecl.resolveStructs structEnv)
@@ -12235,12 +12378,17 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
+  let eventArgEnv :=
+    EventDecls.namedArgEnv (concatMapList ContractDecl.directEvents dispatchOrder)
+  let errorArgEnv :=
+    ErrorDecls.namedArgEnv
+      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
   let functionGroups ←
     mapOption
       (ContractDecl.directCoreFunctions?
         storageNames constants stateEnv externalCallKindEnv allContracts
         dispatchOrder sourceUsingDecls modifiers availableFunctions
-        sourceFunctions)
+        sourceFunctions eventArgEnv errorArgEnv)
       dispatchOrder
   let functions := concatLists functionGroups
   let immutableFields ←
@@ -12266,6 +12414,7 @@ def ContractDecl.constructorFunctionFromOrders?
     (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl)
+    (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (storageOrder dispatchOrder : List ContractDecl)
     (targetName : Name) : Option CoreFunctionDef := do
@@ -12291,6 +12440,9 @@ def ContractDecl.constructorFunctionFromOrders?
   let sourceFunctions :=
     (sourceFunctions.map (FunctionDecl.resolveUserTypes userEnv)).map
       (FunctionDecl.resolveEnums enumEnv)
+  let sourceErrors :=
+    (sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)).map
+      (ErrorDecl.resolveEnums enumEnv)
   let sourceConstants :=
     (sourceConstants.map (StateVarDecl.resolveUserTypes userEnv)).map
       (StateVarDecl.resolveEnums enumEnv)
@@ -12299,6 +12451,7 @@ def ContractDecl.constructorFunctionFromOrders?
   let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveStructs structEnv)
+  let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
   let storageOrder := storageOrder.map (ContractDecl.resolveStructs structEnv)
@@ -12337,7 +12490,7 @@ def ContractDecl.constructorFunctionFromOrders?
     FunctionDecls.selectorEntries
       (sourceFunctions ++ concatMapList ContractDecl.directOrdinaryFunctions dispatchOrder) ++
     ErrorDecls.selectorEntries
-      (concatMapList ContractDecl.directErrors dispatchOrder) ++
+      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder) ++
     StateVarDecls.selectorEntries stateVars
   let functionAddressEnv :=
     FunctionDecls.selectorEntries
@@ -12387,6 +12540,11 @@ def ContractDecl.constructorFunctionFromOrders?
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
+  let eventArgEnv :=
+    EventDecls.namedArgEnv (concatMapList ContractDecl.directEvents dispatchOrder)
+  let errorArgEnv :=
+    ErrorDecls.namedArgEnv
+      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
   let targetDecl ← ContractDecl.findByName? dispatchOrder targetName
   let payable ← ContractDecl.constructorPayable? targetDecl
   let pieces ←
@@ -12404,7 +12562,7 @@ def ContractDecl.constructorFunctionFromOrders?
         ContractDecl.constructorBodyForDeployment?
           allContracts sourceUsingDecls storageNames constants stateEnv
           externalCallKindEnv modifiers availableFunctions sourceFunctions
-          targetName baseArgs decl)
+          eventArgEnv errorArgEnv targetName baseArgs decl)
       storageOrder
   let params := concatLists (pieces.map Prod.fst)
   let stmts := concatLists (pieces.map Prod.snd)
@@ -12437,19 +12595,20 @@ def ContractDecl.toCoreWithBases? (contracts : List ContractDecl)
 def ContractDecl.constructorFunctionWithBasesAndSource?
     (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl)
+    (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreFunctionDef := do
   let storageOrder ← ContractDecl.storageOrder? contracts decl
   let dispatchOrder ← ContractDecl.dispatchOrder? contracts decl
   ContractDecl.constructorFunctionFromOrders?
-    contracts sourceUsingDecls sourceFunctions sourceConstants
+    contracts sourceUsingDecls sourceFunctions sourceErrors sourceConstants
     storageOrder dispatchOrder decl.name
 
 def ContractDecl.constructorFunctionWithBases?
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreFunctionDef :=
-  ContractDecl.constructorFunctionWithBasesAndSource? [] [] [] contracts decl
+  ContractDecl.constructorFunctionWithBasesAndSource? [] [] [] [] contracts decl
 
 def ContractDecl.constructWithBasesAndSourceFrom? (fuel : Nat)
     (sourceUsingDecls : List UsingDecl)
@@ -12465,7 +12624,7 @@ def ContractDecl.constructWithBasesAndSourceFrom? (fuel : Nat)
       contracts decl
   let constructor ←
     ContractDecl.constructorFunctionWithBasesAndSource?
-      sourceUsingDecls sourceFunctions sourceConstants contracts decl
+      sourceUsingDecls sourceFunctions sourceErrors sourceConstants contracts decl
   SolidCore.Solidity.Source.FunctionDef.call?
     fuel
     { contract.context with
@@ -29601,6 +29760,49 @@ def internalEmitTwoArgumentCallMatches : Option Bool := do
       | _, _, _ => some false
   | _, _, _ => some false
 
+def namedEventArgumentOrderContract : ContractDecl :=
+  { name := "NamedEventArgumentOrder"
+    items :=
+      [ ContractItem.eventDecl
+          { name := "Seen"
+            params :=
+              [ { name := some "first"
+                  ty := Ty.uint 256
+                  indexed := false }
+              , { name := some "second"
+                  ty := Ty.uint 256
+                  indexed := false } ] }
+      , ContractItem.function
+          { name := some "run"
+            body :=
+              some
+                (Stmt.emitEvent
+                  (Expr.call (Expr.ident "Seen")
+                    [ Arg.named "second"
+                        (Expr.literal (Literal.number "2"))
+                    , Arg.named "first"
+                        (Expr.literal (Literal.number "40")) ])) } ] }
+
+def namedEventArgumentOrderMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 16 namedEventArgumentOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [ SolidCore.Solidity.Source.Value.word first
+            , SolidCore.Solidity.Source.Value.word second ] =>
+              some
+                (event.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq first 40 &&
+                  SolidCore.Solidity.Source.wordEq second 2)
+          | _ => some false
+      | _ => some false
+  | _ => some false
+
 def internalRevertArgumentCallContract : ContractDecl :=
   { name := "InternalRevertArgumentCall"
     items :=
@@ -29758,6 +29960,40 @@ def internalRevertTwoArgumentCallMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot bothState 0) 0)
   | _, _, _ => some false
+
+def namedErrorArgumentOrderContract : ContractDecl :=
+  { name := "NamedErrorArgumentOrder"
+    items :=
+      [ ContractItem.errorDecl
+          { name := "Bad"
+            params :=
+              [ { name := some "first", ty := Ty.uint 256 }
+              , { name := some "second", ty := Ty.uint 256 } ] }
+      , ContractItem.function
+          { name := some "run"
+            body :=
+              some
+                (Stmt.revertCall
+                  (Expr.call (Expr.ident "Bad")
+                    [ Arg.named "second"
+                        (Expr.literal (Literal.number "2"))
+                    , Arg.named "first"
+                        (Expr.literal (Literal.number "40")) ])) } ] }
+
+def namedErrorArgumentOrderMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 16 namedErrorArgumentOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      some
+        (SolidCore.Solidity.Source.wordEq first 40 &&
+          SolidCore.Solidity.Source.wordEq second 2)
+  | _ => some false
 
 def internalTupleReturnCallContract : ContractDecl :=
   { name := "InternalTupleReturnCall"

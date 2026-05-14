@@ -12759,6 +12759,70 @@ def revertStringErrorSource : L00_SourceSolidity.SourceUnit :=
 def revertStringErrorAccepted : Bool :=
   sourceUnitAccepted? revertStringErrorSource
 
+def pairNamedEvent : L00_SourceSolidity.EventDecl :=
+  { name := "PairSeen"
+    params :=
+      [ { name := some "left", ty := uint256, indexed := false }
+      , { name := some "right", ty := uint256, indexed := false } ] }
+
+def emitPairNamedFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "emitPairNamed"
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.emitEvent
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "PairSeen")
+                [ L00_SourceSolidity.Arg.named "right" (numberExpr "2")
+                , L00_SourceSolidity.Arg.named "left" (numberExpr "40") ])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def emitPairNamedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EmitPairNamed"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl pairNamedEvent
+              , L00_SourceSolidity.ContractItem.function
+                  emitPairNamedFunction ] } ] }
+
+def emitPairNamedAccepted : Bool :=
+  sourceUnitAccepted? emitPairNamedSource
+
+def pairNamedError : L00_SourceSolidity.ErrorDecl :=
+  { name := "PairBad"
+    params :=
+      [ { name := some "left", ty := uint256, location := none }
+      , { name := some "right", ty := uint256, location := none } ] }
+
+def revertPairNamedFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "revertPairNamed"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.revertCall
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "PairBad")
+                [ L00_SourceSolidity.Arg.named "right" (numberExpr "2")
+                , L00_SourceSolidity.Arg.named "left" (numberExpr "40") ])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def revertPairNamedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeError pairNamedError
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "RevertPairNamed"
+            items := [L00_SourceSolidity.ContractItem.function
+              revertPairNamedFunction] } ] }
+
+def revertPairNamedAccepted : Bool :=
+  sourceUnitAccepted? revertPairNamedSource
+
 def stringErrorWithLocationSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.freeError
