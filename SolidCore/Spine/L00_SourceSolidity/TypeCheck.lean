@@ -2800,6 +2800,15 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         reason.expectAbiEncodable env.types
         Except.ok (some (L00_SourceSolidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
+  else if name == "selfdestruct" then do
+    requireNoNamedArgs name argInfos
+    requireLogOrCreateAllowed env "selfdestruct in view or pure function"
+    match checkedArgs with
+    | [recipient] => do
+        recipient.expectAssignableToIn env.types
+          (L00_SourceSolidity.Ty.address true)
+        Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+    | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else
     Except.ok none
 
@@ -14003,6 +14012,61 @@ def lowLevelSendNonpayableAddressSource : L00_SourceSolidity.SourceUnit :=
 
 def lowLevelSendNonpayableAddressRejected : Bool :=
   Result.isError (SourceUnit.check lowLevelSendNonpayableAddressSource)
+
+def selfdestructFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "bye"
+    visibility := some L00_SourceSolidity.Visibility.public_
+    params :=
+      [ { name := some "target"
+          ty := L00_SourceSolidity.Ty.address true
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.expr
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "selfdestruct")
+            [ L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "target") ])) }
+
+def selfdestructSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SelfdestructUse"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                selfdestructFunction] } ] }
+
+def selfdestructAccepted : Bool :=
+  sourceUnitAccepted? selfdestructSource
+
+def selfdestructNonpayableAddressSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSelfdestructTarget"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { selfdestructFunction with
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ] } ] } ] }
+
+def selfdestructNonpayableAddressRejected : Bool :=
+  Result.isError (SourceUnit.check selfdestructNonpayableAddressSource)
+
+def selfdestructViewSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSelfdestructView"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { selfdestructFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.view } ] } ] }
+
+def selfdestructViewRejected : Bool :=
+  Result.isError (SourceUnit.check selfdestructViewSource)
 
 def c3XContract : L00_SourceSolidity.ContractDecl :=
   { name := "C3X" }
