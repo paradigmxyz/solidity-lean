@@ -11313,6 +11313,28 @@ def publicStringArrayGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicStringArrayGetterAccepted : Bool :=
   sourceUnitAccepted? publicStringArrayGetterSource
 
+def publicMappingByteStringsGetterSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PublicMappingByteStringsGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "raw"
+                    ty := L00_SourceSolidity.Ty.mapping
+                      uint256 L00_SourceSolidity.Ty.bytes
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "text"
+                    ty := L00_SourceSolidity.Ty.mapping
+                      uint256 L00_SourceSolidity.Ty.string
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def publicMappingByteStringsGetterAccepted : Bool :=
+  sourceUnitAccepted? publicMappingByteStringsGetterSource
+
 def nestedPublicGetterMemberCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract

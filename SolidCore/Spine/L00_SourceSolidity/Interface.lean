@@ -19609,6 +19609,62 @@ def publicStringArrayGetterCalldataMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.bytes [104, 105]]
   some (result.success && result.output == expected)
 
+def publicMappingByteStringsGetterContract : ContractDecl :=
+  { name := "PublicMappingByteStrings"
+    items :=
+      [ ContractItem.stateVar
+          { name := "raw"
+            ty := Ty.mapping (Ty.uint 256) Ty.bytes
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "text"
+            ty := Ty.mapping (Ty.uint 256) Ty.string
+            visibility := some Visibility.public_ } ] }
+
+def publicMappingByteStringsGetterState : CoreState :=
+  let rawSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 0 4
+  let textSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 1 5
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot rawSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot rawSlot 0) 1
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot rawSlot 1) 2
+    |>.storeSlot textSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot textSlot 0) 111
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot textSlot 1) 107
+
+def publicMappingBytesGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicMappingByteStringsGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "raw")
+      publicMappingByteStringsGetterState
+      [SolidCore.Solidity.Source.Value.word 4]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      some (bytes == [1, 2])
+  | _ => some false
+
+def publicMappingStringGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? publicMappingByteStringsGetterContract
+  let function ← contract.findFunctionByName? "text"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 5]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract publicMappingByteStringsGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.bytesCalldata]
+      [SolidCore.Solidity.Source.Value.bytes [111, 107]]
+  some (result.success && result.output == expected)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=
