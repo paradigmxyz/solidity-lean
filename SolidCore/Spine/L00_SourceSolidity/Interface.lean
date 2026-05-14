@@ -17724,6 +17724,60 @@ def uncheckedExponentWrapResult : Option CoreResult :=
       SolidCore.Solidity.Source.State.empty)
     uncheckedExponentWrapStatement
 
+def divisionByZeroStatement : Stmt :=
+  Stmt.returnValues
+    (some
+      (Expr.binary BinaryOp.div
+        (Expr.literal (Literal.number "7"))
+        (Expr.literal (Literal.number "0"))))
+
+def divisionByZeroPanics : Option Bool := do
+  let result ←
+    Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      divisionByZeroStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x12)
+  | _ => some false
+
+def uncheckedDivisionByZeroStatement : Stmt :=
+  Stmt.unchecked divisionByZeroStatement
+
+def uncheckedDivisionByZeroStillPanics : Option Bool := do
+  let result ←
+    Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      uncheckedDivisionByZeroStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x12)
+  | _ => some false
+
+def uncheckedModuloByZeroStatement : Stmt :=
+  Stmt.unchecked
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.mod
+          (Expr.literal (Literal.number "7"))
+          (Expr.literal (Literal.number "0")))))
+
+def uncheckedModuloByZeroStillPanics : Option Bool := do
+  let result ←
+    Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      uncheckedModuloByZeroStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x12)
+  | _ => some false
+
 def uncheckedInternalUintMaxPlusOne : Expr :=
   Expr.binary BinaryOp.add
     (Expr.member (Expr.typeName (Ty.uint 256)) "max")
