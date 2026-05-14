@@ -1741,6 +1741,74 @@ def CheckedExpr.expectAssignableToIn (types : TypeContext)
       implicitLiteralFits expected expr.source)
     (TypeError.expectedType expected expr.ty)
 
+abbrev TupleAssignmentTarget :=
+  Option (L00_SourceSolidity.Expr × CheckedExpr)
+
+def checkTupleAssignmentTargetAgainstChecked (env : CheckEnv)
+    (target : L00_SourceSolidity.Expr) (targetChecked rhsChecked : CheckedExpr) :
+    Except TypeError Ty := do
+  match Expr.directIdentName? target with
+  | some name =>
+      require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
+        (TypeError.invalidDataLocation targetChecked.ty
+          (some L00_SourceSolidity.DataLocation.storage))
+  | none => Except.ok ()
+  rhsChecked.expectAssignableToIn env.types targetChecked.ty
+  Except.ok targetChecked.ty
+
+def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
+    (rhsChecked : CheckedExpr) (target : L00_SourceSolidity.Expr)
+    (targetChecked : CheckedExpr) (rhsTy : Ty) :
+    Except TypeError Ty := do
+  match Expr.directIdentName? target with
+  | some name =>
+      require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
+        (TypeError.invalidDataLocation targetChecked.ty
+          (some L00_SourceSolidity.DataLocation.storage))
+  | none => Except.ok ()
+  require
+    (TypeContext.canImplicitlyConvert env.types rhsTy targetChecked.ty)
+    (TypeError.expectedType targetChecked.ty rhsTy)
+  Except.ok targetChecked.ty
+
+def checkTupleAssignmentTargetsWithValues (env : CheckEnv) :
+    List TupleAssignmentTarget -> List CheckedExpr ->
+    Except TypeError (List Ty)
+  | [], [] => Except.ok []
+  | none :: targetRest, _ :: valueRest =>
+      checkTupleAssignmentTargetsWithValues env targetRest valueRest
+  | some (target, targetChecked) :: targetRest,
+      value :: valueRest => do
+      let ty ←
+        checkTupleAssignmentTargetAgainstChecked env target targetChecked
+          value
+      let tail ←
+        checkTupleAssignmentTargetsWithValues env targetRest valueRest
+      Except.ok (ty :: tail)
+  | targets, values =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple assignment" targets.length values.length)
+
+def checkTupleAssignmentTargetsWithTys (env : CheckEnv)
+    (rhsChecked : CheckedExpr) :
+    List TupleAssignmentTarget -> List Ty -> Except TypeError (List Ty)
+  | [], [] => Except.ok []
+  | none :: targetRest, _ :: tyRest =>
+      checkTupleAssignmentTargetsWithTys env rhsChecked targetRest tyRest
+  | some (target, targetChecked) :: targetRest,
+      rhsTy :: tyRest => do
+      let ty ←
+        checkTupleAssignmentTargetAgainstTy env rhsChecked target
+          targetChecked rhsTy
+      let tail ←
+        checkTupleAssignmentTargetsWithTys env rhsChecked targetRest tyRest
+      Except.ok (ty :: tail)
+  | targets, tys =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple assignment" targets.length tys.length)
+
 def Arg.name? : L00_SourceSolidity.Arg -> Option Name
   | L00_SourceSolidity.Arg.positional _ => none
   | L00_SourceSolidity.Arg.named name _ => some name
@@ -4030,50 +4098,90 @@ def checkExpr (env : CheckEnv) :
           elseChecked.ty
       Except.ok { source := expr, ty := resultTy }
   | expr@(L00_SourceSolidity.Expr.assign lhs _ rhs) => do
-      let lhsChecked ← checkExpr env lhs
-      require lhsChecked.lvalue (TypeError.expectedLValue lhs)
-      lhsChecked.expectWritableLocation lhs
-      if lhsChecked.stateLValue then
-        requireStateWriteAllowed env
-      else
-        Except.ok ()
-      let rhsChecked ← checkExpr env rhs
-      match Expr.directIdentName? lhs with
-      | some name =>
-          require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
-            (TypeError.invalidDataLocation lhsChecked.ty
-              (some L00_SourceSolidity.DataLocation.storage))
-      | none => Except.ok ()
-      let opResultTy ←
-        match expr with
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.assign _ => do
-            rhsChecked.expectAssignableToIn env.types lhsChecked.ty
-            Except.ok lhsChecked.ty
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.addAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.subAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.mulAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.divAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.modAssign _ =>
-            CheckedExprs.arithmeticTy lhsChecked rhsChecked
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.bitAndAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.bitOrAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.bitXorAssign _ =>
-            CheckedExprs.bitwiseTy lhsChecked rhsChecked
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.shlAssign _
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.shrAssign _ => do
-            lhsChecked.expectShiftLeftOperand
-            rhsChecked.expectUnsignedInteger
-            Except.ok lhsChecked.ty
-        | L00_SourceSolidity.Expr.assign _ L00_SourceSolidity.AssignOp.sarAssign _ => do
-            lhsChecked.expectSignedInteger
-            rhsChecked.expectUnsignedInteger
-            Except.ok lhsChecked.ty
-        | _ => Except.ok lhsChecked.ty
-      require (TypeContext.canImplicitlyConvert env.types opResultTy
-          lhsChecked.ty ||
-          opResultTy == lhsChecked.ty)
-        (TypeError.expectedType lhsChecked.ty opResultTy)
-      Except.ok { source := expr, ty := lhsChecked.ty, lvalue := false }
+      match lhs with
+      | L00_SourceSolidity.Expr.tuple lhsItems =>
+          match expr with
+          | L00_SourceSolidity.Expr.assign _
+              L00_SourceSolidity.AssignOp.assign _ => do
+              let targets ← checkTupleAssignmentTargets env lhsItems
+              let literalValues? ←
+                checkTupleAssignmentLiteralValues? env rhs
+              let resultTys ←
+                match literalValues? with
+                | some values =>
+                    checkTupleAssignmentTargetsWithValues env targets values
+                | none => do
+                    let rhsChecked ← checkExpr env rhs
+                    match rhsChecked.ty with
+                    | L00_SourceSolidity.Ty.tuple tys =>
+                        checkTupleAssignmentTargetsWithTys env rhsChecked
+                          targets tys
+                    | _ =>
+                        Except.error
+                          (TypeError.arityMismatch
+                            "tuple assignment" lhsItems.length 1)
+              Except.ok
+                { source := expr
+                  ty := L00_SourceSolidity.Ty.tuple resultTys
+                  lvalue := false }
+          | _ => Except.error (TypeError.expectedLValue lhs)
+      | _ => do
+          let lhsChecked ← checkExpr env lhs
+          require lhsChecked.lvalue (TypeError.expectedLValue lhs)
+          lhsChecked.expectWritableLocation lhs
+          if lhsChecked.stateLValue then
+            requireStateWriteAllowed env
+          else
+            Except.ok ()
+          let rhsChecked ← checkExpr env rhs
+          match Expr.directIdentName? lhs with
+          | some name =>
+              require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
+                (TypeError.invalidDataLocation lhsChecked.ty
+                  (some L00_SourceSolidity.DataLocation.storage))
+          | none => Except.ok ()
+          let opResultTy ←
+            match expr with
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.assign _ => do
+                rhsChecked.expectAssignableToIn env.types lhsChecked.ty
+                Except.ok lhsChecked.ty
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.addAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.subAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.mulAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.divAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.modAssign _ =>
+                CheckedExprs.arithmeticTy lhsChecked rhsChecked
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.bitAndAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.bitOrAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.bitXorAssign _ =>
+                CheckedExprs.bitwiseTy lhsChecked rhsChecked
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.shlAssign _
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.shrAssign _ => do
+                lhsChecked.expectShiftLeftOperand
+                rhsChecked.expectUnsignedInteger
+                Except.ok lhsChecked.ty
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.sarAssign _ => do
+                lhsChecked.expectSignedInteger
+                rhsChecked.expectUnsignedInteger
+                Except.ok lhsChecked.ty
+            | _ => Except.ok lhsChecked.ty
+          require (TypeContext.canImplicitlyConvert env.types opResultTy
+              lhsChecked.ty ||
+              opResultTy == lhsChecked.ty)
+            (TypeError.expectedType lhsChecked.ty opResultTy)
+          Except.ok { source := expr, ty := lhsChecked.ty, lvalue := false }
   | expr@(L00_SourceSolidity.Expr.payableConversion inner) => do
       let checked ← checkExpr env inner
       match checked.ty with
@@ -4103,10 +4211,16 @@ termination_by expr => sizeOf expr
 decreasing_by
   all_goals
     try subst expr
+    try subst rhs
+    try subst lhs
     simp_wf
+    try simp_all
+    try simp_all [sizeOf]
     try omega
     try
-      cases target <;> simp_wf <;> omega
+      cases rhs <;> simp_all [sizeOf] <;> omega
+    try
+      cases target <;> simp_wf <;> try simp_all <;> omega
 
 def checkArg (env : CheckEnv) : L00_SourceSolidity.Arg ->
     Except TypeError CheckedExpr
@@ -4174,6 +4288,59 @@ def checkTupleItems (env : CheckEnv) :
       let tail ← checkTupleItems env rest
       Except.ok (checked.ty :: tail)
 termination_by items => sizeOf items
+decreasing_by
+  all_goals
+    try subst expr
+    simp_wf
+    try omega
+
+def checkTupleAssignmentTargets (env : CheckEnv) :
+    List L00_SourceSolidity.TupleItem ->
+    Except TypeError (List TupleAssignmentTarget)
+  | [] => Except.ok []
+  | L00_SourceSolidity.TupleItem.hole :: rest => do
+      let tail ← checkTupleAssignmentTargets env rest
+      Except.ok (none :: tail)
+  | L00_SourceSolidity.TupleItem.value target :: rest => do
+      let targetChecked ← checkExpr env target
+      require targetChecked.lvalue (TypeError.expectedLValue target)
+      targetChecked.expectWritableLocation target
+      if targetChecked.stateLValue then
+        requireStateWriteAllowed env
+      else
+        Except.ok ()
+      let tail ← checkTupleAssignmentTargets env rest
+      Except.ok (some (target, targetChecked) :: tail)
+termination_by items => sizeOf items
+decreasing_by
+  all_goals
+    try subst expr
+    simp_wf
+    try omega
+
+def checkTupleAssignmentValues (env : CheckEnv) :
+    List L00_SourceSolidity.TupleItem -> Except TypeError (List CheckedExpr)
+  | [] => Except.ok []
+  | L00_SourceSolidity.TupleItem.hole :: _ =>
+      Except.error (TypeError.unsupported "tuple hole in value position")
+  | L00_SourceSolidity.TupleItem.value expr :: rest => do
+      let checked ← checkExpr env expr
+      let tail ← checkTupleAssignmentValues env rest
+      Except.ok (checked :: tail)
+termination_by items => sizeOf items
+decreasing_by
+  all_goals
+    try subst expr
+    simp_wf
+    try omega
+
+def checkTupleAssignmentLiteralValues? (env : CheckEnv) :
+    L00_SourceSolidity.Expr -> Except TypeError (Option (List CheckedExpr))
+  | L00_SourceSolidity.Expr.tuple items => do
+      let values ← checkTupleAssignmentValues env items
+      Except.ok (some values)
+  | _ => Except.ok none
+termination_by expr => sizeOf expr
 decreasing_by
   all_goals
     try subst expr
@@ -8048,6 +8215,251 @@ def badTupleVarDeclSource : L00_SourceSolidity.SourceUnit :=
 
 def badTupleVarDeclRejected : Bool :=
   Result.isError (SourceUnit.check badTupleVarDeclSource)
+
+def tupleAssignmentFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "tupleAssign"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "a", ty := some uint256, location := none }]
+              (some (numberExpr "1"))
+          , L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "b", ty := some uint256, location := none }]
+              (some (numberExpr "2"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "a")
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "b") ])
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "b")
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "a") ]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "a")) ]) }
+
+def tupleAssignmentSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleAssign"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                tupleAssignmentFunction] } ] }
+
+def tupleAssignmentAccepted : Bool :=
+  sourceUnitAccepted? tupleAssignmentSource
+
+def tupleAssignmentHoleFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "tupleAssignHole"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "a", ty := some uint256, location := none }]
+              (some (numberExpr "0"))
+          , L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "b", ty := some uint256, location := none }]
+              (some (numberExpr "0"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "a")
+                  , L00_SourceSolidity.TupleItem.hole
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "b") ])
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value (numberExpr "4")
+                  , L00_SourceSolidity.TupleItem.value (numberExpr "99")
+                  , L00_SourceSolidity.TupleItem.value (numberExpr "2") ]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "a")) ]) }
+
+def tupleAssignmentHoleSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleAssignHole"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                tupleAssignmentHoleFunction] } ] }
+
+def tupleAssignmentHoleAccepted : Bool :=
+  sourceUnitAccepted? tupleAssignmentHoleSource
+
+def tupleAssignmentFromReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleAssignReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "pair"
+                    returns :=
+                      [ { name := none, ty := uint256, location := none }
+                      , { name := none, ty := uint256, location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.tuple
+                              [ L00_SourceSolidity.TupleItem.value
+                                  (numberExpr "4")
+                              , L00_SourceSolidity.TupleItem.value
+                                  (numberExpr "2") ]))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "run"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "a"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "b"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "a")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "b") ])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.ident "pair")
+                                  []))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "a")) ]) } ] } ] }
+
+def tupleAssignmentFromReturnAccepted : Bool :=
+  sourceUnitAccepted? tupleAssignmentFromReturnSource
+
+def badTupleAssignmentAritySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTupleAssignArity"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "badArity"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "a"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "b"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "a")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "b") ])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "1") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def badTupleAssignmentArityRejected : Bool :=
+  Result.isError (SourceUnit.check badTupleAssignmentAritySource)
+
+def badTupleAssignmentTypeSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTupleAssignType"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "badType"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "a"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "b"
+                                  ty := some L00_SourceSolidity.Ty.bool
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "a")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "b") ])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "1")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "2") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def badTupleAssignmentTypeRejected : Bool :=
+  Result.isError (SourceUnit.check badTupleAssignmentTypeSource)
+
+def badTupleAssignmentTargetSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTupleAssignTarget"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "badTarget"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "a"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "a")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "1") ])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "1")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "2") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def badTupleAssignmentTargetRejected : Bool :=
+  Result.isError (SourceUnit.check badTupleAssignmentTargetSource)
 
 def valueTypeMemoryParamSource : L00_SourceSolidity.SourceUnit :=
   { items :=
