@@ -3117,6 +3117,23 @@ def requireCreatableContractDecl
     (TypeError.invalidContractHeader
       "contract creation target is abstract")
 
+def checkInternalFunctionValueAssignable?
+    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    Option (Except TypeError Unit) :=
+  match expr, expected with
+  | L00_SourceSolidity.Expr.ident name,
+    L00_SourceSolidity.Ty.function _ _ _ L00_SourceSolidity.Visibility.internal_ =>
+      match env.lookupVar? name with
+      | some _ => none
+      | none =>
+          some
+            (do
+              let _ ←
+                FunctionSigs.resolveInternalFunctionValueAssignableTo
+                  env.types env.functions name expected
+              Except.ok ())
+  | _, _ => none
+
 mutual
 
 def checkExpr (env : CheckEnv) :
@@ -4211,55 +4228,71 @@ def checkExpr (env : CheckEnv) :
             requireStateWriteAllowed env
           else
             Except.ok ()
-          let rhsChecked ← checkExpr env rhs
-          match Expr.directIdentName? lhs with
-          | some name =>
-              require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
-                (TypeError.invalidDataLocation lhsChecked.ty
-                  (some L00_SourceSolidity.DataLocation.storage))
-          | none => Except.ok ()
-          let opResultTy ←
-            match expr with
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.assign _ => do
-                rhsChecked.expectAssignableToIn env.types lhsChecked.ty
-                Except.ok lhsChecked.ty
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.addAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.subAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.mulAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.divAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.modAssign _ =>
-                CheckedExprs.arithmeticTy lhsChecked rhsChecked
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.bitAndAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.bitOrAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.bitXorAssign _ =>
-                CheckedExprs.bitwiseTy lhsChecked rhsChecked
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.shlAssign _
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.shrAssign _ => do
-                lhsChecked.expectShiftLeftOperand
-                rhsChecked.expectUnsignedInteger
-                Except.ok lhsChecked.ty
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.sarAssign _ => do
-                lhsChecked.expectSignedInteger
-                rhsChecked.expectUnsignedInteger
-                Except.ok lhsChecked.ty
-            | _ => Except.ok lhsChecked.ty
-          require (TypeContext.canImplicitlyConvert env.types opResultTy
-              lhsChecked.ty ||
-              opResultTy == lhsChecked.ty)
-            (TypeError.expectedType lhsChecked.ty opResultTy)
-          Except.ok { source := expr, ty := lhsChecked.ty, lvalue := false }
+          let checkOrdinaryRhs : Except TypeError CheckedExpr := do
+            let rhsChecked ← checkExpr env rhs
+            match Expr.directIdentName? lhs with
+            | some name =>
+                require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
+                  (TypeError.invalidDataLocation lhsChecked.ty
+                    (some L00_SourceSolidity.DataLocation.storage))
+            | none => Except.ok ()
+            let opResultTy ←
+              match expr with
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.assign _ => do
+                  rhsChecked.expectAssignableToIn env.types lhsChecked.ty
+                  Except.ok lhsChecked.ty
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.addAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.subAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.mulAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.divAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.modAssign _ =>
+                  CheckedExprs.arithmeticTy lhsChecked rhsChecked
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.bitAndAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.bitOrAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.bitXorAssign _ =>
+                  CheckedExprs.bitwiseTy lhsChecked rhsChecked
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.shlAssign _
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.shrAssign _ => do
+                  lhsChecked.expectShiftLeftOperand
+                  rhsChecked.expectUnsignedInteger
+                  Except.ok lhsChecked.ty
+              | L00_SourceSolidity.Expr.assign _
+                  L00_SourceSolidity.AssignOp.sarAssign _ => do
+                  lhsChecked.expectSignedInteger
+                  rhsChecked.expectUnsignedInteger
+                  Except.ok lhsChecked.ty
+              | _ => Except.ok lhsChecked.ty
+            require (TypeContext.canImplicitlyConvert env.types opResultTy
+                lhsChecked.ty ||
+                opResultTy == lhsChecked.ty)
+              (TypeError.expectedType lhsChecked.ty opResultTy)
+            Except.ok
+              { source := expr, ty := lhsChecked.ty, lvalue := false }
+          match expr with
+          | L00_SourceSolidity.Expr.assign _
+              L00_SourceSolidity.AssignOp.assign _ =>
+              match
+                  checkInternalFunctionValueAssignable?
+                    env rhs lhsChecked.ty with
+              | some result => do
+                  result
+                  Except.ok
+                    { source := expr
+                      ty := lhsChecked.ty
+                      lvalue := false }
+              | none => checkOrdinaryRhs
+          | _ => checkOrdinaryRhs
   | expr@(L00_SourceSolidity.Expr.payableConversion inner) => do
       let checked ← checkExpr env inner
       match checked.ty with
@@ -4674,23 +4707,6 @@ def StateVarDecls.runtimeStateNamesWith
       | some name =>
           name :: StateVarDecls.runtimeStateNamesWith constantBindings rest
       | none => StateVarDecls.runtimeStateNamesWith constantBindings rest
-
-def checkInternalFunctionValueAssignable?
-    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
-    Option (Except TypeError Unit) :=
-  match expr, expected with
-  | L00_SourceSolidity.Expr.ident name,
-    L00_SourceSolidity.Ty.function _ _ _ L00_SourceSolidity.Visibility.internal_ =>
-      match env.lookupVar? name with
-      | some _ => none
-      | none =>
-          some
-            (do
-              let _ ←
-                FunctionSigs.resolveInternalFunctionValueAssignableTo
-                  env.types env.functions name expected
-              Except.ok ())
-  | _, _ => none
 
 def checkExprAssignableTo (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) (expected : Ty) :
@@ -14953,6 +14969,59 @@ def internalFunctionPointerAliasSource :
 
 def internalFunctionPointerAliasAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerAliasSource
+
+def internalFunctionPointerReassignTarget :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasTarget with
+    name := some "triple"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.mul
+              (L00_SourceSolidity.Expr.ident "x")
+              (numberExpr "3")))) }
+
+def internalFunctionPointerReassignFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callViaReassignedPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.ident "fp")
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.ident "triple"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fp")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "x")])) ]) }
+
+def internalFunctionPointerReassignSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerReassign"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerReassignTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerReassignFunction ] } ] }
+
+def internalFunctionPointerReassignAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerReassignSource
 
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=
