@@ -5940,7 +5940,15 @@ def Parameter.toStorageAwareCoreArgDecl? (storageRefEnv : StorageRefEnv)
             some (SolidCore.Solidity.Source.Stmt.storageAliasFrom name target)
           else
             none
-      | _ => none
+      | _ => do
+          let (target, indexes) ← Expr.storagePathCore? storageNames arg
+          match indexes with
+          | [] =>
+              some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+          | _ =>
+              some
+                (SolidCore.Solidity.Source.Stmt.storageAliasPath
+                  name target indexes)
   | _ =>
       Stmt.toCore? storageNames
         (Parameter.toVarDeclWithArg fallbackPrefix index param arg)
@@ -21965,7 +21973,67 @@ def structStoragePathSourceUnit : SourceUnit :=
                           , Stmt.expr
                               (Expr.call
                                 (Expr.member (Expr.ident "blob") "pop")
-                                []) ]) } ] } ] }
+                                []) ]) }
+              , ContractItem.function
+                  { name := some "pushValuesStorage"
+                    visibility := some Visibility.internal_
+                    params :=
+                      [ { name := some "vals"
+                          ty := Ty.array (Ty.uint 256) none
+                          location := some DataLocation.storage }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.call
+                            (Expr.member (Expr.ident "vals") "push")
+                            [Arg.positional (Expr.ident "value")])) }
+              , ContractItem.function
+                  { name := some "pushBlobStorage"
+                    visibility := some Visibility.internal_
+                    params :=
+                      [ { name := some "blob"
+                          ty := Ty.bytes
+                          location := some DataLocation.storage }
+                      , { name := some "value", ty := Ty.bytesN 1 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.call
+                            (Expr.member (Expr.ident "blob") "push")
+                            [Arg.positional (Expr.ident "value")])) }
+              , ContractItem.function
+                  { name := some "internalPathArrayPush"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.call (Expr.ident "pushValuesStorage")
+                            [ Arg.positional
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "values")
+                            , Arg.positional (Expr.ident "value") ])) }
+              , ContractItem.function
+                  { name := some "internalPathBlobPush"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.bytesN 1 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.call (Expr.ident "pushBlobStorage")
+                            [ Arg.positional
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "blob")
+                            , Arg.positional (Expr.ident "value") ])) } ] } ] }
 
 def structStoragePathEntrySlot : Word :=
   SolidCore.Solidity.Source.mappingStorageSlot 0 7
@@ -22189,6 +22257,46 @@ def structStoragePathAliasBlobPopMatches : Option Bool := do
       (state.loadSlot structStoragePathBlobSlot) 1 &&
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathBlobValueSlot 1)) 0)
+
+def structStoragePathInternalArrayPushState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 96 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "internalPathArrayPush")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 12 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathInternalArrayPushMatches : Option Bool := do
+  let state ← structStoragePathInternalArrayPushState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathValueSlot 2)) 12)
+
+def structStoragePathInternalBlobPushState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 96 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "internalPathBlobPush")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 13 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathInternalBlobPushMatches : Option Bool := do
+  let state ← structStoragePathInternalBlobPushState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathBlobValueSlot 2)) 13)
 
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"

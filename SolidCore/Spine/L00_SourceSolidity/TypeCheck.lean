@@ -12818,7 +12818,113 @@ def structStoragePathSource :
                                   (L00_SourceSolidity.Expr.ident
                                     "blob")
                                   "pop")
-                                []) ]) } ] } ] }
+                                []) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "pushValuesStorage"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    params :=
+                      [ { name := some "vals"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              uint256 none
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident
+                                "vals")
+                              "push")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "pushBlobStorage"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    params :=
+                      [ { name := some "blob"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident
+                                "blob")
+                              "push")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "internalPathArrayPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident
+                              "pushValuesStorage")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "values")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "internalPathBlobPush"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident
+                              "pushBlobStorage")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "blob")
+                            , L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "value") ])) } ] } ] }
 
 def structStoragePathAccepted : Bool :=
   sourceUnitAccepted? structStoragePathSource
