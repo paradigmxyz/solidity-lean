@@ -9010,6 +9010,100 @@ def internalBinaryLocalCallSource : L00_SourceSolidity.SourceUnit :=
 def internalBinaryLocalCallAccepted : Bool :=
   sourceUnitAccepted? internalBinaryLocalCallSource
 
+def internalIfConditionCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalIfConditionCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "flagTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr true)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "flagFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr false)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.ifElse
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "flagTrue")
+                            [])
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some
+                              (L00_SourceSolidity.Expr.binary
+                                L00_SourceSolidity.BinaryOp.add
+                                (L00_SourceSolidity.Expr.ident "x")
+                                (numberExpr "1"))))
+                          (some
+                            (L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "9"))))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.ifElse
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "flagFalse")
+                            [])
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some (numberExpr "9")))
+                          (some
+                            (L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.binary
+                                  L00_SourceSolidity.BinaryOp.add
+                                  (L00_SourceSolidity.Expr.ident "x")
+                                  (numberExpr "2")))))) } ] } ] }
+
+def internalIfConditionCallAccepted : Bool :=
+  sourceUnitAccepted? internalIfConditionCallSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"

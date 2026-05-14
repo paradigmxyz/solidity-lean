@@ -7893,6 +7893,47 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.ifElse (Expr.call (Expr.ident name) args)
+      thenBranch elseBranch => do
+      let thenCore ←
+        Stmt.toCoreWithInternalCalls?
+          (internalFuel := internalFuel)
+          (storageRefEnv := storageRefEnv)
+          (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
+          (storageNames := storageNames)
+          (modifiers := modifiers)
+          (functions := functions)
+          (freeFunctions := freeFunctions)
+          (returnTys := returnTys)
+          (stmt := thenBranch)
+      let elseCore ←
+        match elseBranch with
+        | some stmt =>
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := stmt)
+        | none => some SolidCore.Solidity.Source.Stmt.skip
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.ifElse
+              retExpr thenCore elseCore) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let condCore ←
+            Expr.toCore? storageNames (Expr.call (Expr.ident name) args)
+          some (SolidCore.Solidity.Source.Stmt.ifElse
+            condCore thenCore elseCore)
   | Stmt.ifElse cond thenBranch elseBranch => do
       let condCore ← Expr.toCore? storageNames cond
       let thenCore ←
@@ -26753,6 +26794,86 @@ def internalBinaryLocalCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot
               runAssignShortState 0) 0)
   | _, _, _, _ => some false
+
+def internalIfConditionCallContract : ContractDecl :=
+  { name := "InternalIfConditionCall"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "flagTrue"
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some (Expr.literal (Literal.bool true))) ]) }
+      , ContractItem.function
+          { name := some "flagFalse"
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some (Expr.literal (Literal.bool false))) ]) }
+      , ContractItem.function
+          { name := some "runTrue"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.ifElse
+                  (Expr.call (Expr.ident "flagTrue") [])
+                  (Stmt.returnValues
+                    (some
+                      (Expr.binary BinaryOp.add
+                        (Expr.ident "x")
+                        (Expr.literal (Literal.number "1")))))
+                  (some
+                    (Stmt.returnValues
+                      (some (Expr.literal (Literal.number "9")))))) }
+      , ContractItem.function
+          { name := some "runFalse"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.ifElse
+                  (Expr.call (Expr.ident "flagFalse") [])
+                  (Stmt.returnValues
+                    (some (Expr.literal (Literal.number "9"))))
+                  (some
+                    (Stmt.returnValues
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.ident "x")
+                          (Expr.literal (Literal.number "2"))))))) } ] }
+
+def internalIfConditionCallMatches : Option Bool := do
+  let runTrue ←
+    ContractDecl.call? 64 internalIfConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runTrue")
+      SolidCore.Solidity.Source.State.empty []
+  let runFalse ←
+    ContractDecl.call? 64 internalIfConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runFalse")
+      SolidCore.Solidity.Source.State.empty []
+  match runTrue, runFalse with
+  | SolidCore.Solidity.Source.CallResult.returned runTrueState
+      [SolidCore.Solidity.Source.Value.word runTrueValue],
+    SolidCore.Solidity.Source.CallResult.returned runFalseState
+      [SolidCore.Solidity.Source.Value.word runFalseValue] =>
+      some
+        (SolidCore.Solidity.Source.wordEq runTrueValue 2 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot runTrueState 0) 1 &&
+          SolidCore.Solidity.Source.wordEq runFalseValue 3 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot runFalseState 0) 1)
+  | _, _ => some false
 
 def internalNamedArgsContract : ContractDecl :=
   { name := "InternalNamedArgs"
