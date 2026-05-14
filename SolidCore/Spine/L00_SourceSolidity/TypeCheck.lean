@@ -4546,6 +4546,19 @@ def checkStmt (env : CheckEnv) :
                   let checked ← checkExpr env init
                   checked.expectAssignableToTys env.types expected
       Except.ok { source := stmt }
+  | stmt@(L00_SourceSolidity.Stmt.expr
+      (L00_SourceSolidity.Expr.call
+        (L00_SourceSolidity.Expr.ident "require")
+        [ L00_SourceSolidity.Arg.positional cond
+        , L00_SourceSolidity.Arg.positional
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident errorName) errorArgs) ])) => do
+      let condChecked ← checkExpr env cond
+      condChecked.expectBool
+      let checkedArgs ← checkArgs env errorArgs
+      let argInfos := checkedArgInfosFull errorArgs checkedArgs
+      let _ ← ErrorSigs.resolveChecked env.types env.errors errorName argInfos
+      Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }
@@ -9169,6 +9182,12 @@ def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
               [ L00_SourceSolidity.ContractItem.stateVar
                   { name := "x"
                     ty := uint256 }
+              , L00_SourceSolidity.ContractItem.errorDecl
+                  { name := "Bad"
+                    params :=
+                      [{ name := some "value"
+                         ty := uint256
+                         location := none }] }
               , L00_SourceSolidity.ContractItem.function
                   { name := some "okTrue"
                     visibility :=
@@ -9274,6 +9293,33 @@ def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
                                     (L00_SourceSolidity.Expr.literal
                                       (L00_SourceSolidity.Literal.string
                                         "bad")) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runRequireCustomFail"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident
+                                        "okFalse")
+                                      [])
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "Bad")
+                                      [L00_SourceSolidity.Arg.positional
+                                        (numberExpr "7")]) ])
                           , L00_SourceSolidity.Stmt.returnValues
                               (some
                                 (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
