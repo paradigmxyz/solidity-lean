@@ -11508,6 +11508,30 @@ def publicFixedArrayStructGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicFixedArrayStructGetterAccepted : Bool :=
   sourceUnitAccepted? publicFixedArrayStructGetterSource
 
+def deleteFixedArrayStructSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          publicStructGetterShapeStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DeleteFixedArrayStruct"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  publicFixedArrayStructGetterShapeStateVar
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clear"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.ident
+                              "fixedRecords"))) } ] } ] }
+
+def deleteFixedArrayStructAccepted : Bool :=
+  sourceUnitAccepted? deleteFixedArrayStructSource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

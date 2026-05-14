@@ -20139,6 +20139,55 @@ def publicFixedArrayStructGetterOutOfBounds : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq code 0x32)
   | _ => some false
 
+def deleteFixedArrayStructContract : ContractDecl :=
+  { name := "DeleteFixedArrayStruct"
+    items :=
+      [ ContractItem.stateVar
+          { name := "fixedRecords"
+            ty :=
+              Ty.array
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.mapping (Ty.uint 256) (Ty.uint 256)
+                  , Ty.bytes
+                  , Ty.array (Ty.uint 256) none
+                  , Ty.bool ])
+                (some 2)
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "clear"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.ident "fixedRecords"))) } ] }
+
+def deleteFixedArrayStructState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 24 deleteFixedArrayStructContract
+      (SolidCore.Solidity.Source.CallTarget.name "clear")
+      publicFixedArrayStructGetterState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | _ => none
+
+def deleteFixedArrayStructClearsElement : Option Bool := do
+  let state ← deleteFixedArrayStructState
+  let result ←
+    ContractDecl.call? 24 deleteFixedArrayStructContract
+      (SolidCore.Solidity.Source.CallTarget.name "fixedRecords")
+      state [SolidCore.Solidity.Source.Value.word 1]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word amount
+      , SolidCore.Solidity.Source.Value.bytes raw
+      , SolidCore.Solidity.Source.Value.word ok ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq amount 0 &&
+          raw == [] &&
+          SolidCore.Solidity.Source.wordEq ok 0)
+  | _ => some false
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=

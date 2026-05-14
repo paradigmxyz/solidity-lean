@@ -1348,6 +1348,25 @@ def State.clearFixedArraySlots (state : State) (slot defaultWord : Word) :
         (state.storeSlot (fixedArrayStorageSlot slot index) defaultWord)
         slot defaultWord (index + 1) remaining
 
+def State.clearLayoutSpanSlots (state : State) (slot : Word) :
+    Nat -> Nat -> State
+  | _, 0 => state
+  | offset, remaining + 1 =>
+      State.clearLayoutSpanSlots
+        (state.storeSlot (normWord (SharedSemantics.norm slot + offset)) 0)
+        slot (offset + 1) remaining
+
+def State.clearFixedArrayLayoutSlots (state : State) (slot : Word)
+    (elementLayout : StorageLayout) :
+    Nat -> Nat -> State
+  | _, 0 => state
+  | index, remaining + 1 =>
+      State.clearFixedArrayLayoutSlots
+        (State.clearLayoutSpanSlots state
+          (fixedArrayLayoutStorageSlot slot index elementLayout)
+          0 (StorageLayout.slotSpan elementLayout))
+        slot elementLayout (index + 1) remaining
+
 mutual
 
 def State.clearStorageLayoutAt (state : State) (slot : Word) :
@@ -1365,13 +1384,10 @@ def State.clearStorageLayoutAt (state : State) (slot : Word) :
       Except.ok (state.storeSlot slot 0)
   | StorageLayout.mapping _ _ =>
       Except.ok state
-  | StorageLayout.fixedArray size (StorageLayout.scalar elementTy) => do
-      let defaultWord ←
-        coerceStorageWordAs elementTy elementTy.defaultValue
+  | StorageLayout.fixedArray size elementLayout =>
       Except.ok
-        (State.clearFixedArraySlots state slot defaultWord 0 size)
-  | StorageLayout.fixedArray _ _ =>
-      Except.ok state
+        (State.clearFixedArrayLayoutSlots
+          state slot elementLayout 0 size)
 
 def State.clearStructLayoutSlots (state : State) (slot : Word) :
     Nat -> List StorageLayout -> Except RevertData State
@@ -1408,17 +1424,10 @@ def Runtime.deleteStorageField (context : Context)
           (StorageLayout.struct layouts)
       Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
-      let elementTy ←
-        match elementLayout.scalarTy? with
-        | some elementTy => Except.ok elementTy
-        | none => Except.error RevertData.typeMismatch
-      let defaultWord ←
-        coerceStorageWordAs elementTy elementTy.defaultValue
-      Except.ok
-        { runtime with
-          state :=
-            State.clearFixedArraySlots
-              runtime.state field.slot defaultWord 0 size }
+      let state ←
+        State.clearStorageLayoutAt runtime.state field.slot
+          (StorageLayout.fixedArray size elementLayout)
+      Except.ok { runtime with state }
   | some (StorageLayout.mapping _ _) =>
       Except.ok runtime
   | some (StorageLayout.scalar ty) => do
