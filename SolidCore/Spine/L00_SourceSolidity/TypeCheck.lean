@@ -2850,9 +2850,9 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [lhs, rhs, modulus] => do
-        lhs.expectInteger
-        rhs.expectInteger
-        modulus.expectInteger
+        lhs.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+        rhs.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+        modulus.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
         require (!exprIsUint256ZeroLiteral modulus.source)
           (TypeError.unsupported (name ++ " zero modulus"))
         Except.ok (some (L00_SourceSolidity.Ty.uint 256))
@@ -8960,6 +8960,37 @@ def addmodVariableModulusSource : L00_SourceSolidity.SourceUnit :=
 def addmodVariableModulusAccepted : Bool :=
   sourceUnitAccepted? addmodVariableModulusSource
 
+def addmodSignedArgumentSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAddmodSignedArgument"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badAddmodSigned"
+                    params :=
+                      [ { name := some "a"
+                          ty := int256
+                          location := none }
+                      , { name := some "m"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "addmod")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident "a")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "2")
+                              , L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident "m") ]))) } ] } ] }
+
+def addmodSignedArgumentRejected : Bool :=
+  Result.isError (SourceUnit.check addmodSignedArgumentSource)
+
 def addmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -9007,6 +9038,34 @@ def mulmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
 
 def mulmodZeroLiteralRejected : Bool :=
   Result.isError (SourceUnit.check mulmodZeroLiteralSource)
+
+def mulmodSignedModulusSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadMulmodSignedModulus"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badMulmodSigned"
+                    params :=
+                      [{ name := some "m"
+                         ty := int256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "mulmod")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "1")
+                              , L00_SourceSolidity.Arg.positional
+                                  (numberExpr "2")
+                              , L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident "m") ]))) } ] } ] }
+
+def mulmodSignedModulusRejected : Bool :=
+  Result.isError (SourceUnit.check mulmodSignedModulusSource)
 
 def constantFromStateSource : L00_SourceSolidity.SourceUnit :=
   { items :=
