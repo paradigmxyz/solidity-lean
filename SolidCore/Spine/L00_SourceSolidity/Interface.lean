@@ -7281,6 +7281,45 @@ def FunctionDecl.internalSingleReturnCallCore?
   | _ => none
 termination_by (internalFuel, 0, 1)
 
+def FunctionDecl.internalTwoSingleReturnCallsCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (firstName : Name) (firstArgs : List Arg)
+    (secondName : Name) (secondArgs : List Arg)
+    (firstTmp : Name) (useResults : CoreExpr -> CoreExpr -> CoreStmt) :
+    Option CoreStmt := do
+  let (firstBindings, firstPrefixCore, firstBodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions firstName firstArgs
+  let (secondBindings, secondPrefixCore, secondBodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions secondName secondArgs
+  match firstBindings, secondBindings with
+  | [firstRet], [secondRet] =>
+      let firstRetName := firstRet.name
+      let secondRetName := secondRet.name
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          (firstPrefixCore ++
+            [ SolidCore.Solidity.Source.Stmt.captureReturn
+                [firstRetName] firstBodyCore
+            , SolidCore.Solidity.Source.Stmt.varDecl
+                firstRet.ty firstTmp
+                (some (SolidCore.Solidity.Source.Expr.var firstRetName)) ] ++
+            secondPrefixCore ++
+            [ SolidCore.Solidity.Source.Stmt.captureReturn
+                [secondRetName] secondBodyCore
+            , useResults
+                (SolidCore.Solidity.Source.Expr.var firstTmp)
+                (SolidCore.Solidity.Source.Expr.var secondRetName) ]))
+  | _, _ => none
+termination_by (internalFuel, 0, 1)
+
 def FunctionDecl.internalAssignReturnCallCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -7469,22 +7508,65 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.expr
       (Expr.call (Expr.ident "require")
         [ Arg.positional (Expr.call (Expr.ident name) args)
-        , Arg.positional (Expr.call (Expr.ident errorName) errorArgs) ]) => do
-      let coreArgs ← Args.toCoreExprs? storageNames errorArgs
-      match FunctionDecl.internalSingleReturnCallCore?
+        , Arg.positional
+            (Expr.call (Expr.ident errorName)
+              [Arg.positional (Expr.call (Expr.ident valueName) valueArgs)]) ]) =>
+      match FunctionDecl.internalTwoSingleReturnCallsCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions name args
-          (fun retExpr =>
+          modifiers functions freeFunctions name args valueName valueArgs
+          "_sol_require_cond"
+          (fun condExpr valueExpr =>
             SolidCore.Solidity.Source.Stmt.requireCustom
-              retExpr errorName coreArgs) with
+              condExpr errorName [valueExpr]) with
       | some coreStmt => some coreStmt
-      | none =>
-          Stmt.toCore? storageNames
-            (Stmt.expr
-              (Expr.call (Expr.ident "require")
-                [ Arg.positional (Expr.call (Expr.ident name) args)
-                , Arg.positional
-                    (Expr.call (Expr.ident errorName) errorArgs) ]))
+      | none => do
+          let valueCore ←
+            Expr.toCore? storageNames
+              (Expr.call (Expr.ident valueName) valueArgs)
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.requireCustom
+                  retExpr errorName [valueCore]) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr
+                  (Expr.call (Expr.ident "require")
+                    [ Arg.positional (Expr.call (Expr.ident name) args)
+                    , Arg.positional
+                        (Expr.call (Expr.ident errorName)
+                          [Arg.positional
+                            (Expr.call (Expr.ident valueName) valueArgs)]) ]))
+  | Stmt.expr
+      (Expr.call (Expr.ident "require")
+        [ Arg.positional (Expr.call (Expr.ident name) args)
+        , Arg.positional (Expr.call (Expr.ident errorName) errorArgs) ]) => do
+      match FunctionDecl.internalTwoSingleReturnCallsCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args errorName errorArgs
+          "_sol_require_cond"
+          (fun condExpr reasonExpr =>
+            SolidCore.Solidity.Source.Stmt.requireErrorExpr
+              condExpr reasonExpr) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let coreArgs ← Args.toCoreExprs? storageNames errorArgs
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.requireCustom
+                  retExpr errorName coreArgs) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr
+                  (Expr.call (Expr.ident "require")
+                    [ Arg.positional (Expr.call (Expr.ident name) args)
+                    , Arg.positional
+                        (Expr.call (Expr.ident errorName) errorArgs) ]))
   | Stmt.expr
       (Expr.call (Expr.ident "require")
         [ Arg.positional (Expr.call (Expr.ident name) args)
@@ -27411,6 +27493,28 @@ def internalRequireReasonCallContract : ContractDecl :=
                   , Stmt.returnValues
                       (some (Expr.ident "x")) ]) }
       , ContractItem.function
+          { name := some "okTrue"
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some (Expr.literal (Literal.bool true))) ]) }
+      , ContractItem.function
+          { name := some "okFalse"
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some (Expr.literal (Literal.bool false))) ]) }
+      , ContractItem.function
           { name := some "runReasonTrue"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -27439,6 +27543,36 @@ def internalRequireReasonCallContract : ContractDecl :=
                               [Arg.positional
                                 (Expr.call (Expr.ident "value") [])]) ])
                   , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runBothReasonTrue"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.call (Expr.ident "require")
+                        [ Arg.positional
+                            (Expr.call (Expr.ident "okTrue") [])
+                        , Arg.positional
+                            (Expr.call (Expr.ident "note") []) ])
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runBothCustomFalse"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.call (Expr.ident "require")
+                        [ Arg.positional
+                            (Expr.call (Expr.ident "okFalse") [])
+                        , Arg.positional
+                            (Expr.call (Expr.ident "Bad")
+                              [Arg.positional
+                                (Expr.call (Expr.ident "value") [])]) ])
+                  , Stmt.returnValues
                       (some (Expr.ident "x")) ]) } ] }
 
 def internalRequireReasonCallMatches : Option Bool := do
@@ -27450,20 +27584,41 @@ def internalRequireReasonCallMatches : Option Bool := do
     ContractDecl.call? 64 internalRequireReasonCallContract
       (SolidCore.Solidity.Source.CallTarget.name "runCustomFalse")
       SolidCore.Solidity.Source.State.empty []
-  match reasonTrue, customFalse with
+  let bothReasonTrue ←
+    ContractDecl.call? 64 internalRequireReasonCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBothReasonTrue")
+      SolidCore.Solidity.Source.State.empty []
+  let bothCustomFalse ←
+    ContractDecl.call? 64 internalRequireReasonCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBothCustomFalse")
+      SolidCore.Solidity.Source.State.empty []
+  match reasonTrue, customFalse, bothReasonTrue, bothCustomFalse with
   | SolidCore.Solidity.Source.CallResult.returned reasonState
       [SolidCore.Solidity.Source.Value.word reasonValue],
     SolidCore.Solidity.Source.CallResult.reverted customState
       (SolidCore.Solidity.Source.RevertData.custom "Bad"
-        [SolidCore.Solidity.Source.Value.word customValue]) =>
+        [SolidCore.Solidity.Source.Value.word customValue]),
+    SolidCore.Solidity.Source.CallResult.returned bothReasonState
+      [SolidCore.Solidity.Source.Value.word bothReasonValue],
+    SolidCore.Solidity.Source.CallResult.reverted bothCustomState
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [SolidCore.Solidity.Source.Value.word bothCustomValue]) =>
       some
         (SolidCore.Solidity.Source.wordEq reasonValue 9 &&
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot reasonState 0) 9 &&
           SolidCore.Solidity.Source.wordEq customValue 7 &&
           SolidCore.Solidity.Source.wordEq
-            (SolidCore.Solidity.Source.State.loadSlot customState 0) 0)
-  | _, _ => some false
+            (SolidCore.Solidity.Source.State.loadSlot customState 0) 0 &&
+          SolidCore.Solidity.Source.wordEq bothReasonValue 9 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              bothReasonState 0) 9 &&
+          SolidCore.Solidity.Source.wordEq bothCustomValue 7 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              bothCustomState 0) 0)
+  | _, _, _, _ => some false
 
 def internalEmitArgumentCallContract : ContractDecl :=
   { name := "InternalEmitArgumentCall"

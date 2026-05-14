@@ -9396,6 +9396,48 @@ def internalRequireReasonCallSource : L00_SourceSolidity.SourceUnit :=
                               (some
                                 (L00_SourceSolidity.Expr.ident "x")) ]) }
               , L00_SourceSolidity.ContractItem.function
+                  { name := some "okTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.literal
+                                  (L00_SourceSolidity.Literal.bool
+                                    true))) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "okFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.literal
+                                  (L00_SourceSolidity.Literal.bool
+                                    false))) ]) }
+              , L00_SourceSolidity.ContractItem.function
                   { name := some "runReasonTrue"
                     visibility :=
                       some L00_SourceSolidity.Visibility.public_
@@ -9436,6 +9478,62 @@ def internalRequireReasonCallSource : L00_SourceSolidity.SourceUnit :=
                                 [ L00_SourceSolidity.Arg.positional
                                     (L00_SourceSolidity.Expr.literal
                                       (L00_SourceSolidity.Literal.bool false))
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "Bad")
+                                      [L00_SourceSolidity.Arg.positional
+                                        (L00_SourceSolidity.Expr.call
+                                          (L00_SourceSolidity.Expr.ident
+                                            "value")
+                                          [])]) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBothReasonTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident
+                                        "okTrue")
+                                      [])
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "note")
+                                      []) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBothCustomFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident
+                                        "okFalse")
+                                      [])
                                 , L00_SourceSolidity.Arg.positional
                                     (L00_SourceSolidity.Expr.call
                                       (L00_SourceSolidity.Expr.ident "Bad")
