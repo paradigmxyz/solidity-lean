@@ -9547,6 +9547,110 @@ def internalRevertArgumentCallSource : L00_SourceSolidity.SourceUnit :=
 def internalRevertArgumentCallAccepted : Bool :=
   sourceUnitAccepted? internalRevertArgumentCallSource
 
+def internalRevertTwoArgumentCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalRevertTwoArgumentCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  { name := "Bad"
+                    params :=
+                      [ { name := some "left"
+                          ty := uint256
+                          location := none }
+                      , { name := some "right"
+                          ty := uint256
+                          location := none } ] }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "value"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "7"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "read"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (L00_SourceSolidity.Expr.ident "x"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runLeft"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.revertCall
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "Bad")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "value")
+                                      [])
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.binary
+                                      L00_SourceSolidity.BinaryOp.add
+                                      (L00_SourceSolidity.Expr.ident "x")
+                                      (numberExpr "1")) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runRight"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.revertCall
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "Bad")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.assign
+                                      (L00_SourceSolidity.Expr.ident "x")
+                                      L00_SourceSolidity.AssignOp.assign
+                                      (numberExpr "5"))
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "read")
+                                      []) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+
+def internalRevertTwoArgumentCallAccepted : Bool :=
+  sourceUnitAccepted? internalRevertTwoArgumentCallSource
+
 def internalTupleReturnCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
