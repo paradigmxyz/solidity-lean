@@ -626,6 +626,15 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
       L00_SourceSolidity.Ty.int expectedBits => actualBits < expectedBits
     | L00_SourceSolidity.Ty.bytesN actualSize,
       L00_SourceSolidity.Ty.bytesN expectedSize => actualSize <= expectedSize
+    | L00_SourceSolidity.Ty.fixedBytes actualSize,
+      L00_SourceSolidity.Ty.fixedBytes expectedSize =>
+        actualSize <= expectedSize
+    | L00_SourceSolidity.Ty.bytesN actualSize,
+      L00_SourceSolidity.Ty.fixedBytes expectedSize =>
+        actualSize <= expectedSize
+    | L00_SourceSolidity.Ty.fixedBytes actualSize,
+      L00_SourceSolidity.Ty.bytesN expectedSize =>
+        actualSize <= expectedSize
     | L00_SourceSolidity.Ty.function actualParams actualReturns
         actualMutability actualVisibility,
       L00_SourceSolidity.Ty.function expectedParams expectedReturns
@@ -1902,6 +1911,15 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
     | L00_SourceSolidity.Ty.bytesN leftSize,
       L00_SourceSolidity.Ty.bytesN rightSize =>
         some (L00_SourceSolidity.Ty.bytesN (max leftSize rightSize))
+    | L00_SourceSolidity.Ty.fixedBytes leftSize,
+      L00_SourceSolidity.Ty.fixedBytes rightSize =>
+        some (L00_SourceSolidity.Ty.fixedBytes (max leftSize rightSize))
+    | L00_SourceSolidity.Ty.bytesN leftSize,
+      L00_SourceSolidity.Ty.fixedBytes rightSize =>
+        some (L00_SourceSolidity.Ty.fixedBytes (max leftSize rightSize))
+    | L00_SourceSolidity.Ty.fixedBytes leftSize,
+      L00_SourceSolidity.Ty.bytesN rightSize =>
+        some (L00_SourceSolidity.Ty.fixedBytes (max leftSize rightSize))
     | _, _ =>
         if Ty.canImplicitlyConvert left right then
           some right
@@ -17892,6 +17910,52 @@ def fixedBytesArrayLiteralWideningSource :
 
 def fixedBytesArrayLiteralWideningAccepted : Bool :=
   sourceUnitAccepted? fixedBytesArrayLiteralWideningSource
+
+def legacyFixedBytes1TwelveExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.fixedBytes 1))
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.literal
+        (L00_SourceSolidity.Literal.bytes [0x12]))]
+
+def legacyFixedBytes2ThirtyFourExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.fixedBytes 2))
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.literal
+        (L00_SourceSolidity.Literal.bytes [0x34, 0x56]))]
+
+def legacyFixedBytesArrayLiteralWideningFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { fixedBytesArrayLiteralWideningFunction with
+    name := some "legacyFixedBytesArrayWiden"
+    returns :=
+      [ { name := none
+          ty :=
+            L00_SourceSolidity.Ty.array
+              (L00_SourceSolidity.Ty.fixedBytes 2) (some 2)
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.array
+              [ legacyFixedBytes1TwelveExpr
+              , legacyFixedBytes2ThirtyFourExpr ]))) }
+
+def legacyFixedBytesArrayLiteralWideningSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LegacyFixedBytesArrayLiteralWidening"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                legacyFixedBytesArrayLiteralWideningFunction] } ] }
+
+def legacyFixedBytesArrayLiteralWideningAccepted : Bool :=
+  sourceUnitAccepted? legacyFixedBytesArrayLiteralWideningSource
 
 def badArrayLiteralCommonTypeFunction :
     L00_SourceSolidity.FunctionDecl :=
