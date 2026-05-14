@@ -18200,6 +18200,21 @@ def addressMembersCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] addressMembersContext
     SolidCore.Solidity.Source.State.empty addressMembersFunction []
 
+def addressMembersCallMatches : Option Bool := do
+  let result ← addressMembersCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word selfAddress
+      , SolidCore.Solidity.Source.Value.word selfBalance
+      , SolidCore.Solidity.Source.Value.word otherBalance
+      , SolidCore.Solidity.Source.Value.word otherCodehash ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq selfAddress 0xcafe &&
+          SolidCore.Solidity.Source.wordEq selfBalance 1000 &&
+          SolidCore.Solidity.Source.wordEq otherBalance 77 &&
+          SolidCore.Solidity.Source.wordEq otherCodehash 0x123456)
+  | _ => some false
+
 def addressCodeMemberFunction : FunctionDecl :=
   { name := some "codeInfo"
     returns :=
@@ -18232,6 +18247,19 @@ def addressCodeMemberContext : CoreContext :=
 def addressCodeMemberCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] addressCodeMemberContext
     SolidCore.Solidity.Source.State.empty addressCodeMemberFunction []
+
+def addressCodeMemberCallMatches : Option Bool := do
+  let result ← addressCodeMemberCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.bytes code
+      , SolidCore.Solidity.Source.Value.word codeLength
+      , SolidCore.Solidity.Source.Value.word missingLength ] =>
+      some
+        (code == [1, 2, 3, 4] &&
+          SolidCore.Solidity.Source.wordEq codeLength 4 &&
+          SolidCore.Solidity.Source.wordEq missingLength 0)
+  | _ => some false
 
 def lowLevelCallFunction : FunctionDecl :=
   { name := some "probe"

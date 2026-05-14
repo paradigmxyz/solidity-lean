@@ -18570,6 +18570,64 @@ def pureBlockTimestampSource : L00_SourceSolidity.SourceUnit :=
 def pureBlockTimestampRejected : Bool :=
   Result.isError (SourceUnit.check pureBlockTimestampSource)
 
+def viewAddressEnvMembersFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "accountInfo"
+    mutability := L00_SourceSolidity.StateMutability.view
+    returns :=
+      [ { name := none, ty := uint256, location := none }
+      , { name := none, ty := uint256, location := none }
+      , { name := none
+          ty := L00_SourceSolidity.Ty.bytesN 32
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.tuple
+              [ L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.address 0xbeef))
+                    "balance")
+              , L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.address 0xbeef))
+                      "code")
+                    "length")
+              , L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.address 0xbeef))
+                    "codehash") ]))) }
+
+def viewAddressEnvMembersSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ViewAddressEnvMembers"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                viewAddressEnvMembersFunction] } ] }
+
+def viewAddressEnvMembersAccepted : Bool :=
+  sourceUnitAccepted? viewAddressEnvMembersSource
+
+def pureAddressEnvMembersSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PureAddressEnvMembers"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { viewAddressEnvMembersFunction with
+                    name := some "pureAccountInfo"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.pure } ] } ] }
+
+def pureAddressEnvMembersRejected : Bool :=
+  Result.isError (SourceUnit.check pureAddressEnvMembersSource)
+
 def uint8 : Ty := L00_SourceSolidity.Ty.uint 8
 
 def uint16 : Ty := L00_SourceSolidity.Ty.uint 16
