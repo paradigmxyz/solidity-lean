@@ -19761,6 +19761,10 @@ def oneExpr : L00_SourceSolidity.Expr :=
 def zeroExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.literal (L00_SourceSolidity.Literal.number "0")
 
+def zeroBySubExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.binary
+    L00_SourceSolidity.BinaryOp.sub oneExpr oneExpr
+
 def int8OneExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
     (L00_SourceSolidity.Expr.typeName int8)
@@ -20263,6 +20267,46 @@ def payableZeroSource : L00_SourceSolidity.SourceUnit :=
 
 def payableZeroAccepted : Bool :=
   sourceUnitAccepted? payableZeroSource
+
+def payableZeroExpressionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PayableZeroExpression"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "payableZeroExpression"
+                    returns :=
+                      [{ name := none, ty := payableAddressTy, location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.payableConversion
+                              zeroBySubExpr))) } ] } ] }
+
+def payableZeroExpressionAccepted : Bool :=
+  sourceUnitAccepted? payableZeroExpressionSource
+
+def payableOneSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PayableOne"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "payableOne"
+                    returns :=
+                      [{ name := none, ty := payableAddressTy, location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.payableConversion
+                              oneExpr))) } ] } ] }
+
+def payableOneRejected : Bool :=
+  Result.isError (SourceUnit.check payableOneSource)
 
 def payableReceiveFunction : L00_SourceSolidity.FunctionDecl :=
   { kind := L00_SourceSolidity.FunctionKind.receive

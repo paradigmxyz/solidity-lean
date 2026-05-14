@@ -3141,6 +3141,14 @@ def Expr.negatedNumberLiteralNat? : Expr -> Option Nat
       Expr.negatedNumberLiteralNat? expr
   | _ => none
 
+def Expr.isZeroNumberLiteralExpression (expr : Expr) : Bool :=
+  match Expr.numberLiteralNat? expr with
+  | some value => value == 0
+  | none =>
+      match Expr.negatedNumberLiteralNat? expr with
+      | some value => value == 0
+      | none => false
+
 def Expr.toCoreFixedBytesLiteralAs? (ty : Ty) : Expr -> Option CoreExpr
   | Expr.literal literal => do
       let size ← Ty.fixedBytesSize? ty
@@ -3211,7 +3219,11 @@ def Expr.toCorePayableLiteral? : Expr -> Option CoreExpr
         some (SolidCore.Solidity.Source.Expr.word 0)
       else
         none
-  | _ => none
+  | expr =>
+      if Expr.isZeroNumberLiteralExpression expr then
+        some (SolidCore.Solidity.Source.Expr.word 0)
+      else
+        none
 
 def Expr.isNumberLiteralExpression : Expr -> Bool
   | Expr.literal (Literal.number _) => true
@@ -19879,6 +19891,17 @@ def addressLiteralConversionMatchesExpected : Option Bool := do
         payableZero == 0 &&
         fromVarDecl == 0xbeef)
   | _ => some false
+
+def payableZeroExpressionToCoreAccepted : Bool :=
+  match
+      Expr.toCore? []
+        (Expr.payableConversion
+          (Expr.binary BinaryOp.sub
+            (Expr.literal (Literal.number "1"))
+            (Expr.literal (Literal.number "1"))))
+  with
+  | some (SolidCore.Solidity.Source.Expr.word value) => value == 0
+  | _ => false
 
 def addressConversionRejected : Bool :=
   (match
