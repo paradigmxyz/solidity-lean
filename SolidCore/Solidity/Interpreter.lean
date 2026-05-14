@@ -1863,7 +1863,7 @@ def Runtime.storageArrayPush (context : Context)
         let state ←
           match value? with
           | some value =>
-              State.storeStorageLayoutAt runtime.state
+              State.storeStorageLayoutAtWithDeepClear runtime.state
                 elementSlot elementLayout value
           | none =>
               State.clearStorageLayoutAtDeep runtime.state

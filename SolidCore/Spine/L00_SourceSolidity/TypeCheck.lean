@@ -12013,6 +12013,44 @@ def indexedDynamicArrayAssignmentSource :
 def indexedDynamicArrayAssignmentAccepted : Bool :=
   sourceUnitAccepted? indexedDynamicArrayAssignmentSource
 
+def pushNestedDynamicArraySource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PushNestedDynamicArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "matrix"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        (L00_SourceSolidity.Ty.array
+                          uint256 none)
+                        none }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "pushValues"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              uint256 none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "matrix")
+                              "push")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "values") ])) } ] } ] }
+
+def pushNestedDynamicArrayAccepted : Bool :=
+  sourceUnitAccepted? pushNestedDynamicArraySource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

@@ -21040,6 +21040,74 @@ def indexedDynamicArrayAssignmentMappingClearsTail :
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             bucketSlot 1)) 0)
 
+def pushNestedDynamicArrayContract : ContractDecl :=
+  { name := "PushNestedDynamicArray"
+    items :=
+      [ ContractItem.stateVar
+          { name := "matrix"
+            ty :=
+              Ty.array
+                (Ty.array (Ty.uint 256) none)
+                none }
+      , ContractItem.function
+          { name := some "pushValues"
+            params :=
+              [ { name := some "values"
+                  ty := Ty.array (Ty.uint 256) none
+                  location := some DataLocation.calldata } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.ident "matrix") "push")
+                    [Arg.positional (Expr.ident "values")])) } ] }
+
+def pushNestedDynamicArrayInitialState : CoreState :=
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot innerSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 0) 77
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 1) 88
+
+def pushNestedDynamicArrayState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 pushNestedDynamicArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "pushValues")
+      pushNestedDynamicArrayInitialState
+      [indexedDynamicArrayShortInput]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def pushNestedDynamicArrayClearsStaleTail : Option Bool := do
+  let state ← pushNestedDynamicArrayState
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot innerSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 1)) 0)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=
