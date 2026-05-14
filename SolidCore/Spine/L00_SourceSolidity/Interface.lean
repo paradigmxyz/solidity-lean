@@ -19891,6 +19891,73 @@ def publicStructGetterCalldataMatches : Option Bool := do
       , SolidCore.Solidity.Source.Value.word 1 ]
   some (result.success && result.output == expected)
 
+def publicNestedStructGetterContract : ContractDecl :=
+  { name := "PublicNestedStructGetter"
+    items :=
+      [ ContractItem.stateVar
+          { name := "entry"
+            ty :=
+              Ty.tuple
+                [ Ty.uint 256
+                , Ty.tuple [Ty.uint 256, Ty.bool]
+                , Ty.bytes ]
+            visibility := some Visibility.public_ } ] }
+
+def publicNestedStructGetterState : CoreState :=
+  let rawSlot : SolidCore.Solidity.Source.Word := 3
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 33
+    |>.storeSlot 1 44
+    |>.storeSlot 2 1
+    |>.storeSlot rawSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 0) 120
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          rawSlot 1) 121
+
+def publicNestedStructGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicNestedStructGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "entry")
+      publicNestedStructGetterState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word amount
+      , SolidCore.Solidity.Source.Value.tuple
+          [ SolidCore.Solidity.Source.Value.word inner
+          , SolidCore.Solidity.Source.Value.word flag ]
+      , SolidCore.Solidity.Source.Value.bytes raw ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq amount 33 &&
+          SolidCore.Solidity.Source.wordEq inner 44 &&
+          SolidCore.Solidity.Source.wordEq flag 1 &&
+          raw == [120, 121])
+  | _ => some false
+
+def publicNestedStructGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? publicNestedStructGetterContract
+  let function ← contract.findFunctionByName? "entry"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function []
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract publicNestedStructGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.tuple
+          [ SolidCore.Solidity.Source.Ty.uint256
+          , SolidCore.Solidity.Source.Ty.bool ]
+      , SolidCore.Solidity.Source.Ty.bytesCalldata ]
+      [ SolidCore.Solidity.Source.Value.word 33
+      , SolidCore.Solidity.Source.Value.tuple
+          [ SolidCore.Solidity.Source.Value.word 44
+          , SolidCore.Solidity.Source.Value.word 1 ]
+      , SolidCore.Solidity.Source.Value.bytes [120, 121] ]
+  some (result.success && result.output == expected)
+
 def publicMappingStructGetterContract : ContractDecl :=
   { name := "PublicMappingStructGetter"
     items :=

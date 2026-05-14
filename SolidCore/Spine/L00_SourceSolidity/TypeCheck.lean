@@ -11407,6 +11407,63 @@ def publicStructGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicStructGetterAccepted : Bool :=
   sourceUnitAccepted? publicStructGetterSource
 
+def publicNestedStructGetterInnerStruct :
+    L00_SourceSolidity.StructDecl :=
+  { name := "NestedPublicStruct"
+    fields :=
+      [ { name := "inner", ty := uint256 }
+      , { name := "flag", ty := L00_SourceSolidity.Ty.bool } ] }
+
+def publicNestedStructGetterOuterStruct :
+    L00_SourceSolidity.StructDecl :=
+  { name := "OuterPublicStruct"
+    fields :=
+      [ { name := "amount", ty := uint256 }
+      , { name := "nested"
+          ty :=
+            L00_SourceSolidity.Ty.user
+              (userPath "NestedPublicStruct") }
+      , { name := "raw", ty := L00_SourceSolidity.Ty.bytes } ] }
+
+def publicNestedStructGetterStateVar :
+    L00_SourceSolidity.StateVarDecl :=
+  { name := "entry"
+    ty := L00_SourceSolidity.Ty.user (userPath "OuterPublicStruct")
+    visibility := some L00_SourceSolidity.Visibility.public_ }
+
+def publicNestedStructGetterTypes : TypeContext :=
+  { TypeContext.empty with
+    structs :=
+      [ (userPath "NestedPublicStruct",
+          publicNestedStructGetterInnerStruct)
+      , (userPath "OuterPublicStruct",
+          publicNestedStructGetterOuterStruct) ] }
+
+def publicNestedStructGetterShapeReturns : Bool :=
+  match StateVarDecl.publicGetterFunctionSig?
+      publicNestedStructGetterTypes publicNestedStructGetterStateVar with
+  | some sig =>
+      sig.returns ==
+        [ uint256
+        , L00_SourceSolidity.Ty.user (userPath "NestedPublicStruct")
+        , L00_SourceSolidity.Ty.bytes ]
+  | none => false
+
+def publicNestedStructGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          publicNestedStructGetterInnerStruct
+      , L00_SourceSolidity.SourceItem.freeStruct
+          publicNestedStructGetterOuterStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PublicNestedStructGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  publicNestedStructGetterStateVar ] } ] }
+
+def publicNestedStructGetterAccepted : Bool :=
+  sourceUnitAccepted? publicNestedStructGetterSource
+
 def publicMappingStructGetterShapeStateVar :
     L00_SourceSolidity.StateVarDecl :=
   { name := "entries"
