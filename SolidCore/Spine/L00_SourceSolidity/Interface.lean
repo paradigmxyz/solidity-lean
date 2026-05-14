@@ -20826,6 +20826,82 @@ def deleteNestedFixedStructArrayClearsNestedData : Option Bool := do
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             nestedSlot 0)) 0)
 
+def assignNestedDynamicStructArrayContract : ContractDecl :=
+  { name := "AssignNestedDynamicStructArray"
+    items :=
+      [ ContractItem.stateVar
+          { name := "records"
+            ty :=
+              Ty.array
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.array (Ty.uint 256) none ])
+                none }
+      , ContractItem.function
+          { name := some "set"
+            params :=
+              [ { name := some "values"
+                  ty :=
+                    Ty.array
+                      (Ty.tuple
+                        [ Ty.uint 256
+                        , Ty.array (Ty.uint 256) none ])
+                      none
+                  location := some DataLocation.calldata } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.ident "records")
+                    AssignOp.assign
+                    (Expr.ident "values"))) } ] }
+
+def assignNestedDynamicStructArrayInput : CoreValue :=
+  SolidCore.Solidity.Source.Value.dynamicArray
+    [ SolidCore.Solidity.Source.Value.tuple
+        [ SolidCore.Solidity.Source.Value.word 11
+        , SolidCore.Solidity.Source.Value.dynamicArray [] ] ]
+
+def assignNestedDynamicStructArrayInitialState : CoreState :=
+  let recordSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 1 nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 2
+    |>.storeSlot recordSlot 44
+    |>.storeSlot nestedSlot 1
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 0) 123
+
+def assignNestedDynamicStructArrayState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 assignNestedDynamicStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      assignNestedDynamicStructArrayInitialState
+      [assignNestedDynamicStructArrayInput]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def assignNestedDynamicStructArrayClearsTail : Option Bool := do
+  let state ← assignNestedDynamicStructArrayState
+  let recordSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 1 nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot recordSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=

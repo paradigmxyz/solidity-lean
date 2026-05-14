@@ -11906,6 +11906,42 @@ def deleteNestedStructArraySource : L00_SourceSolidity.SourceUnit :=
 def deleteNestedStructArrayAccepted : Bool :=
   sourceUnitAccepted? deleteNestedStructArraySource
 
+def assignNestedDynamicStructArraySource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          deleteNestedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AssignNestedDynamicStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "records"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        deleteNestedStructArrayRecordTy none }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              deleteNestedStructArrayRecordTy none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident "records")
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "values"))) } ] } ] }
+
+def assignNestedDynamicStructArrayAccepted : Bool :=
+  sourceUnitAccepted? assignNestedDynamicStructArraySource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

@@ -1505,6 +1505,43 @@ def State.clearStorageLayoutAtDeep (state : State) (slot : Word)
   State.clearStorageLayoutAtFuel
     (StorageLayout.clearDepth layout) state slot layout
 
+def State.clearDynamicArrayLayoutTail (state : State) (slot : Word)
+    (elementLayout : StorageLayout) (start count : Nat) :
+    Except RevertData State :=
+  (List.range count).foldlM
+    (fun state offset =>
+      State.clearStorageLayoutAtDeep state
+        (dynamicArrayLayoutStorageSlot
+          slot (start + offset) elementLayout)
+        elementLayout)
+    state
+
+def Runtime.storeStorageFieldWithDeepClear (context : Context)
+    (runtime : Runtime) (name : String) (value : Value) :
+    Except RevertData Runtime := do
+  let field ←
+    match context.storageField? name with
+    | some field => Except.ok field
+    | none => Except.error RevertData.typeMismatch
+  match field.layout?, value with
+  | some (StorageLayout.dynamicArray elementLayout),
+      Value.dynamicArray values => do
+      let oldLength :=
+        SharedSemantics.norm (runtime.state.loadSlot field.slot)
+      let runtime ←
+        Runtime.storeStorageField context runtime name value
+      let newLength := values.length
+      if newLength < oldLength then
+        let state ←
+          State.clearDynamicArrayLayoutTail runtime.state
+            field.slot elementLayout newLength
+            (oldLength - newLength)
+        Except.ok { runtime with state }
+      else
+        Except.ok runtime
+  | _, _ =>
+      Runtime.storeStorageField context runtime name value
+
 def Runtime.deleteStorageField (context : Context)
     (runtime : Runtime) (name : String) :
     Except RevertData Runtime := do
@@ -3127,7 +3164,8 @@ def LValue.write (context : Context) (runtime : Runtime)
   match target with
   | LValue.var name =>
       match runtime.lookupStorageRef? name with
-      | some target => runtime.storeStorageField context target value
+      | some target =>
+          runtime.storeStorageFieldWithDeepClear context target value
       | none =>
           match runtime.assignLocal? name value with
           | some updated => Except.ok updated
@@ -3135,7 +3173,7 @@ def LValue.write (context : Context) (runtime : Runtime)
   | LValue.immutable name =>
       runtime.storeImmutableField context name value
   | LValue.storage name =>
-      runtime.storeStorageField context name value
+      runtime.storeStorageFieldWithDeepClear context name value
   | LValue.storageIndex name idx => do
       let indexValue ← idx.eval context runtime
       runtime.storeStorageIndex context name indexValue value
@@ -3221,7 +3259,7 @@ def ResolvedLValue.write (context : Context) (runtime : Runtime)
   | ResolvedLValue.immutable name =>
       runtime.storeImmutableField context name value
   | ResolvedLValue.storageField name =>
-      runtime.storeStorageField context name value
+      runtime.storeStorageFieldWithDeepClear context name value
   | ResolvedLValue.storageIndex name index =>
       runtime.storeStorageIndex context name index value
   | ResolvedLValue.valueIndex base index => do
