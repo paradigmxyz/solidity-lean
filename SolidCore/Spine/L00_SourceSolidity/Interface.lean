@@ -23396,6 +23396,47 @@ def customStorageLayoutInitMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 11)
   | _ => some false
 
+def constantStorageLayoutUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeConstant
+          { name := "LAYOUT_SLOT"
+            ty := Ty.uint 256
+            mutability := VarMutability.constant
+            init := some (Expr.literal (Literal.number "8")) }
+      , SourceItem.contract
+          { name := "ConstantLayoutBase"
+            layoutBase :=
+              some
+                (Expr.binary BinaryOp.add
+                  (Expr.ident "LAYOUT_SLOT")
+                  (Expr.literal (Literal.number "1")))
+            items :=
+              [ ContractItem.stateVar
+                  { name := "x"
+                    ty := Ty.uint 256
+                    init := some (Expr.literal (Literal.number "13")) } ] } ] }
+
+def constantStorageLayoutFieldsMatch : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? constantStorageLayoutUnit
+    "ConstantLayoutBase"
+  match contract.storageFields with
+  | [x] =>
+      some
+        (x.name == "x" &&
+          SolidCore.Solidity.Source.wordEq x.slot 9)
+  | _ => some false
+
+def constantStorageLayoutInitMatches : Option Bool := do
+  let result ←
+    SourceUnit.constructContract? 32 constantStorageLayoutUnit
+      "ConstantLayoutBase" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      some
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 9) 13)
+  | _ => some false
+
 def erc7201StorageLayoutContract : ContractDecl :=
   { name := "Erc7201Layout"
     layoutBase :=

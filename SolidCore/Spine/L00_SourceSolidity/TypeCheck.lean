@@ -10053,6 +10053,44 @@ def storageLayoutAcceptedSource : L00_SourceSolidity.SourceUnit :=
 def storageLayoutAccepted : Bool :=
   sourceUnitAccepted? storageLayoutAcceptedSource
 
+def constantStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeConstant
+          { name := "LAYOUT_SLOT"
+            ty := uint256
+            mutability := L00_SourceSolidity.VarMutability.constant
+            init := some (numberExpr "8") }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ConstantStorageLayout"
+            layoutBase :=
+              some
+                (L00_SourceSolidity.Expr.binary
+                  L00_SourceSolidity.BinaryOp.add
+                  (L00_SourceSolidity.Expr.ident "LAYOUT_SLOT")
+                  (numberExpr "1"))
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def constantStorageLayoutAccepted : Bool :=
+  sourceUnitAccepted? constantStorageLayoutSource
+
+def unknownConstantStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UnknownConstantStorageLayout"
+            layoutBase := some (L00_SourceSolidity.Expr.ident "MISSING")
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def unknownConstantStorageLayoutRejected : Bool :=
+  Result.isError (SourceUnit.check unknownConstantStorageLayoutSource)
+
 def erc7201StorageLayoutSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
