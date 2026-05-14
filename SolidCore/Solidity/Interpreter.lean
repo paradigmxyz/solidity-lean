@@ -4301,6 +4301,7 @@ inductive Stmt where
   | storageArrayPop : String -> Stmt
   | storageArrayPopRef : String -> Stmt
   | storageArrayPopPath : String -> List Expr -> Stmt
+  | panic : Word -> Stmt
   | assertStmt : Expr -> Stmt
   | requireStmt : Expr -> Option String -> Stmt
   | requireErrorExpr : Expr -> Expr -> Stmt
@@ -4707,6 +4708,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | Except.error err => some (Result.reverted runtime err)
+      | Stmt.panic code =>
+          some (Result.reverted runtime (RevertData.panic code))
       | Stmt.assertStmt cond =>
           match cond.evalWithRuntime context runtime with
           | Except.ok (value, runtime') =>

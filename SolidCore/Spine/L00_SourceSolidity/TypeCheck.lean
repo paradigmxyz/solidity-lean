@@ -15105,6 +15105,74 @@ def internalFunctionPointerDeleteThenAssignSource :
 def internalFunctionPointerDeleteThenAssignAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerDeleteThenAssignSource
 
+def internalFunctionPointerUninitializedCallFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callUninitializedPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              none
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fp")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "x")])) ]) }
+
+def internalFunctionPointerUninitializedCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerUninitializedCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerUninitializedCallFunction ] } ] }
+
+def internalFunctionPointerUninitializedCallAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerUninitializedCallSource
+
+def internalFunctionPointerDeletedCallFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callDeletedPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.unary
+                L00_SourceSolidity.UnaryOp.delete
+                (L00_SourceSolidity.Expr.ident "fp"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fp")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "x")])) ]) }
+
+def internalFunctionPointerDeletedCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerDeletedCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerDeletedCallFunction ] } ] }
+
+def internalFunctionPointerDeletedCallAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerDeletedCallSource
+
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with

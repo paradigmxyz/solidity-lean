@@ -10,6 +10,11 @@ abbrev Word := SharedSemantics.Word
 abbrev Byte := Nat
 abbrev Name := String
 
+def internalFunctionPointerPanicName : Name :=
+  "__solidcore_internal_function_pointer_panic"
+
+def internalFunctionPointerPanicCode : Word := 0x51
+
 structure SourceSpan where
   file : Option String := none
   startByte : Nat := 0
@@ -5360,6 +5365,12 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
                     | _, _ => none)
                   bindings
               some (SolidCore.Solidity.Source.Stmt.block coreDecls)
+  | Stmt.expr
+      (Expr.call
+        (Expr.ident "__solidcore_internal_function_pointer_panic") []) =>
+      some
+        (SolidCore.Solidity.Source.Stmt.panic
+          internalFunctionPointerPanicCode)
   | Stmt.expr (Expr.assign (Expr.tuple lhsItems) AssignOp.assign rhs) =>
       tupleAssignmentCore? storageNames lhsItems rhs
   | Stmt.expr
@@ -5512,6 +5523,13 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.revertCall (Expr.call (Expr.ident name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
       some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
+  | Stmt.returnValues
+      (some
+        (Expr.call
+          (Expr.ident "__solidcore_internal_function_pointer_panic") [])) =>
+      some
+        (SolidCore.Solidity.Source.Stmt.panic
+          internalFunctionPointerPanicCode)
   | Stmt.returnValues none => some (SolidCore.Solidity.Source.Stmt.returnValues [])
   | Stmt.returnValues
       (some
@@ -7361,22 +7379,48 @@ def Expr.inlineInternalFunctionAliasesFuel :
         (stop.map
           (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
   | fuel + 1, aliasEnv, Expr.call (Expr.ident name) args =>
-      Expr.call
-        (Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name))
-        (args.map
-          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+      match InternalFunctionAliasEnv.lookup? aliasEnv name with
+      | some binding =>
+          match binding.target with
+          | some _ =>
+              Expr.call
+                (Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name))
+                (args.map
+                  (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+          | none =>
+              Expr.call (Expr.ident internalFunctionPointerPanicName) []
+      | none =>
+          Expr.call
+            (Expr.ident name)
+            (args.map
+              (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
   | fuel + 1, aliasEnv, Expr.call fn args =>
       Expr.call
         (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv fn)
         (args.map
           (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
   | fuel + 1, aliasEnv, Expr.callWithOptions (Expr.ident name) options args =>
-      Expr.callWithOptions
-        (Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name))
-        (options.map
-          (CallOption.inlineInternalFunctionAliasesFuel fuel aliasEnv))
-        (args.map
-          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+      match InternalFunctionAliasEnv.lookup? aliasEnv name with
+      | some binding =>
+          match binding.target with
+          | some _ =>
+              Expr.callWithOptions
+                (Expr.ident
+                  (InternalFunctionAliasEnv.resolve aliasEnv name))
+                (options.map
+                  (CallOption.inlineInternalFunctionAliasesFuel
+                    fuel aliasEnv))
+                (args.map
+                  (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+          | none =>
+              Expr.call (Expr.ident internalFunctionPointerPanicName) []
+      | none =>
+          Expr.callWithOptions
+            (Expr.ident name)
+            (options.map
+              (CallOption.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+            (args.map
+              (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
   | fuel + 1, aliasEnv, Expr.callWithOptions fn options args =>
       Expr.callWithOptions
         (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv fn)
@@ -29036,6 +29080,94 @@ def internalFunctionPointerDeleteThenAssignMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 63)
+  | _ => some false
+
+def internalFunctionPointerUninitializedCallContract : ContractDecl :=
+  { name := "InternalFunctionPointerUninitializedCall"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      none
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "fp")
+                          [Arg.positional (Expr.ident "value")])) ]) } ] }
+
+def internalFunctionPointerUninitializedCallPanics : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 internalFunctionPointerUninitializedCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (SolidCore.Solidity.Source.wordEq
+        code internalFunctionPointerPanicCode)
+  | _ => some false
+
+def internalFunctionPointerDeletedCallContract : ContractDecl :=
+  { name := "InternalFunctionPointerDeletedCall"
+    items :=
+      [ ContractItem.function
+          { name := some "double"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "value")
+                      (Expr.literal (Literal.number "2"))))) }
+      , ContractItem.function
+          { name := some "run"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      (some (Expr.ident "double"))
+                  , Stmt.expr
+                      (Expr.unary UnaryOp.delete (Expr.ident "fp"))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "fp")
+                          [Arg.positional (Expr.ident "value")])) ]) } ] }
+
+def internalFunctionPointerDeletedCallPanics : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 internalFunctionPointerDeletedCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (SolidCore.Solidity.Source.wordEq
+        code internalFunctionPointerPanicCode)
   | _ => some false
 
 def internalReturnSubexpressionContract : ContractDecl :=
