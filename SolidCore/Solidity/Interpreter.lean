@@ -1426,6 +1426,85 @@ def State.clearDynamicArrayLayoutAt (state : State) (slot : Word)
     State.clearDynamicArrayLayoutSlots state slot elementLayout 0 length
   Except.ok (state.storeSlot slot 0)
 
+mutual
+
+def StorageLayout.clearDepth : StorageLayout -> Nat
+  | StorageLayout.scalar _ => 1
+  | StorageLayout.struct layouts => StorageLayouts.clearDepth layouts + 1
+  | StorageLayout.fixedArray _ elementLayout =>
+      StorageLayout.clearDepth elementLayout + 1
+  | StorageLayout.dynamicArray elementLayout =>
+      StorageLayout.clearDepth elementLayout + 1
+  | StorageLayout.bytes => 1
+  | StorageLayout.string => 1
+  | StorageLayout.mapping _ _ => 1
+
+def StorageLayouts.clearDepth : List StorageLayout -> Nat
+  | [] => 1
+  | layout :: rest =>
+      Nat.max (StorageLayout.clearDepth layout)
+        (StorageLayouts.clearDepth rest)
+
+end
+
+def State.clearStorageLayoutAtFuel :
+    Nat -> State -> Word -> StorageLayout -> Except RevertData State
+  | 0, state, slot, layout =>
+      State.clearStorageLayoutAt state slot layout
+  | fuel + 1, state, slot, layout =>
+      match layout with
+      | StorageLayout.scalar ty => do
+          let defaultWord ← coerceStorageWordAs ty ty.defaultValue
+          Except.ok (state.storeSlot slot defaultWord)
+      | StorageLayout.struct layouts => do
+          let (state, _) ←
+            layouts.foldlM
+              (fun (acc : State × Nat) layout => do
+                let (state, offset) := acc
+                let fieldSlot :=
+                  normWord (SharedSemantics.norm slot + offset)
+                let state ←
+                  State.clearStorageLayoutAtFuel fuel
+                    state fieldSlot layout
+                Except.ok
+                  (state, offset + StorageLayout.slotSpan layout))
+              (state, 0)
+          Except.ok state
+      | StorageLayout.bytes =>
+          Except.ok (state.storeSlot slot 0)
+      | StorageLayout.string =>
+          Except.ok (state.storeSlot slot 0)
+      | StorageLayout.dynamicArray elementLayout => do
+          let length := SharedSemantics.norm (state.loadSlot slot)
+          let state ←
+            (List.range length).foldlM
+              (fun state index => do
+                let state ←
+                  State.clearStorageLayoutAtFuel fuel state
+                    (dynamicArrayLayoutStorageSlot
+                      slot index elementLayout)
+                    elementLayout
+                Except.ok state)
+              state
+          Except.ok (state.storeSlot slot 0)
+      | StorageLayout.mapping _ _ =>
+          Except.ok state
+      | StorageLayout.fixedArray size elementLayout =>
+          (List.range size).foldlM
+            (fun state index => do
+              let state ←
+                State.clearStorageLayoutAtFuel fuel state
+                  (fixedArrayLayoutStorageSlot
+                    slot index elementLayout)
+                  elementLayout
+              Except.ok state)
+            state
+
+def State.clearStorageLayoutAtDeep (state : State) (slot : Word)
+    (layout : StorageLayout) : Except RevertData State :=
+  State.clearStorageLayoutAtFuel
+    (StorageLayout.clearDepth layout) state slot layout
+
 def Runtime.deleteStorageField (context : Context)
     (runtime : Runtime) (name : String) :
     Except RevertData Runtime := do
@@ -1436,8 +1515,8 @@ def Runtime.deleteStorageField (context : Context)
   match field.layout? with
   | some (StorageLayout.dynamicArray elementLayout) => do
       let state ←
-        State.clearDynamicArrayLayoutAt
-          runtime.state field.slot elementLayout
+        State.clearStorageLayoutAtDeep runtime.state field.slot
+          (StorageLayout.dynamicArray elementLayout)
       Except.ok { runtime with state }
   | some StorageLayout.bytes =>
       Except.ok
@@ -1447,12 +1526,12 @@ def Runtime.deleteStorageField (context : Context)
         { runtime with state := runtime.state.storeSlot field.slot 0 }
   | some (StorageLayout.struct layouts) => do
       let state ←
-        State.clearStorageLayoutAt runtime.state field.slot
+        State.clearStorageLayoutAtDeep runtime.state field.slot
           (StorageLayout.struct layouts)
       Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let state ←
-        State.clearStorageLayoutAt runtime.state field.slot
+        State.clearStorageLayoutAtDeep runtime.state field.slot
           (StorageLayout.fixedArray size elementLayout)
       Except.ok { runtime with state }
   | some (StorageLayout.mapping _ _) =>
@@ -1671,7 +1750,7 @@ def Runtime.storageArrayPush (context : Context)
               State.storeStorageLayoutAt runtime.state
                 elementSlot elementLayout value
           | none =>
-              State.clearStorageLayoutAt runtime.state
+              State.clearStorageLayoutAtDeep runtime.state
                 elementSlot elementLayout
         Except.ok
           { runtime with
@@ -1723,7 +1802,7 @@ def Runtime.storageArrayPop (context : Context)
     match field.layout? with
     | some (StorageLayout.dynamicArray elementLayout) => do
         let state ←
-          State.clearStorageLayoutAt runtime.state
+          State.clearStorageLayoutAtDeep runtime.state
             (dynamicArrayLayoutStorageSlot
               field.slot newLength elementLayout)
             elementLayout

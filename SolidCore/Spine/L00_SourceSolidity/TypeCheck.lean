@@ -11853,6 +11853,59 @@ def pushStructArraySource : L00_SourceSolidity.SourceUnit :=
 def pushStructArrayAccepted : Bool :=
   sourceUnitAccepted? pushStructArraySource
 
+def deleteNestedStructArrayStruct : L00_SourceSolidity.StructDecl :=
+  { name := "NestedArrayRecord"
+    fields :=
+      [ { name := "amount", ty := uint256 }
+      , { name := "items"
+          ty := L00_SourceSolidity.Ty.array uint256 none } ] }
+
+def deleteNestedStructArrayRecordTy : L00_SourceSolidity.Ty :=
+  L00_SourceSolidity.Ty.user (userPath "NestedArrayRecord")
+
+def deleteNestedStructArraySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          deleteNestedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DeleteNestedStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "dynamicRecords"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        deleteNestedStructArrayRecordTy none }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "fixedRecords"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        deleteNestedStructArrayRecordTy (some 2) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearDynamic"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.ident
+                              "dynamicRecords"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearFixed"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.ident
+                              "fixedRecords"))) } ] } ] }
+
+def deleteNestedStructArrayAccepted : Bool :=
+  sourceUnitAccepted? deleteNestedStructArraySource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

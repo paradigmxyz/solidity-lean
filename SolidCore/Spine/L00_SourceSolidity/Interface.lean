@@ -20708,6 +20708,124 @@ def deleteDynamicStructArrayClearsElement : Option Bool := do
           (SolidCore.Solidity.Source.fixedArrayStorageSlot
             elementSlot 1)) 0)
 
+def nestedDynamicFieldStructLayout : CoreStorageLayout :=
+  SolidCore.Solidity.Source.StorageLayout.struct
+    [ SolidCore.Solidity.Source.StorageLayout.scalar
+        SolidCore.Solidity.Source.Ty.uint256
+    , SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256) ]
+
+def deleteNestedStructArrayContract : ContractDecl :=
+  { name := "DeleteNestedStructArray"
+    items :=
+      [ ContractItem.stateVar
+          { name := "dynamicRecords"
+            ty :=
+              Ty.array
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.array (Ty.uint 256) none ])
+                none }
+      , ContractItem.stateVar
+          { name := "fixedRecords"
+            ty :=
+              Ty.array
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.array (Ty.uint 256) none ])
+                (some 2) }
+      , ContractItem.function
+          { name := some "clearDynamic"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.ident "dynamicRecords"))) }
+      , ContractItem.function
+          { name := some "clearFixed"
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.ident "fixedRecords"))) } ] }
+
+def deleteNestedDynamicStructArrayInitialState : CoreState :=
+  let recordSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0 nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 1
+    |>.storeSlot recordSlot 12
+    |>.storeSlot nestedSlot 1
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 0) 88
+
+def deleteNestedDynamicStructArrayState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 deleteNestedStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearDynamic")
+      deleteNestedDynamicStructArrayInitialState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def deleteNestedDynamicStructArrayClearsNestedData : Option Bool := do
+  let state ← deleteNestedDynamicStructArrayState
+  let recordSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0 nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot recordSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0)
+
+def deleteNestedFixedStructArrayInitialState : CoreState :=
+  let recordSlot :=
+    SolidCore.Solidity.Source.fixedArrayLayoutStorageSlot
+      1 1 nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot recordSlot 34
+    |>.storeSlot nestedSlot 1
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 0) 99
+
+def deleteNestedFixedStructArrayState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 deleteNestedStructArrayContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearFixed")
+      deleteNestedFixedStructArrayInitialState []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def deleteNestedFixedStructArrayClearsNestedData : Option Bool := do
+  let state ← deleteNestedFixedStructArrayState
+  let recordSlot :=
+    SolidCore.Solidity.Source.fixedArrayLayoutStorageSlot
+      1 1 nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot recordSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=
