@@ -3750,7 +3750,7 @@ def checkExpr (env : CheckEnv) :
               (L00_SourceSolidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectInteger
+              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
               Except.ok
                 { source := expr, ty := L00_SourceSolidity.Ty.bool }
           | _ =>
@@ -3762,7 +3762,7 @@ def checkExpr (env : CheckEnv) :
               (L00_SourceSolidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectInteger
+              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
               Except.ok
                 { source := expr
                   ty := L00_SourceSolidity.Ty.tuple [] }
@@ -4074,7 +4074,7 @@ def checkExpr (env : CheckEnv) :
               (L00_SourceSolidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectInteger
+              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
               Except.ok
                 { source := expr, ty := L00_SourceSolidity.Ty.bool }
           | _ =>
@@ -4086,7 +4086,7 @@ def checkExpr (env : CheckEnv) :
               (L00_SourceSolidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectInteger
+              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
               Except.ok
                 { source := expr
                   ty := L00_SourceSolidity.Ty.tuple [] }
@@ -15001,6 +15001,62 @@ def lowLevelSendNonpayableAddressSource : L00_SourceSolidity.SourceUnit :=
 
 def lowLevelSendNonpayableAddressRejected : Bool :=
   Result.isError (SourceUnit.check lowLevelSendNonpayableAddressSource)
+
+def lowLevelSendSignedAmountFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { lowLevelSendFunction with
+    name := some "badSendSignedAmount"
+    params :=
+      [ { name := some "target"
+          ty := L00_SourceSolidity.Ty.address true
+          location := none }
+      , { name := some "amount"
+          ty := int256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "target") "send")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "amount") ]))) }
+
+def lowLevelSendSignedAmountSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadLowLevelSendSignedAmount"
+            items := [L00_SourceSolidity.ContractItem.function
+              lowLevelSendSignedAmountFunction] } ] }
+
+def lowLevelSendSignedAmountRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelSendSignedAmountSource)
+
+def lowLevelTransferSignedAmountFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { lowLevelSendSignedAmountFunction with
+    name := some "badTransferSignedAmount"
+    returns := []
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.expr
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "target") "transfer")
+            [ L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "amount") ])) }
+
+def lowLevelTransferSignedAmountSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadLowLevelTransferSignedAmount"
+            items := [L00_SourceSolidity.ContractItem.function
+              lowLevelTransferSignedAmountFunction] } ] }
+
+def lowLevelTransferSignedAmountRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelTransferSignedAmountSource)
 
 def selfdestructFunction : L00_SourceSolidity.FunctionDecl :=
   { name := some "bye"
