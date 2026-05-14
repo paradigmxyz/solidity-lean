@@ -911,6 +911,7 @@ structure CheckEnv where
   vars : TypeEnv := []
   stateNames : List Name := []
   localNames : List Name := []
+  blockScopeNames : List Name := []
   localStorageRefs : List Name := []
   localDataLocations : List (Name × L00_SourceSolidity.DataLocation) := []
   constantBindings : List (Name × Bool) := []
@@ -5376,7 +5377,7 @@ def checkStmt (env : CheckEnv) :
     L00_SourceSolidity.Stmt -> Except TypeError CheckedStmt
   | stmt@L00_SourceSolidity.Stmt.empty => Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.block body) => do
-      let _ ← checkStmtSeq env body
+      let _ ← checkStmtSeq { env with blockScopeNames := [] } body
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.varDecl bindings init?) => do
       let named ← VarBindings.namedTypes env bindings
@@ -5489,6 +5490,8 @@ def checkStmt (env : CheckEnv) :
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.tryCatchReturns expr returns success clauses) => do
       Parameters.check env.types returns
+      ensureUniqueNames "try return"
+        ((Parameters.namedTypes returns).map Prod.fst)
       let checked ← checkTryTarget env expr
       checked.expectAssignableToTys env.types (Parameters.tys returns)
       let successEnv :=
@@ -5533,6 +5536,14 @@ def checkStmtSeq (env : CheckEnv) :
     List L00_SourceSolidity.Stmt -> Except TypeError CheckEnv
   | [] => Except.ok env
   | stmt :: rest => do
+      let declaredNames ←
+        match stmt with
+        | L00_SourceSolidity.Stmt.varDecl bindings _ => do
+            let named ← VarBindings.namedTypes env bindings
+            let names := named.map Prod.fst
+            ensureNamesDisjointFrom "local" env.blockScopeNames names
+            Except.ok names
+        | _ => Except.ok []
       let _ ← checkStmt env stmt
       let nextEnv ←
         match stmt with
@@ -5540,8 +5551,9 @@ def checkStmtSeq (env : CheckEnv) :
             let named ← VarBindings.namedTypeStorageRefs env bindings
             let dataLocations ← VarBindings.namedDataLocations env bindings
             Except.ok
-              ((env.extendVarsWithStorageRefs named).extendDataLocations
-                dataLocations)
+              { ((env.extendVarsWithStorageRefs named).extendDataLocations
+                  dataLocations) with
+                blockScopeNames := declaredNames ++ env.blockScopeNames }
         | _ => Except.ok env
       checkStmtSeq nextEnv rest
 
@@ -8765,6 +8777,61 @@ def badTupleVarDeclSource : L00_SourceSolidity.SourceUnit :=
 
 def badTupleVarDeclRejected : Bool :=
   Result.isError (SourceUnit.check badTupleVarDeclSource)
+
+def duplicateBlockLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "duplicateBlockLocal"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "value", ty := some uint256, location := none }]
+              (some (numberExpr "1"))
+          , L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "value", ty := some uint256, location := none }]
+              (some (numberExpr "2"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "value")) ]) }
+
+def duplicateBlockLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateBlockLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                duplicateBlockLocalFunction] } ] }
+
+def duplicateBlockLocalRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateBlockLocalSource)
+
+def nestedBlockLocalShadowFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "nestedBlockLocalShadow"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "value", ty := some uint256, location := none }]
+              (some (numberExpr "1"))
+          , L00_SourceSolidity.Stmt.block
+              [ L00_SourceSolidity.Stmt.varDecl
+                  [ { name := some "value"
+                      ty := some uint256
+                      location := none } ]
+                  (some (numberExpr "2")) ]
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "value")) ]) }
+
+def nestedBlockLocalShadowSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NestedBlockLocalShadow"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                nestedBlockLocalShadowFunction] } ] }
+
+def nestedBlockLocalShadowAccepted : Bool :=
+  sourceUnitAccepted? nestedBlockLocalShadowSource
 
 def tupleAssignmentFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -15967,6 +16034,11 @@ def externalViewUintFunctionTy : Ty :=
     L00_SourceSolidity.StateMutability.view
     L00_SourceSolidity.Visibility.external_
 
+def externalViewUintPairFunctionTy : Ty :=
+  L00_SourceSolidity.Ty.function [] [uint256, uint256]
+    L00_SourceSolidity.StateMutability.view
+    L00_SourceSolidity.Visibility.external_
+
 def externalPureUintFunctionTy : Ty :=
   L00_SourceSolidity.Ty.function [] [uint256]
     L00_SourceSolidity.StateMutability.pure
@@ -19118,6 +19190,40 @@ def tryReturnMismatchSource : L00_SourceSolidity.SourceUnit :=
 
 def tryReturnMismatchRejected : Bool :=
   Result.isError (SourceUnit.check tryReturnMismatchSource)
+
+def duplicateTryReturnNameFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "duplicateTryReturnName"
+    params :=
+      [ { name := some "getter"
+          ty := externalViewUintPairFunctionTy
+          location := none } ]
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter") [])
+          [ { name := some "value"
+              ty := uint256
+              location := none }
+          , { name := some "value"
+              ty := uint256
+              location := none } ]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (numberExpr "1")))
+          [tryCatchZeroClause]) }
+
+def duplicateTryReturnNameSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateTryReturnName"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  duplicateTryReturnNameFunction ] } ] }
+
+def duplicateTryReturnNameRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateTryReturnNameSource)
 
 def catchErrorClause : L00_SourceSolidity.CatchClause :=
   L00_SourceSolidity.CatchClause.clause (some "Error")
