@@ -7965,6 +7965,35 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         | none => some SolidCore.Solidity.Source.Stmt.skip
       some (SolidCore.Solidity.Source.Stmt.ifElse
         condCore thenCore elseCore)
+  | Stmt.whileLoop (Expr.call (Expr.ident name) args) body => do
+      let bodyCore ←
+        Stmt.toCoreWithInternalCalls?
+          (internalFuel := internalFuel)
+          (storageRefEnv := storageRefEnv)
+          (env := env)
+          (externalCallKindEnv := externalCallKindEnv)
+          (storageNames := storageNames)
+          (modifiers := modifiers)
+          (functions := functions)
+          (freeFunctions := freeFunctions)
+          (returnTys := returnTys)
+          (stmt := body)
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.ifElse
+              retExpr bodyCore SolidCore.Solidity.Source.Stmt.break) with
+      | some stepCore =>
+          some
+            (SolidCore.Solidity.Source.Stmt.whileLoop
+              (SolidCore.Solidity.Source.Expr.word 1)
+              stepCore)
+      | none => do
+          let condCore ←
+            Expr.toCore? storageNames (Expr.call (Expr.ident name) args)
+          some (SolidCore.Solidity.Source.Stmt.whileLoop
+            condCore bodyCore)
   | Stmt.whileLoop cond body => do
       let condCore ← Expr.toCore? storageNames cond
       let bodyCore ←
@@ -26874,6 +26903,54 @@ def internalIfConditionCallMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot runFalseState 0) 1)
   | _, _ => some false
+
+def internalWhileConditionCallContract : ContractDecl :=
+  { name := "InternalWhileConditionCall"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "keepGoing"
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.ifElse
+                  (Expr.binary BinaryOp.lt
+                    (Expr.ident "x")
+                    (Expr.literal (Literal.number "3")))
+                  (Stmt.block
+                    [ Stmt.expr
+                        (Expr.assign (Expr.ident "x") AssignOp.addAssign
+                          (Expr.literal (Literal.number "1")))
+                    , Stmt.returnValues
+                        (some (Expr.literal (Literal.bool true))) ])
+                  (some
+                    (Stmt.returnValues
+                      (some (Expr.literal (Literal.bool false)))))) }
+      , ContractItem.function
+          { name := some "run"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.whileLoop
+                      (Expr.call (Expr.ident "keepGoing") [])
+                      Stmt.empty
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) } ] }
+
+def internalWhileConditionCallMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 128 internalWhileConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq value 3 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot state 0) 3)
+  | _ => some false
 
 def internalNamedArgsContract : ContractDecl :=
   { name := "InternalNamedArgs"
