@@ -11474,6 +11474,40 @@ def publicArrayStructGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicArrayStructGetterAccepted : Bool :=
   sourceUnitAccepted? publicArrayStructGetterSource
 
+def publicFixedArrayStructGetterShapeStateVar :
+    L00_SourceSolidity.StateVarDecl :=
+  { name := "fixedRecords"
+    ty :=
+      L00_SourceSolidity.Ty.array
+        (L00_SourceSolidity.Ty.user (userPath "PublicStructData"))
+        (some 2)
+    visibility := some L00_SourceSolidity.Visibility.public_ }
+
+def publicFixedArrayStructGetterShapeReturns : Bool :=
+  match StateVarDecl.publicGetterFunctionSig?
+      publicStructGetterShapeTypes
+      publicFixedArrayStructGetterShapeStateVar with
+  | some sig =>
+      sig.params == [uint256] &&
+        sig.returns ==
+          [ uint256
+          , L00_SourceSolidity.Ty.bytes
+          , L00_SourceSolidity.Ty.bool ]
+  | none => false
+
+def publicFixedArrayStructGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          publicStructGetterShapeStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PublicFixedArrayStructGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  publicFixedArrayStructGetterShapeStateVar ] } ] }
+
+def publicFixedArrayStructGetterAccepted : Bool :=
+  sourceUnitAccepted? publicFixedArrayStructGetterSource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
