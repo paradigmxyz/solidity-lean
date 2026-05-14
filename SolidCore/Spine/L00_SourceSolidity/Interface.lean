@@ -19510,6 +19510,57 @@ def nestedPublicGetterThisCallStaticcallMatches : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq value 77)
   | _ => some false
 
+def publicBytesArrayGetterContract : ContractDecl :=
+  { name := "PublicBytesArray"
+    items :=
+      [ ContractItem.stateVar
+          { name := "blobs"
+            ty := Ty.array Ty.bytes none
+            visibility := some Visibility.public_ } ] }
+
+def publicBytesArrayGetterState : CoreState :=
+  let elementSlot :=
+    SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 2
+    |>.storeSlot elementSlot 3
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 0) 10
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 1) 20
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 2) 30
+
+def publicBytesArrayGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicBytesArrayGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "blobs")
+      publicBytesArrayGetterState
+      [SolidCore.Solidity.Source.Value.word 1]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      some (bytes == [10, 20, 30])
+  | _ => some false
+
+def publicBytesArrayGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? publicBytesArrayGetterContract
+  let function ← contract.findFunctionByName? "blobs"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 1]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract publicBytesArrayGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.bytesCalldata]
+      [SolidCore.Solidity.Source.Value.bytes [10, 20, 30]]
+  some (result.success && result.output == expected)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=
