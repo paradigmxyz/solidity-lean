@@ -9239,6 +9239,186 @@ def internalBinaryLocalCallSource : L00_SourceSolidity.SourceUnit :=
 def internalBinaryLocalCallAccepted : Bool :=
   sourceUnitAccepted? internalBinaryLocalCallSource
 
+def internalUnaryLocalCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalUnaryLocalCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "flagFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "7"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr false)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "zero"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "11"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "0")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "minusFive"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    params :=
+                      [{ name := some "seed"
+                         ty := int256
+                         location := none }]
+                    returns :=
+                      [{ name := some "out"
+                         ty := int256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "13"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.unary
+                                  L00_SourceSolidity.UnaryOp.neg
+                                  (L00_SourceSolidity.Expr.ident
+                                    "seed"))) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runReturnNot"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.unary
+                              L00_SourceSolidity.UnaryOp.logicalNot
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "flagFalse")
+                                [])))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runVarNot"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [{ name := some "ok"
+                                 ty := some L00_SourceSolidity.Ty.bool
+                                 location := none }]
+                              (some
+                                (L00_SourceSolidity.Expr.unary
+                                  L00_SourceSolidity.UnaryOp.logicalNot
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident
+                                      "flagFalse")
+                                    [])))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "ok")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runAssignNot"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [{ name := some "ok"
+                                 ty := some L00_SourceSolidity.Ty.bool
+                                 location := none }]
+                              none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "ok")
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.unary
+                                  L00_SourceSolidity.UnaryOp.logicalNot
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident
+                                      "flagFalse")
+                                    [])))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "ok")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBitNot"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.unary
+                              L00_SourceSolidity.UnaryOp.bitNot
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "zero")
+                                [])))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runNeg"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := int256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.unary
+                              L00_SourceSolidity.UnaryOp.neg
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "minusFive")
+                                [L00_SourceSolidity.Arg.positional
+                                  (numberExpr "5")])))) } ] } ] }
+
+def internalUnaryLocalCallAccepted : Bool :=
+  sourceUnitAccepted? internalUnaryLocalCallSource
+
 def internalIfConditionCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
