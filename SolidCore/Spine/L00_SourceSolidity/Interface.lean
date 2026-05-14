@@ -7304,6 +7304,83 @@ def FunctionDecl.internalAssignReturnCallCore?
     none
 termination_by (internalFuel, 0, 1)
 
+def FunctionDecl.internalBinarySingleReturnUseCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (op : BinaryOp) (lhs rhs : Expr) (useResult : CoreExpr -> CoreStmt) :
+    Option CoreStmt :=
+  match lhs, rhs with
+  | Expr.call (Expr.ident name) args, rhs => do
+      let coreOp ← BinaryOp.toCore? op
+      let rhsCore ← Expr.toCore? storageNames rhs
+      FunctionDecl.internalSingleReturnCallCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions name args
+        (fun retExpr =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.binary
+              coreOp retExpr rhsCore))
+  | lhs, Expr.call (Expr.ident name) args => do
+      let coreOp ← BinaryOp.toCore? op
+      let lhsCore ← Expr.toCore? storageNames lhs
+      let lhsTy ← Expr.abiTyWithEnv? env lhs
+      let lhsCoreTy ← Ty.toCore? lhsTy
+      let lhsTmp := "_sol_bin_lhs"
+      match op with
+      | BinaryOp.boolAnd
+      | BinaryOp.boolOr => do
+          let callCore ←
+            FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retExpr =>
+                useResult
+                  (SolidCore.Solidity.Source.Expr.binary coreOp
+                    (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                    retExpr))
+          let skipCore :=
+            match op with
+            | BinaryOp.boolAnd =>
+                useResult (SolidCore.Solidity.Source.Expr.word 0)
+            | _ =>
+                useResult (SolidCore.Solidity.Source.Expr.word 1)
+          let branchCore :=
+            match op with
+            | BinaryOp.boolAnd =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  callCore skipCore
+            | _ =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  skipCore callCore
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl
+                  lhsCoreTy lhsTmp (some lhsCore)
+              , branchCore ])
+      | _ =>
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retExpr =>
+                useResult
+                  (SolidCore.Solidity.Source.Expr.binary coreOp
+                    (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                    retExpr)) with
+          | some coreStmt =>
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [ SolidCore.Solidity.Source.Stmt.varDecl
+                      lhsCoreTy lhsTmp (some lhsCore)
+                  , coreStmt ])
+          | none => none
+  | _, _ => none
+termination_by (internalFuel, 0, 2)
+
 def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
@@ -7465,6 +7542,46 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | none => Stmt.toCore? storageNames
           (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+  | Stmt.expr
+      (Expr.assign target AssignOp.assign
+        (Expr.binary op lhs rhs)) =>
+      let fallback :=
+        Stmt.expr
+          (Expr.assign target AssignOp.assign
+            (Expr.binary op lhs rhs))
+      match Expr.toCoreLValue? storageNames target with
+      | some targetCore =>
+          match FunctionDecl.internalBinarySingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions op lhs rhs
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  targetCore resultExpr) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames fallback
+      | none => Stmt.toCore? storageNames fallback
+  | Stmt.varDecl [binding]
+      (some (Expr.binary op lhs rhs)) =>
+      let fallback :=
+        Stmt.varDecl [binding]
+          (some (Expr.binary op lhs rhs))
+      match binding.name with
+      | some localName =>
+          match FunctionDecl.internalBinarySingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions op lhs rhs
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  resultExpr) with
+          | some assignBlock => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [declCore, assignBlock])
+          | none => Stmt.toCore? storageNames fallback
+      | none => Stmt.toCore? storageNames fallback
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
@@ -8094,6 +8211,71 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (coreDecls ++ assigns ++ tail)
+  | Stmt.varDecl [binding] (some (Expr.binary op lhs rhs)) :: rest =>
+      match binding.name with
+      | some localName =>
+          match FunctionDecl.internalBinarySingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions op lhs rhs
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  resultExpr) with
+          | some assignBlock => do
+              let declCore ←
+                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (declCore :: assignBlock :: tail)
+          | none => do
+              let head ←
+                Stmt.toCoreWithInternalCalls?
+                  (internalFuel := internalFuel)
+                  (storageRefEnv := storageRefEnv)
+                  (env := env)
+                  (externalCallKindEnv := externalCallKindEnv)
+                  (storageNames := storageNames)
+                  (modifiers := modifiers)
+                  (functions := functions)
+                  (freeFunctions := freeFunctions)
+                  (returnTys := returnTys)
+                  (stmt := Stmt.varDecl [binding]
+                    (some (Expr.binary op lhs rhs)))
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := Stmt.varDecl [binding]
+                (some (Expr.binary op lhs rhs)))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) :: rest =>
       match binding.name, binding.ty with
       | some localName, some expectedTy =>
@@ -26439,6 +26621,137 @@ def internalReturnShortCircuitMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq orCallValue 1 &&
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot orCallState 0) 1)
+  | _, _, _, _ => some false
+
+def internalBinaryLocalCallContract : ContractDecl :=
+  { name := "InternalBinaryLocalCall"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "base"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.literal (Literal.number "41")))) }
+      , ContractItem.function
+          { name := some "read"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.ident "x"))) }
+      , ContractItem.function
+          { name := some "mark"
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some (Expr.literal (Literal.bool true))) ]) }
+      , ContractItem.function
+          { name := some "runVar"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "y", ty := some (Ty.uint 256) }]
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.call (Expr.ident "base") [])
+                          (Expr.literal (Literal.number "1"))))
+                  , Stmt.returnValues
+                      (some (Expr.ident "y")) ]) }
+      , ContractItem.function
+          { name := some "runAssign"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "y", ty := some (Ty.uint 256) }]
+                      none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "y") AssignOp.assign
+                        (Expr.binary BinaryOp.add
+                          (Expr.assign (Expr.ident "x") AssignOp.assign
+                            (Expr.literal (Literal.number "5")))
+                          (Expr.call (Expr.ident "read") [])))
+                  , Stmt.returnValues
+                      (some (Expr.ident "y")) ]) }
+      , ContractItem.function
+          { name := some "runVarShort"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "ok", ty := some Ty.bool }]
+                      (some
+                        (Expr.binary BinaryOp.boolAnd
+                          (Expr.literal (Literal.bool false))
+                          (Expr.call (Expr.ident "mark") [])))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "runAssignShort"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "ok", ty := some Ty.bool }]
+                      none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "ok") AssignOp.assign
+                        (Expr.binary BinaryOp.boolOr
+                          (Expr.literal (Literal.bool true))
+                          (Expr.call (Expr.ident "mark") [])))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) } ] }
+
+def internalBinaryLocalCallMatches : Option Bool := do
+  let runVar ←
+    ContractDecl.call? 64 internalBinaryLocalCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runVar")
+      SolidCore.Solidity.Source.State.empty []
+  let runAssign ←
+    ContractDecl.call? 64 internalBinaryLocalCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runAssign")
+      SolidCore.Solidity.Source.State.empty []
+  let runVarShort ←
+    ContractDecl.call? 64 internalBinaryLocalCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runVarShort")
+      SolidCore.Solidity.Source.State.empty []
+  let runAssignShort ←
+    ContractDecl.call? 64 internalBinaryLocalCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runAssignShort")
+      SolidCore.Solidity.Source.State.empty []
+  match runVar, runAssign, runVarShort, runAssignShort with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runVarValue],
+    SolidCore.Solidity.Source.CallResult.returned runAssignState
+      [SolidCore.Solidity.Source.Value.word runAssignValue],
+    SolidCore.Solidity.Source.CallResult.returned runVarShortState
+      [SolidCore.Solidity.Source.Value.word runVarShortValue],
+    SolidCore.Solidity.Source.CallResult.returned runAssignShortState
+      [SolidCore.Solidity.Source.Value.word runAssignShortValue] =>
+      some
+        (SolidCore.Solidity.Source.wordEq runVarValue 42 &&
+          SolidCore.Solidity.Source.wordEq runAssignValue 10 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot runAssignState 0) 5 &&
+          SolidCore.Solidity.Source.wordEq runVarShortValue 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot runVarShortState 0) 0 &&
+          SolidCore.Solidity.Source.wordEq runAssignShortValue 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot
+              runAssignShortState 0) 0)
   | _, _, _, _ => some false
 
 def internalNamedArgsContract : ContractDecl :=
