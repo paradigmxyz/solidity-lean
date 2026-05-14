@@ -7316,6 +7316,12 @@ def InternalFunctionAliasEnv.reassignedTarget?
       aliasEnv functions freeFunctions binding.expected sourceName
   some { binding with target := some target }
 
+def InternalFunctionAliasEnv.deletedTarget?
+    (aliasEnv : InternalFunctionAliasEnv)
+    (aliasName : Name) : Option InternalFunctionAliasBinding := do
+  let binding ← InternalFunctionAliasEnv.lookup? aliasEnv aliasName
+  some { binding with target := none }
+
 def VarBinding.removeInternalFunctionAlias
     (aliasEnv : InternalFunctionAliasEnv)
     (binding : VarBinding) : InternalFunctionAliasEnv :=
@@ -7593,6 +7599,24 @@ def Stmt.inlineInternalFunctionAliasSeqFuel
             Stmt.expr
               (Expr.assign (Expr.ident aliasName) AssignOp.assign
                 (Expr.ident sourceName))
+          let head :=
+            Stmt.inlineInternalFunctionAliasesFuel
+              functions freeFunctions fuel aliasEnv stmt
+          let (tail, finalEnv) :=
+            Stmt.inlineInternalFunctionAliasSeqFuel
+              functions freeFunctions fuel aliasEnv rest
+          (head :: tail, finalEnv)
+  | fuel + 1, aliasEnv,
+    Stmt.expr (Expr.unary UnaryOp.delete (Expr.ident aliasName)) :: rest =>
+      match InternalFunctionAliasEnv.deletedTarget? aliasEnv aliasName with
+      | some aliasBinding =>
+          let aliasEnv' :=
+            InternalFunctionAliasEnv.extend aliasEnv aliasBinding
+          Stmt.inlineInternalFunctionAliasSeqFuel
+            functions freeFunctions fuel aliasEnv' rest
+      | none =>
+          let stmt :=
+            Stmt.expr (Expr.unary UnaryOp.delete (Expr.ident aliasName))
           let head :=
             Stmt.inlineInternalFunctionAliasesFuel
               functions freeFunctions fuel aliasEnv stmt
@@ -28947,6 +28971,71 @@ def internalFunctionPointerAssignAfterDeclMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def internalFunctionPointerDeleteThenAssignContract : ContractDecl :=
+  { name := "InternalFunctionPointerDeleteThenAssign"
+    items :=
+      [ ContractItem.function
+          { name := some "double"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "value")
+                      (Expr.literal (Literal.number "2"))))) }
+      , ContractItem.function
+          { name := some "triple"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "value")
+                      (Expr.literal (Literal.number "3"))))) }
+      , ContractItem.function
+          { name := some "run"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      (some (Expr.ident "double"))
+                  , Stmt.expr
+                      (Expr.unary UnaryOp.delete (Expr.ident "fp"))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "fp") AssignOp.assign
+                        (Expr.ident "triple"))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "fp")
+                          [Arg.positional (Expr.ident "value")])) ]) } ] }
+
+def internalFunctionPointerDeleteThenAssignMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 internalFunctionPointerDeleteThenAssignContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 63)
   | _ => some false
 
 def internalReturnSubexpressionContract : ContractDecl :=

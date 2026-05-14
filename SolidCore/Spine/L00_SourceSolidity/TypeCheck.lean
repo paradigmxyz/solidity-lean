@@ -15061,6 +15061,50 @@ def internalFunctionPointerAssignAfterDeclSource :
 def internalFunctionPointerAssignAfterDeclAccepted : Bool :=
   sourceUnitAccepted? internalFunctionPointerAssignAfterDeclSource
 
+def internalFunctionPointerDeleteThenAssignFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalFunctionPointerAliasFunction with
+    name := some "callViaDeletedThenAssignedPointer"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.unary
+                L00_SourceSolidity.UnaryOp.delete
+                (L00_SourceSolidity.Expr.ident "fp"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.ident "fp")
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.ident "triple"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fp")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "x")])) ]) }
+
+def internalFunctionPointerDeleteThenAssignSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerDeleteThenAssign"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerReassignTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerDeleteThenAssignFunction ] } ] }
+
+def internalFunctionPointerDeleteThenAssignAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerDeleteThenAssignSource
+
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
