@@ -975,6 +975,14 @@ def CheckEnv.lookupModifierDecl? (env : CheckEnv) (target : Name) :
     Option L00_SourceSolidity.ModifierDecl :=
   lookupModifierDeclIn? target env.modifierDecls
 
+def CheckEnv.isCurrentOrAncestorContract (env : CheckEnv)
+    (path : Path) : Bool :=
+  match env.currentContract with
+  | some current =>
+      TypeContext.pathMatches current path ||
+        TypeContext.pathIn path env.ancestorPaths
+  | none => false
+
 def mutabilityAllowsStateRead :
     Option L00_SourceSolidity.StateMutability -> Bool
   | some L00_SourceSolidity.StateMutability.pure => false
@@ -3179,6 +3187,8 @@ def checkExpr (env : CheckEnv) :
                         stateLValue := false }
                   else if member == "creationCode" ||
                       member == "runtimeCode" then
+                    require (!env.isCurrentOrAncestorContract path)
+                      (TypeError.unsupported ("member " ++ member))
                     Except.ok
                       { source := expr
                         ty := L00_SourceSolidity.Ty.bytes
@@ -9012,6 +9022,69 @@ def typeMaxSource : L00_SourceSolidity.SourceUnit :=
 
 def typeMaxAccepted : Bool :=
   sourceUnitAccepted? typeMaxSource
+
+def contractCodeReturnFunction (contractName member : Name) :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some member
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.bytes
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    visibility := some L00_SourceSolidity.Visibility.public_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.typeName
+                (L00_SourceSolidity.Ty.user (userPath contractName)))
+              member))) }
+
+def typeCreationCodeOtherSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CodeTarget" }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "CodeReader"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contractCodeReturnFunction "CodeTarget"
+                    "creationCode") ] } ] }
+
+def typeCreationCodeOtherAccepted : Bool :=
+  sourceUnitAccepted? typeCreationCodeOtherSource
+
+def typeCreationCodeSelfSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SelfCode"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contractCodeReturnFunction "SelfCode"
+                    "creationCode") ] } ] }
+
+def typeCreationCodeSelfRejected : Bool :=
+  Result.isError (SourceUnit.check typeCreationCodeSelfSource)
+
+def typeRuntimeCodeBaseContract : L00_SourceSolidity.ContractDecl :=
+  { name := "RuntimeBase" }
+
+def typeRuntimeCodeDerivedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          typeRuntimeCodeBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "RuntimeDerived"
+            bases := [{ base := userPath "RuntimeBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contractCodeReturnFunction "RuntimeBase"
+                    "runtimeCode") ] } ] }
+
+def typeRuntimeCodeDerivedRejected : Bool :=
+  Result.isError (SourceUnit.check typeRuntimeCodeDerivedSource)
 
 def memoryMappingLocalFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
