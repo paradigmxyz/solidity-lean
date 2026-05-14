@@ -12666,6 +12666,35 @@ def structStoragePathSource :
                                 (L00_SourceSolidity.Expr.ident
                                   "value") ])) }
               , L00_SourceSolidity.ContractItem.function
+                  { name := some "directPathBlobPushAssign"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "blob")
+                                "push")
+                              [])
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) }
+              , L00_SourceSolidity.ContractItem.function
                   { name := some "directPathBlobPop"
                     visibility :=
                       some L00_SourceSolidity.Visibility.public_
@@ -12917,6 +12946,45 @@ def structStoragePathSource :
                                 [ L00_SourceSolidity.Arg.positional
                                     (L00_SourceSolidity.Expr.ident
                                       "value") ]) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "aliasBlobPushAssign"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "blob"
+                                  ty := some L00_SourceSolidity.Ty.bytes
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.index
+                                    (L00_SourceSolidity.Expr.ident
+                                      "entries")
+                                    (L00_SourceSolidity.Expr.ident
+                                      "key"))
+                                  "blob"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.member
+                                    (L00_SourceSolidity.Expr.ident
+                                      "blob")
+                                    "push")
+                                  [])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ident
+                                  "value")) ]) }
               , L00_SourceSolidity.ContractItem.function
                   { name := some "aliasBlobPop"
                     visibility :=

@@ -21912,6 +21912,26 @@ def structStoragePathSourceUnit : SourceUnit :=
                               "push")
                             [Arg.positional (Expr.ident "value")])) }
               , ContractItem.function
+                  { name := some "directPathBlobPushAssign"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.bytesN 1 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.assign
+                            (Expr.call
+                              (Expr.member
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "blob")
+                                "push")
+                              [])
+                            AssignOp.assign
+                            (Expr.ident "value"))) }
+              , ContractItem.function
                   { name := some "directPathBlobPop"
                     params :=
                       [{ name := some "key", ty := Ty.uint 256 }]
@@ -22067,6 +22087,31 @@ def structStoragePathSourceUnit : SourceUnit :=
                               (Expr.call
                                 (Expr.member (Expr.ident "blob") "push")
                                 [Arg.positional (Expr.ident "value")]) ]) }
+              , ContractItem.function
+                  { name := some "aliasBlobPushAssign"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "value", ty := Ty.bytesN 1 } ]
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.varDecl
+                              [ { name := some "blob"
+                                  ty := some Ty.bytes
+                                  location := some DataLocation.storage } ]
+                              (some
+                                (Expr.member
+                                  (Expr.index
+                                    (Expr.ident "entries")
+                                    (Expr.ident "key"))
+                                  "blob"))
+                          , Stmt.expr
+                              (Expr.assign
+                                (Expr.call
+                                  (Expr.member (Expr.ident "blob") "push")
+                                  [])
+                                AssignOp.assign
+                                (Expr.ident "value")) ]) }
               , ContractItem.function
                   { name := some "aliasBlobPop"
                     params := [{ name := some "key", ty := Ty.uint 256 }]
@@ -22487,6 +22532,27 @@ def structStoragePathDirectBlobPushMatches : Option Bool := do
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathBlobValueSlot 2)) 18)
 
+def structStoragePathDirectBlobPushAssignState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name
+        "directPathBlobPushAssign")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 19 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathDirectBlobPushAssignMatches : Option Bool := do
+  let state ← structStoragePathDirectBlobPushAssignState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathBlobValueSlot 2)) 19)
+
 def structStoragePathDirectBlobPopState : Option CoreState := do
   let result ←
     SourceUnit.callContract? 80 structStoragePathSourceUnit
@@ -22621,6 +22687,26 @@ def structStoragePathAliasBlobPushMatches : Option Bool := do
       (state.loadSlot structStoragePathBlobSlot) 3 &&
       SolidCore.Solidity.Source.wordEq
         (state.loadSlot (structStoragePathBlobValueSlot 2)) 5)
+
+def structStoragePathAliasBlobPushAssignState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 80 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasBlobPushAssign")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 20 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathAliasBlobPushAssignMatches : Option Bool := do
+  let state ← structStoragePathAliasBlobPushAssignState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot (structStoragePathBlobValueSlot 2)) 20)
 
 def structStoragePathAliasBlobPopState : Option CoreState := do
   let result ←
