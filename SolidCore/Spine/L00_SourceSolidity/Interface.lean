@@ -21120,6 +21120,136 @@ def indexedDynamicArrayAssignmentMappingClearsTail :
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             bucketSlot 1)) 0)
 
+def deleteNestedIndexedStorageContract : ContractDecl :=
+  { name := "DeleteNestedIndexedStorage"
+    items :=
+      [ ContractItem.stateVar
+          { name := "matrix"
+            ty :=
+              Ty.array
+                (Ty.array (Ty.uint 256) none)
+                none }
+      , ContractItem.stateVar
+          { name := "entries"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.array (Ty.uint 256) none ]) }
+      , ContractItem.function
+          { name := some "clearMatrix"
+            params := [{ name := some "index", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.index
+                      (Expr.ident "matrix")
+                      (Expr.ident "index")))) }
+      , ContractItem.function
+          { name := some "clearEntry"
+            params := [{ name := some "key", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.unary UnaryOp.delete
+                    (Expr.index
+                      (Expr.ident "entries")
+                      (Expr.ident "key")))) } ] }
+
+def deleteNestedIndexedStorageMatrixInitialState : CoreState :=
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 1
+    |>.storeSlot innerSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 0) 11
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 1) 22
+
+def deleteNestedIndexedStorageMatrixState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 deleteNestedIndexedStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearMatrix")
+      deleteNestedIndexedStorageMatrixInitialState
+      [SolidCore.Solidity.Source.Value.word 0]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def deleteNestedIndexedStorageMatrixClearsInnerArray :
+    Option Bool := do
+  let state ← deleteNestedIndexedStorageMatrixState
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot innerSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 0)) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 1)) 0)
+
+def deleteNestedIndexedStorageMappingInitialState : CoreState :=
+  let entrySlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 1 7
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot entrySlot 99
+    |>.storeSlot nestedSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 0) 33
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 1) 44
+
+def deleteNestedIndexedStorageMappingState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 deleteNestedIndexedStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearEntry")
+      deleteNestedIndexedStorageMappingInitialState
+      [SolidCore.Solidity.Source.Value.word 7]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def deleteNestedIndexedStorageMappingClearsNestedData :
+    Option Bool := do
+  let state ← deleteNestedIndexedStorageMappingState
+  let entrySlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 1 7
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 1
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot entrySlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 1)) 0)
+
 def pushNestedDynamicArrayContract : ContractDecl :=
   { name := "PushNestedDynamicArray"
     items :=

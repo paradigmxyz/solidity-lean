@@ -1712,6 +1712,75 @@ def Runtime.deleteStorageField (context : Context)
       Except.ok
         { runtime with state := runtime.state.storeFieldSlot field 0 }
 
+def Runtime.deleteStorageIndex (context : Context)
+    (runtime : Runtime) (name : String) (index : Value) :
+    Except RevertData Runtime := do
+  let field ←
+    match context.storageField? name with
+    | some field => Except.ok field
+    | none => Except.error RevertData.typeMismatch
+  match field.layout? with
+  | some (StorageLayout.mapping keyTy valueLayout) => do
+      let slot ← mappingStorageSlotForKey field.slot keyTy index
+      let state ←
+        State.clearStorageLayoutAtDeep runtime.state slot valueLayout
+      Except.ok { runtime with state }
+  | some StorageLayout.bytes => do
+      let key ← index.expectWord
+      let length := runtime.state.loadSlot field.slot
+      if SharedSemantics.norm length <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        Except.ok
+          { runtime with
+            state :=
+              runtime.state.storeSlot
+                (dynamicArrayStorageSlot field.slot key) 0 }
+  | some StorageLayout.string =>
+      Except.error RevertData.typeMismatch
+  | some (StorageLayout.dynamicArray elementLayout) => do
+      let key ← index.expectWord
+      let length := runtime.state.loadSlot field.slot
+      if SharedSemantics.norm length <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        let state ←
+          State.clearStorageLayoutAtDeep runtime.state
+            (dynamicArrayLayoutStorageSlot field.slot key elementLayout)
+            elementLayout
+        Except.ok { runtime with state }
+  | some (StorageLayout.fixedArray size elementLayout) => do
+      let key ← index.expectWord
+      if size <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        let state ←
+          State.clearStorageLayoutAtDeep runtime.state
+            (fixedArrayLayoutStorageSlot field.slot key elementLayout)
+            elementLayout
+        Except.ok { runtime with state }
+  | some (StorageLayout.struct layouts) => do
+      let key ← index.expectWord
+      match
+        structFieldStorageSlot? field.slot layouts
+          (SharedSemantics.norm key)
+      with
+      | some (fieldSlot, fieldLayout) => do
+          let state ←
+            State.clearStorageLayoutAtDeep runtime.state
+              fieldSlot fieldLayout
+          Except.ok { runtime with state }
+      | none => Except.error RevertData.indexOutOfBounds
+  | some (StorageLayout.scalar _) =>
+      Except.error RevertData.typeMismatch
+  | none => do
+      let key ← index.expectWord
+      Except.ok
+        { runtime with
+          state :=
+            runtime.state.storeSlot
+              (legacyIndexedStorageSlot field.slot key) 0 }
+
 def State.resolveStoragePathSlot (state : State) :
     Word -> StorageLayout -> List Value ->
     Except RevertData (Word × StorageLayout)
@@ -3398,6 +3467,28 @@ def ResolvedLValue.write (context : Context) (runtime : Runtime)
       let updatedBase ← baseValue.setIndex? index value
       base.write context runtime updatedBase
 
+def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
+    ResolvedLValue -> Except RevertData Runtime
+  | ResolvedLValue.local name =>
+      match runtime.lookupLocal? name with
+      | some value =>
+          match runtime.assignLocal? name value.defaultLike with
+          | some updated => Except.ok updated
+          | none => Except.error RevertData.typeMismatch
+      | none => Except.error RevertData.typeMismatch
+  | ResolvedLValue.immutable name => do
+      let value ← runtime.loadImmutableField context name
+      runtime.storeImmutableField context name value.defaultLike
+  | ResolvedLValue.storageField name =>
+      runtime.deleteStorageField context name
+  | ResolvedLValue.storageIndex name index =>
+      runtime.deleteStorageIndex context name index
+  | ResolvedLValue.valueIndex base index => do
+      let baseValue ← base.read context runtime
+      let oldValue ← baseValue.index? index
+      let updatedBase ← baseValue.setIndex? index oldValue.defaultLike
+      base.write context runtime updatedBase
+
 def ResolvedLValue.applyIncDec (context : Context) (runtime : Runtime)
     (target : ResolvedLValue) (op : BinaryOp) (returnOld : Bool) :
     Except RevertData (Value × Runtime) := do
@@ -4187,21 +4278,15 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | none =>
                   match target.resolveWithRuntime context runtime with
                   | Except.ok (resolved, runtime') =>
-                      match resolved.read context runtime' with
-                      | Except.ok value =>
-                        match resolved.write context runtime' value.defaultLike with
-                        | Except.ok updated => some (Result.normal updated)
-                        | Except.error err => some (Result.reverted runtime err)
+                      match resolved.delete context runtime' with
+                      | Except.ok updated => some (Result.normal updated)
                       | Except.error err => some (Result.reverted runtime err)
                   | Except.error err => some (Result.reverted runtime err)
           | _ =>
               match target.resolveWithRuntime context runtime with
               | Except.ok (resolved, runtime') =>
-                  match resolved.read context runtime' with
-                  | Except.ok value =>
-                      match resolved.write context runtime' value.defaultLike with
-                      | Except.ok updated => some (Result.normal updated)
-                      | Except.error err => some (Result.reverted runtime err)
+                  match resolved.delete context runtime' with
+                  | Except.ok updated => some (Result.normal updated)
                   | Except.error err => some (Result.reverted runtime err)
               | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPush name value? =>

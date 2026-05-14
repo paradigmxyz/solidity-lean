@@ -12052,6 +12052,65 @@ def indexedDynamicArrayAssignmentSource :
 def indexedDynamicArrayAssignmentAccepted : Bool :=
   sourceUnitAccepted? indexedDynamicArrayAssignmentSource
 
+def deleteNestedIndexedStorageSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          deleteNestedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DeleteNestedIndexedStorage"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "matrix"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        (L00_SourceSolidity.Ty.array
+                          uint256 none)
+                        none }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "entries"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        deleteNestedStructArrayRecordTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearMatrix"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "index"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "matrix")
+                              (L00_SourceSolidity.Expr.ident
+                                "index")))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearEntry"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident
+                                "entries")
+                              (L00_SourceSolidity.Expr.ident
+                                "key")))) } ] } ] }
+
+def deleteNestedIndexedStorageAccepted : Bool :=
+  sourceUnitAccepted? deleteNestedIndexedStorageSource
+
 def pushNestedDynamicArraySource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
