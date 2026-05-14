@@ -2531,8 +2531,11 @@ def CheckEnv.resolveExplicitBaseMemberFunctionChecked
     (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs baseDecl))
     member args
 
-def literalTy? (literal : L00_SourceSolidity.Literal) : Option Ty :=
-  L00_SourceSolidity.Executable.Literal.abiTy? literal
+def literalTy? : L00_SourceSolidity.Literal -> Option Ty
+  | L00_SourceSolidity.Literal.unitNumber text unit => do
+      let _ ← L00_SourceSolidity.Executable.parseUnitNumberNat? text unit
+      some (L00_SourceSolidity.Ty.uint 256)
+  | literal => L00_SourceSolidity.Executable.Literal.abiTy? literal
 
 def CallOptions.names : List L00_SourceSolidity.CallOption -> List Name
   | [] => []
@@ -9022,6 +9025,64 @@ def typeMaxSource : L00_SourceSolidity.SourceUnit :=
 
 def typeMaxAccepted : Bool :=
   sourceUnitAccepted? typeMaxSource
+
+def unitNumberReturnFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "unitNumber"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.unitNumber "2.5"
+                L00_SourceSolidity.UnitDenomination.ether)))) }
+
+def unitNumberReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [L00_SourceSolidity.SourceItem.contract
+        { name := "UnitNumber"
+          items :=
+            [L00_SourceSolidity.ContractItem.function
+              unitNumberReturnFunction] }] }
+
+def unitNumberReturnAccepted : Bool :=
+  sourceUnitAccepted? unitNumberReturnSource
+
+def fractionalWeiReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [L00_SourceSolidity.SourceItem.contract
+        { name := "FractionalWei"
+          items :=
+            [ L00_SourceSolidity.ContractItem.function
+                { unitNumberReturnFunction with
+                  body :=
+                    some
+                      (L00_SourceSolidity.Stmt.returnValues
+                        (some
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.unitNumber "0.5"
+                              L00_SourceSolidity.UnitDenomination.wei)))) } ] }] }
+
+def fractionalWeiReturnRejected : Bool :=
+  Result.isError (SourceUnit.check fractionalWeiReturnSource)
+
+def subWeiEtherReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [L00_SourceSolidity.SourceItem.contract
+        { name := "SubWeiEther"
+          items :=
+            [ L00_SourceSolidity.ContractItem.function
+                { unitNumberReturnFunction with
+                  body :=
+                    some
+                      (L00_SourceSolidity.Stmt.returnValues
+                        (some
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.unitNumber "1e-19"
+                              L00_SourceSolidity.UnitDenomination.ether)))) } ] }] }
+
+def subWeiEtherReturnRejected : Bool :=
+  Result.isError (SourceUnit.check subWeiEtherReturnSource)
 
 def contractCodeReturnFunction (contractName member : Name) :
     L00_SourceSolidity.FunctionDecl :=
