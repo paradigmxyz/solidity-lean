@@ -11670,6 +11670,117 @@ def assignDynamicStructArraySource : L00_SourceSolidity.SourceUnit :=
 def assignDynamicStructArrayAccepted : Bool :=
   sourceUnitAccepted? assignDynamicStructArraySource
 
+def indexAssignFixedStructArraySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          assignFixedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "IndexAssignFixedStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "records"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        assignFixedStructArrayRecordTy (some 2)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "value"
+                          ty := assignFixedStructArrayRecordTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "records")
+                              (numberExpr "1"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident "value"))) } ] } ] }
+
+def indexAssignFixedStructArrayAccepted : Bool :=
+  sourceUnitAccepted? indexAssignFixedStructArraySource
+
+def indexAssignDynamicStructArraySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          assignFixedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "IndexAssignDynamicStructArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "records"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        assignFixedStructArrayRecordTy none
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "value"
+                          ty := assignFixedStructArrayRecordTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "records")
+                              (numberExpr "1"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident "value"))) } ] } ] }
+
+def indexAssignDynamicStructArrayAccepted : Bool :=
+  sourceUnitAccepted? indexAssignDynamicStructArraySource
+
+def indexAssignMappingStructSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          assignFixedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "IndexAssignMappingStruct"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "entries"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        assignFixedStructArrayRecordTy
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := assignFixedStructArrayRecordTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "entries")
+                              (L00_SourceSolidity.Expr.ident "key"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident "value"))) } ] } ] }
+
+def indexAssignMappingStructAccepted : Bool :=
+  sourceUnitAccepted? indexAssignMappingStructSource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
