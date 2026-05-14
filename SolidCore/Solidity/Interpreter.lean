@@ -1516,6 +1516,21 @@ def State.clearDynamicArrayLayoutTail (state : State) (slot : Word)
         elementLayout)
     state
 
+def State.storeStorageLayoutAtWithDeepClear (state : State) (slot : Word)
+    (layout : StorageLayout) (value : Value) : Except RevertData State := do
+  match layout, value with
+  | StorageLayout.dynamicArray elementLayout, Value.dynamicArray values => do
+      let oldLength := SharedSemantics.norm (state.loadSlot slot)
+      let state ← State.storeStorageLayoutAt state slot layout value
+      let newLength := values.length
+      if newLength < oldLength then
+        State.clearDynamicArrayLayoutTail state slot elementLayout
+          newLength (oldLength - newLength)
+      else
+        Except.ok state
+  | _, _ =>
+      State.storeStorageLayoutAt state slot layout value
+
 def Runtime.storeStorageFieldWithDeepClear (context : Context)
     (runtime : Runtime) (name : String) (value : Value) :
     Except RevertData Runtime := do
@@ -1525,22 +1540,86 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
     | none => Except.error RevertData.typeMismatch
   match field.layout?, value with
   | some (StorageLayout.dynamicArray elementLayout),
-      Value.dynamicArray values => do
-      let oldLength :=
-        SharedSemantics.norm (runtime.state.loadSlot field.slot)
-      let runtime ←
-        Runtime.storeStorageField context runtime name value
-      let newLength := values.length
-      if newLength < oldLength then
-        let state ←
-          State.clearDynamicArrayLayoutTail runtime.state
-            field.slot elementLayout newLength
-            (oldLength - newLength)
-        Except.ok { runtime with state }
-      else
-        Except.ok runtime
+      Value.dynamicArray _ => do
+      let state ←
+        State.storeStorageLayoutAtWithDeepClear runtime.state
+          field.slot (StorageLayout.dynamicArray elementLayout)
+          value
+      Except.ok { runtime with state }
   | _, _ =>
       Runtime.storeStorageField context runtime name value
+
+def Runtime.storeStorageIndexWithDeepClear (context : Context)
+    (runtime : Runtime) (name : String) (index value : Value) :
+    Except RevertData Runtime := do
+  let field ←
+    match context.storageField? name with
+    | some field => Except.ok field
+    | none => Except.error RevertData.typeMismatch
+  match field.layout? with
+  | some (StorageLayout.mapping keyTy valueLayout) => do
+      let slot ← mappingStorageSlotForKey field.slot keyTy index
+      let state ←
+        State.storeStorageLayoutAtWithDeepClear
+          runtime.state slot valueLayout value
+      Except.ok { runtime with state }
+  | some StorageLayout.bytes => do
+      let key ← index.expectWord
+      let length := runtime.state.loadSlot field.slot
+      if SharedSemantics.norm length <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
+        Except.ok
+          { runtime with
+            state :=
+              runtime.state.storeSlot
+                (dynamicArrayStorageSlot field.slot key) word }
+  | some StorageLayout.string =>
+      Except.error RevertData.typeMismatch
+  | some (StorageLayout.dynamicArray elementLayout) => do
+      let key ← index.expectWord
+      let length := runtime.state.loadSlot field.slot
+      if SharedSemantics.norm length <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        let state ←
+          State.storeStorageLayoutAtWithDeepClear runtime.state
+            (dynamicArrayLayoutStorageSlot field.slot key elementLayout)
+            elementLayout value
+        Except.ok { runtime with state }
+  | some (StorageLayout.fixedArray size elementLayout) => do
+      let key ← index.expectWord
+      if size <= SharedSemantics.norm key then
+        Except.error RevertData.indexOutOfBounds
+      else
+        let state ←
+          State.storeStorageLayoutAtWithDeepClear runtime.state
+            (fixedArrayLayoutStorageSlot field.slot key elementLayout)
+            elementLayout value
+        Except.ok { runtime with state }
+  | some (StorageLayout.struct layouts) => do
+      let key ← index.expectWord
+      match
+        structFieldStorageSlot? field.slot layouts
+          (SharedSemantics.norm key)
+      with
+      | some (fieldSlot, fieldLayout) => do
+          let state ←
+            State.storeStorageLayoutAtWithDeepClear runtime.state
+              fieldSlot fieldLayout value
+          Except.ok { runtime with state }
+      | none => Except.error RevertData.indexOutOfBounds
+  | some (StorageLayout.scalar _) =>
+      Except.error RevertData.typeMismatch
+  | none => do
+      let key ← index.expectWord
+      let word ← coerceStorageWordAs Ty.uint256 value
+      Except.ok
+        { runtime with
+          state :=
+            runtime.state.storeSlot
+              (legacyIndexedStorageSlot field.slot key) word }
 
 def Runtime.deleteStorageField (context : Context)
     (runtime : Runtime) (name : String) :
@@ -3176,14 +3255,15 @@ def LValue.write (context : Context) (runtime : Runtime)
       runtime.storeStorageFieldWithDeepClear context name value
   | LValue.storageIndex name idx => do
       let indexValue ← idx.eval context runtime
-      runtime.storeStorageIndex context name indexValue value
+      runtime.storeStorageIndexWithDeepClear context name indexValue value
   | LValue.index base idx => do
       match base with
       | LValue.var name =>
           match runtime.lookupStorageRef? name with
           | some target =>
               let indexValue ← idx.eval context runtime
-              runtime.storeStorageIndex context target indexValue value
+              runtime.storeStorageIndexWithDeepClear
+                context target indexValue value
           | none =>
               let baseValue ← base.read context runtime
               let indexValue ← idx.eval context runtime
@@ -3261,7 +3341,7 @@ def ResolvedLValue.write (context : Context) (runtime : Runtime)
   | ResolvedLValue.storageField name =>
       runtime.storeStorageFieldWithDeepClear context name value
   | ResolvedLValue.storageIndex name index =>
-      runtime.storeStorageIndex context name index value
+      runtime.storeStorageIndexWithDeepClear context name index value
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let updatedBase ← baseValue.setIndex? index value

@@ -11942,6 +11942,77 @@ def assignNestedDynamicStructArraySource :
 def assignNestedDynamicStructArrayAccepted : Bool :=
   sourceUnitAccepted? assignNestedDynamicStructArraySource
 
+def indexedDynamicArrayAssignmentSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "IndexedDynamicArrayAssignment"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "matrix"
+                    ty :=
+                      L00_SourceSolidity.Ty.array
+                        (L00_SourceSolidity.Ty.array
+                          uint256 none)
+                        none }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "buckets"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        (L00_SourceSolidity.Ty.array
+                          uint256 none) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setMatrix"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "index"
+                          ty := uint256
+                          location := none }
+                      , { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              uint256 none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "matrix")
+                              (L00_SourceSolidity.Expr.ident "index"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "values"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "setBucket"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "values"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              uint256 none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "buckets")
+                              (L00_SourceSolidity.Expr.ident "key"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "values"))) } ] } ] }
+
+def indexedDynamicArrayAssignmentAccepted : Bool :=
+  sourceUnitAccepted? indexedDynamicArrayAssignmentSource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

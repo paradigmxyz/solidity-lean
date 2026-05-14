@@ -20902,6 +20902,144 @@ def assignNestedDynamicStructArrayClearsTail : Option Bool := do
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             nestedSlot 0)) 0)
 
+def indexedDynamicArrayAssignmentContract : ContractDecl :=
+  { name := "IndexedDynamicArrayAssignment"
+    items :=
+      [ ContractItem.stateVar
+          { name := "matrix"
+            ty :=
+              Ty.array
+                (Ty.array (Ty.uint 256) none)
+                none }
+      , ContractItem.stateVar
+          { name := "buckets"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.array (Ty.uint 256) none) }
+      , ContractItem.function
+          { name := some "setMatrix"
+            params :=
+              [ { name := some "index", ty := Ty.uint 256 }
+              , { name := some "values"
+                  ty := Ty.array (Ty.uint 256) none
+                  location := some DataLocation.calldata } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.ident "matrix")
+                      (Expr.ident "index"))
+                    AssignOp.assign
+                    (Expr.ident "values"))) }
+      , ContractItem.function
+          { name := some "setBucket"
+            params :=
+              [ { name := some "key", ty := Ty.uint 256 }
+              , { name := some "values"
+                  ty := Ty.array (Ty.uint 256) none
+                  location := some DataLocation.calldata } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.ident "buckets")
+                      (Expr.ident "key"))
+                    AssignOp.assign
+                    (Expr.ident "values"))) } ] }
+
+def indexedDynamicArrayShortInput : CoreValue :=
+  SolidCore.Solidity.Source.Value.dynamicArray
+    [SolidCore.Solidity.Source.Value.word 5]
+
+def indexedDynamicArrayAssignmentMatrixInitialState : CoreState :=
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot 0 1
+    |>.storeSlot innerSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 0) 11
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          innerSlot 1) 22
+
+def indexedDynamicArrayAssignmentMatrixState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 indexedDynamicArrayAssignmentContract
+      (SolidCore.Solidity.Source.CallTarget.name "setMatrix")
+      indexedDynamicArrayAssignmentMatrixInitialState
+      [ SolidCore.Solidity.Source.Value.word 0
+      , indexedDynamicArrayShortInput ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def indexedDynamicArrayAssignmentMatrixClearsTail :
+    Option Bool := do
+  let state ← indexedDynamicArrayAssignmentMatrixState
+  let innerSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0
+      (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256))
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot innerSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            innerSlot 1)) 0)
+
+def indexedDynamicArrayAssignmentMappingInitialState : CoreState :=
+  let bucketSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 1 7
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot bucketSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          bucketSlot 0) 33
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          bucketSlot 1) 44
+
+def indexedDynamicArrayAssignmentMappingState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 indexedDynamicArrayAssignmentContract
+      (SolidCore.Solidity.Source.CallTarget.name "setBucket")
+      indexedDynamicArrayAssignmentMappingInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , indexedDynamicArrayShortInput ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def indexedDynamicArrayAssignmentMappingClearsTail :
+    Option Bool := do
+  let state ← indexedDynamicArrayAssignmentMappingState
+  let bucketSlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 1 7
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot bucketSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            bucketSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            bucketSlot 1)) 0)
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=
