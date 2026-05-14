@@ -20902,6 +20902,86 @@ def assignNestedDynamicStructArrayClearsTail : Option Bool := do
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             nestedSlot 0)) 0)
 
+def assignNestedStructMappingContract : ContractDecl :=
+  { name := "AssignNestedStructMapping"
+    items :=
+      [ ContractItem.stateVar
+          { name := "entries"
+            ty :=
+              Ty.mapping (Ty.uint 256)
+                (Ty.tuple
+                  [ Ty.uint 256
+                  , Ty.array (Ty.uint 256) none ]) }
+      , ContractItem.function
+          { name := some "set"
+            params :=
+              [ { name := some "key", ty := Ty.uint 256 }
+              , { name := some "value"
+                  ty :=
+                    Ty.tuple
+                      [ Ty.uint 256
+                      , Ty.array (Ty.uint 256) none ]
+                  location := some DataLocation.calldata } ]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign
+                    (Expr.index
+                      (Expr.ident "entries")
+                      (Expr.ident "key"))
+                    AssignOp.assign
+                    (Expr.ident "value"))) } ] }
+
+def assignNestedStructMappingInput : CoreValue :=
+  SolidCore.Solidity.Source.Value.tuple
+    [ SolidCore.Solidity.Source.Value.word 11
+    , SolidCore.Solidity.Source.Value.dynamicArray
+        [SolidCore.Solidity.Source.Value.word 5] ]
+
+def assignNestedStructMappingInitialState : CoreState :=
+  let entrySlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 0 7
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot entrySlot 99
+    |>.storeSlot nestedSlot 2
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 0) 33
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          nestedSlot 1) 44
+
+def assignNestedStructMappingState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 assignNestedStructMappingContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      assignNestedStructMappingInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , assignNestedStructMappingInput ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def assignNestedStructMappingClearsNestedTail : Option Bool := do
+  let state ← assignNestedStructMappingState
+  let entrySlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 0 7
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 1
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot entrySlot) 11 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 1)) 0)
+
 def indexedDynamicArrayAssignmentContract : ContractDecl :=
   { name := "IndexedDynamicArrayAssignment"
     items :=

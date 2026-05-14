@@ -1516,20 +1516,71 @@ def State.clearDynamicArrayLayoutTail (state : State) (slot : Word)
         elementLayout)
     state
 
-def State.storeStorageLayoutAtWithDeepClear (state : State) (slot : Word)
-    (layout : StorageLayout) (value : Value) : Except RevertData State := do
-  match layout, value with
-  | StorageLayout.dynamicArray elementLayout, Value.dynamicArray values => do
-      let oldLength := SharedSemantics.norm (state.loadSlot slot)
-      let state ← State.storeStorageLayoutAt state slot layout value
-      let newLength := values.length
-      if newLength < oldLength then
-        State.clearDynamicArrayLayoutTail state slot elementLayout
-          newLength (oldLength - newLength)
-      else
-        Except.ok state
-  | _, _ =>
+def State.storeStorageLayoutAtWithDeepClearFuel :
+    Nat -> State -> Word -> StorageLayout -> Value ->
+    Except RevertData State
+  | 0, state, slot, layout, value =>
       State.storeStorageLayoutAt state slot layout value
+  | fuel + 1, state, slot, layout, value =>
+      match layout, value with
+      | StorageLayout.struct layouts, Value.tuple values => do
+          if layouts.length == values.length then
+            let (state, _) ←
+              (layouts.zip values).foldlM
+                (fun (acc : State × Nat) pair => do
+                  let (state, offset) := acc
+                  let (layout, value) := pair
+                  let fieldSlot :=
+                    normWord (SharedSemantics.norm slot + offset)
+                  let state ←
+                    State.storeStorageLayoutAtWithDeepClearFuel
+                      fuel state fieldSlot layout value
+                  Except.ok
+                    (state, offset + StorageLayout.slotSpan layout))
+                (state, 0)
+            Except.ok state
+          else
+            Except.error RevertData.typeMismatch
+      | StorageLayout.fixedArray size elementLayout,
+          Value.fixedArray values => do
+          if values.length == size then
+            (List.range values.length).zip values |>.foldlM
+              (fun state pair => do
+                let (index, value) := pair
+                State.storeStorageLayoutAtWithDeepClearFuel fuel state
+                  (fixedArrayLayoutStorageSlot
+                    slot index elementLayout)
+                  elementLayout value)
+              state
+          else
+            Except.error RevertData.typeMismatch
+      | StorageLayout.dynamicArray elementLayout,
+          Value.dynamicArray values => do
+          let oldLength := SharedSemantics.norm (state.loadSlot slot)
+          let state ←
+            (List.range values.length).zip values |>.foldlM
+              (fun state pair => do
+                let (index, value) := pair
+                State.storeStorageLayoutAtWithDeepClearFuel fuel state
+                  (dynamicArrayLayoutStorageSlot
+                    slot index elementLayout)
+                  elementLayout value)
+              state
+          let newLength := values.length
+          let state ←
+            if newLength < oldLength then
+              State.clearDynamicArrayLayoutTail state slot elementLayout
+                newLength (oldLength - newLength)
+            else
+              Except.ok state
+          Except.ok (state.storeSlot slot values.length)
+      | _, _ =>
+          State.storeStorageLayoutAt state slot layout value
+
+def State.storeStorageLayoutAtWithDeepClear (state : State) (slot : Word)
+    (layout : StorageLayout) (value : Value) : Except RevertData State :=
+  State.storeStorageLayoutAtWithDeepClearFuel
+    (StorageLayout.clearDepth layout) state slot layout value
 
 def Runtime.storeStorageFieldWithDeepClear (context : Context)
     (runtime : Runtime) (name : String) (value : Value) :

@@ -11942,6 +11942,45 @@ def assignNestedDynamicStructArraySource :
 def assignNestedDynamicStructArrayAccepted : Bool :=
   sourceUnitAccepted? assignNestedDynamicStructArraySource
 
+def assignNestedStructMappingSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          deleteNestedStructArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AssignNestedStructMapping"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "entries"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        deleteNestedStructArrayRecordTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "set"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "value"
+                          ty := deleteNestedStructArrayRecordTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "entries")
+                              (L00_SourceSolidity.Expr.ident "key"))
+                            L00_SourceSolidity.AssignOp.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "value"))) } ] } ] }
+
+def assignNestedStructMappingAccepted : Bool :=
+  sourceUnitAccepted? assignNestedStructMappingSource
+
 def indexedDynamicArrayAssignmentSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
