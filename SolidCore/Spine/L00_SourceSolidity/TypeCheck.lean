@@ -11440,6 +11440,40 @@ def publicMappingStructGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicMappingStructGetterAccepted : Bool :=
   sourceUnitAccepted? publicMappingStructGetterSource
 
+def publicArrayStructGetterShapeStateVar :
+    L00_SourceSolidity.StateVarDecl :=
+  { name := "records"
+    ty :=
+      L00_SourceSolidity.Ty.array
+        (L00_SourceSolidity.Ty.user (userPath "PublicStructData"))
+        none
+    visibility := some L00_SourceSolidity.Visibility.public_ }
+
+def publicArrayStructGetterShapeReturns : Bool :=
+  match StateVarDecl.publicGetterFunctionSig?
+      publicStructGetterShapeTypes
+      publicArrayStructGetterShapeStateVar with
+  | some sig =>
+      sig.params == [uint256] &&
+        sig.returns ==
+          [ uint256
+          , L00_SourceSolidity.Ty.bytes
+          , L00_SourceSolidity.Ty.bool ]
+  | none => false
+
+def publicArrayStructGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          publicStructGetterShapeStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PublicArrayStructGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  publicArrayStructGetterShapeStateVar ] } ] }
+
+def publicArrayStructGetterAccepted : Bool :=
+  sourceUnitAccepted? publicArrayStructGetterSource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
