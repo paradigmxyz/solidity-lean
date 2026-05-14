@@ -9161,6 +9161,126 @@ def internalWhileConditionCallSource : L00_SourceSolidity.SourceUnit :=
 def internalWhileConditionCallAccepted : Bool :=
   sourceUnitAccepted? internalWhileConditionCallSource
 
+def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalRequireConditionCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "okTrue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr true)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "okFalse"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    returns :=
+                      [{ name := some "out"
+                         ty := L00_SourceSolidity.Ty.bool
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "x")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "1"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (boolExpr false)) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runAssert"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "assert")
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.call
+                                    (L00_SourceSolidity.Expr.ident "okTrue")
+                                    [])])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runRequire"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident "okTrue")
+                                      [])
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.string
+                                        "bad")) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "runRequireFail"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "require")
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.ident
+                                        "okFalse")
+                                      [])
+                                , L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.string
+                                        "bad")) ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "x")) ]) } ] } ] }
+
+def internalRequireConditionCallAccepted : Bool :=
+  sourceUnitAccepted? internalRequireConditionCallSource
+
 def nestedUncheckedFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "nestedUnchecked"
