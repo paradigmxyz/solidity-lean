@@ -3484,19 +3484,19 @@ def checkExpr (env : CheckEnv) :
       let indexChecked ← checkExpr env index
       match baseChecked.ty with
       | L00_SourceSolidity.Ty.bytes =>
-          indexChecked.expectInteger
+          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
           Except.ok
             { source := expr, ty := L00_SourceSolidity.Ty.bytesN 1,
               lvalue := baseChecked.lvalue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | L00_SourceSolidity.Ty.bytesN _ =>
-          indexChecked.expectInteger
+          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
           Except.ok
             { source := expr, ty := L00_SourceSolidity.Ty.bytesN 1,
               lvalue := false }
       | L00_SourceSolidity.Ty.array element _ =>
-          indexChecked.expectInteger
+          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
           Except.ok
             { source := expr
               ty := element
@@ -4169,7 +4169,7 @@ def checkExpr (env : CheckEnv) :
           requireNoNamedArgs "new bytes" argInfos
           match checkedArgs with
           | [length] => do
-              length.expectInteger
+              length.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
               Except.ok { source := expr, ty := ty, lvalue := false }
           | _ =>
               Except.error
@@ -4178,7 +4178,7 @@ def checkExpr (env : CheckEnv) :
           requireNoNamedArgs "new dynamic array" argInfos
           match checkedArgs with
           | [length] => do
-              length.expectInteger
+              length.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
               Except.ok { source := expr, ty := ty, lvalue := false }
           | _ =>
               Except.error
@@ -8019,6 +8019,71 @@ def calldataArrayCopySource : L00_SourceSolidity.SourceUnit :=
 def calldataArrayCopyAccepted : Bool :=
   sourceUnitAccepted? calldataArrayCopySource
 
+def signedArrayIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSignedArrayIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badSignedArrayIndex"
+                    params :=
+                      [ { name := some "input"
+                          ty := uintArrayTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata }
+                      , { name := some "idx"
+                          ty := int256
+                          location := none } ]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.external_
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "input")
+                              (L00_SourceSolidity.Expr.ident
+                                "idx")))) } ] } ] }
+
+def signedArrayIndexRejected : Bool :=
+  Result.isError (SourceUnit.check signedArrayIndexSource)
+
+def signedNewArrayLengthSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSignedArrayLength"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badSignedArrayLength"
+                    params :=
+                      [ { name := some "length"
+                          ty := int256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "local"
+                                  ty := some uintArrayTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.memory } ]
+                              (some
+                                (L00_SourceSolidity.Expr.newExpr
+                                  uintArrayTy
+                                  [ L00_SourceSolidity.Arg.positional
+                                      (L00_SourceSolidity.Expr.ident
+                                        "length") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def signedNewArrayLengthRejected : Bool :=
+  Result.isError (SourceUnit.check signedNewArrayLengthSource)
+
 def calldataToStorageAssignFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "copyCalldataToStorage"
@@ -8297,6 +8362,75 @@ def calldataBytesPopSource : L00_SourceSolidity.SourceUnit :=
 
 def calldataBytesPopRejected : Bool :=
   Result.isError (SourceUnit.check calldataBytesPopSource)
+
+def signedBytesIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSignedBytesIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badSignedBytesIndex"
+                    params :=
+                      [ { name := some "data"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata }
+                      , { name := some "idx"
+                          ty := int256
+                          location := none } ]
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.external_
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "data")
+                              (L00_SourceSolidity.Expr.ident
+                                "idx")))) } ] } ] }
+
+def signedBytesIndexRejected : Bool :=
+  Result.isError (SourceUnit.check signedBytesIndexSource)
+
+def signedNewBytesLengthSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSignedBytesLength"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badSignedBytesLength"
+                    params :=
+                      [ { name := some "length"
+                          ty := int256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "data"
+                                  ty := some L00_SourceSolidity.Ty.bytes
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.memory } ]
+                              (some
+                                (L00_SourceSolidity.Expr.newExpr
+                                  L00_SourceSolidity.Ty.bytes
+                                  [ L00_SourceSolidity.Arg.positional
+                                      (L00_SourceSolidity.Expr.ident
+                                        "length") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def signedNewBytesLengthRejected : Bool :=
+  Result.isError (SourceUnit.check signedNewBytesLengthSource)
 
 def sliceExpr (base : L00_SourceSolidity.Expr)
     (start? stop? : Option L00_SourceSolidity.Expr) :
