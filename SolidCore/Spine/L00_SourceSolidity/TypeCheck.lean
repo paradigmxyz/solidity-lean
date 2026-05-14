@@ -12451,6 +12451,115 @@ def nestedStoragePathCompoundSource :
 def nestedStoragePathCompoundAccepted : Bool :=
   sourceUnitAccepted? nestedStoragePathCompoundSource
 
+def structStoragePathRecord : L00_SourceSolidity.StructDecl :=
+  { name := "StoragePathRecord"
+    fields :=
+      [ { name := "count", ty := uint256 }
+      , { name := "values"
+          ty := L00_SourceSolidity.Ty.array uint256 none } ] }
+
+def structStoragePathRecordTy : L00_SourceSolidity.Ty :=
+  L00_SourceSolidity.Ty.user (userPath "StoragePathRecord")
+
+def structStoragePathSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          structStoragePathRecord
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "StructStoragePath"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "entries"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping uint256
+                        structStoragePathRecordTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "addCount"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "delta"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.index
+                                (L00_SourceSolidity.Expr.ident
+                                  "entries")
+                                (L00_SourceSolidity.Expr.ident
+                                  "key"))
+                              "count")
+                            L00_SourceSolidity.AssignOp.addAssign
+                            (L00_SourceSolidity.Expr.ident
+                              "delta"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "addValue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "index"
+                          ty := uint256
+                          location := none }
+                      , { name := some "delta"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "entries")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "key"))
+                                "values")
+                              (L00_SourceSolidity.Expr.ident
+                                "index"))
+                            L00_SourceSolidity.AssignOp.addAssign
+                            (L00_SourceSolidity.Expr.ident
+                              "delta"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { name := some "clearValue"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    params :=
+                      [ { name := some "key"
+                          ty := uint256
+                          location := none }
+                      , { name := some "index"
+                          ty := uint256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.unary
+                            L00_SourceSolidity.UnaryOp.delete
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident
+                                    "entries")
+                                  (L00_SourceSolidity.Expr.ident
+                                    "key"))
+                                "values")
+                              (L00_SourceSolidity.Expr.ident
+                                "index")))) } ] } ] }
+
+def structStoragePathAccepted : Bool :=
+  sourceUnitAccepted? structStoragePathSource
+
 def nestedBytesStoragePathSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=

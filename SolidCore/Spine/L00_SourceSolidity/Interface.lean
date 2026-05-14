@@ -1770,20 +1770,32 @@ def StructDecl.constructorArgs? (decl : StructDecl)
   else
     none
 
-def Expr.structDeclWithEnv? (env : StructEnv) (typeEnv : TypeEnv) :
-    Expr -> Option StructDecl
-  | Expr.ident name => do
-      let ty ← TypeEnv.lookup? typeEnv name
-      Ty.structDecl? env ty
-  | Expr.call (Expr.typeName (Ty.user path)) _ =>
-      StructEnv.lookup? env path
+def Expr.sourceTyWithEnv? (env : StructEnv) (typeEnv : TypeEnv) :
+    Expr -> Option Ty
+  | Expr.ident name =>
+      TypeEnv.lookup? typeEnv name
+  | Expr.call (Expr.typeName ty) _ =>
+      some ty
   | Expr.member base member => do
-      let baseDecl ← Expr.structDeclWithEnv? env typeEnv base
+      let baseTy ← Expr.sourceTyWithEnv? env typeEnv base
+      let baseDecl ← Ty.structDecl? env baseTy
       let field ← StructDecl.field? baseDecl member
-      Ty.structDecl? env field.ty
+      some field.ty
+  | Expr.index base _ => do
+      let baseTy ← Expr.sourceTyWithEnv? env typeEnv base
+      match baseTy with
+      | Ty.array elementTy _ => some elementTy
+      | Ty.mapping _ valueTy => some valueTy
+      | Ty.bytes => some (Ty.bytesN 1)
+      | _ => none
   | Expr.ternary _ thenExpr _ =>
-      Expr.structDeclWithEnv? env typeEnv thenExpr
+      Expr.sourceTyWithEnv? env typeEnv thenExpr
   | _ => none
+
+def Expr.structDeclWithEnv? (env : StructEnv) (typeEnv : TypeEnv)
+    (expr : Expr) : Option StructDecl := do
+  let ty ← Expr.sourceTyWithEnv? env typeEnv expr
+  Ty.structDecl? env ty
 
 mutual
 
@@ -21695,6 +21707,159 @@ def nestedStoragePathCompoundMappingAddMatches : Option Bool := do
   some
     (SolidCore.Solidity.Source.wordEq
       (state.loadSlot nestedStoragePathMappingSlot) 62)
+
+def structStoragePathRecordPath : Path :=
+  { segments := ["StoragePathRecord"] }
+
+def structStoragePathRecordTy : Ty :=
+  Ty.user structStoragePathRecordPath
+
+def structStoragePathRecordDecl : StructDecl :=
+  { name := "StoragePathRecord"
+    fields :=
+      [ { name := "count", ty := Ty.uint 256 }
+      , { name := "values", ty := Ty.array (Ty.uint 256) none } ] }
+
+def structStoragePathSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeStruct structStoragePathRecordDecl
+      , SourceItem.contract
+          { name := "StructStoragePath"
+            items :=
+              [ ContractItem.stateVar
+                  { name := "entries"
+                    ty :=
+                      Ty.mapping (Ty.uint 256)
+                        structStoragePathRecordTy }
+              , ContractItem.function
+                  { name := some "addCount"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "delta", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.assign
+                            (Expr.member
+                              (Expr.index
+                                (Expr.ident "entries")
+                                (Expr.ident "key"))
+                              "count")
+                            AssignOp.addAssign
+                            (Expr.ident "delta"))) }
+              , ContractItem.function
+                  { name := some "addValue"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "index", ty := Ty.uint 256 }
+                      , { name := some "delta", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.assign
+                            (Expr.index
+                              (Expr.member
+                                (Expr.index
+                                  (Expr.ident "entries")
+                                  (Expr.ident "key"))
+                                "values")
+                              (Expr.ident "index"))
+                            AssignOp.addAssign
+                            (Expr.ident "delta"))) }
+              , ContractItem.function
+                  { name := some "clearValue"
+                    params :=
+                      [ { name := some "key", ty := Ty.uint 256 }
+                      , { name := some "index", ty := Ty.uint 256 } ]
+                    body :=
+                      some
+                        (Stmt.expr
+                          (Expr.unary UnaryOp.delete
+                            (Expr.index
+                              (Expr.member
+                                (Expr.index
+                                  (Expr.ident "entries")
+                                  (Expr.ident "key"))
+                                "values")
+                              (Expr.ident "index")))) } ] } ] }
+
+def structStoragePathEntrySlot : Word :=
+  SolidCore.Solidity.Source.mappingStorageSlot 0 7
+
+def structStoragePathValuesSlot : Word :=
+  structStoragePathEntrySlot + 1
+
+def structStoragePathValueSlot (index : Word) : Word :=
+  SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+    structStoragePathValuesSlot index
+    (SolidCore.Solidity.Source.StorageLayout.scalar
+      SolidCore.Solidity.Source.Ty.uint256)
+
+def structStoragePathInitialState : CoreState :=
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot structStoragePathEntrySlot 10
+    |>.storeSlot structStoragePathValuesSlot 2
+    |>.storeSlot (structStoragePathValueSlot 0) 4
+    |>.storeSlot (structStoragePathValueSlot 1) 9
+
+def structStoragePathCountAddState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 64 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "addCount")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathCountAddMatches : Option Bool := do
+  let state ← structStoragePathCountAddState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot structStoragePathEntrySlot) 15)
+
+def structStoragePathValueAddState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 64 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "addValue")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 1
+      , SolidCore.Solidity.Source.Value.word 6 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathValueAddMatches : Option Bool := do
+  let state ← structStoragePathValueAddState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot (structStoragePathValueSlot 1)) 15 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot structStoragePathValuesSlot) 2)
+
+def structStoragePathValueClearState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 64 structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name "clearValue")
+      structStoragePathInitialState
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.word 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def structStoragePathValueClearMatches : Option Bool := do
+  let state ← structStoragePathValueClearState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot (structStoragePathValueSlot 1)) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot structStoragePathValuesSlot) 2)
 
 def nestedBytesStoragePathContract : ContractDecl :=
   { name := "NestedBytesStoragePath"
