@@ -7141,12 +7141,31 @@ def Parameter.matchesArg? (env : TypeEnv) (param : Parameter)
   let argTy ← Expr.abiTyWithEnv? env arg
   some (Ty.matchesShape argTy param.ty)
 
+def Parameter.matchesArgAllowingInternalFunctionName?
+    (env : TypeEnv) (param : Parameter) (arg : Expr) : Option Bool :=
+  match param.ty, arg with
+  | Ty.function _ _ _ Visibility.internal_, Expr.ident _ => some true
+  | _, _ => Parameter.matchesArg? env param arg
+
 def Parameters.matchArgsWithEnv? (env : TypeEnv) :
     List Parameter -> List Expr -> Option Bool
   | [], [] => some true
   | param :: params, arg :: args => do
       let head ← Parameter.matchesArg? env param arg
       let tail ← Parameters.matchArgsWithEnv? env params args
+      some (head && tail)
+  | _, _ => some false
+
+def Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+    (env : TypeEnv) :
+    List Parameter -> List Expr -> Option Bool
+  | [], [] => some true
+  | param :: params, arg :: args => do
+      let head ←
+        Parameter.matchesArgAllowingInternalFunctionName? env param arg
+      let tail ←
+        Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+          env params args
       some (head && tail)
   | _, _ => some false
 
@@ -11180,7 +11199,9 @@ def FunctionDecl.usingFreeFunctionArgs? (freeFunctions : List FunctionDecl)
     candidates.find? (fun fn =>
       match Args.toExprsForParams? (fn.params.drop 1) args with
       | some orderedArgs =>
-          match Parameters.matchArgsWithEnv? env fn.params
+          match
+              Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+                env fn.params
               (receiver :: orderedArgs) with
           | some true => true
           | _ => false
@@ -11235,7 +11256,8 @@ def UsingFunction.rewriteCall? (contracts : List ContractDecl)
     else
       none
     let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-    match Parameters.matchArgsWithEnv? env fn.params
+    match Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+        env fn.params
         (receiver :: orderedArgs) with
     | some true =>
         some
@@ -11341,7 +11363,8 @@ def UsingDecl.rewriteCall? (contracts : List ContractDecl)
         else
           none
         let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-        match Parameters.matchArgsWithEnv? env fn.params
+        match Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+            env fn.params
             (receiver :: orderedArgs) with
         | some true =>
             some
@@ -11502,7 +11525,9 @@ def libraryDirectCallRewrite? (contracts : List ContractDecl)
   let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
   let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
   let orderedArgs ← Args.toExprsForParams? fn.params args
-  match Parameters.matchArgsWithEnv? env fn.params orderedArgs with
+  match
+      Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+        env fn.params orderedArgs with
   | some true =>
       some
         (Expr.call (Expr.ident (libraryHelperName libraryName method))
@@ -33599,6 +33624,77 @@ def usingNamedDirectCallMatches : Option Bool := do
     SourceUnit.callContract? 32 usingLibraryUnit "UsingNamedDirect"
       (SolidCore.Solidity.Source.CallTarget.name "run")
       SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def usingHigherOrderLibrary : ContractDecl :=
+  { name := "Apply"
+    kind := ContractKind.library
+    items :=
+      [ ContractItem.function
+          { name := some "apply"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
+            params :=
+              [ { name := some "self", ty := Ty.uint 256 }
+              , { name := some "fn"
+                  ty :=
+                    Ty.function [Ty.uint 256] [Ty.uint 256]
+                      StateMutability.pure Visibility.internal_ } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call (Expr.ident "fn")
+                      [Arg.positional (Expr.ident "self")]))) } ] }
+
+def usingHigherOrderContract : ContractDecl :=
+  { name := "UsingHigherOrder"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := ["Apply"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "double"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "x")
+                      (Expr.literal (Literal.number "2"))))) }
+      , ContractItem.function
+          { name := some "run"
+            mutability := StateMutability.pure
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "x") "apply")
+                      [Arg.positional (Expr.ident "double")]))) } ] }
+
+def usingHigherOrderUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract usingHigherOrderLibrary
+      , SourceItem.contract usingHigherOrderContract ] }
+
+def usingHigherOrderFunctionPointerMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 64 usingHigherOrderUnit "UsingHigherOrder"
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>

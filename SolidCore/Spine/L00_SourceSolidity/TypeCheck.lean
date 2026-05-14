@@ -1458,6 +1458,25 @@ def resolveInternalFunctionValueAssignableTo (types : TypeContext)
     Except TypeError FunctionSig :=
   resolveInternalFunctionValueLoop types target expected none functions
 
+def resolveInternalFunctionValueByNameLoop
+    (target : Name) :
+    Option FunctionSig -> List FunctionSig -> Except TypeError FunctionSig
+  | none, [] => Except.error (TypeError.unknownFunction target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target && sig.internallyCallable then
+        match found? with
+        | none =>
+            resolveInternalFunctionValueByNameLoop target (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveInternalFunctionValueByNameLoop target found? rest
+
+def resolveInternalFunctionValueByName
+    (functions : List FunctionSig) (target : Name) :
+    Except TypeError FunctionSig :=
+  resolveInternalFunctionValueByNameLoop target none functions
+
 def containsSameSignature (target : FunctionSig) : List FunctionSig -> Bool
   | [] => false
   | sig :: rest =>
@@ -3178,7 +3197,8 @@ def checkExpr (env : CheckEnv) :
               stateLValue := isState || isStorageRef
               dataLocation? := dataLocation? }
       | none =>
-          match FunctionSigs.resolve env.functions name [] with
+          match FunctionSigs.resolveInternalFunctionValueByName
+              env.functions name with
           | Except.ok sig =>
               match FunctionSig.internalFunctionValueTy? sig with
               | some ty =>
@@ -13442,6 +13462,88 @@ def explicitUsingFreeFunctionSource : L00_SourceSolidity.SourceUnit :=
 
 def explicitUsingFreeFunctionAccepted : Bool :=
   sourceUnitAccepted? explicitUsingFreeFunctionSource
+
+def usingHigherOrderInternalFunctionTy : Ty :=
+  L00_SourceSolidity.Ty.function [uint256] [uint256]
+    L00_SourceSolidity.StateMutability.pure
+    L00_SourceSolidity.Visibility.internal_
+
+def usingHigherOrderLibraryApply :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "apply"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    params :=
+      [ { name := some "self", ty := uint256, location := none }
+      , { name := some "fn"
+          ty := usingHigherOrderInternalFunctionTy
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "fn")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "self")]))) }
+
+def usingHigherOrderLibrary : L00_SourceSolidity.ContractDecl :=
+  { kind := L00_SourceSolidity.ContractKind.library
+    name := "Apply"
+    items :=
+      [L00_SourceSolidity.ContractItem.function
+        usingHigherOrderLibraryApply] }
+
+def usingHigherOrderDouble :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "double"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    params := [{ name := some "x", ty := uint256, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.mul
+              (L00_SourceSolidity.Expr.ident "x")
+              (numberExpr "2")))) }
+
+def usingHigherOrderFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "usingHigherOrder"
+    mutability := L00_SourceSolidity.StateMutability.pure
+    params := [{ name := some "x", ty := uint256, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "x") "apply")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "double")]))) }
+
+def usingHigherOrderFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract usingHigherOrderLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UsingHigherOrder"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "Apply"
+                    target := some uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDouble
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderFunction ] } ] }
+
+def usingHigherOrderFunctionAccepted : Bool :=
+  sourceUnitAccepted? usingHigherOrderFunctionSource
 
 def badExplicitUsingFreeFunctionSource :
     L00_SourceSolidity.SourceUnit :=
