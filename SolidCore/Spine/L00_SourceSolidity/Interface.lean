@@ -7862,6 +7862,26 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 [Arg.positional (Expr.call (Expr.ident name) args)]))
   | Stmt.returnValues
       (some
+        (Expr.tuple
+          [ TupleItem.value (Expr.call (Expr.ident name) args)
+          , TupleItem.value rhs ])) => do
+      let rhsCore ← Expr.toCore? storageNames rhs
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.returnValues
+              [retExpr, rhsCore]) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value (Expr.call (Expr.ident name) args)
+                  , TupleItem.value rhs ])))
+  | Stmt.returnValues
+      (some
         (Expr.binary op
           (Expr.call (Expr.ident name) args)
           rhs)) => do
@@ -27288,6 +27308,54 @@ def internalRevertArgumentCallMatches : Option Bool := do
         (SolidCore.Solidity.Source.wordEq value 7 &&
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot state 0) 0)
+  | _ => some false
+
+def internalTupleReturnCallContract : ContractDecl :=
+  { name := "InternalTupleReturnCall"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "value"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "5")))
+                  , Stmt.returnValues
+                      (some (Expr.ident "x")) ]) }
+      , ContractItem.function
+          { name := some "run"
+            returns :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.tuple
+                      [ TupleItem.value
+                          (Expr.call (Expr.ident "value") [])
+                      , TupleItem.value
+                          (Expr.binary BinaryOp.add
+                            (Expr.ident "x")
+                            (Expr.literal (Literal.number "1"))) ]))) } ] }
+
+def internalTupleReturnCallMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 64 internalTupleReturnCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [ SolidCore.Solidity.Source.Value.word left
+      , SolidCore.Solidity.Source.Value.word right ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq left 5 &&
+          SolidCore.Solidity.Source.wordEq right 6 &&
+          SolidCore.Solidity.Source.wordEq
+            (SolidCore.Solidity.Source.State.loadSlot state 0) 5)
   | _ => some false
 
 def internalNamedArgsContract : ContractDecl :=
