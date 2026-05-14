@@ -19665,6 +19665,68 @@ def publicMappingStringGetterCalldataMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.bytes [111, 107]]
   some (result.success && result.output == expected)
 
+def publicFixedBytesArrayGetterContract : ContractDecl :=
+  { name := "PublicFixedBytesArray"
+    items :=
+      [ ContractItem.stateVar
+          { name := "fixedBlobs"
+            ty := Ty.array Ty.bytes (some 2)
+            visibility := some Visibility.public_ } ] }
+
+def publicFixedBytesArrayGetterState : CoreState :=
+  let elementSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot 0 1
+  SolidCore.Solidity.Source.State.empty
+    |>.storeSlot elementSlot 3
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 0) 7
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 1) 8
+    |>.storeSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          elementSlot 2) 9
+
+def publicFixedBytesArrayGetterMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicFixedBytesArrayGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "fixedBlobs")
+      publicFixedBytesArrayGetterState
+      [SolidCore.Solidity.Source.Value.word 1]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      some (bytes == [7, 8, 9])
+  | _ => some false
+
+def publicFixedBytesArrayGetterCalldataMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? publicFixedBytesArrayGetterContract
+  let function ← contract.findFunctionByName? "fixedBlobs"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 1]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      24 contract publicFixedBytesArrayGetterState calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.bytesCalldata]
+      [SolidCore.Solidity.Source.Value.bytes [7, 8, 9]]
+  some (result.success && result.output == expected)
+
+def publicFixedBytesArrayGetterOutOfBounds : Option Bool := do
+  let result ←
+    ContractDecl.call? 24 publicFixedBytesArrayGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "fixedBlobs")
+      publicFixedBytesArrayGetterState
+      [SolidCore.Solidity.Source.Value.word 2]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (SolidCore.Solidity.Source.wordEq code 0x32)
+  | _ => some false
+
 def dynamicStorageArrayContract : ContractDecl :=
   { name := "StorageArray"
     items :=

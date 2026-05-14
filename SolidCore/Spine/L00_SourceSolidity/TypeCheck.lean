@@ -11313,6 +11313,21 @@ def publicStringArrayGetterSource : L00_SourceSolidity.SourceUnit :=
 def publicStringArrayGetterAccepted : Bool :=
   sourceUnitAccepted? publicStringArrayGetterSource
 
+def publicFixedBytesArrayGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PublicFixedBytesArrayGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "fixedBlobs"
+                    ty := L00_SourceSolidity.Ty.array
+                      L00_SourceSolidity.Ty.bytes (some 2)
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def publicFixedBytesArrayGetterAccepted : Bool :=
+  sourceUnitAccepted? publicFixedBytesArrayGetterSource
+
 def publicMappingByteStringsGetterSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
