@@ -1418,7 +1418,45 @@ def FunctionSig.internallyCallable (sig : FunctionSig) : Bool :=
 def FunctionSig.nonPrivate (sig : FunctionSig) : Bool :=
   !(sig.visibility == some L00_SourceSolidity.Visibility.private_)
 
+def FunctionSig.internalFunctionValueTy? (sig : FunctionSig) :
+    Option Ty :=
+  if sig.internallyCallable then
+    some
+      (L00_SourceSolidity.Ty.function sig.params sig.returns
+        sig.mutability L00_SourceSolidity.Visibility.internal_)
+  else
+    none
+
+def FunctionSig.internalFunctionValueAssignableTo
+    (types : TypeContext) (expected : Ty) (sig : FunctionSig) : Bool :=
+  match FunctionSig.internalFunctionValueTy? sig with
+  | some actual => TypeContext.canImplicitlyConvert types actual expected
+  | none => false
+
 namespace FunctionSigs
+
+def resolveInternalFunctionValueLoop (types : TypeContext)
+    (target : Name) (expected : Ty) :
+    Option FunctionSig -> List FunctionSig ->
+    Except TypeError FunctionSig
+  | none, [] => Except.error (TypeError.unknownFunction target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target &&
+          FunctionSig.internalFunctionValueAssignableTo
+            types expected sig then
+        match found? with
+        | none =>
+            resolveInternalFunctionValueLoop types target expected
+              (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveInternalFunctionValueLoop types target expected found? rest
+
+def resolveInternalFunctionValueAssignableTo (types : TypeContext)
+    (functions : List FunctionSig) (target : Name) (expected : Ty) :
+    Except TypeError FunctionSig :=
+  resolveInternalFunctionValueLoop types target expected none functions
 
 def containsSameSignature (target : FunctionSig) : List FunctionSig -> Bool
   | [] => false
@@ -3125,14 +3163,14 @@ def checkExpr (env : CheckEnv) :
       | none =>
           match FunctionSigs.resolve env.functions name [] with
           | Except.ok sig =>
-              Except.ok
-                { source := expr
-                  ty := L00_SourceSolidity.Ty.function
-                    sig.params sig.returns sig.mutability
-                    (sig.visibility.getD
-                      L00_SourceSolidity.Visibility.internal_)
-                  lvalue := false
-                  stateLValue := false }
+              match FunctionSig.internalFunctionValueTy? sig with
+              | some ty =>
+                  Except.ok
+                    { source := expr
+                      ty := ty
+                      lvalue := false
+                      stateLValue := false }
+              | none => Except.error (TypeError.unknownIdentifier name)
           | Except.error _ => Except.error (TypeError.unknownIdentifier name)
   | expr@(L00_SourceSolidity.Expr.typeName ty) => do
       checkTy env.types ty
@@ -4637,11 +4675,31 @@ def StateVarDecls.runtimeStateNamesWith
           name :: StateVarDecls.runtimeStateNamesWith constantBindings rest
       | none => StateVarDecls.runtimeStateNamesWith constantBindings rest
 
+def checkInternalFunctionValueAssignable?
+    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    Option (Except TypeError Unit) :=
+  match expr, expected with
+  | L00_SourceSolidity.Expr.ident name,
+    L00_SourceSolidity.Ty.function _ _ _ L00_SourceSolidity.Visibility.internal_ =>
+      match env.lookupVar? name with
+      | some _ => none
+      | none =>
+          some
+            (do
+              let _ ←
+                FunctionSigs.resolveInternalFunctionValueAssignableTo
+                  env.types env.functions name expected
+              Except.ok ())
+  | _, _ => none
+
 def checkExprAssignableTo (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) (expected : Ty) :
     Except TypeError Unit := do
-  let checked ← checkExpr env expr
-  checked.expectAssignableToIn env.types expected
+  match checkInternalFunctionValueAssignable? env expr expected with
+  | some result => result
+  | none => do
+      let checked ← checkExpr env expr
+      checked.expectAssignableToIn env.types expected
 
 def checkReturnExprs (env : CheckEnv)
     (expr? : Option L00_SourceSolidity.Expr) : Except TypeError Unit :=
@@ -5026,9 +5084,12 @@ def checkStmt (env : CheckEnv) :
           match bindings with
           | [binding] =>
               let ty ← VarBinding.checkType env binding
-              let checked ← checkExpr env init
-              checked.expectAssignableToIn env.types ty
-              VarBinding.checkStorageRefInitializer env binding checked
+              match checkInternalFunctionValueAssignable? env init ty with
+              | some result => result
+              | none => do
+                  let checked ← checkExpr env init
+                  checked.expectAssignableToIn env.types ty
+                  VarBinding.checkStorageRefInitializer env binding checked
           | _ =>
               match init with
               | L00_SourceSolidity.Expr.tuple items => do
@@ -14736,6 +14797,11 @@ def internalPureUintFunctionTy : Ty :=
     L00_SourceSolidity.StateMutability.pure
     L00_SourceSolidity.Visibility.internal_
 
+def internalPureUintUnaryFunctionTy : Ty :=
+  L00_SourceSolidity.Ty.function [uint256] [uint256]
+    L00_SourceSolidity.StateMutability.pure
+    L00_SourceSolidity.Visibility.internal_
+
 def publicPureUintFunctionTy : Ty :=
   L00_SourceSolidity.Ty.function [] [uint256]
     L00_SourceSolidity.StateMutability.pure
@@ -14829,6 +14895,64 @@ def functionTypeMutabilityConversionSource :
 
 def functionTypeMutabilityConversionAccepted : Bool :=
   sourceUnitAccepted? functionTypeMutabilityConversionSource
+
+def internalFunctionPointerAliasTarget :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "double"
+    params :=
+      [ { name := some "x"
+          ty := uint256
+          location := none } ]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.mul
+              (L00_SourceSolidity.Expr.ident "x")
+              (numberExpr "2")))) }
+
+def internalFunctionPointerAliasFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "callViaPointer"
+    params :=
+      [ { name := some "x"
+          ty := uint256
+          location := none } ]
+    visibility := some L00_SourceSolidity.Visibility.public_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "fp"
+                  ty := some internalPureUintUnaryFunctionTy
+                  location := none } ]
+              (some (L00_SourceSolidity.Expr.ident "double"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fp")
+                  [L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.ident "x")])) ]) }
+
+def internalFunctionPointerAliasSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerAlias"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasFunction ] } ] }
+
+def internalFunctionPointerAliasAccepted : Bool :=
+  sourceUnitAccepted? internalFunctionPointerAliasSource
 
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=

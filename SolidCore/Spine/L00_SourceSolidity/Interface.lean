@@ -7183,6 +7183,373 @@ def FunctionDecl.findInternalCalleeWithArgs?
       let orderedArgs ← FunctionDecl.orderedArgs? fn args
       some (fn, orderedArgs)
 
+abbrev InternalFunctionAliasEnv := List (Name × Name)
+
+def InternalFunctionAliasEnv.lookup? (env : InternalFunctionAliasEnv)
+    (name : Name) : Option Name :=
+  match env with
+  | [] => none
+  | (alias, target) :: rest =>
+      if alias == name then
+        some target
+      else
+        InternalFunctionAliasEnv.lookup? rest name
+
+def InternalFunctionAliasEnv.remove (env : InternalFunctionAliasEnv)
+    (name : Name) : InternalFunctionAliasEnv :=
+  env.filter (fun entry => entry.fst != name)
+
+def InternalFunctionAliasEnv.extend (env : InternalFunctionAliasEnv)
+    (alias target : Name) : InternalFunctionAliasEnv :=
+  (alias, target) :: InternalFunctionAliasEnv.remove env alias
+
+def InternalFunctionAliasEnv.resolveFuel :
+    Nat -> InternalFunctionAliasEnv -> Name -> Name
+  | 0, _, name => name
+  | fuel + 1, env, name =>
+      match InternalFunctionAliasEnv.lookup? env name with
+      | some target => InternalFunctionAliasEnv.resolveFuel fuel env target
+      | none => name
+
+def InternalFunctionAliasEnv.resolve (env : InternalFunctionAliasEnv)
+    (name : Name) : Name :=
+  InternalFunctionAliasEnv.resolveFuel 64 env name
+
+def FunctionDecl.internalFunctionValueTy? (decl : FunctionDecl) :
+    Option Ty :=
+  match decl.kind, decl.name, decl.visibility with
+  | FunctionKind.function, some _, some Visibility.external_ => none
+  | FunctionKind.function, some _, _ =>
+      some
+        (Ty.function (decl.params.map Parameter.ty)
+          (decl.returns.map Parameter.ty) decl.mutability
+          Visibility.internal_)
+  | _, _, _ => none
+
+def FunctionDecl.matchesInternalFunctionAliasTarget
+    (expected : Ty) (targetName : Name) (decl : FunctionDecl) : Bool :=
+  match decl.name, FunctionDecl.internalFunctionValueTy? decl with
+  | some declName, some actual =>
+      declName == targetName && Ty.canImplicitlyConvert actual expected
+  | _, _ => false
+
+def FunctionDecls.findInternalFunctionAliasTarget? (expected : Ty)
+    (targetName : Name) : List FunctionDecl -> Option Name
+  | [] => none
+  | decl :: rest =>
+      if FunctionDecl.matchesInternalFunctionAliasTarget
+          expected targetName decl then
+        decl.name
+      else
+        FunctionDecls.findInternalFunctionAliasTarget?
+          expected targetName rest
+
+def FunctionDecls.findInternalFunctionAliasTargetIn?
+    (functions freeFunctions : List FunctionDecl) (expected : Ty)
+    (targetName : Name) : Option Name :=
+  match
+      FunctionDecls.findInternalFunctionAliasTarget?
+        expected targetName functions with
+  | some resolved => some resolved
+  | none =>
+      FunctionDecls.findInternalFunctionAliasTarget?
+        expected targetName freeFunctions
+
+def InternalFunctionAliasEnv.aliasTarget? (aliasEnv : InternalFunctionAliasEnv)
+    (functions freeFunctions : List FunctionDecl) (expected : Ty)
+    (sourceName : Name) : Option Name :=
+  let sourceName := InternalFunctionAliasEnv.resolve aliasEnv sourceName
+  FunctionDecls.findInternalFunctionAliasTargetIn?
+    functions freeFunctions expected sourceName
+
+def VarBinding.internalFunctionAliasTarget?
+    (aliasEnv : InternalFunctionAliasEnv)
+    (functions freeFunctions : List FunctionDecl)
+    (binding : VarBinding) (sourceName : Name) :
+    Option (Name × Name) := do
+  let aliasName ← binding.name
+  let expected ← binding.ty
+  match expected with
+  | Ty.function _ _ _ Visibility.internal_ =>
+      let target ←
+        InternalFunctionAliasEnv.aliasTarget?
+          aliasEnv functions freeFunctions expected sourceName
+      some (aliasName, target)
+  | _ => none
+
+def VarBinding.removeInternalFunctionAlias
+    (aliasEnv : InternalFunctionAliasEnv)
+    (binding : VarBinding) : InternalFunctionAliasEnv :=
+  match binding.name with
+  | some name => InternalFunctionAliasEnv.remove aliasEnv name
+  | none => aliasEnv
+
+def VarBindings.removeInternalFunctionAliases :
+    InternalFunctionAliasEnv -> List VarBinding -> InternalFunctionAliasEnv
+  | aliasEnv, [] => aliasEnv
+  | aliasEnv, binding :: rest =>
+      VarBindings.removeInternalFunctionAliases
+        (VarBinding.removeInternalFunctionAlias aliasEnv binding) rest
+
+set_option maxHeartbeats 1000000 in
+mutual
+
+def Expr.inlineInternalFunctionAliasesFuel :
+    Nat -> InternalFunctionAliasEnv -> Expr -> Expr
+  | 0, _, expr => expr
+  | _ + 1, _, Expr.literal literal => Expr.literal literal
+  | _ + 1, _, Expr.ident name => Expr.ident name
+  | _ + 1, _, Expr.typeName ty => Expr.typeName ty
+  | fuel + 1, aliasEnv, Expr.member base member =>
+      Expr.member
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv base)
+        member
+  | fuel + 1, aliasEnv, Expr.index base index =>
+      Expr.index
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv base)
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv index)
+  | fuel + 1, aliasEnv, Expr.slice base start stop =>
+      Expr.slice
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv base)
+        (start.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+        (stop.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.call (Expr.ident name) args =>
+      Expr.call
+        (Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name))
+        (args.map
+          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.call fn args =>
+      Expr.call
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv fn)
+        (args.map
+          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.callWithOptions (Expr.ident name) options args =>
+      Expr.callWithOptions
+        (Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name))
+        (options.map
+          (CallOption.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+        (args.map
+          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.callWithOptions fn options args =>
+      Expr.callWithOptions
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv fn)
+        (options.map
+          (CallOption.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+        (args.map
+          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.newExpr ty args =>
+      Expr.newExpr ty
+        (args.map
+          (Arg.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.tuple items =>
+      Expr.tuple
+        (items.map
+          (TupleItem.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.array exprs =>
+      Expr.array
+        (exprs.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Expr.enumFromUInt maxValue inner =>
+      Expr.enumFromUInt maxValue
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv inner)
+  | fuel + 1, aliasEnv, Expr.unary op inner =>
+      Expr.unary op
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv inner)
+  | fuel + 1, aliasEnv, Expr.binary op lhs rhs =>
+      Expr.binary op
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv lhs)
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv rhs)
+  | fuel + 1, aliasEnv, Expr.ternary cond thenExpr elseExpr =>
+      Expr.ternary
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv cond)
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv thenExpr)
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv elseExpr)
+  | fuel + 1, aliasEnv, Expr.assign lhs op rhs =>
+      Expr.assign
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv lhs)
+        op
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv rhs)
+  | fuel + 1, aliasEnv, Expr.payableConversion inner =>
+      Expr.payableConversion
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv inner)
+termination_by fuel _ _ => fuel
+
+def Arg.inlineInternalFunctionAliasesFuel :
+    Nat -> InternalFunctionAliasEnv -> Arg -> Arg
+  | 0, _, arg => arg
+  | fuel + 1, aliasEnv, Arg.positional expr =>
+      Arg.positional
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+  | fuel + 1, aliasEnv, Arg.named name expr =>
+      Arg.named name
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+termination_by fuel _ _ => fuel
+
+def CallOption.inlineInternalFunctionAliasesFuel :
+    Nat -> InternalFunctionAliasEnv -> CallOption -> CallOption
+  | 0, _, option => option
+  | fuel + 1, aliasEnv, CallOption.named name expr =>
+      CallOption.named name
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+termination_by fuel _ _ => fuel
+
+def TupleItem.inlineInternalFunctionAliasesFuel :
+    Nat -> InternalFunctionAliasEnv -> TupleItem -> TupleItem
+  | 0, _, item => item
+  | _ + 1, _, TupleItem.hole => TupleItem.hole
+  | fuel + 1, aliasEnv, TupleItem.value expr =>
+      TupleItem.value
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+termination_by fuel _ _ => fuel
+
+def Stmt.inlineInternalFunctionAliasesFuel
+    (functions freeFunctions : List FunctionDecl) :
+    Nat -> InternalFunctionAliasEnv -> Stmt -> Stmt
+  | 0, _, stmt => stmt
+  | _ + 1, _, Stmt.empty => Stmt.empty
+  | fuel + 1, aliasEnv, Stmt.block body =>
+      Stmt.block
+        (Stmt.inlineInternalFunctionAliasSeqFuel
+          functions freeFunctions fuel aliasEnv body).fst
+  | fuel + 1, aliasEnv, Stmt.varDecl bindings init =>
+      Stmt.varDecl bindings
+        (init.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | fuel + 1, aliasEnv, Stmt.expr expr =>
+      Stmt.expr
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+  | fuel + 1, aliasEnv, Stmt.ifElse cond thenBranch elseBranch =>
+      Stmt.ifElse
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv cond)
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv thenBranch)
+        (elseBranch.map
+          (Stmt.inlineInternalFunctionAliasesFuel
+            functions freeFunctions fuel aliasEnv))
+  | fuel + 1, aliasEnv, Stmt.whileLoop cond body =>
+      Stmt.whileLoop
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv cond)
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv body)
+  | fuel + 1, aliasEnv, Stmt.doWhile body cond =>
+      Stmt.doWhile
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv body)
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv cond)
+  | fuel + 1, aliasEnv, Stmt.forLoop init cond post body =>
+      Stmt.forLoop
+        (init.map
+          (Stmt.inlineInternalFunctionAliasesFuel
+            functions freeFunctions fuel aliasEnv))
+        (cond.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+        (post.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv body)
+  | fuel + 1, aliasEnv, Stmt.tryCatch expr clauses =>
+      Stmt.tryCatch
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+        (clauses.map
+          (CatchClause.inlineInternalFunctionAliasesFuel
+            functions freeFunctions fuel aliasEnv))
+  | fuel + 1, aliasEnv, Stmt.tryCatchReturns expr returns success clauses =>
+      Stmt.tryCatchReturns
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+        returns
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv success)
+        (clauses.map
+          (CatchClause.inlineInternalFunctionAliasesFuel
+            functions freeFunctions fuel aliasEnv))
+  | fuel + 1, aliasEnv, Stmt.emitEvent expr =>
+      Stmt.emitEvent
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+  | fuel + 1, aliasEnv, Stmt.revertCall expr =>
+      Stmt.revertCall
+        (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv expr)
+  | fuel + 1, aliasEnv, Stmt.returnValues expr? =>
+      Stmt.returnValues
+        (expr?.map
+          (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv))
+  | _ + 1, _, Stmt.break => Stmt.break
+  | _ + 1, _, Stmt.continue => Stmt.continue
+  | fuel + 1, aliasEnv, Stmt.unchecked body =>
+      Stmt.unchecked
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv body)
+  | _ + 1, _, Stmt.inlineAssembly code => Stmt.inlineAssembly code
+  | _ + 1, _, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+termination_by fuel _ _ => fuel
+
+def CatchClause.inlineInternalFunctionAliasesFuel
+    (functions freeFunctions : List FunctionDecl) :
+    Nat -> InternalFunctionAliasEnv -> CatchClause -> CatchClause
+  | 0, _, clause => clause
+  | fuel + 1, aliasEnv, CatchClause.clause name params body =>
+      CatchClause.clause name params
+        (Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv body)
+termination_by fuel _ _ => fuel
+
+def Stmt.inlineInternalFunctionAliasSeqFuel
+    (functions freeFunctions : List FunctionDecl) :
+    Nat -> InternalFunctionAliasEnv ->
+    List Stmt -> List Stmt × InternalFunctionAliasEnv
+  | 0, aliasEnv, stmts => (stmts, aliasEnv)
+  | fuel + 1, aliasEnv,
+    Stmt.varDecl [binding] (some (Expr.ident sourceName)) :: rest =>
+      match
+          VarBinding.internalFunctionAliasTarget?
+            aliasEnv functions freeFunctions binding sourceName with
+      | some (aliasName, targetName) =>
+          let aliasEnv' :=
+            InternalFunctionAliasEnv.extend aliasEnv aliasName targetName
+          Stmt.inlineInternalFunctionAliasSeqFuel
+            functions freeFunctions fuel aliasEnv' rest
+      | none =>
+          let head :=
+            Stmt.inlineInternalFunctionAliasesFuel functions freeFunctions
+              fuel aliasEnv
+              (Stmt.varDecl [binding] (some (Expr.ident sourceName)))
+          let aliasEnv' :=
+            VarBinding.removeInternalFunctionAlias aliasEnv binding
+          let (tail, finalEnv) :=
+            Stmt.inlineInternalFunctionAliasSeqFuel
+              functions freeFunctions fuel aliasEnv' rest
+          (head :: tail, finalEnv)
+  | fuel + 1, aliasEnv, Stmt.varDecl bindings init :: rest =>
+      let head :=
+        Stmt.inlineInternalFunctionAliasesFuel functions freeFunctions
+          fuel aliasEnv (Stmt.varDecl bindings init)
+      let aliasEnv' :=
+        VarBindings.removeInternalFunctionAliases aliasEnv bindings
+      let (tail, finalEnv) :=
+        Stmt.inlineInternalFunctionAliasSeqFuel
+          functions freeFunctions fuel aliasEnv' rest
+      (head :: tail, finalEnv)
+  | fuel + 1, aliasEnv, stmt :: rest =>
+      let head :=
+        Stmt.inlineInternalFunctionAliasesFuel
+          functions freeFunctions fuel aliasEnv stmt
+      let (tail, finalEnv) :=
+        Stmt.inlineInternalFunctionAliasSeqFuel
+          functions freeFunctions fuel aliasEnv rest
+      (head :: tail, finalEnv)
+  | _ + 1, aliasEnv, [] => ([], aliasEnv)
+termination_by fuel _ _ => fuel
+
+end
+
+def defaultInternalFunctionAliasFuel : Nat := 1024
+
+def Stmt.inlineInternalFunctionAliasesInBody
+    (functions freeFunctions : List FunctionDecl) (stmt : Stmt) : Stmt :=
+  Stmt.inlineInternalFunctionAliasesFuel
+    functions freeFunctions defaultInternalFunctionAliasFuel [] stmt
+
 def Expr.storageRefArrayMemberStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) :
@@ -11334,6 +11701,7 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
         { modifier with
           body := modifier.body.map
             (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
+  let body := Stmt.inlineInternalFunctionAliasesInBody functions freeFunctions body
   let body := Stmt.annotateAbi env body
   let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] decl.params
   let functions :=
@@ -28338,6 +28706,54 @@ def internalReturnCallResult : Option CoreCallResult :=
   ContractDecl.call? 32 internalReturnCallContract
     (SolidCore.Solidity.Source.CallTarget.name "run")
     SolidCore.Solidity.Source.State.empty []
+
+def internalFunctionPointerAliasContract : ContractDecl :=
+  { name := "InternalFunctionPointerAlias"
+    items :=
+      [ ContractItem.function
+          { name := some "double"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.mul
+                      (Expr.ident "value")
+                      (Expr.literal (Literal.number "2"))))) }
+      , ContractItem.function
+          { name := some "run"
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "fp"
+                          ty :=
+                            some
+                              (Ty.function [Ty.uint 256] [Ty.uint 256]
+                                StateMutability.pure
+                                Visibility.internal_) } ]
+                      (some (Expr.ident "double"))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "fp")
+                          [Arg.positional (Expr.ident "value")])) ]) } ] }
+
+def internalFunctionPointerAliasMatches : Option Bool := do
+  let result ←
+    ContractDecl.call? 48 internalFunctionPointerAliasContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
 
 def internalReturnSubexpressionContract : ContractDecl :=
   { name := "InternalReturnSubexpression"
