@@ -17778,6 +17778,45 @@ def uncheckedModuloByZeroStillPanics : Option Bool := do
       some (code == 0x12)
   | _ => some false
 
+def intMinusOneExpr : Expr :=
+  Expr.unary UnaryOp.neg
+    (Expr.call (Expr.typeName (Ty.int 256))
+      [Arg.positional (Expr.literal (Literal.number "1"))])
+
+def signedDivisionOverflowStatement : Stmt :=
+  Stmt.returnValues
+    (some
+      (Expr.binary BinaryOp.div
+        (Expr.member (Expr.typeName (Ty.int 256)) "min")
+        intMinusOneExpr))
+
+def signedDivisionOverflowPanics : Option Bool := do
+  let result ←
+    Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      signedDivisionOverflowStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x11)
+  | _ => some false
+
+def uncheckedSignedDivisionOverflowStatement : Stmt :=
+  Stmt.unchecked signedDivisionOverflowStatement
+
+def uncheckedSignedDivisionOverflowWraps : Option Bool := do
+  let result ←
+    Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      uncheckedSignedDivisionOverflowStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.returned _
+      [SolidCore.Solidity.Source.Value.int value] =>
+      some (SolidCore.Solidity.Source.wordEq value (2 ^ 255))
+  | _ => some false
+
 def uncheckedInternalUintMaxPlusOne : Expr :=
   Expr.binary BinaryOp.add
     (Expr.member (Expr.typeName (Ty.uint 256)) "max")
