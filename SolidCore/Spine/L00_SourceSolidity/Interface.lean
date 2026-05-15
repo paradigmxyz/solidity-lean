@@ -965,11 +965,17 @@ def ContractDecl.baseHelpers (decl : ContractDecl) : List FunctionDecl :=
 
 abbrev TypeEnv := List (Name × Ty)
 
-abbrev UserTypeEnv := List (Name × Ty)
+abbrev UserTypeEnv := List (Path × Ty)
 
-abbrev EnumEnv := List (Name × EnumDecl)
+abbrev EnumEnv := List (Path × EnumDecl)
 
-abbrev StructEnv := List (Name × StructDecl)
+abbrev StructEnv := List (Path × StructDecl)
+
+def pathOfName (name : Name) : Path :=
+  { segments := [name] }
+
+def qualifiedPath (scope name : Name) : Path :=
+  { segments := [scope, name] }
 
 def TypeEnv.lookup? (env : TypeEnv) (name : Name) : Option Ty :=
   match env with
@@ -986,59 +992,70 @@ def TypeEnv.extend? (env : TypeEnv) (name? : Option Name)
   | some name, some ty => (name, ty) :: env
   | _, _ => env
 
-def UserTypeEnv.lookupName? (env : UserTypeEnv) (name : Name) :
+def UserTypeEnv.lookup? (env : UserTypeEnv) (path : Path) :
     Option Ty :=
   match env with
   | [] => none
   | (candidate, ty) :: rest =>
-      if candidate == name then
+      if candidate == path then
         some ty
       else
-        UserTypeEnv.lookupName? rest name
+        UserTypeEnv.lookup? rest path
 
-def UserTypeEnv.lookup? (env : UserTypeEnv) (path : Path) : Option Ty := do
-  let name ← pathLast? path
-  UserTypeEnv.lookupName? env name
+def UserTypeEnv.lookupName? (env : UserTypeEnv) (name : Name) :
+    Option Ty :=
+  UserTypeEnv.lookup? env (pathOfName name)
 
 def UserTypeEnv.extendDecl (env : UserTypeEnv)
     (decl : UserValueTypeDecl) : UserTypeEnv :=
-  (decl.name, decl.underlying) :: env
+  (pathOfName decl.name, decl.underlying) :: env
 
-def EnumEnv.lookupName? (env : EnumEnv) (name : Name) :
+def UserTypeEnv.extendQualifiedDecl (env : UserTypeEnv)
+    (scope : Name) (decl : UserValueTypeDecl) : UserTypeEnv :=
+  (qualifiedPath scope decl.name, decl.underlying) :: env
+
+def EnumEnv.lookup? (env : EnumEnv) (path : Path) :
     Option EnumDecl :=
   match env with
   | [] => none
   | (candidate, decl) :: rest =>
-      if candidate == name then
+      if candidate == path then
         some decl
       else
-        EnumEnv.lookupName? rest name
+        EnumEnv.lookup? rest path
 
-def EnumEnv.lookup? (env : EnumEnv) (path : Path) : Option EnumDecl := do
-  let name ← pathLast? path
-  EnumEnv.lookupName? env name
+def EnumEnv.lookupName? (env : EnumEnv) (name : Name) :
+    Option EnumDecl :=
+  EnumEnv.lookup? env (pathOfName name)
 
 def EnumEnv.extendDecl (env : EnumEnv) (decl : EnumDecl) : EnumEnv :=
-  (decl.name, decl) :: env
+  (pathOfName decl.name, decl) :: env
 
-def StructEnv.lookupName? (env : StructEnv) (name : Name) :
+def EnumEnv.extendQualifiedDecl (env : EnumEnv)
+    (scope : Name) (decl : EnumDecl) : EnumEnv :=
+  (qualifiedPath scope decl.name, decl) :: env
+
+def StructEnv.lookup? (env : StructEnv) (path : Path) :
     Option StructDecl :=
   match env with
   | [] => none
   | (candidate, decl) :: rest =>
-      if candidate == name then
+      if candidate == path then
         some decl
       else
-        StructEnv.lookupName? rest name
+        StructEnv.lookup? rest path
 
-def StructEnv.lookup? (env : StructEnv) (path : Path) :
-    Option StructDecl := do
-  let name ← pathLast? path
-  StructEnv.lookupName? env name
+def StructEnv.lookupName? (env : StructEnv) (name : Name) :
+    Option StructDecl :=
+  StructEnv.lookup? env (pathOfName name)
 
 def StructEnv.extendDecl (env : StructEnv) (decl : StructDecl) :
     StructEnv :=
-  (decl.name, decl) :: env
+  (pathOfName decl.name, decl) :: env
+
+def StructEnv.extendQualifiedDecl (env : StructEnv)
+    (scope : Name) (decl : StructDecl) : StructEnv :=
+  (qualifiedPath scope decl.name, decl) :: env
 
 def mapOption {α β : Type} (f : α -> Option β) : List α -> Option (List β)
   | [] => some []
@@ -12299,13 +12316,45 @@ def UserTypeEnv.extendDecls (env : UserTypeEnv) :
       UserTypeEnv.extendDecls
         (UserTypeEnv.extendDecl env decl) rest
 
+def UserTypeEnv.extendQualifiedDecls (scope : Name)
+    (env : UserTypeEnv) : List UserValueTypeDecl -> UserTypeEnv
+  | [] => env
+  | decl :: rest =>
+      UserTypeEnv.extendQualifiedDecls scope
+        (UserTypeEnv.extendQualifiedDecl env scope decl) rest
+
+def UserTypeEnv.extendContractDecls (env : UserTypeEnv)
+    (decl : ContractDecl) : UserTypeEnv :=
+  UserTypeEnv.extendDecls
+    (UserTypeEnv.extendQualifiedDecls decl.name env
+      (ContractDecl.directUserValueTypes decl))
+    (ContractDecl.directUserValueTypes decl)
+
+def UserTypeEnv.extendContractQualifiedDecls (env : UserTypeEnv)
+    (decl : ContractDecl) : UserTypeEnv :=
+  UserTypeEnv.extendQualifiedDecls decl.name env
+    (ContractDecl.directUserValueTypes decl)
+
 def ContractDecl.userTypeEnvFromContracts (contracts : List ContractDecl) :
     UserTypeEnv :=
   contracts.foldl
     (fun env decl =>
+      UserTypeEnv.extendContractDecls env decl)
+    []
+
+def ContractDecl.userTypeEnvFromContractsInScope (env : UserTypeEnv)
+    (contracts : List ContractDecl) : UserTypeEnv :=
+  contracts.reverse.foldl
+    (fun env decl =>
       UserTypeEnv.extendDecls env
         (ContractDecl.directUserValueTypes decl))
-    []
+    env
+
+def ContractDecl.userTypeEnvWithQualifiedContracts (env : UserTypeEnv)
+    (contracts : List ContractDecl) : UserTypeEnv :=
+  contracts.foldl
+    (fun env decl => UserTypeEnv.extendContractQualifiedDecls env decl)
+    env
 
 def EnumEnv.extendDecls (env : EnumEnv) :
     List EnumDecl -> EnumEnv
@@ -12313,12 +12362,44 @@ def EnumEnv.extendDecls (env : EnumEnv) :
   | decl :: rest =>
       EnumEnv.extendDecls (EnumEnv.extendDecl env decl) rest
 
+def EnumEnv.extendQualifiedDecls (scope : Name)
+    (env : EnumEnv) : List EnumDecl -> EnumEnv
+  | [] => env
+  | decl :: rest =>
+      EnumEnv.extendQualifiedDecls scope
+        (EnumEnv.extendQualifiedDecl env scope decl) rest
+
+def EnumEnv.extendContractDecls (env : EnumEnv)
+    (decl : ContractDecl) : EnumEnv :=
+  EnumEnv.extendDecls
+    (EnumEnv.extendQualifiedDecls decl.name env
+      (ContractDecl.directEnums decl))
+    (ContractDecl.directEnums decl)
+
+def EnumEnv.extendContractQualifiedDecls (env : EnumEnv)
+    (decl : ContractDecl) : EnumEnv :=
+  EnumEnv.extendQualifiedDecls decl.name env
+    (ContractDecl.directEnums decl)
+
 def ContractDecl.enumEnvFromContracts (contracts : List ContractDecl) :
     EnumEnv :=
   contracts.foldl
     (fun env decl =>
-      EnumEnv.extendDecls env (ContractDecl.directEnums decl))
+      EnumEnv.extendContractDecls env decl)
     []
+
+def ContractDecl.enumEnvFromContractsInScope (env : EnumEnv)
+    (contracts : List ContractDecl) : EnumEnv :=
+  contracts.reverse.foldl
+    (fun env decl =>
+      EnumEnv.extendDecls env (ContractDecl.directEnums decl))
+    env
+
+def ContractDecl.enumEnvWithQualifiedContracts (env : EnumEnv)
+    (contracts : List ContractDecl) : EnumEnv :=
+  contracts.foldl
+    (fun env decl => EnumEnv.extendContractQualifiedDecls env decl)
+    env
 
 def StructEnv.extendDecls (env : StructEnv) :
     List StructDecl -> StructEnv
@@ -12326,12 +12407,44 @@ def StructEnv.extendDecls (env : StructEnv) :
   | decl :: rest =>
       StructEnv.extendDecls (StructEnv.extendDecl env decl) rest
 
+def StructEnv.extendQualifiedDecls (scope : Name)
+    (env : StructEnv) : List StructDecl -> StructEnv
+  | [] => env
+  | decl :: rest =>
+      StructEnv.extendQualifiedDecls scope
+        (StructEnv.extendQualifiedDecl env scope decl) rest
+
+def StructEnv.extendContractDecls (env : StructEnv)
+    (decl : ContractDecl) : StructEnv :=
+  StructEnv.extendDecls
+    (StructEnv.extendQualifiedDecls decl.name env
+      (ContractDecl.directStructs decl))
+    (ContractDecl.directStructs decl)
+
+def StructEnv.extendContractQualifiedDecls (env : StructEnv)
+    (decl : ContractDecl) : StructEnv :=
+  StructEnv.extendQualifiedDecls decl.name env
+    (ContractDecl.directStructs decl)
+
 def ContractDecl.structEnvFromContracts (contracts : List ContractDecl) :
     StructEnv :=
   contracts.foldl
     (fun env decl =>
-      StructEnv.extendDecls env (ContractDecl.directStructs decl))
+      StructEnv.extendContractDecls env decl)
     []
+
+def ContractDecl.structEnvFromContractsInScope (env : StructEnv)
+    (contracts : List ContractDecl) : StructEnv :=
+  contracts.reverse.foldl
+    (fun env decl =>
+      StructEnv.extendDecls env (ContractDecl.directStructs decl))
+    env
+
+def ContractDecl.structEnvWithQualifiedContracts (env : StructEnv)
+    (contracts : List ContractDecl) : StructEnv :=
+  contracts.foldl
+    (fun env decl => StructEnv.extendContractQualifiedDecls env decl)
+    env
 
 def ContractDecl.findByName? (contracts : List ContractDecl)
     (name : Name) : Option ContractDecl :=
@@ -13502,15 +13615,19 @@ def SourceUnit.freeConstants (unit : SourceUnit) : List StateVarDecl :=
     | SourceItem.freeConstant decl => some decl
     | _ => none)
 
+def SourceUnit.contracts (unit : SourceUnit) : List ContractDecl :=
+  unit.items.filterMap (fun item =>
+    match item with
+    | SourceItem.contract decl => some decl
+    | _ => none)
+
 def SourceUnit.userTypeEnv (unit : SourceUnit) : UserTypeEnv :=
   let freeEnv :=
     UserTypeEnv.extendDecls [] (SourceUnit.freeUserValueTypes unit)
-  UserTypeEnv.extendDecls freeEnv
-    (concatMapList ContractDecl.directUserValueTypes
-      (unit.items.filterMap (fun item =>
-        match item with
-        | SourceItem.contract decl => some decl
-        | _ => none)))
+  ContractDecl.userTypeEnvFromContractsInScope
+    (ContractDecl.userTypeEnvWithQualifiedContracts freeEnv
+      (SourceUnit.contracts unit))
+    (SourceUnit.contracts unit)
 
 def SourceUnit.resolveUserTypes (unit : SourceUnit) : SourceUnit :=
   let env := SourceUnit.userTypeEnv unit
@@ -13518,12 +13635,10 @@ def SourceUnit.resolveUserTypes (unit : SourceUnit) : SourceUnit :=
 
 def SourceUnit.enumEnv (unit : SourceUnit) : EnumEnv :=
   let freeEnv := EnumEnv.extendDecls [] (SourceUnit.freeEnums unit)
-  EnumEnv.extendDecls freeEnv
-    (concatMapList ContractDecl.directEnums
-      (unit.items.filterMap (fun item =>
-        match item with
-        | SourceItem.contract decl => some decl
-        | _ => none)))
+  ContractDecl.enumEnvFromContractsInScope
+    (ContractDecl.enumEnvWithQualifiedContracts freeEnv
+      (SourceUnit.contracts unit))
+    (SourceUnit.contracts unit)
 
 def SourceUnit.resolveEnums (unit : SourceUnit) : SourceUnit :=
   let env := SourceUnit.enumEnv unit
@@ -13531,12 +13646,10 @@ def SourceUnit.resolveEnums (unit : SourceUnit) : SourceUnit :=
 
 def SourceUnit.structEnv (unit : SourceUnit) : StructEnv :=
   let freeEnv := StructEnv.extendDecls [] (SourceUnit.freeStructs unit)
-  StructEnv.extendDecls freeEnv
-    (concatMapList ContractDecl.directStructs
-      (unit.items.filterMap (fun item =>
-        match item with
-        | SourceItem.contract decl => some decl
-        | _ => none)))
+  ContractDecl.structEnvFromContractsInScope
+    (ContractDecl.structEnvWithQualifiedContracts freeEnv
+      (SourceUnit.contracts unit))
+    (SourceUnit.contracts unit)
 
 def SourceUnit.resolveStructs (unit : SourceUnit) : SourceUnit :=
   let env := SourceUnit.structEnv unit
@@ -13546,11 +13659,145 @@ def SourceUnit.resolveSourceTypes (unit : SourceUnit) : SourceUnit :=
   SourceUnit.resolveStructs
     (SourceUnit.resolveEnums (SourceUnit.resolveUserTypes unit))
 
-def SourceUnit.contracts (unit : SourceUnit) : List ContractDecl :=
-  unit.items.filterMap (fun item =>
-    match item with
-    | SourceItem.contract decl => some decl
-    | _ => none)
+def SourceUnit.sourceUserTypeEnv (unit : SourceUnit) : UserTypeEnv :=
+  ContractDecl.userTypeEnvWithQualifiedContracts
+    (UserTypeEnv.extendDecls [] (SourceUnit.freeUserValueTypes unit))
+    (SourceUnit.contracts unit)
+
+def SourceUnit.sourceEnumEnv (unit : SourceUnit) : EnumEnv :=
+  ContractDecl.enumEnvWithQualifiedContracts
+    (EnumEnv.extendDecls [] (SourceUnit.freeEnums unit))
+    (SourceUnit.contracts unit)
+
+def SourceUnit.sourceStructEnv (unit : SourceUnit) : StructEnv :=
+  ContractDecl.structEnvWithQualifiedContracts
+    (StructEnv.extendDecls [] (SourceUnit.freeStructs unit))
+    (SourceUnit.contracts unit)
+
+def SourceUnit.userTypeEnvForOrder (unit : SourceUnit)
+    (order : List ContractDecl) : UserTypeEnv :=
+  ContractDecl.userTypeEnvFromContractsInScope
+    (SourceUnit.sourceUserTypeEnv unit) order
+
+def SourceUnit.enumEnvForOrder (unit : SourceUnit)
+    (order : List ContractDecl) : EnumEnv :=
+  ContractDecl.enumEnvFromContractsInScope
+    (SourceUnit.sourceEnumEnv unit) order
+
+def SourceUnit.structEnvForOrder (unit : SourceUnit)
+    (order : List ContractDecl) : StructEnv :=
+  ContractDecl.structEnvFromContractsInScope
+    (SourceUnit.sourceStructEnv unit) order
+
+def ContractDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : ContractDecl) : ContractDecl :=
+  ContractDecl.resolveStructs structEnv
+    (ContractDecl.resolveEnums enumEnv
+      (ContractDecl.resolveUserTypes userEnv decl))
+
+def FunctionDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : FunctionDecl) : FunctionDecl :=
+  FunctionDecl.resolveStructs structEnv
+    (FunctionDecl.resolveEnums enumEnv
+      (FunctionDecl.resolveUserTypes userEnv decl))
+
+def StateVarDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : StateVarDecl) : StateVarDecl :=
+  StateVarDecl.resolveStructs structEnv
+    (StateVarDecl.resolveEnums enumEnv
+      (StateVarDecl.resolveUserTypes userEnv decl))
+
+def EventDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : EventDecl) : EventDecl :=
+  EventDecl.resolveStructs structEnv
+    (EventDecl.resolveEnums enumEnv
+      (EventDecl.resolveUserTypes userEnv decl))
+
+def ErrorDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : ErrorDecl) : ErrorDecl :=
+  ErrorDecl.resolveStructs structEnv
+    (ErrorDecl.resolveEnums enumEnv
+      (ErrorDecl.resolveUserTypes userEnv decl))
+
+def StructDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : StructDecl) : StructDecl :=
+  StructDecl.resolveStructs structEnv
+    (StructDecl.resolveEnums enumEnv
+      (StructDecl.resolveUserTypes userEnv decl))
+
+def UserValueTypeDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (decl : UserValueTypeDecl) :
+    UserValueTypeDecl :=
+  UserValueTypeDecl.resolveUserTypes userEnv decl
+
+def UsingDecl.resolveSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (decl : UsingDecl) : UsingDecl :=
+  UsingDecl.resolveStructs structEnv
+    (UsingDecl.resolveEnums enumEnv
+      (UsingDecl.resolveUserTypes userEnv decl))
+
+def SourceItem.resolveFreeSourceTypesWith
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv) :
+    SourceItem -> SourceItem
+  | SourceItem.pragma name version => SourceItem.pragma name version
+  | SourceItem.importPath path alias? => SourceItem.importPath path alias?
+  | SourceItem.contract decl => SourceItem.contract decl
+  | SourceItem.freeFunction decl =>
+      SourceItem.freeFunction
+        (FunctionDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+  | SourceItem.freeConstant decl =>
+      SourceItem.freeConstant
+        (StateVarDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+  | SourceItem.freeEvent decl =>
+      SourceItem.freeEvent
+        (EventDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+  | SourceItem.freeError decl =>
+      SourceItem.freeError
+        (ErrorDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+  | SourceItem.freeStruct decl =>
+      SourceItem.freeStruct
+        (StructDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+  | SourceItem.freeEnum decl => SourceItem.freeEnum decl
+  | SourceItem.freeUserValueType decl =>
+      SourceItem.freeUserValueType
+        (UserValueTypeDecl.resolveSourceTypesWith userEnv decl)
+  | SourceItem.usingDecl decl =>
+      SourceItem.usingDecl
+        (UsingDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+
+def SourceUnit.resolveContractSourceTypes? (unit : SourceUnit)
+    (decl : ContractDecl) : Option ContractDecl := do
+  let order ← ContractDecl.dispatchOrder? (SourceUnit.contracts unit) decl
+  let userEnv := SourceUnit.userTypeEnvForOrder unit order
+  let enumEnv := SourceUnit.enumEnvForOrder unit order
+  let structEnv := SourceUnit.structEnvForOrder unit order
+  some (ContractDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+
+def SourceUnit.resolveSourceItemContextual? (unit : SourceUnit)
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv) :
+    SourceItem -> Option SourceItem
+  | SourceItem.contract decl => do
+      let decl ← SourceUnit.resolveContractSourceTypes? unit decl
+      some (SourceItem.contract decl)
+  | item => some (SourceItem.resolveFreeSourceTypesWith userEnv enumEnv structEnv item)
+
+def SourceUnit.resolveSourceTypesContextual? (unit : SourceUnit) :
+    Option SourceUnit := do
+  let userEnv := SourceUnit.sourceUserTypeEnv unit
+  let enumEnv := SourceUnit.sourceEnumEnv unit
+  let structEnv := SourceUnit.sourceStructEnv unit
+  let items ←
+    mapOption
+      (SourceUnit.resolveSourceItemContextual? unit userEnv enumEnv structEnv)
+      unit.items
+  some { unit with items := items }
 
 def SourceUnit.usingDecls (unit : SourceUnit) : List UsingDecl :=
   unit.items.filterMap (fun item =>
@@ -13564,7 +13811,7 @@ def SourceUnit.findContract? (unit : SourceUnit)
 
 def SourceUnit.toCoreContract? (unit : SourceUnit)
     (name : Name) : Option CoreContract := do
-  let unit := SourceUnit.resolveSourceTypes unit
+  let unit ← SourceUnit.resolveSourceTypesContextual? unit
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.toCoreWithBasesAndUsing?
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
@@ -13575,7 +13822,7 @@ def SourceUnit.toCoreContract? (unit : SourceUnit)
 def SourceUnit.constructContract? (fuel : Nat) (unit : SourceUnit)
     (name : Name) (state : CoreState) (args : List CoreValue) :
     Option CoreCallResult := do
-  let unit := SourceUnit.resolveSourceTypes unit
+  let unit ← SourceUnit.resolveSourceTypesContextual? unit
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.constructWithBasesAndSourceFrom? fuel
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
@@ -13586,7 +13833,7 @@ def SourceUnit.constructContract? (fuel : Nat) (unit : SourceUnit)
 def SourceUnit.constructContractFrom? (fuel : Nat) (unit : SourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
     (args : List CoreValue) : Option CoreCallResult := do
-  let unit := SourceUnit.resolveSourceTypes unit
+  let unit ← SourceUnit.resolveSourceTypesContextual? unit
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.constructWithBasesAndSourceFrom? fuel
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
@@ -13596,15 +13843,17 @@ def SourceUnit.constructContractFrom? (fuel : Nat) (unit : SourceUnit)
 
 def SourceUnit.toCoreContracts? (unit : SourceUnit) :
     Option (List CoreContract) :=
-  let unit := SourceUnit.resolveSourceTypes unit
-  mapOption
-    (fun decl =>
-      ContractDecl.toCoreWithBasesAndUsing?
-        (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
-        (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
-        (SourceUnit.freeConstants unit)
-        (SourceUnit.contracts unit) decl)
-    (SourceUnit.contracts unit)
+  match SourceUnit.resolveSourceTypesContextual? unit with
+  | some unit =>
+      mapOption
+        (fun decl =>
+          ContractDecl.toCoreWithBasesAndUsing?
+            (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
+            (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+            (SourceUnit.freeConstants unit)
+            (SourceUnit.contracts unit) decl)
+        (SourceUnit.contracts unit)
+  | none => none
 
 def Stmt.eval? (fuel : Nat) (storageNames : List Name)
     (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
@@ -32976,6 +33225,88 @@ def inheritanceUnit : SourceUnit :=
 def inheritedStorageFields : Option (List CoreStorageField) := do
   let contract ← SourceUnit.toCoreContract? inheritanceUnit "Derived"
   some contract.storageFields
+
+def inheritedNestedTypeBaseContract : ContractDecl :=
+  { name := "NestedTypeBase"
+    items :=
+      [ ContractItem.structDecl
+          { name := "S"
+            fields := [{ name := "x", ty := Ty.uint 256 }] } ] }
+
+def inheritedNestedTypeOtherContract : ContractDecl :=
+  { name := "NestedTypeOther"
+    items :=
+      [ ContractItem.structDecl
+          { name := "S"
+            fields := [{ name := "y", ty := Ty.uint 256 }] } ] }
+
+def inheritedNestedTypeDerivedContract : ContractDecl :=
+  { name := "NestedTypeDerived"
+    bases := [{ base := pathOfName "NestedTypeBase" }]
+    items :=
+      [ ContractItem.function
+          { name := some "readInheritedX"
+            params :=
+              [ { name := some "s"
+                  ty := Ty.user (pathOfName "S")
+                  location := some DataLocation.memory } ]
+            returns := [{ ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.member (Expr.ident "s") "x"))) }
+      , ContractItem.function
+          { name := some "readQualifiedInheritedX"
+            params :=
+              [ { name := some "s"
+                  ty := Ty.user (qualifiedPath "NestedTypeBase" "S")
+                  location := some DataLocation.memory } ]
+            returns := [{ ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.member (Expr.ident "s") "x"))) } ] }
+
+def inheritedNestedTypeUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeStruct
+          { name := "S"
+            fields := [{ name := "free", ty := Ty.uint 256 }] }
+      , SourceItem.contract inheritedNestedTypeBaseContract
+      , SourceItem.contract inheritedNestedTypeDerivedContract
+      , SourceItem.contract inheritedNestedTypeOtherContract ] }
+
+def coreFunctionNamed? (name : Name) (fn : CoreFunctionDef) : Bool :=
+  SolidCore.Solidity.Source.FunctionDef.name fn == name
+
+def inheritedNestedTypeFunctionReturnsFirstField?
+    (name : Name) (contract : CoreContract) : Option Bool := do
+  let fn ← contract.functions.find? (coreFunctionNamed? name)
+  match fn.body with
+  | SolidCore.Solidity.Source.Stmt.returnValues
+      [SolidCore.Solidity.Source.Expr.index
+        (SolidCore.Solidity.Source.Expr.var "s")
+        (SolidCore.Solidity.Source.Expr.word index)] =>
+      some (SolidCore.Solidity.Source.wordEq index 0)
+  | _ => some false
+
+def inheritedNestedTypeShadowsUnrelatedLowering : Option Bool := do
+  let contract ←
+    SourceUnit.toCoreContract? inheritedNestedTypeUnit
+      "NestedTypeDerived"
+  inheritedNestedTypeFunctionReturnsFirstField? "readInheritedX"
+    contract
+
+def qualifiedInheritedNestedTypeLowering : Option Bool := do
+  let contract ←
+    SourceUnit.toCoreContract? inheritedNestedTypeUnit
+      "NestedTypeDerived"
+  inheritedNestedTypeFunctionReturnsFirstField?
+    "readQualifiedInheritedX" contract
 
 def customStorageLayoutBaseContract : ContractDecl :=
   { name := "LayoutBase"
