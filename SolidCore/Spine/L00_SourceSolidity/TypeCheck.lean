@@ -3967,8 +3967,20 @@ def checkExpr (env : CheckEnv) :
               | none =>
                   let checkUsingCall : Except TypeError CheckedExpr := do
                     let sig ←
-                      env.resolveUsingMemberFunctionChecked targetChecked member
-                        checkedInfos
+                      match
+                          env.resolveUsingMemberFunctionChecked targetChecked
+                            member checkedInfos with
+                      | Except.ok sig => Except.ok sig
+                      | Except.error checkedErr =>
+                          match
+                              checkMemberCallArgsContextual env targetExpr
+                                member args with
+                          | Except.ok contextualCheckedArgs =>
+                              env.resolveUsingMemberFunctionChecked
+                                targetChecked member
+                                  (checkedArgInfosFull args
+                                    contextualCheckedArgs)
+                          | Except.error _ => Except.error checkedErr
                     requireCallMutabilityAllowed env sig.mutability
                     Except.ok
                       { source := expr
@@ -22348,6 +22360,100 @@ def contextualArrayLiteralArgOverflowSource :
 def contextualArrayLiteralArgOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayLiteralArgOverflowSource)
+
+def contextualUsingArrayLiteralArgLibraryFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "takeUsingArray"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    params :=
+      [ { name := some "self", ty := uint256, location := none }
+      , { name := some "xs"
+          ty := L00_SourceSolidity.Ty.array uint8 (some 2)
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (L00_SourceSolidity.Expr.ident "xs")
+              (numberExpr "0")))) }
+
+def contextualUsingArrayLiteralArgLibrary :
+    L00_SourceSolidity.ContractDecl :=
+  { kind := L00_SourceSolidity.ContractKind.library
+    name := "ContextualUsingArrayLib"
+    items :=
+      [L00_SourceSolidity.ContractItem.function
+        contextualUsingArrayLiteralArgLibraryFunction] }
+
+def contextualUsingArrayLiteralArgCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "contextualUsingArrayArg"
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (numberExpr "1") "takeUsingArray")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "2"])]))) }
+
+def contextualUsingArrayLiteralArgSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualUsingArrayLiteralArgLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "ContextualUsingArrayLib"
+            target := some uint256 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualUsingArrayArg"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                contextualUsingArrayLiteralArgCaller] } ] }
+
+def contextualUsingArrayLiteralArgAccepted : Bool :=
+  sourceUnitAccepted? contextualUsingArrayLiteralArgSource
+
+def contextualUsingArrayLiteralArgOverflowCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualUsingArrayLiteralArgCaller with
+    name := some "contextualUsingArrayArgOverflow"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (numberExpr "1") "takeUsingArray")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "300"])]))) }
+
+def contextualUsingArrayLiteralArgOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualUsingArrayLiteralArgLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "ContextualUsingArrayLib"
+            target := some uint256 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualUsingArrayArgOverflow"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                contextualUsingArrayLiteralArgOverflowCaller] } ] }
+
+def contextualUsingArrayLiteralArgOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualUsingArrayLiteralArgOverflowSource)
 
 def bytes4ValueExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
