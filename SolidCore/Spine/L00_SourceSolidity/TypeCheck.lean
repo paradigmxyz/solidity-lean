@@ -5873,6 +5873,12 @@ def matchingKey (target : OverrideMember) :
       else
         matchingKey target rest
 
+def hasNonStateMemberNamed (name : Name) : List OverrideMember -> Bool
+  | [] => false
+  | member :: rest =>
+      (!member.fromStateVar && member.name == name) ||
+        hasNonStateMemberNamed name rest
+
 def originPaths : List OverrideMember -> List Path
   | [] => []
   | member :: rest => member.origin :: originPaths rest
@@ -6107,9 +6113,12 @@ def StateVarDecl.checkOverrideRules (types : TypeContext)
     Except TypeError Unit :=
   match StateVarDecl.publicGetterOverrideMember? types currentPath
       currentKind decl with
-  | none =>
+  | none => do
       require decl.override?.isNone
         (TypeError.invalidOverride "override on non-public state variable")
+      require (!OverrideMembers.hasNonStateMemberNamed decl.name inherited)
+        (TypeError.invalidContractHeader
+          "state variable shadows inherited function")
   | some current => do
       let baseMatches := OverrideMembers.matchingKey current inherited
       match baseMatches with
@@ -16341,6 +16350,63 @@ def c3BadSource : L00_SourceSolidity.SourceUnit :=
 
 def c3BadRejected : Bool :=
   Result.isError (SourceUnit.check c3BadSource)
+
+def inheritedFunctionNameBaseFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "shadowed"
+    virtual := true }
+
+def inheritedFunctionNamePrivateBaseFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { inheritedFunctionNameBaseFunction with
+    visibility := some L00_SourceSolidity.Visibility.private_
+    virtual := false }
+
+def privateStateShadowsInheritedFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedFunctionNameBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                inheritedFunctionNameBaseFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadPrivateStateShadowsInheritedFunction"
+            bases :=
+              [{ base := userPath "InheritedFunctionNameBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "shadowed"
+                    ty := uint256
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.private_ } ] } ] }
+
+def privateStateShadowsInheritedFunctionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check privateStateShadowsInheritedFunctionSource)
+
+def privateStateShadowsInheritedPrivateFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedPrivateFunctionNameBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                inheritedFunctionNamePrivateBaseFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PrivateStateShadowsInheritedPrivateFunction"
+            bases :=
+              [ { base := userPath "InheritedPrivateFunctionNameBase"
+                  args := [] } ]
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "shadowed"
+                    ty := uint256
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.private_ } ] } ] }
+
+def privateStateShadowsInheritedPrivateFunctionAccepted : Bool :=
+  sourceUnitAccepted? privateStateShadowsInheritedPrivateFunctionSource
 
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
