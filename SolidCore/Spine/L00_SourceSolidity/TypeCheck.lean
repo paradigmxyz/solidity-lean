@@ -6489,6 +6489,8 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       !fn.virtual)
     (TypeError.invalidFunctionHeader "private function is virtual")
   if env.inLibrary && fn.kind == L00_SourceSolidity.FunctionKind.function then
+    require (!fn.virtual)
+      (TypeError.invalidFunctionHeader "library function is virtual")
     require (!(fn.mutability == L00_SourceSolidity.StateMutability.payable))
       (TypeError.invalidFunctionHeader "library function is payable")
   else
@@ -14843,6 +14845,20 @@ def libraryImmutableSource : L00_SourceSolidity.SourceUnit :=
 
 def libraryImmutableRejected : Bool :=
   Result.isError (SourceUnit.check libraryImmutableSource)
+
+def libraryVirtualFunctionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "VirtualLibrary"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "f"
+                    virtual := true } ] } ] }
+
+def libraryVirtualFunctionRejected : Bool :=
+  Result.isError (SourceUnit.check libraryVirtualFunctionSource)
 
 def emptyLibraryContract : L00_SourceSolidity.ContractDecl :=
   { kind := L00_SourceSolidity.ContractKind.library
