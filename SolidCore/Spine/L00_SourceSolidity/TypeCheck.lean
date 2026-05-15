@@ -5190,13 +5190,20 @@ def VarBinding.checkType (env : CheckEnv)
   | none, some name => Except.error (TypeError.missingTypeAnnotation name)
   | none, none => Except.error (TypeError.unsupported "anonymous untyped binding")
 
+def VarBinding.isAnonymousUntyped
+    (binding : L00_SourceSolidity.VarBinding) : Bool :=
+  binding.ty.isNone && binding.name.isNone
+
 def VarBinding.namedType? (env : CheckEnv)
     (binding : L00_SourceSolidity.VarBinding) :
     Except TypeError (Option (Name × Ty)) := do
-  let ty ← VarBinding.checkType env binding
-  match binding.name with
-  | some name => Except.ok (some (name, ty))
-  | none => Except.ok none
+  if VarBinding.isAnonymousUntyped binding then
+    Except.ok none
+  else
+    let ty ← VarBinding.checkType env binding
+    match binding.name with
+    | some name => Except.ok (some (name, ty))
+    | none => Except.ok none
 
 def VarBinding.isStorageRef (types : TypeContext)
     (binding : L00_SourceSolidity.VarBinding) : Bool :=
@@ -5209,24 +5216,30 @@ def VarBinding.isStorageRef (types : TypeContext)
 def VarBinding.namedTypeStorageRef? (env : CheckEnv)
     (binding : L00_SourceSolidity.VarBinding) :
     Except TypeError (Option (Name × Ty × Bool)) := do
-  let ty ← VarBinding.checkType env binding
-  match binding.name with
-  | some name =>
-      Except.ok
-        (some (name, ty, VarBinding.isStorageRef env.types binding))
-  | none => Except.ok none
+  if VarBinding.isAnonymousUntyped binding then
+    Except.ok none
+  else
+    let ty ← VarBinding.checkType env binding
+    match binding.name with
+    | some name =>
+        Except.ok
+          (some (name, ty, VarBinding.isStorageRef env.types binding))
+    | none => Except.ok none
 
 def VarBinding.namedDataLocation? (env : CheckEnv)
     (binding : L00_SourceSolidity.VarBinding) :
     Except TypeError (Option (Name × L00_SourceSolidity.DataLocation)) := do
-  let ty ← VarBinding.checkType env binding
-  match binding.name, binding.location with
-  | some name, some location =>
-      if Ty.needsDataLocation env.types ty then
-        Except.ok (some (name, location))
-      else
-        Except.ok none
-  | _, _ => Except.ok none
+  if VarBinding.isAnonymousUntyped binding then
+    Except.ok none
+  else
+    let ty ← VarBinding.checkType env binding
+    match binding.name, binding.location with
+    | some name, some location =>
+        if Ty.needsDataLocation env.types ty then
+          Except.ok (some (name, location))
+        else
+          Except.ok none
+    | _, _ => Except.ok none
 
 def VarBinding.checkStorageRefInitializer (env : CheckEnv)
     (binding : L00_SourceSolidity.VarBinding) (checked : CheckedExpr) :
@@ -5279,14 +5292,83 @@ def VarBindings.anyStorageRef (types : TypeContext) :
       VarBinding.isStorageRef types binding ||
         VarBindings.anyStorageRef types rest
 
-def VarBindings.checkStorageRefTupleInitializers (env : CheckEnv) :
+def VarBindings.anyAnonymousUntyped :
+    List L00_SourceSolidity.VarBinding -> Bool
+  | [] => false
+  | binding :: rest =>
+      VarBinding.isAnonymousUntyped binding ||
+        VarBindings.anyAnonymousUntyped rest
+
+def VarBindings.ensureAnonymousUntypedAllowed
+    (bindings : List L00_SourceSolidity.VarBinding)
+    (init? : Option L00_SourceSolidity.Expr) :
+    Except TypeError Unit := do
+  if VarBindings.anyAnonymousUntyped bindings then do
+    require (bindings.length > 1)
+      (TypeError.unsupported "anonymous untyped binding")
+    match init? with
+    | some _ => Except.ok ()
+    | none =>
+        Except.error (TypeError.unsupported "anonymous untyped binding")
+  else
+    Except.ok ()
+
+def checkVarBindingsAssignableToTys (env : CheckEnv) :
+    List L00_SourceSolidity.VarBinding -> List Ty -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | binding :: bindingRest, actualTy :: actualRest => do
+      if VarBinding.isAnonymousUntyped binding then
+        checkVarBindingsAssignableToTys env bindingRest actualRest
+      else
+        let expectedTy ← VarBinding.checkType env binding
+        require (TypeContext.canImplicitlyConvert env.types actualTy expectedTy)
+          (TypeError.expectedType expectedTy actualTy)
+        checkVarBindingsAssignableToTys env bindingRest actualRest
+  | expected, actual =>
+      Except.error
+        (TypeError.returnArityMismatch expected.length actual.length)
+
+def checkVarBindingsAssignableToChecked (env : CheckEnv)
+    (bindings : List L00_SourceSolidity.VarBinding)
+    (checked : CheckedExpr) : Except TypeError Unit :=
+  match checked.ty with
+  | L00_SourceSolidity.Ty.tuple actual =>
+      checkVarBindingsAssignableToTys env bindings actual
+  | _ =>
+      Except.error
+        (TypeError.returnArityMismatch bindings.length 1)
+
+def checkVarBindingTupleItemsAssignableTo (env : CheckEnv) :
     List L00_SourceSolidity.VarBinding ->
     List L00_SourceSolidity.TupleItem -> Except TypeError Unit
   | [], [] => Except.ok ()
   | binding :: bindingRest,
       L00_SourceSolidity.TupleItem.value expr :: itemRest => do
       let checked ← checkExpr env expr
-      VarBinding.checkStorageRefInitializer env binding checked
+      if VarBinding.isAnonymousUntyped binding then
+        checkVarBindingTupleItemsAssignableTo env bindingRest itemRest
+      else
+        let expectedTy ← VarBinding.checkType env binding
+        checked.expectAssignableToIn env.types expectedTy
+        checkVarBindingTupleItemsAssignableTo env bindingRest itemRest
+  | _ :: _, L00_SourceSolidity.TupleItem.hole :: _ =>
+      Except.error (TypeError.unsupported "tuple hole in value position")
+  | expected, actual =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple expression" expected.length actual.length)
+
+def VarBindings.checkStorageRefTupleInitializers (env : CheckEnv) :
+    List L00_SourceSolidity.VarBinding ->
+    List L00_SourceSolidity.TupleItem -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | binding :: bindingRest,
+      L00_SourceSolidity.TupleItem.value expr :: itemRest => do
+      if VarBinding.isAnonymousUntyped binding then
+        Except.ok ()
+      else
+        let checked ← checkExpr env expr
+        VarBinding.checkStorageRefInitializer env binding checked
       VarBindings.checkStorageRefTupleInitializers env bindingRest itemRest
   | binding :: _, L00_SourceSolidity.TupleItem.hole :: _ => do
       if VarBinding.isStorageRef env.types binding then
@@ -5425,6 +5507,7 @@ def checkStmt (env : CheckEnv) :
       let _ ← checkStmtSeq { env with blockScopeNames := [] } body
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.varDecl bindings init?) => do
+      VarBindings.ensureAnonymousUntypedAllowed bindings init?
       let named ← VarBindings.namedTypes env bindings
       ensureUniqueNames "local" (named.map Prod.fst)
       match init? with
@@ -5445,17 +5528,19 @@ def checkStmt (env : CheckEnv) :
           | _ =>
               match init with
               | L00_SourceSolidity.Expr.tuple items => do
-                  let expected ← VarBindings.tys env bindings
-                  checkTupleItemValuesAssignableTo env items expected
+                  checkVarBindingTupleItemsAssignableTo env bindings items
                   VarBindings.checkStorageRefTupleInitializers env bindings
                     items
               | _ =>
                   require (!VarBindings.anyStorageRef env.types bindings)
                     (TypeError.unsupported
                       "storage reference tuple return binding")
-                  let expected ← VarBindings.tys env bindings
                   let checked ← checkExpr env init
-                  checked.expectAssignableToTys env.types expected
+                  if VarBindings.anyAnonymousUntyped bindings then
+                    checkVarBindingsAssignableToChecked env bindings checked
+                  else
+                    let expected ← VarBindings.tys env bindings
+                    checked.expectAssignableToTys env.types expected
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.expr
       (L00_SourceSolidity.Expr.call
@@ -9126,6 +9211,110 @@ def tupleVarDeclSource : L00_SourceSolidity.SourceUnit :=
 
 def tupleVarDeclAccepted : Bool :=
   sourceUnitAccepted? tupleVarDeclSource
+
+def tupleVarDeclOmittedLiteralFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { tupleVarDeclFunction with
+    name := some "tupleDeclOmittedLiteral"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := none
+                  ty := none
+                  location := none }
+              , { name := some "b"
+                  ty := some uint256
+                  location := none } ]
+              (some
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value (numberExpr "1")
+                  , L00_SourceSolidity.TupleItem.value (numberExpr "2") ]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "b")) ]) }
+
+def tupleVarDeclOmittedLiteralSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleDeclOmittedLiteral"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                tupleVarDeclOmittedLiteralFunction] } ] }
+
+def tupleVarDeclOmittedLiteralAccepted : Bool :=
+  sourceUnitAccepted? tupleVarDeclOmittedLiteralSource
+
+def tupleVarDeclOmittedReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleDeclOmittedReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleReturnFunction with
+                    name := some "pair"
+                    returns :=
+                      [ { name := none, ty := uint256, location := none }
+                      , { name := none, ty := uint256, location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.tuple
+                              [ L00_SourceSolidity.TupleItem.value
+                                  (numberExpr "1")
+                              , L00_SourceSolidity.TupleItem.value
+                                  (numberExpr "2") ]))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { tupleVarDeclFunction with
+                    name := some "run"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := none
+                                  ty := none
+                                  location := none }
+                              , { name := some "b"
+                                  ty := some uint256
+                                  location := none } ]
+                              (some
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.ident "pair")
+                                  []))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "b")) ]) } ] } ] }
+
+def tupleVarDeclOmittedReturnAccepted : Bool :=
+  sourceUnitAccepted? tupleVarDeclOmittedReturnSource
+
+def tupleVarDeclOmittedNoInitSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleDeclOmittedNoInit"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleVarDeclFunction with
+                    name := some "badOmittedNoInit"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := none
+                                  ty := none
+                                  location := none }
+                              , { name := some "b"
+                                  ty := some uint256
+                                  location := none } ]
+                              none
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def tupleVarDeclOmittedNoInitRejected : Bool :=
+  Result.isError (SourceUnit.check tupleVarDeclOmittedNoInitSource)
 
 def badTupleVarDeclFunction : L00_SourceSolidity.FunctionDecl :=
   { tupleVarDeclFunction with
