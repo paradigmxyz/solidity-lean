@@ -14893,7 +14893,7 @@ def usingHigherOrderInternalFunctionTy : Ty :=
 def usingHigherOrderLibraryApply :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
-    name := some "apply"
+    name := some "runWith"
     visibility := some L00_SourceSolidity.Visibility.internal_
     mutability := L00_SourceSolidity.StateMutability.pure
     params :=
@@ -14912,7 +14912,7 @@ def usingHigherOrderLibraryApply :
 
 def usingHigherOrderLibrary : L00_SourceSolidity.ContractDecl :=
   { kind := L00_SourceSolidity.ContractKind.library
-    name := "Apply"
+    name := "Runner"
     items :=
       [L00_SourceSolidity.ContractItem.function
         usingHigherOrderLibraryApply] }
@@ -14956,8 +14956,22 @@ def usingHigherOrderFunction :
           (some
             (L00_SourceSolidity.Expr.call
               (L00_SourceSolidity.Expr.member
-                (L00_SourceSolidity.Expr.ident "x") "apply")
+                (L00_SourceSolidity.Expr.ident "x") "runWith")
               [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "double")]))) }
+
+def usingHigherOrderNamedFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { usingHigherOrderFunction with
+    name := some "usingHigherOrderNamed"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "x") "runWith")
+              [L00_SourceSolidity.Arg.named "fn"
                 (L00_SourceSolidity.Expr.ident "double")]))) }
 
 def usingHigherOrderFunctionSource :
@@ -14968,7 +14982,7 @@ def usingHigherOrderFunctionSource :
           { name := "UsingHigherOrder"
             items :=
               [ L00_SourceSolidity.ContractItem.usingDecl
-                  { library := userPath "Apply"
+                  { library := userPath "Runner"
                     target := some uint256 }
               , L00_SourceSolidity.ContractItem.function
                   usingHigherOrderDouble
@@ -14978,6 +14992,24 @@ def usingHigherOrderFunctionSource :
 def usingHigherOrderFunctionAccepted : Bool :=
   sourceUnitAccepted? usingHigherOrderFunctionSource
 
+def usingHigherOrderNamedFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract usingHigherOrderLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UsingHigherOrderNamed"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "Runner"
+                    target := some uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDouble
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderNamedFunction ] } ] }
+
+def usingHigherOrderNamedFunctionAccepted : Bool :=
+  sourceUnitAccepted? usingHigherOrderNamedFunctionSource
+
 def usingHigherOrderFunctionOverloadedSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -14986,7 +15018,7 @@ def usingHigherOrderFunctionOverloadedSource :
           { name := "UsingHigherOrderOverloaded"
             items :=
               [ L00_SourceSolidity.ContractItem.usingDecl
-                  { library := userPath "Apply"
+                  { library := userPath "Runner"
                     target := some uint256 }
               , L00_SourceSolidity.ContractItem.function
                   usingHigherOrderDoubleOverload
@@ -14997,6 +15029,27 @@ def usingHigherOrderFunctionOverloadedSource :
 
 def usingHigherOrderFunctionOverloadedRejected : Bool :=
   Result.isError (SourceUnit.check usingHigherOrderFunctionOverloadedSource)
+
+def usingHigherOrderNamedFunctionOverloadedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract usingHigherOrderLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UsingHigherOrderNamedOverloaded"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "Runner"
+                    target := some uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDoubleOverload
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDouble
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderNamedFunction ] } ] }
+
+def usingHigherOrderNamedFunctionOverloadedRejected : Bool :=
+  Result.isError
+    (SourceUnit.check usingHigherOrderNamedFunctionOverloadedSource)
 
 def badExplicitUsingFreeFunctionSource :
     L00_SourceSolidity.SourceUnit :=

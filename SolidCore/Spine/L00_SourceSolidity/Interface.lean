@@ -29735,7 +29735,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
                       (Expr.ident "value")
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
-          { name := some "apply"
+          { name := some "invokePointer"
             visibility := some Visibility.internal_
             mutability := StateMutability.pure
             params :=
@@ -29769,7 +29769,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
                       (some (Expr.ident "double"))
                   , Stmt.returnValues
                       (some
-                        (Expr.call (Expr.ident "apply")
+                        (Expr.call (Expr.ident "invokePointer")
                           [ Arg.positional (Expr.ident "fp")
                           , Arg.positional (Expr.ident "value") ])) ]) }
       , ContractItem.function
@@ -29781,7 +29781,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
               some
                 (Stmt.returnValues
                   (some
-                    (Expr.call (Expr.ident "apply")
+                    (Expr.call (Expr.ident "invokePointer")
                       [ Arg.positional (Expr.ident "double")
                       , Arg.positional (Expr.ident "value") ]))) }
       , ContractItem.function
@@ -29802,7 +29802,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
                       none
                   , Stmt.returnValues
                       (some
-                        (Expr.call (Expr.ident "apply")
+                        (Expr.call (Expr.ident "invokePointer")
                           [ Arg.positional (Expr.ident "fp")
                           , Arg.positional (Expr.ident "value") ])) ]) } ] }
 
@@ -34218,11 +34218,11 @@ def usingNamedDirectCallMatches : Option Bool := do
   | _ => some false
 
 def usingHigherOrderLibrary : ContractDecl :=
-  { name := "Apply"
+  { name := "Runner"
     kind := ContractKind.library
     items :=
       [ ContractItem.function
-          { name := some "apply"
+          { name := some "runWith"
             visibility := some Visibility.internal_
             mutability := StateMutability.pure
             params :=
@@ -34243,7 +34243,7 @@ def usingHigherOrderContract : ContractDecl :=
   { name := "UsingHigherOrder"
     items :=
       [ ContractItem.usingDecl
-          { library := { segments := ["Apply"] }
+          { library := { segments := ["Runner"] }
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "double"
@@ -34268,8 +34268,20 @@ def usingHigherOrderContract : ContractDecl :=
                 (Stmt.returnValues
                   (some
                     (Expr.call
-                      (Expr.member (Expr.ident "x") "apply")
-                      [Arg.positional (Expr.ident "double")]))) } ] }
+                      (Expr.member (Expr.ident "x") "runWith")
+                      [Arg.positional (Expr.ident "double")]))) }
+      , ContractItem.function
+          { name := some "runNamed"
+            mutability := StateMutability.pure
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "x") "runWith")
+                      [Arg.named "fn" (Expr.ident "double")]))) } ] }
 
 def usingHigherOrderUnit : SourceUnit :=
   { items :=
@@ -34280,6 +34292,18 @@ def usingHigherOrderFunctionPointerMatches : Option Bool := do
   let result ←
     SourceUnit.callContract? 64 usingHigherOrderUnit "UsingHigherOrder"
       (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => some false
+
+def usingHigherOrderNamedFunctionPointerMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 64 usingHigherOrderUnit "UsingHigherOrder"
+      (SolidCore.Solidity.Source.CallTarget.name "runNamed")
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 21]
   match result with
