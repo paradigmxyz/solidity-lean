@@ -6089,8 +6089,16 @@ def checkOverrideUse (ancestorPaths : List Path)
 def FunctionDecl.checkOverrideRules (currentPath : Path)
     (currentKind : L00_SourceSolidity.ContractKind)
     (ancestorPaths : List Path) (inherited : List OverrideMember)
+    (inheritedStateNames : List Name)
     (fn : L00_SourceSolidity.FunctionDecl) :
-    Except TypeError Unit :=
+    Except TypeError Unit := do
+  match fn.kind, fn.name with
+  | L00_SourceSolidity.FunctionKind.function, some name =>
+      require
+        (!L00_SourceSolidity.Executable.nameIn name inheritedStateNames)
+        (TypeError.invalidContractHeader
+          "function shadows inherited state variable")
+  | _, _ => Except.ok ()
   match FunctionDecl.overrideMember? currentPath currentKind fn with
   | none =>
       require fn.override?.isNone
@@ -7392,6 +7400,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let allModifierDecls := ContractDecl.modifierDeclsFromOrder dispatchOrder
   let inheritedStateVars :=
     ContractDecls.visibleStateVars contractTypes ancestorPaths
+  let inheritedStateVarNames :=
+    ContractDecls.visibleStateVarNames contractTypes ancestorPaths
   let visibleStateVars := stateVars ++ inheritedStateVars
   let visibleConstantBindings :=
     StateVarDecls.namedConstness visibleStateVars ++ sourceConstantBindings
@@ -7412,9 +7422,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       modifierDecls := allModifierDecls }
   ContractDecl.checkBaseConstructorArgsForDeployment storageOrder contract
     storageOrder
-  StateVarDecls.checkNoInheritedShadowing
-    (ContractDecls.visibleStateVarNames contractTypes ancestorPaths)
-    stateVars
+  StateVarDecls.checkNoInheritedShadowing inheritedStateVarNames stateVars
   let inheritedMembers ←
     match ContractDecl.inheritedOverrideMembers? contractTypes allContracts
         contract with
@@ -7478,7 +7486,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     | [] => Except.ok ()
     | fn :: rest => do
         FunctionDecl.checkOverrideRules currentPath contract.kind ancestorPaths
-          inheritedMembers fn
+          inheritedMembers inheritedStateVarNames fn
         FunctionDecl.check baseEnv fn
         checkFunctions rest
   let rec checkModifiers :
@@ -16407,6 +16415,55 @@ def privateStateShadowsInheritedPrivateFunctionSource :
 
 def privateStateShadowsInheritedPrivateFunctionAccepted : Bool :=
   sourceUnitAccepted? privateStateShadowsInheritedPrivateFunctionSource
+
+def inheritedStateNameBaseVar : L00_SourceSolidity.StateVarDecl :=
+  { name := "stored"
+    ty := uint256
+    visibility := some L00_SourceSolidity.Visibility.internal_ }
+
+def inheritedStateNamePrivateBaseVar :
+    L00_SourceSolidity.StateVarDecl :=
+  { inheritedStateNameBaseVar with
+    visibility := some L00_SourceSolidity.Visibility.private_ }
+
+def functionShadowsInheritedStateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedStateNameBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.stateVar
+                inheritedStateNameBaseVar] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadFunctionShadowsInheritedState"
+            bases :=
+              [{ base := userPath "InheritedStateNameBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with name := some "stored" } ] } ] }
+
+def functionShadowsInheritedStateRejected : Bool :=
+  Result.isError (SourceUnit.check functionShadowsInheritedStateSource)
+
+def functionShadowsInheritedPrivateStateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedPrivateStateNameBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.stateVar
+                inheritedStateNamePrivateBaseVar] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "FunctionShadowsInheritedPrivateState"
+            bases :=
+              [ { base := userPath "InheritedPrivateStateNameBase"
+                  args := [] } ]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with name := some "stored" } ] } ] }
+
+def functionShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted? functionShadowsInheritedPrivateStateSource
 
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
