@@ -7178,8 +7178,9 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
         (TypeError.invalidContractHeader "library has bases")
       require (!contract.abstract)
         (TypeError.invalidContractHeader "library is abstract")
-      require stateVars.isEmpty
-        (TypeError.invalidContractHeader "library declares state variables")
+      require (StateVars.allConstant stateVars)
+        (TypeError.invalidContractHeader
+          "library declares non-constant state variables")
       require (!Functions.anyConstructorLike functions)
         (TypeError.invalidContractHeader
           "library declares constructor, receive, or fallback")
@@ -14472,6 +14473,46 @@ def libraryStateVarSource : L00_SourceSolidity.SourceUnit :=
 
 def libraryStateVarRejected : Bool :=
   Result.isError (SourceUnit.check libraryStateVarSource)
+
+def libraryConstantSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "ConstantLibrary"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "ANSWER"
+                    ty := uint256
+                    mutability := L00_SourceSolidity.VarMutability.constant
+                    init := some (numberExpr "42") }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "readAnswer"
+                    visibility := some L00_SourceSolidity.Visibility.internal_
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    returns :=
+                      [{ name := none, ty := uint256, location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (L00_SourceSolidity.Expr.ident "ANSWER"))) } ] } ] }
+
+def libraryConstantAccepted : Bool :=
+  sourceUnitAccepted? libraryConstantSource
+
+def libraryImmutableSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "ImmutableLibrary"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    mutability := L00_SourceSolidity.VarMutability.immutable } ] } ] }
+
+def libraryImmutableRejected : Bool :=
+  Result.isError (SourceUnit.check libraryImmutableSource)
 
 def emptyLibraryContract : L00_SourceSolidity.ContractDecl :=
   { kind := L00_SourceSolidity.ContractKind.library
