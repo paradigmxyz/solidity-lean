@@ -5792,6 +5792,16 @@ def checkNoInheritedStateNameClashes
           "declaration shadows inherited state variable")
       checkNoInheritedStateNameClashes inheritedNames rest
 
+def checkNoInheritedNamedDeclarationClashes
+    (message : String) (inheritedNames : List Name) :
+    List Name -> Except TypeError Unit
+  | [] => Except.ok ()
+  | name :: rest => do
+      require
+        (!L00_SourceSolidity.Executable.nameIn name inheritedNames)
+        (TypeError.invalidContractHeader message)
+      checkNoInheritedNamedDeclarationClashes message inheritedNames rest
+
 structure OverrideMember where
   origin : Path
   originKind : L00_SourceSolidity.ContractKind
@@ -5889,6 +5899,14 @@ def hasNonStateMemberNamed (name : Name) : List OverrideMember -> Bool
   | member :: rest =>
       (!member.fromStateVar && member.name == name) ||
         hasNonStateMemberNamed name rest
+
+def nonStateNames : List OverrideMember -> List Name
+  | [] => []
+  | member :: rest =>
+      if member.fromStateVar then
+        nonStateNames rest
+      else
+        member.name :: nonStateNames rest
 
 def originPaths : List OverrideMember -> List Path
   | [] => []
@@ -6261,6 +6279,10 @@ def matchingName (target : ModifierOverrideMember) :
         member :: matchingName target rest
       else
         matchingName target rest
+
+def names : List ModifierOverrideMember -> List Name
+  | [] => []
+  | member :: rest => member.name :: names rest
 
 def originPaths : List ModifierOverrideMember -> List Path
   | [] => []
@@ -7456,6 +7478,26 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         Except.error
           (TypeError.invalidContractHeader
             "inconsistent inheritance linearization")
+  let inheritedFunctionNames :=
+    OverrideMembers.nonStateNames inheritedMembers
+  let inheritedModifierNames :=
+    ModifierOverrideMembers.names inheritedModifierMembers
+  let nonFunctionTypeNames :=
+    events.map L00_SourceSolidity.EventDecl.name ++
+      errors.map L00_SourceSolidity.ErrorDecl.name ++
+      structs.map L00_SourceSolidity.StructDecl.name ++
+      enums.map L00_SourceSolidity.EnumDecl.name ++
+      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
+  checkNoInheritedNamedDeclarationClashes
+    "declaration shadows inherited function"
+    inheritedFunctionNames
+    (modifiers.map L00_SourceSolidity.ModifierDecl.name ++
+      nonFunctionTypeNames)
+  checkNoInheritedNamedDeclarationClashes
+    "declaration shadows inherited modifier"
+    inheritedModifierNames
+    (stateVars.map L00_SourceSolidity.StateVarDecl.name ++
+      functionNames ++ nonFunctionTypeNames)
   let currentMembers := ContractDecl.overrideMembers contractTypes contract
   let currentModifierMembers := ModifierOverrideMembers.forContract contract
   OverrideMembers.checkInheritedConflicts currentMembers inheritedMembers
@@ -16607,6 +16649,118 @@ def userValueTypeShadowsInheritedPrivateStateAccepted : Bool :=
   sourceUnitAccepted?
     (inheritedPrivateStateNameItemSource
       inheritedStateNameUserValueTypeItem)
+
+def inheritedFunctionNameEventItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.eventDecl { name := "shadowed" }
+
+def eventShadowsInheritedFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedFunctionEventBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                inheritedFunctionNameBaseFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadEventShadowsInheritedFunction"
+            bases :=
+              [{ base := userPath "InheritedFunctionEventBase", args := [] }]
+            items := [inheritedFunctionNameEventItem] } ] }
+
+def eventShadowsInheritedFunctionRejected : Bool :=
+  Result.isError (SourceUnit.check eventShadowsInheritedFunctionSource)
+
+def eventShadowsInheritedPrivateFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedPrivateFunctionEventBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                inheritedFunctionNamePrivateBaseFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "EventShadowsInheritedPrivateFunction"
+            bases :=
+              [ { base := userPath "InheritedPrivateFunctionEventBase"
+                  args := [] } ]
+            items := [inheritedFunctionNameEventItem] } ] }
+
+def eventShadowsInheritedPrivateFunctionAccepted : Bool :=
+  sourceUnitAccepted? eventShadowsInheritedPrivateFunctionSource
+
+def modifierShadowsInheritedFunctionItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.modifierDecl
+    { name := "shadowed"
+      body := some L00_SourceSolidity.Stmt.modifierPlaceholder }
+
+def modifierShadowsInheritedFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedFunctionModifierBase"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                inheritedFunctionNameBaseFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadModifierShadowsInheritedFunction"
+            bases :=
+              [ { base := userPath "InheritedFunctionModifierBase"
+                  args := [] } ]
+            items := [modifierShadowsInheritedFunctionItem] } ] }
+
+def modifierShadowsInheritedFunctionRejected : Bool :=
+  Result.isError (SourceUnit.check modifierShadowsInheritedFunctionSource)
+
+def inheritedModifierNameBaseSourceItem :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedModifierNameBase"
+      items := [inheritedStateNameModifierItem] }
+
+def inheritedModifierNameItemSource
+    (item : L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ inheritedModifierNameBaseSourceItem
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadDeclarationShadowsInheritedModifier"
+            bases :=
+              [{ base := userPath "InheritedModifierNameBase", args := [] }]
+            items := [item] } ] }
+
+def functionShadowsInheritedModifierFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "stored"
+    mutability := L00_SourceSolidity.StateMutability.pure }
+
+def functionShadowsInheritedModifierRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedModifierNameItemSource
+        (L00_SourceSolidity.ContractItem.function
+          functionShadowsInheritedModifierFunction)))
+
+def stateShadowsInheritedModifierItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.stateVar
+    { name := "stored"
+      ty := uint256
+      visibility := some L00_SourceSolidity.Visibility.private_ }
+
+def stateShadowsInheritedModifierRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedModifierNameItemSource
+        stateShadowsInheritedModifierItem))
+
+def eventShadowsInheritedModifierRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedModifierNameItemSource
+        inheritedStateNameEventItem))
 
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
