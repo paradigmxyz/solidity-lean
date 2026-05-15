@@ -6429,6 +6429,11 @@ def FunctionDecl.checkHeader (env : CheckEnv)
         (TypeError.invalidFunctionHeader "constructor has returns")
       require fn.body.isSome
         (TypeError.invalidFunctionHeader "constructor has no implementation")
+      require
+        (fn.mutability == L00_SourceSolidity.StateMutability.nonpayable ||
+          fn.mutability == L00_SourceSolidity.StateMutability.payable)
+        (TypeError.invalidFunctionHeader
+          "constructor has invalid mutability")
       require (!Parameters.anyCalldata fn.params)
         (TypeError.invalidFunctionHeader
           "constructor parameter uses calldata")
@@ -13167,6 +13172,30 @@ def payableConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
 
 def payableConstructorCreateAccepted : Bool :=
   sourceUnitAccepted? payableConstructorCreateSource
+
+def viewConstructorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ViewConstructor"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (seedConstructor
+                    L00_SourceSolidity.StateMutability.view) ] } ] }
+
+def viewConstructorRejected : Bool :=
+  Result.isError (SourceUnit.check viewConstructorSource)
+
+def pureConstructorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PureConstructor"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (seedConstructor
+                    L00_SourceSolidity.StateMutability.pure) ] } ] }
+
+def pureConstructorRejected : Bool :=
+  Result.isError (SourceUnit.check pureConstructorSource)
 
 def saltedConstructorCreateFunction : L00_SourceSolidity.FunctionDecl :=
   { constructorCreateFunction with
