@@ -7153,7 +7153,8 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
     (contract : L00_SourceSolidity.ContractDecl)
     (stateVars : List L00_SourceSolidity.StateVarDecl)
     (functions : List L00_SourceSolidity.FunctionDecl)
-    (modifiers : List L00_SourceSolidity.ModifierDecl) :
+    (modifiers : List L00_SourceSolidity.ModifierDecl)
+    (usingDecls : List L00_SourceSolidity.UsingDecl) :
     Except TypeError Unit := do
   BaseSpecifiers.check env sourceTypes contract.kind contract.name contract.bases
   match contract.kind with
@@ -7165,6 +7166,9 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
           "interface declares state variables")
       require modifiers.isEmpty
         (TypeError.invalidContractHeader "interface declares modifiers")
+      require usingDecls.isEmpty
+        (TypeError.invalidContractHeader
+          "interface declares using directive")
       require (!Functions.anyConstructor functions)
         (TypeError.invalidContractHeader
           "interface declares constructor")
@@ -7273,7 +7277,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       immutableNames := []
       functions := [] }
   ContractDecl.checkKindShape baseSpecifierEnv sourceTypes contract stateVars
-    functions modifiers
+    functions modifiers usingDecls
   ContractDecl.checkStorageLayoutBase baseEnv contract
   let allContracts := sourceTypes.contractDecls.map Prod.snd
   let dispatchOrder ←
@@ -14485,6 +14489,20 @@ def usingKnownLibrarySource : L00_SourceSolidity.SourceUnit :=
 
 def usingKnownLibraryAccepted : Bool :=
   sourceUnitAccepted? usingKnownLibrarySource
+
+def interfaceUsingDirectiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract emptyLibraryContract
+      , L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IUsing"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "Lib"
+                    target := some uint256 } ] } ] }
+
+def interfaceUsingDirectiveRejected : Bool :=
+  Result.isError (SourceUnit.check interfaceUsingDirectiveSource)
 
 def usingUnknownLibrarySource : L00_SourceSolidity.SourceUnit :=
   { items :=
