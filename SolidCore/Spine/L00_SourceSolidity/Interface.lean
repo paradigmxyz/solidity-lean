@@ -32738,6 +32738,105 @@ def localEventShadowsFreeAbiMatches : Option Bool := do
       | _ => some false
   | _ => some false
 
+def inheritedEventErrorShadowUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeError
+          { name := "Collision"
+            params := [{ ty := Ty.uint 256 }] }
+      , SourceItem.freeEvent
+          { name := "CollisionEvent"
+            params := [{ ty := Ty.uint 256 }] }
+      , SourceItem.contract
+          { name := "InheritedEventErrorBase"
+            items :=
+              [ ContractItem.errorDecl { name := "Collision" }
+              , ContractItem.eventDecl { name := "CollisionEvent" } ] }
+      , SourceItem.contract
+          { name := "InheritedEventErrorDerived"
+            bases := [{ base := pathOfName "InheritedEventErrorBase" }]
+            items :=
+              [ ContractItem.function
+                  { name := some "fail"
+                    visibility := some Visibility.public_
+                    body :=
+                      some
+                        (Stmt.revertCall
+                          (Expr.call (Expr.ident "Collision") [])) }
+              , ContractItem.function
+                  { name := some "emitIt"
+                    visibility := some Visibility.public_
+                    body :=
+                      some
+                        (Stmt.emitEvent
+                          (Expr.call (Expr.ident "CollisionEvent") [])) } ] } ] }
+
+def inheritedErrorShadowsFreeAbiMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? inheritedEventErrorShadowUnit
+    "InheritedEventErrorDerived"
+  match contract.errorDecls with
+  | [decl] =>
+      let selector :=
+        SolidCore.Solidity.Source.ABI.selectorFromSignature
+          "Collision()"
+      match decl.fields with
+      | [] =>
+          some (decl.name == "Collision" &&
+            SolidCore.Solidity.Source.wordEq decl.selector selector)
+      | _ => some false
+  | _ => some false
+
+def inheritedErrorRevertPayloadMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? inheritedEventErrorShadowUnit
+    "InheritedEventErrorDerived"
+  let function ← contract.findFunctionByName? "fail"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function []
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      16 contract SolidCore.Solidity.Source.State.empty calldata
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "Collision()")
+  some (!result.success && result.output == selector)
+
+def inheritedEventShadowsFreeAbiMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? inheritedEventErrorShadowUnit
+    "InheritedEventErrorDerived"
+  match contract.eventDecls with
+  | [decl] =>
+      match decl.fields with
+      | [] =>
+          some
+            (decl.name == "CollisionEvent" &&
+              decl.topic? ==
+                some
+                  (SolidCore.Solidity.Source.Keccak.digestWord
+                    "CollisionEvent()"))
+      | _ => some false
+  | _ => some false
+
+def inheritedEventEmitMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 32 inheritedEventErrorShadowUnit
+      "InheritedEventErrorDerived"
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.events with
+      | [event] =>
+          match event.data, event.topics with
+          | [], [topic] =>
+              some
+                (event.name == "CollisionEvent" &&
+                  SolidCore.Solidity.Source.wordEq topic
+                    (SolidCore.Solidity.Source.Keccak.digestWord
+                      "CollisionEvent()"))
+          | _, _ => some false
+      | _ => some false
+  | _ => some false
+
 def fileConstantContractUnit : SourceUnit :=
   { items :=
       [ SourceItem.freeConstant
