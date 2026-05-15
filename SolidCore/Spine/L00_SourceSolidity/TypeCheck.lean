@@ -7515,6 +7515,12 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     ContractDecls.eventNames contractTypes ancestorPaths
   let inheritedNonEventTypeNames :=
     ContractDecls.nonEventTypeNames contractTypes ancestorPaths
+  let visibleSourceErrors :=
+    ErrorSigs.withoutNamesOf (errorSigs ++ inheritedErrorSigs)
+      sourceErrors
+  let visibleSourceEvents :=
+    EventSigs.withoutNamesOf (eventSigs ++ inheritedEventSigs)
+      sourceEvents
   let visibleStateVars := stateVars ++ inheritedStateVars
   let visibleConstantBindings :=
     StateVarDecls.namedConstness visibleStateVars ++ sourceConstantBindings
@@ -16968,6 +16974,137 @@ def revertInheritedErrorAccepted : Bool :=
     (inheritedErrorNameItemSource
       (L00_SourceSolidity.ContractItem.function
         revertInheritedErrorFunction))
+
+def inheritedErrorShadowsFreeErrorBase :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedErrorShadowsFreeBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.errorDecl
+          { name := "Collision" }] }
+
+def freeUintCollisionError :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.freeError
+    { name := "Collision"
+      params := [{ name := none, ty := uint256, location := none }] }
+
+def inheritedErrorShadowsFreeErrorSource
+    (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ freeUintCollisionError
+      , inheritedErrorShadowsFreeErrorBase
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedErrorShadowsFree"
+            bases :=
+              [ { base := userPath "InheritedErrorShadowsFreeBase"
+                  args := [] } ]
+            items := [L00_SourceSolidity.ContractItem.function fn] } ] }
+
+def revertFreeErrorSignatureFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "revertFreeErrorSignature"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.revertCall
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "Collision")
+                [L00_SourceSolidity.Arg.positional (numberExpr "1")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def inheritedErrorShadowsFreeErrorRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedErrorShadowsFreeErrorSource
+        revertFreeErrorSignatureFunction))
+
+def revertInheritedErrorSignatureFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { revertFreeErrorSignatureFunction with
+    name := some "revertInheritedErrorSignature"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.revertCall
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "Collision") [])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def inheritedErrorShadowAllowsInheritedSignatureAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedErrorShadowsFreeErrorSource
+      revertInheritedErrorSignatureFunction)
+
+def inheritedEventShadowsFreeEventBase :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedEventShadowsFreeBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.eventDecl
+          { name := "CollisionEvent" }] }
+
+def freeUintCollisionEvent :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.freeEvent
+    { name := "CollisionEvent"
+      params := [{ name := none, ty := uint256 }] }
+
+def inheritedEventShadowsFreeEventSource
+    (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ freeUintCollisionEvent
+      , inheritedEventShadowsFreeEventBase
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedEventShadowsFree"
+            bases :=
+              [ { base := userPath "InheritedEventShadowsFreeBase"
+                  args := [] } ]
+            items := [L00_SourceSolidity.ContractItem.function fn] } ] }
+
+def emitFreeEventSignatureFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "emitFreeEventSignature"
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.emitEvent
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "CollisionEvent")
+                [L00_SourceSolidity.Arg.positional (numberExpr "1")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def inheritedEventShadowsFreeEventRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedEventShadowsFreeEventSource
+        emitFreeEventSignatureFunction))
+
+def emitInheritedEventSignatureFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { emitFreeEventSignatureFunction with
+    name := some "emitInheritedEventSignature"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.emitEvent
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "CollisionEvent") [])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def inheritedEventShadowAllowsInheritedSignatureAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedEventShadowsFreeEventSource
+      emitInheritedEventSignatureFunction)
 
 def inheritedStructNameBaseSourceItem :
     L00_SourceSolidity.SourceItem :=
