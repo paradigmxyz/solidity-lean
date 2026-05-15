@@ -370,6 +370,7 @@ inductive SourceItem where
   | contract : ContractDecl -> SourceItem
   | freeFunction : FunctionDecl -> SourceItem
   | freeConstant : StateVarDecl -> SourceItem
+  | freeEvent : EventDecl -> SourceItem
   | freeError : ErrorDecl -> SourceItem
   | freeStruct : StructDecl -> SourceItem
   | freeEnum : EnumDecl -> SourceItem
@@ -1373,6 +1374,8 @@ def SourceItem.resolveUserTypes (env : UserTypeEnv) :
       SourceItem.freeFunction (FunctionDecl.resolveUserTypes env decl)
   | SourceItem.freeConstant decl =>
       SourceItem.freeConstant (StateVarDecl.resolveUserTypes env decl)
+  | SourceItem.freeEvent decl =>
+      SourceItem.freeEvent (EventDecl.resolveUserTypes env decl)
   | SourceItem.freeError decl =>
       SourceItem.freeError (ErrorDecl.resolveUserTypes env decl)
   | SourceItem.freeStruct decl =>
@@ -1683,6 +1686,8 @@ def SourceItem.resolveEnums (env : EnumEnv) :
       SourceItem.freeFunction (FunctionDecl.resolveEnums env decl)
   | SourceItem.freeConstant decl =>
       SourceItem.freeConstant (StateVarDecl.resolveEnums env decl)
+  | SourceItem.freeEvent decl =>
+      SourceItem.freeEvent (EventDecl.resolveEnums env decl)
   | SourceItem.freeError decl =>
       SourceItem.freeError (ErrorDecl.resolveEnums env decl)
   | SourceItem.freeStruct decl =>
@@ -2252,6 +2257,8 @@ def SourceItem.resolveStructs (env : StructEnv) :
       SourceItem.freeFunction (FunctionDecl.resolveStructs env decl)
   | SourceItem.freeConstant decl =>
       SourceItem.freeConstant (StateVarDecl.resolveStructs env decl)
+  | SourceItem.freeEvent decl =>
+      SourceItem.freeEvent (EventDecl.resolveStructs env decl)
   | SourceItem.freeError decl =>
       SourceItem.freeError (ErrorDecl.resolveStructs env decl)
   | SourceItem.freeStruct decl =>
@@ -13004,7 +13011,8 @@ def ContractDecl.constructorBodyForDeployment?
 
 def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
-    (sourceFunctions : List FunctionDecl) (sourceErrors : List ErrorDecl)
+    (sourceFunctions : List FunctionDecl) (sourceEvents : List EventDecl)
+    (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (storageOrder dispatchOrder : List ContractDecl) :
     Option CoreContract := do
@@ -13021,6 +13029,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let sourceUsingDecls :=
     (sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)).map
       (UsingDecl.resolveEnums enumEnv)
+  let sourceEvents :=
+    (sourceEvents.map (EventDecl.resolveUserTypes userEnv)).map
+      (EventDecl.resolveEnums enumEnv)
   let sourceErrors :=
     (sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)).map
       (ErrorDecl.resolveEnums enumEnv)
@@ -13036,6 +13047,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let structEnv := ContractDecl.structEnvFromContracts allContracts
   let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
+  let sourceEvents := sourceEvents.map (EventDecl.resolveStructs structEnv)
   let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
@@ -13139,8 +13151,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
+  let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let eventArgEnv :=
-    EventDecls.namedArgEnv (concatMapList ContractDecl.directEvents dispatchOrder)
+    EventDecls.namedArgEnv (contractEvents ++ sourceEvents)
   let errorArgEnv :=
     ErrorDecls.namedArgEnv
       (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
@@ -13155,8 +13168,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←
-    mapOption EventDecl.toCore
-      (concatMapList ContractDecl.directEvents dispatchOrder)
+    mapOption EventDecl.toCore (contractEvents ++ sourceEvents)
   let errorDecls ←
     mapOption
       ErrorDecl.toCore
@@ -13175,6 +13187,7 @@ def ContractDecl.constructorFunctionFromOrders?
     (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl)
+    (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (storageOrder dispatchOrder : List ContractDecl)
@@ -13201,6 +13214,9 @@ def ContractDecl.constructorFunctionFromOrders?
   let sourceFunctions :=
     (sourceFunctions.map (FunctionDecl.resolveUserTypes userEnv)).map
       (FunctionDecl.resolveEnums enumEnv)
+  let sourceEvents :=
+    (sourceEvents.map (EventDecl.resolveUserTypes userEnv)).map
+      (EventDecl.resolveEnums enumEnv)
   let sourceErrors :=
     (sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)).map
       (ErrorDecl.resolveEnums enumEnv)
@@ -13212,6 +13228,7 @@ def ContractDecl.constructorFunctionFromOrders?
   let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveStructs structEnv)
+  let sourceEvents := sourceEvents.map (EventDecl.resolveStructs structEnv)
   let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
@@ -13301,8 +13318,9 @@ def ContractDecl.constructorFunctionFromOrders?
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
+  let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let eventArgEnv :=
-    EventDecls.namedArgEnv (concatMapList ContractDecl.directEvents dispatchOrder)
+    EventDecls.namedArgEnv (contractEvents ++ sourceEvents)
   let errorArgEnv :=
     ErrorDecls.namedArgEnv
       (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
@@ -13336,26 +13354,28 @@ def ContractDecl.constructorFunctionFromOrders?
       body := SolidCore.Solidity.Source.Stmt.block stmts }
 
 def ContractDecl.toCore? (decl : ContractDecl) : Option CoreContract :=
-  ContractDecl.toCoreFromOrders? [decl] [] [] [] [] [decl] [decl]
+  ContractDecl.toCoreFromOrders? [decl] [] [] [] [] [] [decl] [decl]
 
 def ContractDecl.toCoreWithBasesAndUsing? (sourceUsingDecls : List UsingDecl)
-    (sourceFunctions : List FunctionDecl) (sourceErrors : List ErrorDecl)
+    (sourceFunctions : List FunctionDecl) (sourceEvents : List EventDecl)
+    (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreContract := do
   let storageOrder ← ContractDecl.storageOrder? contracts decl
   let dispatchOrder ← ContractDecl.dispatchOrder? contracts decl
   ContractDecl.toCoreFromOrders?
-    contracts sourceUsingDecls sourceFunctions sourceErrors sourceConstants
+    contracts sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
     storageOrder dispatchOrder
 
 def ContractDecl.toCoreWithBases? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option CoreContract := do
-  ContractDecl.toCoreWithBasesAndUsing? [] [] [] [] contracts decl
+  ContractDecl.toCoreWithBasesAndUsing? [] [] [] [] [] contracts decl
 
 def ContractDecl.constructorFunctionWithBasesAndSource?
     (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl)
+    (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (contracts : List ContractDecl) (decl : ContractDecl) :
@@ -13363,17 +13383,18 @@ def ContractDecl.constructorFunctionWithBasesAndSource?
   let storageOrder ← ContractDecl.storageOrder? contracts decl
   let dispatchOrder ← ContractDecl.dispatchOrder? contracts decl
   ContractDecl.constructorFunctionFromOrders?
-    contracts sourceUsingDecls sourceFunctions sourceErrors sourceConstants
+    contracts sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
     storageOrder dispatchOrder decl.name
 
 def ContractDecl.constructorFunctionWithBases?
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreFunctionDef :=
-  ContractDecl.constructorFunctionWithBasesAndSource? [] [] [] [] contracts decl
+  ContractDecl.constructorFunctionWithBasesAndSource? [] [] [] [] [] contracts decl
 
 def ContractDecl.constructWithBasesAndSourceFrom? (fuel : Nat)
     (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl)
+    (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
     (contracts : List ContractDecl) (decl : ContractDecl)
@@ -13381,11 +13402,12 @@ def ContractDecl.constructWithBasesAndSourceFrom? (fuel : Nat)
     Option CoreCallResult := do
   let contract ←
     ContractDecl.toCoreWithBasesAndUsing?
-      sourceUsingDecls sourceFunctions sourceErrors sourceConstants
+      sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
       contracts decl
   let constructor ←
     ContractDecl.constructorFunctionWithBasesAndSource?
-      sourceUsingDecls sourceFunctions sourceErrors sourceConstants contracts decl
+      sourceUsingDecls sourceFunctions sourceEvents sourceErrors
+      sourceConstants contracts decl
   SolidCore.Solidity.Source.FunctionDef.call?
     fuel
     { contract.context with
@@ -13399,7 +13421,7 @@ def ContractDecl.constructWithBasesFrom? (fuel : Nat)
     (state : CoreState) (sender value : Word) (args : List CoreValue) :
     Option CoreCallResult :=
   ContractDecl.constructWithBasesAndSourceFrom?
-    fuel [] [] [] [] contracts decl state sender value args
+    fuel [] [] [] [] [] contracts decl state sender value args
 
 def ContractDecl.constructWithBases? (fuel : Nat)
     (contracts : List ContractDecl) (decl : ContractDecl)
@@ -13438,6 +13460,12 @@ def SourceUnit.freeFunctions (unit : SourceUnit) : List FunctionDecl :=
   unit.items.filterMap (fun item =>
     match item with
     | SourceItem.freeFunction decl => some decl
+    | _ => none)
+
+def SourceUnit.freeEvents (unit : SourceUnit) : List EventDecl :=
+  unit.items.filterMap (fun item =>
+    match item with
+    | SourceItem.freeEvent decl => some decl
     | _ => none)
 
 def SourceUnit.freeErrors (unit : SourceUnit) : List ErrorDecl :=
@@ -13518,7 +13546,8 @@ def SourceUnit.toCoreContract? (unit : SourceUnit)
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.toCoreWithBasesAndUsing?
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
-    (SourceUnit.freeErrors unit) (SourceUnit.freeConstants unit)
+    (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+    (SourceUnit.freeConstants unit)
     (SourceUnit.contracts unit) decl
 
 def SourceUnit.constructContract? (fuel : Nat) (unit : SourceUnit)
@@ -13528,7 +13557,8 @@ def SourceUnit.constructContract? (fuel : Nat) (unit : SourceUnit)
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.constructWithBasesAndSourceFrom? fuel
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
-    (SourceUnit.freeErrors unit) (SourceUnit.freeConstants unit)
+    (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+    (SourceUnit.freeConstants unit)
     (SourceUnit.contracts unit) decl state 0 0 args
 
 def SourceUnit.constructContractFrom? (fuel : Nat) (unit : SourceUnit)
@@ -13538,7 +13568,8 @@ def SourceUnit.constructContractFrom? (fuel : Nat) (unit : SourceUnit)
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.constructWithBasesAndSourceFrom? fuel
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
-    (SourceUnit.freeErrors unit) (SourceUnit.freeConstants unit)
+    (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+    (SourceUnit.freeConstants unit)
     (SourceUnit.contracts unit) decl state sender value args
 
 def SourceUnit.toCoreContracts? (unit : SourceUnit) :
@@ -13548,7 +13579,8 @@ def SourceUnit.toCoreContracts? (unit : SourceUnit) :
     (fun decl =>
       ContractDecl.toCoreWithBasesAndUsing?
         (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
-        (SourceUnit.freeErrors unit) (SourceUnit.freeConstants unit)
+        (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+        (SourceUnit.freeConstants unit)
         (SourceUnit.contracts unit) decl)
     (SourceUnit.contracts unit)
 
@@ -32330,6 +32362,41 @@ def freeErrorAbiMatches : Option Bool := do
       (SolidCore.Solidity.Source.ABI.selectorFromSignature
         "TooSmall(uint256)")
   some (!result.success && result.output == selector ++ payload)
+
+def freeEventUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeEvent
+          { name := "FilePing"
+            params := [{ name := some "value", ty := Ty.uint 256 }] }
+      , SourceItem.contract
+          { name := "UsesFreeEvent"
+            items :=
+              [ ContractItem.function
+                  { name := some "emitIt"
+                    body :=
+                      some
+                        (Stmt.emitEvent
+                          (Expr.call (Expr.ident "FilePing")
+                            [Arg.positional
+                              (Expr.literal (Literal.number "5"))])) } ] } ] }
+
+def freeEventEmitMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 32 freeEventUnit "UsesFreeEvent"
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              some
+                (event.name == "FilePing" &&
+                  SolidCore.Solidity.Source.wordEq value 5)
+          | _ => some false
+      | _ => some false
+  | _ => some false
 
 def fileConstantContractUnit : SourceUnit :=
   { items :=

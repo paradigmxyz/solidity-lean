@@ -1768,6 +1768,16 @@ def EventSigs.ensureNoDuplicateAbiSignatures
       else
         EventSigs.ensureNoDuplicateAbiSignatures types rest
 
+def EventSigs.withoutAbiDuplicatesOf (types : TypeContext)
+    (locals : List EventSig) : List EventSig -> List EventSig
+  | [] => []
+  | sig :: rest =>
+      if locals.any (fun localSig =>
+          EventSig.sameAbiSignature types localSig sig) then
+        EventSigs.withoutAbiDuplicatesOf types locals rest
+      else
+        sig :: EventSigs.withoutAbiDuplicatesOf types locals rest
+
 def EventSigs.resolveLoop (target : Name) (args : List ArgInfo) :
     Option EventSig -> List EventSig -> Except TypeError EventSig
   | none, [] => Except.error (TypeError.unknownEvent target)
@@ -7248,6 +7258,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let modifierSigs := modifiers.map ModifierDecl.signature
   let eventSigs := events.map EventDecl.signature
   EventSigs.ensureNoDuplicateAbiSignatures contractTypes eventSigs
+  let visibleSourceEvents :=
+    EventSigs.withoutAbiDuplicatesOf contractTypes eventSigs sourceEvents
   let errorSigs := errors.map ErrorDecl.signature
   let currentPath := TypeContext.pathOfName contract.name
   let sourceConstantVars := StateVarDecls.namedTypes sourceConstants
@@ -7266,7 +7278,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       modifierDecls := modifiers
       usingDecls := usingDecls ++ sourceUsingDecls
       errors := errorSigs ++ sourceErrors
-      events := eventSigs ++ sourceEvents
+      events := eventSigs ++ visibleSourceEvents
       contractKind := some contract.kind
       currentContract := some currentPath
       returnTys := [] }
@@ -7473,6 +7485,7 @@ def SourceItem.using? :
 
 def SourceItem.freeEvent? :
     L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.EventDecl
+  | L00_SourceSolidity.SourceItem.freeEvent decl => some decl
   | _ => none
 
 def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
@@ -7481,6 +7494,7 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
   let freeFunctions := source.items.filterMap SourceItem.freeFunction?
   let freeConstants := source.items.filterMap SourceItem.freeConstant?
   let freeErrors := source.items.filterMap SourceItem.freeError?
+  let freeEvents := source.items.filterMap SourceItem.freeEvent?
   let freeStructs := source.items.filterMap SourceItem.freeStruct?
   let freeEnums := source.items.filterMap SourceItem.freeEnum?
   let freeUserValueTypes :=
@@ -7489,21 +7503,25 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
   let freeFunctionSigs := FunctionDecls.signatures freeFunctions
   let freeFunctionNames := freeFunctions.filterMap FunctionDecl.declaredName?
   let freeErrorSigs := freeErrors.map ErrorDecl.signature
-  let freeEventSigs : List EventSig := []
+  let freeEventSigs := freeEvents.map EventDecl.signature
   FunctionSigs.ensureNoDuplicateSignatures freeFunctionSigs
-  let topLevelNonFunctionNames :=
+  let topLevelNonEventNames :=
     contracts.map L00_SourceSolidity.ContractDecl.name ++
       freeConstants.map L00_SourceSolidity.StateVarDecl.name ++
       freeErrors.map L00_SourceSolidity.ErrorDecl.name ++
       freeStructs.map L00_SourceSolidity.StructDecl.name ++
       freeEnums.map L00_SourceSolidity.EnumDecl.name ++
       freeUserValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
-  ensureUniqueNames "top-level declaration" topLevelNonFunctionNames
-  ensureNamesDisjointFrom "top-level declaration" topLevelNonFunctionNames
+  ensureUniqueNames "top-level declaration" topLevelNonEventNames
+  ensureNamesDisjointFrom "top-level declaration" topLevelNonEventNames
     freeFunctionNames
+  ensureNamesDisjointFrom "top-level declaration"
+    (topLevelNonEventNames ++ freeFunctionNames)
+    (freeEvents.map L00_SourceSolidity.EventDecl.name)
   let sourceTypes :=
     TypeContext.empty.withSourceTypes contracts freeStructs freeEnums
       freeUserValueTypes
+  EventSigs.ensureNoDuplicateAbiSignatures sourceTypes freeEventSigs
   let sourceEnv : CheckEnv :=
     { types := sourceTypes
       vars := StateVarDecls.namedTypes freeConstants
@@ -7555,6 +7573,12 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
     | err :: rest => do
         ErrorDecl.check sourceEnv err
         checkFreeErrors rest
+  let rec checkFreeEvents :
+      List L00_SourceSolidity.EventDecl -> Except TypeError Unit
+    | [] => Except.ok ()
+    | event :: rest => do
+        EventDecl.check sourceEnv event
+        checkFreeEvents rest
   let rec checkContracts :
       List L00_SourceSolidity.ContractDecl -> Except TypeError Unit
   | [] => Except.ok ()
@@ -7568,6 +7592,7 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
   checkFreeConstants freeConstants
   checkSourceUsingDecls sourceUsingDecls
   checkFreeFunctions freeFunctions
+  checkFreeEvents freeEvents
   checkFreeErrors freeErrors
   checkContracts contracts
   Except.ok { source := source }
@@ -13653,6 +13678,17 @@ def emitPingSource : L00_SourceSolidity.SourceUnit :=
 def emitPingAccepted : Bool :=
   sourceUnitAccepted? emitPingSource
 
+def freeEventEmitSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "EmitFreePing"
+            items :=
+              [L00_SourceSolidity.ContractItem.function emitPingFunction] } ] }
+
+def freeEventEmitAccepted : Bool :=
+  sourceUnitAccepted? freeEventEmitSource
+
 def overloadedAddressPingEvent : L00_SourceSolidity.EventDecl :=
   { name := "Ping"
     params :=
@@ -13688,6 +13724,37 @@ def duplicateEventSource : L00_SourceSolidity.SourceUnit :=
 def duplicateEventRejected : Bool :=
   Result.isError (SourceUnit.check duplicateEventSource)
 
+def duplicateFreeEventSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.freeEvent duplicateCanonicalPingEvent ] }
+
+def duplicateFreeEventRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateFreeEventSource)
+
+def freeAndContractSameEventSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContractEventShadowsFree"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl pingEvent
+              , L00_SourceSolidity.ContractItem.function emitPingFunction ] } ] }
+
+def freeAndContractSameEventAccepted : Bool :=
+  sourceUnitAccepted? freeAndContractSameEventSource
+
+def freeEventFunctionNameCollisionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.freeFunction
+          { simpleReturnFunction with
+            name := some "Ping"
+            visibility := none } ] }
+
+def freeEventFunctionNameCollisionRejected : Bool :=
+  Result.isError (SourceUnit.check freeEventFunctionNameCollisionSource)
+
 def duplicateEventParamNameSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -13722,6 +13789,18 @@ def mappingEventParamSource : L00_SourceSolidity.SourceUnit :=
 
 def mappingEventParamRejected : Bool :=
   Result.isError (SourceUnit.check mappingEventParamSource)
+
+def freeMappingEventParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent
+          { name := "Bad"
+            params :=
+              [ { name := some "values"
+                  ty := L00_SourceSolidity.Ty.mapping uint256 uint256
+                  indexed := true } ] } ] }
+
+def freeMappingEventParamRejected : Bool :=
+  Result.isError (SourceUnit.check freeMappingEventParamSource)
 
 def internalFunctionEventParamSource :
     L00_SourceSolidity.SourceUnit :=
