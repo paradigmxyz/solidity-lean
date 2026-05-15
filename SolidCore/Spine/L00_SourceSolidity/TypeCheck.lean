@@ -5925,7 +5925,9 @@ def FunctionDecl.overrideMember? (origin : Path)
           returns := []
           visibility := visibility
           mutability := fn.mutability
-          virtual := fn.virtual
+          virtual :=
+            fn.virtual ||
+              originKind == L00_SourceSolidity.ContractKind.interface
           implemented := fn.body.isSome }
   | L00_SourceSolidity.FunctionKind.fallback, _, visibility =>
       some
@@ -5937,7 +5939,9 @@ def FunctionDecl.overrideMember? (origin : Path)
           returns := []
           visibility := visibility
           mutability := fn.mutability
-          virtual := fn.virtual
+          virtual :=
+            fn.virtual ||
+              originKind == L00_SourceSolidity.ContractKind.interface
           implemented := fn.body.isSome }
   | _, _, _ => none
 
@@ -6963,8 +6967,19 @@ def FunctionDecl.declaredName? (fn : L00_SourceSolidity.FunctionDecl) :
 
 def FunctionDecl.isInterfaceDeclaration
     (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
-  FunctionDecl.isOrdinary fn && !FunctionDecl.hasBody fn &&
-    fn.visibility == some L00_SourceSolidity.Visibility.external_
+  match fn.kind with
+  | L00_SourceSolidity.FunctionKind.function =>
+      !FunctionDecl.hasBody fn &&
+        fn.visibility == some L00_SourceSolidity.Visibility.external_
+  | L00_SourceSolidity.FunctionKind.receive
+  | L00_SourceSolidity.FunctionKind.fallback =>
+      !FunctionDecl.hasBody fn &&
+        fn.visibility == some L00_SourceSolidity.Visibility.external_
+  | L00_SourceSolidity.FunctionKind.constructor => false
+
+def FunctionDecl.isConstructor
+    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
+  fn.kind == L00_SourceSolidity.FunctionKind.constructor
 
 def FunctionDecl.isConstructorLike
     (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
@@ -7003,6 +7018,12 @@ def Functions.anyConstructorLike :
   | [] => false
   | fn :: rest =>
       FunctionDecl.isConstructorLike fn || Functions.anyConstructorLike rest
+
+def Functions.anyConstructor :
+    List L00_SourceSolidity.FunctionDecl -> Bool
+  | [] => false
+  | fn :: rest =>
+      FunctionDecl.isConstructor fn || Functions.anyConstructor rest
 
 def StateVars.allConstant :
     List L00_SourceSolidity.StateVarDecl -> Bool
@@ -7144,9 +7165,9 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
           "interface declares state variables")
       require modifiers.isEmpty
         (TypeError.invalidContractHeader "interface declares modifiers")
-      require (!Functions.anyConstructorLike functions)
+      require (!Functions.anyConstructor functions)
         (TypeError.invalidContractHeader
-          "interface declares constructor, receive, or fallback")
+          "interface declares constructor")
       Functions.checkInterfaceDeclarations functions
   | L00_SourceSolidity.ContractKind.library =>
       require contract.bases.isEmpty
@@ -14065,6 +14086,72 @@ def interfaceSource : L00_SourceSolidity.SourceUnit :=
 def interfaceAccepted : Bool :=
   sourceUnitAccepted? interfaceSource
 
+def interfaceFallbackDecl : L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.fallback
+    name := none
+    params := []
+    returns := []
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body := none }
+
+def interfaceFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IFallback"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceFallbackDecl] } ] }
+
+def interfaceFallbackAccepted : Bool :=
+  sourceUnitAccepted? interfaceFallbackSource
+
+def interfaceReceiveDecl : L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.receive
+    name := none
+    params := []
+    returns := []
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.payable
+    body := none }
+
+def interfaceReceiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IReceive"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceReceiveDecl] } ] }
+
+def interfaceReceiveAccepted : Bool :=
+  sourceUnitAccepted? interfaceReceiveSource
+
+def interfaceTypedFallbackDecl : L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.fallback
+    name := none
+    params :=
+      [ { name := some "input"
+          ty := L00_SourceSolidity.Ty.bytes
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.bytes
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body := none }
+
+def interfaceTypedFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "ITypedFallback"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceTypedFallbackDecl] } ] }
+
+def interfaceTypedFallbackAccepted : Bool :=
+  sourceUnitAccepted? interfaceTypedFallbackSource
+
 def badInterfaceBodySource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -14082,6 +14169,38 @@ def badInterfaceBodySource : L00_SourceSolidity.SourceUnit :=
 
 def badInterfaceBodyRejected : Bool :=
   Result.isError (SourceUnit.check badInterfaceBodySource)
+
+def badInterfaceFallbackBodySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IBadFallbackBody"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { interfaceFallbackDecl with
+                    body := some L00_SourceSolidity.Stmt.empty } ] } ] }
+
+def badInterfaceFallbackBodyRejected : Bool :=
+  Result.isError (SourceUnit.check badInterfaceFallbackBodySource)
+
+def interfaceConstructorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IConstructor"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { kind := L00_SourceSolidity.FunctionKind.constructor
+                    name := none
+                    params := []
+                    returns := []
+                    visibility := none
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body := none } ] } ] }
+
+def interfaceConstructorRejected : Bool :=
+  Result.isError (SourceUnit.check interfaceConstructorSource)
 
 def abstractInterfaceSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -14183,6 +14302,70 @@ def implementedInterfaceFunctionSource : L00_SourceSolidity.SourceUnit :=
 
 def implementedInterfaceFunctionAccepted : Bool :=
   sourceUnitAccepted? implementedInterfaceFunctionSource
+
+def inheritedInterfaceFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IInheritedFallback"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceFallbackDecl] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritsInterfaceFallback"
+            bases := [{ base := userPath "IInheritedFallback" }] } ] }
+
+def inheritedInterfaceFallbackRejected : Bool :=
+  Result.isError (SourceUnit.check inheritedInterfaceFallbackSource)
+
+def implementedInterfaceFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IImplementedFallback"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceFallbackDecl] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ImplementsInterfaceFallback"
+            bases := [{ base := userPath "IImplementedFallback" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { interfaceFallbackDecl with
+                    body := some L00_SourceSolidity.Stmt.empty } ] } ] }
+
+def implementedInterfaceFallbackAccepted : Bool :=
+  sourceUnitAccepted? implementedInterfaceFallbackSource
+
+def inheritedInterfaceReceiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IInheritedReceive"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceReceiveDecl] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritsInterfaceReceive"
+            bases := [{ base := userPath "IInheritedReceive" }] } ] }
+
+def inheritedInterfaceReceiveRejected : Bool :=
+  Result.isError (SourceUnit.check inheritedInterfaceReceiveSource)
+
+def implementedInterfaceReceiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.interface
+            name := "IImplementedReceive"
+            items := [L00_SourceSolidity.ContractItem.function
+              interfaceReceiveDecl] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ImplementsInterfaceReceive"
+            bases := [{ base := userPath "IImplementedReceive" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { interfaceReceiveDecl with
+                    body := some L00_SourceSolidity.Stmt.empty } ] } ] }
+
+def implementedInterfaceReceiveAccepted : Bool :=
+  sourceUnitAccepted? implementedInterfaceReceiveSource
 
 def bodylessVirtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
