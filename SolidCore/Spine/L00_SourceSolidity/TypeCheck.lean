@@ -1399,6 +1399,17 @@ def FunctionSig.matchesArgs (sig : FunctionSig) (args : List ArgInfo) : Bool :=
   | some argTys => FunctionSig.paramsAccept argTys sig.params
   | none => false
 
+def FunctionSig.lookupParamTyByName? :
+    List (Option Name) -> List Ty -> Name -> Option Ty
+  | some paramName :: nameRest, ty :: tyRest, target =>
+      if paramName == target then
+        some ty
+      else
+        FunctionSig.lookupParamTyByName? nameRest tyRest target
+  | _ :: nameRest, _ :: tyRest, target =>
+      FunctionSig.lookupParamTyByName? nameRest tyRest target
+  | _, _, _ => none
+
 def resultTyFromReturns : List Ty -> Ty
   | [] => L00_SourceSolidity.Ty.tuple []
   | [ty] => ty
@@ -3307,7 +3318,9 @@ def exprsContextuallyMatchParams (env : CheckEnv) :
 def FunctionSig.contextuallyMatchesArgs
     (env : CheckEnv) (sig : FunctionSig)
     (args : List L00_SourceSolidity.Arg) : Bool :=
-  match Args.positionalExprs? args with
+  match
+      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+        sig.paramNames args with
   | some exprs =>
       exprsContextuallyMatchParams env exprs sig.params
         sig.paramStorageRefs
@@ -3685,11 +3698,24 @@ def checkExpr (env : CheckEnv) :
                       FunctionSigs.resolveContextual
                         env env.functions name args with
                   | Except.ok sig => do
-                      let checkedArgs ←
-                        checkPositionalArgsAssignableToParamsFor
-                          env "function call" args sig.params
-                      checkCheckedExprsStorageRefsFor "function call"
-                        checkedArgs sig.paramStorageRefs
+                      let contextualCheckedArgs ←
+                        if Args.anyNamed args then
+                          checkNamedArgsAssignableToParamsFor
+                            env "function call" sig.paramNames
+                              sig.params args
+                        else
+                          checkPositionalArgsAssignableToParamsFor
+                            env "function call" args sig.params
+                      match CheckedArgInfos.ordered? sig.paramNames
+                          (checkedArgInfosFull args
+                            contextualCheckedArgs) with
+                      | some ordered =>
+                          checkCheckedExprsStorageRefsFor "function call"
+                            ordered sig.paramStorageRefs
+                      | none =>
+                          Except.error
+                            (TypeError.arityMismatch
+                              "function call" sig.params.length args.length)
                       require sig.internallyCallable
                         (TypeError.invalidFunctionHeader
                           "external function requires external call syntax")
@@ -3735,11 +3761,22 @@ def checkExpr (env : CheckEnv) :
                     FunctionSigs.resolveContextual
                       env env.functions name args with
                 | Except.ok sig => do
-                    let checkedArgs ←
-                      checkPositionalArgsAssignableToParamsFor
-                        env "function call" args sig.params
-                    checkCheckedExprsStorageRefsFor "function call"
-                      checkedArgs sig.paramStorageRefs
+                    let contextualCheckedArgs ←
+                      if Args.anyNamed args then
+                        checkNamedArgsAssignableToParamsFor
+                          env "function call" sig.paramNames sig.params args
+                      else
+                        checkPositionalArgsAssignableToParamsFor
+                          env "function call" args sig.params
+                    match CheckedArgInfos.ordered? sig.paramNames
+                        (checkedArgInfosFull args contextualCheckedArgs) with
+                    | some ordered =>
+                        checkCheckedExprsStorageRefsFor "function call"
+                          ordered sig.paramStorageRefs
+                    | none =>
+                        Except.error
+                          (TypeError.arityMismatch
+                            "function call" sig.params.length args.length)
                     require sig.internallyCallable
                       (TypeError.invalidFunctionHeader
                         "external function requires external call syntax")
@@ -4689,12 +4726,37 @@ decreasing_by
     simp_wf
     try omega
 
+def checkNamedArgsAssignableToParamsFor
+    (env : CheckEnv) (what : String)
+    (paramNames : List (Option Name)) (params : List Ty) :
+    List L00_SourceSolidity.Arg -> Except TypeError (List CheckedExpr)
+  | [] => Except.ok []
+  | L00_SourceSolidity.Arg.named name expr :: rest => do
+      let expected ←
+        match FunctionSig.lookupParamTyByName? paramNames params name with
+        | some ty => Except.ok ty
+        | none =>
+            Except.error
+              (TypeError.arityMismatch what params.length (rest.length + 1))
+      let checked ←
+        checkArgAssignableToParam env expected
+          (L00_SourceSolidity.Arg.named name expr)
+      let tail ←
+        checkNamedArgsAssignableToParamsFor env what paramNames params rest
+      Except.ok (checked :: tail)
+  | L00_SourceSolidity.Arg.positional _ :: rest =>
+      Except.error
+        (TypeError.arityMismatch what params.length (rest.length + 1))
+termination_by args => sizeOf args
+decreasing_by
+  all_goals
+    simp_wf
+    try omega
+
 def checkMemberCallArgsContextual
     (env : CheckEnv) (target : L00_SourceSolidity.Expr)
     (member : Name) (args : List L00_SourceSolidity.Arg) :
     Except TypeError (List CheckedExpr) := do
-  require (!Args.anyNamed args)
-    (TypeError.unsupported "contextual named member-call arguments")
   require (!lowLevelCallMember member)
     (TypeError.unsupported "contextual low-level member call")
   let targetChecked ← checkExpr env target
@@ -4721,10 +4783,21 @@ def checkMemberCallArgsContextual
         UsingDecls.memberCandidates env targetChecked member env.usingDecls
   let sig ← FunctionSigs.resolveContextual env candidates member args
   let checkedArgs ←
-    checkPositionalArgsAssignableToParamsFor
-      env "member call" args sig.params
-  checkCheckedExprsStorageRefsFor "member call" checkedArgs
-    sig.paramStorageRefs
+    if Args.anyNamed args then
+      checkNamedArgsAssignableToParamsFor
+        env "member call" sig.paramNames sig.params args
+    else
+      checkPositionalArgsAssignableToParamsFor
+        env "member call" args sig.params
+  match CheckedArgInfos.ordered? sig.paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some ordered =>
+      checkCheckedExprsStorageRefsFor "member call" ordered
+        sig.paramStorageRefs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch "member call" sig.params.length
+          checkedArgs.length)
   Except.ok checkedArgs
 termination_by 1 + sizeOf target + sizeOf args
 decreasing_by
@@ -22361,6 +22434,63 @@ def contextualArrayLiteralArgOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayLiteralArgOverflowSource)
 
+def contextualNamedArrayLiteralArgCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualArrayLiteralArgCaller with
+    name := some "contextualNamedArrayArg"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "takesNarrowArray")
+              [L00_SourceSolidity.Arg.named "xs"
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "2"])]))) }
+
+def contextualNamedArrayLiteralArgSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayLiteralArg"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCallee
+              , L00_SourceSolidity.ContractItem.function
+                  contextualNamedArrayLiteralArgCaller ] } ] }
+
+def contextualNamedArrayLiteralArgAccepted : Bool :=
+  sourceUnitAccepted? contextualNamedArrayLiteralArgSource
+
+def contextualNamedArrayLiteralArgOverflowCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualNamedArrayLiteralArgCaller with
+    name := some "contextualNamedArrayArgOverflow"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "takesNarrowArray")
+              [L00_SourceSolidity.Arg.named "xs"
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "300"])]))) }
+
+def contextualNamedArrayLiteralArgOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayLiteralArgOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCallee
+              , L00_SourceSolidity.ContractItem.function
+                  contextualNamedArrayLiteralArgOverflowCaller ] } ] }
+
+def contextualNamedArrayLiteralArgOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualNamedArrayLiteralArgOverflowSource)
+
 def contextualUsingArrayLiteralArgLibraryFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -22454,6 +22584,71 @@ def contextualUsingArrayLiteralArgOverflowSource :
 def contextualUsingArrayLiteralArgOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualUsingArrayLiteralArgOverflowSource)
+
+def contextualUsingNamedArrayLiteralArgCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualUsingArrayLiteralArgCaller with
+    name := some "contextualUsingNamedArrayArg"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (numberExpr "1") "takeUsingArray")
+              [L00_SourceSolidity.Arg.named "xs"
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "2"])]))) }
+
+def contextualUsingNamedArrayLiteralArgSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualUsingArrayLiteralArgLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "ContextualUsingArrayLib"
+            target := some uint256 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualUsingNamedArrayArg"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                contextualUsingNamedArrayLiteralArgCaller] } ] }
+
+def contextualUsingNamedArrayLiteralArgAccepted : Bool :=
+  sourceUnitAccepted? contextualUsingNamedArrayLiteralArgSource
+
+def contextualUsingNamedArrayLiteralArgOverflowCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualUsingNamedArrayLiteralArgCaller with
+    name := some "contextualUsingNamedArrayArgOverflow"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (numberExpr "1") "takeUsingArray")
+              [L00_SourceSolidity.Arg.named "xs"
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "300"])]))) }
+
+def contextualUsingNamedArrayLiteralArgOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualUsingArrayLiteralArgLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "ContextualUsingArrayLib"
+            target := some uint256 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualUsingNamedArrayArgOverflow"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                contextualUsingNamedArrayLiteralArgOverflowCaller] } ] }
+
+def contextualUsingNamedArrayLiteralArgOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualUsingNamedArrayLiteralArgOverflowSource)
 
 def bytes4ValueExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
