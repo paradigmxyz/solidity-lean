@@ -3238,17 +3238,40 @@ def checkInternalFunctionValueAssignable?
               Except.ok ())
   | _, _ => none
 
+def exprContextuallyAssignableToFuel
+    (env : CheckEnv) :
+    Nat -> L00_SourceSolidity.Expr -> Ty -> Bool
+  | 0, _, _ => false
+  | fuel + 1, L00_SourceSolidity.Expr.array elements,
+      L00_SourceSolidity.Ty.array elementTy (some size) =>
+      elements.length == size &&
+        elements.all
+          (fun element =>
+            exprContextuallyAssignableToFuel env fuel element elementTy)
+  | _, expr, expected =>
+      match checkInternalFunctionValueAssignable? env expr expected with
+      | some (Except.ok _) => true
+      | _ =>
+          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars
+              expr with
+          | some actual =>
+              TypeContext.canImplicitlyConvert env.types actual expected ||
+                implicitLiteralFits expected expr
+          | none => false
+
 def exprContextuallyAssignableTo
     (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
     Bool :=
-  match checkInternalFunctionValueAssignable? env expr expected with
-  | some (Except.ok _) => true
-  | _ =>
-      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
-      | some actual =>
-          TypeContext.canImplicitlyConvert env.types actual expected ||
-            implicitLiteralFits expected expr
-      | none => false
+  exprContextuallyAssignableToFuel env 128 expr expected
+
+def exprIsContextualFixedArrayLiteral
+    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    Bool :=
+  match expr, expected with
+  | L00_SourceSolidity.Expr.array _,
+    L00_SourceSolidity.Ty.array _ (some _) =>
+      exprContextuallyAssignableTo env expr expected
+  | _, _ => false
 
 def exprContextuallyStorageOk
     (env : CheckEnv) (expr : L00_SourceSolidity.Expr)
@@ -3658,17 +3681,39 @@ def checkExpr (env : CheckEnv) :
                     { source := expr, ty := resultTyFromReturns sig.returns,
                       lvalue := false }
               | Except.error _ =>
-                  match checkBuiltinIdentCall env name argInfos checkedArgs with
-                  | Except.ok (some ty) =>
-                      Except.ok { source := expr, ty := ty, lvalue := false }
-                  | Except.ok none =>
-                      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
-                          env.vars expr with
-                      | some ty => do
-                          requireBuiltinIdentCallAllowed env name
-                          Except.ok { source := expr, ty := ty, lvalue := false }
-                      | none => Except.error (TypeError.unknownFunction name)
-                  | Except.error err => Except.error err
+                  match
+                      FunctionSigs.resolveContextual
+                        env env.functions name args with
+                  | Except.ok sig => do
+                      let checkedArgs ←
+                        checkPositionalArgsAssignableToParamsFor
+                          env "function call" args sig.params
+                      checkCheckedExprsStorageRefsFor "function call"
+                        checkedArgs sig.paramStorageRefs
+                      require sig.internallyCallable
+                        (TypeError.invalidFunctionHeader
+                          "external function requires external call syntax")
+                      requireCallMutabilityAllowed env sig.mutability
+                      Except.ok
+                        { source := expr
+                          ty := resultTyFromReturns sig.returns
+                          lvalue := false }
+                  | Except.error _ =>
+                      match checkBuiltinIdentCall env name argInfos
+                          checkedArgs with
+                      | Except.ok (some ty) =>
+                          Except.ok
+                            { source := expr, ty := ty, lvalue := false }
+                      | Except.ok none =>
+                          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+                              env.vars expr with
+                          | some ty => do
+                              requireBuiltinIdentCallAllowed env name
+                              Except.ok
+                                { source := expr, ty := ty, lvalue := false }
+                          | none =>
+                              Except.error (TypeError.unknownFunction name)
+                      | Except.error err => Except.error err
       | Except.error argErr =>
           if Args.anyNamed args then
             Except.error argErr
@@ -4596,9 +4641,16 @@ def checkArgAssignableToParam (env : CheckEnv) (expected : Ty) :
               stateLValue := false }
       | some (Except.error err) => Except.error err
       | none => do
-          let checked ← checkExpr env expr
-          checked.expectAssignableToIn env.types expected
-          Except.ok checked
+          if exprIsContextualFixedArrayLiteral env expr expected then
+            Except.ok
+              { source := expr
+                ty := expected
+                lvalue := false
+                stateLValue := false }
+          else
+            let checked ← checkExpr env expr
+            checked.expectAssignableToIn env.types expected
+            Except.ok checked
 termination_by arg => sizeOf arg
 decreasing_by
   all_goals
@@ -22221,6 +22273,81 @@ def untypedNarrowArrayLiteralOverflowSource :
 def untypedNarrowArrayLiteralOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     untypedNarrowArrayLiteralOverflowSource)
+
+def contextualArrayLiteralArgCallee :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "takesNarrowArray"
+    returns := [{ name := none, ty := uint8, location := none }]
+    params :=
+      [ { name := some "xs"
+          ty := L00_SourceSolidity.Ty.array uint8 (some 2)
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (L00_SourceSolidity.Expr.ident "xs")
+              (numberExpr "0")))) }
+
+def contextualArrayLiteralArgCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "contextualArrayArg"
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "takesNarrowArray")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "2"])]))) }
+
+def contextualArrayLiteralArgSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralArg"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCallee
+              , L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCaller ] } ] }
+
+def contextualArrayLiteralArgAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayLiteralArgSource
+
+def contextualArrayLiteralArgOverflowCaller :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualArrayLiteralArgCaller with
+    name := some "contextualArrayArgOverflow"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "takesNarrowArray")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "300"])]))) }
+
+def contextualArrayLiteralArgOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralArgOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCallee
+              , L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgOverflowCaller ] } ] }
+
+def contextualArrayLiteralArgOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayLiteralArgOverflowSource)
 
 def bytes4ValueExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
