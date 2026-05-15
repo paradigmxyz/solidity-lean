@@ -7144,6 +7144,21 @@ def ContractDecls.nonEventTypeNames (types : TypeContext) :
             ContractDecls.nonEventTypeNames types rest
       | none => ContractDecls.nonEventTypeNames types rest
 
+def ContractDecl.addNestedTypesToContext
+    (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
+    TypeContext :=
+  types.withContractTypes decl.name
+    (decl.items.filterMap ContractItem.struct?)
+    (decl.items.filterMap ContractItem.enum?)
+    (decl.items.filterMap ContractItem.userValueType?)
+
+def ContractDecls.addNestedTypesToContext :
+    TypeContext -> List L00_SourceSolidity.ContractDecl -> TypeContext
+  | types, [] => types
+  | types, decl :: rest =>
+      ContractDecl.addNestedTypesToContext
+        (ContractDecls.addNestedTypesToContext types rest) decl
+
 def StateVarDecl.isConstant (decl : L00_SourceSolidity.StateVarDecl) : Bool :=
   decl.mutability == L00_SourceSolidity.VarMutability.constant
 
@@ -7490,8 +7505,11 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let ancestorPaths :=
     (List.drop 1 dispatchOrder).map
       (fun base => TypeContext.pathOfName base.name)
+  let inheritedContracts := List.drop 1 dispatchOrder
+  let contractTypes :=
+    ContractDecls.addNestedTypesToContext contractTypes inheritedContracts
   require
-    (!ContractDecls.anyStorageLayoutBase (List.drop 1 dispatchOrder))
+    (!ContractDecls.anyStorageLayoutBase inheritedContracts)
     (TypeError.invalidContractHeader
       "storage layout specified by inherited contract")
   let storageOrder ←
@@ -7502,6 +7520,9 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         Except.error
           (TypeError.invalidContractHeader
             "inconsistent inheritance linearization")
+  FunctionSigs.ensureNoDuplicateExternalAbiSignatures contractTypes
+    functionSigs
+  EventSigs.ensureNoDuplicateAbiSignatures contractTypes eventSigs
   let allModifierDecls := ContractDecl.modifierDeclsFromOrder dispatchOrder
   let inheritedStateVars :=
     ContractDecls.visibleStateVars contractTypes ancestorPaths
@@ -7526,6 +7547,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     StateVarDecls.namedConstness visibleStateVars ++ sourceConstantBindings
   let baseEnv :=
     { baseEnv with
+      types := contractTypes
       ancestorPaths := ancestorPaths
       vars := StateVarDecls.namedTypes visibleStateVars ++
         sourceConstantVars
@@ -7536,7 +7558,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       immutableNames := StateVarDecls.immutableNames visibleStateVars
       superFunctions :=
         ContractDecl.nonPrivateFunctionSigsFromOrder
-          (List.drop 1 dispatchOrder)
+          inheritedContracts
       modifiers := ModifierDecls.signatures allModifierDecls
       modifierDecls := allModifierDecls
       errors := errorSigs ++ inheritedErrorSigs ++ visibleSourceErrors
@@ -17130,6 +17152,132 @@ def functionShadowsInheritedTypeRejected : Bool :=
                         name := some "record"
                         mutability :=
                           L00_SourceSolidity.StateMutability.pure } ] } ] })
+
+def inheritedUserTypesBaseContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "InheritedUserTypesBase"
+    items :=
+      [ L00_SourceSolidity.ContractItem.structDecl
+          { name := "S"
+            fields := [{ name := "x", ty := uint256 }] }
+      , L00_SourceSolidity.ContractItem.enumDecl
+          { name := "E", cases := ["A"] }
+      , L00_SourceSolidity.ContractItem.userValueTypeDecl
+          { name := "U", underlying := uint256 } ] }
+
+def inheritedUserTypesStateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          inheritedUserTypesBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedUserTypesState"
+            bases :=
+              [{ base := userPath "InheritedUserTypesBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "s"
+                    ty := L00_SourceSolidity.Ty.user (userPath "S")
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_ }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "e"
+                    ty := L00_SourceSolidity.Ty.user (userPath "E")
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_ }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "u"
+                    ty := L00_SourceSolidity.Ty.user (userPath "U")
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_ } ] } ] }
+
+def inheritedUserTypesStateAccepted : Bool :=
+  sourceUnitAccepted? inheritedUserTypesStateSource
+
+def qualifiedInheritedStructStateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          inheritedUserTypesBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "QualifiedInheritedStructState"
+            bases :=
+              [{ base := userPath "InheritedUserTypesBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "s"
+                    ty :=
+                      L00_SourceSolidity.Ty.user
+                        (TypeContext.qualifiedPath
+                          "InheritedUserTypesBase" "S")
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_ } ] } ] }
+
+def qualifiedInheritedStructStateAccepted : Bool :=
+  sourceUnitAccepted? qualifiedInheritedStructStateSource
+
+def freeStructShadowedByInheritedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          { name := "S"
+            fields := [{ name := "y", ty := uint256 }] }
+      , L00_SourceSolidity.SourceItem.contract
+          inheritedUserTypesBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "FreeStructShadowedByInherited"
+            bases :=
+              [{ base := userPath "InheritedUserTypesBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "readInheritedX"
+                    params :=
+                      [ { name := some "s"
+                          ty := L00_SourceSolidity.Ty.user (userPath "S")
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "s") "x"))) } ] } ] }
+
+def freeStructShadowedByInheritedAccepted : Bool :=
+  sourceUnitAccepted? freeStructShadowedByInheritedSource
+
+def freeStructFieldHiddenByInheritedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          { name := "S"
+            fields := [{ name := "y", ty := uint256 }] }
+      , L00_SourceSolidity.SourceItem.contract
+          inheritedUserTypesBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "FreeStructFieldHiddenByInherited"
+            bases :=
+              [{ base := userPath "InheritedUserTypesBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "readHiddenY"
+                    params :=
+                      [ { name := some "s"
+                          ty := L00_SourceSolidity.Ty.user (userPath "S")
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "s") "y"))) } ] } ] }
+
+def freeStructFieldHiddenByInheritedRejected : Bool :=
+  Result.isError
+    (SourceUnit.check freeStructFieldHiddenByInheritedSource)
 
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
