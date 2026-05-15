@@ -5781,6 +5781,17 @@ def StateVarDecls.checkNoInheritedShadowing
           "state variable shadows inherited state variable")
       StateVarDecls.checkNoInheritedShadowing inheritedNames rest
 
+def checkNoInheritedStateNameClashes
+    (inheritedNames : List Name) :
+    List Name -> Except TypeError Unit
+  | [] => Except.ok ()
+  | name :: rest => do
+      require
+        (!L00_SourceSolidity.Executable.nameIn name inheritedNames)
+        (TypeError.invalidContractHeader
+          "declaration shadows inherited state variable")
+      checkNoInheritedStateNameClashes inheritedNames rest
+
 structure OverrideMember where
   origin : Path
   originKind : L00_SourceSolidity.ContractKind
@@ -7423,6 +7434,13 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   ContractDecl.checkBaseConstructorArgsForDeployment storageOrder contract
     storageOrder
   StateVarDecls.checkNoInheritedShadowing inheritedStateVarNames stateVars
+  checkNoInheritedStateNameClashes inheritedStateVarNames
+    (modifiers.map L00_SourceSolidity.ModifierDecl.name ++
+      events.map L00_SourceSolidity.EventDecl.name ++
+      errors.map L00_SourceSolidity.ErrorDecl.name ++
+      structs.map L00_SourceSolidity.StructDecl.name ++
+      enums.map L00_SourceSolidity.EnumDecl.name ++
+      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name)
   let inheritedMembers ←
     match ContractDecl.inheritedOverrideMembers? contractTypes allContracts
         contract with
@@ -16464,6 +16482,131 @@ def functionShadowsInheritedPrivateStateSource :
 
 def functionShadowsInheritedPrivateStateAccepted : Bool :=
   sourceUnitAccepted? functionShadowsInheritedPrivateStateSource
+
+def inheritedStateNameBaseSourceItem :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedStateNameBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.stateVar
+          inheritedStateNameBaseVar] }
+
+def inheritedPrivateStateNameBaseSourceItem :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedPrivateStateNameBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.stateVar
+          inheritedStateNamePrivateBaseVar] }
+
+def inheritedStateNameItemSource
+    (item : L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ inheritedStateNameBaseSourceItem
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadDeclarationShadowsInheritedState"
+            bases :=
+              [{ base := userPath "InheritedStateNameBase", args := [] }]
+            items := [item] } ] }
+
+def inheritedPrivateStateNameItemSource
+    (item : L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ inheritedPrivateStateNameBaseSourceItem
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DeclarationShadowsInheritedPrivateState"
+            bases :=
+              [ { base := userPath "InheritedPrivateStateNameBase"
+                  args := [] } ]
+            items := [item] } ] }
+
+def inheritedStateNameModifierItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.modifierDecl
+    { name := "stored"
+      body := some L00_SourceSolidity.Stmt.modifierPlaceholder }
+
+def modifierShadowsInheritedStateRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedStateNameItemSource inheritedStateNameModifierItem))
+
+def modifierShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedPrivateStateNameItemSource inheritedStateNameModifierItem)
+
+def inheritedStateNameEventItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.eventDecl { name := "stored" }
+
+def eventShadowsInheritedStateRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedStateNameItemSource inheritedStateNameEventItem))
+
+def eventShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedPrivateStateNameItemSource inheritedStateNameEventItem)
+
+def inheritedStateNameErrorItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.errorDecl { name := "stored" }
+
+def errorShadowsInheritedStateRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedStateNameItemSource inheritedStateNameErrorItem))
+
+def errorShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedPrivateStateNameItemSource inheritedStateNameErrorItem)
+
+def inheritedStateNameStructItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.structDecl
+    { name := "stored"
+      fields := [{ name := "value", ty := uint256 }] }
+
+def structShadowsInheritedStateRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedStateNameItemSource inheritedStateNameStructItem))
+
+def structShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedPrivateStateNameItemSource inheritedStateNameStructItem)
+
+def inheritedStateNameEnumItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.enumDecl
+    { name := "stored", cases := ["Only"] }
+
+def enumShadowsInheritedStateRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedStateNameItemSource inheritedStateNameEnumItem))
+
+def enumShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedPrivateStateNameItemSource inheritedStateNameEnumItem)
+
+def inheritedStateNameUserValueTypeItem :
+    L00_SourceSolidity.ContractItem :=
+  L00_SourceSolidity.ContractItem.userValueTypeDecl
+    { name := "stored", underlying := uint256 }
+
+def userValueTypeShadowsInheritedStateRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedStateNameItemSource
+        inheritedStateNameUserValueTypeItem))
+
+def userValueTypeShadowsInheritedPrivateStateAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedPrivateStateNameItemSource
+      inheritedStateNameUserValueTypeItem)
 
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
