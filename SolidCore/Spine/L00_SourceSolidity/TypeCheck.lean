@@ -6783,30 +6783,56 @@ def pathInList (target : Path) : List Path -> Bool :=
 
 mutual
 
-def Ty.hasForbiddenStructSelfReference (targets : List Path) : Ty -> Bool
-  | L00_SourceSolidity.Ty.user path => pathInList path targets
-  | L00_SourceSolidity.Ty.array element (some _) =>
-      Ty.hasForbiddenStructSelfReference targets element
-  | L00_SourceSolidity.Ty.tuple tys =>
-      Tys.hasForbiddenStructSelfReference targets tys
-  | L00_SourceSolidity.Ty.function params returns _ _ =>
-      Tys.hasForbiddenStructSelfReference targets params ||
-        Tys.hasForbiddenStructSelfReference targets returns
-  | _ => false
+def Ty.hasForbiddenStructReferenceCycle (types : TypeContext)
+    (targets : List Path) : Nat -> Ty -> Bool
+  | 0, _ => false
+  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+      if pathInList path targets then
+        true
+      else
+        match types.lookupStruct? path with
+        | some decl =>
+            StructDecl.hasForbiddenStructReferenceCycle types targets fuel
+              decl
+        | none => false
+  | fuel + 1, L00_SourceSolidity.Ty.array element (some _) =>
+      Ty.hasForbiddenStructReferenceCycle types targets fuel element
+  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+      Tys.hasForbiddenStructReferenceCycle types targets fuel tys
+  | _, _ => false
 
-def Tys.hasForbiddenStructSelfReference (targets : List Path) :
-    List Ty -> Bool
+def Tys.hasForbiddenStructReferenceCycle (types : TypeContext)
+    (targets : List Path) (fuel : Nat) : List Ty -> Bool
   | [] => false
   | ty :: rest =>
-      Ty.hasForbiddenStructSelfReference targets ty ||
-        Tys.hasForbiddenStructSelfReference targets rest
+      Ty.hasForbiddenStructReferenceCycle types targets fuel ty ||
+        Tys.hasForbiddenStructReferenceCycle types targets fuel rest
+
+def StructField.hasForbiddenStructReferenceCycle (types : TypeContext)
+    (targets : List Path) (fuel : Nat)
+    (field : L00_SourceSolidity.StructField) : Bool :=
+  Ty.hasForbiddenStructReferenceCycle types targets fuel field.ty
+
+def StructFields.hasForbiddenStructReferenceCycle (types : TypeContext)
+    (targets : List Path) (fuel : Nat) :
+    List L00_SourceSolidity.StructField -> Bool
+  | [] => false
+  | field :: rest =>
+      StructField.hasForbiddenStructReferenceCycle types targets fuel field ||
+        StructFields.hasForbiddenStructReferenceCycle types targets fuel rest
+
+def StructDecl.hasForbiddenStructReferenceCycle (types : TypeContext)
+    (targets : List Path) (fuel : Nat)
+    (decl : L00_SourceSolidity.StructDecl) : Bool :=
+  StructFields.hasForbiddenStructReferenceCycle types targets fuel decl.fields
 
 end
 
 def StructField.check (env : CheckEnv) (selfPaths : List Path)
     (field : L00_SourceSolidity.StructField) : Except TypeError Unit := do
   checkTy env.types field.ty
-  require (!Ty.hasForbiddenStructSelfReference selfPaths field.ty)
+  require
+    (!Ty.hasForbiddenStructReferenceCycle env.types selfPaths 64 field.ty)
     (TypeError.invalidType field.ty)
 
 def StructDecl.check (env : CheckEnv) (selfPaths : List Path)
@@ -7810,6 +7836,66 @@ def badStructFieldSource : L00_SourceSolidity.SourceUnit :=
 
 def badStructFieldRejected : Bool :=
   Result.isError (SourceUnit.check badStructFieldSource)
+
+def mutualRecursiveStructATy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "MutualRecursiveA")
+
+def mutualRecursiveStructBTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "MutualRecursiveB")
+
+def mutualRecursiveStructA : L00_SourceSolidity.StructDecl :=
+  { name := "MutualRecursiveA"
+    fields := [{ name := "b", ty := mutualRecursiveStructBTy }] }
+
+def mutualRecursiveStructB : L00_SourceSolidity.StructDecl :=
+  { name := "MutualRecursiveB"
+    fields := [{ name := "a", ty := mutualRecursiveStructATy }] }
+
+def mutualRecursiveStructSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct mutualRecursiveStructA
+      , L00_SourceSolidity.SourceItem.freeStruct mutualRecursiveStructB ] }
+
+def mutualRecursiveStructRejected : Bool :=
+  Result.isError (SourceUnit.check mutualRecursiveStructSource)
+
+def dynamicRecursiveStructTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "DynamicRecursive")
+
+def dynamicRecursiveStruct : L00_SourceSolidity.StructDecl :=
+  { name := "DynamicRecursive"
+    fields :=
+      [ { name := "items"
+          ty := L00_SourceSolidity.Ty.array dynamicRecursiveStructTy none } ] }
+
+def dynamicRecursiveStructSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [L00_SourceSolidity.SourceItem.freeStruct dynamicRecursiveStruct] }
+
+def dynamicRecursiveStructAccepted : Bool :=
+  sourceUnitAccepted? dynamicRecursiveStructSource
+
+def functionPointerRecursiveStructTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "FunctionPointerRecursive")
+
+def functionPointerRecursiveStruct : L00_SourceSolidity.StructDecl :=
+  { name := "FunctionPointerRecursive"
+    fields :=
+      [ { name := "fn"
+          ty :=
+            L00_SourceSolidity.Ty.function
+              [functionPointerRecursiveStructTy] []
+              L00_SourceSolidity.StateMutability.nonpayable
+              L00_SourceSolidity.Visibility.internal_ } ] }
+
+def functionPointerRecursiveStructSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [L00_SourceSolidity.SourceItem.freeStruct
+        functionPointerRecursiveStruct] }
+
+def functionPointerRecursiveStructAccepted : Bool :=
+  sourceUnitAccepted? functionPointerRecursiveStructSource
 
 def structFieldAssignFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
