@@ -5310,6 +5310,26 @@ def Parameter.isBytesCalldata (param : L00_SourceSolidity.Parameter) : Bool :=
 def Parameter.isPanicCode (param : L00_SourceSolidity.Parameter) : Bool :=
   param.ty == L00_SourceSolidity.Ty.uint 256 && param.location.isNone
 
+def Parameter.checkTryReturnParam (types : TypeContext)
+    (param : L00_SourceSolidity.Parameter) : Except TypeError Unit := do
+  checkTy types param.ty
+  if Ty.needsDataLocation types param.ty then
+    require (param.location ==
+        some L00_SourceSolidity.DataLocation.memory)
+      (TypeError.invalidDataLocation param.ty param.location)
+  else
+    require param.location.isNone
+      (TypeError.invalidDataLocation param.ty param.location)
+  require (!Ty.containsMapping types 64 param.ty)
+    (TypeError.invalidDataLocation param.ty param.location)
+
+def Parameters.checkTryReturnParams (types : TypeContext) :
+    List L00_SourceSolidity.Parameter -> Except TypeError Unit
+  | [] => Except.ok ()
+  | param :: rest => do
+      Parameter.checkTryReturnParam types param
+      Parameters.checkTryReturnParams types rest
+
 def checkCatchClauseHeader (env : CheckEnv)
     (name? : Option Name) (params : List L00_SourceSolidity.Parameter) :
     Except TypeError Unit := do
@@ -5495,7 +5515,7 @@ def checkStmt (env : CheckEnv) :
       let _ ← checkCatchClauses env clauses
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.tryCatchReturns expr returns success clauses) => do
-      Parameters.check env.types returns
+      Parameters.checkTryReturnParams env.types returns
       ensureUniqueNames "try return"
         ((Parameters.namedTypes returns).map Prod.fst)
       let checked ← checkTryTarget env expr
@@ -16537,6 +16557,11 @@ def externalViewUintPairFunctionTy : Ty :=
     L00_SourceSolidity.StateMutability.view
     L00_SourceSolidity.Visibility.external_
 
+def externalViewBytesFunctionTy : Ty :=
+  L00_SourceSolidity.Ty.function [] [L00_SourceSolidity.Ty.bytes]
+    L00_SourceSolidity.StateMutability.view
+    L00_SourceSolidity.Visibility.external_
+
 def externalPureUintFunctionTy : Ty :=
   L00_SourceSolidity.Ty.function [] [uint256]
     L00_SourceSolidity.StateMutability.pure
@@ -19704,6 +19729,116 @@ def tryReturnMismatchSource : L00_SourceSolidity.SourceUnit :=
 
 def tryReturnMismatchRejected : Bool :=
   Result.isError (SourceUnit.check tryReturnMismatchSource)
+
+def tryReturnBytesMemoryFunction : L00_SourceSolidity.FunctionDecl :=
+  { tryExternalFunctionCall with
+    name := some "tryReturnBytesMemory"
+    params :=
+      [ { name := some "getter"
+          ty := externalViewBytesFunctionTy
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter") [])
+          [ { name := some "data"
+              ty := L00_SourceSolidity.Ty.bytes
+              location := some L00_SourceSolidity.DataLocation.memory } ]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (numberExpr "1")))
+          [tryCatchZeroClause]) }
+
+def tryReturnBytesMemorySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TryReturnBytesMemory"
+            items := [L00_SourceSolidity.ContractItem.function
+              tryReturnBytesMemoryFunction] } ] }
+
+def tryReturnBytesMemoryAccepted : Bool :=
+  sourceUnitAccepted? tryReturnBytesMemorySource
+
+def badTryReturnBytesCalldataFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { tryReturnBytesMemoryFunction with
+    name := some "badTryReturnBytesCalldata"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter") [])
+          [ { name := some "data"
+              ty := L00_SourceSolidity.Ty.bytes
+              location := some L00_SourceSolidity.DataLocation.calldata } ]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (numberExpr "1")))
+          [tryCatchZeroClause]) }
+
+def badTryReturnBytesCalldataSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTryReturnBytesCalldata"
+            items := [L00_SourceSolidity.ContractItem.function
+              badTryReturnBytesCalldataFunction] } ] }
+
+def badTryReturnBytesCalldataRejected : Bool :=
+  Result.isError (SourceUnit.check badTryReturnBytesCalldataSource)
+
+def badTryReturnBytesStorageFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { tryReturnBytesMemoryFunction with
+    name := some "badTryReturnBytesStorage"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter") [])
+          [ { name := some "data"
+              ty := L00_SourceSolidity.Ty.bytes
+              location := some L00_SourceSolidity.DataLocation.storage } ]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (numberExpr "1")))
+          [tryCatchZeroClause]) }
+
+def badTryReturnBytesStorageSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTryReturnBytesStorage"
+            items := [L00_SourceSolidity.ContractItem.function
+              badTryReturnBytesStorageFunction] } ] }
+
+def badTryReturnBytesStorageRejected : Bool :=
+  Result.isError (SourceUnit.check badTryReturnBytesStorageSource)
+
+def badTryReturnBytesNoLocationFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { tryReturnBytesMemoryFunction with
+    name := some "badTryReturnBytesNoLocation"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter") [])
+          [ { name := some "data"
+              ty := L00_SourceSolidity.Ty.bytes
+              location := none } ]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (numberExpr "1")))
+          [tryCatchZeroClause]) }
+
+def badTryReturnBytesNoLocationSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTryReturnBytesNoLocation"
+            items := [L00_SourceSolidity.ContractItem.function
+              badTryReturnBytesNoLocationFunction] } ] }
+
+def badTryReturnBytesNoLocationRejected : Bool :=
+  Result.isError (SourceUnit.check badTryReturnBytesNoLocationSource)
 
 def duplicateTryReturnNameFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
