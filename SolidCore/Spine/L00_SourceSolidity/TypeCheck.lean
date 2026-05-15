@@ -6690,6 +6690,11 @@ def ModifierDecl.check (baseEnv : CheckEnv)
   Parameters.check baseEnv.types modifier.params
   ensureUniqueNames "modifier parameter"
     ((Parameters.namedTypes modifier.params).map Prod.fst)
+  if baseEnv.inLibrary then
+    require (!modifier.virtual)
+      (TypeError.invalidFunctionHeader "library modifier is virtual")
+  else
+    Except.ok ()
   match modifier.body with
   | none =>
       require modifier.virtual
@@ -14859,6 +14864,40 @@ def libraryVirtualFunctionSource : L00_SourceSolidity.SourceUnit :=
 
 def libraryVirtualFunctionRejected : Bool :=
   Result.isError (SourceUnit.check libraryVirtualFunctionSource)
+
+def libraryModifierFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "withModifier"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    modifiers := [{ target := userPath "onlyReady", args := [] }] }
+
+def libraryModifierSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "ModifierLibrary"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  passThroughModifier
+              , L00_SourceSolidity.ContractItem.function
+                  libraryModifierFunction ] } ] }
+
+def libraryModifierAccepted : Bool :=
+  sourceUnitAccepted? libraryModifierSource
+
+def libraryVirtualModifierSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "VirtualModifierLibrary"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { passThroughModifier with virtual := true }
+              , L00_SourceSolidity.ContractItem.function
+                  libraryModifierFunction ] } ] }
+
+def libraryVirtualModifierRejected : Bool :=
+  Result.isError (SourceUnit.check libraryVirtualModifierSource)
 
 def emptyLibraryContract : L00_SourceSolidity.ContractDecl :=
   { kind := L00_SourceSolidity.ContractKind.library
