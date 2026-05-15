@@ -378,8 +378,10 @@ def Ty.isValid (types : TypeContext) : Ty -> Bool
         Ty.isMappingKeyShape types key
   | L00_SourceSolidity.Ty.tuple tys => Tys.allValid types tys
   | L00_SourceSolidity.Ty.user path => types.isKnownPath path
-  | L00_SourceSolidity.Ty.function params returns _ visibility =>
+  | L00_SourceSolidity.Ty.function params returns mutability visibility =>
       Tys.allValid types params && Tys.allValid types returns &&
+        (mutability != L00_SourceSolidity.StateMutability.payable ||
+          visibility == L00_SourceSolidity.Visibility.external_) &&
         (visibility == L00_SourceSolidity.Visibility.internal_ ||
           (visibility == L00_SourceSolidity.Visibility.external_ &&
             Tys.allExternalFunctionAbiTypeShape types 64 params &&
@@ -16700,6 +16702,16 @@ def internalPureUintUnaryFunctionTy : Ty :=
     L00_SourceSolidity.StateMutability.pure
     L00_SourceSolidity.Visibility.internal_
 
+def externalPayableFunctionTy : Ty :=
+  L00_SourceSolidity.Ty.function [] []
+    L00_SourceSolidity.StateMutability.payable
+    L00_SourceSolidity.Visibility.external_
+
+def internalPayableFunctionTy : Ty :=
+  L00_SourceSolidity.Ty.function [] []
+    L00_SourceSolidity.StateMutability.payable
+    L00_SourceSolidity.Visibility.internal_
+
 def publicPureUintFunctionTy : Ty :=
   L00_SourceSolidity.Ty.function [] [uint256]
     L00_SourceSolidity.StateMutability.pure
@@ -16761,6 +16773,30 @@ def externalFunctionTakingMappingSource : L00_SourceSolidity.SourceUnit :=
 
 def externalFunctionTakingMappingRejected : Bool :=
   Result.isError (SourceUnit.check externalFunctionTakingMappingSource)
+
+def externalPayableFunctionTypeSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ExternalPayableFunctionType"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "fp"
+                    ty := externalPayableFunctionTy } ] } ] }
+
+def externalPayableFunctionTypeAccepted : Bool :=
+  sourceUnitAccepted? externalPayableFunctionTypeSource
+
+def internalPayableFunctionTypeSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadInternalPayableFunctionType"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "fp"
+                    ty := internalPayableFunctionTy } ] } ] }
+
+def internalPayableFunctionTypeRejected : Bool :=
+  Result.isError (SourceUnit.check internalPayableFunctionTypeSource)
 
 def functionTypeMutabilityConversionFunction :
     L00_SourceSolidity.FunctionDecl :=
