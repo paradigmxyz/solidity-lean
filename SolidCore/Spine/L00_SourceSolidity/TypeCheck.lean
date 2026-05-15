@@ -1758,6 +1758,17 @@ def EventSigs.ensureNoDuplicateAbiSignatures
       else
         EventSigs.ensureNoDuplicateAbiSignatures types rest
 
+def EventSigs.ensureNoDuplicateAbiSignaturesAgainst
+    (types : TypeContext) (inherited : List EventSig) :
+    List EventSig -> Except TypeError Unit
+  | [] => Except.ok ()
+  | sig :: rest => do
+      if inherited.any (fun other => EventSig.sameAbiSignature types sig other) then
+        Except.error (TypeError.duplicateSignature sig.name)
+      else
+        EventSigs.ensureNoDuplicateAbiSignaturesAgainst
+          types inherited rest
+
 def EventSigs.withoutNamesOf (locals : List EventSig) :
     List EventSig -> List EventSig
   | [] => []
@@ -7072,6 +7083,67 @@ def ContractItem.using? :
   | L00_SourceSolidity.ContractItem.usingDecl decl => some decl
   | _ => none
 
+def ContractDecl.eventSigs
+    (decl : L00_SourceSolidity.ContractDecl) : List EventSig :=
+  (decl.items.filterMap ContractItem.event?).map EventDecl.signature
+
+def ContractDecl.errorSigs
+    (decl : L00_SourceSolidity.ContractDecl) : List ErrorSig :=
+  (decl.items.filterMap ContractItem.error?).map ErrorDecl.signature
+
+def ContractDecl.eventNames
+    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+  (decl.items.filterMap ContractItem.event?).map
+    L00_SourceSolidity.EventDecl.name
+
+def ContractDecl.nonEventTypeNames
+    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+  (decl.items.filterMap ContractItem.error?).map
+      L00_SourceSolidity.ErrorDecl.name ++
+    (decl.items.filterMap ContractItem.struct?).map
+      L00_SourceSolidity.StructDecl.name ++
+    (decl.items.filterMap ContractItem.enum?).map
+      L00_SourceSolidity.EnumDecl.name ++
+    (decl.items.filterMap ContractItem.userValueType?).map
+      L00_SourceSolidity.UserValueTypeDecl.name
+
+def ContractDecls.eventSigs (types : TypeContext) :
+    List Path -> List EventSig
+  | [] => []
+  | path :: rest =>
+      match types.lookupContractDecl? path with
+      | some decl =>
+          ContractDecl.eventSigs decl ++ ContractDecls.eventSigs types rest
+      | none => ContractDecls.eventSigs types rest
+
+def ContractDecls.errorSigs (types : TypeContext) :
+    List Path -> List ErrorSig
+  | [] => []
+  | path :: rest =>
+      match types.lookupContractDecl? path with
+      | some decl =>
+          ContractDecl.errorSigs decl ++ ContractDecls.errorSigs types rest
+      | none => ContractDecls.errorSigs types rest
+
+def ContractDecls.eventNames (types : TypeContext) :
+    List Path -> List Name
+  | [] => []
+  | path :: rest =>
+      match types.lookupContractDecl? path with
+      | some decl =>
+          ContractDecl.eventNames decl ++ ContractDecls.eventNames types rest
+      | none => ContractDecls.eventNames types rest
+
+def ContractDecls.nonEventTypeNames (types : TypeContext) :
+    List Path -> List Name
+  | [] => []
+  | path :: rest =>
+      match types.lookupContractDecl? path with
+      | some decl =>
+          ContractDecl.nonEventTypeNames decl ++
+            ContractDecls.nonEventTypeNames types rest
+      | none => ContractDecls.nonEventTypeNames types rest
+
 def StateVarDecl.isConstant (decl : L00_SourceSolidity.StateVarDecl) : Bool :=
   decl.mutability == L00_SourceSolidity.VarMutability.constant
 
@@ -7435,6 +7507,14 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     ContractDecls.visibleStateVars contractTypes ancestorPaths
   let inheritedStateVarNames :=
     ContractDecls.visibleStateVarNames contractTypes ancestorPaths
+  let inheritedEventSigs :=
+    ContractDecls.eventSigs contractTypes ancestorPaths
+  let inheritedErrorSigs :=
+    ContractDecls.errorSigs contractTypes ancestorPaths
+  let inheritedEventNames :=
+    ContractDecls.eventNames contractTypes ancestorPaths
+  let inheritedNonEventTypeNames :=
+    ContractDecls.nonEventTypeNames contractTypes ancestorPaths
   let visibleStateVars := stateVars ++ inheritedStateVars
   let visibleConstantBindings :=
     StateVarDecls.namedConstness visibleStateVars ++ sourceConstantBindings
@@ -7452,9 +7532,13 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         ContractDecl.nonPrivateFunctionSigsFromOrder
           (List.drop 1 dispatchOrder)
       modifiers := ModifierDecls.signatures allModifierDecls
-      modifierDecls := allModifierDecls }
+      modifierDecls := allModifierDecls
+      errors := errorSigs ++ inheritedErrorSigs ++ visibleSourceErrors
+      events := eventSigs ++ inheritedEventSigs ++ visibleSourceEvents }
   ContractDecl.checkBaseConstructorArgsForDeployment storageOrder contract
     storageOrder
+  EventSigs.ensureNoDuplicateAbiSignaturesAgainst contractTypes
+    inheritedEventSigs eventSigs
   StateVarDecls.checkNoInheritedShadowing inheritedStateVarNames stateVars
   checkNoInheritedStateNameClashes inheritedStateVarNames
     (modifiers.map L00_SourceSolidity.ModifierDecl.name ++
@@ -7463,6 +7547,22 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       structs.map L00_SourceSolidity.StructDecl.name ++
       enums.map L00_SourceSolidity.EnumDecl.name ++
       userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name)
+  let localNamesExceptEvents :=
+    stateVars.map L00_SourceSolidity.StateVarDecl.name ++
+      functionNames ++
+      modifiers.map L00_SourceSolidity.ModifierDecl.name ++
+      errors.map L00_SourceSolidity.ErrorDecl.name ++
+      structs.map L00_SourceSolidity.StructDecl.name ++
+      enums.map L00_SourceSolidity.EnumDecl.name ++
+      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
+  let allLocalDeclarationNames :=
+    localNamesExceptEvents ++ events.map L00_SourceSolidity.EventDecl.name
+  checkNoInheritedNamedDeclarationClashes
+    "declaration shadows inherited event"
+    inheritedEventNames localNamesExceptEvents
+  checkNoInheritedNamedDeclarationClashes
+    "declaration shadows inherited type or error"
+    inheritedNonEventTypeNames allLocalDeclarationNames
   let inheritedMembers ←
     match ContractDecl.inheritedOverrideMembers? contractTypes allContracts
         contract with
@@ -16761,6 +16861,138 @@ def eventShadowsInheritedModifierRejected : Bool :=
     (SourceUnit.check
       (inheritedModifierNameItemSource
         inheritedStateNameEventItem))
+
+def inheritedEventNameBaseSourceItem :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedEventNameBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.eventDecl
+          { name := "announced" }] }
+
+def inheritedEventNameItemSource
+    (item : L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ inheritedEventNameBaseSourceItem
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadDeclarationShadowsInheritedEvent"
+            bases :=
+              [{ base := userPath "InheritedEventNameBase", args := [] }]
+            items := [item] } ] }
+
+def functionShadowsInheritedEventFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "announced"
+    mutability := L00_SourceSolidity.StateMutability.pure }
+
+def functionShadowsInheritedEventRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedEventNameItemSource
+        (L00_SourceSolidity.ContractItem.function
+          functionShadowsInheritedEventFunction)))
+
+def stateShadowsInheritedEventRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedEventNameItemSource
+        (L00_SourceSolidity.ContractItem.stateVar
+          { name := "announced"
+            ty := uint256
+            visibility := some L00_SourceSolidity.Visibility.private_ })))
+
+def errorShadowsInheritedEventRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedEventNameItemSource
+        (L00_SourceSolidity.ContractItem.errorDecl
+          { name := "announced" })))
+
+def eventOverloadsInheritedEventAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedEventNameItemSource
+      (L00_SourceSolidity.ContractItem.eventDecl
+        { name := "announced"
+          params := [{ name := none, ty := uint256 }] }))
+
+def eventDuplicatesInheritedEventRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedEventNameItemSource
+        (L00_SourceSolidity.ContractItem.eventDecl
+          { name := "announced" })))
+
+def inheritedErrorNameBaseSourceItem :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedErrorNameBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.errorDecl { name := "Problem" }] }
+
+def inheritedErrorNameItemSource
+    (item : L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ inheritedErrorNameBaseSourceItem
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadDeclarationShadowsInheritedError"
+            bases :=
+              [{ base := userPath "InheritedErrorNameBase", args := [] }]
+            items := [item] } ] }
+
+def eventShadowsInheritedErrorRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (inheritedErrorNameItemSource
+        (L00_SourceSolidity.ContractItem.eventDecl
+          { name := "Problem"
+            params := [{ name := none, ty := uint256 }] })))
+
+def revertInheritedErrorFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "revertInheritedError"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.revertCall
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "Problem") [])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def revertInheritedErrorAccepted : Bool :=
+  sourceUnitAccepted?
+    (inheritedErrorNameItemSource
+      (L00_SourceSolidity.ContractItem.function
+        revertInheritedErrorFunction))
+
+def inheritedStructNameBaseSourceItem :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "InheritedStructNameBase"
+      items :=
+        [L00_SourceSolidity.ContractItem.structDecl
+          { name := "record"
+            fields := [{ name := "value", ty := uint256 }] }] }
+
+def functionShadowsInheritedTypeRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      { items :=
+          [ inheritedStructNameBaseSourceItem
+          , L00_SourceSolidity.SourceItem.contract
+              { name := "BadFunctionShadowsInheritedType"
+                bases :=
+                  [{ base := userPath "InheritedStructNameBase", args := [] }]
+                items :=
+                  [ L00_SourceSolidity.ContractItem.function
+                      { simpleReturnFunction with
+                        name := some "record"
+                        mutability :=
+                          L00_SourceSolidity.StateMutability.pure } ] } ] })
 
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
