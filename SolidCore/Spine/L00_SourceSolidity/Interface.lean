@@ -6972,6 +6972,24 @@ def ErrorDecls.namedArgEnv (decls : List ErrorDecl) :
     NamedArgParamEnv :=
   decls.map ErrorDecl.namedArgEntry
 
+def EventDecls.withoutNamesOf (locals : List EventDecl) :
+    List EventDecl -> List EventDecl
+  | [] => []
+  | decl :: rest =>
+      if locals.any (fun localDecl => localDecl.name == decl.name) then
+        EventDecls.withoutNamesOf locals rest
+      else
+        decl :: EventDecls.withoutNamesOf locals rest
+
+def ErrorDecls.withoutNamesOf (locals : List ErrorDecl) :
+    List ErrorDecl -> List ErrorDecl
+  | [] => []
+  | decl :: rest =>
+      if locals.any (fun localDecl => localDecl.name == decl.name) then
+        ErrorDecls.withoutNamesOf locals rest
+      else
+        decl :: ErrorDecls.withoutNamesOf locals rest
+
 mutual
 
 def Stmt.resolveNamedEventErrorArgsFuel :
@@ -13152,11 +13170,13 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
+  let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
+  let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
+  let visibleSourceErrors := ErrorDecls.withoutNamesOf contractErrors sourceErrors
   let eventArgEnv :=
-    EventDecls.namedArgEnv (contractEvents ++ sourceEvents)
+    EventDecls.namedArgEnv (contractEvents ++ visibleSourceEvents)
   let errorArgEnv :=
-    ErrorDecls.namedArgEnv
-      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
+    ErrorDecls.namedArgEnv (contractErrors ++ visibleSourceErrors)
   let functionGroups ←
     mapOption
       (ContractDecl.directCoreFunctions?
@@ -13168,11 +13188,11 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←
-    mapOption EventDecl.toCore (contractEvents ++ sourceEvents)
+    mapOption EventDecl.toCore (contractEvents ++ visibleSourceEvents)
   let errorDecls ←
     mapOption
       ErrorDecl.toCore
-      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
+      (contractErrors ++ visibleSourceErrors)
   some
     { storageFields :=
         ContractDecl.toCoreStorageFieldsFromSlot false layoutBaseSlot
@@ -13319,11 +13339,13 @@ def ContractDecl.constructorFunctionFromOrders?
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
+  let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
+  let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
+  let visibleSourceErrors := ErrorDecls.withoutNamesOf contractErrors sourceErrors
   let eventArgEnv :=
-    EventDecls.namedArgEnv (contractEvents ++ sourceEvents)
+    EventDecls.namedArgEnv (contractEvents ++ visibleSourceEvents)
   let errorArgEnv :=
-    ErrorDecls.namedArgEnv
-      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder)
+    ErrorDecls.namedArgEnv (contractErrors ++ visibleSourceErrors)
   let targetDecl ← ContractDecl.findByName? dispatchOrder targetName
   let payable ← ContractDecl.constructorPayable? targetDecl
   let pieces ←
@@ -32363,6 +32385,46 @@ def freeErrorAbiMatches : Option Bool := do
         "TooSmall(uint256)")
   some (!result.success && result.output == selector ++ payload)
 
+def shadowedFreeErrorUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeError
+          { name := "TooSmall"
+            params := [{ name := some "actual", ty := Ty.uint 256 }] }
+      , SourceItem.contract
+          { name := "LocalErrorShadow"
+            items :=
+              [ ContractItem.errorDecl
+                  { name := "TooSmall"
+                    params :=
+                      [ { name := some "target"
+                          ty := Ty.address false } ] }
+              , ContractItem.function
+                  { name := some "check"
+                    body :=
+                      some
+                        (Stmt.revertCall
+                          (Expr.call (Expr.ident "TooSmall")
+                            [ Arg.positional
+                                (Expr.call
+                                  (Expr.typeName (Ty.address false))
+                                  [Arg.positional
+                                    (Expr.literal (Literal.number "0"))]) ])) } ] } ] }
+
+def localErrorShadowsFreeAbiMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? shadowedFreeErrorUnit
+    "LocalErrorShadow"
+  match contract.errorDecls with
+  | [decl] =>
+      match decl.fields with
+      | [SolidCore.Solidity.Source.Ty.address] =>
+          some
+            (decl.name == "TooSmall" &&
+              SolidCore.Solidity.Source.wordEq decl.selector
+                (SolidCore.Solidity.Source.ABI.selectorFromSignature
+                  "TooSmall(address)"))
+      | _ => some false
+  | _ => some false
+
 def freeEventUnit : SourceUnit :=
   { items :=
       [ SourceItem.freeEvent
@@ -32395,6 +32457,47 @@ def freeEventEmitMatches : Option Bool := do
                 (event.name == "FilePing" &&
                   SolidCore.Solidity.Source.wordEq value 5)
           | _ => some false
+      | _ => some false
+  | _ => some false
+
+def shadowedFreeEventUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeEvent
+          { name := "FilePing"
+            params := [{ name := some "value", ty := Ty.uint 256 }] }
+      , SourceItem.contract
+          { name := "LocalEventShadow"
+            items :=
+              [ ContractItem.eventDecl
+                  { name := "FilePing"
+                    params :=
+                      [ { name := some "target"
+                          ty := Ty.address false } ] }
+              , ContractItem.function
+                  { name := some "emitIt"
+                    body :=
+                      some
+                        (Stmt.emitEvent
+                          (Expr.call (Expr.ident "FilePing")
+                            [ Arg.positional
+                                (Expr.call
+                                  (Expr.typeName (Ty.address false))
+                                  [Arg.positional
+                                    (Expr.literal (Literal.number "0"))]) ])) } ] } ] }
+
+def localEventShadowsFreeAbiMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? shadowedFreeEventUnit
+    "LocalEventShadow"
+  match contract.eventDecls with
+  | [decl] =>
+      match decl.fields with
+      | [{ ty := SolidCore.Solidity.Source.Ty.address, indexed := false }] =>
+          some
+            (decl.name == "FilePing" &&
+              decl.topic? ==
+                some
+                  (SolidCore.Solidity.Source.Keccak.digestWord
+                    "FilePing(address)"))
       | _ => some false
   | _ => some false
 

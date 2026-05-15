@@ -1768,15 +1768,14 @@ def EventSigs.ensureNoDuplicateAbiSignatures
       else
         EventSigs.ensureNoDuplicateAbiSignatures types rest
 
-def EventSigs.withoutAbiDuplicatesOf (types : TypeContext)
-    (locals : List EventSig) : List EventSig -> List EventSig
+def EventSigs.withoutNamesOf (locals : List EventSig) :
+    List EventSig -> List EventSig
   | [] => []
   | sig :: rest =>
-      if locals.any (fun localSig =>
-          EventSig.sameAbiSignature types localSig sig) then
-        EventSigs.withoutAbiDuplicatesOf types locals rest
+      if locals.any (fun localSig => localSig.name == sig.name) then
+        EventSigs.withoutNamesOf locals rest
       else
-        sig :: EventSigs.withoutAbiDuplicatesOf types locals rest
+        sig :: EventSigs.withoutNamesOf locals rest
 
 def EventSigs.resolveLoop (target : Name) (args : List ArgInfo) :
     Option EventSig -> List EventSig -> Except TypeError EventSig
@@ -1814,6 +1813,15 @@ def ErrorSigs.resolveLoop (target : Name) (args : List ArgInfo) :
 def ErrorSigs.resolve (errors : List ErrorSig)
     (target : Name) (args : List ArgInfo) : Except TypeError ErrorSig :=
   ErrorSigs.resolveLoop target args none errors
+
+def ErrorSigs.withoutNamesOf (locals : List ErrorSig) :
+    List ErrorSig -> List ErrorSig
+  | [] => []
+  | sig :: rest =>
+      if locals.any (fun localSig => localSig.name == sig.name) then
+        ErrorSigs.withoutNamesOf locals rest
+      else
+        sig :: ErrorSigs.withoutNamesOf locals rest
 
 def Expr.directIdentName? : L00_SourceSolidity.Expr -> Option Name
   | L00_SourceSolidity.Expr.ident name => some name
@@ -7258,9 +7266,9 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let modifierSigs := modifiers.map ModifierDecl.signature
   let eventSigs := events.map EventDecl.signature
   EventSigs.ensureNoDuplicateAbiSignatures contractTypes eventSigs
-  let visibleSourceEvents :=
-    EventSigs.withoutAbiDuplicatesOf contractTypes eventSigs sourceEvents
   let errorSigs := errors.map ErrorDecl.signature
+  let visibleSourceErrors := ErrorSigs.withoutNamesOf errorSigs sourceErrors
+  let visibleSourceEvents := EventSigs.withoutNamesOf eventSigs sourceEvents
   let currentPath := TypeContext.pathOfName contract.name
   let sourceConstantVars := StateVarDecls.namedTypes sourceConstants
   let sourceConstantBindings := StateVarDecls.namedConstness sourceConstants
@@ -7277,7 +7285,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       modifiers := modifierSigs
       modifierDecls := modifiers
       usingDecls := usingDecls ++ sourceUsingDecls
-      errors := errorSigs ++ sourceErrors
+      errors := errorSigs ++ visibleSourceErrors
       events := eventSigs ++ visibleSourceEvents
       contractKind := some contract.kind
       currentContract := some currentPath
@@ -13744,6 +13752,54 @@ def freeAndContractSameEventSource : L00_SourceSolidity.SourceUnit :=
 def freeAndContractSameEventAccepted : Bool :=
   sourceUnitAccepted? freeAndContractSameEventSource
 
+def addressPingEvent : L00_SourceSolidity.EventDecl :=
+  { name := "Ping"
+    params :=
+      [ { name := some "target"
+          ty := L00_SourceSolidity.Ty.address false
+          indexed := false } ] }
+
+def emitPingAddressFunction : L00_SourceSolidity.FunctionDecl :=
+  { emitPingFunction with
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.emitEvent
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "Ping")
+            [ L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.typeName
+                    (L00_SourceSolidity.Ty.address false))
+                  [L00_SourceSolidity.Arg.positional (numberExpr "0")]) ])) }
+
+def freeAndContractEventNameShadowAcceptedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContractEventNameShadowsFree"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl addressPingEvent
+              , L00_SourceSolidity.ContractItem.function
+                  emitPingAddressFunction ] } ] }
+
+def freeAndContractEventNameShadowAccepted : Bool :=
+  sourceUnitAccepted? freeAndContractEventNameShadowAcceptedSource
+
+def freeAndContractEventNameShadowRejectsFreeMatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContractEventNameShadowRejectsFreeMatch"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl addressPingEvent
+              , L00_SourceSolidity.ContractItem.function emitPingFunction ] } ] }
+
+def freeAndContractEventNameShadowRejectsFreeMatch : Bool :=
+  Result.isError
+    (SourceUnit.check freeAndContractEventNameShadowRejectsFreeMatchSource)
+
 def freeEventFunctionNameCollisionSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
@@ -13930,6 +13986,68 @@ def revertBoomSource : L00_SourceSolidity.SourceUnit :=
 
 def revertBoomAccepted : Bool :=
   sourceUnitAccepted? revertBoomSource
+
+def addressBoomError : L00_SourceSolidity.ErrorDecl :=
+  { name := "Boom"
+    params :=
+      [ { name := some "target"
+          ty := L00_SourceSolidity.Ty.address false
+          location := none } ] }
+
+def revertAddressBoomFunction : L00_SourceSolidity.FunctionDecl :=
+  { revertBoomFunction with
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.revertCall
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "Boom")
+            [ L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.typeName
+                    (L00_SourceSolidity.Ty.address false))
+                  [L00_SourceSolidity.Arg.positional (numberExpr "0")]) ])) }
+
+def freeAndContractSameErrorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeError boomError
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContractErrorShadowsFree"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl boomError
+              , L00_SourceSolidity.ContractItem.function
+                  revertBoomFunction ] } ] }
+
+def freeAndContractSameErrorAccepted : Bool :=
+  sourceUnitAccepted? freeAndContractSameErrorSource
+
+def freeAndContractErrorNameShadowAcceptedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeError boomError
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContractErrorNameShadowsFree"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl addressBoomError
+              , L00_SourceSolidity.ContractItem.function
+                  revertAddressBoomFunction ] } ] }
+
+def freeAndContractErrorNameShadowAccepted : Bool :=
+  sourceUnitAccepted? freeAndContractErrorNameShadowAcceptedSource
+
+def freeAndContractErrorNameShadowRejectsFreeMatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeError boomError
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContractErrorNameShadowRejectsFreeMatch"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl addressBoomError
+              , L00_SourceSolidity.ContractItem.function
+                  revertBoomFunction ] } ] }
+
+def freeAndContractErrorNameShadowRejectsFreeMatch : Bool :=
+  Result.isError
+    (SourceUnit.check freeAndContractErrorNameShadowRejectsFreeMatchSource)
 
 def unknownErrorSource : L00_SourceSolidity.SourceUnit :=
   { items :=
