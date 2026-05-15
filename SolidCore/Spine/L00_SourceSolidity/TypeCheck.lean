@@ -1481,29 +1481,6 @@ def FunctionSig.internalFunctionValueAssignableTo
 
 namespace FunctionSigs
 
-def resolveInternalFunctionValueLoop (types : TypeContext)
-    (target : Name) (expected : Ty) :
-    Option FunctionSig -> List FunctionSig ->
-    Except TypeError FunctionSig
-  | none, [] => Except.error (TypeError.unknownFunction target)
-  | some found, [] => Except.ok found
-  | found?, sig :: rest =>
-      if sig.name == target &&
-          FunctionSig.internalFunctionValueAssignableTo
-            types expected sig then
-        match found? with
-        | none =>
-            resolveInternalFunctionValueLoop types target expected
-              (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
-      else
-        resolveInternalFunctionValueLoop types target expected found? rest
-
-def resolveInternalFunctionValueAssignableTo (types : TypeContext)
-    (functions : List FunctionSig) (target : Name) (expected : Ty) :
-    Except TypeError FunctionSig :=
-  resolveInternalFunctionValueLoop types target expected none functions
-
 def resolveInternalFunctionValueByNameLoop
     (target : Name) :
     Option FunctionSig -> List FunctionSig -> Except TypeError FunctionSig
@@ -1522,6 +1499,17 @@ def resolveInternalFunctionValueByName
     (functions : List FunctionSig) (target : Name) :
     Except TypeError FunctionSig :=
   resolveInternalFunctionValueByNameLoop target none functions
+
+def resolveInternalFunctionValueAssignableTo (types : TypeContext)
+    (functions : List FunctionSig) (target : Name) (expected : Ty) :
+    Except TypeError FunctionSig := do
+  let sig ← resolveInternalFunctionValueByName functions target
+  if FunctionSig.internalFunctionValueAssignableTo types expected sig then
+      Except.ok sig
+  else
+    match FunctionSig.internalFunctionValueTy? sig with
+    | some actual => Except.error (TypeError.expectedType expected actual)
+    | none => Except.error (TypeError.unknownFunction target)
 
 def containsSameSignature (target : FunctionSig) : List FunctionSig -> Bool
   | [] => false
@@ -14983,14 +14971,32 @@ def usingHigherOrderFunctionSource :
                   { library := userPath "Apply"
                     target := some uint256 }
               , L00_SourceSolidity.ContractItem.function
-                  usingHigherOrderDoubleOverload
-              , L00_SourceSolidity.ContractItem.function
                   usingHigherOrderDouble
               , L00_SourceSolidity.ContractItem.function
                   usingHigherOrderFunction ] } ] }
 
 def usingHigherOrderFunctionAccepted : Bool :=
   sourceUnitAccepted? usingHigherOrderFunctionSource
+
+def usingHigherOrderFunctionOverloadedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract usingHigherOrderLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UsingHigherOrderOverloaded"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "Apply"
+                    target := some uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDoubleOverload
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderDouble
+              , L00_SourceSolidity.ContractItem.function
+                  usingHigherOrderFunction ] } ] }
+
+def usingHigherOrderFunctionOverloadedRejected : Bool :=
+  Result.isError (SourceUnit.check usingHigherOrderFunctionOverloadedSource)
 
 def badExplicitUsingFreeFunctionSource :
     L00_SourceSolidity.SourceUnit :=
@@ -16996,6 +17002,22 @@ def internalFunctionPointerOverloadedTarget :
         (L00_SourceSolidity.Stmt.returnValues
           (some (L00_SourceSolidity.Expr.ident "x"))) }
 
+def internalFunctionPointerAliasOverloadedSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerAliasOverloaded"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerOverloadedTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasTarget
+              , L00_SourceSolidity.ContractItem.function
+                  internalFunctionPointerAliasFunction ] } ] }
+
+def internalFunctionPointerAliasOverloadedRejected : Bool :=
+  Result.isError (SourceUnit.check internalFunctionPointerAliasOverloadedSource)
+
 def internalFunctionPointerParamBareOverloadedCallerFunction :
     L00_SourceSolidity.FunctionDecl :=
   { internalFunctionPointerAliasFunction with
@@ -17026,8 +17048,8 @@ def internalFunctionPointerParamOverloadedSource :
               , L00_SourceSolidity.ContractItem.function
                   internalFunctionPointerParamBareOverloadedCallerFunction ] } ] }
 
-def internalFunctionPointerParamOverloadedAccepted : Bool :=
-  sourceUnitAccepted? internalFunctionPointerParamOverloadedSource
+def internalFunctionPointerParamOverloadedRejected : Bool :=
+  Result.isError (SourceUnit.check internalFunctionPointerParamOverloadedSource)
 
 def externalFunctionPointerGasCallFunction :
     L00_SourceSolidity.FunctionDecl :=

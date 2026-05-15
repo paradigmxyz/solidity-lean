@@ -29725,18 +29725,6 @@ def internalFunctionPointerParamContract : ContractDecl :=
           { name := some "double"
             visibility := some Visibility.internal_
             mutability := StateMutability.pure
-            params :=
-              [ { name := some "left", ty := Ty.uint 256 }
-              , { name := some "right", ty := Ty.uint 256 } ]
-            returns := [{ name := some "out", ty := Ty.uint 256 }]
-            body :=
-              some
-                (Stmt.returnValues
-                  (some (Expr.ident "left"))) }
-      , ContractItem.function
-          { name := some "double"
-            visibility := some Visibility.internal_
-            mutability := StateMutability.pure
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -29830,7 +29818,7 @@ def internalFunctionPointerParamMatches : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq value 42)
   | _ => some false
 
-def internalFunctionPointerParamOverloadedDirectMatches : Option Bool := do
+def internalFunctionPointerParamDirectMatches : Option Bool := do
   let result ←
     ContractDecl.call? 128 internalFunctionPointerParamContract
       (SolidCore.Solidity.Source.CallTarget.name "runDirect")
@@ -34257,18 +34245,6 @@ def usingHigherOrderContract : ContractDecl :=
       [ ContractItem.usingDecl
           { library := { segments := ["Apply"] }
             target := some (Ty.uint 256) }
-      , ContractItem.function
-          { name := some "double"
-            visibility := some Visibility.internal_
-            mutability := StateMutability.pure
-            params :=
-              [ { name := some "left", ty := Ty.uint 256 }
-              , { name := some "right", ty := Ty.uint 256 } ]
-            returns := [{ name := some "out", ty := Ty.uint 256 }]
-            body :=
-              some
-                (Stmt.returnValues
-                  (some (Expr.ident "left"))) }
       , ContractItem.function
           { name := some "double"
             visibility := some Visibility.internal_
