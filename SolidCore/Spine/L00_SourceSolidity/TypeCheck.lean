@@ -4836,6 +4836,45 @@ decreasing_by
 
 end
 
+mutual
+
+def checkExprAssignableTo (env : CheckEnv) :
+    L00_SourceSolidity.Expr -> Ty -> Except TypeError Unit
+  | L00_SourceSolidity.Expr.array elements,
+    L00_SourceSolidity.Ty.array elementTy (some size) => do
+      require (elements.length == size)
+        (TypeError.arityMismatch "array literal" size elements.length)
+      checkExprsAssignableToArrayElement env elements elementTy
+  | expr, expected =>
+      match checkInternalFunctionValueAssignable? env expr expected with
+      | some result => result
+      | none => do
+          let checked ← checkExpr env expr
+          checked.expectAssignableToIn env.types expected
+termination_by expr _ => sizeOf expr
+decreasing_by
+  all_goals
+    try subst expr
+    simp_wf
+    try simp_all [sizeOf]
+    try omega
+
+def checkExprsAssignableToArrayElement (env : CheckEnv) :
+    List L00_SourceSolidity.Expr -> Ty -> Except TypeError Unit
+  | [], _ => Except.ok ()
+  | expr :: rest, elementTy => do
+      checkExprAssignableTo env expr elementTy
+      checkExprsAssignableToArrayElement env rest elementTy
+termination_by elements _ => sizeOf elements
+decreasing_by
+  all_goals
+    try subst expr
+    simp_wf
+    try simp_all [sizeOf]
+    try omega
+
+end
+
 def constantBuiltinIdentCallAllowed (name : Name) : Bool :=
   name == "keccak256" || name == "sha256" || name == "ripemd160" ||
     name == "ecrecover" || name == "addmod" || name == "mulmod" ||
@@ -5017,15 +5056,6 @@ def StateVarDecls.runtimeStateNamesWith
       | some name =>
           name :: StateVarDecls.runtimeStateNamesWith constantBindings rest
       | none => StateVarDecls.runtimeStateNamesWith constantBindings rest
-
-def checkExprAssignableTo (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) (expected : Ty) :
-    Except TypeError Unit := do
-  match checkInternalFunctionValueAssignable? env expr expected with
-  | some result => result
-  | none => do
-      let checked ← checkExpr env expr
-      checked.expectAssignableToIn env.types expected
 
 def checkReturnExprs (env : CheckEnv)
     (expr? : Option L00_SourceSolidity.Expr) : Except TypeError Unit :=
@@ -5344,12 +5374,11 @@ def checkVarBindingTupleItemsAssignableTo (env : CheckEnv) :
   | [], [] => Except.ok ()
   | binding :: bindingRest,
       L00_SourceSolidity.TupleItem.value expr :: itemRest => do
-      let checked ← checkExpr env expr
       if VarBinding.isAnonymousUntyped binding then
         checkVarBindingTupleItemsAssignableTo env bindingRest itemRest
       else
         let expectedTy ← VarBinding.checkType env binding
-        checked.expectAssignableToIn env.types expectedTy
+        checkExprAssignableTo env expr expectedTy
         checkVarBindingTupleItemsAssignableTo env bindingRest itemRest
   | _ :: _, L00_SourceSolidity.TupleItem.hole :: _ =>
       Except.error (TypeError.unsupported "tuple hole in value position")
@@ -5522,8 +5551,8 @@ def checkStmt (env : CheckEnv) :
               match checkInternalFunctionValueAssignable? env init ty with
               | some result => result
               | none => do
+                  checkExprAssignableTo env init ty
                   let checked ← checkExpr env init
-                  checked.expectAssignableToIn env.types ty
                   VarBinding.checkStorageRefInitializer env binding checked
           | _ =>
               match init with
@@ -22112,6 +22141,86 @@ def badArrayLiteralCommonTypeSource : L00_SourceSolidity.SourceUnit :=
 
 def badArrayLiteralCommonTypeRejected : Bool :=
   Result.isError (SourceUnit.check badArrayLiteralCommonTypeSource)
+
+def untypedNarrowArrayLiteralReturnFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "untypedNarrowArrayReturn"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.array uint8 (some 2)
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.array
+              [numberExpr "1", numberExpr "2"]))) }
+
+def untypedNarrowArrayLiteralReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UntypedNarrowArrayLiteralReturn"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                untypedNarrowArrayLiteralReturnFunction] } ] }
+
+def untypedNarrowArrayLiteralReturnAccepted : Bool :=
+  sourceUnitAccepted? untypedNarrowArrayLiteralReturnSource
+
+def untypedNarrowArrayLiteralLocalFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "untypedNarrowArrayLocal"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "xs"
+                  ty := some (L00_SourceSolidity.Ty.array uint8 (some 2))
+                  location := some L00_SourceSolidity.DataLocation.memory } ]
+              (some
+                (L00_SourceSolidity.Expr.array
+                  [numberExpr "1", numberExpr "2"]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "0")) ]) }
+
+def untypedNarrowArrayLiteralLocalSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UntypedNarrowArrayLiteralLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                untypedNarrowArrayLiteralLocalFunction] } ] }
+
+def untypedNarrowArrayLiteralLocalAccepted : Bool :=
+  sourceUnitAccepted? untypedNarrowArrayLiteralLocalSource
+
+def untypedNarrowArrayLiteralOverflowFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { untypedNarrowArrayLiteralReturnFunction with
+    name := some "untypedNarrowArrayOverflow"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.array
+              [numberExpr "1", numberExpr "300"]))) }
+
+def untypedNarrowArrayLiteralOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UntypedNarrowArrayLiteralOverflow"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                untypedNarrowArrayLiteralOverflowFunction] } ] }
+
+def untypedNarrowArrayLiteralOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    untypedNarrowArrayLiteralOverflowSource)
 
 def bytes4ValueExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
