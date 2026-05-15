@@ -33308,6 +33308,132 @@ def qualifiedInheritedNestedTypeLowering : Option Bool := do
   inheritedNestedTypeFunctionReturnsFirstField?
     "readQualifiedInheritedX" contract
 
+def inheritedEnumUdvtBaseContract : ContractDecl :=
+  { name := "EnumUdvtBase"
+    items :=
+      [ ContractItem.enumDecl
+          { name := "E"
+            cases := ["A", "B", "C"] }
+      , ContractItem.userValueTypeDecl
+          { name := "Token", underlying := Ty.uint 8 } ] }
+
+def inheritedEnumUdvtOtherContract : ContractDecl :=
+  { name := "EnumUdvtOther"
+    items :=
+      [ ContractItem.enumDecl
+          { name := "E"
+            cases := ["Only"] }
+      , ContractItem.userValueTypeDecl
+          { name := "Token", underlying := Ty.uint 256 } ] }
+
+def inheritedEnumUdvtDerivedContract : ContractDecl :=
+  { name := "EnumUdvtDerived"
+    bases := [{ base := pathOfName "EnumUdvtBase" }]
+    items :=
+      [ ContractItem.function
+          { name := some "largest"
+            returns := [{ ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.member
+                      (Expr.typeName (Ty.user (pathOfName "E")))
+                      "max"))) }
+      , ContractItem.function
+          { name := some "largestQualified"
+            returns := [{ ty := Ty.uint 256 }]
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.member
+                      (Expr.typeName
+                        (Ty.user (qualifiedPath "EnumUdvtBase" "E")))
+                      "max"))) }
+      , ContractItem.function
+          { name := some "echoToken"
+            params :=
+              [{ name := some "value", ty := Ty.user (pathOfName "Token") }]
+            returns := [{ ty := Ty.user (pathOfName "Token") }]
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body := some (Stmt.returnValues (some (Expr.ident "value"))) }
+      , ContractItem.function
+          { name := some "echoQualifiedToken"
+            params :=
+              [ { name := some "value"
+                  ty := Ty.user (qualifiedPath "EnumUdvtBase" "Token") } ]
+            returns :=
+              [{ ty := Ty.user (qualifiedPath "EnumUdvtBase" "Token") }]
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body := some (Stmt.returnValues (some (Expr.ident "value"))) } ] }
+
+def inheritedEnumUdvtUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeEnum
+          { name := "E", cases := ["Free"] }
+      , SourceItem.freeUserValueType
+          { name := "Token", underlying := Ty.uint 256 }
+      , SourceItem.contract inheritedEnumUdvtBaseContract
+      , SourceItem.contract inheritedEnumUdvtDerivedContract
+      , SourceItem.contract inheritedEnumUdvtOtherContract ] }
+
+def inheritedEnumMaxMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 32 inheritedEnumUdvtUnit
+      "EnumUdvtDerived"
+      (SolidCore.Solidity.Source.CallTarget.name "largest")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 2)
+  | _ => some false
+
+def qualifiedInheritedEnumMaxMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 32 inheritedEnumUdvtUnit
+      "EnumUdvtDerived"
+      (SolidCore.Solidity.Source.CallTarget.name "largestQualified")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 2)
+  | _ => some false
+
+def inheritedUdvtAbiEchoMatches (signature : Name) : Option Bool := do
+  let contract ←
+    SourceUnit.toCoreContract? inheritedEnumUdvtUnit
+      "EnumUdvtDerived"
+  let selector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature signature
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 5]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      32 contract SolidCore.Solidity.Source.State.empty
+      (SolidCore.Solidity.Source.wordToBytesBE
+        SolidCore.Solidity.Source.selectorBytes selector ++ calldata)
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 5]
+  some (result.success && result.output == expected)
+
+def inheritedUdvtAbiEchoUsesInheritedUnderlying : Option Bool :=
+  inheritedUdvtAbiEchoMatches "echoToken(uint8)"
+
+def qualifiedInheritedUdvtAbiEchoUsesInheritedUnderlying :
+    Option Bool :=
+  inheritedUdvtAbiEchoMatches "echoQualifiedToken(uint8)"
+
 def customStorageLayoutBaseContract : ContractDecl :=
   { name := "LayoutBase"
     items :=
