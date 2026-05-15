@@ -5393,6 +5393,12 @@ def checkCatchClauseKindsUnique :
     List L00_SourceSolidity.CatchClause -> Except TypeError Unit :=
   checkCatchClauseKindsUniqueFrom []
 
+def requireCatchClausesNonempty
+    (clauses : List L00_SourceSolidity.CatchClause) :
+    Except TypeError Unit :=
+  require (!clauses.isEmpty)
+    (TypeError.invalidTryCatch "try statement requires a catch clause")
+
 structure CheckedStmt where
   source : L00_SourceSolidity.Stmt
   deriving Repr
@@ -5511,6 +5517,7 @@ def checkStmt (env : CheckEnv) :
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.tryCatch expr clauses) => do
       let _ ← checkTryTarget env expr
+      requireCatchClausesNonempty clauses
       checkCatchClauseKindsUnique clauses
       let _ ← checkCatchClauses env clauses
       Except.ok { source := stmt }
@@ -5525,6 +5532,7 @@ def checkStmt (env : CheckEnv) :
         (Parameters.namedTypeStorageRefs env.types returns)).extendDataLocations
           (Parameters.namedDataLocations env.types returns)
       let _ ← checkStmt successEnv success
+      requireCatchClausesNonempty clauses
       checkCatchClauseKindsUnique clauses
       let _ ← checkCatchClauses env clauses
       Except.ok { source := stmt }
@@ -19729,6 +19737,56 @@ def tryReturnMismatchSource : L00_SourceSolidity.SourceUnit :=
 
 def tryReturnMismatchRejected : Bool :=
   Result.isError (SourceUnit.check tryReturnMismatchSource)
+
+def tryReturnsNoCatchFunction : L00_SourceSolidity.FunctionDecl :=
+  { tryExternalFunctionCall with
+    name := some "tryReturnsNoCatch"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter") [])
+          [{ name := some "value", ty := uint256, location := none }]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (L00_SourceSolidity.Expr.ident "value")))
+          []) }
+
+def tryReturnsNoCatchSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TryReturnsNoCatch"
+            items := [L00_SourceSolidity.ContractItem.function
+              tryReturnsNoCatchFunction] } ] }
+
+def tryReturnsNoCatchRejected : Bool :=
+  Result.isError (SourceUnit.check tryReturnsNoCatchSource)
+
+def tryNoCatchSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TryNoCatch"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "tryNoCatch"
+                    params :=
+                      [ { name := some "getter"
+                          ty := externalViewUintFunctionTy
+                          location := none } ]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.tryCatch
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.ident "getter")
+                                [])
+                              []
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def tryNoCatchRejected : Bool :=
+  Result.isError (SourceUnit.check tryNoCatchSource)
 
 def tryReturnBytesMemoryFunction : L00_SourceSolidity.FunctionDecl :=
   { tryExternalFunctionCall with
