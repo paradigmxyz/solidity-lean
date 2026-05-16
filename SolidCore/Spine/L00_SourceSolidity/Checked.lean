@@ -2664,6 +2664,122 @@ def checkedNestedBytesStoragePathClearMatches :
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             checkedNestedBytesStoragePathElementSlot 1)) 0)
 
+def checkedInternalFunctionPointerContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerAliasContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerReassignContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerAssignAfterDeclContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerDeleteThenAssignContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerUninitializedCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerDeletedCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerCopyContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalFunctionPointerParamContract)
+
+def checkedInternalFunctionPointerWord (value : Word) : CoreValue :=
+  SolidCore.Solidity.Source.Value.word value
+
+def checkedOwnCallPanicMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expected : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq code expected)
+  | _ => Except.ok false
+
+def checkedInternalFunctionPointerAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 48
+    Executable.Examples.internalFunctionPointerAliasContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 42
+
+def checkedInternalFunctionPointerReassignMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 64
+    Executable.Examples.internalFunctionPointerReassignContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 63
+
+def checkedInternalFunctionPointerAssignAfterDeclMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 64
+    Executable.Examples.internalFunctionPointerAssignAfterDeclContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 42
+
+def checkedInternalFunctionPointerDeleteThenAssignMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 64
+    Executable.Examples.internalFunctionPointerDeleteThenAssignContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 63
+
+def checkedInternalFunctionPointerUninitializedCallPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 64
+    Executable.Examples.internalFunctionPointerUninitializedCallContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21]
+    internalFunctionPointerPanicCode
+
+def checkedInternalFunctionPointerDeletedCallPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 64
+    Executable.Examples.internalFunctionPointerDeletedCallContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21]
+    internalFunctionPointerPanicCode
+
+def checkedInternalFunctionPointerCopyMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 96
+    Executable.Examples.internalFunctionPointerCopyContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 105
+
+def checkedInternalFunctionPointerParamMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 128
+    Executable.Examples.internalFunctionPointerParamContract
+    "run" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 42
+
+def checkedInternalFunctionPointerParamDirectMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 128
+    Executable.Examples.internalFunctionPointerParamContract
+    "runDirect" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21] 42
+
+def checkedInternalFunctionPointerParamUninitializedCallPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 128
+    Executable.Examples.internalFunctionPointerParamContract
+    "runUnbound" SolidCore.Solidity.Source.State.empty
+    [checkedInternalFunctionPointerWord 21]
+    internalFunctionPointerPanicCode
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library

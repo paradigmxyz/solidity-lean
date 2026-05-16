@@ -30314,6 +30314,7 @@ def internalFunctionPointerAliasContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "double"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30326,6 +30327,7 @@ def internalFunctionPointerAliasContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30362,6 +30364,7 @@ def internalFunctionPointerReassignContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "double"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30374,6 +30377,7 @@ def internalFunctionPointerReassignContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "triple"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30386,6 +30390,7 @@ def internalFunctionPointerReassignContract : ContractDecl :=
                       (Expr.literal (Literal.number "3"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30425,6 +30430,7 @@ def internalFunctionPointerAssignAfterDeclContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "double"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30437,6 +30443,7 @@ def internalFunctionPointerAssignAfterDeclContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30476,6 +30483,7 @@ def internalFunctionPointerDeleteThenAssignContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "double"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30488,6 +30496,7 @@ def internalFunctionPointerDeleteThenAssignContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "triple"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30500,6 +30509,7 @@ def internalFunctionPointerDeleteThenAssignContract : ContractDecl :=
                       (Expr.literal (Literal.number "3"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30541,6 +30551,7 @@ def internalFunctionPointerUninitializedCallContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30578,6 +30589,7 @@ def internalFunctionPointerDeletedCallContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "double"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30590,6 +30602,7 @@ def internalFunctionPointerDeletedCallContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30629,6 +30642,7 @@ def internalFunctionPointerCopyContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "double"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30641,6 +30655,7 @@ def internalFunctionPointerCopyContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "triple"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30653,6 +30668,7 @@ def internalFunctionPointerCopyContract : ContractDecl :=
                       (Expr.literal (Literal.number "3"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
@@ -30733,6 +30749,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
                       [Arg.positional (Expr.ident "value")]))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             mutability := StateMutability.pure
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
@@ -30754,6 +30771,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
                           , Arg.positional (Expr.ident "value") ])) ]) }
       , ContractItem.function
           { name := some "runDirect"
+            visibility := some Visibility.public_
             mutability := StateMutability.pure
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
@@ -30766,6 +30784,7 @@ def internalFunctionPointerParamContract : ContractDecl :=
                       , Arg.positional (Expr.ident "value") ]))) }
       , ContractItem.function
           { name := some "runUnbound"
+            visibility := some Visibility.public_
             mutability := StateMutability.pure
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
