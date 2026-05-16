@@ -10975,6 +10975,82 @@ def checkedAbiEncodeCallDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit badAbiEncodeCallThisInPureSource)
 
+def checkedDataLocationDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit storageReturnBindingSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit storageParamCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit libraryStorageParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataArrayCopySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataToStorageAssignSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit storageArrayPushPopSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit storageBytesPushPopSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit newStringSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataBytesSliceSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataArraySliceSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit structSource)
+
+def checkedDataLocationDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryToStorageReturnSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit uninitializedStorageAliasSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryToStorageAliasSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit viewWritesStorageAliasSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryToStorageParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit publicStorageParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedArrayIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedNewArrayLengthSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataArrayWriteSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataStructFieldWriteSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit viewArrayPushSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryArrayPushSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit fixedArrayPushSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataBytesPopSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedBytesIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedNewBytesLengthSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit namedNewStringLengthSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedNewStringLengthSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataSliceSignedIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataSliceMemberSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit missingStructLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit stringErrorWithLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryMappingLocalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit publicMappingParamSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
