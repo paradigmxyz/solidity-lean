@@ -9,6 +9,7 @@ abbrev CoreContract := L00_SourceSolidity.Executable.CoreContract
 abbrev CoreValue := L00_SourceSolidity.Executable.CoreValue
 abbrev CoreState := L00_SourceSolidity.Executable.CoreState
 abbrev CoreCallResult := L00_SourceSolidity.Executable.CoreCallResult
+abbrev CoreAbiCallResult := SolidCore.Solidity.Source.ABI.AbiCallResult
 abbrev CallTarget := SolidCore.Solidity.Source.CallTarget
 
 namespace Result
@@ -106,6 +107,29 @@ def callContractTransaction (fuel : Nat) (checked : CheckedSourceUnit)
   optionToExcept ("contract transaction " ++ name)
     (callContractTransaction?
       fuel checked name target state args)
+
+def callCalldataFrom? (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult := do
+  let contract ← toCoreContract? checked name
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
+    fuel contract state sender value calldata
+
+def callCalldataFrom (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata call " ++ name)
+    (callCalldataFrom? fuel checked name state sender value calldata)
+
+def callCalldata? (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataFrom? fuel checked name state 0 0 calldata
+
+def callCalldata (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataFrom fuel checked name state 0 0 calldata
 
 end CheckedSourceUnit
 
@@ -217,6 +241,36 @@ def checkedCallContractTransaction (fuel : Nat)
   _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callContractTransaction
     fuel checked name target state args
 
+def checkedCallCalldataFrom? (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let checked ← checked? source
+  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataFrom?
+    fuel checked name state sender value calldata
+
+def checkedCallCalldataFrom (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let checked ←
+    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
+      source
+  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataFrom
+    fuel checked name state sender value calldata
+
+def checkedCallCalldata? (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  checkedCallCalldataFrom? fuel source name state 0 0 calldata
+
+def checkedCallCalldata (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  checkedCallCalldataFrom fuel source name state 0 0 calldata
+
 end SourceUnit
 
 namespace ContractDecl
@@ -289,6 +343,30 @@ def checkedCallTransaction (fuel : Nat)
   SourceUnit.checkedCallContractTransaction
     fuel (sourceUnit decl) decl.name target state args
 
+def checkedCallCalldataFrom? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  SourceUnit.checkedCallCalldataFrom?
+    fuel (sourceUnit decl) decl.name state sender value calldata
+
+def checkedCallCalldataFrom (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  SourceUnit.checkedCallCalldataFrom
+    fuel (sourceUnit decl) decl.name state sender value calldata
+
+def checkedCallCalldata? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  checkedCallCalldataFrom? fuel decl state 0 0 calldata
+
+def checkedCallCalldata (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  checkedCallCalldataFrom fuel decl state 0 0 calldata
+
 end ContractDecl
 
 namespace Examples
@@ -348,6 +426,146 @@ def checkedMissingVisibilityRejected : Bool :=
     (ContractDecl.checkedCall 16 missingVisibilityExecutableContract
       (SolidCore.Solidity.Source.CallTarget.name "run")
       SolidCore.Solidity.Source.State.empty [])
+
+def checkedFallbackReceiveContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedFallbackReceive"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.number "1")))) }
+      , L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.receive
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.number "2")))) } ] }
+
+def checkedFallbackDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldata 16 checkedFallbackReceiveContract
+      SolidCore.Solidity.Source.State.empty [0xde, 0xad, 0xbe, 0xef]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 1 &&
+      result.output == [])
+
+def checkedReceiveDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldata 16 checkedFallbackReceiveContract
+      SolidCore.Solidity.Source.State.empty []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 2 &&
+      result.output == [])
+
+def checkedPayableFallbackValueContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedFallbackValue"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "last", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "last")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.ident "msg") "value"))) } ] }
+
+def checkedPayableFallbackValueDispatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      checkedPayableFallbackValueContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 33 [0xff, 0xff, 0xff, 0xff]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 33 &&
+      result.output == [])
+
+def checkedPayableFallbackPlainEtherMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      checkedPayableFallbackValueContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 44 []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 44 &&
+      result.output == [])
+
+def checkedNonpayableFallbackRejectsValueMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16 checkedFallbackReceiveContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 1 [0xff, 0xff, 0xff, 0xff]
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def checkedMissingFallbackContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedMissingFallback"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "touch"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.number "9")))) } ] }
+
+def checkedMissingFallbackSelectorRejectsMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16 checkedMissingFallbackContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 0 [0xde, 0xad, 0xbe, 0xef]
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def checkedMissingReceiveFallbackPlainEtherRejectsMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16 checkedMissingFallbackContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 1 []
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
 
 def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTryCatchTarget"
