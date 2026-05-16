@@ -3755,8 +3755,48 @@ def checkExpr (env : CheckEnv) :
       | L00_SourceSolidity.Ty.user path =>
           match env.types.lookupStruct? path with
           | some structDecl => do
-              let checkedArgs ← checkArgs env args
-              checkStructConstructorArgs env.types structDecl args checkedArgs
+              match checkArgs env args with
+              | Except.ok checkedArgs =>
+                  match
+                      checkStructConstructorArgs env.types structDecl args
+                        checkedArgs with
+                  | Except.ok _ => Except.ok ()
+                  | Except.error checkedErr =>
+                      match
+                          (do
+                            let contextualCheckedArgs ←
+                              if Args.anyNamed args then
+                                checkNamedArgsAssignableToParamsFor
+                                  env ("struct constructor " ++
+                                    structDecl.name)
+                                  (StructDecl.fieldNames structDecl)
+                                  (StructDecl.fieldTys structDecl) args
+                              else
+                                checkPositionalArgsAssignableToParamsFor
+                                  env ("struct constructor " ++
+                                    structDecl.name)
+                                  args (StructDecl.fieldTys structDecl)
+                            checkStructConstructorArgs env.types structDecl
+                              args contextualCheckedArgs) with
+                      | Except.ok _ => Except.ok ()
+                      | Except.error _ => Except.error checkedErr
+              | Except.error argErr =>
+                  match
+                      (do
+                        let contextualCheckedArgs ←
+                          if Args.anyNamed args then
+                            checkNamedArgsAssignableToParamsFor
+                              env ("struct constructor " ++ structDecl.name)
+                              (StructDecl.fieldNames structDecl)
+                              (StructDecl.fieldTys structDecl) args
+                          else
+                            checkPositionalArgsAssignableToParamsFor
+                              env ("struct constructor " ++ structDecl.name)
+                              args (StructDecl.fieldTys structDecl)
+                        checkStructConstructorArgs env.types structDecl args
+                          contextualCheckedArgs) with
+                  | Except.ok _ => Except.ok ()
+                  | Except.error _ => Except.error argErr
               Except.ok { source := expr, ty := targetTy, lvalue := false }
           | none => checkTypeConversion
       | _ => checkTypeConversion
@@ -23014,6 +23054,104 @@ def contextualNarrowArrayExpr : L00_SourceSolidity.Expr :=
 
 def contextualNarrowArrayOverflowExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.array [numberExpr "1", numberExpr "300"]
+
+def contextualArrayStruct : L00_SourceSolidity.StructDecl :=
+  { name := "ContextualArrayStruct"
+    fields :=
+      [{ name := "xs"
+         ty := contextualNarrowArrayTy }] }
+
+def contextualArrayStructTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "ContextualArrayStruct")
+
+def contextualArrayStructConstructorFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.typeName
+                    contextualArrayStructTy)
+                  [arg])
+                "xs")
+              (numberExpr "0")))) }
+
+def contextualArrayStructConstructorSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          contextualArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayStructCtor"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayStructConstructorFunction
+                    "structArrayArg"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualArrayStructConstructorAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayStructConstructorSource
+
+def contextualArrayStructConstructorOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          contextualArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayStructCtorOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayStructConstructorFunction
+                    "structArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualArrayStructConstructorOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayStructConstructorOverflowSource)
+
+def contextualNamedArrayStructConstructorSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          contextualArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayStructCtor"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayStructConstructorFunction
+                    "structNamedArrayArg"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualNamedArrayStructConstructorAccepted : Bool :=
+  sourceUnitAccepted? contextualNamedArrayStructConstructorSource
+
+def contextualNamedArrayStructConstructorOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          contextualArrayStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayStructCtorOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayStructConstructorFunction
+                    "structNamedArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualNamedArrayStructConstructorOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualNamedArrayStructConstructorOverflowSource)
 
 def contextualArrayLiteralEventDecl :
     L00_SourceSolidity.EventDecl :=
