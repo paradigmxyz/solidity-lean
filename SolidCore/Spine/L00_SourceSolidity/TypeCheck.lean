@@ -489,6 +489,14 @@ def structGetterReturnTys (types : TypeContext) :
       else
         field.ty :: structGetterReturnTys types rest
 
+def tupleGetterReturnTys (types : TypeContext) : List Ty -> List Ty
+  | [] => []
+  | ty :: rest =>
+      if Ty.omittedFromStructPublicGetter? types 64 ty then
+        tupleGetterReturnTys types rest
+      else
+        ty :: tupleGetterReturnTys types rest
+
 def Ty.publicGetterShape? (types : TypeContext) :
     Nat -> Ty -> Option (List Ty × List Ty)
   | 0, _ => none
@@ -498,6 +506,8 @@ def Ty.publicGetterShape? (types : TypeContext) :
   | fuel + 1, L00_SourceSolidity.Ty.array element _ => do
       let tail ← Ty.publicGetterShape? types fuel element
       some (L00_SourceSolidity.Ty.uint 256 :: tail.fst, tail.snd)
+  | _ + 1, L00_SourceSolidity.Ty.tuple tys =>
+      some ([], tupleGetterReturnTys types tys)
   | _ + 1, L00_SourceSolidity.Ty.user path =>
       match types.lookupStruct? path with
       | some structDecl =>

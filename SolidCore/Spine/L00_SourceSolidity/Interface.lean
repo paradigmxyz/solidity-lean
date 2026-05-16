@@ -26033,6 +26033,7 @@ def deleteFixedArrayStructContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "clear"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
