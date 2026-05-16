@@ -1725,6 +1725,10 @@ def checkedMissingVisibilityRejected : Bool :=
       (SolidCore.Solidity.Source.CallTarget.name "run")
       SolidCore.Solidity.Source.State.empty [])
 
+def checkedPreValidityBoundarySemanticsMatch : Bool :=
+  rawMissingVisibilityStillExecutes == some true &&
+    checkedMissingVisibilityRejected
+
 def checkedFallbackReceiveContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedFallbackReceive"
     items :=
@@ -12311,7 +12315,8 @@ def checkedMappingDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit badMappingIndexSource)
 
 def checkedStaticSourceDisciplineSemanticsMatch : Bool :=
-  checkedInheritedNamespaceShadowingAccepted &&
+  checkedPreValidityBoundarySemanticsMatch &&
+    checkedInheritedNamespaceShadowingAccepted &&
     checkedInheritedNamespaceShadowingRejected &&
     checkedMutabilityDisciplineAccepted &&
     checkedMutabilityDisciplineRejected &&
