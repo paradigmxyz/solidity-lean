@@ -10615,6 +10615,73 @@ def checkedContractFormDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit interfaceUsingDirectiveSource)
 
+def checkedFunctionTypeDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        externalFunctionTakingFunctionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit externalPayableFunctionTypeSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        functionTypeMutabilityConversionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerAliasSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerReassignSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerAssignAfterDeclSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerDeleteThenAssignSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerUninitializedCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerDeletedCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerCopySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit internalFunctionPointerParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        externalFunctionPointerGasCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        publicExternalFunctionPointerStateVarSource)
+
+def checkedFunctionTypeDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        externalFunctionTakingInternalFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        externalFunctionTakingMappingSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit internalPayableFunctionTypeSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerAliasOverloadedSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerParamOverloadedSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        publicInternalFunctionPointerParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        invalidPublicFunctionTypeParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        publicInternalFunctionPointerStateVarSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        publicStructInternalFunctionGetterSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
