@@ -6736,6 +6736,30 @@ def checkedQualifiedInheritedUdvtAbiEchoUsesInheritedUnderlying :
     Except TypeError Bool :=
   checkedInheritedUdvtAbiEchoMatches "echoQualifiedToken(uint8)"
 
+def checkedOverloadInheritedLookupSemanticsMatch :
+    Except TypeError Bool := do
+  let overloadBool ← checkedOverloadedDirectBoolCallMatches
+  let overloadUint ← checkedOverloadedDirectUintCallMatches
+  let overloadBytes ← checkedOverloadedDirectBytesCallMatches
+  let overloadAbiUint ← checkedOverloadedAbiUintCallMatches
+  let overloadAbiBytes ← checkedOverloadedAbiBytesCallMatches
+  let internalOverload ← checkedInternalOverloadedDispatchMatchesExpected
+  let inheritedNested ← checkedInheritedNestedTypeShadowsUnrelatedLowering
+  let qualifiedInheritedNested ← checkedQualifiedInheritedNestedTypeLowering
+  let inheritedEnum ← checkedInheritedEnumMaxMatches
+  let qualifiedInheritedEnum ← checkedQualifiedInheritedEnumMaxMatches
+  let inheritedUdvt ← checkedInheritedUdvtAbiEchoUsesInheritedUnderlying
+  let qualifiedInheritedUdvt ←
+    checkedQualifiedInheritedUdvtAbiEchoUsesInheritedUnderlying
+  Except.ok
+    (checkedOverloadedDispatchContractsAccepted &&
+      checkedInheritedNestedEnumUdvtUnitsAccepted &&
+      overloadBool && overloadUint && overloadBytes &&
+      overloadAbiUint && overloadAbiBytes && internalOverload &&
+      inheritedNested && qualifiedInheritedNested &&
+      inheritedEnum && qualifiedInheritedEnum &&
+      inheritedUdvt && qualifiedInheritedUdvt)
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -6993,6 +7017,46 @@ def checkedFixedBytesEchoCalldataMatches :
     (SolidCore.Solidity.Source.ABI.encodeValues?
       [SolidCore.Solidity.Source.Ty.fixedBytes 4]
       [SolidCore.Solidity.Source.Value.word 0xaabbccdd])
+
+def checkedMemoryCalldataAbiSemanticsMatch :
+    Except TypeError Bool := do
+  let arrayLiteralLocal ← checkedArrayLiteralLocalMatches
+  let arrayLiteralAbi ← checkedArrayLiteralAbiEncodeMatches
+  let arrayLiteralFixedBytes ←
+    checkedArrayLiteralFixedBytesWidenMatches
+  let memoryArray ← checkedMemoryArrayAllocationMatches
+  let memoryArrayOob ← checkedMemoryArrayAllocationOutOfBoundsPanics
+  let memoryBytes ← checkedMemoryBytesAllocationMatches
+  let memoryBytesOob ← checkedMemoryBytesAllocationOutOfBoundsPanics
+  let memoryString ← checkedMemoryStringAllocationMatches
+  let stringDirect ← checkedStringEchoDirectCallMatches
+  let stringCalldata ← checkedStringEchoCalldataMatches
+  let calldataSlice ← checkedCalldataArraySliceMatches
+  let calldataSliceAbi ← checkedCalldataArraySliceAbiEncodeMatches
+  let calldataSliceOob ← checkedCalldataArraySliceOutOfBoundsPanics
+  let fixedArrayAbi ← checkedFixedArrayAbiCalldataMatches
+  let fixedArrayThenBytesAbi ←
+    checkedFixedArrayThenBytesAbiCalldataMatches
+  let dynamicFixedArrayAbi ←
+    checkedDynamicFixedArrayAbiCalldataMatches
+  let staticTupleAbi ← checkedStaticTupleAbiCalldataMatches
+  let dynamicTupleAbi ← checkedDynamicTupleAbiCalldataMatches
+  let dynamicArrayAbi ← checkedDynamicArrayAbiCalldataMatches
+  let dynamicBytesArrayAbi ← checkedDynamicBytesArrayAbiCalldataMatches
+  let fixedBytesEcho ← checkedFixedBytesEchoCalldataMatches
+  Except.ok
+    (checkedMemoryAndCalldataContractAccepted &&
+      checkedMemoryAllocationInvalidSourcesRejected &&
+      checkedStringEchoContractAccepted &&
+      checkedAbiArrayContractAccepted &&
+      arrayLiteralLocal && arrayLiteralAbi && arrayLiteralFixedBytes &&
+      memoryArray && memoryArrayOob &&
+      memoryBytes && memoryBytesOob && memoryString &&
+      stringDirect && stringCalldata &&
+      calldataSlice && calldataSliceAbi && calldataSliceOob &&
+      fixedArrayAbi && fixedArrayThenBytesAbi && dynamicFixedArrayAbi &&
+      staticTupleAbi && dynamicTupleAbi &&
+      dynamicArrayAbi && dynamicBytesArrayAbi && fixedBytesEcho)
 
 def checkedAbiBuiltinContractAccepted : Bool :=
   Result.isOk
@@ -9076,6 +9140,33 @@ def checkedDynamicRevertReasonMatches :
       (SolidCore.Solidity.Source.RevertData.raw bytes) =>
       Except.ok (bytes == expected)
   | _ => Except.ok false
+
+def checkedExpressionTargetEffectSemanticsMatch :
+    Except TypeError Bool := do
+  let incVar ← checkedIncrementExpressionVarDeclMatches
+  let decVar ← checkedDecrementExpressionVarDeclMatches
+  let incAssign ← checkedIncrementExpressionAssignmentMatches
+  let signedInc ← checkedSignedIncrementExpressionVarDeclMatches
+  let assignVar ← checkedAssignmentExpressionVarDeclMatches
+  let assignReturn ← checkedAssignmentExpressionReturnMatches
+  let indexedAssign ← checkedIndexedAssignmentTargetEffectsMatches
+  let indexedCompound ← checkedIndexedCompoundTargetEffectsMatches
+  let tupleIndexed ← checkedTupleIndexedAssignmentTargetEffectsMatches
+  let storageIndexed ← checkedStorageIndexedCompoundTargetEffectsMatches
+  let indexedDeleteInc ← checkedIndexedDeleteAndIncrementTargetEffectsMatches
+  let requireCustom ← checkedRequireCustomArgumentEvaluationMatches
+  let eventArg ← checkedEventArgumentEvaluationMatches
+  let revertCustom ← checkedRevertCustomArgumentEvaluationMatches
+  let dynamicRequire ← checkedDynamicRequireReasonMatches
+  let dynamicRevert ← checkedDynamicRevertReasonMatches
+  Except.ok
+    (checkedTargetEffectContractsAccepted &&
+      incVar && decVar && incAssign && signedInc &&
+      assignVar && assignReturn &&
+      indexedAssign && indexedCompound && tupleIndexed && storageIndexed &&
+      indexedDeleteInc &&
+      requireCustom && eventArg && revertCustom &&
+      dynamicRequire && dynamicRevert)
 
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
