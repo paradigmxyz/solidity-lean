@@ -4276,7 +4276,17 @@ def checkExpr (env : CheckEnv) :
                               { source := expr
                                 ty := resultTyFromReturns sig.returns
                                 lvalue := false }
-                        | Except.error _ => checkUsingCall
+                        | Except.error _ =>
+                            match
+                                checkContractMemberCallArgsContextualForPath
+                                  env path member args with
+                            | Except.ok (sig, _) => do
+                                requireCallMutabilityAllowed env sig.mutability
+                                Except.ok
+                                  { source := expr
+                                    ty := resultTyFromReturns sig.returns
+                                    lvalue := false }
+                            | Except.error _ => checkUsingCall
                       else
                         checkUsingCall
                   | _ =>
@@ -4562,8 +4572,15 @@ def checkExpr (env : CheckEnv) :
             match targetChecked.ty with
             | L00_SourceSolidity.Ty.user path => do
                 let sig ←
-                  env.types.resolveContractMemberFunctionChecked path member
-                    checkedInfos
+                  match env.types.resolveContractMemberFunctionChecked path
+                      member checkedInfos with
+                  | Except.ok sig => Except.ok sig
+                  | Except.error checkedErr =>
+                      match
+                          checkContractMemberCallArgsContextualForPath
+                            env path member args with
+                      | Except.ok (sig, _) => Except.ok sig
+                      | Except.error _ => Except.error checkedErr
                 requireCallMutabilityAllowed env sig.mutability
                 requireValueOptionAllowed sig.mutability options
                 Except.ok
@@ -5130,6 +5147,35 @@ def checkNamedArgsAssignableToParamsFor
       Except.error
         (TypeError.arityMismatch what params.length (rest.length + 1))
 termination_by args => sizeOf args
+decreasing_by
+  all_goals
+    simp_wf
+    try omega
+
+def checkContractMemberCallArgsContextualForPath
+    (env : CheckEnv) (path : Path) (member : Name)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (FunctionSig × List CheckedExpr) := do
+  let sig ←
+    TypeContext.resolveContractMemberFunctionContextual env path member args
+  let checkedArgs ←
+    if Args.anyNamed args then
+      checkNamedArgsAssignableToParamsFor
+        env "member call" sig.paramNames sig.params args
+    else
+      checkPositionalArgsAssignableToParamsFor
+        env "member call" args sig.params
+  match CheckedArgInfos.ordered? sig.paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some ordered =>
+      checkCheckedExprsStorageRefsFor "member call" ordered
+        sig.paramStorageRefs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch "member call" sig.params.length
+          checkedArgs.length)
+  Except.ok (sig, checkedArgs)
+termination_by 1 + sizeOf args
 decreasing_by
   all_goals
     simp_wf
@@ -5792,14 +5838,28 @@ def isKnownContractCreationTryTarget (env : CheckEnv) :
 def checkTryExternalMemberCallTarget (env : CheckEnv)
     (target : L00_SourceSolidity.Expr) (member : Name)
     (args : List L00_SourceSolidity.Arg) : Except TypeError Unit := do
-  let checkedArgs ← checkArgs env args
-  let checkedInfos := checkedArgInfosFull args checkedArgs
   let targetChecked ← checkExpr env target
   match targetChecked.ty with
   | L00_SourceSolidity.Ty.user path =>
       let sig ←
-        env.types.resolveContractMemberFunctionChecked path member
-          checkedInfos
+        match checkArgs env args with
+        | Except.ok checkedArgs =>
+            let checkedInfos := checkedArgInfosFull args checkedArgs
+            match env.types.resolveContractMemberFunctionChecked path member
+                checkedInfos with
+            | Except.ok sig => Except.ok sig
+            | Except.error checkedErr =>
+                match
+                    checkContractMemberCallArgsContextualForPath
+                      env path member args with
+                | Except.ok (sig, _) => Except.ok sig
+                | Except.error _ => Except.error checkedErr
+        | Except.error argErr =>
+            match
+                checkContractMemberCallArgsContextualForPath
+                  env path member args with
+            | Except.ok (sig, _) => Except.ok sig
+            | Except.error _ => Except.error argErr
       require sig.externallyCallable
         (TypeError.invalidTryCatch
           "try target is not an external function call")
@@ -25815,6 +25875,123 @@ def contextualArrayTernaryAbiEncodeCallOverflowSource :
 def contextualArrayTernaryAbiEncodeCallOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayTernaryAbiEncodeCallOverflowSource)
+
+def contextualArrayExternalMemberCallFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "target") "takeArray")
+              [L00_SourceSolidity.Arg.positional arg]))) }
+
+def contextualArrayExternalMemberCallWithOptionsFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.callWithOptions
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "target") "takeArray")
+              [L00_SourceSolidity.CallOption.named "gas" (numberExpr "100000")]
+              [L00_SourceSolidity.Arg.positional arg]))) }
+
+def contextualArrayTryExternalMemberCallFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "target") "takeArray")
+            [L00_SourceSolidity.Arg.positional arg])
+          [{ name := some "value", ty := uint8, location := none }]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (L00_SourceSolidity.Expr.ident "value")))
+          [tryCatchZeroClause]) }
+
+def contextualArrayExternalMemberSource
+    (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallArrayTarget"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                encodeCallArrayTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "target"
+                    ty := L00_SourceSolidity.Ty.user
+                      (userPath "EncodeCallArrayTarget") }
+              , L00_SourceSolidity.ContractItem.function fn ] } ] }
+
+def contextualArrayExternalMemberCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource "ContextualArrayExternalMemberCall"
+    (contextualArrayExternalMemberCallFunction
+      "callArray" contextualNarrowArrayExpr)
+
+def contextualArrayExternalMemberCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExternalMemberCallSource
+
+def contextualArrayExternalMemberCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource
+    "ContextualArrayExternalMemberCallOverflow"
+    (contextualArrayExternalMemberCallFunction
+      "callArrayOverflow" contextualNarrowArrayOverflowExpr)
+
+def contextualArrayExternalMemberCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayExternalMemberCallOverflowSource)
+
+def contextualArrayExternalMemberCallWithOptionsSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource
+    "ContextualArrayExternalMemberCallWithOptions"
+    (contextualArrayExternalMemberCallWithOptionsFunction
+      "callArrayWithOptions" contextualNarrowArrayExpr)
+
+def contextualArrayExternalMemberCallWithOptionsAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExternalMemberCallWithOptionsSource
+
+def contextualArrayTryExternalMemberCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource "ContextualArrayTryExternalMemberCall"
+    (contextualArrayTryExternalMemberCallFunction
+      "tryArray" contextualNarrowArrayExpr)
+
+def contextualArrayTryExternalMemberCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTryExternalMemberCallSource
+
+def contextualArrayTryExternalMemberCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource
+    "ContextualArrayTryExternalMemberCallOverflow"
+    (contextualArrayTryExternalMemberCallFunction
+      "tryArrayOverflow" contextualNarrowArrayOverflowExpr)
+
+def contextualArrayTryExternalMemberCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTryExternalMemberCallOverflowSource)
 
 def abiEncodeCallTypeNameSource : L00_SourceSolidity.SourceUnit :=
   { items :=
