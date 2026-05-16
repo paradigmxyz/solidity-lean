@@ -2306,12 +2306,15 @@ def ContractDecl.findImmediateDerivedInOrder?
     Option ContractDecl :=
   match storageOrder with
   | [] => none
-  | [_] => none
-  | current :: next :: rest =>
+  | current :: rest =>
       if current.name == decl.name then
-        some next
+        rest.find? (fun candidate =>
+          candidate.bases.any (fun spec =>
+            match pathLast? spec.base with
+            | some name => name == decl.name
+            | none => false))
       else
-        ContractDecl.findImmediateDerivedInOrder? (next :: rest) decl
+        ContractDecl.findImmediateDerivedInOrder? rest decl
 
 def ContractDecl.baseSpecifierFor? (derived base : ContractDecl) :
     Option BaseSpecifier :=
@@ -36625,6 +36628,7 @@ def superBaseContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "setX"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -36632,6 +36636,8 @@ def superBaseContract : ContractDecl :=
                     (Expr.literal (Literal.number "5")))) }
       , ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            virtual := true
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36644,6 +36650,7 @@ def superDerivedContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "setViaSuper"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -36651,6 +36658,8 @@ def superDerivedContract : ContractDecl :=
                     (Expr.member (Expr.ident "super") "setX") [])) }
       , ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            override? := some { bases := [] }
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36697,6 +36706,8 @@ def explicitBaseLeftContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            virtual := true
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36708,6 +36719,8 @@ def explicitBaseRightContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            virtual := true
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36721,7 +36734,25 @@ def explicitBaseFinalContract : ContractDecl :=
       , { base := { segments := ["ExplicitBaseRight"] } } ]
     items :=
       [ ContractItem.function
+          { name := some "value"
+            visibility := some Visibility.public_
+            override? :=
+              some
+                { bases :=
+                    [ { segments := ["ExplicitBaseLeft"] }
+                    , { segments := ["ExplicitBaseRight"] } ] }
+            returns := [{ ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "ExplicitBaseRight")
+                        "value")
+                      []))) }
+      , ContractItem.function
           { name := some "directLeft"
+            visibility := some Visibility.public_
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36732,6 +36763,7 @@ def explicitBaseFinalContract : ContractDecl :=
                       []))) }
       , ContractItem.function
           { name := some "directRight"
+            visibility := some Visibility.public_
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36742,6 +36774,7 @@ def explicitBaseFinalContract : ContractDecl :=
                       []))) }
       , ContractItem.function
           { name := some "virtualValue"
+            visibility := some Visibility.public_
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36834,6 +36867,8 @@ def superChainRootContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            virtual := true
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36846,6 +36881,9 @@ def superChainMidContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            virtual := true
+            override? := some { bases := [] }
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some
@@ -36861,6 +36899,8 @@ def superChainTopContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "value"
+            visibility := some Visibility.public_
+            override? := some { bases := [] }
             returns := [{ ty := Ty.uint 256 }]
             body :=
               some

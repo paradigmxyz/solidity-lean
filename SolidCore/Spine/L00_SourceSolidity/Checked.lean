@@ -8904,6 +8904,51 @@ def checkedExplicitBaseCallMatches : Except TypeError Bool :=
     "ExplicitBaseTypeDerived" "directBase"
     SolidCore.Solidity.Source.State.empty [] 11
 
+def checkedCanonicalSuperBaseSourceUnitsAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.superSourceUnit) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.explicitBaseSourceUnit) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.superChainSourceUnit)
+
+def checkedCanonicalSuperValueCallMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.superSourceUnit
+    "SuperDerived" "value"
+    SolidCore.Solidity.Source.State.empty [] 3
+
+def checkedCanonicalSuperStorageCallMatches :
+    Except TypeError Bool :=
+  checkedCallSlotMatches 32 Executable.Examples.superSourceUnit
+    "SuperDerived" "setViaSuper"
+    SolidCore.Solidity.Source.State.empty [] 0 5
+
+def checkedExplicitBaseDirectLeftMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.explicitBaseSourceUnit
+    "ExplicitBaseFinal" "directLeft"
+    SolidCore.Solidity.Source.State.empty [] 11
+
+def checkedExplicitBaseDirectRightMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.explicitBaseSourceUnit
+    "ExplicitBaseFinal" "directRight"
+    SolidCore.Solidity.Source.State.empty [] 22
+
+def checkedExplicitBaseVirtualDispatchMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.explicitBaseSourceUnit
+    "ExplicitBaseFinal" "virtualValue"
+    SolidCore.Solidity.Source.State.empty [] 22
+
+def checkedSuperChainValueMatches : Except TypeError Bool :=
+  checkedCallWordMatches 64 Executable.Examples.superChainSourceUnit
+    "SuperChainTop" "value"
+    SolidCore.Solidity.Source.State.empty [] 77
+
 def checkedInheritedStateReadMatches : Except TypeError Bool := do
   let deployed ←
     CheckedInput.constructContract 32 inheritedStateReadSource
