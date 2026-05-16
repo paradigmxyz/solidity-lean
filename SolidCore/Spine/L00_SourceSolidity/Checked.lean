@@ -14555,6 +14555,68 @@ def checkedTryCatchSemanticsMatch : Except TypeError Bool := do
       externalOperand && creationOperand && modifierSuccess &&
       modifierCatch)
 
+def checkedSourceSolidityCoreSemanticsMatch :
+    Except TypeError Bool := do
+  let primitiveAbi ← checkedPrimitiveAbiSemanticsMatch
+  let dataTypes ← checkedSourceDataTypeSemanticsMatch
+  let functionPointers ← checkedInternalFunctionPointerSemanticsMatch
+  let controlFlow ← checkedControlFlowStatementSemanticsMatch
+  let expressionEffects ← checkedExpressionSideEffectSemanticsMatch
+  let targetEffects ← checkedExpressionTargetEffectSemanticsMatch
+  let tuplesAndFreeFunctions ← checkedTupleFreeFunctionSemanticsMatch
+  let literals ← checkedLiteralConversionSemanticsMatch
+  let arithmetic ← checkedModularCheckedArithmeticSemanticsMatch
+  let inlineAssembly ← checkedInlineAssemblyBoundarySemanticsMatch
+  Except.ok
+    (primitiveAbi && dataTypes && functionPointers && controlFlow &&
+      expressionEffects && targetEffects && tuplesAndFreeFunctions &&
+      literals && arithmetic && inlineAssembly)
+
+def checkedSourceSolidityStorageSemanticsMatch :
+    Except TypeError Bool := do
+  let storagePaths ← checkedStoragePathSemanticsMatch
+  let publicGetters ← checkedPublicGetterStorageSemanticsMatch
+  let storageArrays ← checkedStorageArrayMutationSemanticsMatch
+  let storageRefsBytes ← checkedStorageReferenceBytesSemanticsMatch
+  let transientStorage ← checkedTransientStorageSemanticsMatch
+  Except.ok
+    (storagePaths && publicGetters && storageArrays &&
+      storageRefsBytes && transientStorage)
+
+def checkedSourceSolidityAbiCallSemanticsMatch :
+    Except TypeError Bool := do
+  let fallbackReceive ← checkedFallbackReceivePayableSemanticsMatch
+  let overloadLookup ← checkedOverloadInheritedLookupSemanticsMatch
+  let memoryCalldata ← checkedMemoryCalldataAbiSemanticsMatch
+  let abiBuiltins ← checkedAbiBuiltinSemanticsMatch
+  let externalCalls ← checkedExternalFunctionAndCallSemanticsMatch
+  let builtinMetadata ← checkedBuiltinMetadataSemanticsMatch
+  let lowLevelCalls ← checkedLowLevelCallSemanticsMatch
+  let contractCreation ← checkedContractCreationSemanticsMatch
+  let tryCatch ← checkedTryCatchSemanticsMatch
+  Except.ok
+    (fallbackReceive && overloadLookup && memoryCalldata &&
+      abiBuiltins && externalCalls && builtinMetadata &&
+      lowLevelCalls && contractCreation && tryCatch)
+
+def checkedSourceSolidityObjectSemanticsMatch :
+    Except TypeError Bool := do
+  let modifiers ← checkedModifierSemanticsMatch
+  let libraries ← checkedLibraryUsingSemanticsMatch
+  let inheritance ← checkedInheritanceConstructorSemanticsMatch
+  let eventErrors ← checkedEventErrorRollbackSemanticsMatch
+  Except.ok
+    (checkedStaticSourceDisciplineSemanticsMatch &&
+      modifiers && libraries && inheritance && eventErrors)
+
+def checkedSourceSoliditySemanticsMatch :
+    Except TypeError Bool := do
+  let core ← checkedSourceSolidityCoreSemanticsMatch
+  let storage ← checkedSourceSolidityStorageSemanticsMatch
+  let abiCalls ← checkedSourceSolidityAbiCallSemanticsMatch
+  let objects ← checkedSourceSolidityObjectSemanticsMatch
+  Except.ok (core && storage && abiCalls && objects)
+
 end Examples
 
 end TypeCheck
