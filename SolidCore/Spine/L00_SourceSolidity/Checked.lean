@@ -10682,6 +10682,52 @@ def checkedFunctionTypeDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         publicStructInternalFunctionGetterSource)
 
+def checkedTryCatchDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit tryExternalFunctionCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tryContractMemberCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tryReturnBytesMemorySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tryCatchErrorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tryCatchFullSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tryContractCreationSource)
+
+def checkedTryCatchDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit tryInternalFunctionCallSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit tryLowLevelCallSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit tryArrayPushSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit tryLiteralSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit tryReturnMismatchSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit tryReturnsNoCatchSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit tryNoCatchSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTryReturnBytesCalldataSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTryReturnBytesStorageSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTryReturnBytesNoLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateTryReturnNameSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badCatchErrorSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateCatchErrorSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateCatchPanicSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateLowLevelCatchSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
