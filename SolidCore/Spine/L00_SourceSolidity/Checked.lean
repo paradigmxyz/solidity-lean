@@ -1040,6 +1040,241 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
           abiValue == 7)
   | _, _ => Except.ok false
 
+def checkedPayableConstructorValueMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedConstructFrom 16
+      Executable.Examples.payableConstructorValueContract
+      SolidCore.Solidity.Source.State.empty
+      0xabcd 13 []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 13)
+  | _ => Except.ok false
+
+def checkedNonpayableConstructorValueContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedNonpayableCtor"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.constructor
+            mutability := StateMutability.nonpayable
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.number "17")))) } ] }
+
+def checkedNonpayableConstructorRejectsValueMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedConstructFrom 16
+      checkedNonpayableConstructorValueContract
+      SolidCore.Solidity.Source.State.empty
+      0xabcd 13 []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      SolidCore.Solidity.Source.RevertData.empty =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => Except.ok false
+
+def checkedImmutableConstructorContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedImmutableConstructor"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "SEED"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_
+            mutability := VarMutability.immutable
+            init :=
+              some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "3")) }
+      , L00_SourceSolidity.ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_
+            mutability := VarMutability.immutable }
+      , L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.constructor
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.binary BinaryOp.add
+                      (L00_SourceSolidity.Expr.ident "value")
+                      (L00_SourceSolidity.Expr.ident "SEED")))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "sum"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            mutability := StateMutability.view
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.binary BinaryOp.add
+                      (L00_SourceSolidity.Expr.ident "x")
+                      (L00_SourceSolidity.Expr.ident "SEED")))) } ] }
+
+def checkedImmutableConstructorMatches :
+    Except TypeError Bool := do
+  let deployed ←
+    ContractDecl.checkedConstruct 32 checkedImmutableConstructorContract
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 9]
+  match deployed with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => do
+      let result ←
+        ContractDecl.checkedCall 32 checkedImmutableConstructorContract
+          (SolidCore.Solidity.Source.CallTarget.name "sum") state []
+      match result with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          Except.ok (SolidCore.Solidity.Source.wordEq value 15)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedImmutablePublicGetterMatches :
+    Except TypeError Bool := do
+  let deployed ←
+    ContractDecl.checkedConstruct 32 checkedImmutableConstructorContract
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 9]
+  match deployed with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => do
+      let result ←
+        ContractDecl.checkedCall 32 checkedImmutableConstructorContract
+          (SolidCore.Solidity.Source.CallTarget.name "x") state []
+      match result with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          Except.ok (SolidCore.Solidity.Source.wordEq value 12)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedImmutableRuntimeWriteContract :
+    L00_SourceSolidity.ContractDecl :=
+  { checkedImmutableConstructorContract with
+    name := "CheckedImmutableRuntimeWrite"
+    items :=
+      checkedImmutableConstructorContract.items ++
+        [ L00_SourceSolidity.ContractItem.function
+            { name := some "mutate"
+              visibility := some Visibility.public_
+              body :=
+                some
+                  (L00_SourceSolidity.Stmt.expr
+                    (L00_SourceSolidity.Expr.assign
+                      (L00_SourceSolidity.Expr.ident "x")
+                      AssignOp.assign
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.number "1")))) } ] }
+
+def checkedImmutableRuntimeWriteRejectedByTypechecker : Bool :=
+  Result.isError
+    (ContractDecl.checkedContract checkedImmutableRuntimeWriteContract)
+
+def checkedConstructorInternalCallContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedCtorInternalCall"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "double"
+            visibility := some Visibility.internal_
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.binary BinaryOp.mul
+                      (L00_SourceSolidity.Expr.ident "value")
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.number "2"))))) }
+      , L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.constructor
+            params := [{ name := some "seed", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.ident "double")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "seed")]))) } ] }
+
+def checkedConstructorInternalCallMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedConstruct 32
+      checkedConstructorInternalCallContract
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 42)
+  | _ => Except.ok false
+
+def checkedConstructorFreeFunctionMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedConstructContract 32
+      Executable.Examples.constructorFreeFunctionUnit
+      "CtorFreeFunction"
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 21]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 42)
+  | _ => Except.ok false
+
+def checkedInheritedBaseConstructorNamedArgMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedConstructContract 32
+      Executable.Examples.baseConstructorNamedArgUnit
+      "NamedDerivedArg"
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 4 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9)
+  | _ => Except.ok false
+
+def checkedInheritedBaseConstructorModifierArgMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedConstructContract 32
+      Executable.Examples.baseConstructorModifierArgUnit
+      "DerivedModifierArg"
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 6]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 36 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 7)
+  | _ => Except.ok false
+
 def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTransientStorage"
     items :=
