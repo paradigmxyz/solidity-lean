@@ -1533,6 +1533,48 @@ def checkedAbiEncodeValues
   optionToExcept "ABI encode values"
     (SolidCore.Solidity.Source.ABI.encodeValues? tys values)
 
+def checkedCallWordMatches (fuel : Nat) (source : SourceUnitAst)
+    (contractName functionName : Name) (state : CoreState)
+    (args : List CoreValue) (expected : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract fuel source contractName
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  | _ => Except.ok false
+
+def checkedCallSlotMatches (fuel : Nat) (source : SourceUnitAst)
+    (contractName functionName : Name) (state : CoreState)
+    (args : List CoreValue) (slot expected : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract fuel source contractName
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned nextState _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq
+          (nextState.loadSlot slot) expected)
+  | _ => Except.ok false
+
+def checkedConstructSlotMatches (fuel : Nat) (source : SourceUnitAst)
+    (contractName : Name) (state : CoreState)
+    (args : List CoreValue) (slot expected : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.constructContract fuel source contractName state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned nextState _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq
+          (nextState.loadSlot slot) expected)
+  | _ => Except.ok false
+
 def checkedProgramCommonLayerMatches : Except TypeError Bool := do
   let program ← CheckedInput.program simpleSource
   let checked ← CheckedInput.checkedSourceUnit simpleSource
@@ -1583,6 +1625,733 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
           abiValue == 7 &&
           function.name == some "f")
   | _, _, _, _ => Except.ok false
+
+def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedMath"
+    kind := ContractKind.library
+    items :=
+      [ ContractItem.function
+          { name := some "inc"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
+            params := [{ name := some "self", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.binary BinaryOp.add
+                      (L00_SourceSolidity.Expr.ident "self")
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.number "1"))))) }
+      , ContractItem.function
+          { name := some "mix"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.pure
+            params :=
+              [ { name := some "self", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.binary BinaryOp.add
+                      (L00_SourceSolidity.Expr.binary BinaryOp.mul
+                        (L00_SourceSolidity.Expr.ident "self")
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "10")))
+                      (L00_SourceSolidity.Expr.ident "right")))) } ] }
+
+def checkedUsingFreeIncFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "checkedFreeInc"
+    params := [{ name := some "self", ty := Ty.uint 256 }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    mutability := StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary BinaryOp.add
+              (L00_SourceSolidity.Expr.ident "self")
+              (L00_SourceSolidity.Expr.literal
+                (L00_SourceSolidity.Literal.number "1"))))) }
+
+def checkedUsingMethodContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingMethod"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := ["CheckedMath"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x") "inc")
+                      []))) } ] }
+
+def checkedUsingDirectContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingDirect"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "CheckedMath")
+                        "inc")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "x")]))) } ] }
+
+def checkedUsingSourceLevelContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingSourceLevel"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x") "inc")
+                      []))) } ] }
+
+def checkedUsingStorageContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingStorage"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.usingDecl
+          { library := { segments := ["CheckedMath"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "bump"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x") "inc")
+                      []))) } ] }
+
+def checkedUsingNamedMethodContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingNamedMethod"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := ["CheckedMath"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x") "mix")
+                      [L00_SourceSolidity.Arg.named "right"
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "2"))]))) } ] }
+
+def checkedUsingExplicitFunctionContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingExplicitFunction"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["CheckedMath", "mix"] } }]
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x") "mix")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "2"))]))) } ] }
+
+def checkedUsingExplicitFreeFunctionContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingExplicitFreeFunction"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["checkedFreeInc"] } }]
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x")
+                        "checkedFreeInc")
+                      []))) } ] }
+
+def checkedUsingNamedDirectContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingNamedDirect"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "CheckedMath")
+                        "mix")
+                      [ L00_SourceSolidity.Arg.named "right"
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.number "2"))
+                      , L00_SourceSolidity.Arg.named "self"
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.number "4")) ]))) } ] }
+
+def checkedUsingLibraryUnit : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
+      , L00_SourceSolidity.SourceItem.freeFunction
+          checkedUsingFreeIncFunction
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingMethodContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingDirectContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingStorageContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingNamedMethodContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingExplicitFunctionContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingExplicitFreeFunctionContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingNamedDirectContract ] }
+
+def checkedUsingSourceLevelUnit : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := ["CheckedMath"] }
+            target := some (Ty.uint 256) }
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingSourceLevelContract ] }
+
+def checkedUsingLibraryMethodMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingMethod" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 41] 42
+
+def checkedUsingLibraryDirectCallMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingDirect" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 11] 12
+
+def checkedUsingSourceLevelMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingSourceLevelUnit
+    "CheckedUsingSourceLevel" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 6] 7
+
+def checkedUsingStorageReceiverMatches : Except TypeError Bool :=
+  checkedCallSlotMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingStorage" "bump"
+    (SolidCore.Solidity.Source.State.empty.storeSlot 0 9)
+    [] 0 10
+
+def checkedUsingNamedMethodMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingNamedMethod" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 4] 42
+
+def checkedUsingExplicitFunctionMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingExplicitFunction" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 4] 42
+
+def checkedUsingExplicitFreeFunctionMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingExplicitFreeFunction" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 8] 9
+
+def checkedUsingNamedDirectCallMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 checkedUsingLibraryUnit
+    "CheckedUsingNamedDirect" "run"
+    SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedUsingHigherOrderFunctionPointerMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 64 usingHigherOrderFunctionSource
+    "UsingHigherOrder" "usingHigherOrder"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 21] 42
+
+def checkedUsingHigherOrderNamedFunctionPointerMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 64 usingHigherOrderNamedFunctionSource
+    "UsingHigherOrderNamed" "usingHigherOrderNamed"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 21] 42
+
+def checkedGlobalUsingPriceMatches : Except TypeError Bool :=
+  checkedCallWordMatches 48 globalUsingPriceSource
+    "GlobalUsingPrice" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 41] 42
+
+def checkedGlobalUsingPriceOperatorContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedGlobalUsingPriceOperator"
+    items :=
+      [ ContractItem.function
+          { name := some "sum"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "a", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.typeName priceTy)
+                            "wrap")
+                          [L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.ident "left")]))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "b", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.typeName priceTy)
+                            "wrap")
+                          [L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.ident "right")]))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.typeName priceTy)
+                            "unwrap")
+                          [ L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.binary BinaryOp.add
+                                (L00_SourceSolidity.Expr.ident "a")
+                                (L00_SourceSolidity.Expr.ident "b")) ])) ]) }
+      , ContractItem.function
+          { name := some "less"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ]
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "a", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.typeName priceTy)
+                            "wrap")
+                          [L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.ident "left")]))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "b", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.typeName priceTy)
+                            "wrap")
+                          [L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.ident "right")]))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some
+                        (L00_SourceSolidity.Expr.binary BinaryOp.lt
+                          (L00_SourceSolidity.Expr.ident "a")
+                          (L00_SourceSolidity.Expr.ident "b"))) ]) }
+      , ContractItem.function
+          { name := some "unary"
+            visibility := some Visibility.public_
+            params := [{ name := some "raw", ty := Ty.uint 256 }]
+            returns :=
+              [ { name := some "negated", ty := Ty.uint 256 }
+              , { name := some "inverted", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "a", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.typeName priceTy)
+                            "wrap")
+                          [L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.ident "raw")]))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "negated", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.unary UnaryOp.neg
+                          (L00_SourceSolidity.Expr.ident "a")))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "inverted", ty := some priceTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.unary UnaryOp.bitNot
+                          (L00_SourceSolidity.Expr.ident "a")))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some
+                        (L00_SourceSolidity.Expr.tuple
+                          [ L00_SourceSolidity.TupleItem.value
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.typeName priceTy)
+                                  "unwrap")
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident
+                                    "negated")])
+                          , L00_SourceSolidity.TupleItem.value
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.typeName priceTy)
+                                  "unwrap")
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident
+                                    "inverted")]) ])) ]) } ] }
+
+def checkedGlobalUsingPriceOperatorUnit :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorAddFunction
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorLtFunction
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorNegFunction
+      , L00_SourceSolidity.SourceItem.freeFunction
+          priceOperatorBitNotFunction
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [ { function := { segments := ["priceAdd"] }
+                  operator? := some
+                    (UsingOperator.binary BinaryOp.add) }
+              , { function := { segments := ["priceLt"] }
+                  operator? := some
+                    (UsingOperator.binary BinaryOp.lt) }
+              , { function := { segments := ["priceNeg"] }
+                  operator? := some
+                    (UsingOperator.unary UnaryOp.neg) }
+              , { function := { segments := ["priceBitNot"] }
+                  operator? := some
+                    (UsingOperator.unary UnaryOp.bitNot) } ]
+            target := some priceTy
+            global := true }
+      , L00_SourceSolidity.SourceItem.contract
+          checkedGlobalUsingPriceOperatorContract ] }
+
+def checkedGlobalUsingPriceAddOperatorMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48 checkedGlobalUsingPriceOperatorUnit
+    "CheckedGlobalUsingPriceOperator" "sum"
+    SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 14
+    , SolidCore.Solidity.Source.Value.word 28 ] 42
+
+def checkedGlobalUsingPriceLtOperatorMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48 checkedGlobalUsingPriceOperatorUnit
+    "CheckedGlobalUsingPriceOperator" "less"
+    SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 14
+    , SolidCore.Solidity.Source.Value.word 28 ] 1
+
+def checkedGlobalUsingPriceUnaryOperatorsMatch :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 48 checkedGlobalUsingPriceOperatorUnit
+      "CheckedGlobalUsingPriceOperator"
+      (SolidCore.Solidity.Source.CallTarget.name "unary")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 14]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word negated
+      , SolidCore.Solidity.Source.Value.word inverted ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq negated 15 &&
+          SolidCore.Solidity.Source.wordEq inverted 16)
+  | _ => Except.ok false
+
+def checkedExternalLibraryMath :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedExternalMath"
+    kind := ContractKind.library
+    items :=
+      [ ContractItem.function
+          { name := some "plusOne"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            params := [{ name := some "self", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.binary BinaryOp.add
+                      (L00_SourceSolidity.Expr.ident "self")
+                      (L00_SourceSolidity.Expr.literal
+                        (L00_SourceSolidity.Literal.number "1"))))) } ] }
+
+def checkedExternalLibraryDirectContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedExternalLibraryDirect"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident
+                          "CheckedExternalMath")
+                        "plusOne")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "x")]))) } ] }
+
+def checkedExternalLibraryUsingContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedExternalLibraryUsing"
+    items :=
+      [ ContractItem.usingDecl
+          { library := { segments := ["CheckedExternalMath"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "x") "plusOne")
+                      []))) } ] }
+
+def checkedExternalLibraryUnit : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          checkedExternalLibraryMath
+      , L00_SourceSolidity.SourceItem.contract
+          checkedExternalLibraryDirectContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedExternalLibraryUsingContract ] }
+
+def checkedExternalLibraryDelegateCallMatches
+    (contractName : Name) (input output : Word) :
+    Except TypeError Bool := do
+  let contract ← CheckedInput.contract checkedExternalLibraryUnit contractName
+  let callResult ←
+    optionToExcept "external library call result"
+      (Executable.Examples.externalLibraryCallResult? input output)
+  let result ←
+    CheckedInput.callFunctionWithContext 64 checkedExternalLibraryUnit
+      contractName "run"
+      { contract.core.context with
+        contractAddresses := [("CheckedExternalMath", 0xbeef)]
+        lowLevelCallResults := [callResult] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word input]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value output)
+  | _ => Except.ok false
+
+def checkedExternalLibraryDirectDelegateCallMatches :
+    Except TypeError Bool :=
+  checkedExternalLibraryDelegateCallMatches
+    "CheckedExternalLibraryDirect" 41 42
+
+def checkedExternalLibraryUsingDelegateCallMatches :
+    Except TypeError Bool :=
+  checkedExternalLibraryDelegateCallMatches
+    "CheckedExternalLibraryUsing" 6 7
+
+def checkedUsingModifierContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingModifier"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.usingDecl
+          { library := { segments := ["CheckedMath"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.modifierDecl
+          { name := "withBump"
+            params := [{ name := some "start", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.ident "start")
+                            "inc")
+                          []))
+                  , L00_SourceSolidity.Stmt.modifierPlaceholder ]) }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            params := [{ name := some "seed", ty := Ty.uint 256 }]
+            modifiers :=
+              [ { target := { segments := ["withBump"] }
+                  args :=
+                    [ L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.member
+                            (L00_SourceSolidity.Expr.ident "seed")
+                            "inc")
+                          []) ] } ]
+            body := some L00_SourceSolidity.Stmt.empty } ] }
+
+def checkedUsingModifierUnit : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingModifierContract ] }
+
+def checkedUsingModifierLibraryExpansionMatches :
+    Except TypeError Bool :=
+  checkedCallSlotMatches 64 checkedUsingModifierUnit
+    "CheckedUsingModifier" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 40] 0 42
+
+def checkedUsingConstructorContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedUsingConstructor"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.usingDecl
+          { library := { segments := ["CheckedMath"] }
+            target := some (Ty.uint 256) }
+      , ContractItem.function
+          { kind := FunctionKind.constructor
+            params := [{ name := some "seed", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "seed") "inc")
+                      []))) } ] }
+
+def checkedUsingConstructorUnit : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          checkedUsingConstructorContract ] }
+
+def checkedUsingConstructorMatches : Except TypeError Bool :=
+  checkedConstructSlotMatches 32 checkedUsingConstructorUnit
+    "CheckedUsingConstructor"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 41] 0 42
+
+def checkedUsingUnknownLibraryRejected : Bool :=
+  Result.isError (CheckedInput.program usingUnknownLibrarySource)
+
+def checkedUsingNonLibraryRejected : Bool :=
+  Result.isError (CheckedInput.program usingNonLibrarySource)
+
+def checkedBadExplicitUsingFreeFunctionRejected : Bool :=
+  Result.isError (CheckedInput.program badExplicitUsingFreeFunctionSource)
+
+def checkedBadExplicitUsingFunctionRejected : Bool :=
+  Result.isError (CheckedInput.program badExplicitUsingFunctionSource)
+
+def checkedBadUsingLibraryReceiverRejected : Bool :=
+  Result.isError (CheckedInput.program badUsingLibraryReceiverSource)
+
+def checkedContractUsingOperatorRejected : Bool :=
+  Result.isError (CheckedInput.program contractUsingOperatorSource)
+
+def checkedNonPureUsingOperatorRejected : Bool :=
+  Result.isError (CheckedInput.program nonPureUsingOperatorSource)
+
+def checkedContractGlobalUsingRejected : Bool :=
+  Result.isError (CheckedInput.program contractGlobalUsingSource)
+
+def checkedGlobalUsingNonUserValueRejected : Bool :=
+  Result.isError (CheckedInput.program globalUsingNonUserValueSource)
 
 def checkedPayableConstructorValueMatches :
     Except TypeError Bool := do
