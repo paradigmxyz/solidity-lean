@@ -4210,11 +4210,70 @@ def checkExpr (env : CheckEnv) :
           requireCreatableContractDecl contractDecl
           requireLogOrCreateAllowed env
             "contract creation in view or pure function"
-          let checkedArgs ← checkArgs env args
           let constructorSig := ContractDecl.constructorSignature contractDecl
-          checkCheckedArgsAssignableToFunctionSig env.types
-            ("constructor " ++ contractDecl.name) constructorSig args
-            checkedArgs
+          match checkArgs env args with
+          | Except.ok checkedArgs =>
+              match
+                  checkCheckedArgsAssignableToFunctionSig env.types
+                    ("constructor " ++ contractDecl.name) constructorSig
+                    args checkedArgs with
+              | Except.ok _ => Except.ok ()
+              | Except.error checkedErr =>
+                  match
+                      (do
+                        let contextualCheckedArgs ←
+                          if Args.anyNamed args then
+                            checkNamedArgsAssignableToParamsFor
+                              env ("constructor " ++ contractDecl.name)
+                              constructorSig.paramNames constructorSig.params
+                              args
+                          else
+                            checkPositionalArgsAssignableToParamsFor
+                              env ("constructor " ++ contractDecl.name) args
+                              constructorSig.params
+                        match CheckedArgInfos.ordered?
+                            constructorSig.paramNames
+                            (checkedArgInfosFull args
+                              contextualCheckedArgs) with
+                        | some ordered =>
+                            checkCheckedExprsStorageRefsFor
+                              ("constructor " ++ contractDecl.name)
+                              ordered constructorSig.paramStorageRefs
+                        | none =>
+                            Except.error
+                              (TypeError.arityMismatch
+                                ("constructor " ++ contractDecl.name)
+                                constructorSig.params.length
+                                contextualCheckedArgs.length)) with
+                  | Except.ok _ => Except.ok ()
+                  | Except.error _ => Except.error checkedErr
+          | Except.error argErr =>
+              match
+                  (do
+                    let contextualCheckedArgs ←
+                      if Args.anyNamed args then
+                        checkNamedArgsAssignableToParamsFor
+                          env ("constructor " ++ contractDecl.name)
+                          constructorSig.paramNames constructorSig.params args
+                      else
+                        checkPositionalArgsAssignableToParamsFor
+                          env ("constructor " ++ contractDecl.name) args
+                          constructorSig.params
+                    match CheckedArgInfos.ordered?
+                        constructorSig.paramNames
+                        (checkedArgInfosFull args contextualCheckedArgs) with
+                    | some ordered =>
+                        checkCheckedExprsStorageRefsFor
+                          ("constructor " ++ contractDecl.name) ordered
+                          constructorSig.paramStorageRefs
+                    | none =>
+                        Except.error
+                          (TypeError.arityMismatch
+                            ("constructor " ++ contractDecl.name)
+                            constructorSig.params.length
+                            contextualCheckedArgs.length)) with
+              | Except.ok _ => Except.ok ()
+              | Except.error _ => Except.error argErr
           requireValueOptionAllowed constructorSig.mutability options
           Except.ok { source := expr, ty := ty, lvalue := false }
       | _ => Except.error (TypeError.invalidType ty)
@@ -4408,10 +4467,10 @@ def checkExpr (env : CheckEnv) :
                   ("call with " ++ toString checkedArgs.length ++ " arguments"))
   | expr@(L00_SourceSolidity.Expr.newExpr ty args) => do
       checkTy env.types ty
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfos args checkedArgs
       match ty with
       | L00_SourceSolidity.Ty.bytes =>
+          let checkedArgs ← checkArgs env args
+          let argInfos := checkedArgInfos args checkedArgs
           requireNoNamedArgs "new bytes" argInfos
           match checkedArgs with
           | [length] => do
@@ -4421,6 +4480,8 @@ def checkExpr (env : CheckEnv) :
               Except.error
                 (TypeError.arityMismatch "new bytes" 1 checkedArgs.length)
       | L00_SourceSolidity.Ty.array _ none =>
+          let checkedArgs ← checkArgs env args
+          let argInfos := checkedArgInfos args checkedArgs
           requireNoNamedArgs "new dynamic array" argInfos
           match checkedArgs with
           | [length] => do
@@ -4439,9 +4500,69 @@ def checkExpr (env : CheckEnv) :
           requireLogOrCreateAllowed env
             "contract creation in view or pure function"
           let constructorSig := ContractDecl.constructorSignature contractDecl
-          checkCheckedArgsAssignableToFunctionSig env.types
-            ("constructor " ++ contractDecl.name) constructorSig args
-            checkedArgs
+          match checkArgs env args with
+          | Except.ok checkedArgs =>
+              match
+                  checkCheckedArgsAssignableToFunctionSig env.types
+                    ("constructor " ++ contractDecl.name) constructorSig
+                    args checkedArgs with
+              | Except.ok _ => Except.ok ()
+              | Except.error checkedErr =>
+                  match
+                      (do
+                        let contextualCheckedArgs ←
+                          if Args.anyNamed args then
+                            checkNamedArgsAssignableToParamsFor
+                              env ("constructor " ++ contractDecl.name)
+                              constructorSig.paramNames constructorSig.params
+                              args
+                          else
+                            checkPositionalArgsAssignableToParamsFor
+                              env ("constructor " ++ contractDecl.name) args
+                              constructorSig.params
+                        match CheckedArgInfos.ordered?
+                            constructorSig.paramNames
+                            (checkedArgInfosFull args
+                              contextualCheckedArgs) with
+                        | some ordered =>
+                            checkCheckedExprsStorageRefsFor
+                              ("constructor " ++ contractDecl.name)
+                              ordered constructorSig.paramStorageRefs
+                        | none =>
+                            Except.error
+                              (TypeError.arityMismatch
+                                ("constructor " ++ contractDecl.name)
+                                constructorSig.params.length
+                                contextualCheckedArgs.length)) with
+                  | Except.ok _ => Except.ok ()
+                  | Except.error _ => Except.error checkedErr
+          | Except.error argErr =>
+              match
+                  (do
+                    let contextualCheckedArgs ←
+                      if Args.anyNamed args then
+                        checkNamedArgsAssignableToParamsFor
+                          env ("constructor " ++ contractDecl.name)
+                          constructorSig.paramNames constructorSig.params args
+                      else
+                        checkPositionalArgsAssignableToParamsFor
+                          env ("constructor " ++ contractDecl.name) args
+                          constructorSig.params
+                    match CheckedArgInfos.ordered?
+                        constructorSig.paramNames
+                        (checkedArgInfosFull args contextualCheckedArgs) with
+                    | some ordered =>
+                        checkCheckedExprsStorageRefsFor
+                          ("constructor " ++ contractDecl.name) ordered
+                          constructorSig.paramStorageRefs
+                    | none =>
+                        Except.error
+                          (TypeError.arityMismatch
+                            ("constructor " ++ contractDecl.name)
+                            constructorSig.params.length
+                            contextualCheckedArgs.length)) with
+              | Except.ok _ => Except.ok ()
+              | Except.error _ => Except.error argErr
           Except.ok { source := expr, ty := ty, lvalue := false }
       | _ => Except.error (TypeError.invalidType ty)
   | expr@(L00_SourceSolidity.Expr.tuple items) => do
@@ -7078,10 +7199,30 @@ def ModifierInvocation.checkBaseConstructor (env : CheckEnv)
     (invocation : L00_SourceSolidity.ModifierInvocation)
     (baseDecl : L00_SourceSolidity.ContractDecl) :
     Except TypeError Unit := do
-  let checkedArgs ← checkArgs env invocation.args
-  checkCheckedArgsAssignableToFunctionSig env.types
-    ("base constructor " ++ baseDecl.name)
-    (ContractDecl.constructorSignature baseDecl) invocation.args checkedArgs
+  let sig := ContractDecl.constructorSignature baseDecl
+  match checkArgs env invocation.args with
+  | Except.ok checkedArgs =>
+      match
+          checkCheckedArgsAssignableToFunctionSig env.types
+            ("base constructor " ++ baseDecl.name) sig invocation.args
+            checkedArgs with
+      | Except.ok _ => Except.ok ()
+      | Except.error checkedErr =>
+          match
+              checkContextualArgsAssignableToParamsWithStorageRefsFor
+                env ("base constructor " ++ baseDecl.name)
+                sig.paramNames sig.params sig.paramStorageRefs
+                invocation.args with
+          | Except.ok _ => Except.ok ()
+          | Except.error _ => Except.error checkedErr
+  | Except.error argErr =>
+      match
+          checkContextualArgsAssignableToParamsWithStorageRefsFor
+            env ("base constructor " ++ baseDecl.name)
+            sig.paramNames sig.params sig.paramStorageRefs
+            invocation.args with
+      | Except.ok _ => Except.ok ()
+      | Except.error _ => Except.error argErr
 
 def ModifierInvocation.check (env : CheckEnv) (allowBaseConstructors : Bool)
     (invocation : L00_SourceSolidity.ModifierInvocation) :
@@ -7745,10 +7886,30 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
     require (argsAllCompileTimeConstant env specifier.args)
       (TypeError.invalidContractHeader
         "base constructor argument is not compile-time constant")
-    let checkedArgs ← checkArgs env specifier.args
-    checkCheckedArgsAssignableToFunctionSig env.types
-      ("base constructor " ++ baseDecl.name)
-      (ContractDecl.constructorSignature baseDecl) specifier.args checkedArgs
+    let sig := ContractDecl.constructorSignature baseDecl
+    match checkArgs env specifier.args with
+    | Except.ok checkedArgs =>
+        match
+            checkCheckedArgsAssignableToFunctionSig env.types
+              ("base constructor " ++ baseDecl.name)
+              sig specifier.args checkedArgs with
+        | Except.ok _ => Except.ok ()
+        | Except.error checkedErr =>
+            match
+                checkContextualArgsAssignableToParamsWithStorageRefsFor
+                  env ("base constructor " ++ baseDecl.name)
+                  sig.paramNames sig.params sig.paramStorageRefs
+                  specifier.args with
+            | Except.ok _ => Except.ok ()
+            | Except.error _ => Except.error checkedErr
+    | Except.error argErr =>
+        match
+            checkContextualArgsAssignableToParamsWithStorageRefsFor
+              env ("base constructor " ++ baseDecl.name)
+              sig.paramNames sig.params sig.paramStorageRefs
+              specifier.args with
+        | Except.ok _ => Except.ok ()
+        | Except.error _ => Except.error argErr
 
 def BaseSpecifiers.check (env : CheckEnv) (sourceTypes : TypeContext)
     (contractKind : L00_SourceSolidity.ContractKind) (contractName : Name) :
@@ -23144,6 +23305,224 @@ def contextualArrayLiteralModifierOverflowSource :
 def contextualArrayLiteralModifierOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayLiteralModifierOverflowSource)
+
+def contextualArrayConstructorTargetTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "ContextualArrayCtorTarget")
+
+def contextualArrayConstructorTargetContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "ContextualArrayCtorTarget"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { kind := L00_SourceSolidity.FunctionKind.constructor
+            params :=
+              [{ name := some "xs"
+                 ty := contextualNarrowArrayTy
+                 location := some L00_SourceSolidity.DataLocation.memory }]
+            body := some L00_SourceSolidity.Stmt.empty } ] }
+
+def contextualArrayConstructorCreateFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.newExpr
+                contextualArrayConstructorTargetTy [arg])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "7")) ]) }
+
+def contextualArrayConstructorCreateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayCtorMaker"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayConstructorCreateFunction
+                    "makeArrayCtor"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualArrayConstructorCreateAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayConstructorCreateSource
+
+def contextualArrayConstructorCreateOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayCtorMakerOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayConstructorCreateFunction
+                    "makeArrayCtorOverflow"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualArrayConstructorCreateOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayConstructorCreateOverflowSource)
+
+def contextualNamedArrayConstructorCreateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayCtorMaker"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayConstructorCreateFunction
+                    "makeNamedArrayCtor"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualNamedArrayConstructorCreateAccepted : Bool :=
+  sourceUnitAccepted? contextualNamedArrayConstructorCreateSource
+
+def contextualNamedArrayConstructorCreateOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayCtorMakerOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayConstructorCreateFunction
+                    "makeNamedArrayCtorOverflow"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualNamedArrayConstructorCreateOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualNamedArrayConstructorCreateOverflowSource)
+
+def contextualArrayConstructorSaltedCreateFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "makeSaltedArrayCtor"
+    params :=
+      [{ name := some "salt"
+         ty := bytes32
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.callWithOptions
+                (L00_SourceSolidity.Expr.newExpr
+                  contextualArrayConstructorTargetTy [])
+                [saltOption (L00_SourceSolidity.Expr.ident "salt")]
+                [L00_SourceSolidity.Arg.positional
+                  contextualNarrowArrayExpr])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "7")) ]) }
+
+def contextualArrayConstructorSaltedCreateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualSaltedArrayCtorMaker"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayConstructorSaltedCreateFunction ] } ] }
+
+def contextualArrayConstructorSaltedCreateAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayConstructorSaltedCreateSource
+
+def contextualArrayBaseSpecifierSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayBaseSpecifier"
+            bases :=
+              [{ base := userPath "ContextualArrayCtorTarget"
+                 args :=
+                  [L00_SourceSolidity.Arg.positional
+                    contextualNarrowArrayExpr] }]
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def contextualArrayBaseSpecifierAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayBaseSpecifierSource
+
+def contextualArrayBaseSpecifierOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayBaseSpecifierOverflow"
+            bases :=
+              [{ base := userPath "ContextualArrayCtorTarget"
+                 args :=
+                  [L00_SourceSolidity.Arg.positional
+                    contextualNarrowArrayOverflowExpr] }]
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def contextualArrayBaseSpecifierOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayBaseSpecifierOverflowSource)
+
+def contextualArrayBaseModifierDerived
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.ContractDecl :=
+  { name := name
+    bases := [{ base := userPath "ContextualArrayCtorTarget" }]
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { kind := L00_SourceSolidity.FunctionKind.constructor
+            modifiers :=
+              [{ target := userPath "ContextualArrayCtorTarget"
+                 args := [arg] }]
+            body := some L00_SourceSolidity.Stmt.empty }
+      , L00_SourceSolidity.ContractItem.function simpleReturnFunction ] }
+
+def contextualArrayBaseModifierSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          (contextualArrayBaseModifierDerived
+            "ContextualArrayBaseModifier"
+            (L00_SourceSolidity.Arg.positional
+              contextualNarrowArrayExpr)) ] }
+
+def contextualArrayBaseModifierAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayBaseModifierSource
+
+def contextualArrayBaseModifierOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayConstructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          (contextualArrayBaseModifierDerived
+            "ContextualArrayBaseModifierOverflow"
+            (L00_SourceSolidity.Arg.positional
+              contextualNarrowArrayOverflowExpr)) ] }
+
+def contextualArrayBaseModifierOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayBaseModifierOverflowSource)
 
 def bytes4ValueExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
