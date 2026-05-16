@@ -2073,6 +2073,20 @@ def checkedPayableFunctionValueDispatchMatches :
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 55 &&
       result.output == [])
 
+def checkedPayableFunctionDirectCallMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.payableFunctionValueContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "deposit"
+      { contract.core.context with sender := 0xabc, value := 55 }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 55)
+  | _ => Except.ok false
+
 def checkedNonpayableRejectsValueDispatchMatches :
     Except TypeError Bool := do
   let calldata ←
@@ -2086,6 +2100,21 @@ def checkedNonpayableRejectsValueDispatchMatches :
     (!result.success &&
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
       result.output == [])
+
+def checkedNonpayableDirectCallRejectsValueMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.nonpayableRejectsValueContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "touch"
+      { contract.core.context with sender := 0xabc, value := 1 }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      SolidCore.Solidity.Source.RevertData.empty =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => Except.ok false
 
 def checkedFunctionCalldata (decl : L00_SourceSolidity.ContractDecl)
     (functionName : Name) (args : List CoreValue) :
