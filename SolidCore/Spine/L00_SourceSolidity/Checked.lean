@@ -10942,6 +10942,39 @@ def checkedContextualArrayDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         contextualArraySuperNamedCallOverflowSource)
 
+def checkedAbiEncodeCallDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit abiEncodeCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit abiEncodeCallNewTargetSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit abiEncodeCallConversionTargetSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit abiEncodeCallTypeNameSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abiEncodeCallExternalFunctionPointerSource)
+
+def checkedAbiEncodeCallDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badAbiEncodeCallNewTargetViewSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badAbiEncodeCallTernaryTargetConditionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badAbiEncodeCallTernaryTargetBranchSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badAbiEncodeCallSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badAbiEncodeCallInternalFunctionPointerSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badAbiEncodeCallBareFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badAbiEncodeCallThisInPureSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
