@@ -5127,6 +5127,163 @@ def checkedDeleteNestedIndexedStorageMappingClearsNestedData :
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             checkedDeleteNestedIndexedStorageNestedSlot 1)) 0)
 
+def checkedStorageArrayDeleteCopyContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.dynamicStorageArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageDeleteCheckedContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageArrayCopyContract)
+
+def checkedStorageDeleteWholeMappingRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.storageDeleteContract)
+
+def checkedDynamicStorageArrayPushPopState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 32
+    Executable.Examples.dynamicStorageArrayContract
+    "pushTwoPop" SolidCore.Solidity.Source.State.empty []
+
+def checkedDynamicStorageArrayLengthAfterPushPop :
+    Except TypeError Bool := do
+  let state ← checkedDynamicStorageArrayPushPopState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.dynamicStorageArrayContract
+    "length" state [] 1
+
+def checkedDynamicStorageArrayGetterAfterPushPop :
+    Except TypeError Bool := do
+  let state ← checkedDynamicStorageArrayPushPopState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.dynamicStorageArrayContract
+    "items" state [SolidCore.Solidity.Source.Value.word 0] 7
+
+def checkedDynamicStorageArrayPopEmptyPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.dynamicStorageArrayContract
+    "popEmpty" SolidCore.Solidity.Source.State.empty [] 0x31
+
+def checkedDynamicStorageArrayPushAssignMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.dynamicStorageArrayContract
+    "pushAssign" SolidCore.Solidity.Source.State.empty [] 1 42
+
+def checkedStorageDeleteWrittenState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 48
+    Executable.Examples.storageDeleteCheckedContract
+    "set" SolidCore.Solidity.Source.State.empty []
+
+def checkedStorageDeleteDynamicState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageDeleteWrittenState
+  checkedOwnCallState 24
+    Executable.Examples.storageDeleteCheckedContract
+    "deleteDynamic" state []
+
+def checkedStorageDeleteDynamicLengthZero :
+    Except TypeError Bool := do
+  let state ← checkedStorageDeleteDynamicState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageDeleteCheckedContract
+    "length" state [] 0
+
+def checkedStorageDeleteDynamicIndexReverts :
+    Except TypeError Bool := do
+  let state ← checkedStorageDeleteDynamicState
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.storageDeleteCheckedContract
+    "readItem" state [] 0x32
+
+def checkedStorageDeleteFixedState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageDeleteWrittenState
+  checkedOwnCallState 24
+    Executable.Examples.storageDeleteCheckedContract
+    "deleteFixed" state []
+
+def checkedStorageDeleteFixedClearsElement :
+    Except TypeError Bool := do
+  let state ← checkedStorageDeleteFixedState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageDeleteCheckedContract
+    "readFixed" state [] 0
+
+def checkedStorageDeleteMappingKeyState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageDeleteWrittenState
+  checkedOwnCallState 24
+    Executable.Examples.storageDeleteCheckedContract
+    "deleteMappingKey" state []
+
+def checkedStorageDeleteMappingKeyClearsEntry :
+    Except TypeError Bool := do
+  let state ← checkedStorageDeleteMappingKeyState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageDeleteCheckedContract
+    "readMap" state [] 0
+
+def checkedStorageArrayCopyInput : List CoreValue :=
+  [ SolidCore.Solidity.Source.Value.dynamicArray
+      [ SolidCore.Solidity.Source.Value.word 5
+      , SolidCore.Solidity.Source.Value.word 6 ]
+  , SolidCore.Solidity.Source.Value.fixedArray
+      [ SolidCore.Solidity.Source.Value.word 1
+      , SolidCore.Solidity.Source.Value.word 2
+      , SolidCore.Solidity.Source.Value.word 3 ] ]
+
+def checkedStorageArrayCopyState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 48
+    Executable.Examples.storageArrayCopyContract
+    "copy" SolidCore.Solidity.Source.State.empty
+    checkedStorageArrayCopyInput
+
+def checkedStorageArrayCopyLengthMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageArrayCopyState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageArrayCopyContract
+    "length" state [] 2
+
+def checkedStorageArrayCopyDynamicElementMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageArrayCopyState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageArrayCopyContract
+    "readItem" state
+    [SolidCore.Solidity.Source.Value.word 1] 6
+
+def checkedStorageArrayCopyFixedElementMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageArrayCopyState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageArrayCopyContract
+    "readFixed" state
+    [SolidCore.Solidity.Source.Value.word 2] 3
+
+def checkedStorageArrayCopyRejectsWrongFixedSize : Bool :=
+  match
+    ContractDecl.checkedCall? 48
+      Executable.Examples.storageArrayCopyContract
+      (SolidCore.Solidity.Source.CallTarget.name "copy")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.dynamicArray
+          [SolidCore.Solidity.Source.Value.word 5]
+      , SolidCore.Solidity.Source.Value.fixedArray
+          [ SolidCore.Solidity.Source.Value.word 1
+          , SolidCore.Solidity.Source.Value.word 2 ] ]
+  with
+  | none => true
+  | some _ => false
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit

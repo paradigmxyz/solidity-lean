@@ -28801,6 +28801,7 @@ def dynamicStorageArrayContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "pushTwoPop"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -28819,6 +28820,7 @@ def dynamicStorageArrayContract : ContractDecl :=
                         (Expr.member (Expr.ident "items") "pop") []) ]) }
       , ContractItem.function
           { name := some "pushAssign"
+            visibility := some Visibility.public_
             returns :=
               [ { name := some "len", ty := Ty.uint 256 }
               , { name := some "first", ty := Ty.uint 256 } ]
@@ -28841,6 +28843,7 @@ def dynamicStorageArrayContract : ContractDecl :=
                                 (Expr.literal (Literal.number "0"))) ])) ]) }
       , ContractItem.function
           { name := some "length"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28848,6 +28851,7 @@ def dynamicStorageArrayContract : ContractDecl :=
                   (some (Expr.member (Expr.ident "items") "length"))) }
       , ContractItem.function
           { name := some "popEmpty"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -28910,6 +28914,7 @@ def storageDeleteContract : ContractDecl :=
             ty := Ty.mapping (Ty.uint 256) (Ty.uint 256) }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -28934,24 +28939,28 @@ def storageDeleteContract : ContractDecl :=
                         (Expr.literal (Literal.number "9"))) ]) }
       , ContractItem.function
           { name := some "deleteDynamic"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
                   (Expr.unary UnaryOp.delete (Expr.ident "items"))) }
       , ContractItem.function
           { name := some "deleteFixed"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
                   (Expr.unary UnaryOp.delete (Expr.ident "fixedItems"))) }
       , ContractItem.function
           { name := some "deleteMapping"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
                   (Expr.unary UnaryOp.delete (Expr.ident "m"))) }
       , ContractItem.function
           { name := some "deleteMappingKey"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -28961,6 +28970,7 @@ def storageDeleteContract : ContractDecl :=
                       (Expr.literal (Literal.number "4"))))) }
       , ContractItem.function
           { name := some "length"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28968,6 +28978,7 @@ def storageDeleteContract : ContractDecl :=
                   (some (Expr.member (Expr.ident "items") "length"))) }
       , ContractItem.function
           { name := some "readItem"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28978,6 +28989,7 @@ def storageDeleteContract : ContractDecl :=
                       (Expr.literal (Literal.number "0"))))) }
       , ContractItem.function
           { name := some "readFixed"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28988,6 +29000,7 @@ def storageDeleteContract : ContractDecl :=
                       (Expr.literal (Literal.number "1"))))) }
       , ContractItem.function
           { name := some "readMap"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28996,6 +29009,17 @@ def storageDeleteContract : ContractDecl :=
                     (Expr.index
                       (Expr.ident "m")
                       (Expr.literal (Literal.number "4"))))) } ] }
+
+def storageDeleteCheckedContract : ContractDecl :=
+  { storageDeleteContract with
+    name := "StorageDeleteChecked"
+    items :=
+      storageDeleteContract.items.filter
+        (fun item =>
+          match item with
+          | ContractItem.function fn =>
+              fn.name != some "deleteMapping"
+          | _ => true) }
 
 def storageDeleteWrittenState : Option CoreState := do
   let result ←
@@ -29121,6 +29145,7 @@ def storageArrayCopyContract : ContractDecl :=
             ty := Ty.array (Ty.uint 256) (some 3) }
       , ContractItem.function
           { name := some "copy"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "xs"
                   ty := Ty.array (Ty.uint 256) none
@@ -29143,6 +29168,7 @@ def storageArrayCopyContract : ContractDecl :=
                         (Expr.ident "ys")) ]) }
       , ContractItem.function
           { name := some "length"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29150,6 +29176,7 @@ def storageArrayCopyContract : ContractDecl :=
                   (some (Expr.member (Expr.ident "items") "length"))) }
       , ContractItem.function
           { name := some "readItem"
+            visibility := some Visibility.public_
             params := [{ name := some "i", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -29161,6 +29188,7 @@ def storageArrayCopyContract : ContractDecl :=
                       (Expr.ident "i")))) }
       , ContractItem.function
           { name := some "readFixed"
+            visibility := some Visibility.public_
             params := [{ name := some "i", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
