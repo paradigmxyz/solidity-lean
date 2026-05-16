@@ -889,6 +889,7 @@ structure FunctionSig where
   paramNames : List (Option Name) := []
   paramStorageRefs : List Bool := []
   returns : List Ty := []
+  returnStorageRefs : List Bool := []
   visibility : Option L00_SourceSolidity.Visibility := none
   mutability : L00_SourceSolidity.StateMutability :=
     L00_SourceSolidity.StateMutability.nonpayable
@@ -935,6 +936,7 @@ structure CheckEnv where
   ancestorPaths : List Path := []
   currentMutability : Option L00_SourceSolidity.StateMutability := none
   returnTys : List Ty := []
+  returnStorageRefs : List Bool := []
   loopDepth : Nat := 0
   inModifier : Bool := false
   inUnchecked : Bool := false
@@ -1263,6 +1265,7 @@ def FunctionDecl.signature? (fn : L00_SourceSolidity.FunctionDecl) :
           paramNames := fn.params.map L00_SourceSolidity.Parameter.name
           paramStorageRefs := Parameters.storageLocationFlags fn.params
           returns := Parameters.tys fn.returns
+          returnStorageRefs := Parameters.storageLocationFlags fn.returns
           visibility := fn.visibility
           mutability := fn.mutability }
   | _, _ => none
@@ -1284,6 +1287,7 @@ def FunctionDecl.constructorSignature? (fn : L00_SourceSolidity.FunctionDecl) :
         paramNames := fn.params.map L00_SourceSolidity.Parameter.name
         paramStorageRefs := Parameters.storageLocationFlags fn.params
         returns := []
+        returnStorageRefs := []
         visibility := none
         mutability := fn.mutability }
   else
@@ -1419,6 +1423,13 @@ def resultTyFromReturns : List Ty -> Ty
   | [] => L00_SourceSolidity.Ty.tuple []
   | [ty] => ty
   | tys => L00_SourceSolidity.Ty.tuple tys
+
+def returnStorageRefsSingle : List Ty -> List Bool -> Bool
+  | [_], [true] => true
+  | _, _ => false
+
+def FunctionSig.singleStorageRefReturn (sig : FunctionSig) : Bool :=
+  returnStorageRefsSingle sig.returns sig.returnStorageRefs
 
 def FunctionSig.sameSignature (a b : FunctionSig) : Bool :=
   a.name == b.name && a.params == b.params
@@ -1600,6 +1611,7 @@ def StateVarDecl.publicGetterFunctionSig?
           paramNames := List.replicate shape.fst.length none
           paramStorageRefs := List.replicate shape.fst.length false
           returns := shape.snd
+          returnStorageRefs := List.replicate shape.snd.length false
           visibility := some L00_SourceSolidity.Visibility.external_
           mutability := L00_SourceSolidity.StateMutability.view }
   | _ => none
@@ -1849,9 +1861,24 @@ structure CheckedExpr where
   ty : Ty
   lvalue : Bool := false
   stateLValue : Bool := false
+  storageRefs : List Bool := []
   dataLocation? : Option L00_SourceSolidity.DataLocation := none
   arraySlice : Bool := false
   deriving Repr
+
+def FunctionSig.checkedResult (sig : FunctionSig)
+    (source : L00_SourceSolidity.Expr) : CheckedExpr :=
+  let storageRef := sig.singleStorageRefReturn
+  { source := source
+    ty := resultTyFromReturns sig.returns
+    lvalue := false
+    stateLValue := storageRef
+    storageRefs := sig.returnStorageRefs
+    dataLocation? :=
+      if storageRef then
+        some L00_SourceSolidity.DataLocation.storage
+      else
+        none }
 
 def CheckedExpr.locationIsCalldata (expr : CheckedExpr) : Bool :=
   expr.dataLocation? == some L00_SourceSolidity.DataLocation.calldata
@@ -1865,7 +1892,7 @@ def CheckedExpr.expectWritableLocation (expr : CheckedExpr)
 
 def CheckedExpr.expectStorageMutationTarget (expr : CheckedExpr)
     (target : L00_SourceSolidity.Expr) : Except TypeError Unit := do
-  require expr.lvalue (TypeError.expectedLValue target)
+  require (expr.lvalue || expr.stateLValue) (TypeError.expectedLValue target)
   require
     (expr.dataLocation? == some L00_SourceSolidity.DataLocation.storage)
     (TypeError.invalidDataLocation expr.ty expr.dataLocation?)
@@ -3113,6 +3140,7 @@ def functionPointerSig? (name : Name) : Ty -> Option FunctionSig
           paramNames := List.replicate params.length none
           paramStorageRefs := List.replicate params.length false
           returns := returns
+          returnStorageRefs := List.replicate returns.length false
           visibility := some visibility
           mutability := mutability }
   | _ => none
@@ -3725,7 +3753,7 @@ def checkExpr (env : CheckEnv) :
                   Except.ok
                     { source := expr
                       ty := field.ty
-                      lvalue := baseChecked.lvalue
+                      lvalue := baseChecked.lvalue || baseChecked.stateLValue
                       stateLValue := baseChecked.stateLValue
                       dataLocation? := baseChecked.dataLocation? }
               | none =>
@@ -3740,7 +3768,7 @@ def checkExpr (env : CheckEnv) :
           indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
           Except.ok
             { source := expr, ty := L00_SourceSolidity.Ty.bytesN 1,
-              lvalue := baseChecked.lvalue
+              lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | L00_SourceSolidity.Ty.bytesN _ =>
@@ -3753,7 +3781,7 @@ def checkExpr (env : CheckEnv) :
           Except.ok
             { source := expr
               ty := element
-              lvalue := baseChecked.lvalue
+              lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | L00_SourceSolidity.Ty.mapping key value => do
@@ -3761,7 +3789,7 @@ def checkExpr (env : CheckEnv) :
           Except.ok
             { source := expr
               ty := value
-              lvalue := baseChecked.lvalue
+              lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | other => Except.error (TypeError.expectedType
@@ -3901,8 +3929,7 @@ def checkExpr (env : CheckEnv) :
                       "external function requires external call syntax")
                   requireCallMutabilityAllowed env sig.mutability
                   Except.ok
-                    { source := expr, ty := resultTyFromReturns sig.returns,
-                      lvalue := false }
+                    (sig.checkedResult expr)
               | Except.error _ =>
                   match
                       FunctionSigs.resolveContextual
@@ -3931,9 +3958,7 @@ def checkExpr (env : CheckEnv) :
                           "external function requires external call syntax")
                       requireCallMutabilityAllowed env sig.mutability
                       Except.ok
-                        { source := expr
-                          ty := resultTyFromReturns sig.returns
-                          lvalue := false }
+                        (sig.checkedResult expr)
                   | Except.error _ =>
                       match checkBuiltinIdentCall env name argInfos
                           checkedArgs with
@@ -3992,9 +4017,7 @@ def checkExpr (env : CheckEnv) :
                         "external function requires external call syntax")
                     requireCallMutabilityAllowed env sig.mutability
                     Except.ok
-                      { source := expr
-                        ty := resultTyFromReturns sig.returns
-                        lvalue := false }
+                      (sig.checkedResult expr)
                 | Except.error _ => Except.error argErr
   | expr@(L00_SourceSolidity.Expr.call
       (L00_SourceSolidity.Expr.member
@@ -4247,9 +4270,7 @@ def checkExpr (env : CheckEnv) :
                   | Except.error _ => Except.error checkedErr
             requireCallMutabilityAllowed env sig.mutability
             Except.ok
-              { source := expr
-                ty := resultTyFromReturns sig.returns
-                lvalue := false }
+              (sig.checkedResult expr)
         | targetExpr => do
             let checkUsingOrFallback : Except TypeError CheckedExpr := do
               let targetChecked ← checkExpr env targetExpr
@@ -4279,9 +4300,7 @@ def checkExpr (env : CheckEnv) :
                           | Except.error _ => Except.error checkedErr
                     requireCallMutabilityAllowed env sig.mutability
                     Except.ok
-                      { source := expr
-                        ty := resultTyFromReturns sig.returns
-                        lvalue := false }
+                      (sig.checkedResult expr)
                   match targetChecked.ty with
                   | L00_SourceSolidity.Ty.user path =>
                       if env.types.isContractPath path then
@@ -4290,9 +4309,7 @@ def checkExpr (env : CheckEnv) :
                         | Except.ok sig => do
                             requireCallMutabilityAllowed env sig.mutability
                             Except.ok
-                              { source := expr
-                                ty := resultTyFromReturns sig.returns
-                                lvalue := false }
+                              (sig.checkedResult expr)
                         | Except.error _ =>
                             match
                                 checkContractMemberCallArgsContextualForPath
@@ -4300,9 +4317,7 @@ def checkExpr (env : CheckEnv) :
                             | Except.ok (sig, _) => do
                                 requireCallMutabilityAllowed env sig.mutability
                                 Except.ok
-                                  { source := expr
-                                    ty := resultTyFromReturns sig.returns
-                                    lvalue := false }
+                                  (sig.checkedResult expr)
                             | Except.error _ => checkUsingCall
                       else
                         checkUsingCall
@@ -4332,9 +4347,7 @@ def checkExpr (env : CheckEnv) :
                         | Except.error _ => Except.error checkedErr
                   requireCallMutabilityAllowed env sig.mutability
                   Except.ok
-                    { source := expr
-                      ty := resultTyFromReturns sig.returns
-                      lvalue := false }
+                    (sig.checkedResult expr)
                 else
                   match env.lookupVar? libraryName,
                       env.types.lookupContractDecl?
@@ -4355,9 +4368,7 @@ def checkExpr (env : CheckEnv) :
                               | Except.error _ => Except.error checkedErr
                         requireCallMutabilityAllowed env sig.mutability
                         Except.ok
-                          { source := expr
-                            ty := resultTyFromReturns sig.returns
-                            lvalue := false }
+                          (sig.checkedResult expr)
                       else
                         checkUsingOrFallback
                   | _, _ => checkUsingOrFallback
@@ -4549,8 +4560,7 @@ def checkExpr (env : CheckEnv) :
               "external function requires external call syntax")
           requireCallMutabilityAllowed env sig.mutability
           Except.ok
-            { source := expr, ty := resultTyFromReturns sig.returns,
-              lvalue := false }
+            (sig.checkedResult expr)
   | expr@(L00_SourceSolidity.Expr.callWithOptions
       (L00_SourceSolidity.Expr.member
         (L00_SourceSolidity.Expr.ident "super") member) options args) => do
@@ -4577,9 +4587,7 @@ def checkExpr (env : CheckEnv) :
             | Except.error _ => Except.error checkedErr
       requireCallMutabilityAllowed env sig.mutability
       Except.ok
-        { source := expr
-          ty := resultTyFromReturns sig.returns
-          lvalue := false }
+        (sig.checkedResult expr)
   | L00_SourceSolidity.Expr.callWithOptions
       (L00_SourceSolidity.Expr.member target member) options args => do
       let expr :=
@@ -4673,9 +4681,7 @@ def checkExpr (env : CheckEnv) :
                 requireCallMutabilityAllowed env sig.mutability
                 requireValueOptionAllowed sig.mutability options
                 Except.ok
-                  { source := expr
-                    ty := resultTyFromReturns sig.returns
-                    lvalue := false }
+                  (sig.checkedResult expr)
             | _ =>
                 match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
                     env.vars expr with
@@ -5830,6 +5836,39 @@ def checkTupleItemValuesContextuallyAssignableTo (env : CheckEnv) :
         (TypeError.arityMismatch
           "tuple expression" expected.length actual.length)
 
+def checkExprAssignableToStorageRefFlag (env : CheckEnv)
+    (expr : L00_SourceSolidity.Expr) (expected : Ty)
+    (needsStorageRef : Bool) : Except TypeError Unit := do
+  checkExprAssignableTo env expr expected
+  if needsStorageRef then
+    let checked ← checkExpr env expr
+    require checked.stateLValue
+      (TypeError.invalidDataLocation expected
+        (some L00_SourceSolidity.DataLocation.storage))
+  else
+    Except.ok ()
+
+def checkTupleItemValuesContextuallyAssignableToWithStorageRefs
+    (env : CheckEnv) :
+    List L00_SourceSolidity.TupleItem -> List Ty -> List Bool ->
+    Except TypeError Unit
+  | [], [], _ => Except.ok ()
+  | L00_SourceSolidity.TupleItem.value expr :: rest,
+      ty :: tyRest, storageRef :: storageRest => do
+      checkExprAssignableToStorageRefFlag env expr ty storageRef
+      checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
+        tyRest storageRest
+  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest, [] => do
+      checkExprAssignableToStorageRefFlag env expr ty false
+      checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
+        tyRest []
+  | L00_SourceSolidity.TupleItem.hole :: _, _, _ =>
+      Except.error (TypeError.unsupported "tuple hole in value position")
+  | actual, expected, _ =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple expression" expected.length actual.length)
+
 def constantBuiltinIdentCallAllowed (name : Name) : Bool :=
   name == "keccak256" || name == "sha256" || name == "ripemd160" ||
     name == "ecrecover" || name == "addmod" || name == "mulmod" ||
@@ -6018,28 +6057,56 @@ def checkReturnExprs (env : CheckEnv)
   | none, [] => Except.ok ()
   | none, expected =>
       Except.error (TypeError.returnArityMismatch expected.length 0)
-  | some expr, [expected] => checkExprAssignableTo env expr expected
+  | some expr, [expected] =>
+      checkExprAssignableToStorageRefFlag env expr expected
+        (returnStorageRefsSingle [expected] env.returnStorageRefs)
   | some (L00_SourceSolidity.Expr.tuple items), expected =>
-      checkTupleItemValuesContextuallyAssignableTo env items expected
+      checkTupleItemValuesContextuallyAssignableToWithStorageRefs env items
+        expected env.returnStorageRefs
   | some expr, expected => do
       let checked ← checkExpr env expr
       match checked.ty with
       | L00_SourceSolidity.Ty.tuple actual =>
           require (sameLength actual expected)
             (TypeError.returnArityMismatch expected.length actual.length)
-          let rec checkTuple : List Ty -> List Ty -> Except TypeError Unit
-            | [], [] => Except.ok ()
-            | actualTy :: actualRest, expectedTy :: expectedRest => do
+          let rec checkTuple :
+              List Ty -> List Bool -> List Ty -> List Bool ->
+              Except TypeError Unit
+            | [], _, [], _ => Except.ok ()
+            | actualTy :: actualRest, actualStorage :: actualStorageRest,
+                expectedTy :: expectedRest,
+                expectedStorage :: expectedStorageRest => do
                 require
                   (TypeContext.canImplicitlyConvert env.types actualTy
                     expectedTy)
                   (TypeError.expectedType expectedTy actualTy)
-                checkTuple actualRest expectedRest
-            | actualRest, expectedRest =>
+                require (!expectedStorage || actualStorage)
+                  (TypeError.invalidDataLocation expectedTy
+                    (some L00_SourceSolidity.DataLocation.storage))
+                checkTuple actualRest actualStorageRest expectedRest
+                  expectedStorageRest
+            | actualTy :: actualRest, [], expectedTy :: expectedRest,
+                expectedStorage :: expectedStorageRest => do
+                require
+                  (TypeContext.canImplicitlyConvert env.types actualTy
+                    expectedTy)
+                  (TypeError.expectedType expectedTy actualTy)
+                require (!expectedStorage)
+                  (TypeError.invalidDataLocation expectedTy
+                    (some L00_SourceSolidity.DataLocation.storage))
+                checkTuple actualRest [] expectedRest expectedStorageRest
+            | actualTy :: actualRest, _ :: actualStorageRest,
+                expectedTy :: expectedRest, [] => do
+                require
+                  (TypeContext.canImplicitlyConvert env.types actualTy
+                    expectedTy)
+                  (TypeError.expectedType expectedTy actualTy)
+                checkTuple actualRest actualStorageRest expectedRest []
+            | actualRest, _, expectedRest, _ =>
                 Except.error
                   (TypeError.returnArityMismatch
                     expectedRest.length actualRest.length)
-          checkTuple actual expected
+          checkTuple actual checked.storageRefs expected env.returnStorageRefs
       | _ =>
           Except.error (TypeError.returnArityMismatch expected.length 1)
 
@@ -6321,12 +6388,47 @@ def checkVarBindingsAssignableToTys (env : CheckEnv) :
       Except.error
         (TypeError.returnArityMismatch expected.length actual.length)
 
+def checkVarBindingsAssignableToTysWithStorageRefs (env : CheckEnv) :
+    List L00_SourceSolidity.VarBinding -> List Ty -> List Bool ->
+    Except TypeError Unit
+  | [], [], _ => Except.ok ()
+  | binding :: bindingRest, actualTy :: actualRest,
+      actualStorageRef :: storageRest => do
+      if VarBinding.isAnonymousUntyped binding then
+        checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
+          actualRest storageRest
+      else
+        let expectedTy ← VarBinding.checkType env binding
+        require (TypeContext.canImplicitlyConvert env.types actualTy expectedTy)
+          (TypeError.expectedType expectedTy actualTy)
+        require
+          (!VarBinding.isStorageRef env.types binding || actualStorageRef)
+          (TypeError.invalidDataLocation expectedTy binding.location)
+        checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
+          actualRest storageRest
+  | binding :: bindingRest, actualTy :: actualRest, [] => do
+      if VarBinding.isAnonymousUntyped binding then
+        checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
+          actualRest []
+      else
+        let expectedTy ← VarBinding.checkType env binding
+        require (TypeContext.canImplicitlyConvert env.types actualTy expectedTy)
+          (TypeError.expectedType expectedTy actualTy)
+        require (!VarBinding.isStorageRef env.types binding)
+          (TypeError.invalidDataLocation expectedTy binding.location)
+        checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
+          actualRest []
+  | expected, actual, _ =>
+      Except.error
+        (TypeError.returnArityMismatch expected.length actual.length)
+
 def checkVarBindingsAssignableToChecked (env : CheckEnv)
     (bindings : List L00_SourceSolidity.VarBinding)
     (checked : CheckedExpr) : Except TypeError Unit :=
   match checked.ty with
   | L00_SourceSolidity.Ty.tuple actual =>
-      checkVarBindingsAssignableToTys env bindings actual
+      checkVarBindingsAssignableToTysWithStorageRefs env bindings actual
+        checked.storageRefs
   | _ =>
       Except.error
         (TypeError.returnArityMismatch bindings.length 1)
@@ -6524,15 +6626,8 @@ def checkStmt (env : CheckEnv) :
                   VarBindings.checkStorageRefTupleInitializers env bindings
                     items
               | _ =>
-                  require (!VarBindings.anyStorageRef env.types bindings)
-                    (TypeError.unsupported
-                      "storage reference tuple return binding")
                   let checked ← checkExpr env init
-                  if VarBindings.anyAnonymousUntyped bindings then
-                    checkVarBindingsAssignableToChecked env bindings checked
-                  else
-                    let expected ← VarBindings.tys env bindings
-                    checked.expectAssignableToTys env.types expected
+                  checkVarBindingsAssignableToChecked env bindings checked
       Except.ok { source := stmt }
   | stmt@(L00_SourceSolidity.Stmt.expr
       (L00_SourceSolidity.Expr.call
@@ -7771,7 +7866,8 @@ def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
                     if entry.2.2 then some entry.1 else none)) ++
                   env.localStorageRefs
               localDataLocations := dataLocations ++ env.localDataLocations
-              returnTys := [] }
+              returnTys := []
+              returnStorageRefs := [] }
           let _ ← checkStmt modifierEnv body
           Except.ok ()
 
@@ -7829,6 +7925,7 @@ def FunctionDecl.check (baseEnv : CheckEnv)
       localDataLocations := dataLocations ++ baseEnv.localDataLocations
       currentMutability := some fn.mutability
       returnTys := Parameters.tys fn.returns
+      returnStorageRefs := Parameters.storageLocationFlags fn.returns
       inConstructor := fn.kind == L00_SourceSolidity.FunctionKind.constructor }
   ModifierInvocations.check env
     (fn.kind == L00_SourceSolidity.FunctionKind.constructor)
@@ -9312,6 +9409,173 @@ def storageAliasSource : L00_SourceSolidity.SourceUnit :=
 
 def storageAliasAccepted : Bool :=
   sourceUnitAccepted? storageAliasSource
+
+def storageReturnGetterFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "getArr"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.view
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.storage } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "arr"))) }
+
+def storageReturnSingleBindingFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "bindReturnedStorage"
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.storage } ]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "getArr") []))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "local") "push")
+                [L00_SourceSolidity.Arg.positional (numberExpr "1")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "local") "length")) ]) }
+
+def storageReturnTupleFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "getArrAndValue"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.view
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.storage }
+      , { name := none
+          ty := uint256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.tuple
+              [ L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.ident "arr")
+              , L00_SourceSolidity.TupleItem.value (numberExpr "1") ]))) }
+
+def storageReturnTupleBindingFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "bindReturnedStorageTuple"
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.storage }
+              , { name := some "value"
+                  ty := some uint256
+                  location := none } ]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "getArrAndValue") []))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "local") "push")
+                [L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "value")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "local") "length")) ]) }
+
+def storageReturnDirectMutationFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "mutateReturnedStorage"
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "getArr") []) "push")
+                [L00_SourceSolidity.Arg.positional (numberExpr "1")])
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.index
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "getArr") [])
+                  (numberExpr "0"))
+                L00_SourceSolidity.AssignOp.assign
+                (numberExpr "2"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def storageReturnBindingSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "StorageReturnBinding"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "arr", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  storageReturnGetterFunction
+              , L00_SourceSolidity.ContractItem.function
+                  storageReturnSingleBindingFunction
+              , L00_SourceSolidity.ContractItem.function
+                  storageReturnTupleFunction
+              , L00_SourceSolidity.ContractItem.function
+                  storageReturnTupleBindingFunction
+              , L00_SourceSolidity.ContractItem.function
+                  storageReturnDirectMutationFunction ] } ] }
+
+def storageReturnBindingAccepted : Bool :=
+  sourceUnitAccepted? storageReturnBindingSource
+
+def memoryToStorageReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadStorageReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { storageReturnGetterFunction with
+                    name := some "badStorageReturn"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "local"
+                                  ty := some uintArrayTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.memory } ]
+                              (some
+                                (L00_SourceSolidity.Expr.newExpr uintArrayTy
+                                  [ L00_SourceSolidity.Arg.positional
+                                      (numberExpr "1") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "local")) ]) } ] } ] }
+
+def memoryToStorageReturnRejected : Bool :=
+  Result.isError (SourceUnit.check memoryToStorageReturnSource)
 
 def uninitializedStorageAliasSource : L00_SourceSolidity.SourceUnit :=
   { items :=
