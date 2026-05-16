@@ -11085,6 +11085,22 @@ def checkedTupleLocalBindingDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit badTupleAssignmentTargetSource)
 
+def checkedMappingDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit mappingReadSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit deleteMappingValueSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit userValueMappingKeySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit signedMappingKeySource)
+
+def checkedMappingDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit deleteMappingVariableSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badMappingIndexSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
