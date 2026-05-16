@@ -3613,13 +3613,20 @@ def checkExpr (env : CheckEnv) :
       | L00_SourceSolidity.Ty.user path =>
           match env.types.lookupEnum? path with
           | some enumDecl =>
-              require (EnumDecl.hasCase enumDecl member)
-                (TypeError.unsupported ("member " ++ member))
-              Except.ok
-                { source := expr
-                  ty := ty
-                  lvalue := false
-                  stateLValue := false }
+              if member == "min" || member == "max" then
+                Except.ok
+                  { source := expr
+                    ty := ty
+                    lvalue := false
+                    stateLValue := false }
+              else
+                require (EnumDecl.hasCase enumDecl member)
+                  (TypeError.unsupported ("member " ++ member))
+                Except.ok
+                  { source := expr
+                    ty := ty
+                    lvalue := false
+                    stateLValue := false }
           | none =>
               match env.types.lookupContractDecl? path with
               | some contractDecl =>
@@ -11018,6 +11025,40 @@ def badEnumMemberSource : L00_SourceSolidity.SourceUnit :=
 
 def badEnumMemberRejected : Bool :=
   Result.isError (SourceUnit.check badEnumMemberSource)
+
+def enumMinMemberFunction : L00_SourceSolidity.FunctionDecl :=
+  { enumMemberFunction with
+    name := some "minimum"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.typeName colorTy) "min"))) }
+
+def enumMaxMemberFunction : L00_SourceSolidity.FunctionDecl :=
+  { enumMemberFunction with
+    name := some "maximum"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.typeName colorTy) "max"))) }
+
+def enumMinMaxSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEnum colorEnum
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "EnumMinMax"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  enumMinMemberFunction
+              , L00_SourceSolidity.ContractItem.function
+                  enumMaxMemberFunction ] } ] }
+
+def enumMinMaxAccepted : Bool :=
+  sourceUnitAccepted? enumMinMaxSource
 
 def enumConversionFunction (name : Name)
     (inner : L00_SourceSolidity.Expr) : L00_SourceSolidity.FunctionDecl :=
