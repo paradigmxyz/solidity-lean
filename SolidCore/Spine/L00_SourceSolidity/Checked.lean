@@ -10728,6 +10728,220 @@ def checkedTryCatchDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit duplicateLowLevelCatchSource)
 
+def checkedContextualArrayDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayLiteralArgSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayLiteralArgSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualUsingArrayLiteralArgSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualUsingNamedArrayLiteralArgSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayTupleReturnSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTupleAssignmentSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayAssignmentSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryAssignmentSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayTernaryLocalSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayTernaryReturnSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayTernaryArgSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayStructConstructorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayStructConstructorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayLiteralEventSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayLiteralEventSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayLiteralErrorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayLiteralErrorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralRequireErrorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayConstructorCreateSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayConstructorCreateSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayConstructorSaltedCreateSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayBaseSpecifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayBaseModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayAbiEncodeCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryAbiEncodeCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalMemberCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalMemberCallWithOptionsSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalMemberNamedCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTryExternalMemberCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalFunctionValueCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalFunctionValueCallWithOptionsSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTryExternalFunctionValueCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayDirectLibraryCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayDirectLibraryNamedCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArrayExplicitBaseCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExplicitBaseNamedCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArraySuperCallSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit contextualArraySuperNamedCallSource)
+
+def checkedContextualArrayDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralArgOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayLiteralArgOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualUsingArrayLiteralArgOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualUsingNamedArrayLiteralArgOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTupleReturnOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTupleAssignmentOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayAssignmentOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryAssignmentOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryLocalOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryReturnOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryArgOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayStructConstructorOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayStructConstructorOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralEventOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayLiteralEventOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralErrorOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayLiteralErrorOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralRequireErrorOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayLiteralModifierOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayConstructorCreateOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualNamedArrayConstructorCreateOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayBaseSpecifierOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayBaseModifierOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayAbiEncodeCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTernaryAbiEncodeCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalMemberCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalMemberNamedCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTryExternalMemberCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExternalFunctionValueCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayTryExternalFunctionValueCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayDirectLibraryCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayDirectLibraryNamedCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExplicitBaseCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArrayExplicitBaseNamedCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArraySuperCallOverflowSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        contextualArraySuperNamedCallOverflowSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
