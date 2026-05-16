@@ -37294,6 +37294,7 @@ def usingMethodContract : ContractDecl :=
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37308,6 +37309,7 @@ def usingDirectContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37322,6 +37324,7 @@ def usingSourceLevelContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37340,6 +37343,7 @@ def usingStorageContract : ContractDecl :=
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "bump"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -37354,6 +37358,7 @@ def usingNamedMethodContract : ContractDecl :=
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37374,6 +37379,7 @@ def usingExplicitFunctionContract : ContractDecl :=
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37405,6 +37411,7 @@ def usingExplicitFreeFunctionContract : ContractDecl :=
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37419,6 +37426,7 @@ def usingNamedDirectContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -37583,6 +37591,7 @@ def usingHigherOrderContract : ContractDecl :=
                       (Expr.literal (Literal.number "2"))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             mutability := StateMutability.pure
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
@@ -37595,6 +37604,7 @@ def usingHigherOrderContract : ContractDecl :=
                       [Arg.positional (Expr.ident "double")]))) }
       , ContractItem.function
           { name := some "runNamed"
+            visibility := some Visibility.public_
             mutability := StateMutability.pure
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
@@ -37663,6 +37673,7 @@ def globalUsingPriceContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "raw", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37684,6 +37695,7 @@ def globalUsingPriceContract : ContractDecl :=
                                 []) ])) ]) }
       , ContractItem.function
           { name := some "runLocal"
+            visibility := some Visibility.public_
             params := [{ name := some "raw", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -37707,6 +37719,7 @@ def globalUsingPriceContract : ContractDecl :=
                   , Stmt.returnValues (some (Expr.ident "bumped")) ]) }
       , ContractItem.function
           { name := some "runAssign"
+            visibility := some Visibility.public_
             params := [{ name := some "raw", ty := Ty.uint 256 }]
             returns := [{ name := none, ty := Ty.uint 256 }]
             body :=

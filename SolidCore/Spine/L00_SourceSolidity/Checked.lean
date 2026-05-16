@@ -8217,6 +8217,107 @@ def checkedUsingNamedDirectCallMatches :
     "CheckedUsingNamedDirect" "run"
     SolidCore.Solidity.Source.State.empty [] 42
 
+def checkedCanonicalUsingLibraryUnitsAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.usingLibraryUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.usingHigherOrderUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.globalUsingPriceUnit)
+
+def checkedCanonicalUsingLibraryMethodMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingMethod" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 41] 42
+
+def checkedCanonicalUsingLibraryDirectCallMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingDirect" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 11] 12
+
+def checkedCanonicalUsingSourceLevelMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingSourceLevel" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 6] 7
+
+def checkedCanonicalUsingStorageReceiverMatches :
+    Except TypeError Bool :=
+  checkedCallSlotMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingStorage" "bump"
+    (SolidCore.Solidity.Source.State.empty.storeSlot 0 9)
+    [] 0 10
+
+def checkedCanonicalUsingNamedMethodMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingNamedMethod" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 4] 42
+
+def checkedCanonicalUsingExplicitFunctionMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingExplicitFunction" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 4] 42
+
+def checkedCanonicalUsingExplicitFreeFunctionMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingExplicitFreeFunction" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 8] 9
+
+def checkedCanonicalUsingNamedDirectCallMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.usingLibraryUnit
+    "UsingNamedDirect" "run"
+    SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedCanonicalUsingHigherOrderFunctionPointerMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 64 Executable.Examples.usingHigherOrderUnit
+    "UsingHigherOrder" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 21] 42
+
+def checkedCanonicalUsingHigherOrderNamedFunctionPointerMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 64 Executable.Examples.usingHigherOrderUnit
+    "UsingHigherOrder" "runNamed"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 21] 42
+
+def checkedCanonicalGlobalUsingPriceMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48 Executable.Examples.globalUsingPriceUnit
+    "GlobalUsingPrice" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 41] 42
+
+def checkedCanonicalGlobalUsingPriceLocalMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48 Executable.Examples.globalUsingPriceUnit
+    "GlobalUsingPrice" "runLocal"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 9] 10
+
+def checkedCanonicalGlobalUsingPriceAssignMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48 Executable.Examples.globalUsingPriceUnit
+    "GlobalUsingPrice" "runAssign"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 17] 18
+
 def checkedUsingHigherOrderFunctionPointerMatches :
     Except TypeError Bool :=
   checkedCallWordMatches 64 usingHigherOrderFunctionSource

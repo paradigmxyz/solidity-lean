@@ -925,6 +925,7 @@ structure FunctionSig where
   visibility : Option L00_SourceSolidity.Visibility := none
   mutability : L00_SourceSolidity.StateMutability :=
     L00_SourceSolidity.StateMutability.nonpayable
+  origin : Option Path := none
   deriving Repr
 
 structure ModifierSig where
@@ -1466,6 +1467,25 @@ def FunctionSig.singleStorageRefReturn (sig : FunctionSig) : Bool :=
 def FunctionSig.sameSignature (a b : FunctionSig) : Bool :=
   a.name == b.name && a.params == b.params
 
+def FunctionSig.sameResolutionTarget (a b : FunctionSig) : Bool :=
+  a.name == b.name &&
+    a.params == b.params &&
+    a.paramNames == b.paramNames &&
+    a.paramStorageRefs == b.paramStorageRefs &&
+    a.returns == b.returns &&
+    a.returnStorageRefs == b.returnStorageRefs &&
+    a.visibility == b.visibility &&
+    a.mutability == b.mutability &&
+    a.origin == b.origin
+
+def FunctionSig.withOrigin (origin : Path) (sig : FunctionSig) :
+    FunctionSig :=
+  { sig with origin := some origin }
+
+def FunctionSig.withLibraryOrigin
+    (library : Path) (sig : FunctionSig) : FunctionSig :=
+  { sig with origin := some { segments := library.segments ++ [sig.name] } }
+
 def FunctionSig.externallyCallable (sig : FunctionSig) : Bool :=
   sig.visibility == some L00_SourceSolidity.Visibility.public_ ||
     sig.visibility == some L00_SourceSolidity.Visibility.external_
@@ -1511,7 +1531,11 @@ def FunctionSigs.resolveLoop (target : Name) (args : List ArgInfo) :
       if sig.name == target && sig.matchesArgs args then
         match found? with
         | none => FunctionSigs.resolveLoop target args (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
+        | some found =>
+            if FunctionSig.sameResolutionTarget found sig then
+              FunctionSigs.resolveLoop target args (some found) rest
+            else
+              Except.error (TypeError.ambiguousFunction target)
       else
         FunctionSigs.resolveLoop target args found? rest
 
@@ -1619,6 +1643,18 @@ def nonPrivate : List FunctionSig -> List FunctionSig
         sig :: nonPrivate rest
       else
         nonPrivate rest
+
+def withOrigin (origin : Path) : List FunctionSig -> List FunctionSig
+  | [] => []
+  | sig :: rest =>
+      FunctionSig.withOrigin origin sig :: withOrigin origin rest
+
+def withLibraryOrigin
+    (library : Path) : List FunctionSig -> List FunctionSig
+  | [] => []
+  | sig :: rest =>
+      FunctionSig.withLibraryOrigin library sig ::
+        withLibraryOrigin library rest
 
 end FunctionSigs
 
@@ -2245,7 +2281,11 @@ def resolveCheckedLoop (types : TypeContext)
       if sig.name == target && sig.matchesCheckedArgs types args then
         match found? with
         | none => resolveCheckedLoop types target args (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
+        | some found =>
+            if FunctionSig.sameResolutionTarget found sig then
+              resolveCheckedLoop types target args (some found) rest
+            else
+              Except.error (TypeError.ambiguousFunction target)
       else
         resolveCheckedLoop types target args found? rest
 
@@ -2412,8 +2452,9 @@ def UsingFunction.memberCandidates (env : CheckEnv)
         if libraryPath.segments.isEmpty then
           Except.ok
             (FunctionSigs.usingMemberCandidates env.types receiver member
-              ((FunctionSigs.nonPrivate env.functions).filter
-                (fun sig => sig.name == functionName)))
+              (FunctionSigs.withOrigin binding.function
+                ((FunctionSigs.nonPrivate env.functions).filter
+                  (fun sig => sig.name == functionName))))
         else
           let libraryDecl ←
             match env.types.lookupContractDecl? libraryPath with
@@ -2423,9 +2464,10 @@ def UsingFunction.memberCandidates (env : CheckEnv)
             (TypeError.invalidContractHeader "using target is not a library")
           Except.ok
             (FunctionSigs.usingMemberCandidates env.types receiver member
-              ((FunctionSigs.nonPrivate
-                (ContractDecl.directFunctionSigs libraryDecl)).filter
-                  (fun sig => sig.name == functionName)))
+              (FunctionSigs.withOrigin binding.function
+                ((FunctionSigs.nonPrivate
+                  (ContractDecl.directFunctionSigs libraryDecl)).filter
+                    (fun sig => sig.name == functionName))))
       else
         Except.ok []
 
@@ -2450,6 +2492,48 @@ def UsingDecl.appliesToBinaryOperands
   match decl.target with
   | some targetTy => lhsTy == targetTy || rhsTy == targetTy
   | none => true
+
+def UsingFunction.same (a b : L00_SourceSolidity.UsingFunction) : Bool :=
+  a.function == b.function && a.operator? == b.operator?
+
+def UsingFunctions.same :
+    List L00_SourceSolidity.UsingFunction ->
+      List L00_SourceSolidity.UsingFunction -> Bool
+  | [], [] => true
+  | a :: restA, b :: restB =>
+      UsingFunction.same a b && UsingFunctions.same restA restB
+  | _, _ => false
+
+def UsingDecl.same
+    (a b : L00_SourceSolidity.UsingDecl) : Bool :=
+  a.library == b.library &&
+    UsingFunctions.same a.functions b.functions &&
+    a.target == b.target &&
+    a.global == b.global
+
+namespace UsingDecls
+
+def containsSame (target : L00_SourceSolidity.UsingDecl) :
+    List L00_SourceSolidity.UsingDecl -> Bool
+  | [] => false
+  | decl :: rest =>
+      UsingDecl.same target decl || containsSame target rest
+
+def dedupAux (seen : List L00_SourceSolidity.UsingDecl) :
+    List L00_SourceSolidity.UsingDecl ->
+      List L00_SourceSolidity.UsingDecl
+  | [] => []
+  | decl :: rest =>
+      if containsSame decl seen then
+        dedupAux seen rest
+      else
+        decl :: dedupAux (decl :: seen) rest
+
+def dedup (decls : List L00_SourceSolidity.UsingDecl) :
+    List L00_SourceSolidity.UsingDecl :=
+  dedupAux [] decls
+
+end UsingDecls
 
 def BinaryOp.userDefinedOperatorResultTy? (targetTy : Ty) :
     L00_SourceSolidity.BinaryOp -> Option Ty
@@ -2545,11 +2629,12 @@ def UsingFunction.binaryOperatorCandidates (env : CheckEnv)
           | none => Except.error (TypeError.unknownFunction "operator")
         if libraryPath.segments.isEmpty then
           Except.ok
-            ((FunctionSigs.nonPrivate env.functions).filter
-              (fun sig =>
-                sig.name == functionName &&
-                  sig.matchesUserDefinedBinaryOperator
-                    env.types targetTy op lhs rhs))
+            ((FunctionSigs.withOrigin binding.function
+              (FunctionSigs.nonPrivate env.functions)).filter
+                (fun sig =>
+                  sig.name == functionName &&
+                    sig.matchesUserDefinedBinaryOperator
+                      env.types targetTy op lhs rhs))
         else
           Except.ok []
       else
@@ -2584,11 +2669,12 @@ def UsingFunction.unaryOperatorCandidates (env : CheckEnv)
           | none => Except.error (TypeError.unknownFunction "operator")
         if libraryPath.segments.isEmpty then
           Except.ok
-            ((FunctionSigs.nonPrivate env.functions).filter
-              (fun sig =>
-                sig.name == functionName &&
-                  sig.matchesUserDefinedUnaryOperator
-                    env.types targetTy op operand))
+            ((FunctionSigs.withOrigin binding.function
+              (FunctionSigs.nonPrivate env.functions)).filter
+                (fun sig =>
+                  sig.name == functionName &&
+                    sig.matchesUserDefinedUnaryOperator
+                      env.types targetTy op operand))
         else
           Except.ok []
       else
@@ -2669,8 +2755,9 @@ def UsingDecl.memberCandidates (env : CheckEnv)
         (TypeError.invalidContractHeader "using target is not a library")
       Except.ok
         (FunctionSigs.usingMemberCandidates env.types receiver member
-          (FunctionSigs.nonPrivate
-            (ContractDecl.directFunctionSigs libraryDecl)))
+          (FunctionSigs.withLibraryOrigin decl.library
+            (FunctionSigs.nonPrivate
+              (ContractDecl.directFunctionSigs libraryDecl))))
     else
       UsingFunctions.memberCandidates env receiver member decl.functions
   else
@@ -3420,7 +3507,11 @@ def resolveContextualLoop (env : CheckEnv)
       if sig.name == target && sig.contextuallyMatchesArgs env args then
         match found? with
         | none => resolveContextualLoop env target args (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
+        | some found =>
+            if FunctionSig.sameResolutionTarget found sig then
+              resolveContextualLoop env target args (some found) rest
+            else
+              Except.error (TypeError.ambiguousFunction target)
       else
         resolveContextualLoop env target args found? rest
 
@@ -8753,7 +8844,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       functions := functionSigs ++ sourceFunctions
       modifiers := modifierSigs
       modifierDecls := modifiers
-      usingDecls := usingDecls ++ sourceUsingDecls
+      usingDecls := UsingDecls.dedup (usingDecls ++ sourceUsingDecls)
       errors := errorSigs ++ visibleSourceErrors
       events := eventSigs ++ visibleSourceEvents
       contractKind := some contract.kind
