@@ -1202,6 +1202,12 @@ def checkedDecodeLowLevelReturn (value : CoreValue) :
   optionToExcept "low-level return decode"
     (Executable.CoreValue.asLowLevelReturn? value)
 
+def checkedAbiEncodeValues
+    (tys : List SolidCore.Solidity.Source.Ty)
+    (values : List CoreValue) : Except TypeError (List Byte) :=
+  optionToExcept "ABI encode values"
+    (SolidCore.Solidity.Source.ABI.encodeValues? tys values)
+
 def checkedProgramCommonLayerMatches : Except TypeError Bool := do
   let program ← SourceUnit.checkedProgram simpleSource
   let _core ← CheckedProgram.toCoreContract program "C"
@@ -2253,6 +2259,335 @@ def checkedPrecompileStaticcallMatches :
           SolidCore.Solidity.Source.wordEq success 1 &&
           output == expectedOutput)
   | _ => Except.ok false
+
+def checkedCreatedChildTy : Ty :=
+  Ty.user { segments := ["CheckedCreatedChild"] }
+
+def checkedCreatedChildContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedCreatedChild"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          (seedConstructor StateMutability.nonpayable) ] }
+
+def checkedNamedCreatedChildTy : Ty :=
+  Ty.user { segments := ["CheckedNamedCreatedChild"] }
+
+def checkedNamedCreatedChildContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedNamedCreatedChild"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { kind := FunctionKind.constructor
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            mutability := StateMutability.payable
+            body := some L00_SourceSolidity.Stmt.empty } ] }
+
+def checkedContractCreationCaller :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedCreateCaller"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "make"
+            visibility := some Visibility.public_
+            params := [{ name := some "seed", ty := Ty.uint 256 }]
+            returns :=
+              [{ name := some "created", ty := checkedCreatedChildTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.newExpr
+                      checkedCreatedChildTy
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "seed")]))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "makeNamed"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns :=
+              [{ name := some "created", ty := checkedNamedCreatedChildTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.newExpr
+                      checkedNamedCreatedChildTy
+                      [ L00_SourceSolidity.Arg.named "bonus"
+                          (L00_SourceSolidity.Expr.ident "bonus")
+                      , L00_SourceSolidity.Arg.named "amount"
+                          (L00_SourceSolidity.Expr.ident "amount") ]))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "makeNamedSalted"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 }
+              , { name := some "payment", ty := Ty.uint 256 }
+              , { name := some "salt", ty := Ty.bytesN 32 } ]
+            returns :=
+              [{ name := some "created", ty := checkedNamedCreatedChildTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.callWithOptions
+                      (L00_SourceSolidity.Expr.newExpr
+                        checkedNamedCreatedChildTy [])
+                      [ L00_SourceSolidity.CallOption.named "value"
+                          (L00_SourceSolidity.Expr.ident "payment")
+                      , L00_SourceSolidity.CallOption.named "salt"
+                          (L00_SourceSolidity.Expr.ident "salt") ]
+                      [ L00_SourceSolidity.Arg.named "bonus"
+                          (L00_SourceSolidity.Expr.ident "bonus")
+                      , L00_SourceSolidity.Arg.named "amount"
+                          (L00_SourceSolidity.Expr.ident "amount") ]))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "makeFailure"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "1")))
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.newExpr
+                        checkedCreatedChildTy
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.number "7"))])
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "2"))) ]) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "tryMake"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.tryCatch
+                      (L00_SourceSolidity.Expr.newExpr
+                        checkedCreatedChildTy
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.number "7"))])
+                      [ L00_SourceSolidity.CatchClause.clause none []
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number
+                                  "0")))) ]
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "1"))) ]) } ] }
+
+def checkedContractCreationSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          checkedCreatedChildContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedNamedCreatedChildContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedContractCreationCaller ] }
+
+def checkedContractCreationMatches : Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "make"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedCreatedChild"
+              constructorArgs := constructorArgs
+              success := true
+              address := 0xc0de } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 7]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq address 0xc0de)
+  | _ => Except.ok false
+
+def checkedContractCreationNamedArgsMatches :
+    Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "makeNamed"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedNamedCreatedChild"
+              constructorArgs := constructorArgs
+              success := true
+              address := 0xc0de } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq address 0xc0de)
+  | _ => Except.ok false
+
+def checkedContractCreationValueSaltMatches :
+    Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "makeNamedSalted"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedNamedCreatedChild"
+              constructorArgs := constructorArgs
+              value := 5
+              salt? := some 0x1234
+              success := true
+              address := 0xcafe } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2
+      , SolidCore.Solidity.Source.Value.word 5
+      , SolidCore.Solidity.Source.Value.word 0x1234 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq address 0xcafe)
+  | _ => Except.ok false
+
+def checkedContractCreationFailureReverts :
+    Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "makeFailure"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedCreatedChild"
+              constructorArgs := constructorArgs
+              success := false
+              output := [0xca, 0xfe] } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      (SolidCore.Solidity.Source.RevertData.raw bytes) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+          bytes == [0xca, 0xfe])
+  | _ => Except.ok false
+
+def checkedContractCreationMissingResultReverts :
+    Except TypeError Bool := do
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "make"
+      contract.core.context
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 7]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      SolidCore.Solidity.Source.RevertData.empty =>
+      Except.ok true
+  | _ => Except.ok false
+
+def checkedTryCatchContractCreationSuccessMatches :
+    Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "tryMake"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedCreatedChild"
+              constructorArgs := constructorArgs
+              success := true
+              address := 0xc0de } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 1)
+  | _ => Except.ok false
+
+def checkedTryCatchContractCreationFailureMatches :
+    Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "tryMake"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedCreatedChild"
+              constructorArgs := constructorArgs
+              success := false
+              output := [0xca, 0xfe] } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 0)
+  | _ => Except.ok false
+
+def checkedBadConstructorTypeRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram badConstructorTypeSource)
+
+def checkedMissingConstructorArgRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram missingConstructorArgSource)
+
+def checkedUintSaltConstructorCreateRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram uintSaltConstructorCreateSource)
+
+def checkedLiteralSaltConstructorCreateRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram literalSaltConstructorCreateSource)
+
+def checkedNonpayableConstructorValueRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram nonpayableConstructorValueSource)
+
+def checkedViewCreatesContractRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram viewCreatesContractSource)
 
 def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTransientStorage"
