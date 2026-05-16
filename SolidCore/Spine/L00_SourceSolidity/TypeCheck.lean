@@ -840,7 +840,21 @@ def enumUntypedLiteralConversionAllowed? (types : TypeContext)
 
 def Ty.canExplicitlyConvert (types : TypeContext)
     (sourceExpr : L00_SourceSolidity.Expr) (actual target : Ty) : Bool :=
-  if actual == target then
+  if exprIsUntypedNumberLiteralExpression sourceExpr then
+    match target with
+    | L00_SourceSolidity.Ty.address false =>
+        typeConversionLiteralFits target sourceExpr
+    | L00_SourceSolidity.Ty.uint _
+    | L00_SourceSolidity.Ty.int _
+    | L00_SourceSolidity.Ty.bytesN _
+    | L00_SourceSolidity.Ty.fixedBytes _ =>
+        typeConversionLiteralFits target sourceExpr
+    | L00_SourceSolidity.Ty.user path =>
+        match enumUntypedLiteralConversionAllowed? types path sourceExpr with
+        | some allowed => allowed
+        | none => false
+    | _ => false
+  else if actual == target then
     true
   else
     match actual, target with
@@ -2031,19 +2045,52 @@ def CheckedExpr.expectNumeric (expr : CheckedExpr) :
     Except TypeError Unit :=
   require expr.ty.isNumeric (TypeError.expectedNumeric expr.ty)
 
+def CheckedExpr.requiresExactLiteralFit (expr : CheckedExpr) : Bool :=
+  expr.ty.isNumeric && exprIsUntypedNumberLiteralExpression expr.source
+
+def CheckedExpr.canImplicitlyAssignTo (expr : CheckedExpr)
+    (expected : Ty) : Bool :=
+  Ty.canImplicitlyConvert expr.ty expected ||
+    implicitLiteralFits expected expr.source
+
+def CheckedExpr.canImplicitlyAssignToIn (types : TypeContext)
+    (expr : CheckedExpr) (expected : Ty) : Bool :=
+  TypeContext.canImplicitlyConvert types expr.ty expected ||
+    implicitLiteralFits expected expr.source
+
+def CheckedExpr.canAssignTo (expr : CheckedExpr) (expected : Ty) :
+    Bool :=
+  if expr.requiresExactLiteralFit then
+    implicitLiteralFits expected expr.source
+  else
+    expr.canImplicitlyAssignTo expected
+
+def CheckedExpr.canAssignToIn (types : TypeContext)
+    (expr : CheckedExpr) (expected : Ty) : Bool :=
+  if expr.requiresExactLiteralFit then
+    implicitLiteralFits expected expr.source
+  else
+    expr.canImplicitlyAssignToIn types expected
+
 def CheckedExpr.expectAssignableTo (expr : CheckedExpr) (expected : Ty) :
     Except TypeError Unit :=
-  require
-    (Ty.canImplicitlyConvert expr.ty expected ||
-      implicitLiteralFits expected expr.source)
+  require (expr.canAssignTo expected)
     (TypeError.expectedType expected expr.ty)
 
 def CheckedExpr.expectAssignableToIn (types : TypeContext)
     (expr : CheckedExpr) (expected : Ty) :
     Except TypeError Unit :=
-  require
-    (TypeContext.canImplicitlyConvert types expr.ty expected ||
-      implicitLiteralFits expected expr.source)
+  require (expr.canAssignToIn types expected)
+    (TypeError.expectedType expected expr.ty)
+
+def CheckedExpr.expectImplicitlyAssignableTo (expr : CheckedExpr)
+    (expected : Ty) : Except TypeError Unit :=
+  require (expr.canImplicitlyAssignTo expected)
+    (TypeError.expectedType expected expr.ty)
+
+def CheckedExpr.expectImplicitlyAssignableToIn (types : TypeContext)
+    (expr : CheckedExpr) (expected : Ty) : Except TypeError Unit :=
+  require (expr.canImplicitlyAssignToIn types expected)
     (TypeError.expectedType expected expr.ty)
 
 abbrev TupleAssignmentTarget :=
@@ -2249,8 +2296,8 @@ def CheckedExpr.commonOperandTy? (left right : CheckedExpr) : Option Ty :=
 
 def CheckedExprs.expectAssignableToSame (_what : String)
     (left right : CheckedExpr) (ty : Ty) : Except TypeError Unit := do
-  left.expectAssignableTo ty
-  right.expectAssignableTo ty
+  left.expectImplicitlyAssignableTo ty
+  right.expectImplicitlyAssignableTo ty
 
 def CheckedExprs.commonCheckedTyFor
     (what : String) (allowed : Ty -> Bool) (err : Ty -> TypeError)
@@ -2297,8 +2344,7 @@ def checkedExprParamsAccept (types : TypeContext) :
     List CheckedExpr -> List Ty -> Bool
   | [], [] => true
   | actual :: actualRest, expected :: expectedRest =>
-      (TypeContext.canImplicitlyConvert types actual.ty expected ||
-        implicitLiteralFits expected actual.source) &&
+      actual.canAssignToIn types expected &&
         checkedExprParamsAccept types actualRest expectedRest
   | _, _ => false
 
@@ -2307,8 +2353,7 @@ def checkedExprParamsAcceptStorageRefs (types : TypeContext) :
   | [], [], [] => true
   | actual :: actualRest, expected :: expectedRest,
       needsStorage :: storageRest =>
-      (TypeContext.canImplicitlyConvert types actual.ty expected ||
-        implicitLiteralFits expected actual.source) &&
+      actual.canAssignToIn types expected &&
         (!needsStorage || actual.stateLValue) &&
         checkedExprParamsAcceptStorageRefs types actualRest expectedRest
           storageRest
@@ -2884,6 +2929,9 @@ def CheckEnv.resolveExplicitBaseMemberFunctionChecked
     member args
 
 def literalTy? : L00_SourceSolidity.Literal -> Option Ty
+  | L00_SourceSolidity.Literal.number text => do
+      let _ ← L00_SourceSolidity.Executable.parseNumberRat? text
+      some (L00_SourceSolidity.Ty.uint 256)
   | L00_SourceSolidity.Literal.unitNumber text unit => do
       let _ ← L00_SourceSolidity.Executable.parseUnitNumberNat? text unit
       some (L00_SourceSolidity.Ty.uint 256)

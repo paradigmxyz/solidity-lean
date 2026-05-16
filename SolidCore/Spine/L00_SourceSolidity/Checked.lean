@@ -7947,6 +7947,89 @@ def checkedHexStringAbiEncodeMatchesExpected :
     Executable.Examples.checkedLiteralConversionContract
     "encodeHexData" SolidCore.Solidity.Source.State.empty [] expected
 
+def checkedInvalidUintReturnFunction (functionName : Name)
+    (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+  { name := some functionName
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body := some (Stmt.returnValues (some expr)) }
+
+def checkedInvalidUintReturnContract (contractName : Name)
+    (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+  { name := contractName
+    items :=
+      [ContractItem.function
+        (checkedInvalidUintReturnFunction "bad" expr)] }
+
+def checkedMalformedNumericLiteralsRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadHexUnderscore"
+          (Expr.literal (Literal.number "0x_ff")))) &&
+    Result.isError
+      (CheckedInput.program
+        (checkedInvalidUintReturnContract "BadHexUnderscoreChecked"
+          (Expr.literal (Literal.number "0x_ff")))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadRepeatedSeparator"
+          (Expr.literal (Literal.number "12__3")))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadLeadingZero"
+          (Expr.literal (Literal.number "012"))))
+
+def checkedNonIntegralNumericLiteralsRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadFractionalReturn"
+          (Expr.literal (Literal.number "2.5")))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadLeadingDotReturn"
+          (Expr.literal (Literal.number ".5")))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadNegativeExponentReturn"
+          (Expr.literal (Literal.number "1e-1"))))
+
+def checkedNonIntegralNumberLiteralExpressionRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit
+      (checkedInvalidUintReturnContract "BadFoldedFractionalReturn"
+        (Expr.binary BinaryOp.mul
+          (Expr.literal (Literal.number ".5"))
+          (Expr.literal (Literal.number "7")))))
+
+def checkedNumericLiteralCastBoundsRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadUint8LiteralCast"
+          (Expr.call (Expr.typeName (Ty.uint 8))
+            [Arg.positional
+              (Expr.literal (Literal.number "256"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadInt8PositiveLiteralCast"
+          (Expr.call (Expr.typeName (Ty.int 8))
+            [Arg.positional
+              (Expr.literal (Literal.number "128"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadInt8NegativeLiteralCast"
+          (Expr.call (Expr.typeName (Ty.int 8))
+            [Arg.positional
+              (Expr.unary UnaryOp.neg
+                (Expr.literal (Literal.number "129")))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadUint8NegativeLiteralCast"
+          (Expr.call (Expr.typeName (Ty.uint 8))
+            [Arg.positional
+              (Expr.unary UnaryOp.neg
+                (Expr.literal (Literal.number "1")))])))
+
 def checkedLiteralInvalidSourcesRejected : Bool :=
   Result.isError
       (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
@@ -7957,7 +8040,11 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit fractionalWeiReturnSource) &&
     Result.isError
-      (TypecheckedInput.checkedSourceUnit subWeiEtherReturnSource)
+      (TypecheckedInput.checkedSourceUnit subWeiEtherReturnSource) &&
+    checkedMalformedNumericLiteralsRejected &&
+    checkedNonIntegralNumericLiteralsRejected &&
+    checkedNonIntegralNumberLiteralExpressionRejected &&
+    checkedNumericLiteralCastBoundsRejected
 
 def checkedArithmeticContractAccepted : Bool :=
   Result.isOk
