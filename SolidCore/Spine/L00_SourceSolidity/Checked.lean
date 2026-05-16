@@ -9242,6 +9242,115 @@ def checkedConstantStorageLayoutMatches : Except TypeError Bool := do
           SolidCore.Solidity.Source.wordEq (state.loadSlot 9) 1)
   | _ => Except.ok false
 
+def checkedFileConstantContractMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32
+    Executable.Examples.fileConstantContractUnit
+    "UsesFileConstant" "run"
+    SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedFileConstantFreeFunctionMatches :
+    Except TypeError Bool := do
+  let fromFree ←
+    checkedCallWordMatches 32
+      Executable.Examples.fileConstantShadowingUnit
+      "FileConstantShadowing" "fromFree"
+      SolidCore.Solidity.Source.State.empty [] 42
+  let fromContract ←
+    checkedCallWordMatches 32
+      Executable.Examples.fileConstantShadowingUnit
+      "FileConstantShadowing" "fromContract"
+      SolidCore.Solidity.Source.State.empty [] 100
+  Except.ok (fromFree && fromContract)
+
+def checkedFileConstantConstructorMatches : Except TypeError Bool :=
+  checkedConstructSlotMatches 32
+    Executable.Examples.fileConstantConstructorUnit
+    "FileConstantConstructor"
+    SolidCore.Solidity.Source.State.empty [] 0 41
+
+def checkedConstantReadMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.constantReadContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 42)
+  | _ => Except.ok false
+
+def checkedConstantPublicGetterMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.constantReadContract
+      (SolidCore.Solidity.Source.CallTarget.name "LIMIT")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 41)
+  | _ => Except.ok false
+
+def checkedConstantStorageFieldsSkipConstantsAndImmutables :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.constantLayoutContract
+  match contract.core.storageFields, contract.core.immutableFields with
+  | [a, b], [i] =>
+      Except.ok
+        (a.name == "a" &&
+          SolidCore.Solidity.Source.wordEq a.slot 0 &&
+          b.name == "b" &&
+          SolidCore.Solidity.Source.wordEq b.slot 1 &&
+          i.name == "I")
+  | _, _ => Except.ok false
+
+def checkedConstantInitializerMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedConstruct 32
+      Executable.Examples.constantInitializerContract
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 6)
+  | _ => Except.ok false
+
+def checkedImmutableInlineConstantPureReadMatches :
+    Except TypeError Bool := do
+  let deployed ←
+    CheckedInput.constructContract 32 immutableInlineConstantPureReadSource
+      "ImmutableInlineConstantPureRead"
+      SolidCore.Solidity.Source.State.empty []
+  match deployed with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      checkedCallWordMatches 32 immutableInlineConstantPureReadSource
+        "ImmutableInlineConstantPureRead" "f" state [] 1
+  | _ => Except.ok false
+
+def checkedConstantImmutableTypecheckerAccepts : Bool :=
+  Result.isOk (CheckedInput.program constantWithInitSource) &&
+    Result.isOk (CheckedInput.program bytesConstantSource) &&
+    Result.isOk (CheckedInput.program fileConstantInContractSource) &&
+    Result.isOk (CheckedInput.program stateConstantPureReadSource) &&
+    Result.isOk (CheckedInput.program immutableAssignedInConstructorSource) &&
+    Result.isOk (CheckedInput.program immutableInlineConstantPureReadSource)
+
+def checkedConstantImmutableTypecheckerRejects : Bool :=
+  Result.isError (CheckedInput.program constantWithoutInitSource) &&
+    Result.isError (CheckedInput.program badArrayConstantSource) &&
+    Result.isError (CheckedInput.program badFreeMutableSource) &&
+    Result.isError (CheckedInput.program constantFromStateSource) &&
+    Result.isError (CheckedInput.program assignConstantSource) &&
+    Result.isError (CheckedInput.program badFileConstantVisibilitySource) &&
+    Result.isError (CheckedInput.program badFileConstantOverrideSource) &&
+    Result.isError (CheckedInput.program badImmutableExternalFunctionSource) &&
+    Result.isError (CheckedInput.program badImmutableStringSource) &&
+    Result.isError (CheckedInput.program immutableAssignedInFunctionSource) &&
+    Result.isError (CheckedInput.program immutableRuntimePureReadSource)
+
 def checkedErc7201StorageLayoutMatches : Except TypeError Bool := do
   let result ←
     CheckedInput.constructContract 32 erc7201StorageLayoutSource

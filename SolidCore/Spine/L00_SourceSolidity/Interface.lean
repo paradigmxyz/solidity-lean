@@ -35570,6 +35570,7 @@ def fileConstantContractUnit : SourceUnit :=
             items :=
               [ ContractItem.function
                   { name := some "run"
+                    visibility := some Visibility.public_
                     returns := [{ name := some "out", ty := Ty.uint 256 }]
                     mutability := StateMutability.pure
                     body :=
@@ -35623,6 +35624,7 @@ def fileConstantShadowingUnit : SourceUnit :=
                     init := some (Expr.literal (Literal.number "100")) }
               , ContractItem.function
                   { name := some "fromFree"
+                    visibility := some Visibility.public_
                     returns := [{ name := some "out", ty := Ty.uint 256 }]
                     mutability := StateMutability.pure
                     body :=
@@ -35634,6 +35636,7 @@ def fileConstantShadowingUnit : SourceUnit :=
                                 (Expr.literal (Literal.number "2"))]))) }
               , ContractItem.function
                   { name := some "fromContract"
+                    visibility := some Visibility.public_
                     returns := [{ name := some "out", ty := Ty.uint 256 }]
                     mutability := StateMutability.pure
                     body :=
@@ -35702,6 +35705,7 @@ def constantReadContract : ContractDecl :=
             init := some (Expr.literal (Literal.number "41")) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.pure
             body :=
@@ -35813,6 +35817,7 @@ def immutableConstructorContract : ContractDecl :=
                       (Expr.ident "SEED")))) }
       , ContractItem.function
           { name := some "sum"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.view
             body :=
@@ -35824,6 +35829,7 @@ def immutableConstructorContract : ContractDecl :=
                       (Expr.ident "SEED")))) }
       , ContractItem.function
           { name := some "mutate"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
