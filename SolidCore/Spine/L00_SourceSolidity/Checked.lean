@@ -1509,6 +1509,11 @@ def checkedDecodeLowLevelReturn (value : CoreValue) :
   optionToExcept "low-level return decode"
     (Executable.CoreValue.asLowLevelReturn? value)
 
+def checkedDecodeWordPair (value : CoreValue) :
+    Except TypeError (Word × Word) :=
+  optionToExcept "word pair decode"
+    (Executable.CoreValue.asWordPair? value)
+
 def checkedAbiEncodeValues
     (tys : List SolidCore.Solidity.Source.Ty)
     (values : List CoreValue) : Except TypeError (List Byte) :=
@@ -1542,6 +1547,28 @@ def checkedCallSlotMatches (fuel : Nat) (source : SourceUnitAst)
       Except.ok
         (SolidCore.Solidity.Source.wordEq
           (nextState.loadSlot slot) expected)
+  | _ => Except.ok false
+
+def checkedCallWordPairMatches (fuel : Nat) (source : SourceUnitAst)
+    (contractName functionName : Name) (state : CoreState)
+    (args : List CoreValue) (expectedX expectedY : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract fuel source contractName
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word x
+      , SolidCore.Solidity.Source.Value.word y ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq x expectedX &&
+          SolidCore.Solidity.Source.wordEq y expectedY)
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      let (x, y) ← checkedDecodeWordPair value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq x expectedX &&
+          SolidCore.Solidity.Source.wordEq y expectedY)
   | _ => Except.ok false
 
 def checkedConstructSlotMatches (fuel : Nat) (source : SourceUnitAst)
@@ -1904,6 +1931,176 @@ def checkedStructErrorSelectorMatches : Except TypeError Bool := do
       SolidCore.Solidity.Source.ABI.selectorFromSignature
         "Bad((uint256,uint256))" &&
       fieldIsTuple)
+
+def checkedStorageStructSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.storageStructSourceUnit)
+
+def checkedStorageStructSetState : Except TypeError CoreState := do
+  let result ←
+    CheckedInput.callContract 48
+      Executable.Examples.storageStructSourceUnit "StorageStructDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 11
+      , SolidCore.Solidity.Source.Value.word 12 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage struct set")
+
+def checkedStorageStructSumMatches : Except TypeError Bool := do
+  let state ← checkedStorageStructSetState
+  checkedCallWordMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "sum" state [] 23
+
+def checkedStorageStructFieldWriteState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageStructSetState
+  let result ←
+    CheckedInput.callContract 48
+      Executable.Examples.storageStructSourceUnit "StorageStructDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "setY")
+      state [SolidCore.Solidity.Source.Value.word 40]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage struct setY")
+
+def checkedStorageStructFieldWriteMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructFieldWriteState
+  checkedCallWordMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "sum" state [] 51
+
+def checkedStorageStructAliasFieldWriteState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageStructSetState
+  let result ←
+    CheckedInput.callContract 48
+      Executable.Examples.storageStructSourceUnit "StorageStructDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "aliasSetY")
+      state [SolidCore.Solidity.Source.Value.word 70]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage struct aliasSetY")
+
+def checkedStorageStructAliasFieldWriteMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructAliasFieldWriteState
+  checkedCallWordMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "sum" state [] 81
+
+def checkedStorageStructAliasReadMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructAliasFieldWriteState
+  checkedCallWordMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "aliasSum" state [] 81
+
+def checkedStorageStructInternalParamSetState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageStructSetState
+  let result ←
+    CheckedInput.callContract 64
+      Executable.Examples.storageStructSourceUnit "StorageStructDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "internalSetY")
+      state [SolidCore.Solidity.Source.Value.word 50]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage struct internalSetY")
+
+def checkedStorageStructInternalParamFieldWriteMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructInternalParamSetState
+  checkedCallWordMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "sum" state [] 61
+
+def checkedStorageStructInternalParamAliasSetState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageStructSetState
+  let result ←
+    CheckedInput.callContract 64
+      Executable.Examples.storageStructSourceUnit "StorageStructDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "internalAliasSetY")
+      state [SolidCore.Solidity.Source.Value.word 60]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ =>
+      Except.error
+        (executableFailure "storage struct internalAliasSetY")
+
+def checkedStorageStructInternalParamAliasFieldWriteMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructInternalParamAliasSetState
+  checkedCallWordMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "sum" state [] 71
+
+def checkedStorageStructInternalParamReadMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructInternalParamAliasSetState
+  checkedCallWordMatches 64
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "internalSum" state [] 71
+
+def checkedStorageStructPublicGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructFieldWriteState
+  checkedCallWordPairMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "origin" state [] 11 40
+
+def checkedStorageStructDeleteState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageStructFieldWriteState
+  let result ←
+    CheckedInput.callContract 48
+      Executable.Examples.storageStructSourceUnit "StorageStructDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "clear")
+      state []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage struct clear")
+
+def checkedStorageStructDeleteClears :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructDeleteState
+  checkedCallWordPairMatches 48
+    Executable.Examples.storageStructSourceUnit
+    "StorageStructDemo" "origin" state [] 0 0
+
+def checkedStorageStructAbiGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStructFieldWriteState
+  let calldata ←
+    CheckedInput.functionCalldata
+      Executable.Examples.storageStructSourceUnit
+      "StorageStructDemo" "origin" []
+  let result ←
+    CheckedInput.callCalldata 48
+      Executable.Examples.storageStructSourceUnit
+      "StorageStructDemo" state calldata
+  let tupleTy :=
+    SolidCore.Solidity.Source.Ty.tuple
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+  let expected ←
+    checkedAbiEncodeValues
+      [tupleTy]
+      [SolidCore.Solidity.Source.Value.tuple
+        [ SolidCore.Solidity.Source.Value.word 11
+        , SolidCore.Solidity.Source.Value.word 40 ]]
+  Except.ok (result.success && result.output == expected)
 
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"

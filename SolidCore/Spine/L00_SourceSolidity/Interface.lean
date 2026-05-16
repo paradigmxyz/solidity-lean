@@ -29878,6 +29878,7 @@ def storageStructContract : ContractDecl :=
             params :=
               [ { name := some "x", ty := Ty.uint 256 }
               , { name := some "y", ty := Ty.uint 256 } ]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -29887,6 +29888,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "setY"
             params := [{ name := some "y", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -29897,6 +29899,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "aliasSetY"
             params := [{ name := some "y", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -29913,6 +29916,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "aliasSum"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -29961,6 +29965,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "internalSetY"
             params := [{ name := some "y", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -29971,6 +29976,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "internalAliasSetY"
             params := [{ name := some "y", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -29987,6 +29993,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "internalSum"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.returnValues
@@ -29997,6 +30004,7 @@ def storageStructContract : ContractDecl :=
       , ContractItem.function
           { name := some "sum"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.returnValues
@@ -30006,6 +30014,7 @@ def storageStructContract : ContractDecl :=
                       (Expr.member (Expr.ident "origin") "y")))) }
       , ContractItem.function
           { name := some "clear"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
