@@ -1894,18 +1894,6 @@ def CheckedExpr.expectAssignableToIn (types : TypeContext)
 abbrev TupleAssignmentTarget :=
   Option (L00_SourceSolidity.Expr × CheckedExpr)
 
-def checkTupleAssignmentTargetAgainstChecked (env : CheckEnv)
-    (target : L00_SourceSolidity.Expr) (targetChecked rhsChecked : CheckedExpr) :
-    Except TypeError Ty := do
-  match Expr.directIdentName? target with
-  | some name =>
-      require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
-        (TypeError.invalidDataLocation targetChecked.ty
-          (some L00_SourceSolidity.DataLocation.storage))
-  | none => Except.ok ()
-  rhsChecked.expectAssignableToIn env.types targetChecked.ty
-  Except.ok targetChecked.ty
-
 def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
     (rhsChecked : CheckedExpr) (target : L00_SourceSolidity.Expr)
     (targetChecked : CheckedExpr) (rhsTy : Ty) :
@@ -1920,25 +1908,6 @@ def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
     (TypeContext.canImplicitlyConvert env.types rhsTy targetChecked.ty)
     (TypeError.expectedType targetChecked.ty rhsTy)
   Except.ok targetChecked.ty
-
-def checkTupleAssignmentTargetsWithValues (env : CheckEnv) :
-    List TupleAssignmentTarget -> List CheckedExpr ->
-    Except TypeError (List Ty)
-  | [], [] => Except.ok []
-  | none :: targetRest, _ :: valueRest =>
-      checkTupleAssignmentTargetsWithValues env targetRest valueRest
-  | some (target, targetChecked) :: targetRest,
-      value :: valueRest => do
-      let ty ←
-        checkTupleAssignmentTargetAgainstChecked env target targetChecked
-          value
-      let tail ←
-        checkTupleAssignmentTargetsWithValues env targetRest valueRest
-      Except.ok (ty :: tail)
-  | targets, values =>
-      Except.error
-        (TypeError.arityMismatch
-          "tuple assignment" targets.length values.length)
 
 def checkTupleAssignmentTargetsWithTys (env : CheckEnv)
     (rhsChecked : CheckedExpr) :
@@ -4774,13 +4743,12 @@ def checkExpr (env : CheckEnv) :
           | L00_SourceSolidity.Expr.assign _
               L00_SourceSolidity.AssignOp.assign _ => do
               let targets ← checkTupleAssignmentTargets env lhsItems
-              let literalValues? ←
-                checkTupleAssignmentLiteralValues? env rhs
               let resultTys ←
-                match literalValues? with
-                | some values =>
-                    checkTupleAssignmentTargetsWithValues env targets values
-                | none => do
+                match rhs with
+                | L00_SourceSolidity.Expr.tuple _ =>
+                    checkTupleAssignmentTargetsWithTupleExprAssignableTo env
+                      targets rhs
+                | _ => do
                     let rhsChecked ← checkExpr env rhs
                     match rhsChecked.ty with
                     | L00_SourceSolidity.Ty.tuple tys =>
@@ -5132,33 +5100,48 @@ decreasing_by
     simp_wf
     try omega
 
-def checkTupleAssignmentValues (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> Except TypeError (List CheckedExpr)
-  | [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.hole :: _ =>
+def checkTupleAssignmentTargetsWithTupleExprAssignableTo (env : CheckEnv) :
+    List TupleAssignmentTarget -> L00_SourceSolidity.Expr ->
+    Except TypeError (List Ty)
+  | [], L00_SourceSolidity.Expr.tuple [] => Except.ok []
+  | none :: targetRest,
+      L00_SourceSolidity.Expr.tuple
+        (L00_SourceSolidity.TupleItem.value expr :: itemRest) => do
+      let _ ← checkExpr env expr
+      checkTupleAssignmentTargetsWithTupleExprAssignableTo env targetRest
+        (L00_SourceSolidity.Expr.tuple itemRest)
+  | some (target, targetChecked) :: targetRest,
+      L00_SourceSolidity.Expr.tuple
+        (L00_SourceSolidity.TupleItem.value expr :: itemRest) => do
+      let checked ←
+        checkArgAssignableToParam env targetChecked.ty
+          (L00_SourceSolidity.Arg.positional expr)
+      match Expr.directIdentName? target with
+      | some name =>
+          require (!env.isLocalStorageRef name || checked.stateLValue)
+            (TypeError.invalidDataLocation targetChecked.ty
+              (some L00_SourceSolidity.DataLocation.storage))
+      | none => Except.ok ()
+      let tail ←
+        checkTupleAssignmentTargetsWithTupleExprAssignableTo env targetRest
+          (L00_SourceSolidity.Expr.tuple itemRest)
+      Except.ok (targetChecked.ty :: tail)
+  | _ :: _, L00_SourceSolidity.Expr.tuple
+      (L00_SourceSolidity.TupleItem.hole :: _) =>
       Except.error (TypeError.unsupported "tuple hole in value position")
-  | L00_SourceSolidity.TupleItem.value expr :: rest => do
-      let checked ← checkExpr env expr
-      let tail ← checkTupleAssignmentValues env rest
-      Except.ok (checked :: tail)
-termination_by items => sizeOf items
+  | targets, L00_SourceSolidity.Expr.tuple items =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple assignment" targets.length items.length)
+  | targets, _ =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple assignment" targets.length 1)
+termination_by _ rhs => sizeOf rhs
 decreasing_by
   all_goals
-    try subst expr
     simp_wf
-    try omega
-
-def checkTupleAssignmentLiteralValues? (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Except TypeError (Option (List CheckedExpr))
-  | L00_SourceSolidity.Expr.tuple items => do
-      let values ← checkTupleAssignmentValues env items
-      Except.ok (some values)
-  | _ => Except.ok none
-termination_by expr => sizeOf expr
-decreasing_by
-  all_goals
-    try subst expr
-    simp_wf
+    try simp_all [sizeOf]
     try omega
 
 def checkTupleItemValuesAssignableTo (env : CheckEnv) :
@@ -23119,6 +23102,69 @@ def contextualArrayTupleReturnOverflowSource :
 def contextualArrayTupleReturnOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayTupleReturnOverflowSource)
+
+def contextualArrayTupleAssignmentFunction
+    (name : Name) (first : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    returns :=
+      [ { name := some "a"
+          ty := contextualNarrowArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory }
+      , { name := some "b"
+          ty := contextualNarrowArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "a")
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "b") ])
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value first
+                  , L00_SourceSolidity.TupleItem.value
+                      contextualNarrowArraySecondExpr ]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "a")
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.ident "b") ])) ]) }
+
+def contextualArrayTupleAssignmentSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTupleAssignment"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTupleAssignmentFunction
+                    "assignArrayTuple" contextualNarrowArrayExpr) ] } ] }
+
+def contextualArrayTupleAssignmentAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTupleAssignmentSource
+
+def contextualArrayTupleAssignmentOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTupleAssignmentOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTupleAssignmentFunction
+                    "assignArrayTupleOverflow"
+                    contextualNarrowArrayOverflowExpr) ] } ] }
+
+def contextualArrayTupleAssignmentOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTupleAssignmentOverflowSource)
 
 def contextualArrayStruct : L00_SourceSolidity.StructDecl :=
   { name := "ContextualArrayStruct"
