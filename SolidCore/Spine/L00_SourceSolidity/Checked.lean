@@ -3611,6 +3611,237 @@ def checkedFreeNamedArgsMatches :
     Executable.Examples.freeNamedArgsUnit "FreeNamedArgs"
     "run" SolidCore.Solidity.Source.State.empty [] 42
 
+def checkedTargetEffectContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.expressionTargetEffectsContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageIndexedCompoundTargetEffectsContract)
+
+def checkedOwnCallWordTripleMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB expectedC : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b
+      , SolidCore.Solidity.Source.Value.word c ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC)
+  | _ => Except.ok false
+
+def checkedOwnCallIntTripleMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB expectedC : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.int a
+      , SolidCore.Solidity.Source.Value.int b
+      , SolidCore.Solidity.Source.Value.int c ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC)
+  | _ => Except.ok false
+
+def checkedOwnCallWordPairMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB)
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      let (a, b) ← checkedDecodeWordPair value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB)
+  | _ => Except.ok false
+
+def checkedOwnCallWordQuintMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB expectedC expectedD expectedE : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b
+      , SolidCore.Solidity.Source.Value.word c
+      , SolidCore.Solidity.Source.Value.word d
+      , SolidCore.Solidity.Source.Value.word e ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC &&
+          SolidCore.Solidity.Source.wordEq d expectedD &&
+          SolidCore.Solidity.Source.wordEq e expectedE)
+  | _ => Except.ok false
+
+def checkedIncrementExpressionVarDeclMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "incrementVarDecl" SolidCore.Solidity.Source.State.empty [] 1 3 3
+
+def checkedDecrementExpressionVarDeclMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "decrementVarDecl" SolidCore.Solidity.Source.State.empty [] 3 1 1
+
+def checkedIncrementExpressionAssignmentMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "incrementAssignment" SolidCore.Solidity.Source.State.empty [] 11 13 3
+
+def checkedSignedIncrementExpressionVarDeclMatches :
+    Except TypeError Bool :=
+  checkedOwnCallIntTripleMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "signedIncrementVarDecl" SolidCore.Solidity.Source.State.empty [] 1 3 3
+
+def checkedAssignmentExpressionVarDeclMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "assignmentVarDecl" SolidCore.Solidity.Source.State.empty [] 5 7 7
+
+def checkedAssignmentExpressionReturnMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "assignmentReturn" SolidCore.Solidity.Source.State.empty [] 9 9
+
+def checkedIndexedAssignmentTargetEffectsMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 48
+    Executable.Examples.expressionTargetEffectsContract
+    "indexedAssignment" SolidCore.Solidity.Source.State.empty [] 1 99 20
+
+def checkedIndexedCompoundTargetEffectsMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 48
+    Executable.Examples.expressionTargetEffectsContract
+    "indexedCompound" SolidCore.Solidity.Source.State.empty [] 1 17 20
+
+def checkedTupleIndexedAssignmentTargetEffectsMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 48
+    Executable.Examples.expressionTargetEffectsContract
+    "tupleIndexedAssignment" SolidCore.Solidity.Source.State.empty [] 2 7 8
+
+def checkedStorageIndexedCompoundTargetEffectsMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 64
+    Executable.Examples.storageIndexedCompoundTargetEffectsContract
+    "run" SolidCore.Solidity.Source.State.empty [] 1 17 20
+
+def checkedIndexedDeleteAndIncrementTargetEffectsMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordQuintMatches 64
+    Executable.Examples.expressionTargetEffectsContract
+    "indexedDeleteAndIncrement"
+    SolidCore.Solidity.Source.State.empty [] 20 2 0 21 30
+
+def checkedRequireCustomArgumentEvaluationMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.expressionTargetEffectsContract
+    "requireCustomArgument" SolidCore.Solidity.Source.State.empty [] 5
+
+def checkedEventArgumentEvaluationMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 32
+      Executable.Examples.expressionTargetEffectsContract
+      (SolidCore.Solidity.Source.CallTarget.name "eventArgument")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word final] =>
+      match state.events with
+      | [{ name := "Seen"
+           data := [SolidCore.Solidity.Source.Value.word emitted]
+           .. }] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq final 5 &&
+              SolidCore.Solidity.Source.wordEq emitted 5)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedRevertCustomArgumentEvaluationMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 32
+      Executable.Examples.expressionTargetEffectsContract
+      (SolidCore.Solidity.Source.CallTarget.name "revertCustomArgument")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "NeedsEval"
+        [SolidCore.Solidity.Source.Value.word arg]) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq arg 5)
+  | _ => Except.ok false
+
+def checkedDynamicRequireReasonMatches :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "dynamic require reason"
+      (Executable.Examples.errorStringBytes? "Nope")
+  let result ←
+    CheckedInput.ownCall 32
+      Executable.Examples.expressionTargetEffectsContract
+      (SolidCore.Solidity.Source.CallTarget.name "dynamicRequireReason")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.raw bytes) =>
+      Except.ok (bytes == expected)
+  | _ => Except.ok false
+
+def checkedDynamicRevertReasonMatches :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "dynamic revert reason"
+      (Executable.Examples.errorStringBytes? "Gone")
+  let result ←
+    CheckedInput.ownCall 32
+      Executable.Examples.expressionTargetEffectsContract
+      (SolidCore.Solidity.Source.CallTarget.name "dynamicRevertReason")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.raw bytes) =>
+      Except.ok (bytes == expected)
+  | _ => Except.ok false
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library

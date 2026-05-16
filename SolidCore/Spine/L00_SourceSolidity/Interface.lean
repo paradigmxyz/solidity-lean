@@ -14855,6 +14855,7 @@ def storageIndexedCompoundTargetEffectsContract : ContractDecl :=
             ty := Ty.array (Ty.uint 256) none }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns :=
               [ { name := some "index", ty := Ty.uint 256 }
               , { name := some "first", ty := Ty.uint 256 }
@@ -15304,7 +15305,9 @@ def errorStringBytes? (text : String) : Option (List Byte) := do
 def dynamicRequireReasonStatement : Stmt :=
   Stmt.block
     [ Stmt.varDecl
-        [{ name := some "reason", ty := some Ty.string }]
+        [ { name := some "reason"
+            ty := some Ty.string
+            location := some DataLocation.memory } ]
         (some (Expr.literal (Literal.string "Nope")))
     , Stmt.expr
         (Expr.call (Expr.ident "require")
@@ -15327,7 +15330,9 @@ def dynamicRequireReasonMatches : Option Bool := do
 def dynamicRevertReasonStatement : Stmt :=
   Stmt.block
     [ Stmt.varDecl
-        [{ name := some "reason", ty := some Ty.string }]
+        [ { name := some "reason"
+            ty := some Ty.string
+            location := some DataLocation.memory } ]
         (some (Expr.literal (Literal.string "Gone")))
     , Stmt.revertCall
         (Expr.call (Expr.ident "revert")
@@ -15345,6 +15350,122 @@ def dynamicRevertReasonMatches : Option Bool := do
       (SolidCore.Solidity.Source.RevertData.raw bytes) =>
       some (bytes == expected)
   | _ => some false
+
+def expressionTargetEffectsContract : ContractDecl :=
+  { name := "ExpressionTargetEffects"
+    items :=
+      [ ContractItem.errorDecl
+          { name := "NeedsEval"
+            params := [{ name := some "value", ty := Ty.uint 256 }] }
+      , ContractItem.eventDecl
+          { name := "Seen"
+            params :=
+              [{ name := some "value"
+                 ty := Ty.uint 256
+                 indexed := false }] }
+      , ContractItem.function
+          { name := some "incrementVarDecl"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "post", ty := Ty.uint 256 }
+              , { name := some "pre", ty := Ty.uint 256 }
+              , { name := some "final", ty := Ty.uint 256 } ]
+            body := some incrementExpressionVarDeclStatement }
+      , ContractItem.function
+          { name := some "decrementVarDecl"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "post", ty := Ty.uint 256 }
+              , { name := some "pre", ty := Ty.uint 256 }
+              , { name := some "final", ty := Ty.uint 256 } ]
+            body := some decrementExpressionVarDeclStatement }
+      , ContractItem.function
+          { name := some "incrementAssignment"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "y", ty := Ty.uint 256 }
+              , { name := some "z", ty := Ty.uint 256 }
+              , { name := some "final", ty := Ty.uint 256 } ]
+            body := some incrementExpressionAssignmentStatement }
+      , ContractItem.function
+          { name := some "signedIncrementVarDecl"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "post", ty := Ty.int 256 }
+              , { name := some "pre", ty := Ty.int 256 }
+              , { name := some "final", ty := Ty.int 256 } ]
+            body := some signedIncrementExpressionVarDeclStatement }
+      , ContractItem.function
+          { name := some "assignmentVarDecl"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "assigned", ty := Ty.uint 256 }
+              , { name := some "compound", ty := Ty.uint 256 }
+              , { name := some "final", ty := Ty.uint 256 } ]
+            body := some assignmentExpressionVarDeclStatement }
+      , ContractItem.function
+          { name := some "assignmentReturn"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "assigned", ty := Ty.uint 256 }
+              , { name := some "final", ty := Ty.uint 256 } ]
+            body := some assignmentExpressionReturnStatement }
+      , ContractItem.function
+          { name := some "indexedAssignment"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "index", ty := Ty.uint 256 }
+              , { name := some "first", ty := Ty.uint 256 }
+              , { name := some "second", ty := Ty.uint 256 } ]
+            body := some indexedAssignmentTargetEffectsStatement }
+      , ContractItem.function
+          { name := some "indexedCompound"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "index", ty := Ty.uint 256 }
+              , { name := some "first", ty := Ty.uint 256 }
+              , { name := some "second", ty := Ty.uint 256 } ]
+            body := some indexedCompoundTargetEffectsStatement }
+      , ContractItem.function
+          { name := some "tupleIndexedAssignment"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "index", ty := Ty.uint 256 }
+              , { name := some "first", ty := Ty.uint 256 }
+              , { name := some "second", ty := Ty.uint 256 } ]
+            body := some tupleIndexedAssignmentTargetEffectsStatement }
+      , ContractItem.function
+          { name := some "indexedDeleteAndIncrement"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "old", ty := Ty.uint 256 }
+              , { name := some "index", ty := Ty.uint 256 }
+              , { name := some "first", ty := Ty.uint 256 }
+              , { name := some "second", ty := Ty.uint 256 }
+              , { name := some "third", ty := Ty.uint 256 } ]
+            body := some indexedDeleteAndIncrementTargetEffectsStatement }
+      , ContractItem.function
+          { name := some "requireCustomArgument"
+            visibility := some Visibility.public_
+            returns := [{ name := some "final", ty := Ty.uint 256 }]
+            body := some requireCustomArgumentEvaluationStatement }
+      , ContractItem.function
+          { name := some "eventArgument"
+            visibility := some Visibility.public_
+            returns := [{ name := some "final", ty := Ty.uint 256 }]
+            body := some eventArgumentEvaluationStatement }
+      , ContractItem.function
+          { name := some "revertCustomArgument"
+            visibility := some Visibility.public_
+            body := some revertCustomArgumentEvaluationStatement }
+      , ContractItem.function
+          { name := some "dynamicRequireReason"
+            visibility := some Visibility.public_
+            body := some dynamicRequireReasonStatement }
+      , ContractItem.function
+          { name := some "dynamicRevertReason"
+            visibility := some Visibility.public_
+            body := some dynamicRevertReasonStatement } ] }
 
 def publicGetterContract : ContractDecl :=
   { name := "Getter"

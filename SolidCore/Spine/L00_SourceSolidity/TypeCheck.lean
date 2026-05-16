@@ -6240,6 +6240,9 @@ def checkEventEmission (env : CheckEnv)
 def checkRevertCall (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) : Except TypeError Unit :=
   match expr with
+  | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident "revert") _ => do
+      let _ ← checkExpr env expr
+      Except.ok ()
   | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident name) args => do
       checkCustomErrorArgs env name args
   | other => do
