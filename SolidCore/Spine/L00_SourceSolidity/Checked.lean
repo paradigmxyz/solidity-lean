@@ -3703,6 +3703,274 @@ def checkedOwnCallWordQuintMatches (fuel : Nat)
           SolidCore.Solidity.Source.wordEq e expectedE)
   | _ => Except.ok false
 
+def checkedOwnCallWordQuadMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB expectedC expectedD : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b
+      , SolidCore.Solidity.Source.Value.word c
+      , SolidCore.Solidity.Source.Value.word d ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC &&
+          SolidCore.Solidity.Source.wordEq d expectedD)
+  | _ => Except.ok false
+
+def checkedOwnCallBytesMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expected : List Byte) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      Except.ok (bytes == expected)
+  | _ => Except.ok false
+
+def checkedOwnCallBytesAndWordQuadMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedBytes : List Byte)
+    (expectedA expectedB expectedC expectedD : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.bytes bytes
+      , SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b
+      , SolidCore.Solidity.Source.Value.word c
+      , SolidCore.Solidity.Source.Value.word d ] =>
+      Except.ok
+        (bytes == expectedBytes &&
+          SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC &&
+          SolidCore.Solidity.Source.wordEq d expectedD)
+  | _ => Except.ok false
+
+def checkedWordValues (words : List Word) : List CoreValue :=
+  words.map SolidCore.Solidity.Source.Value.word
+
+def checkedWordValuesMatch : List CoreValue -> List Word -> Bool
+  | [], [] => true
+  | SolidCore.Solidity.Source.Value.word value :: values,
+    expected :: expectedValues =>
+      SolidCore.Solidity.Source.wordEq value expected &&
+        checkedWordValuesMatch values expectedValues
+  | _, _ => false
+
+def checkedOwnCallWordAndDynamicWordArrayMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedHead : Word) (expectedTail : List Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word head
+      , SolidCore.Solidity.Source.Value.dynamicArray tail ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq head expectedHead &&
+          checkedWordValuesMatch tail expectedTail)
+  | _ => Except.ok false
+
+def checkedContractAbiOutputMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (args : List CoreValue) (expected? : Option (List Byte)) :
+    Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata decl functionName args
+  let result ←
+    ContractDecl.checkedCallCalldata fuel decl
+      SolidCore.Solidity.Source.State.empty calldata
+  let expected ← optionToExcept "expected ABI output" expected?
+  Except.ok (result.success && result.output == expected)
+
+def checkedMemoryAndCalldataContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedMemoryAndCalldataContract)
+
+def checkedArrayLiteralLocalMatches : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "middle" SolidCore.Solidity.Source.State.empty [] 9
+
+def checkedArrayLiteralAbiEncodeMatches :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "array literal ABI encoding"
+      Executable.Examples.arrayLiteralAbiEncodeExpected
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "encodeArrayLiteral" SolidCore.Solidity.Source.State.empty []
+    expected
+
+def checkedArrayLiteralFixedBytesWidenMatches :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "fixed bytes array literal ABI encoding"
+      Executable.Examples.arrayLiteralFixedBytesWidenExpected
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "encodeFixedBytesArrayLiteral"
+    SolidCore.Solidity.Source.State.empty [] expected
+
+def checkedMemoryArrayAllocationMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordQuadMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "allocate" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 3]
+    3 0 7 0
+
+def checkedMemoryArrayAllocationOutOfBoundsPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "allocate" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 1] 0x32
+
+def checkedMemoryBytesAllocationMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesAndWordQuadMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "allocateBytes" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 3]
+    [0, 0xab, 0] 3 0 0xab 0
+
+def checkedMemoryBytesAllocationOutOfBoundsPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "allocateBytes" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 1] 0x32
+
+def checkedMemoryStringAllocationMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "allocateString" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 3]
+    [0, 0, 0]
+
+def checkedCalldataArraySliceInput : CoreValue :=
+  SolidCore.Solidity.Source.Value.dynamicArray
+    [ SolidCore.Solidity.Source.Value.word 10
+    , SolidCore.Solidity.Source.Value.word 20
+    , SolidCore.Solidity.Source.Value.word 30
+    , SolidCore.Solidity.Source.Value.word 40 ]
+
+def checkedCalldataArraySliceMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordAndDynamicWordArrayMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "sliceArray" SolidCore.Solidity.Source.State.empty
+    [checkedCalldataArraySliceInput] 20 [30, 40]
+
+def checkedCalldataArraySliceAbiEncodeMatches :
+    Except TypeError Bool := do
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.dynamicArray
+        SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.dynamicArray
+        (checkedWordValues [20, 30])]
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "encodeSlice" SolidCore.Solidity.Source.State.empty
+    [checkedCalldataArraySliceInput] expected
+
+def checkedCalldataArraySliceOutOfBoundsPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "badSlice" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.dynamicArray
+      (checkedWordValues [1, 2])] 0x32
+
+def checkedAbiArrayContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedAbiArrayContract)
+
+def checkedFixedArrayAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "sumPair"
+    [ SolidCore.Solidity.Source.Value.fixedArray
+        [ SolidCore.Solidity.Source.Value.word 5
+        , SolidCore.Solidity.Source.Value.word 7 ]
+    , SolidCore.Solidity.Source.Value.word 1 ]
+    Executable.Examples.fixedArrayAbiExpectedOutput
+
+def checkedFixedArrayThenBytesAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "arrayThenBytes"
+    [ SolidCore.Solidity.Source.Value.fixedArray
+        [ SolidCore.Solidity.Source.Value.word 9
+        , SolidCore.Solidity.Source.Value.word 10 ]
+    , SolidCore.Solidity.Source.Value.bytes [1, 2, 3] ]
+    Executable.Examples.fixedArrayThenBytesAbiExpectedOutput
+
+def checkedDynamicFixedArrayAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "bytesPair"
+    [ Executable.Examples.dynamicFixedArrayAbiValue
+    , SolidCore.Solidity.Source.Value.word 1 ]
+    Executable.Examples.dynamicFixedArrayAbiExpectedOutput
+
+def checkedDynamicArrayAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "arrayInfo"
+    [ Executable.Examples.dynamicArrayAbiValue
+    , SolidCore.Solidity.Source.Value.word 1 ]
+    Executable.Examples.dynamicArrayAbiExpectedOutput
+
+def checkedDynamicBytesArrayAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "bytesArray"
+    [Executable.Examples.dynamicBytesArrayAbiValue]
+    Executable.Examples.dynamicBytesArrayAbiExpectedOutput
+
+def checkedFixedBytesEchoCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 16
+    Executable.Examples.checkedAbiArrayContract
+    "echo4"
+    [SolidCore.Solidity.Source.Value.word 0xaabbccdd]
+    (SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+      [SolidCore.Solidity.Source.Value.word 0xaabbccdd])
+
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordTripleMatches 32

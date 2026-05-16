@@ -16648,6 +16648,170 @@ def fixedBytesAbiRejectsDirtyPadding : Option Bool := do
   | none => some true
   | some _ => some false
 
+def checkedArrayLiteralLocalFunction : FunctionDecl :=
+  { arrayLiteralLocalFunction with
+    visibility := some Visibility.public_ }
+
+def checkedArrayLiteralAbiEncodeFunction : FunctionDecl :=
+  { arrayLiteralAbiEncodeFunction with
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "out"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ] }
+
+def checkedArrayLiteralFixedBytesWidenFunction : FunctionDecl :=
+  { arrayLiteralFixedBytesWidenFunction with
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "out"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ] }
+
+def checkedMemoryArrayAllocationFunction : FunctionDecl :=
+  { memoryArrayAllocationFunction with
+    visibility := some Visibility.public_ }
+
+def checkedMemoryBytesValueExpr : Expr :=
+  Expr.call (Expr.typeName (Ty.bytesN 1))
+    [Arg.positional (Expr.literal (Literal.bytes [0xab]))]
+
+def checkedMemoryBytesAllocationFunction : FunctionDecl :=
+  { name := some "allocateBytes"
+    params := [{ name := some "len", ty := Ty.uint 256 }]
+    returns :=
+      [ { name := some "data"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "byteLength", ty := Ty.uint 256 }
+      , { name := some "defaultFirst", ty := Ty.bytesN 1 }
+      , { name := some "updatedMiddle", ty := Ty.bytesN 1 }
+      , { name := some "defaultLast", ty := Ty.bytesN 1 } ]
+    visibility := some Visibility.public_
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "buf"
+                  ty := some Ty.bytes
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr Ty.bytes
+                  [Arg.positional (Expr.ident "len")]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "buf")
+                  (Expr.literal (Literal.number "1")))
+                AssignOp.assign
+                checkedMemoryBytesValueExpr)
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value (Expr.ident "buf")
+                  , TupleItem.value
+                      (Expr.member (Expr.ident "buf") "length")
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "buf")
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "buf")
+                        (Expr.literal (Literal.number "1")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "buf")
+                        (Expr.literal (Literal.number "2"))) ])) ]) }
+
+def checkedMemoryStringAllocationFunction : FunctionDecl :=
+  { memoryStringAllocationFunction with
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "data"
+          ty := Ty.string
+          location := some DataLocation.memory } ] }
+
+def checkedCalldataArraySliceFunction : FunctionDecl :=
+  { calldataArraySliceFunction with
+    visibility := some Visibility.public_ }
+
+def checkedCalldataArraySliceAbiEncodeFunction : FunctionDecl :=
+  { calldataArraySliceAbiEncodeFunction with
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "encoded"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ] }
+
+def checkedCalldataArraySliceOutOfBoundsFunction : FunctionDecl :=
+  { calldataArraySliceOutOfBoundsFunction with
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "out"
+          ty := Ty.array (Ty.uint 256) none
+          location := some DataLocation.memory } ] }
+
+def checkedMemoryAndCalldataContract : ContractDecl :=
+  { name := "CheckedMemoryAndCalldata"
+    items :=
+      [ ContractItem.function checkedArrayLiteralLocalFunction
+      , ContractItem.function checkedArrayLiteralAbiEncodeFunction
+      , ContractItem.function checkedArrayLiteralFixedBytesWidenFunction
+      , ContractItem.function checkedMemoryArrayAllocationFunction
+      , ContractItem.function checkedMemoryBytesAllocationFunction
+      , ContractItem.function checkedMemoryStringAllocationFunction
+      , ContractItem.function checkedCalldataArraySliceFunction
+      , ContractItem.function checkedCalldataArraySliceAbiEncodeFunction
+      , ContractItem.function checkedCalldataArraySliceOutOfBoundsFunction ] }
+
+def checkedFixedArrayAbiFunction : FunctionDecl :=
+  { fixedArrayAbiFunction with
+    params :=
+      [ { name := some "pair"
+          ty := Ty.array (Ty.uint 256) (some 2)
+          location := some DataLocation.calldata }
+      , { name := some "flag", ty := Ty.bool } ]
+    returns :=
+      [ { name := some "sum", ty := Ty.uint 256 }
+      , { name := some "echo"
+          ty := Ty.array (Ty.uint 256) (some 2)
+          location := some DataLocation.memory } ]
+    visibility := some Visibility.public_ }
+
+def checkedFixedArrayThenBytesAbiFunction : FunctionDecl :=
+  { fixedArrayThenBytesAbiFunction with
+    params :=
+      [ { name := some "pair"
+          ty := Ty.array (Ty.uint 256) (some 2)
+          location := some DataLocation.calldata }
+      , { name := some "payload"
+          ty := Ty.bytes
+          location := some DataLocation.calldata } ]
+    visibility := some Visibility.public_ }
+
+def checkedDynamicFixedArrayAbiFunction : FunctionDecl :=
+  { dynamicFixedArrayAbiFunction with
+    visibility := some Visibility.public_ }
+
+def checkedDynamicArrayAbiFunction : FunctionDecl :=
+  { dynamicArrayAbiFunction with
+    visibility := some Visibility.public_ }
+
+def checkedDynamicBytesArrayAbiFunction : FunctionDecl :=
+  { dynamicBytesArrayAbiFunction with
+    visibility := some Visibility.public_ }
+
+def checkedFixedBytesEchoFunction : FunctionDecl :=
+  { fixedBytesEchoFunction with
+    visibility := some Visibility.public_ }
+
+def checkedAbiArrayContract : ContractDecl :=
+  { name := "CheckedAbiArray"
+    items :=
+      [ ContractItem.function checkedFixedArrayAbiFunction
+      , ContractItem.function checkedFixedArrayThenBytesAbiFunction
+      , ContractItem.function checkedDynamicFixedArrayAbiFunction
+      , ContractItem.function checkedDynamicArrayAbiFunction
+      , ContractItem.function checkedDynamicBytesArrayAbiFunction
+      , ContractItem.function checkedFixedBytesEchoFunction ] }
+
 def environmentGlobalsFunction : FunctionDecl :=
   { name := some "env"
     returns :=
