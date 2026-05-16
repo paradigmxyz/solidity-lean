@@ -16790,6 +16790,14 @@ def checkedDynamicFixedArrayAbiFunction : FunctionDecl :=
   { dynamicFixedArrayAbiFunction with
     visibility := some Visibility.public_ }
 
+def checkedStaticTupleAbiFunction : FunctionDecl :=
+  { staticTupleAbiFunction with
+    visibility := some Visibility.public_ }
+
+def checkedDynamicTupleAbiFunction : FunctionDecl :=
+  { dynamicTupleAbiFunction with
+    visibility := some Visibility.public_ }
+
 def checkedDynamicArrayAbiFunction : FunctionDecl :=
   { dynamicArrayAbiFunction with
     visibility := some Visibility.public_ }
@@ -16808,6 +16816,8 @@ def checkedAbiArrayContract : ContractDecl :=
       [ ContractItem.function checkedFixedArrayAbiFunction
       , ContractItem.function checkedFixedArrayThenBytesAbiFunction
       , ContractItem.function checkedDynamicFixedArrayAbiFunction
+      , ContractItem.function checkedStaticTupleAbiFunction
+      , ContractItem.function checkedDynamicTupleAbiFunction
       , ContractItem.function checkedDynamicArrayAbiFunction
       , ContractItem.function checkedDynamicBytesArrayAbiFunction
       , ContractItem.function checkedFixedBytesEchoFunction ] }

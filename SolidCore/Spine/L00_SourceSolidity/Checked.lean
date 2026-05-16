@@ -3944,6 +3944,24 @@ def checkedDynamicFixedArrayAbiCalldataMatches :
     , SolidCore.Solidity.Source.Value.word 1 ]
     Executable.Examples.dynamicFixedArrayAbiExpectedOutput
 
+def checkedStaticTupleAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "staticTuple"
+    [ Executable.Examples.staticTupleAbiValue
+    , SolidCore.Solidity.Source.Value.word 5 ]
+    Executable.Examples.staticTupleAbiExpectedOutput
+
+def checkedDynamicTupleAbiCalldataMatches :
+    Except TypeError Bool :=
+  checkedContractAbiOutputMatches 64
+    Executable.Examples.checkedAbiArrayContract
+    "dynamicTuple"
+    [ Executable.Examples.dynamicTupleAbiValue
+    , SolidCore.Solidity.Source.Value.word 1 ]
+    Executable.Examples.dynamicTupleAbiExpectedOutput
+
 def checkedDynamicArrayAbiCalldataMatches :
     Except TypeError Bool :=
   checkedContractAbiOutputMatches 64

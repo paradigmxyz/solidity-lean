@@ -307,13 +307,26 @@ def Ty.isMappingKeyShape (types : TypeContext) : Ty -> Bool
         types.isUserValueTypePath path
   | _ => false
 
+mutual
+
 def Ty.needsDataLocation (types : TypeContext) : Ty -> Bool
   | L00_SourceSolidity.Ty.bytes => true
   | L00_SourceSolidity.Ty.string => true
   | L00_SourceSolidity.Ty.array _ _ => true
   | L00_SourceSolidity.Ty.mapping _ _ => true
   | L00_SourceSolidity.Ty.user path => types.isStructPath path
+  | L00_SourceSolidity.Ty.tuple tys =>
+      Tys.needsDataLocation types tys
   | _ => false
+
+def Tys.needsDataLocation (types : TypeContext) :
+    List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      Ty.needsDataLocation types ty ||
+        Tys.needsDataLocation types rest
+
+end
 
 mutual
 
@@ -2051,6 +2064,15 @@ def checkedArgInfosFull : List L00_SourceSolidity.Arg -> List CheckedExpr ->
       (Arg.name? arg, checked) :: checkedArgInfosFull argRest checkedRest
   | _, _ => []
 
+def Expr.literalNat? : L00_SourceSolidity.Expr -> Option Nat
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.number text) =>
+      L00_SourceSolidity.Executable.parseNumberNat? text
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.unitNumber text unit) =>
+      L00_SourceSolidity.Executable.parseUnitNumberNat? text unit
+  | _ => none
+
 def Ty.commonImplicit? (left right : Ty) : Option Ty :=
   if left == right then
     some left
@@ -3787,6 +3809,27 @@ def checkExpr (env : CheckEnv) :
           Except.ok
             { source := expr
               ty := element
+              lvalue := baseChecked.lvalue || baseChecked.stateLValue
+              stateLValue := baseChecked.stateLValue
+              dataLocation? := baseChecked.dataLocation? }
+      | L00_SourceSolidity.Ty.tuple tys => do
+          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+          let indexValue ←
+            match Expr.literalNat? index with
+            | some value => Except.ok value
+            | none =>
+                Except.error
+                  (TypeError.unsupported "non-literal tuple index")
+          let elementTy ←
+            match (tys.drop indexValue).head? with
+            | some ty => Except.ok ty
+            | none =>
+                Except.error
+                  (TypeError.arityMismatch "tuple index" tys.length
+                    (indexValue + 1))
+          Except.ok
+            { source := expr
+              ty := elementTy
               lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
