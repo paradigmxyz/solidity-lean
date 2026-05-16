@@ -38037,14 +38037,23 @@ def externalLibraryMath : ContractDecl :=
       [ ContractItem.function
           { name := some "plusOne"
             visibility := some Visibility.public_
+            mutability := StateMutability.pure
             params := [{ name := some "self", ty := Ty.uint 256 }]
-            returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.binary BinaryOp.add
+                      (Expr.ident "self")
+                      (Expr.literal (Literal.number "1"))))) } ] }
 
 def externalLibraryDirectContract : ContractDecl :=
   { name := "ExternalLibraryDirect"
     items :=
       [ ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -38063,6 +38072,7 @@ def externalLibraryUsingContract : ContractDecl :=
             target := some (Ty.uint 256) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "x", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -38153,6 +38163,7 @@ def usingModifierContract : ContractDecl :=
                   , Stmt.modifierPlaceholder ]) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             params := [{ name := some "seed", ty := Ty.uint 256 }]
             modifiers :=
               [ { target := { segments := ["withBump"] }

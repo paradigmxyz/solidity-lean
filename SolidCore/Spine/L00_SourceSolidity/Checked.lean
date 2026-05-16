@@ -8359,6 +8359,65 @@ def checkedCanonicalGlobalUsingPriceUnaryOperatorsMatch :
           SolidCore.Solidity.Source.wordEq inverted 16)
   | _ => Except.ok false
 
+def checkedCanonicalExternalLibraryUsingFixturesAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.externalLibraryUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.usingModifierUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.usingConstructorUnit)
+
+def checkedCanonicalExternalLibraryDelegateCallMatches
+    (contractName : Name) (input output : Word) :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.externalLibraryUnit contractName
+  let callResult ←
+    optionToExcept "canonical external library call result"
+      (Executable.Examples.externalLibraryCallResult? input output)
+  let result ←
+    CheckedInput.callFunctionWithContext 64
+      Executable.Examples.externalLibraryUnit contractName "run"
+      { contract.core.context with
+        contractAddresses := [("ExternalMath", 0xbeef)]
+        lowLevelCallResults := [callResult] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word input]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value output)
+  | _ => Except.ok false
+
+def checkedCanonicalExternalLibraryDirectDelegateCallMatches :
+    Except TypeError Bool :=
+  checkedCanonicalExternalLibraryDelegateCallMatches
+    "ExternalLibraryDirect" 41 42
+
+def checkedCanonicalExternalLibraryUsingDelegateCallMatches :
+    Except TypeError Bool :=
+  checkedCanonicalExternalLibraryDelegateCallMatches
+    "ExternalLibraryUsing" 6 7
+
+def checkedCanonicalUsingModifierLibraryExpansionMatches :
+    Except TypeError Bool :=
+  checkedCallSlotMatches 64 Executable.Examples.usingModifierUnit
+    "UsingModifier" "run"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 40] 0 42
+
+def checkedCanonicalUsingConstructorMatches :
+    Except TypeError Bool :=
+  checkedConstructSlotMatches 32
+    Executable.Examples.usingConstructorUnit
+    "UsingConstructor"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 41] 0 42
+
 def checkedUsingHigherOrderFunctionPointerMatches :
     Except TypeError Bool :=
   checkedCallWordMatches 64 usingHigherOrderFunctionSource
