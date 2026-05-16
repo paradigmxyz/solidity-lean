@@ -293,6 +293,19 @@ end ContractDecl
 
 namespace Examples
 
+def checkedSourceFunctionCallWithContext (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (contractName functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let contract ← SourceUnit.checkedToCoreContract source contractName
+  let function ←
+    optionToExcept ("function lookup " ++ functionName)
+      (contract.findFunctionByName? functionName)
+  optionToExcept ("function call " ++ functionName)
+    (SolidCore.Solidity.Source.FunctionDef.call?
+      fuel context function state args)
+
 def checkedStorageReturnConditionalMatches : Except TypeError Bool := do
   let result ←
     ContractDecl.checkedCall 128
@@ -335,6 +348,146 @@ def checkedMissingVisibilityRejected : Bool :=
     (ContractDecl.checkedCall 16 missingVisibilityExecutableContract
       (SolidCore.Solidity.Source.CallTarget.name "run")
       SolidCore.Solidity.Source.State.empty [])
+
+def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTryCatchTarget"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          tryMemberTargetFunction ] }
+
+def checkedTryCatchMemberFunction (name : Name)
+    (clauses : List L00_SourceSolidity.CatchClause) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params :=
+      [ { name := some "feed"
+          ty := Ty.user { segments := ["CheckedTryCatchTarget"] }
+          location := none } ]
+    mutability := StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "feed") "read") [])
+          [{ name := some "value", ty := Ty.uint 256, location := none }]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (L00_SourceSolidity.Expr.ident "value")))
+          clauses) }
+
+def checkedTryCatchSource (contractName functionName : Name)
+    (clauses : List L00_SourceSolidity.CatchClause) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract checkedTryCatchTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (checkedTryCatchMemberFunction functionName clauses) ] } ] }
+
+def checkedTryCatchErrorMatches : Except TypeError Bool := do
+  let callData ←
+    optionToExcept "try/catch calldata"
+      (Executable.Examples.externalCalldata? "read()" [] [])
+  let errorBytes ←
+    optionToExcept "try/catch Error(string)"
+      (Executable.Examples.externalErrorBytes? "bad")
+  let result ←
+    checkedSourceFunctionCallWithContext 16
+      (checkedTryCatchSource "CheckedTryCatchError" "readError"
+        [ L00_SourceSolidity.CatchClause.clause (some "Error")
+            [{ name := some "reason"
+               ty := Ty.string
+               location := some DataLocation.memory }]
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "3"))))
+        , L00_SourceSolidity.CatchClause.clause none []
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "999")))) ])
+      "CheckedTryCatchError" "readError"
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := errorBytes } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (value == 3)
+  | _ => Except.ok false
+
+def checkedTryCatchPanicMatches : Except TypeError Bool := do
+  let callData ←
+    optionToExcept "try/catch calldata"
+      (Executable.Examples.externalCalldata? "read()" [] [])
+  let panicBytes ←
+    optionToExcept "try/catch Panic(uint256)"
+      (Executable.Examples.externalPanicBytes? 0x11)
+  let result ←
+    checkedSourceFunctionCallWithContext 16
+      (checkedTryCatchSource "CheckedTryCatchPanic" "readPanic"
+        [ L00_SourceSolidity.CatchClause.clause (some "Panic")
+            [{ name := some "code"
+               ty := Ty.uint 256
+               location := none }]
+            (L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "code"))) ])
+      "CheckedTryCatchPanic" "readPanic"
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := panicBytes } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (value == 0x11)
+  | _ => Except.ok false
+
+def checkedTryCatchLowLevelMatches : Except TypeError Bool := do
+  let callData ←
+    optionToExcept "try/catch calldata"
+      (Executable.Examples.externalCalldata? "read()" [] [])
+  let result ←
+    checkedSourceFunctionCallWithContext 16
+      (checkedTryCatchSource "CheckedTryCatchLowLevel" "readRaw"
+        [ L00_SourceSolidity.CatchClause.clause none
+            [{ name := some "data"
+               ty := Ty.bytes
+               location := some DataLocation.memory }]
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "3")))) ])
+      "CheckedTryCatchLowLevel" "readRaw"
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := [0xaa, 0xbb, 0xcc] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (value == 3)
+  | _ => Except.ok false
 
 end Examples
 
