@@ -3326,6 +3326,35 @@ def FunctionSig.contextuallyMatchesArgs
         sig.paramStorageRefs
   | none => false
 
+def ModifierSig.contextuallyMatchesArgs
+    (env : CheckEnv) (sig : ModifierSig)
+    (args : List L00_SourceSolidity.Arg) : Bool :=
+  match
+      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+        sig.paramNames args with
+  | some exprs =>
+      exprsContextuallyMatchParams env exprs sig.params
+        sig.paramStorageRefs
+  | none => false
+
+def EventSig.contextuallyMatchesArgs
+    (env : CheckEnv) (sig : EventSig)
+    (args : List L00_SourceSolidity.Arg) : Bool :=
+  match
+      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+        sig.paramNames args with
+  | some exprs => exprsContextuallyMatchParamTys env exprs sig.params
+  | none => false
+
+def ErrorSig.contextuallyMatchesArgs
+    (env : CheckEnv) (sig : ErrorSig)
+    (args : List L00_SourceSolidity.Arg) : Bool :=
+  match
+      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+        sig.paramNames args with
+  | some exprs => exprsContextuallyMatchParamTys env exprs sig.params
+  | none => false
+
 namespace FunctionSigs
 
 def resolveContextualLoop (env : CheckEnv)
@@ -3347,6 +3376,72 @@ def resolveContextual (env : CheckEnv)
   resolveContextualLoop env target args none functions
 
 end FunctionSigs
+
+namespace ModifierSigs
+
+def resolveContextualLoop (env : CheckEnv)
+    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    Option ModifierSig -> List ModifierSig -> Except TypeError ModifierSig
+  | none, [] => Except.error (TypeError.unknownFunction target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target && sig.contextuallyMatchesArgs env args then
+        match found? with
+        | none => resolveContextualLoop env target args (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveContextualLoop env target args found? rest
+
+def resolveContextual (env : CheckEnv)
+    (modifiers : List ModifierSig) (target : Name)
+    (args : List L00_SourceSolidity.Arg) : Except TypeError ModifierSig :=
+  resolveContextualLoop env target args none modifiers
+
+end ModifierSigs
+
+namespace EventSigs
+
+def resolveContextualLoop (env : CheckEnv)
+    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    Option EventSig -> List EventSig -> Except TypeError EventSig
+  | none, [] => Except.error (TypeError.unknownEvent target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target && sig.contextuallyMatchesArgs env args then
+        match found? with
+        | none => resolveContextualLoop env target args (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveContextualLoop env target args found? rest
+
+def resolveContextual (env : CheckEnv)
+    (events : List EventSig) (target : Name)
+    (args : List L00_SourceSolidity.Arg) : Except TypeError EventSig :=
+  resolveContextualLoop env target args none events
+
+end EventSigs
+
+namespace ErrorSigs
+
+def resolveContextualLoop (env : CheckEnv)
+    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    Option ErrorSig -> List ErrorSig -> Except TypeError ErrorSig
+  | none, [] => Except.error (TypeError.unknownError target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target && sig.contextuallyMatchesArgs env args then
+        match found? with
+        | none => resolveContextualLoop env target args (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveContextualLoop env target args found? rest
+
+def resolveContextual (env : CheckEnv)
+    (errors : List ErrorSig) (target : Name)
+    (args : List L00_SourceSolidity.Arg) : Except TypeError ErrorSig :=
+  resolveContextualLoop env target args none errors
+
+end ErrorSigs
 
 mutual
 
@@ -4973,6 +5068,117 @@ decreasing_by
 
 end
 
+def checkContextualArgsAssignableToParamsFor
+    (env : CheckEnv) (what : String)
+    (paramNames : List (Option Name)) (params : List Ty)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (List CheckedExpr) := do
+  let checkedArgs ←
+    if Args.anyNamed args then
+      checkNamedArgsAssignableToParamsFor env what paramNames params args
+    else
+      checkPositionalArgsAssignableToParamsFor env what args params
+  match CheckedArgInfos.ordered? paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some _ => Except.ok checkedArgs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch what params.length checkedArgs.length)
+
+def checkContextualArgsAssignableToParamsWithStorageRefsFor
+    (env : CheckEnv) (what : String)
+    (paramNames : List (Option Name)) (params : List Ty)
+    (paramStorageRefs : List Bool)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (List CheckedExpr) := do
+  let checkedArgs ←
+    checkContextualArgsAssignableToParamsFor env what paramNames params args
+  match CheckedArgInfos.ordered? paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some ordered => do
+      checkCheckedExprsStorageRefsFor what ordered paramStorageRefs
+      Except.ok checkedArgs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch what params.length checkedArgs.length)
+
+def checkModifierArgs (env : CheckEnv)
+    (name : Name) (args : List L00_SourceSolidity.Arg) :
+    Except TypeError Unit := do
+  match checkArgs env args with
+  | Except.ok checkedArgs =>
+      let argInfos := checkedArgInfosFull args checkedArgs
+      match ModifierSigs.resolveChecked env.types env.modifiers name argInfos with
+      | Except.ok _ => Except.ok ()
+      | Except.error checkedErr =>
+          match ModifierSigs.resolveContextual env env.modifiers name args with
+          | Except.ok sig => do
+              let _ ←
+                checkContextualArgsAssignableToParamsWithStorageRefsFor
+                  env "modifier invocation" sig.paramNames sig.params
+                  sig.paramStorageRefs args
+              Except.ok ()
+          | Except.error _ => Except.error checkedErr
+  | Except.error argErr =>
+      match ModifierSigs.resolveContextual env env.modifiers name args with
+      | Except.ok sig => do
+          let _ ←
+            checkContextualArgsAssignableToParamsWithStorageRefsFor
+              env "modifier invocation" sig.paramNames sig.params
+              sig.paramStorageRefs args
+          Except.ok ()
+      | Except.error _ => Except.error argErr
+
+def checkEventArgs (env : CheckEnv)
+    (name : Name) (args : List L00_SourceSolidity.Arg) :
+    Except TypeError Unit := do
+  match checkArgs env args with
+  | Except.ok checkedArgs =>
+      let argInfos := checkedArgInfosFull args checkedArgs
+      match EventSigs.resolveChecked env.types env.events name argInfos with
+      | Except.ok _ => Except.ok ()
+      | Except.error checkedErr =>
+          match EventSigs.resolveContextual env env.events name args with
+          | Except.ok sig => do
+              let _ ←
+                checkContextualArgsAssignableToParamsFor
+                  env "event emission" sig.paramNames sig.params args
+              Except.ok ()
+          | Except.error _ => Except.error checkedErr
+  | Except.error argErr =>
+      match EventSigs.resolveContextual env env.events name args with
+      | Except.ok sig => do
+          let _ ←
+            checkContextualArgsAssignableToParamsFor
+              env "event emission" sig.paramNames sig.params args
+          Except.ok ()
+      | Except.error _ => Except.error argErr
+
+def checkCustomErrorArgs (env : CheckEnv)
+    (name : Name) (args : List L00_SourceSolidity.Arg) :
+    Except TypeError Unit := do
+  match checkArgs env args with
+  | Except.ok checkedArgs =>
+      let argInfos := checkedArgInfosFull args checkedArgs
+      match ErrorSigs.resolveChecked env.types env.errors name argInfos with
+      | Except.ok _ => Except.ok ()
+      | Except.error checkedErr =>
+          match ErrorSigs.resolveContextual env env.errors name args with
+          | Except.ok sig => do
+              let _ ←
+                checkContextualArgsAssignableToParamsFor
+                  env "custom error" sig.paramNames sig.params args
+              Except.ok ()
+          | Except.error _ => Except.error checkedErr
+  | Except.error argErr =>
+      match ErrorSigs.resolveContextual env env.errors name args with
+      | Except.ok sig => do
+          let _ ←
+            checkContextualArgsAssignableToParamsFor
+              env "custom error" sig.paramNames sig.params args
+          Except.ok ()
+      | Except.error _ => Except.error argErr
+
 mutual
 
 def checkExprAssignableTo (env : CheckEnv) :
@@ -5327,10 +5533,7 @@ def checkEventEmission (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) : Except TypeError Unit :=
   match expr with
   | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident name) args => do
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfosFull args checkedArgs
-      let _ ← EventSigs.resolveChecked env.types env.events name argInfos
-      Except.ok ()
+      checkEventArgs env name args
   | other => do
       let _ ← checkExpr env other
       Except.ok ()
@@ -5339,10 +5542,7 @@ def checkRevertCall (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) : Except TypeError Unit :=
   match expr with
   | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident name) args => do
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfosFull args checkedArgs
-      let _ ← ErrorSigs.resolveChecked env.types env.errors name argInfos
-      Except.ok ()
+      checkCustomErrorArgs env name args
   | other => do
       let _ ← checkExpr env other
       Except.ok ()
@@ -5717,9 +5917,7 @@ def checkStmt (env : CheckEnv) :
               (L00_SourceSolidity.Expr.ident errorName) errorArgs) ])) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
-      let checkedArgs ← checkArgs env errorArgs
-      let argInfos := checkedArgInfosFull errorArgs checkedArgs
-      match ErrorSigs.resolveChecked env.types env.errors errorName argInfos with
+      match checkCustomErrorArgs env errorName errorArgs with
       | Except.ok _ => Except.ok { source := stmt }
       | Except.error err =>
           if env.errors.any (fun sig => sig.name == errorName) then
@@ -6896,10 +7094,7 @@ def ModifierInvocation.check (env : CheckEnv) (allowBaseConstructors : Bool)
       ModifierInvocation.checkBaseConstructor env invocation baseDecl
   | none =>
       let name ← ModifierInvocation.targetName invocation
-      let checkedArgs ← checkArgs env invocation.args
-      let argInfos := checkedArgInfosFull invocation.args checkedArgs
-      let _ ← ModifierSigs.resolveChecked env.types env.modifiers name argInfos
-      Except.ok ()
+      checkModifierArgs env name invocation.args
 
 def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
     (invocation : L00_SourceSolidity.ModifierInvocation) :
@@ -22649,6 +22844,306 @@ def contextualUsingNamedArrayLiteralArgOverflowSource :
 def contextualUsingNamedArrayLiteralArgOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualUsingNamedArrayLiteralArgOverflowSource)
+
+def contextualNarrowArrayTy : Ty :=
+  L00_SourceSolidity.Ty.array uint8 (some 2)
+
+def contextualNarrowArrayExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.array [numberExpr "1", numberExpr "2"]
+
+def contextualNarrowArrayOverflowExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.array [numberExpr "1", numberExpr "300"]
+
+def contextualArrayLiteralEventDecl :
+    L00_SourceSolidity.EventDecl :=
+  { name := "NarrowArrayEvent"
+    params :=
+      [{ name := some "xs"
+         ty := contextualNarrowArrayTy
+         indexed := false }] }
+
+def contextualArrayLiteralEventFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.emitEvent
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "NarrowArrayEvent")
+                [arg])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "7")) ]) }
+
+def contextualArrayLiteralEventSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralEvent"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  contextualArrayLiteralEventDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralEventFunction
+                    "eventArrayArg"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualArrayLiteralEventAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayLiteralEventSource
+
+def contextualArrayLiteralEventOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralEventOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  contextualArrayLiteralEventDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralEventFunction
+                    "eventArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualArrayLiteralEventOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayLiteralEventOverflowSource)
+
+def contextualNamedArrayLiteralEventSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayLiteralEvent"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  contextualArrayLiteralEventDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralEventFunction
+                    "eventNamedArrayArg"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualNamedArrayLiteralEventAccepted : Bool :=
+  sourceUnitAccepted? contextualNamedArrayLiteralEventSource
+
+def contextualNamedArrayLiteralEventOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayLiteralEventOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  contextualArrayLiteralEventDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralEventFunction
+                    "eventNamedArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualNamedArrayLiteralEventOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualNamedArrayLiteralEventOverflowSource)
+
+def contextualArrayLiteralErrorDecl :
+    L00_SourceSolidity.ErrorDecl :=
+  { name := "NarrowArrayError"
+    params :=
+      [{ name := some "xs"
+         ty := contextualNarrowArrayTy
+         location := none }] }
+
+def contextualArrayLiteralErrorFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.revertCall
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "NarrowArrayError")
+            [arg])) }
+
+def contextualArrayLiteralErrorSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralError"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  contextualArrayLiteralErrorDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralErrorFunction
+                    "errorArrayArg"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualArrayLiteralErrorAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayLiteralErrorSource
+
+def contextualArrayLiteralErrorOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralErrorOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  contextualArrayLiteralErrorDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralErrorFunction
+                    "errorArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualArrayLiteralErrorOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayLiteralErrorOverflowSource)
+
+def contextualNamedArrayLiteralErrorSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayLiteralError"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  contextualArrayLiteralErrorDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralErrorFunction
+                    "errorNamedArrayArg"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualNamedArrayLiteralErrorAccepted : Bool :=
+  sourceUnitAccepted? contextualNamedArrayLiteralErrorSource
+
+def contextualNamedArrayLiteralErrorOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualNamedArrayLiteralErrorOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  contextualArrayLiteralErrorDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralErrorFunction
+                    "errorNamedArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.named "xs"
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualNamedArrayLiteralErrorOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualNamedArrayLiteralErrorOverflowSource)
+
+def contextualArrayLiteralRequireErrorFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "require")
+                [ L00_SourceSolidity.Arg.positional (boolExpr false)
+                , L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.ident "NarrowArrayError")
+                      [arg]) ])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "7")) ]) }
+
+def contextualArrayLiteralRequireErrorSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralRequireError"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  contextualArrayLiteralErrorDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralRequireErrorFunction
+                    "requireArrayArg"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualArrayLiteralRequireErrorAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayLiteralRequireErrorSource
+
+def contextualArrayLiteralRequireErrorOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralRequireErrorOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  contextualArrayLiteralErrorDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralRequireErrorFunction
+                    "requireArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualArrayLiteralRequireErrorOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayLiteralRequireErrorOverflowSource)
+
+def contextualArrayLiteralModifierDecl :
+    L00_SourceSolidity.ModifierDecl :=
+  { name := "narrowArrayMod"
+    params :=
+      [{ name := some "xs"
+         ty := contextualNarrowArrayTy
+         location := some L00_SourceSolidity.DataLocation.memory }]
+    body := some L00_SourceSolidity.Stmt.modifierPlaceholder }
+
+def contextualArrayLiteralModifierFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    modifiers :=
+      [{ target := userPath "narrowArrayMod"
+         args := [arg] }] }
+
+def contextualArrayLiteralModifierSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralModifier"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  contextualArrayLiteralModifierDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralModifierFunction
+                    "modifierArrayArg"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayExpr)) ] } ] }
+
+def contextualArrayLiteralModifierAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayLiteralModifierSource
+
+def contextualArrayLiteralModifierOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayLiteralModifierOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  contextualArrayLiteralModifierDecl
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayLiteralModifierFunction
+                    "modifierArrayArgOverflow"
+                    (L00_SourceSolidity.Arg.positional
+                      contextualNarrowArrayOverflowExpr)) ] } ] }
+
+def contextualArrayLiteralModifierOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayLiteralModifierOverflowSource)
 
 def bytes4ValueExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
