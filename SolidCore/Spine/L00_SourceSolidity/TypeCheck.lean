@@ -3982,8 +3982,48 @@ def checkExpr (env : CheckEnv) :
             (L00_SourceSolidity.Expr.tuple items) ] => do
           let tupleArgs ← tupleItemsAsPositionalArgs items
           let sig ←
-            resolveEncodeCallFunctionContextual env functionPointer
-              tupleArgs
+            match functionPointer with
+            | L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.typeName
+                  (L00_SourceSolidity.Ty.user path)) member => do
+                let sig ←
+                  TypeContext.resolveContractMemberFunctionContextual
+                    env path member tupleArgs
+                require sig.externallyCallable
+                  (TypeError.invalidAbiCall
+                    "abi.encodeCall expects an external function")
+                Except.ok sig
+            | L00_SourceSolidity.Expr.member target member => do
+                let targetChecked ← checkExpr env target
+                match targetChecked.ty with
+                | L00_SourceSolidity.Ty.user path => do
+                    let sig ←
+                      TypeContext.resolveContractMemberFunctionContextual
+                        env path member tupleArgs
+                    require sig.externallyCallable
+                      (TypeError.invalidAbiCall
+                        "abi.encodeCall expects an external function")
+                    Except.ok sig
+                | other =>
+                    Except.error
+                      (TypeError.expectedType
+                        (L00_SourceSolidity.Ty.address false) other)
+            | L00_SourceSolidity.Expr.ident name => do
+                let checked ← checkExpr env functionPointer
+                match functionPointerSig? name checked.ty with
+                | some sig => requireExternalEncodeCallPointer sig
+                | none =>
+                    Except.error
+                      (TypeError.invalidAbiCall
+                        "abi.encodeCall expects a function pointer")
+            | _ => do
+                let checked ← checkExpr env functionPointer
+                match functionPointerSig? "" checked.ty with
+                | some sig => requireExternalEncodeCallPointer sig
+                | none =>
+                    Except.error
+                      (TypeError.invalidAbiCall
+                        "abi.encodeCall expects a function pointer")
           let _ ←
             checkEncodeCallTupleItemsAssignableTo env items sig.params
           Except.ok
@@ -25352,6 +25392,182 @@ def abiEncodeCallSource : L00_SourceSolidity.SourceUnit :=
 
 def abiEncodeCallAccepted : Bool :=
   sourceUnitAccepted? abiEncodeCallSource
+
+def abiEncodeCallWithPointer
+    (functionPointer : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.ident "abi") "encodeCall")
+    [ L00_SourceSolidity.Arg.positional functionPointer
+    , L00_SourceSolidity.Arg.positional
+        (L00_SourceSolidity.Expr.tuple
+          [L00_SourceSolidity.TupleItem.value oneExpr]) ]
+
+def abiEncodeCallPointerPayloadFunction
+    (name : Name) (mutability : L00_SourceSolidity.StateMutability)
+    (params : List L00_SourceSolidity.Parameter)
+    (functionPointer : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { bytesReturnFunction with
+    name := some name
+    params := params
+    mutability := mutability
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (abiEncodeCallWithPointer functionPointer))) }
+
+def abiEncodeCallNewTargetSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallTarget"
+            items := [L00_SourceSolidity.ContractItem.function
+              encodeCallTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiEncodeCallNewTarget"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (abiEncodeCallPointerPayloadFunction
+                    "payload"
+                    L00_SourceSolidity.StateMutability.nonpayable
+                    []
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.newExpr
+                        (L00_SourceSolidity.Ty.user
+                          (userPath "EncodeCallTarget")) [])
+                      "set")) ] } ] }
+
+def abiEncodeCallNewTargetAccepted : Bool :=
+  sourceUnitAccepted? abiEncodeCallNewTargetSource
+
+def badAbiEncodeCallNewTargetViewSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallTarget"
+            items := [L00_SourceSolidity.ContractItem.function
+              encodeCallTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodeCallNewTargetView"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (abiEncodeCallPointerPayloadFunction
+                    "payload"
+                    L00_SourceSolidity.StateMutability.view
+                    []
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.newExpr
+                        (L00_SourceSolidity.Ty.user
+                          (userPath "EncodeCallTarget")) [])
+                      "set")) ] } ] }
+
+def badAbiEncodeCallNewTargetViewRejected : Bool :=
+  Result.isError (SourceUnit.check badAbiEncodeCallNewTargetViewSource)
+
+def abiEncodeCallConversionTargetSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallTarget"
+            items := [L00_SourceSolidity.ContractItem.function
+              encodeCallTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiEncodeCallConversionTarget"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (abiEncodeCallPointerPayloadFunction
+                    "payload"
+                    L00_SourceSolidity.StateMutability.pure
+                    [ { name := some "targetAddr"
+                        ty := addressTy
+                        location := none } ]
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.typeName
+                          (L00_SourceSolidity.Ty.user
+                            (userPath "EncodeCallTarget")))
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.ident "targetAddr")])
+                      "set")) ] } ] }
+
+def abiEncodeCallConversionTargetAccepted : Bool :=
+  sourceUnitAccepted? abiEncodeCallConversionTargetSource
+
+def badAbiEncodeCallTernaryTargetConditionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallTarget"
+            items := [L00_SourceSolidity.ContractItem.function
+              encodeCallTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodeCallTernaryTargetCondition"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "target"
+                    ty := L00_SourceSolidity.Ty.user
+                      (userPath "EncodeCallTarget") }
+              , L00_SourceSolidity.ContractItem.function
+                  (abiEncodeCallPointerPayloadFunction
+                    "payload"
+                    L00_SourceSolidity.StateMutability.view
+                    []
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.ternary
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.typeName uint256)
+                          [L00_SourceSolidity.Arg.positional oneExpr])
+                        (L00_SourceSolidity.Expr.ident "target")
+                        (L00_SourceSolidity.Expr.ident "target"))
+                      "set")) ] } ] }
+
+def badAbiEncodeCallTernaryTargetConditionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check badAbiEncodeCallTernaryTargetConditionSource)
+
+def otherEncodeCallTargetFunction : L00_SourceSolidity.FunctionDecl :=
+  { encodeCallTargetFunction with name := some "set" }
+
+def badAbiEncodeCallTernaryTargetBranchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallTarget"
+            items := [L00_SourceSolidity.ContractItem.function
+              encodeCallTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "OtherEncodeCallTarget"
+            items := [L00_SourceSolidity.ContractItem.function
+              otherEncodeCallTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodeCallTernaryTargetBranch"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "target"
+                    ty := L00_SourceSolidity.Ty.user
+                      (userPath "EncodeCallTarget") }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "other"
+                    ty := L00_SourceSolidity.Ty.user
+                      (userPath "OtherEncodeCallTarget") }
+              , L00_SourceSolidity.ContractItem.function
+                  (abiEncodeCallPointerPayloadFunction
+                    "payload"
+                    L00_SourceSolidity.StateMutability.view
+                    [{ name := some "flag"
+                       ty := L00_SourceSolidity.Ty.bool
+                       location := none }]
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.ternary
+                        (L00_SourceSolidity.Expr.ident "flag")
+                        (L00_SourceSolidity.Expr.ident "target")
+                        (L00_SourceSolidity.Expr.ident "other"))
+                      "set")) ] } ] }
+
+def badAbiEncodeCallTernaryTargetBranchRejected : Bool :=
+  Result.isError
+    (SourceUnit.check badAbiEncodeCallTernaryTargetBranchSource)
 
 def badAbiEncodeCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
