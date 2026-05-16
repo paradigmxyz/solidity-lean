@@ -10513,6 +10513,37 @@ def checkedInheritedNamespaceShadowingRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit missingModifierOverrideSource)
 
+def checkedMutabilityDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit viewStateReadSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit nonpayableStateWriteSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit modifierArgFromParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit viewWithStateReadModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        nonpayableWithStateWriteModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit viewCallsPureSource)
+
+def checkedMutabilityDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit pureStateReadSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit viewStateWriteSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit pureWithStateReadModifierSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit viewWithStateWriteModifierSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit pureCallsViewSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit viewEmitSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit viewCreatesContractSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
