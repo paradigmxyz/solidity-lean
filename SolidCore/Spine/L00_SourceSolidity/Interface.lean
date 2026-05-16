@@ -24908,6 +24908,7 @@ def mappingContract : ContractDecl :=
                     (Expr.literal (Literal.number "9")))) }
       , ContractItem.function
           { name := some "get"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -25141,6 +25142,7 @@ def signedMappingKeyContract : ContractDecl :=
             ty := Ty.mapping (Ty.int 256) (Ty.uint 256) }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key", ty := Ty.int 256 }
               , { name := some "value", ty := Ty.uint 256 } ]
@@ -25155,6 +25157,7 @@ def signedMappingKeyContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "read"
+            visibility := some Visibility.public_
             params := [{ name := some "key", ty := Ty.int 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=

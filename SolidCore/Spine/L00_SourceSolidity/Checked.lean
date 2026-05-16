@@ -4721,6 +4721,66 @@ def checkedPublicMappingGetterAbiMatches : Except TypeError Bool := do
     Executable.Examples.publicMappingGetterContract
     "m" state [SolidCore.Solidity.Source.Value.word 4] (some expected)
 
+def checkedDirectMappingContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.mappingContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.signedMappingKeyContract)
+
+def checkedMappingWriteState : Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.mappingContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "mapping set")
+
+def checkedMappingReadAfterWriteMatches : Except TypeError Bool := do
+  let state ← checkedMappingWriteState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.mappingContract
+    "get" state [] 9
+
+def checkedSignedMappingKeySetState : Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.signedMappingKeyContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.int
+          Executable.Examples.signedMappingKeyWord
+      , SolidCore.Solidity.Source.Value.word 123 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "signed mapping key set")
+
+def checkedSignedMappingKeyReadMatches : Except TypeError Bool := do
+  let state ← checkedSignedMappingKeySetState
+  let slot :=
+    SolidCore.Solidity.Source.mappingStorageSlot
+      0 Executable.Examples.signedMappingKeyWord
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.signedMappingKeyContract
+      (SolidCore.Solidity.Source.CallTarget.name "read")
+      state
+      [SolidCore.Solidity.Source.Value.int
+        Executable.Examples.signedMappingKeyWord]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq
+          (state.loadSlot slot) 123 &&
+          SolidCore.Solidity.Source.wordEq value 123)
+  | _ => Except.ok false
+
 def checkedBytesStringMappingSetState : Except TypeError CoreState := do
   let bytesSet ←
     ContractDecl.checkedCall 32
@@ -4751,6 +4811,29 @@ def checkedPublicBytesMappingGetterMatches : Except TypeError Bool := do
   checkedOwnCallWordMatches 32
     Executable.Examples.bytesStringMappingKeyContract
     "mb" state [SolidCore.Solidity.Source.Value.bytes [1, 2, 3]] 44
+
+def checkedBytesMappingKeyReadMatches : Except TypeError Bool := do
+  let state ← checkedBytesStringMappingSetState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.bytesStringMappingKeyContract
+    "readBytes" state
+    [SolidCore.Solidity.Source.Value.bytes [1, 2, 3]] 44
+
+def checkedBytesMappingDifferentKeyDefaultsToZero :
+    Except TypeError Bool := do
+  let state ← checkedBytesStringMappingSetState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.bytesStringMappingKeyContract
+    "readBytes" state
+    [SolidCore.Solidity.Source.Value.bytes [1, 2, 4]] 0
+
+def checkedStringMappingKeyReadMatches : Except TypeError Bool := do
+  let state ← checkedBytesStringMappingSetState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.bytesStringMappingKeyContract
+    "readString" state
+    [SolidCore.Solidity.Source.Value.bytes ("hi".toList.map Char.toNat)]
+    55
 
 def checkedPublicStringMappingGetterAbiMatches :
     Except TypeError Bool := do
