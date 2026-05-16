@@ -3356,6 +3356,79 @@ def resolveContextual (env : CheckEnv)
 
 end FunctionSigs
 
+def TypeContext.resolveContractMemberFunctionContextual
+    (env : CheckEnv) (path : Path) (member : Name)
+    (args : List L00_SourceSolidity.Arg) : Except TypeError FunctionSig :=
+  match env.types.lookupContractExternalFunctionSigs? path with
+  | some sigs => FunctionSigs.resolveContextual env sigs member args
+  | none => Except.error (TypeError.unknownFunction member)
+
+def tupleItemsAsPositionalArgs :
+    List L00_SourceSolidity.TupleItem ->
+    Except TypeError (List L00_SourceSolidity.Arg)
+  | [] => Except.ok []
+  | L00_SourceSolidity.TupleItem.hole :: _ =>
+      Except.error
+        (TypeError.invalidAbiCall
+          "abi.encodeCall argument tuple cannot contain holes")
+  | L00_SourceSolidity.TupleItem.value expr :: rest => do
+      let tail ← tupleItemsAsPositionalArgs rest
+      Except.ok (L00_SourceSolidity.Arg.positional expr :: tail)
+
+def resolveEncodeCallFunctionContextual (env : CheckEnv)
+    (pointer : L00_SourceSolidity.Expr)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError FunctionSig :=
+  match pointer with
+  | L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.user path))
+      member => do
+      let sig ←
+        TypeContext.resolveContractMemberFunctionContextual env path member
+          args
+      require sig.externallyCallable
+        (TypeError.invalidAbiCall
+          "abi.encodeCall expects an external function")
+      Except.ok sig
+  | L00_SourceSolidity.Expr.member target member => do
+      let targetChecked ← checkCallTargetExpr env target
+      match targetChecked.ty with
+      | L00_SourceSolidity.Ty.user path => do
+          let sig ←
+            TypeContext.resolveContractMemberFunctionContextual env path member
+              args
+          require sig.externallyCallable
+            (TypeError.invalidAbiCall
+              "abi.encodeCall expects an external function")
+          Except.ok sig
+      | other =>
+          Except.error
+            (TypeError.expectedType
+              (L00_SourceSolidity.Ty.address false) other)
+  | L00_SourceSolidity.Expr.ident name => do
+      match env.lookupVar? name with
+      | some ty => do
+          let isState := env.isStateName name && !env.isLocalName name
+          let isStorageRef := env.isLocalStorageRef name
+          if isState || isStorageRef then
+            requireStateReadAllowed env
+          else
+            Except.ok ()
+          match functionPointerSig? name ty with
+          | some sig => requireExternalEncodeCallPointer sig
+          | none =>
+              Except.error
+                (TypeError.invalidAbiCall
+                  "abi.encodeCall expects a function pointer")
+      | none =>
+          Except.error
+            (TypeError.invalidAbiCall
+              "abi.encodeCall expects a function pointer")
+  | _ =>
+      Except.error
+        (TypeError.invalidAbiCall
+          "abi.encodeCall expects a function pointer")
+
 namespace ModifierSigs
 
 def resolveContextualLoop (env : CheckEnv)
@@ -3907,10 +3980,12 @@ def checkExpr (env : CheckEnv) :
       | [ L00_SourceSolidity.Arg.positional functionPointer
         , L00_SourceSolidity.Arg.positional
             (L00_SourceSolidity.Expr.tuple items) ] => do
-          let checkedItems ← checkEncodeCallTupleItems env items
-          let argInfos := checkedExprsAsPositionalCheckedArgInfos checkedItems
-          let sig ← resolveEncodeCallFunction env functionPointer argInfos
-          checkCheckedExprsAssignableTo env.types checkedItems sig.params
+          let tupleArgs ← tupleItemsAsPositionalArgs items
+          let sig ←
+            resolveEncodeCallFunctionContextual env functionPointer
+              tupleArgs
+          let _ ←
+            checkEncodeCallTupleItemsAssignableTo env items sig.params
           Except.ok
             { source := expr
               ty := L00_SourceSolidity.Ty.bytes
@@ -5194,18 +5269,25 @@ decreasing_by
     simp_wf
     try omega
 
-def checkEncodeCallTupleItems (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> Except TypeError (List CheckedExpr)
-  | [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.hole :: _ =>
+def checkEncodeCallTupleItemsAssignableTo (env : CheckEnv) :
+    List L00_SourceSolidity.TupleItem -> List Ty ->
+    Except TypeError (List CheckedExpr)
+  | [], [] => Except.ok []
+  | L00_SourceSolidity.TupleItem.hole :: _, _ =>
       Except.error
         (TypeError.invalidAbiCall
           "abi.encodeCall argument tuple cannot contain holes")
-  | L00_SourceSolidity.TupleItem.value expr :: rest => do
-      let checked ← checkExpr env expr
-      let tail ← checkEncodeCallTupleItems env rest
+  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest => do
+      let checked ←
+        checkArgAssignableToParam env ty
+          (L00_SourceSolidity.Arg.positional expr)
+      let tail ← checkEncodeCallTupleItemsAssignableTo env rest tyRest
       Except.ok (checked :: tail)
-termination_by items => sizeOf items
+  | actual, expected =>
+      Except.error
+        (TypeError.arityMismatch
+          "abi.encodeCall" expected.length actual.length)
+termination_by items _ => sizeOf items
 decreasing_by
   all_goals
     try subst expr
@@ -25268,6 +25350,106 @@ def badAbiEncodeCallSource : L00_SourceSolidity.SourceUnit :=
 
 def badAbiEncodeCallRejected : Bool :=
   Result.isError (SourceUnit.check badAbiEncodeCallSource)
+
+def encodeCallArrayTargetFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "takeArray"
+    params :=
+      [{ name := some "xs"
+         ty := contextualNarrowArrayTy
+         location := some L00_SourceSolidity.DataLocation.memory }]
+    returns := [{ name := none, ty := uint8, location := none }]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (L00_SourceSolidity.Expr.ident "xs")
+              (numberExpr "0")))) }
+
+def abiEncodeCallArrayPayloadFunction
+    (name : Name) (params : List L00_SourceSolidity.Parameter)
+    (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { bytesReturnFunction with
+    name := some name
+    params := params
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "abi") "encodeCall")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.member
+                    (L00_SourceSolidity.Expr.ident "target") "takeArray")
+              , L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.tuple
+                    [L00_SourceSolidity.TupleItem.value arg]) ]))) }
+
+def abiEncodeCallArraySource
+    (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EncodeCallArrayTarget"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                encodeCallArrayTargetFunction] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "target"
+                    ty := L00_SourceSolidity.Ty.user
+                      (userPath "EncodeCallArrayTarget") }
+              , L00_SourceSolidity.ContractItem.function fn ] } ] }
+
+def contextualArrayAbiEncodeCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  abiEncodeCallArraySource "ContextualArrayAbiEncodeCall"
+    (abiEncodeCallArrayPayloadFunction
+      "payload" [] contextualNarrowArrayExpr)
+
+def contextualArrayAbiEncodeCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayAbiEncodeCallSource
+
+def contextualArrayAbiEncodeCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  abiEncodeCallArraySource "ContextualArrayAbiEncodeCallOverflow"
+    (abiEncodeCallArrayPayloadFunction
+      "payloadOverflow" [] contextualNarrowArrayOverflowExpr)
+
+def contextualArrayAbiEncodeCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayAbiEncodeCallOverflowSource)
+
+def contextualArrayTernaryAbiEncodeCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  abiEncodeCallArraySource "ContextualArrayTernaryAbiEncodeCall"
+    (abiEncodeCallArrayPayloadFunction
+      "payloadTernary"
+      [contextualArrayTernaryFlagParam]
+      (contextualArrayTernaryExpr contextualNarrowArrayExpr))
+
+def contextualArrayTernaryAbiEncodeCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTernaryAbiEncodeCallSource
+
+def contextualArrayTernaryAbiEncodeCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  abiEncodeCallArraySource "ContextualArrayTernaryAbiEncodeCallOverflow"
+    (abiEncodeCallArrayPayloadFunction
+      "payloadTernaryOverflow"
+      [contextualArrayTernaryFlagParam]
+      (contextualArrayTernaryExpr contextualNarrowArrayOverflowExpr))
+
+def contextualArrayTernaryAbiEncodeCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTernaryAbiEncodeCallOverflowSource)
 
 def abiEncodeCallTypeNameSource : L00_SourceSolidity.SourceUnit :=
   { items :=
