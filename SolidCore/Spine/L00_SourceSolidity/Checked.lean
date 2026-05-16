@@ -9762,6 +9762,24 @@ def checkedUsingConstructorMatches : Except TypeError Bool :=
     SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 41] 0 42
 
+def checkedModifierSemanticsMatch : Except TypeError Bool := do
+  let canonical ← checkedCanonicalModifierCallMatches
+  let multiplePlaceholders ← checkedMultiPlaceholderModifierMatches
+  let namedArgs ← checkedNamedArgsModifierMatches
+  let returnsThrough ← checkedReturnsThroughModifierMatches
+  let trySuccess ← checkedTryCatchAroundModifierSuccessMatches
+  let tryCatch ← checkedTryCatchAroundModifierCatchMatches
+  let directExternal ← checkedDirectExternalCallModifierMatches
+  let usingModifier ← checkedUsingModifierLibraryExpansionMatches
+  let usingConstructor ← checkedUsingConstructorMatches
+  Except.ok
+    (checkedCanonicalModifierContractsAccepted &&
+      checkedTryCatchAroundModifierSourceAccepted &&
+      checkedDirectExternalCallModifierSourceAccepted &&
+      canonical && multiplePlaceholders && namedArgs && returnsThrough &&
+      trySuccess && tryCatch && directExternal && usingModifier &&
+      usingConstructor)
+
 def checkedUsingUnknownLibraryRejected : Bool :=
   Result.isError (CheckedInput.program usingUnknownLibrarySource)
 
@@ -9788,6 +9806,75 @@ def checkedContractGlobalUsingRejected : Bool :=
 
 def checkedGlobalUsingNonUserValueRejected : Bool :=
   Result.isError (CheckedInput.program globalUsingNonUserValueSource)
+
+def checkedLibraryUsingSemanticsMatch : Except TypeError Bool := do
+  let method ← checkedUsingLibraryMethodMatches
+  let direct ← checkedUsingLibraryDirectCallMatches
+  let sourceLevel ← checkedUsingSourceLevelMatches
+  let storageReceiver ← checkedUsingStorageReceiverMatches
+  let namedMethod ← checkedUsingNamedMethodMatches
+  let explicitFunction ← checkedUsingExplicitFunctionMatches
+  let explicitFreeFunction ← checkedUsingExplicitFreeFunctionMatches
+  let namedDirect ← checkedUsingNamedDirectCallMatches
+  let canonicalMethod ← checkedCanonicalUsingLibraryMethodMatches
+  let canonicalDirect ← checkedCanonicalUsingLibraryDirectCallMatches
+  let canonicalSource ← checkedCanonicalUsingSourceLevelMatches
+  let canonicalStorage ← checkedCanonicalUsingStorageReceiverMatches
+  let canonicalNamed ← checkedCanonicalUsingNamedMethodMatches
+  let canonicalExplicit ← checkedCanonicalUsingExplicitFunctionMatches
+  let canonicalExplicitFree ←
+    checkedCanonicalUsingExplicitFreeFunctionMatches
+  let canonicalNamedDirect ← checkedCanonicalUsingNamedDirectCallMatches
+  let higherOrder ←
+    checkedCanonicalUsingHigherOrderFunctionPointerMatches
+  let higherOrderNamed ←
+    checkedCanonicalUsingHigherOrderNamedFunctionPointerMatches
+  let globalUsing ← checkedCanonicalGlobalUsingPriceMatches
+  let globalLocal ← checkedCanonicalGlobalUsingPriceLocalMatches
+  let globalAssign ← checkedCanonicalGlobalUsingPriceAssignMatches
+  let operatorAdd ← checkedCanonicalGlobalUsingPriceAddOperatorMatches
+  let operatorLt ← checkedCanonicalGlobalUsingPriceLtOperatorMatches
+  let operatorUnary ← checkedCanonicalGlobalUsingPriceUnaryOperatorsMatch
+  let externalDirect ← checkedCanonicalExternalLibraryDirectDelegateCallMatches
+  let externalUsing ← checkedCanonicalExternalLibraryUsingDelegateCallMatches
+  let usingModifier ← checkedCanonicalUsingModifierLibraryExpansionMatches
+  let usingConstructor ← checkedCanonicalUsingConstructorMatches
+  let localHigherOrder ← checkedUsingHigherOrderFunctionPointerMatches
+  let localHigherOrderNamed ←
+    checkedUsingHigherOrderNamedFunctionPointerMatches
+  let localGlobalUsing ← checkedGlobalUsingPriceMatches
+  let localOperatorAdd ← checkedGlobalUsingPriceAddOperatorMatches
+  let localOperatorLt ← checkedGlobalUsingPriceLtOperatorMatches
+  let localOperatorUnary ← checkedGlobalUsingPriceUnaryOperatorsMatch
+  let localExternalDirect ← checkedExternalLibraryDirectDelegateCallMatches
+  let localExternalUsing ← checkedExternalLibraryUsingDelegateCallMatches
+  let localUsingModifier ← checkedUsingModifierLibraryExpansionMatches
+  let localUsingConstructor ← checkedUsingConstructorMatches
+  Except.ok
+    (checkedCanonicalUsingLibraryUnitsAccepted &&
+      checkedCanonicalGlobalUsingPriceOperatorUnitAccepted &&
+      checkedCanonicalExternalLibraryUsingFixturesAccepted &&
+      method && direct && sourceLevel && storageReceiver &&
+      namedMethod && explicitFunction && explicitFreeFunction &&
+      namedDirect && canonicalMethod && canonicalDirect &&
+      canonicalSource && canonicalStorage && canonicalNamed &&
+      canonicalExplicit && canonicalExplicitFree && canonicalNamedDirect &&
+      higherOrder && higherOrderNamed && globalUsing && globalLocal &&
+      globalAssign && operatorAdd && operatorLt && operatorUnary &&
+      externalDirect && externalUsing && usingModifier &&
+      usingConstructor && localHigherOrder && localHigherOrderNamed &&
+      localGlobalUsing && localOperatorAdd && localOperatorLt &&
+      localOperatorUnary && localExternalDirect && localExternalUsing &&
+      localUsingModifier && localUsingConstructor &&
+      checkedUsingUnknownLibraryRejected &&
+      checkedUsingNonLibraryRejected &&
+      checkedBadExplicitUsingFreeFunctionRejected &&
+      checkedBadExplicitUsingFunctionRejected &&
+      checkedBadUsingLibraryReceiverRejected &&
+      checkedContractUsingOperatorRejected &&
+      checkedNonPureUsingOperatorRejected &&
+      checkedContractGlobalUsingRejected &&
+      checkedGlobalUsingNonUserValueRejected)
 
 def checkedInheritedBaseFunctionDispatchMatches :
     Except TypeError Bool :=
@@ -11788,6 +11875,46 @@ def checkedInheritedEventEmitMatches :
       | _ => Except.ok false
   | _ => Except.ok false
 
+def checkedEventErrorRollbackSemanticsMatch :
+    Except TypeError Bool := do
+  let requireAbi ← checkedRequireCustomErrorAbiMatches
+  let eventTopics ← checkedEventAbiTopicsMatchExpected
+  let eventData ← checkedEventAbiDataBytesMatchExpected
+  let anonymousTopics ← checkedAnonymousEventAbiTopicsMatchExpected
+  let anonymousData ← checkedAnonymousEventAbiDataBytesEmpty
+  let eventRollbackDrop ← checkedRevertedEventRollbackDropsLog
+  let eventRollbackPreserve ← checkedRevertedEventRollbackPreservesPriorLogs
+  let storageRollbackDrop ← checkedStorageRollbackDropsWrite
+  let storageRollbackPreserve ← checkedStorageRollbackPreservesPriorValue
+  let dynamicTopics ← checkedDynamicEventAbiTopicsMatchExpected
+  let dynamicData ← checkedDynamicEventAbiDataBytesMatchExpected
+  let freeErrorAbi ← checkedFreeErrorAbiMatches
+  let localErrorShadow ← checkedLocalErrorShadowsFreeAbiMatches
+  let canonicalFreeEvent ← checkedCanonicalFreeEventEmitMatches
+  let localEventShadow ← checkedLocalEventShadowsFreeAbiMatches
+  let inheritedErrorShadow ← checkedInheritedErrorShadowsFreeAbiMatches
+  let inheritedEventShadow ← checkedInheritedEventShadowsFreeAbiMatches
+  let freeEvent ← checkedFreeEventEmitMatches
+  let freeError ← checkedFreeErrorRevertMatches
+  let namedEvent ← checkedNamedEventArgumentOrderMatches
+  let namedError ← checkedNamedErrorArgumentOrderMatches
+  let requireError ← checkedRequireCustomErrorMatches
+  let eventEffects ← checkedEventArgumentSideEffectMatches
+  let errorRollback ← checkedErrorRollbackMatches
+  let inheritedErrorPayload ← checkedInheritedErrorAbiPayloadMatches
+  let inheritedEvent ← checkedInheritedEventEmitMatches
+  Except.ok
+    (checkedEventErrorAbiRollbackContractsAccepted &&
+      checkedFreeEventErrorShadowUnitsAccepted &&
+      requireAbi && eventTopics && eventData && anonymousTopics &&
+      anonymousData && eventRollbackDrop && eventRollbackPreserve &&
+      storageRollbackDrop && storageRollbackPreserve &&
+      dynamicTopics && dynamicData && freeErrorAbi && localErrorShadow &&
+      canonicalFreeEvent && localEventShadow && inheritedErrorShadow &&
+      inheritedEventShadow && freeEvent && freeError && namedEvent &&
+      namedError && requireError && eventEffects && errorRollback &&
+      inheritedErrorPayload && inheritedEvent)
+
 def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedLowLevelCall"
     items :=
@@ -12477,6 +12604,32 @@ def checkedPrecompileStaticcallMatches :
           output == expectedOutput)
   | _ => Except.ok false
 
+def checkedLowLevelCallSemanticsMatch : Except TypeError Bool := do
+  let plain ← checkedLowLevelCallMatches
+  let value ← checkedLowLevelCallValueMatches
+  let gasMismatch ← checkedLowLevelCallGasMismatchReturnsFalse
+  let optionEffects ← checkedLowLevelCallOptionEffectsMatches
+  let staticDelegate ← checkedLowLevelStaticDelegateMatches
+  let delegateGas ← checkedLowLevelDelegateCallGasOptionMatches
+  let staticGas ← checkedLowLevelStaticCallOptionGasEffectsMatches
+  let missing ← checkedLowLevelMissingResultMatches
+  let abiTy ← checkedLowLevelCallAbiTyMatches
+  let sendOk ← checkedLowLevelSendMatches
+  let sendFailure ← checkedLowLevelSendFailureReturnsFalse
+  let transferOk ← checkedTransferValueSuccessMatches
+  let transferFailure ← checkedTransferValueFailureReverts
+  let precompile ← checkedPrecompileStaticcallMatches
+  Except.ok
+    (plain && value && gasMismatch && optionEffects &&
+      staticDelegate && delegateGas && staticGas &&
+      checkedLowLevelStaticCallValueOptionRejected &&
+      checkedLowLevelDelegateCallValueOptionRejected &&
+      missing && abiTy && sendOk && sendFailure &&
+      checkedLowLevelSendNonpayableAddressRejected &&
+      checkedLowLevelSendSignedAmountRejected &&
+      checkedLowLevelTransferSignedAmountRejected &&
+      transferOk && transferFailure && precompile)
+
 def checkedCreatedChildTy : Ty :=
   Ty.user { segments := ["CheckedCreatedChild"] }
 
@@ -13016,8 +13169,8 @@ def checkedTryContractCreateOperandEffectsContract :
                                   (Ty.bytesN 32))
                                 [ L00_SourceSolidity.Arg.positional
                                     (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
-                                        "5")) ])) ]
+                                      (L00_SourceSolidity.Literal.hexString
+                                        "0000000000000000000000000000000000000000000000000000000000000005")) ])) ]
                         [ L00_SourceSolidity.Arg.positional
                             (L00_SourceSolidity.Expr.call
                               (L00_SourceSolidity.Expr.typeName
@@ -13168,6 +13321,32 @@ def checkedNonpayableConstructorValueRejected : Bool :=
 
 def checkedViewCreatesContractRejected : Bool :=
   Result.isError (SourceUnit.checkedProgram viewCreatesContractSource)
+
+def checkedContractCreationSemanticsMatch :
+    Except TypeError Bool := do
+  let success ← checkedContractCreationSuccessMatches
+  let named ← checkedContractCreationNamedArgsMatches
+  let namedReordered ← checkedContractCreationNamedArgsReorderedMatches
+  let valueSalt ← checkedContractCreationValueSaltMatches
+  let namedOptions ← checkedContractCreationNamedArgsWithOptionsMatches
+  let failure ← checkedContractCreationFailureReverts
+  let missing ← checkedContractCreationMissingResultReverts
+  let trySuccess ← checkedTryCatchContractCreationSuccessMatches
+  let tryFailure ← checkedTryCatchContractCreationFailureMatches
+  let externalOperand ← checkedTryExternalCallOperandEffectsMatches
+  let creationOperand ← checkedTryContractCreateOperandEffectsMatches
+  Except.ok
+    (success && named && namedReordered && valueSalt &&
+      namedOptions && checkedContractCreationDuplicateNamedArgsRejected &&
+      failure && missing && trySuccess && tryFailure &&
+      checkedTryOperandEffectsUnitAccepted &&
+      externalOperand && creationOperand &&
+      checkedBadConstructorTypeRejected &&
+      checkedMissingConstructorArgRejected &&
+      checkedUintSaltConstructorCreateRejected &&
+      checkedLiteralSaltConstructorCreateRejected &&
+      checkedNonpayableConstructorValueRejected &&
+      checkedViewCreatesContractRejected)
 
 def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTransientStorage"
@@ -13533,6 +13712,25 @@ def checkedTryCatchLowLevelMatches : Except TypeError Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       Except.ok (value == 3)
   | _ => Except.ok false
+
+def checkedTryCatchSemanticsMatch : Except TypeError Bool := do
+  let error ← checkedTryCatchErrorMatches
+  let panic ← checkedTryCatchPanicMatches
+  let lowLevel ← checkedTryCatchLowLevelMatches
+  let createSuccess ← checkedTryCatchContractCreationSuccessMatches
+  let createFailure ← checkedTryCatchContractCreationFailureMatches
+  let externalOperand ← checkedTryExternalCallOperandEffectsMatches
+  let creationOperand ← checkedTryContractCreateOperandEffectsMatches
+  let modifierSuccess ← checkedTryCatchAroundModifierSuccessMatches
+  let modifierCatch ← checkedTryCatchAroundModifierCatchMatches
+  Except.ok
+    (checkedTryCatchDisciplineAccepted &&
+      checkedTryCatchDisciplineRejected &&
+      checkedTryOperandEffectsUnitAccepted &&
+      checkedTryCatchAroundModifierSourceAccepted &&
+      error && panic && lowLevel && createSuccess && createFailure &&
+      externalOperand && creationOperand && modifierSuccess &&
+      modifierCatch)
 
 end Examples
 
