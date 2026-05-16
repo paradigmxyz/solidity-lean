@@ -6346,6 +6346,48 @@ def checkedMemoryStringAllocationMatches :
     [SolidCore.Solidity.Source.Value.word 3]
     [0, 0, 0]
 
+def checkedInvalidExprStatementFunction (functionName : Name)
+    (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+  { name := some functionName
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    body := some (Stmt.expr expr) }
+
+def checkedInvalidExprStatementContract (contractName : Name)
+    (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+  { name := contractName
+    items :=
+      [ContractItem.function
+        (checkedInvalidExprStatementFunction "bad" expr)] }
+
+def checkedMemoryAllocationInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidExprStatementContract "BadFixedArrayNew"
+          (Expr.newExpr (Ty.array (Ty.uint 256) (some 3))
+            [Arg.positional
+              (Expr.literal (Literal.number "3"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidExprStatementContract "BadDynamicArrayNewArity0"
+          (Expr.newExpr (Ty.array (Ty.uint 256) none) []))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidExprStatementContract "BadDynamicArrayNewArity2"
+          (Expr.newExpr (Ty.array (Ty.uint 256) none)
+            [ Arg.positional (Expr.literal (Literal.number "3"))
+            , Arg.positional (Expr.literal (Literal.number "4")) ]))) &&
+    Result.isError
+      (CheckedInput.program
+        (checkedInvalidExprStatementContract "BadNewBytesArity0"
+          (Expr.newExpr Ty.bytes []))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidExprStatementContract "BadNewBytesArity2"
+          (Expr.newExpr Ty.bytes
+            [ Arg.positional (Expr.literal (Literal.number "3"))
+            , Arg.positional (Expr.literal (Literal.number "4")) ])))
+
 def checkedStringEchoContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -8038,6 +8080,41 @@ def checkedNumericLiteralCastBoundsRejected : Bool :=
               (Expr.unary UnaryOp.neg
                 (Expr.literal (Literal.number "1")))])))
 
+def checkedUnitNumberLiteralRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidUintReturnContract "BadHalfWei"
+          (Expr.literal
+            (Literal.unitNumber ".5" UnitDenomination.wei)))) &&
+    Result.isError
+      (CheckedInput.program
+        (checkedInvalidUintReturnContract "BadSubWeiEther"
+          (Expr.literal
+            (Literal.unitNumber "1e-19" UnitDenomination.ether)))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadUint8Ether"
+          (Ty.uint 8)
+          (Expr.call (Expr.typeName (Ty.uint 8))
+            [Arg.positional
+              (Expr.literal
+                (Literal.unitNumber "1" UnitDenomination.ether))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadPayableWei"
+          (Ty.address true)
+          (Expr.payableConversion
+            (Expr.literal
+              (Literal.unitNumber "1" UnitDenomination.wei))))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadBytes4Wei"
+          (Ty.bytesN 4)
+          (Expr.call (Expr.typeName (Ty.bytesN 4))
+            [Arg.positional
+              (Expr.literal
+                (Literal.unitNumber "1" UnitDenomination.wei))])))
+
 def checkedFixedBytesLiteralConversionRejected : Bool :=
   Result.isError
       (CheckedInput.program
@@ -8156,6 +8233,16 @@ def checkedAddressConversionRejected : Bool :=
               [Arg.positional
                 (Expr.literal (Literal.number "1"))]))))
 
+def checkedPayableTypedUint160ZeroRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit
+      (checkedInvalidReturnContract "BadPayableFromUint160Zero"
+        (Ty.address true)
+        (Expr.payableConversion
+          (Expr.call (Expr.typeName (Ty.uint 160))
+            [Arg.positional
+              (Expr.literal (Literal.number "0"))]))))
+
 def checkedLiteralInvalidSourcesRejected : Bool :=
   Result.isError
       (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
@@ -8171,10 +8258,12 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
     checkedNonIntegralNumericLiteralsRejected &&
     checkedNonIntegralNumberLiteralExpressionRejected &&
     checkedNumericLiteralCastBoundsRejected &&
+    checkedUnitNumberLiteralRejected &&
     checkedFixedBytesLiteralConversionRejected &&
     checkedRuntimeIntegerCastRejected &&
     checkedFixedBytesRuntimeConversionRejected &&
-    checkedAddressConversionRejected
+    checkedAddressConversionRejected &&
+    checkedPayableTypedUint160ZeroRejected
 
 def checkedArithmeticContractAccepted : Bool :=
   Result.isOk
@@ -11268,7 +11357,8 @@ def checkedDataLocationDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit memoryMappingLocalSource) &&
     Result.isError
-      (TypecheckedInput.checkedSourceUnit publicMappingParamSource)
+      (TypecheckedInput.checkedSourceUnit publicMappingParamSource) &&
+    checkedMemoryAllocationInvalidSourcesRejected
 
 def checkedTupleLocalBindingDisciplineAccepted : Bool :=
   Result.isOk
