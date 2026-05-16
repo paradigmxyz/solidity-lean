@@ -10611,6 +10611,326 @@ def checkedTryCatchContractCreationFailureMatches :
       Except.ok (SolidCore.Solidity.Source.wordEq value 0)
   | _ => Except.ok false
 
+def checkedTryOperandTargetTy : Ty :=
+  Ty.user { segments := ["CheckedTryOperandTarget"] }
+
+def checkedTryOperandTargetContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTryOperandTarget"
+    kind := ContractKind.interface
+    items :=
+      [ ContractItem.function
+          { name := some "ping"
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
+
+def checkedTryExternalCallOperandEffectsContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTryExternalCallOperandEffects"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "target", ty := Ty.address false }
+              , { name := some "value", ty := Ty.uint 256 }
+              , { name := some "arg", ty := Ty.uint 256 }
+              , { name := some "out", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "target"
+                         ty := some checkedTryOperandTargetTy }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.typeName
+                            checkedTryOperandTargetTy)
+                          [ L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.address 0)) ]))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "value", ty := some (Ty.uint 256) }]
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "arg", ty := some (Ty.uint 256) }]
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.tryCatchReturns
+                      (L00_SourceSolidity.Expr.callWithOptions
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident "target")
+                            AssignOp.assign
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.typeName
+                                checkedTryOperandTargetTy)
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.address
+                                      51966)) ]))
+                          "ping")
+                        [ L00_SourceSolidity.CallOption.named "value"
+                            (L00_SourceSolidity.Expr.assign
+                              (L00_SourceSolidity.Expr.ident "value")
+                              AssignOp.assign
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number "7"))) ]
+                        [ L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.typeName
+                                (Ty.uint 256))
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.assign
+                                    (L00_SourceSolidity.Expr.ident "arg")
+                                    AssignOp.assign
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "3"))) ]) ])
+                      [{ name := some "out", ty := Ty.uint 256 }]
+                      (L00_SourceSolidity.Stmt.returnValues
+                        (some
+                          (L00_SourceSolidity.Expr.tuple
+                            [ L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.typeName
+                                    (Ty.address false))
+                                  [ L00_SourceSolidity.Arg.positional
+                                      (L00_SourceSolidity.Expr.ident
+                                        "target") ])
+                            , L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.ident "value")
+                            , L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.ident "arg")
+                            , L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.ident "out") ])))
+                      [ L00_SourceSolidity.CatchClause.clause none []
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some
+                              (L00_SourceSolidity.Expr.tuple
+                                [ L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.address
+                                        0))
+                                , L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "0"))
+                                , L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "0"))
+                                , L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "0")) ]))) ] ]) } ] }
+
+def checkedTryOperandMadeTy : Ty :=
+  Ty.user { segments := ["CheckedTryOperandMade"] }
+
+def checkedTryOperandMadeContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTryOperandMade"
+    items :=
+      [ ContractItem.function
+          { kind := FunctionKind.constructor
+            params := [{ name := some "x", ty := Ty.uint 256 }]
+            mutability := StateMutability.payable
+            body := some L00_SourceSolidity.Stmt.empty } ] }
+
+def checkedTryContractCreateOperandEffectsContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTryContractCreateOperandEffects"
+    items :=
+      [ ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            returns :=
+              [ { name := some "value", ty := Ty.uint 256 }
+              , { name := some "salt", ty := Ty.bytesN 32 }
+              , { name := some "arg", ty := Ty.uint 256 }
+              , { name := some "made", ty := Ty.address false } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "value", ty := some (Ty.uint 256) }]
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "salt", ty := some (Ty.bytesN 32) }]
+                      (some
+                        (L00_SourceSolidity.Expr.call
+                          (L00_SourceSolidity.Expr.typeName
+                            (Ty.bytesN 32))
+                          [ L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number
+                                  "0")) ]))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "arg", ty := some (Ty.uint 256) }]
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.tryCatchReturns
+                      (L00_SourceSolidity.Expr.callWithOptions
+                        (L00_SourceSolidity.Expr.newExpr
+                          checkedTryOperandMadeTy [])
+                        [ L00_SourceSolidity.CallOption.named "value"
+                            (L00_SourceSolidity.Expr.assign
+                              (L00_SourceSolidity.Expr.ident "value")
+                              AssignOp.assign
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number "7")))
+                        , L00_SourceSolidity.CallOption.named "salt"
+                            (L00_SourceSolidity.Expr.assign
+                              (L00_SourceSolidity.Expr.ident "salt")
+                              AssignOp.assign
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.typeName
+                                  (Ty.bytesN 32))
+                                [ L00_SourceSolidity.Arg.positional
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "5")) ])) ]
+                        [ L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.typeName
+                                (Ty.uint 256))
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.assign
+                                    (L00_SourceSolidity.Expr.ident "arg")
+                                    AssignOp.assign
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "3"))) ]) ])
+                      [{ name := some "made"
+                         ty := checkedTryOperandMadeTy }]
+                      (L00_SourceSolidity.Stmt.returnValues
+                        (some
+                          (L00_SourceSolidity.Expr.tuple
+                            [ L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.ident "value")
+                            , L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.ident "salt")
+                            , L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.ident "arg")
+                            , L00_SourceSolidity.TupleItem.value
+                                (L00_SourceSolidity.Expr.call
+                                  (L00_SourceSolidity.Expr.typeName
+                                    (Ty.address false))
+                                  [ L00_SourceSolidity.Arg.positional
+                                      (L00_SourceSolidity.Expr.ident
+                                        "made") ]) ])))
+                      [ L00_SourceSolidity.CatchClause.clause none []
+                          (L00_SourceSolidity.Stmt.returnValues
+                            (some
+                              (L00_SourceSolidity.Expr.tuple
+                                [ L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "0"))
+                                , L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.call
+                                      (L00_SourceSolidity.Expr.typeName
+                                        (Ty.bytesN 32))
+                                      [ L00_SourceSolidity.Arg.positional
+                                          (L00_SourceSolidity.Expr.literal
+                                            (L00_SourceSolidity.Literal.number
+                                              "0")) ])
+                                , L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.number
+                                        "0"))
+                                , L00_SourceSolidity.TupleItem.value
+                                    (L00_SourceSolidity.Expr.literal
+                                      (L00_SourceSolidity.Literal.address
+                                        0)) ]))) ] ]) } ] }
+
+def checkedTryOperandEffectsUnit : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          checkedTryOperandTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedTryExternalCallOperandEffectsContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedTryOperandMadeContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedTryContractCreateOperandEffectsContract ] }
+
+def checkedTryOperandEffectsUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit checkedTryOperandEffectsUnit)
+
+def checkedTryExternalCallOperandEffectsMatches :
+    Except TypeError Bool := do
+  let callData ←
+    checkedHighLevelExternalCalldata "ping(uint256)"
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 3]
+  let output ← checkedHighLevelExternalWordOutput 99
+  let result ←
+    checkedSourceFunctionCallWithContext 32 checkedTryOperandEffectsUnit
+      "CheckedTryExternalCallOperandEffects" "run"
+      { SolidCore.Solidity.Source.Context.empty with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 51966
+              calldata := callData
+              value := 7
+              success := true
+              output := output } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word target
+      , SolidCore.Solidity.Source.Value.word value
+      , SolidCore.Solidity.Source.Value.word arg
+      , SolidCore.Solidity.Source.Value.word out ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq target 51966 &&
+          SolidCore.Solidity.Source.wordEq value 7 &&
+          SolidCore.Solidity.Source.wordEq arg 3 &&
+          SolidCore.Solidity.Source.wordEq out 99)
+  | _ => Except.ok false
+
+def checkedTryContractCreateOperandEffectsMatches :
+    Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 3]
+  let result ←
+    checkedSourceFunctionCallWithContext 32 checkedTryOperandEffectsUnit
+      "CheckedTryContractCreateOperandEffects" "run"
+      { SolidCore.Solidity.Source.Context.empty with
+        contractCreationResults :=
+          [ { contractName := "CheckedTryOperandMade"
+              constructorArgs := constructorArgs
+              value := 7
+              salt? := some 5
+              success := true
+              address := 51966
+              output := [] } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word value
+      , SolidCore.Solidity.Source.Value.word salt
+      , SolidCore.Solidity.Source.Value.word arg
+      , SolidCore.Solidity.Source.Value.word made ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 7 &&
+          SolidCore.Solidity.Source.wordEq salt 5 &&
+          SolidCore.Solidity.Source.wordEq arg 3 &&
+          SolidCore.Solidity.Source.wordEq made 51966)
+  | _ => Except.ok false
+
 def checkedBadConstructorTypeRejected : Bool :=
   Result.isError (SourceUnit.checkedProgram badConstructorTypeSource)
 

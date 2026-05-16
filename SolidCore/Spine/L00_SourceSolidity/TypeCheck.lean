@@ -6361,10 +6361,13 @@ def checkTryTargetKind (env : CheckEnv)
         (TypeError.invalidTryCatch
           "try target is not an external function call")
   | L00_SourceSolidity.Expr.callWithOptions fn _ _ => do
-      let fnChecked ← checkExpr env fn
-      require fnChecked.ty.isExternalFunction
-        (TypeError.invalidTryCatch
-          "try target is not an external function call")
+      if isKnownContractCreationTryTarget env expr then
+        Except.ok ()
+      else
+        let fnChecked ← checkExpr env fn
+        require fnChecked.ty.isExternalFunction
+          (TypeError.invalidTryCatch
+            "try target is not an external function call")
   | _ =>
       require (isKnownContractCreationTryTarget env expr)
         (TypeError.invalidTryCatch
