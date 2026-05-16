@@ -29308,6 +29308,7 @@ def udvtContract : ContractDecl :=
       , ContractItem.function
           { name := some "set"
             params := [{ name := some "raw", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -29318,6 +29319,7 @@ def udvtContract : ContractDecl :=
       , ContractItem.function
           { name := some "read"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.returnValues
@@ -29329,6 +29331,7 @@ def udvtContract : ContractDecl :=
           { name := some "roundtrip"
             params := [{ name := some "raw", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -29347,6 +29350,7 @@ def udvtContract : ContractDecl :=
           { name := some "echo"
             params := [{ name := some "value", ty := priceTy }]
             returns := [{ name := some "out", ty := priceTy }]
+            visibility := some Visibility.public_
             body := some (Stmt.returnValues (some (Expr.ident "value"))) } ] }
 
 def udvtSourceUnit : SourceUnit :=
@@ -29504,6 +29508,7 @@ def enumContract : ContractDecl :=
             params := [{ name := some "choice", ty := actionTy }] }
       , ContractItem.function
           { name := some "setGoStraight"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -29512,6 +29517,7 @@ def enumContract : ContractDecl :=
       , ContractItem.function
           { name := some "setFromUint"
             params := [{ name := some "raw", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -29521,6 +29527,7 @@ def enumContract : ContractDecl :=
       , ContractItem.function
           { name := some "largest"
             returns := [{ name := some "out", ty := actionTy }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.returnValues
@@ -29528,6 +29535,7 @@ def enumContract : ContractDecl :=
       , ContractItem.function
           { name := some "smallest"
             returns := [{ name := some "out", ty := actionTy }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.returnValues
@@ -29535,6 +29543,7 @@ def enumContract : ContractDecl :=
       , ContractItem.function
           { name := some "readAsUint"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.returnValues
@@ -29545,6 +29554,7 @@ def enumContract : ContractDecl :=
           { name := some "echo"
             params := [{ name := some "value", ty := actionTy }]
             returns := [{ name := some "out", ty := actionTy }]
+            visibility := some Visibility.public_
             body := some (Stmt.returnValues (some (Expr.ident "value"))) } ] }
 
 def enumSourceUnit : SourceUnit :=
@@ -29715,11 +29725,14 @@ def structContract : ContractDecl :=
               [ { name := some "x", ty := Ty.uint 256 }
               , { name := some "y", ty := Ty.uint 256 } ]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
                   [ Stmt.varDecl
-                      [{ name := some "point", ty := some pointTy }]
+                      [{ name := some "point"
+                         ty := some pointTy
+                         location := some DataLocation.memory }]
                       (some
                         (pointConstructorNamed
                           (Expr.ident "x") (Expr.ident "y")))
@@ -29731,11 +29744,14 @@ def structContract : ContractDecl :=
       , ContractItem.function
           { name := some "replaceY"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
                   [ Stmt.varDecl
-                      [{ name := some "point", ty := some pointTy }]
+                      [{ name := some "point"
+                         ty := some pointTy
+                         location := some DataLocation.memory }]
                       (some
                         (pointConstructorPositional
                           (Expr.literal (Literal.number "1"))
@@ -29749,8 +29765,15 @@ def structContract : ContractDecl :=
                       (some (Expr.member (Expr.ident "point") "y")) ]) }
       , ContractItem.function
           { name := some "echo"
-            params := [{ name := some "point", ty := pointTy }]
-            returns := [{ name := some "out", ty := pointTy }]
+            params :=
+              [{ name := some "point"
+                 ty := pointTy
+                 location := some DataLocation.memory }]
+            returns :=
+              [{ name := some "out"
+                 ty := pointTy
+                 location := some DataLocation.memory }]
+            visibility := some Visibility.public_
             body := some (Stmt.returnValues (some (Expr.ident "point"))) } ] }
 
 def structSourceUnit : SourceUnit :=

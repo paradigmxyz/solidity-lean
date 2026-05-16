@@ -1621,6 +1621,290 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
           defaultName == "C")
   | _, _, _, _ => Except.ok false
 
+def checkedAbiCallUintMatches (fuel : Nat) (source : SourceUnitAst)
+    (contractName functionName : Name) (state : CoreState)
+    (args : List CoreValue) (expected : Word) :
+    Except TypeError Bool := do
+  let calldata ←
+    CheckedInput.functionCalldata source contractName functionName args
+  let result ←
+    CheckedInput.callCalldata fuel source contractName state calldata
+  let value ← checkedDecodeUint256 result.output
+  Except.ok
+    (result.success && SolidCore.Solidity.Source.wordEq value expected)
+
+def checkedDataTypeSourceUnitsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.udvtSourceUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.enumSourceUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.structSourceUnit)
+
+def checkedUdvtSetState : Except TypeError CoreState := do
+  let result ←
+    CheckedInput.callContract 32 Executable.Examples.udvtSourceUnit "UDVT"
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 42]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "UDVT set")
+
+def checkedUdvtReadMatches : Except TypeError Bool := do
+  let state ← checkedUdvtSetState
+  checkedCallWordMatches 32 Executable.Examples.udvtSourceUnit
+    "UDVT" "read" state [] 42
+
+def checkedUdvtPublicGetterMatches : Except TypeError Bool := do
+  let state ← checkedUdvtSetState
+  checkedCallWordMatches 32 Executable.Examples.udvtSourceUnit
+    "UDVT" "last" state [] 42
+
+def checkedUdvtRoundtripMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 Executable.Examples.udvtSourceUnit
+    "UDVT" "roundtrip" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 77] 77
+
+def checkedUdvtAbiSetState : Except TypeError CoreState := do
+  let calldata ←
+    CheckedInput.functionCalldata
+      Executable.Examples.udvtSourceUnit "UDVT" "set"
+      [SolidCore.Solidity.Source.Value.word 42]
+  let result ←
+    CheckedInput.callCalldata 32 Executable.Examples.udvtSourceUnit
+      "UDVT" SolidCore.Solidity.Source.State.empty calldata
+  if result.success then
+    Except.ok result.state
+  else
+    Except.error (executableFailure "UDVT ABI set")
+
+def checkedUdvtAbiGetterMatches : Except TypeError Bool := do
+  let state ← checkedUdvtAbiSetState
+  checkedAbiCallUintMatches 32 Executable.Examples.udvtSourceUnit
+    "UDVT" "last" state [] 42
+
+def checkedUdvtAbiEchoMatches : Except TypeError Bool :=
+  checkedAbiCallUintMatches 32 Executable.Examples.udvtSourceUnit
+    "UDVT" "echo" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 55] 55
+
+def checkedUdvtEventTopicMatches : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.udvtSourceUnit "UDVT"
+  let event ←
+    optionToExcept "UDVT Seen event"
+      (contract.eventDecls.find? (fun event => event.name == "Seen"))
+  let field ←
+    optionToExcept "UDVT Seen field" event.fields.head?
+  let fieldIsUint256 :=
+    match field.ty with
+    | SolidCore.Solidity.Source.Ty.uint256 => true
+    | _ => false
+  Except.ok
+    (event.topic? ==
+      some (SolidCore.Solidity.Source.Keccak.digestWord
+        "Seen(uint256)") &&
+      fieldIsUint256 && field.indexed)
+
+def checkedUdvtErrorSelectorMatches : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.udvtSourceUnit "UDVT"
+  let err ←
+    optionToExcept "UDVT Bad error"
+      (contract.errorDecls.find? (fun err => err.name == "Bad"))
+  let field ←
+    optionToExcept "UDVT Bad field" err.fields.head?
+  let fieldIsUint256 :=
+    match field with
+    | SolidCore.Solidity.Source.Ty.uint256 => true
+    | _ => false
+  Except.ok
+    (err.selector ==
+      SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "Bad(uint256)" &&
+      fieldIsUint256)
+
+def checkedEnumSetState : Except TypeError CoreState := do
+  let result ←
+    CheckedInput.callContract 32 Executable.Examples.enumSourceUnit
+      "EnumDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "setGoStraight")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "enum set")
+
+def checkedEnumPublicGetterMatches : Except TypeError Bool := do
+  let state ← checkedEnumSetState
+  checkedCallWordMatches 32 Executable.Examples.enumSourceUnit
+    "EnumDemo" "choice" state [] 2
+
+def checkedEnumReadAsUintMatches : Except TypeError Bool := do
+  let state ← checkedEnumSetState
+  checkedCallWordMatches 32 Executable.Examples.enumSourceUnit
+    "EnumDemo" "readAsUint" state [] 2
+
+def checkedEnumTypeMinMaxMatches : Except TypeError Bool := do
+  let largest ←
+    checkedCallWordMatches 32 Executable.Examples.enumSourceUnit
+      "EnumDemo" "largest" SolidCore.Solidity.Source.State.empty [] 3
+  let smallest ←
+    checkedCallWordMatches 32 Executable.Examples.enumSourceUnit
+      "EnumDemo" "smallest" SolidCore.Solidity.Source.State.empty [] 0
+  Except.ok (largest && smallest)
+
+def checkedEnumConversionInRangeMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 32 Executable.Examples.enumSourceUnit
+      "EnumDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "setFromUint")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 1]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      checkedCallWordMatches 32 Executable.Examples.enumSourceUnit
+        "EnumDemo" "choice" state [] 1
+  | _ => Except.ok false
+
+def checkedEnumConversionOutOfRangePanics :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 32 Executable.Examples.enumSourceUnit
+      "EnumDemo"
+      (SolidCore.Solidity.Source.CallTarget.name "setFromUint")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 9]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (code == 0x21)
+  | _ => Except.ok false
+
+def checkedEnumAbiEchoUsesUint8Selector :
+    Except TypeError Bool :=
+  checkedAbiCallUintMatches 32 Executable.Examples.enumSourceUnit
+    "EnumDemo" "echo" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 3] 3
+
+def checkedEnumEventTopicMatches : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.enumSourceUnit "EnumDemo"
+  let event ←
+    optionToExcept "enum Seen event"
+      (contract.eventDecls.find? (fun event => event.name == "Seen"))
+  let field ←
+    optionToExcept "enum Seen field" event.fields.head?
+  let fieldIsUint :=
+    match field.ty with
+    | SolidCore.Solidity.Source.Ty.uint256 => true
+    | _ => false
+  Except.ok
+    (event.topic? ==
+      some (SolidCore.Solidity.Source.Keccak.digestWord
+        "Seen(uint8)") &&
+      fieldIsUint && field.indexed)
+
+def checkedEnumErrorSelectorMatches : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.enumSourceUnit "EnumDemo"
+  let err ←
+    optionToExcept "enum Bad error"
+      (contract.errorDecls.find? (fun err => err.name == "Bad"))
+  let field ←
+    optionToExcept "enum Bad field" err.fields.head?
+  let fieldIsUint :=
+    match field with
+    | SolidCore.Solidity.Source.Ty.uint256 => true
+    | _ => false
+  Except.ok
+    (err.selector ==
+      SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "Bad(uint8)" &&
+      fieldIsUint)
+
+def checkedStructNamedConstructorFieldSumMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48 Executable.Examples.structSourceUnit
+    "StructDemo" "sum" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 8 ] 15
+
+def checkedStructFieldAssignmentMatches : Except TypeError Bool :=
+  checkedCallWordMatches 48 Executable.Examples.structSourceUnit
+    "StructDemo" "replaceY" SolidCore.Solidity.Source.State.empty [] 9
+
+def checkedStructAbiEchoMatches : Except TypeError Bool := do
+  let tupleTy :=
+    SolidCore.Solidity.Source.Ty.tuple
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+  let tupleValue :=
+    SolidCore.Solidity.Source.Value.tuple
+      [ SolidCore.Solidity.Source.Value.word 3
+      , SolidCore.Solidity.Source.Value.word 4 ]
+  let calldata ←
+    CheckedInput.functionCalldata
+      Executable.Examples.structSourceUnit "StructDemo" "echo"
+      [tupleValue]
+  let result ←
+    CheckedInput.callCalldata 48 Executable.Examples.structSourceUnit
+      "StructDemo" SolidCore.Solidity.Source.State.empty calldata
+  let expected ← checkedAbiEncodeValues [tupleTy] [tupleValue]
+  Except.ok (result.success && result.output == expected)
+
+def checkedStructEventTopicMatches : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.structSourceUnit "StructDemo"
+  let event ←
+    optionToExcept "struct Seen event"
+      (contract.eventDecls.find? (fun event => event.name == "Seen"))
+  let field ←
+    optionToExcept "struct Seen field" event.fields.head?
+  let fieldIsTuple :=
+    match field.ty with
+    | SolidCore.Solidity.Source.Ty.tuple
+        [ SolidCore.Solidity.Source.Ty.uint256
+        , SolidCore.Solidity.Source.Ty.uint256 ] => true
+    | _ => false
+  Except.ok
+    (event.topic? ==
+      some
+        (SolidCore.Solidity.Source.Keccak.digestWord
+          "Seen((uint256,uint256))") &&
+      fieldIsTuple && !field.indexed)
+
+def checkedStructErrorSelectorMatches : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.structSourceUnit "StructDemo"
+  let err ←
+    optionToExcept "struct Bad error"
+      (contract.errorDecls.find? (fun err => err.name == "Bad"))
+  let field ←
+    optionToExcept "struct Bad field" err.fields.head?
+  let fieldIsTuple :=
+    match field with
+    | SolidCore.Solidity.Source.Ty.tuple
+        [ SolidCore.Solidity.Source.Ty.uint256
+        , SolidCore.Solidity.Source.Ty.uint256 ] => true
+    | _ => false
+  Except.ok
+    (err.selector ==
+      SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "Bad((uint256,uint256))" &&
+      fieldIsTuple)
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library
