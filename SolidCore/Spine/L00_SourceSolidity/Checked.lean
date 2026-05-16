@@ -219,6 +219,125 @@ def checkedCallContractTransaction (fuel : Nat)
 
 end SourceUnit
 
+namespace ContractDecl
+
+def sourceUnit (decl : L00_SourceSolidity.ContractDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items := [L00_SourceSolidity.SourceItem.contract decl] }
+
+def checked? (decl : L00_SourceSolidity.ContractDecl) :
+    Option CheckedSourceUnit :=
+  SourceUnit.checked? (sourceUnit decl)
+
+def checkedToCore? (decl : L00_SourceSolidity.ContractDecl) :
+    Option CoreContract :=
+  SourceUnit.checkedToCoreContract? (sourceUnit decl) decl.name
+
+def checkedToCore (decl : L00_SourceSolidity.ContractDecl) :
+    Except TypeError CoreContract :=
+  SourceUnit.checkedToCoreContract (sourceUnit decl) decl.name
+
+def checkedConstructFrom? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Option CoreCallResult :=
+  SourceUnit.checkedConstructContractFrom?
+    fuel (sourceUnit decl) decl.name state sender value args
+
+def checkedConstructFrom (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  SourceUnit.checkedConstructContractFrom
+    fuel (sourceUnit decl) decl.name state sender value args
+
+def checkedConstruct? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (args : List CoreValue) : Option CoreCallResult :=
+  SourceUnit.checkedConstructContract?
+    fuel (sourceUnit decl) decl.name state args
+
+def checkedConstruct (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreCallResult :=
+  SourceUnit.checkedConstructContract
+    fuel (sourceUnit decl) decl.name state args
+
+def checkedCall? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
+    (state : CoreState) (args : List CoreValue) : Option CoreCallResult :=
+  SourceUnit.checkedCallContract?
+    fuel (sourceUnit decl) decl.name target state args
+
+def checkedCall (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  SourceUnit.checkedCallContract
+    fuel (sourceUnit decl) decl.name target state args
+
+def checkedCallTransaction? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
+    (state : CoreState) (args : List CoreValue) : Option CoreCallResult :=
+  SourceUnit.checkedCallContractTransaction?
+    fuel (sourceUnit decl) decl.name target state args
+
+def checkedCallTransaction (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  SourceUnit.checkedCallContractTransaction
+    fuel (sourceUnit decl) decl.name target state args
+
+end ContractDecl
+
+namespace Examples
+
+def checkedStorageReturnConditionalMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 128
+      Executable.Examples.storageReturnAliasContract
+      (SolidCore.Solidity.Source.CallTarget.name
+        "bindConditionalReturnedStorage")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (value == 127)
+  | _ => Except.ok false
+
+def missingVisibilityExecutableContract : L00_SourceSolidity.ContractDecl :=
+  { name := "MissingVisibilityExecutable"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { name := some "run"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.number "7")))) } ] }
+
+def rawMissingVisibilityStillExecutes : Option Bool := do
+  let result ←
+    Executable.ContractDecl.call? 16 missingVisibilityExecutableContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 7)
+  | _ => some false
+
+def checkedMissingVisibilityRejected : Bool :=
+  Result.isError
+    (ContractDecl.checkedCall 16 missingVisibilityExecutableContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty [])
+
+end Examples
+
 end TypeCheck
 end L00_SourceSolidity
 end Spine
