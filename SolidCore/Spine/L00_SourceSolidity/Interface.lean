@@ -30978,6 +30978,7 @@ def overloadedDispatchContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "pick"
+            visibility := some Visibility.public_
             params := [{ name := some "flag", ty := Ty.bool }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -30986,6 +30987,7 @@ def overloadedDispatchContract : ContractDecl :=
                   (some (Expr.literal (Literal.number "1")))) }
       , ContractItem.function
           { name := some "pick"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -30994,7 +30996,11 @@ def overloadedDispatchContract : ContractDecl :=
                   (some (Expr.literal (Literal.number "2")))) }
       , ContractItem.function
           { name := some "pick"
-            params := [{ name := some "payload", ty := Ty.bytes }]
+            visibility := some Visibility.public_
+            params :=
+              [{ name := some "payload"
+                 ty := Ty.bytes
+                 location := some DataLocation.calldata }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31080,6 +31086,7 @@ def internalOverloadedDispatchContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "pick"
+            visibility := some Visibility.internal_
             params := [{ name := some "flag", ty := Ty.bool }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -31088,6 +31095,7 @@ def internalOverloadedDispatchContract : ContractDecl :=
                   (some (Expr.literal (Literal.number "1")))) }
       , ContractItem.function
           { name := some "pick"
+            visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
@@ -31096,7 +31104,11 @@ def internalOverloadedDispatchContract : ContractDecl :=
                   (some (Expr.literal (Literal.number "2")))) }
       , ContractItem.function
           { name := some "pick"
-            params := [{ name := some "payload", ty := Ty.bytes }]
+            visibility := some Visibility.internal_
+            params :=
+              [{ name := some "payload"
+                 ty := Ty.bytes
+                 location := some DataLocation.memory }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31104,6 +31116,7 @@ def internalOverloadedDispatchContract : ContractDecl :=
                   (some (Expr.literal (Literal.number "3")))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns :=
               [ { name := some "fromBool", ty := Ty.uint 256 }
               , { name := some "fromUint", ty := Ty.uint 256 }
@@ -31124,7 +31137,9 @@ def internalOverloadedDispatchContract : ContractDecl :=
                           [Arg.positional
                             (Expr.literal (Literal.number "7"))]))
                   , Stmt.varDecl
-                      [{ name := some "payload", ty := some Ty.bytes }]
+                      [{ name := some "payload"
+                         ty := some Ty.bytes
+                         location := some DataLocation.memory }]
                       (some (Expr.literal (Literal.bytes [1, 2])))
                   , Stmt.varDecl
                       [{ name := some "c", ty := some (Ty.uint 256) }]

@@ -5594,6 +5594,75 @@ def checkedStandaloneStorageBytesClearIndexReverts :
     "at" state [SolidCore.Solidity.Source.Value.word 0]
     0x32
 
+def checkedOverloadedDispatchContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.overloadedDispatchContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalOverloadedDispatchContract)
+
+def checkedOverloadedDirectBoolCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.overloadedDispatchContract
+    "pick" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 1] 1
+
+def checkedOverloadedDirectUintCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.overloadedDispatchContract
+    "pick" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 7] 2
+
+def checkedOverloadedDirectBytesCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.overloadedDispatchContract
+    "pick" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.bytes [1, 2]] 3
+
+def checkedOverloadedAbiCallMatches
+    (signature : String)
+    (tys : List SolidCore.Solidity.Source.Ty)
+    (args : List CoreValue) (expectedValue : Word) :
+    Except TypeError Bool := do
+  let calldata ← checkedAbiEncodeValues tys args
+  let selector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature signature
+  let result ←
+    ContractDecl.checkedCallCalldata 16
+      Executable.Examples.overloadedDispatchContract
+      SolidCore.Solidity.Source.State.empty
+      (SolidCore.Solidity.Source.wordToBytesBE
+        SolidCore.Solidity.Source.selectorBytes selector ++ calldata)
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word expectedValue]
+  Except.ok (result.success && result.output == expected)
+
+def checkedOverloadedAbiUintCallMatches :
+    Except TypeError Bool :=
+  checkedOverloadedAbiCallMatches
+    "pick(uint256)"
+    [SolidCore.Solidity.Source.Ty.uint256]
+    [SolidCore.Solidity.Source.Value.word 7] 2
+
+def checkedOverloadedAbiBytesCallMatches :
+    Except TypeError Bool :=
+  checkedOverloadedAbiCallMatches
+    "pick(bytes)"
+    [SolidCore.Solidity.Source.Ty.bytesCalldata]
+    [SolidCore.Solidity.Source.Value.bytes [1, 2]] 3
+
+def checkedInternalOverloadedDispatchMatchesExpected :
+    Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 48
+    Executable.Examples.internalOverloadedDispatchContract
+    "run" SolidCore.Solidity.Source.State.empty [] 1 2 3
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
