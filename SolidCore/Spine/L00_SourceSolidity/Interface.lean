@@ -12954,7 +12954,10 @@ def ContractDecl.baseConstructorArgsForDeployment?
       match spec.args with
       | [] => some args
       | _ :: _ => none
-  | none => Args.toExprsForParams? baseParams spec.args
+  | none =>
+      match spec.args with
+      | [] => some []
+      | _ :: _ => Args.toExprsForParams? baseParams spec.args
 
 def ContractDecl.baseDecls? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
@@ -36570,6 +36573,7 @@ def inheritedBaseConstructorModifierArgMatches : Option Bool := do
 
 def baseConstructorDeferredArgMiddle : ContractDecl :=
   { name := "DeferredArgMiddle"
+    abstract := true
     bases := [{ base := { segments := ["BaseArg"] } }]
     items := [] }
 

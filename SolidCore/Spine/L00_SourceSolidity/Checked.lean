@@ -9614,6 +9614,26 @@ def checkedInheritedBaseConstructorNamedArgMatches :
           SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9)
   | _ => Except.ok false
 
+def checkedInheritedBaseConstructorPositionalArgMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedConstructContract 32
+      Executable.Examples.baseConstructorArgUnit
+      "DerivedArg"
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 34]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 12 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 34)
+  | _ => Except.ok false
+
+def checkedInheritedBaseConstructorDuplicateNamedArgRejected : Bool :=
+  Result.isError
+    (CheckedInput.program
+      Executable.Examples.baseConstructorDuplicateNamedArgUnit)
+
 def checkedInheritedBaseConstructorModifierArgMatches :
     Except TypeError Bool := do
   let result ←
@@ -9628,6 +9648,48 @@ def checkedInheritedBaseConstructorModifierArgMatches :
         (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 36 &&
           SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 7)
   | _ => Except.ok false
+
+def checkedInheritedBaseConstructorDeferredArgMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedConstructContract 32
+      Executable.Examples.baseConstructorDeferredArgUnit
+      "DeferredArgDerived"
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 6]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 16 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 6)
+  | _ => Except.ok false
+
+def checkedBaseConstructorObligationSourcesAccepted : Bool :=
+  Result.isOk (CheckedInput.program baseConstructorArgsSource) &&
+    Result.isOk (CheckedInput.program namedBaseConstructorArgsSource) &&
+    Result.isOk (CheckedInput.program baseConstructorFileConstantSource) &&
+    Result.isOk (CheckedInput.program baseConstructorModifierArgsSource) &&
+    Result.isOk
+      (CheckedInput.program abstractMissingBaseConstructorArgsSource) &&
+    Result.isOk
+      (CheckedInput.program indirectBaseConstructorModifierArgsSource) &&
+    Result.isOk
+      (CheckedInput.program
+        Executable.Examples.baseConstructorDeferredArgUnit)
+
+def checkedBaseConstructorObligationSourcesRejected : Bool :=
+  Result.isError
+      (CheckedInput.program duplicateNamedBaseConstructorArgsSource) &&
+    Result.isError (CheckedInput.program baseConstructorStateArgSource) &&
+    Result.isError (CheckedInput.program badBaseConstructorArgsSource) &&
+    Result.isError (CheckedInput.program duplicateBaseConstructorArgsSource) &&
+    Result.isError
+      (CheckedInput.program concreteMissingBaseConstructorArgsSource) &&
+    Result.isError
+      (CheckedInput.program nonconstructorBaseConstructorInvocationSource) &&
+    Result.isError
+      (CheckedInput.program
+        Executable.Examples.baseConstructorDuplicateNamedArgUnit)
 
 def checkedFreeEventEmitMatches :
     Except TypeError Bool := do
