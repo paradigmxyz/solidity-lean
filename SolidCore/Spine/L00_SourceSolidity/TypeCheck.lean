@@ -4754,6 +4754,17 @@ def checkExpr (env : CheckEnv) :
           | _ =>
               Except.error
                 (TypeError.arityMismatch "new bytes" 1 checkedArgs.length)
+      | L00_SourceSolidity.Ty.string =>
+          let checkedArgs ← checkArgs env args
+          let argInfos := checkedArgInfos args checkedArgs
+          requireNoNamedArgs "new string" argInfos
+          match checkedArgs with
+          | [length] => do
+              length.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              Except.ok { source := expr, ty := ty, lvalue := false }
+          | _ =>
+              Except.error
+                (TypeError.arityMismatch "new string" 1 checkedArgs.length)
       | L00_SourceSolidity.Ty.array _ none =>
           let checkedArgs ← checkArgs env args
           let argInfos := checkedArgInfos args checkedArgs
@@ -9972,6 +9983,73 @@ def signedNewBytesLengthSource : L00_SourceSolidity.SourceUnit :=
 
 def signedNewBytesLengthRejected : Bool :=
   Result.isError (SourceUnit.check signedNewBytesLengthSource)
+
+def newStringFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "makeString"
+    params :=
+      [ { name := some "length"
+          ty := uint256
+          location := none } ]
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.string
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.newExpr
+              L00_SourceSolidity.Ty.string
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.ident "length")]))) }
+
+def newStringSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NewString"
+            items := [L00_SourceSolidity.ContractItem.function
+              newStringFunction] } ] }
+
+def newStringAccepted : Bool :=
+  sourceUnitAccepted? newStringSource
+
+def namedNewStringLengthSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadNamedNewString"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { newStringFunction with
+                    name := some "badNamedString"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.newExpr
+                              L00_SourceSolidity.Ty.string
+                              [ L00_SourceSolidity.Arg.named "length"
+                                  (L00_SourceSolidity.Expr.ident
+                                    "length") ]))) } ] } ] }
+
+def namedNewStringLengthRejected : Bool :=
+  Result.isError (SourceUnit.check namedNewStringLengthSource)
+
+def signedNewStringLengthSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadSignedStringLength"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { newStringFunction with
+                    name := some "badSignedStringLength"
+                    params :=
+                      [ { name := some "length"
+                          ty := int256
+                          location := none } ] } ] } ] }
+
+def signedNewStringLengthRejected : Bool :=
+  Result.isError (SourceUnit.check signedNewStringLengthSource)
 
 def sliceExpr (base : L00_SourceSolidity.Expr)
     (start? stop? : Option L00_SourceSolidity.Expr) :

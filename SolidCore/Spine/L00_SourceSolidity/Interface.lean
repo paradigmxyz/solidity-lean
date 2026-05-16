@@ -3830,6 +3830,9 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.newExpr Ty.bytes [Arg.positional lengthExpr] => do
       let lengthCore ← Expr.toCore? storageNames lengthExpr
       some (SolidCore.Solidity.Source.Expr.newBytes lengthCore)
+  | Expr.newExpr Ty.string [Arg.positional lengthExpr] => do
+      let lengthCore ← Expr.toCore? storageNames lengthExpr
+      some (SolidCore.Solidity.Source.Expr.newBytes lengthCore)
   | Expr.newExpr (Ty.array elementTy none)
       [Arg.positional lengthExpr] => do
       let coreElementTy ← Ty.toCore? elementTy
@@ -4486,6 +4489,7 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
   | Expr.member (Expr.typeName (Ty.user _)) "creationCode" => some Ty.bytes
   | Expr.member (Expr.typeName (Ty.user _)) "runtimeCode" => some Ty.bytes
   | Expr.newExpr Ty.bytes [Arg.positional _] => some Ty.bytes
+  | Expr.newExpr Ty.string [Arg.positional _] => some Ty.string
   | Expr.newExpr (Ty.array elementTy none) [Arg.positional _] =>
       some (Ty.array elementTy none)
   | Expr.newExpr ty _ => do
@@ -15345,6 +15349,30 @@ def memoryBytesAllocationOutOfBoundsPanics : Option Bool := do
       some (code == 0x32)
   | _ => some false
 
+def memoryStringAllocationFunction : FunctionDecl :=
+  { name := some "allocateString"
+    params := [{ name := some "len", ty := Ty.uint 256 }]
+    returns := [{ name := some "data", ty := Ty.string }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.newExpr Ty.string
+              [Arg.positional (Expr.ident "len")]))) }
+
+def memoryStringAllocationCallResult : Option CoreCallResult :=
+  FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty memoryStringAllocationFunction
+    [SolidCore.Solidity.Source.Value.word 3]
+
+def memoryStringAllocationMatchesExpected : Option Bool := do
+  let result ← memoryStringAllocationCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes data] =>
+      some (data == [0, 0, 0])
+  | _ => some false
+
 def memoryBytesAllocationRejected : Bool :=
   (match
       Expr.toCore? []
@@ -15357,13 +15385,6 @@ def memoryBytesAllocationRejected : Bool :=
         (Expr.newExpr Ty.bytes
           [ Arg.positional (Expr.literal (Literal.number "3"))
           , Arg.positional (Expr.literal (Literal.number "4")) ])
-    with
-    | none => true
-    | some _ => false) &&
-  (match
-      Expr.toCore? []
-        (Expr.newExpr Ty.string
-          [Arg.positional (Expr.literal (Literal.number "3"))])
     with
     | none => true
     | some _ => false)
