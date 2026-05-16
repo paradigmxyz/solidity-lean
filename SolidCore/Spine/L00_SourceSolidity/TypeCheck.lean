@@ -4236,8 +4236,15 @@ def checkExpr (env : CheckEnv) :
                 lvalue := false }
         | L00_SourceSolidity.Expr.ident "super" => do
             let sig ←
-              FunctionSigs.resolveChecked env.types env.superFunctions
-                member checkedInfos
+              match
+                  FunctionSigs.resolveChecked env.types env.superFunctions
+                    member checkedInfos with
+              | Except.ok sig => Except.ok sig
+              | Except.error checkedErr =>
+                  match
+                      checkSuperMemberCallArgsContextual env member args with
+                  | Except.ok (sig, _) => Except.ok sig
+                  | Except.error _ => Except.error checkedErr
             requireCallMutabilityAllowed env sig.mutability
             Except.ok
               { source := expr
@@ -4313,8 +4320,16 @@ def checkExpr (env : CheckEnv) :
                       (TypeContext.pathOfName libraryName)
                       env.ancestorPaths then
                   let sig ←
-                    env.resolveExplicitBaseMemberFunctionChecked libraryName
-                      member checkedInfos
+                    match
+                        env.resolveExplicitBaseMemberFunctionChecked
+                          libraryName member checkedInfos with
+                    | Except.ok sig => Except.ok sig
+                    | Except.error checkedErr =>
+                        match
+                            checkExplicitBaseMemberCallArgsContextual
+                              env libraryName member args with
+                        | Except.ok (sig, _) => Except.ok sig
+                        | Except.error _ => Except.error checkedErr
                   requireCallMutabilityAllowed env sig.mutability
                   Except.ok
                     { source := expr
@@ -4328,8 +4343,16 @@ def checkExpr (env : CheckEnv) :
                       if libraryDecl.kind ==
                           L00_SourceSolidity.ContractKind.library then
                         let sig ←
-                          env.types.resolveLibraryFunctionChecked libraryName
-                            member checkedInfos
+                          match
+                              env.types.resolveLibraryFunctionChecked
+                                libraryName member checkedInfos with
+                          | Except.ok sig => Except.ok sig
+                          | Except.error checkedErr =>
+                              match
+                                  checkLibraryMemberCallArgsContextual
+                                    env libraryName member args with
+                              | Except.ok (sig, _) => Except.ok sig
+                              | Except.error _ => Except.error checkedErr
                         requireCallMutabilityAllowed env sig.mutability
                         Except.ok
                           { source := expr
@@ -4535,11 +4558,23 @@ def checkExpr (env : CheckEnv) :
       checkCallOptionsLoop env options
       require options.isEmpty
         (TypeError.unsupported "call options on super call")
-      let checkedArgs ← checkArgs env args
+      let checkedArgs ←
+        match checkArgs env args with
+        | Except.ok checkedArgs => Except.ok checkedArgs
+        | Except.error argErr =>
+            match checkSuperMemberCallArgsContextual env member args with
+            | Except.ok (_, checkedArgs) => Except.ok checkedArgs
+            | Except.error _ => Except.error argErr
       let checkedInfos := checkedArgInfosFull args checkedArgs
       let sig ←
-        FunctionSigs.resolveChecked env.types env.superFunctions member
-          checkedInfos
+        match
+            FunctionSigs.resolveChecked env.types env.superFunctions member
+              checkedInfos with
+        | Except.ok sig => Except.ok sig
+        | Except.error checkedErr =>
+            match checkSuperMemberCallArgsContextual env member args with
+            | Except.ok (sig, _) => Except.ok sig
+            | Except.error _ => Except.error checkedErr
       requireCallMutabilityAllowed env sig.mutability
       Except.ok
         { source := expr
@@ -5259,6 +5294,112 @@ decreasing_by
     simp_wf
     try omega
 
+def checkLibraryMemberCallArgsContextual
+    (env : CheckEnv) (libraryName member : Name)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (FunctionSig × List CheckedExpr) := do
+  let path := TypeContext.pathOfName libraryName
+  let libraryDecl ←
+    match env.types.lookupContractDecl? path with
+    | some libraryDecl => Except.ok libraryDecl
+    | none => Except.error (TypeError.unknownType path)
+  require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+    (TypeError.invalidContractHeader "library call target is not a library")
+  let sig ←
+    FunctionSigs.resolveContextual env
+      (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs libraryDecl))
+      member args
+  let checkedArgs ←
+    if Args.anyNamed args then
+      checkNamedArgsAssignableToParamsFor
+        env "member call" sig.paramNames sig.params args
+    else
+      checkPositionalArgsAssignableToParamsFor
+        env "member call" args sig.params
+  match CheckedArgInfos.ordered? sig.paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some ordered =>
+      checkCheckedExprsStorageRefsFor "member call" ordered
+        sig.paramStorageRefs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch "member call" sig.params.length
+          checkedArgs.length)
+  Except.ok (sig, checkedArgs)
+termination_by 1 + sizeOf args
+decreasing_by
+  all_goals
+    simp_wf
+    try omega
+
+def checkExplicitBaseMemberCallArgsContextual
+    (env : CheckEnv) (baseName member : Name)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (FunctionSig × List CheckedExpr) := do
+  let path := TypeContext.pathOfName baseName
+  require (TypeContext.pathIn path env.ancestorPaths)
+    (TypeError.invalidFunctionHeader
+      "explicit base call target is not a base contract")
+  let baseDecl ←
+    match env.types.lookupContractDecl? path with
+    | some decl => Except.ok decl
+    | none => Except.error (TypeError.unknownType path)
+  let sig ←
+    FunctionSigs.resolveContextual env
+      (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs baseDecl))
+      member args
+  let checkedArgs ←
+    if Args.anyNamed args then
+      checkNamedArgsAssignableToParamsFor
+        env "member call" sig.paramNames sig.params args
+    else
+      checkPositionalArgsAssignableToParamsFor
+        env "member call" args sig.params
+  match CheckedArgInfos.ordered? sig.paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some ordered =>
+      checkCheckedExprsStorageRefsFor "member call" ordered
+        sig.paramStorageRefs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch "member call" sig.params.length
+          checkedArgs.length)
+  Except.ok (sig, checkedArgs)
+termination_by 1 + sizeOf args
+decreasing_by
+  all_goals
+    simp_wf
+    try omega
+
+def checkSuperMemberCallArgsContextual
+    (env : CheckEnv) (member : Name)
+    (args : List L00_SourceSolidity.Arg) :
+    Except TypeError (FunctionSig × List CheckedExpr) := do
+  let sig ←
+    FunctionSigs.resolveContextual env env.superFunctions member args
+  let checkedArgs ←
+    if Args.anyNamed args then
+      checkNamedArgsAssignableToParamsFor
+        env "super call" sig.paramNames sig.params args
+    else
+      checkPositionalArgsAssignableToParamsFor
+        env "super call" args sig.params
+  match CheckedArgInfos.ordered? sig.paramNames
+      (checkedArgInfosFull args checkedArgs) with
+  | some ordered =>
+      checkCheckedExprsStorageRefsFor "super call" ordered
+        sig.paramStorageRefs
+  | none =>
+      Except.error
+        (TypeError.arityMismatch "super call" sig.params.length
+          checkedArgs.length)
+  Except.ok (sig, checkedArgs)
+termination_by 1 + sizeOf args
+decreasing_by
+  all_goals
+    simp_wf
+    try omega
+
 def checkMemberCallArgsContextual
     (env : CheckEnv) (target : L00_SourceSolidity.Expr)
     (member : Name) (args : List L00_SourceSolidity.Arg) :
@@ -5271,22 +5412,39 @@ def checkMemberCallArgsContextual
   let candidates ←
     match target with
     | L00_SourceSolidity.Expr.ident libraryName =>
-        match env.lookupVar? libraryName,
-            env.types.lookupContractDecl?
-              (TypeContext.pathOfName libraryName) with
-        | none, some libraryDecl =>
-            if libraryDecl.kind == L00_SourceSolidity.ContractKind.library then
-              Except.ok
-                (FunctionSigs.nonPrivate
-                  (ContractDecl.directFunctionSigs libraryDecl))
-            else
+        if (env.lookupVar? libraryName).isNone &&
+            TypeContext.pathIn
+              (TypeContext.pathOfName libraryName) env.ancestorPaths then
+          let baseDecl ←
+            match env.types.lookupContractDecl?
+                (TypeContext.pathOfName libraryName) with
+            | some decl => Except.ok decl
+            | none =>
+                Except.error
+                  (TypeError.unknownType
+                    (TypeContext.pathOfName libraryName))
+          Except.ok
+            (FunctionSigs.nonPrivate
+              (ContractDecl.directFunctionSigs baseDecl))
+        else
+          match env.lookupVar? libraryName,
+              env.types.lookupContractDecl?
+                (TypeContext.pathOfName libraryName) with
+          | none, some libraryDecl =>
+              if libraryDecl.kind ==
+                  L00_SourceSolidity.ContractKind.library then
+                Except.ok
+                  (FunctionSigs.nonPrivate
+                    (ContractDecl.directFunctionSigs libraryDecl))
+              else
+                UsingDecls.memberCandidates env targetChecked member
+                  env.usingDecls
+          | _, _ =>
               UsingDecls.memberCandidates env targetChecked member
                 env.usingDecls
-        | _, _ =>
-            UsingDecls.memberCandidates env targetChecked member
-              env.usingDecls
     | _ =>
-        UsingDecls.memberCandidates env targetChecked member env.usingDecls
+        UsingDecls.memberCandidates env targetChecked member
+          env.usingDecls
   let sig ← FunctionSigs.resolveContextual env candidates member args
   let checkedArgs ←
     if Args.anyNamed args then
@@ -26181,6 +26339,167 @@ def contextualArrayTryExternalFunctionValueCallOverflowSource :
 def contextualArrayTryExternalFunctionValueCallOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayTryExternalFunctionValueCallOverflowSource)
+
+def contextualArrayDirectLibraryFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { encodeCallArrayTargetFunction with
+    visibility := some L00_SourceSolidity.Visibility.public_ }
+
+def contextualArrayDirectLibraryContract :
+    L00_SourceSolidity.ContractDecl :=
+  { kind := L00_SourceSolidity.ContractKind.library
+    name := "ContextualArrayDirectLib"
+    items :=
+      [L00_SourceSolidity.ContractItem.function
+        contextualArrayDirectLibraryFunction] }
+
+def contextualArrayDirectLibraryCallFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "ContextualArrayDirectLib")
+                "takeArray")
+              [L00_SourceSolidity.Arg.positional arg]))) }
+
+def contextualArrayDirectLibrarySource
+    (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayDirectLibraryContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items := [L00_SourceSolidity.ContractItem.function fn] } ] }
+
+def contextualArrayDirectLibraryCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayDirectLibrarySource "ContextualArrayDirectLibraryCall"
+    (contextualArrayDirectLibraryCallFunction
+      "callArray" contextualNarrowArrayExpr)
+
+def contextualArrayDirectLibraryCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayDirectLibraryCallSource
+
+def contextualArrayDirectLibraryCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayDirectLibrarySource
+    "ContextualArrayDirectLibraryCallOverflow"
+    (contextualArrayDirectLibraryCallFunction
+      "callArrayOverflow" contextualNarrowArrayOverflowExpr)
+
+def contextualArrayDirectLibraryCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayDirectLibraryCallOverflowSource)
+
+def contextualArrayBaseMemberFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { encodeCallArrayTargetFunction with
+    visibility := some L00_SourceSolidity.Visibility.public_
+    virtual := true }
+
+def contextualArrayBaseOverrideFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualArrayBaseMemberFunction with
+    override? := some {}
+    virtual := false
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (L00_SourceSolidity.Expr.ident "xs")
+              (numberExpr "1")))) }
+
+def contextualArrayBaseMemberBaseContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "ContextualArrayMemberBase"
+    items :=
+      [L00_SourceSolidity.ContractItem.function
+        contextualArrayBaseMemberFunction] }
+
+def contextualArrayInheritedMemberCallFunction
+    (name : Name) (target : L00_SourceSolidity.Expr)
+    (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member target "takeArray")
+              [L00_SourceSolidity.Arg.positional arg]))) }
+
+def contextualArrayInheritedMemberSource
+    (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          contextualArrayBaseMemberBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            bases := [{ base := userPath "ContextualArrayMemberBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayBaseOverrideFunction
+              , L00_SourceSolidity.ContractItem.function fn ] } ] }
+
+def contextualArrayExplicitBaseCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource "ContextualArrayExplicitBaseCall"
+    (contextualArrayInheritedMemberCallFunction
+      "callBaseArray"
+      (L00_SourceSolidity.Expr.ident "ContextualArrayMemberBase")
+      contextualNarrowArrayExpr)
+
+def contextualArrayExplicitBaseCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExplicitBaseCallSource
+
+def contextualArrayExplicitBaseCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource
+    "ContextualArrayExplicitBaseCallOverflow"
+    (contextualArrayInheritedMemberCallFunction
+      "callBaseArrayOverflow"
+      (L00_SourceSolidity.Expr.ident "ContextualArrayMemberBase")
+      contextualNarrowArrayOverflowExpr)
+
+def contextualArrayExplicitBaseCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayExplicitBaseCallOverflowSource)
+
+def contextualArraySuperCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource "ContextualArraySuperCall"
+    (contextualArrayInheritedMemberCallFunction
+      "callSuperArray"
+      (L00_SourceSolidity.Expr.ident "super")
+      contextualNarrowArrayExpr)
+
+def contextualArraySuperCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArraySuperCallSource
+
+def contextualArraySuperCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource "ContextualArraySuperCallOverflow"
+    (contextualArrayInheritedMemberCallFunction
+      "callSuperArrayOverflow"
+      (L00_SourceSolidity.Expr.ident "super")
+      contextualNarrowArrayOverflowExpr)
+
+def contextualArraySuperCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArraySuperCallOverflowSource)
 
 def abiEncodeCallTypeNameSource : L00_SourceSolidity.SourceUnit :=
   { items :=
