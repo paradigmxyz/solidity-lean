@@ -9,6 +9,8 @@ abbrev Name := L00_SourceSolidity.Name
 abbrev Ty := L00_SourceSolidity.Ty
 abbrev Path := L00_SourceSolidity.Path
 abbrev TypeEnv := L00_SourceSolidity.Executable.TypeEnv
+abbrev SourceUnitAst := L00_SourceSolidity.SourceUnit
+abbrev SourceContractDecl := L00_SourceSolidity.ContractDecl
 
 structure TypeContext where
   contracts : List Path := []
@@ -198,6 +200,10 @@ def isOk {α : Type} : Except TypeError α -> Bool
 def isError {α : Type} : Except TypeError α -> Bool
   | Except.ok _ => false
   | Except.error _ => true
+
+def toOption {α : Type} : Except TypeError α -> Option α
+  | Except.ok value => some value
+  | Except.error _ => none
 
 end Result
 
@@ -9079,6 +9085,100 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
 
 def sourceUnitAccepted? (source : L00_SourceSolidity.SourceUnit) : Bool :=
   Result.isOk (SourceUnit.check source)
+
+def checkSourceUnit (source : SourceUnitAst) :
+    Except TypeError CheckedSourceUnit :=
+  SourceUnit.check source
+
+def checkSourceUnit? (source : SourceUnitAst) :
+    Option CheckedSourceUnit :=
+  Result.toOption (checkSourceUnit source)
+
+def sourceUnitForContractDecl (decl : SourceContractDecl) :
+    SourceUnitAst :=
+  { items := [L00_SourceSolidity.SourceItem.contract decl] }
+
+/-
+The common typechecked-source layer.
+
+`Interface.lean` intentionally remains the raw source/executable surface because
+the typechecker depends on the syntax and translators defined there. Anything
+that wants Solidity validity before execution should enter through this layer:
+raw source units, already-checked source units, and standalone contract
+declarations all normalize to a `CheckedSourceUnit` here.
+-/
+class TypecheckedInput (α : Type) where
+  checkedSourceUnitOf : α -> Except TypeError CheckedSourceUnit
+  defaultContractName? : α -> Option Name
+
+instance typecheckedInputCheckedSourceUnit :
+    TypecheckedInput CheckedSourceUnit where
+  checkedSourceUnitOf checked := Except.ok checked
+  defaultContractName? _ := none
+
+instance typecheckedInputSourceUnit : TypecheckedInput SourceUnitAst where
+  checkedSourceUnitOf := checkSourceUnit
+  defaultContractName? _ := none
+
+instance typecheckedInputContractDecl :
+    TypecheckedInput SourceContractDecl where
+  checkedSourceUnitOf decl := checkSourceUnit (sourceUnitForContractDecl decl)
+  defaultContractName? decl := some decl.name
+
+namespace TypecheckedInput
+
+def checkedSourceUnit? {α : Type} [TypecheckedInput α] (input : α) :
+    Option CheckedSourceUnit :=
+  Result.toOption (checkedSourceUnitOf input)
+
+def checkedSourceUnit {α : Type} [TypecheckedInput α] (input : α) :
+    Except TypeError CheckedSourceUnit :=
+  checkedSourceUnitOf input
+
+def source? {α : Type} [TypecheckedInput α] (input : α) :
+    Option SourceUnitAst := do
+  let checked ← checkedSourceUnit? input
+  some checked.source
+
+def source {α : Type} [TypecheckedInput α] (input : α) :
+    Except TypeError SourceUnitAst := do
+  let checked ← checkedSourceUnit input
+  Except.ok checked.source
+
+def defaultContractName {α : Type} [TypecheckedInput α] (input : α) :
+    Except TypeError Name :=
+  match TypecheckedInput.defaultContractName? input with
+  | some name => Except.ok name
+  | none => Except.error (TypeError.unsupported "default contract name")
+
+end TypecheckedInput
+
+namespace SourceUnit
+
+def typechecked? (source : SourceUnitAst) :
+    Option CheckedSourceUnit :=
+  TypecheckedInput.checkedSourceUnit? source
+
+def typechecked (source : SourceUnitAst) :
+    Except TypeError CheckedSourceUnit :=
+  TypecheckedInput.checkedSourceUnit source
+
+end SourceUnit
+
+namespace ContractDecl
+
+def sourceUnit (decl : SourceContractDecl) : SourceUnitAst :=
+  sourceUnitForContractDecl decl
+
+def typechecked? (decl : SourceContractDecl) :
+    Option CheckedSourceUnit :=
+  TypecheckedInput.checkedSourceUnit? decl
+
+def typechecked (decl : SourceContractDecl) :
+    Except TypeError CheckedSourceUnit :=
+  TypecheckedInput.checkedSourceUnit decl
+
+end ContractDecl
 
 namespace Examples
 

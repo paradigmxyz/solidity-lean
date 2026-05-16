@@ -12,16 +12,6 @@ abbrev CoreCallResult := L00_SourceSolidity.Executable.CoreCallResult
 abbrev CoreFunctionDef := L00_SourceSolidity.Executable.CoreFunctionDef
 abbrev CoreAbiCallResult := SolidCore.Solidity.Source.ABI.AbiCallResult
 abbrev CallTarget := SolidCore.Solidity.Source.CallTarget
-abbrev SourceUnitAst := L00_SourceSolidity.SourceUnit
-abbrev SourceContractDecl := L00_SourceSolidity.ContractDecl
-
-namespace Result
-
-def toOption {α : Type} : Except TypeError α -> Option α
-  | Except.ok value => some value
-  | Except.error _ => none
-
-end Result
 
 def executableFailure (what : String) : TypeError :=
   TypeError.unsupported ("checked executable " ++ what)
@@ -30,15 +20,6 @@ def optionToExcept {α : Type} (what : String) : Option α ->
     Except TypeError α
   | some value => Except.ok value
   | none => Except.error (executableFailure what)
-
-def checkSourceUnit (source : SourceUnitAst) :
-    Except TypeError CheckedSourceUnit :=
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-    source
-
-def checkSourceUnit? (source : SourceUnitAst) :
-    Option CheckedSourceUnit :=
-  Result.toOption (checkSourceUnit source)
 
 /-
 The common checked source layer for execution-facing users.
@@ -73,12 +54,12 @@ def fromChecked (checked : CheckedSourceUnit) :
   optionToExcept "source type resolution" (fromChecked? checked)
 
 def fromSource? (source : SourceUnitAst) : Option CheckedProgram := do
-  let checked ← checkSourceUnit? source
+  let checked ← TypecheckedInput.checkedSourceUnit? source
   fromChecked? checked
 
 def fromSource (source : SourceUnitAst) :
     Except TypeError CheckedProgram := do
-  let checked ← checkSourceUnit source
+  let checked ← TypecheckedInput.checkedSourceUnit source
   fromChecked checked
 
 def usingDecls (program : CheckedProgram) :
@@ -444,10 +425,6 @@ def callCalldataTransaction (fuel : Nat)
 
 end CheckedProgram
 
-def sourceUnitForContractDecl (decl : SourceContractDecl) :
-    SourceUnitAst :=
-  { items := [L00_SourceSolidity.SourceItem.contract decl] }
-
 class CheckedInput (α : Type) where
   checkedProgramOf : α -> Except TypeError CheckedProgram
   defaultContractName? : α -> Option Name
@@ -458,17 +435,25 @@ instance checkedInputCheckedProgram : CheckedInput CheckedProgram where
 
 instance checkedInputCheckedSourceUnit :
     CheckedInput CheckedSourceUnit where
-  checkedProgramOf := CheckedProgram.fromChecked
-  defaultContractName? _ := none
+  checkedProgramOf checked := do
+    let checked ← TypecheckedInput.checkedSourceUnit checked
+    CheckedProgram.fromChecked checked
+  defaultContractName? :=
+    TypecheckedInput.defaultContractName?
 
 instance checkedInputSourceUnit : CheckedInput SourceUnitAst where
-  checkedProgramOf := CheckedProgram.fromSource
-  defaultContractName? _ := none
+  checkedProgramOf source := do
+    let checked ← TypecheckedInput.checkedSourceUnit source
+    CheckedProgram.fromChecked checked
+  defaultContractName? :=
+    TypecheckedInput.defaultContractName?
 
 instance checkedInputContractDecl : CheckedInput SourceContractDecl where
-  checkedProgramOf decl :=
-    CheckedProgram.fromSource (sourceUnitForContractDecl decl)
-  defaultContractName? decl := some decl.name
+  checkedProgramOf decl := do
+    let checked ← TypecheckedInput.checkedSourceUnit decl
+    CheckedProgram.fromChecked checked
+  defaultContractName? :=
+    TypecheckedInput.defaultContractName?
 
 namespace CheckedInput
 
@@ -1156,9 +1141,6 @@ end SourceUnit
 
 namespace ContractDecl
 
-def sourceUnit (decl : SourceContractDecl) : SourceUnitAst :=
-  sourceUnitForContractDecl decl
-
 def checked? (decl : SourceContractDecl) :
     Option CheckedSourceUnit :=
   CheckedInput.checkedSourceUnit? decl
@@ -1582,6 +1564,12 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
     optionToExcept "simple contract declaration"
       (L00_SourceSolidity.Executable.SourceUnit.findContract?
         simpleSource "C")
+  let rawChecked ← TypecheckedInput.checkedSourceUnit simpleSource
+  let rawCheckedViaNamespace ← SourceUnit.typechecked simpleSource
+  let declChecked ← TypecheckedInput.checkedSourceUnit decl
+  let declCheckedViaNamespace ← ContractDecl.typechecked decl
+  let declSource ← TypecheckedInput.source decl
+  let defaultName ← TypecheckedInput.defaultContractName decl
   let _core ← CheckedInput.toCoreContract program "C"
   let function ← CheckedInput.coreFunction checked "C" "f"
   let directResult ←
@@ -1623,7 +1611,14 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
           viaDecl == 7 &&
           abiResult.success &&
           abiValue == 7 &&
-          function.name == some "f")
+          function.name == some "f" &&
+          rawChecked.source.items.length == simpleSource.items.length &&
+          rawCheckedViaNamespace.source.items.length ==
+            simpleSource.items.length &&
+          declChecked.source.items.length == 1 &&
+          declCheckedViaNamespace.source.items.length == 1 &&
+          declSource.items.length == 1 &&
+          defaultName == "C")
   | _, _, _, _ => Except.ok false
 
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
