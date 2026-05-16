@@ -5438,6 +5438,84 @@ def checkedDeleteFixedArrayStructClearsElement :
     "fixedRecords" state [SolidCore.Solidity.Source.Value.word 1]
     0 [] 0
 
+def checkedPublicGetterStorageSemanticsMatch :
+    Except TypeError Bool := do
+  let publicGetter ← checkedPublicGetterMatches
+  let publicGetterAbi ← checkedPublicGetterAbiMatches
+  let publicMapping ← checkedPublicMappingGetterMatches
+  let publicMappingAbi ← checkedPublicMappingGetterAbiMatches
+  let mappingRead ← checkedMappingReadAfterWriteMatches
+  let signedMapping ← checkedSignedMappingKeyReadMatches
+  let bytesMappingGetter ← checkedPublicBytesMappingGetterMatches
+  let bytesMappingRead ← checkedBytesMappingKeyReadMatches
+  let bytesMappingDefault ← checkedBytesMappingDifferentKeyDefaultsToZero
+  let stringMappingRead ← checkedStringMappingKeyReadMatches
+  let stringMappingAbi ← checkedPublicStringMappingGetterAbiMatches
+  let dynamicArrayGetter ← checkedPublicDynamicArrayGetterMatches
+  let fixedArrayGetterAbi ← checkedPublicFixedArrayGetterAbiMatches
+  let dynamicArrayOob ← checkedPublicDynamicArrayGetterOutOfBoundsPanics
+  let fixedArrayOob ← checkedPublicFixedArrayGetterOutOfBoundsPanics
+  let nestedMapping ← checkedNestedMappingPublicGetterMatches
+  let nestedMappingAbi ← checkedNestedMappingPublicGetterAbiMatches
+  let mappingArray ← checkedMappingArrayPublicGetterMatches
+  let mappingArrayOob ← checkedMappingArrayPublicGetterOutOfBoundsPanics
+  let bytesArray ← checkedPublicBytesArrayGetterMatches
+  let bytesArrayAbi ← checkedPublicBytesArrayGetterAbiMatches
+  let stringArray ← checkedPublicStringArrayGetterMatches
+  let stringArrayAbi ← checkedPublicStringArrayGetterAbiMatches
+  let mappingBytes ← checkedPublicMappingBytesGetterMatches
+  let mappingStringAbi ← checkedPublicMappingStringGetterAbiMatches
+  let fixedBytesArray ← checkedPublicFixedBytesArrayGetterMatches
+  let fixedBytesArrayAbi ← checkedPublicFixedBytesArrayGetterAbiMatches
+  let fixedBytesArrayOob ←
+    checkedPublicFixedBytesArrayGetterOutOfBoundsPanics
+  let storageString ← checkedStorageStringPublicGetterMatches
+  let storageStringAbi ← checkedStorageStringPublicGetterAbiMatches
+  let storageStringClear ← checkedStorageStringClearGetterEmpty
+  let storageBytes ← checkedStorageBytesPublicGetterMatches
+  let structGetter ← checkedPublicStructGetterMatches
+  let structGetterAbi ← checkedPublicStructGetterAbiMatches
+  let nestedStructGetter ← checkedPublicNestedStructGetterMatches
+  let nestedStructGetterAbi ← checkedPublicNestedStructGetterAbiMatches
+  let mappingStructGetter ← checkedPublicMappingStructGetterMatches
+  let mappingStructGetterAbi ← checkedPublicMappingStructGetterAbiMatches
+  let arrayStructGetter ← checkedPublicArrayStructGetterMatches
+  let arrayStructGetterAbi ← checkedPublicArrayStructGetterAbiMatches
+  let arrayStructOob ← checkedPublicArrayStructGetterOutOfBoundsPanics
+  let fixedArrayStructGetter ← checkedPublicFixedArrayStructGetterMatches
+  let fixedArrayStructGetterAbi ←
+    checkedPublicFixedArrayStructGetterAbiMatches
+  let fixedArrayStructOob ←
+    checkedPublicFixedArrayStructGetterOutOfBoundsPanics
+  let fixedArrayStructDelete ← checkedDeleteFixedArrayStructClearsElement
+  Except.ok
+    (checkedPublicGetterContractsAccepted &&
+      checkedDirectMappingContractsAccepted &&
+      checkedPublicStructGetterContractsAccepted &&
+      checkedPublicStructGetterTypeShapesAccepted &&
+      checkedPublicStructGetterLayoutMatches &&
+      publicGetter && publicGetterAbi &&
+      publicMapping && publicMappingAbi &&
+      mappingRead && signedMapping &&
+      bytesMappingGetter && bytesMappingRead &&
+      bytesMappingDefault && stringMappingRead && stringMappingAbi &&
+      dynamicArrayGetter && fixedArrayGetterAbi &&
+      dynamicArrayOob && fixedArrayOob &&
+      nestedMapping && nestedMappingAbi &&
+      mappingArray && mappingArrayOob &&
+      bytesArray && bytesArrayAbi &&
+      stringArray && stringArrayAbi &&
+      mappingBytes && mappingStringAbi &&
+      fixedBytesArray && fixedBytesArrayAbi && fixedBytesArrayOob &&
+      storageString && storageStringAbi && storageStringClear &&
+      storageBytes &&
+      structGetter && structGetterAbi &&
+      nestedStructGetter && nestedStructGetterAbi &&
+      mappingStructGetter && mappingStructGetterAbi &&
+      arrayStructGetter && arrayStructGetterAbi && arrayStructOob &&
+      fixedArrayStructGetter && fixedArrayStructGetterAbi &&
+      fixedArrayStructOob && fixedArrayStructDelete)
+
 def checkedStructArrayStorageContractsAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -5988,6 +6066,68 @@ def checkedStorageArrayCopyRejectsWrongFixedSize : Bool :=
   | none => true
   | some _ => false
 
+def checkedStorageArrayMutationSemanticsMatch :
+    Except TypeError Bool := do
+  let fixedStructAssign ← checkedAssignFixedStructArrayGetterMatches
+  let dynamicStructAssign ← checkedAssignDynamicStructArrayGetterMatches
+  let fixedStructIndexAssign ←
+    checkedIndexAssignFixedStructArrayGetterMatches
+  let dynamicStructIndexAssign ←
+    checkedIndexAssignDynamicStructArrayGetterMatches
+  let mappingStructIndexAssign ←
+    checkedIndexAssignMappingStructGetterMatches
+  let pushStructValue ← checkedPushStructArrayValueGetterMatches
+  let pushStructDefault ← checkedPushStructArrayDefaultClearsElement
+  let popStruct ← checkedPopStructArrayClearsElement
+  let deleteDynamicStruct ← checkedDeleteDynamicStructArrayClearsElement
+  let deleteNestedDynamicStruct ←
+    checkedDeleteNestedDynamicStructArrayClearsNestedData
+  let deleteNestedFixedStruct ←
+    checkedDeleteNestedFixedStructArrayClearsNestedData
+  let assignNestedDynamicStruct ←
+    checkedAssignNestedDynamicStructArrayClearsTail
+  let assignNestedStructMapping ←
+    checkedAssignNestedStructMappingClearsNestedTail
+  let indexedMatrixAssign ←
+    checkedIndexedDynamicArrayAssignmentMatrixClearsTail
+  let indexedMappingAssign ←
+    checkedIndexedDynamicArrayAssignmentMappingClearsTail
+  let indexedMatrixDelete ←
+    checkedDeleteNestedIndexedStorageMatrixClearsInnerArray
+  let indexedMappingDelete ←
+    checkedDeleteNestedIndexedStorageMappingClearsNestedData
+  let dynamicArrayLength ← checkedDynamicStorageArrayLengthAfterPushPop
+  let dynamicArrayGetter ← checkedDynamicStorageArrayGetterAfterPushPop
+  let dynamicArrayPopEmpty ← checkedDynamicStorageArrayPopEmptyPanics
+  let dynamicArrayPushAssign ← checkedDynamicStorageArrayPushAssignMatches
+  let deleteDynamicLength ← checkedStorageDeleteDynamicLengthZero
+  let deleteDynamicIndex ← checkedStorageDeleteDynamicIndexReverts
+  let deleteFixed ← checkedStorageDeleteFixedClearsElement
+  let deleteMapping ← checkedStorageDeleteMappingKeyClearsEntry
+  let copyLength ← checkedStorageArrayCopyLengthMatches
+  let copyDynamic ← checkedStorageArrayCopyDynamicElementMatches
+  let copyFixed ← checkedStorageArrayCopyFixedElementMatches
+  Except.ok
+    (checkedStructArrayStorageContractsAccepted &&
+      checkedIndexedDynamicArrayStorageContractsAccepted &&
+      checkedStorageArrayDeleteCopyContractsAccepted &&
+      checkedStorageDeleteWholeMappingRejected &&
+      checkedStorageArrayCopyRejectsWrongFixedSize &&
+      fixedStructAssign && dynamicStructAssign &&
+      fixedStructIndexAssign && dynamicStructIndexAssign &&
+      mappingStructIndexAssign &&
+      pushStructValue && pushStructDefault &&
+      popStruct && deleteDynamicStruct &&
+      deleteNestedDynamicStruct && deleteNestedFixedStruct &&
+      assignNestedDynamicStruct && assignNestedStructMapping &&
+      indexedMatrixAssign && indexedMappingAssign &&
+      indexedMatrixDelete && indexedMappingDelete &&
+      dynamicArrayLength && dynamicArrayGetter &&
+      dynamicArrayPopEmpty && dynamicArrayPushAssign &&
+      deleteDynamicLength && deleteDynamicIndex &&
+      deleteFixed && deleteMapping &&
+      copyLength && copyDynamic && copyFixed)
+
 def checkedStorageReferenceContractsAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -6297,6 +6437,66 @@ def checkedStandaloneStorageBytesClearIndexReverts :
     Executable.Examples.storageBytesContract
     "at" state [SolidCore.Solidity.Source.Value.word 0]
     0x32
+
+def checkedStorageReferenceBytesSemanticsMatch :
+    Except TypeError Bool := do
+  let aliasWrite ← checkedStorageReferenceAliasWriteMatches
+  let mappingAlias ← checkedStorageReferenceMappingAliasMatches
+  let arrayPush ← checkedStorageReferenceArrayPushMatches
+  let arrayPushAssign ← checkedStorageReferenceArrayPushAssignMatches
+  let arrayPop ← checkedStorageReferenceArrayPopMatches
+  let rebind ← checkedStorageReferenceRebindMatches
+  let rebindFromAlias ← checkedStorageReferenceRebindFromAliasMatches
+  let internalWrite ← checkedStorageInternalReferenceParamWriteMatches
+  let internalAliasArg ←
+    checkedStorageInternalReferenceParamAliasArgMatches
+  let internalPush ← checkedStorageInternalReferenceParamPushMatches
+  let internalPop ← checkedStorageInternalReferenceParamPopMatches
+  let internalAliasPush ←
+    checkedStorageInternalReferenceParamAliasPushMatches
+  let internalRebind ← checkedStorageInternalReferenceParamRebindMatches
+  let internalRebindToState ←
+    checkedStorageInternalReferenceParamRebindToStateMatches
+  let internalMappingWrite ← checkedStorageInternalMappingParamWriteMatches
+  let internalMappingAlias ←
+    checkedStorageInternalMappingParamAliasArgMatches
+  let returnSingle ← checkedStorageReturnSingleBindingMatches
+  let returnTuple ← checkedStorageReturnTupleBindingMatches
+  let returnMutation ← checkedStorageReturnDirectMutationMatches
+  let returnConditional ← checkedStorageReturnConditionalBindingMatches
+  let bytesLength ← checkedStandaloneStorageBytesLengthMatches
+  let bytesIndex ← checkedStandaloneStorageBytesIndexMatches
+  let bytesWrite ← checkedStandaloneStorageBytesWriteSecondMatches
+  let bytesPushFour ← checkedStandaloneStorageBytesPushFourMatches
+  let bytesPushZero ← checkedStandaloneStorageBytesPushZeroMatches
+  let bytesPop ← checkedStandaloneStorageBytesPopLengthMatches
+  let bytesAliasWrite ← checkedStandaloneStorageBytesAliasWriteSecondMatches
+  let bytesAliasPush ← checkedStandaloneStorageBytesAliasPushMatches
+  let bytesAliasPop ← checkedStandaloneStorageBytesAliasPopMatches
+  let bytesInternalWrite ←
+    checkedStandaloneStorageBytesInternalParamWriteSecondMatches
+  let bytesInternalAliasPush ←
+    checkedStandaloneStorageBytesInternalParamAliasPushMatches
+  let bytesInternalPop ←
+    checkedStandaloneStorageBytesInternalParamPopMatches
+  let bytesClearLength ← checkedStandaloneStorageBytesClearLengthZero
+  let bytesClearIndex ← checkedStandaloneStorageBytesClearIndexReverts
+  Except.ok
+    (checkedStorageReferenceContractsAccepted &&
+      checkedStorageReferenceDeleteAliasRejected &&
+      checkedStandaloneStorageBytesContractAccepted &&
+      aliasWrite && mappingAlias && arrayPush && arrayPushAssign &&
+      arrayPop && rebind && rebindFromAlias &&
+      internalWrite && internalAliasArg && internalPush &&
+      internalPop && internalAliasPush && internalRebind &&
+      internalRebindToState &&
+      internalMappingWrite && internalMappingAlias &&
+      returnSingle && returnTuple && returnMutation && returnConditional &&
+      bytesLength && bytesIndex && bytesWrite &&
+      bytesPushFour && bytesPushZero && bytesPop &&
+      bytesAliasWrite && bytesAliasPush && bytesAliasPop &&
+      bytesInternalWrite && bytesInternalAliasPush && bytesInternalPop &&
+      bytesClearLength && bytesClearIndex)
 
 def checkedOverloadedDispatchContractsAccepted : Bool :=
   Result.isOk
