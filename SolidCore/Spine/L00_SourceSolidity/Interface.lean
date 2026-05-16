@@ -25734,6 +25734,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                         structStoragePathRecordTy }
               , ContractItem.function
                   { name := some "addCount"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "delta", ty := Ty.uint 256 } ]
@@ -25750,6 +25751,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             (Expr.ident "delta"))) }
               , ContractItem.function
                   { name := some "addValue"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "index", ty := Ty.uint 256 }
@@ -25769,6 +25771,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             (Expr.ident "delta"))) }
               , ContractItem.function
                   { name := some "clearValue"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "index", ty := Ty.uint 256 } ]
@@ -25785,6 +25788,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                               (Expr.ident "index")))) }
               , ContractItem.function
                   { name := some "directPathArrayPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.uint 256 } ]
@@ -25802,6 +25806,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             [Arg.positional (Expr.ident "value")])) }
               , ContractItem.function
                   { name := some "directPathArrayPushAssign"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.uint 256 } ]
@@ -25822,6 +25827,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             (Expr.ident "value"))) }
               , ContractItem.function
                   { name := some "directPathArrayPop"
+                    visibility := some Visibility.public_
                     params :=
                       [{ name := some "key", ty := Ty.uint 256 }]
                     body :=
@@ -25838,6 +25844,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             [])) }
               , ContractItem.function
                   { name := some "directPathBlobPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.bytesN 1 } ]
@@ -25855,6 +25862,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             [Arg.positional (Expr.ident "value")])) }
               , ContractItem.function
                   { name := some "directPathBlobPushAssign"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.bytesN 1 } ]
@@ -25875,6 +25883,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             (Expr.ident "value"))) }
               , ContractItem.function
                   { name := some "directPathBlobPop"
+                    visibility := some Visibility.public_
                     params :=
                       [{ name := some "key", ty := Ty.uint 256 }]
                     body :=
@@ -25891,6 +25900,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             [])) }
               , ContractItem.function
                   { name := some "aliasCount"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "delta", ty := Ty.uint 256 } ]
@@ -25912,6 +25922,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 (Expr.ident "delta")) ]) }
               , ContractItem.function
                   { name := some "aliasValue"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "index", ty := Ty.uint 256 }
@@ -25936,6 +25947,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 (Expr.ident "delta")) ]) }
               , ContractItem.function
                   { name := some "aliasArrayPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.uint 256 } ]
@@ -25960,6 +25972,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 [Arg.positional (Expr.ident "value")]) ]) }
               , ContractItem.function
                   { name := some "aliasArrayPushAssign"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.uint 256 } ]
@@ -25987,6 +26000,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 (Expr.ident "value")) ]) }
               , ContractItem.function
                   { name := some "aliasArrayPop"
+                    visibility := some Visibility.public_
                     params := [{ name := some "key", ty := Ty.uint 256 }]
                     body :=
                       some
@@ -26009,6 +26023,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 []) ]) }
               , ContractItem.function
                   { name := some "aliasBlobPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.bytesN 1 } ]
@@ -26031,6 +26046,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 [Arg.positional (Expr.ident "value")]) ]) }
               , ContractItem.function
                   { name := some "aliasBlobPushAssign"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.bytesN 1 } ]
@@ -26056,6 +26072,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 (Expr.ident "value")) ]) }
               , ContractItem.function
                   { name := some "aliasBlobPop"
+                    visibility := some Visibility.public_
                     params := [{ name := some "key", ty := Ty.uint 256 }]
                     body :=
                       some
@@ -26076,6 +26093,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                                 []) ]) }
               , ContractItem.function
                   { name := some "aliasScoreSet"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "subkey", ty := Ty.uint 256 }
@@ -26200,6 +26218,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                           , Stmt.modifierPlaceholder ]) }
               , ContractItem.function
                   { name := some "internalPathArrayPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.uint 256 } ]
@@ -26216,6 +26235,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             , Arg.positional (Expr.ident "value") ])) }
               , ContractItem.function
                   { name := some "internalPathBlobPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.bytesN 1 } ]
@@ -26232,6 +26252,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             , Arg.positional (Expr.ident "value") ])) }
               , ContractItem.function
                   { name := some "internalPathScoreSet"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "subkey", ty := Ty.uint 256 }
@@ -26250,6 +26271,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                             , Arg.positional (Expr.ident "value") ])) }
               , ContractItem.function
                   { name := some "modifierPathArrayPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.uint 256 } ]
@@ -26266,6 +26288,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                     body := some Stmt.empty }
               , ContractItem.function
                   { name := some "modifierPathBlobPush"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "value", ty := Ty.bytesN 1 } ]
@@ -26282,6 +26305,7 @@ def structStoragePathSourceUnit : SourceUnit :=
                     body := some Stmt.empty }
               , ContractItem.function
                   { name := some "modifierPathScoreSet"
+                    visibility := some Visibility.public_
                     params :=
                       [ { name := some "key", ty := Ty.uint 256 }
                       , { name := some "subkey", ty := Ty.uint 256 }

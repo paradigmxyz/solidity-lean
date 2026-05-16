@@ -2102,6 +2102,334 @@ def checkedStorageStructAbiGetterMatches :
         , SolidCore.Solidity.Source.Value.word 40 ]]
   Except.ok (result.success && result.output == expected)
 
+def checkedStructStoragePathSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.structStoragePathSourceUnit)
+
+def checkedStructStoragePathWord (value : Word) : CoreValue :=
+  SolidCore.Solidity.Source.Value.word value
+
+def checkedStructStoragePathCallState (fuel : Nat)
+    (functionName : Name) (args : List CoreValue) :
+    Except TypeError CoreState := do
+  let result ←
+    CheckedInput.callContract fuel
+      Executable.Examples.structStoragePathSourceUnit
+      "StructStoragePath"
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      Executable.Examples.structStoragePathInitialState args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ =>
+      Except.error
+        (executableFailure "struct storage path call")
+
+def checkedStructStoragePathCountAddMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 64 "addCount"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 5]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathEntrySlot) 15)
+
+def checkedStructStoragePathValueAddMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 64 "addValue"
+      [ checkedStructStoragePathWord 7
+      , checkedStructStoragePathWord 1
+      , checkedStructStoragePathWord 6 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (Executable.Examples.structStoragePathValueSlot 1)) 15 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          Executable.Examples.structStoragePathValuesSlot) 2)
+
+def checkedStructStoragePathValueClearMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 64 "clearValue"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 1]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (Executable.Examples.structStoragePathValueSlot 1)) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          Executable.Examples.structStoragePathValuesSlot) 2)
+
+def checkedStructStoragePathDirectArrayPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "directPathArrayPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 16]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 2)) 16)
+
+def checkedStructStoragePathDirectArrayPushAssignMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "directPathArrayPushAssign"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 17]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 2)) 17)
+
+def checkedStructStoragePathDirectArrayPopMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "directPathArrayPop"
+      [checkedStructStoragePathWord 7]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 1)) 0)
+
+def checkedStructStoragePathDirectBlobPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "directPathBlobPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 18]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 2)) 18)
+
+def checkedStructStoragePathDirectBlobPushAssignMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "directPathBlobPushAssign"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 19]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 2)) 19)
+
+def checkedStructStoragePathDirectBlobPopMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "directPathBlobPop"
+      [checkedStructStoragePathWord 7]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 1)) 0)
+
+def checkedStructStoragePathAliasCountAddMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 64 "aliasCount"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 3]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathEntrySlot) 13)
+
+def checkedStructStoragePathAliasValueAddMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 64 "aliasValue"
+      [ checkedStructStoragePathWord 7
+      , checkedStructStoragePathWord 1
+      , checkedStructStoragePathWord 4 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (Executable.Examples.structStoragePathValueSlot 1)) 13)
+
+def checkedStructStoragePathAliasArrayPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "aliasArrayPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 6]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 2)) 6)
+
+def checkedStructStoragePathAliasArrayPushAssignMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "aliasArrayPushAssign"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 8]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 2)) 8)
+
+def checkedStructStoragePathAliasArrayPopMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "aliasArrayPop"
+      [checkedStructStoragePathWord 7]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 1)) 0)
+
+def checkedStructStoragePathAliasBlobPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "aliasBlobPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 5]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 2)) 5)
+
+def checkedStructStoragePathAliasBlobPushAssignMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "aliasBlobPushAssign"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 20]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 2)) 20)
+
+def checkedStructStoragePathAliasBlobPopMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 80 "aliasBlobPop"
+      [checkedStructStoragePathWord 7]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 1)) 0)
+
+def checkedStructStoragePathAliasScoreSetMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "aliasScoreSet"
+      [ checkedStructStoragePathWord 7
+      , checkedStructStoragePathWord 21
+      , checkedStructStoragePathWord 55 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (Executable.Examples.structStoragePathScoreSlot 21)) 55)
+
+def checkedStructStoragePathInternalArrayPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "internalPathArrayPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 12]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 2)) 12)
+
+def checkedStructStoragePathInternalBlobPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "internalPathBlobPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 13]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 2)) 13)
+
+def checkedStructStoragePathInternalScoreSetMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "internalPathScoreSet"
+      [ checkedStructStoragePathWord 7
+      , checkedStructStoragePathWord 22
+      , checkedStructStoragePathWord 66 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (Executable.Examples.structStoragePathScoreSlot 22)) 66)
+
+def checkedStructStoragePathModifierArrayPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "modifierPathArrayPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 14]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathValuesSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathValueSlot 2)) 14)
+
+def checkedStructStoragePathModifierBlobPushMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "modifierPathBlobPush"
+      [checkedStructStoragePathWord 7, checkedStructStoragePathWord 15]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.structStoragePathBlobSlot) 3 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (Executable.Examples.structStoragePathBlobValueSlot 2)) 15)
+
+def checkedStructStoragePathModifierScoreSetMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedStructStoragePathCallState 96 "modifierPathScoreSet"
+      [ checkedStructStoragePathWord 7
+      , checkedStructStoragePathWord 23
+      , checkedStructStoragePathWord 77 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (Executable.Examples.structStoragePathScoreSlot 23)) 77)
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library
