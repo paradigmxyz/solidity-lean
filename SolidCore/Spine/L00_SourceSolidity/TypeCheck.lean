@@ -26209,6 +26209,44 @@ def contextualArrayExternalMemberCallWithOptionsSource :
 def contextualArrayExternalMemberCallWithOptionsAccepted : Bool :=
   sourceUnitAccepted? contextualArrayExternalMemberCallWithOptionsSource
 
+def contextualArrayExternalMemberNamedCallFunction
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "target") "takeArray")
+              [arg]))) }
+
+def contextualArrayExternalMemberNamedCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource "ContextualArrayExternalMemberNamedCall"
+    (contextualArrayExternalMemberNamedCallFunction
+      "callNamedArray"
+      (L00_SourceSolidity.Arg.named "xs" contextualNarrowArrayExpr))
+
+def contextualArrayExternalMemberNamedCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExternalMemberNamedCallSource
+
+def contextualArrayExternalMemberNamedCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalMemberSource
+    "ContextualArrayExternalMemberNamedCallOverflow"
+    (contextualArrayExternalMemberNamedCallFunction
+      "callNamedArrayOverflow"
+      (L00_SourceSolidity.Arg.named "xs"
+        contextualNarrowArrayOverflowExpr))
+
+def contextualArrayExternalMemberNamedCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayExternalMemberNamedCallOverflowSource)
+
 def contextualArrayTryExternalMemberCallSource :
     L00_SourceSolidity.SourceUnit :=
   contextualArrayExternalMemberSource "ContextualArrayTryExternalMemberCall"
@@ -26354,7 +26392,7 @@ def contextualArrayDirectLibraryContract :
         contextualArrayDirectLibraryFunction] }
 
 def contextualArrayDirectLibraryCallFunction
-    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    (name : Name) (arg : L00_SourceSolidity.Arg) :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some name
@@ -26367,7 +26405,7 @@ def contextualArrayDirectLibraryCallFunction
               (L00_SourceSolidity.Expr.member
                 (L00_SourceSolidity.Expr.ident "ContextualArrayDirectLib")
                 "takeArray")
-              [L00_SourceSolidity.Arg.positional arg]))) }
+              [arg]))) }
 
 def contextualArrayDirectLibrarySource
     (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
@@ -26383,7 +26421,8 @@ def contextualArrayDirectLibraryCallSource :
     L00_SourceSolidity.SourceUnit :=
   contextualArrayDirectLibrarySource "ContextualArrayDirectLibraryCall"
     (contextualArrayDirectLibraryCallFunction
-      "callArray" contextualNarrowArrayExpr)
+      "callArray"
+      (L00_SourceSolidity.Arg.positional contextualNarrowArrayExpr))
 
 def contextualArrayDirectLibraryCallAccepted : Bool :=
   sourceUnitAccepted? contextualArrayDirectLibraryCallSource
@@ -26393,11 +26432,36 @@ def contextualArrayDirectLibraryCallOverflowSource :
   contextualArrayDirectLibrarySource
     "ContextualArrayDirectLibraryCallOverflow"
     (contextualArrayDirectLibraryCallFunction
-      "callArrayOverflow" contextualNarrowArrayOverflowExpr)
+      "callArrayOverflow"
+      (L00_SourceSolidity.Arg.positional
+        contextualNarrowArrayOverflowExpr))
 
 def contextualArrayDirectLibraryCallOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayDirectLibraryCallOverflowSource)
+
+def contextualArrayDirectLibraryNamedCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayDirectLibrarySource "ContextualArrayDirectLibraryNamedCall"
+    (contextualArrayDirectLibraryCallFunction
+      "callNamedArray"
+      (L00_SourceSolidity.Arg.named "xs" contextualNarrowArrayExpr))
+
+def contextualArrayDirectLibraryNamedCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayDirectLibraryNamedCallSource
+
+def contextualArrayDirectLibraryNamedCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayDirectLibrarySource
+    "ContextualArrayDirectLibraryNamedCallOverflow"
+    (contextualArrayDirectLibraryCallFunction
+      "callNamedArrayOverflow"
+      (L00_SourceSolidity.Arg.named "xs"
+        contextualNarrowArrayOverflowExpr))
+
+def contextualArrayDirectLibraryNamedCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayDirectLibraryNamedCallOverflowSource)
 
 def contextualArrayBaseMemberFunction :
     L00_SourceSolidity.FunctionDecl :=
@@ -26427,7 +26491,7 @@ def contextualArrayBaseMemberBaseContract :
 
 def contextualArrayInheritedMemberCallFunction
     (name : Name) (target : L00_SourceSolidity.Expr)
-    (arg : L00_SourceSolidity.Expr) :
+    (arg : L00_SourceSolidity.Arg) :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some name
@@ -26438,7 +26502,7 @@ def contextualArrayInheritedMemberCallFunction
           (some
             (L00_SourceSolidity.Expr.call
               (L00_SourceSolidity.Expr.member target "takeArray")
-              [L00_SourceSolidity.Arg.positional arg]))) }
+              [arg]))) }
 
 def contextualArrayInheritedMemberSource
     (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
@@ -26460,7 +26524,7 @@ def contextualArrayExplicitBaseCallSource :
     (contextualArrayInheritedMemberCallFunction
       "callBaseArray"
       (L00_SourceSolidity.Expr.ident "ContextualArrayMemberBase")
-      contextualNarrowArrayExpr)
+      (L00_SourceSolidity.Arg.positional contextualNarrowArrayExpr))
 
 def contextualArrayExplicitBaseCallAccepted : Bool :=
   sourceUnitAccepted? contextualArrayExplicitBaseCallSource
@@ -26472,11 +26536,37 @@ def contextualArrayExplicitBaseCallOverflowSource :
     (contextualArrayInheritedMemberCallFunction
       "callBaseArrayOverflow"
       (L00_SourceSolidity.Expr.ident "ContextualArrayMemberBase")
-      contextualNarrowArrayOverflowExpr)
+      (L00_SourceSolidity.Arg.positional
+        contextualNarrowArrayOverflowExpr))
 
 def contextualArrayExplicitBaseCallOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayExplicitBaseCallOverflowSource)
+
+def contextualArrayExplicitBaseNamedCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource "ContextualArrayExplicitBaseNamedCall"
+    (contextualArrayInheritedMemberCallFunction
+      "callNamedBaseArray"
+      (L00_SourceSolidity.Expr.ident "ContextualArrayMemberBase")
+      (L00_SourceSolidity.Arg.named "xs" contextualNarrowArrayExpr))
+
+def contextualArrayExplicitBaseNamedCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExplicitBaseNamedCallSource
+
+def contextualArrayExplicitBaseNamedCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource
+    "ContextualArrayExplicitBaseNamedCallOverflow"
+    (contextualArrayInheritedMemberCallFunction
+      "callNamedBaseArrayOverflow"
+      (L00_SourceSolidity.Expr.ident "ContextualArrayMemberBase")
+      (L00_SourceSolidity.Arg.named "xs"
+        contextualNarrowArrayOverflowExpr))
+
+def contextualArrayExplicitBaseNamedCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayExplicitBaseNamedCallOverflowSource)
 
 def contextualArraySuperCallSource :
     L00_SourceSolidity.SourceUnit :=
@@ -26484,7 +26574,7 @@ def contextualArraySuperCallSource :
     (contextualArrayInheritedMemberCallFunction
       "callSuperArray"
       (L00_SourceSolidity.Expr.ident "super")
-      contextualNarrowArrayExpr)
+      (L00_SourceSolidity.Arg.positional contextualNarrowArrayExpr))
 
 def contextualArraySuperCallAccepted : Bool :=
   sourceUnitAccepted? contextualArraySuperCallSource
@@ -26495,11 +26585,36 @@ def contextualArraySuperCallOverflowSource :
     (contextualArrayInheritedMemberCallFunction
       "callSuperArrayOverflow"
       (L00_SourceSolidity.Expr.ident "super")
-      contextualNarrowArrayOverflowExpr)
+      (L00_SourceSolidity.Arg.positional
+        contextualNarrowArrayOverflowExpr))
 
 def contextualArraySuperCallOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArraySuperCallOverflowSource)
+
+def contextualArraySuperNamedCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource "ContextualArraySuperNamedCall"
+    (contextualArrayInheritedMemberCallFunction
+      "callNamedSuperArray"
+      (L00_SourceSolidity.Expr.ident "super")
+      (L00_SourceSolidity.Arg.named "xs" contextualNarrowArrayExpr))
+
+def contextualArraySuperNamedCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArraySuperNamedCallSource
+
+def contextualArraySuperNamedCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayInheritedMemberSource "ContextualArraySuperNamedCallOverflow"
+    (contextualArrayInheritedMemberCallFunction
+      "callNamedSuperArrayOverflow"
+      (L00_SourceSolidity.Expr.ident "super")
+      (L00_SourceSolidity.Arg.named "xs"
+        contextualNarrowArrayOverflowExpr))
+
+def contextualArraySuperNamedCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArraySuperNamedCallOverflowSource)
 
 def abiEncodeCallTypeNameSource : L00_SourceSolidity.SourceUnit :=
   { items :=
