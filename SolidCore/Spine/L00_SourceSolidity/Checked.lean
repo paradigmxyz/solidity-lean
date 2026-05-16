@@ -7774,6 +7774,17 @@ def checkedUncheckedArithmeticInvalidSourcesRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit uncheckedPlaceholderSource)
 
+def checkedEmptyInlineAssemblySourceAccepted : Bool :=
+  Result.isOk (CheckedInput.program emptyInlineAssemblySource)
+
+def checkedEmptyInlineAssemblySkips : Except TypeError Bool :=
+  checkedCallWordMatches 16 emptyInlineAssemblySource
+    "EmptyInlineAssembly" "emptyAssembly"
+    SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedNonemptyInlineAssemblyRejected : Bool :=
+  Result.isError (CheckedInput.program nonemptyInlineAssemblySource)
+
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordTripleMatches 32
