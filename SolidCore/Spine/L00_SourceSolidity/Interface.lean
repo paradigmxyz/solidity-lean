@@ -16822,6 +16822,32 @@ def checkedAbiArrayContract : ContractDecl :=
       , ContractItem.function checkedDynamicBytesArrayAbiFunction
       , ContractItem.function checkedFixedBytesEchoFunction ] }
 
+def checkedMsgSigFunction : FunctionDecl :=
+  { msgSigFunction with
+    visibility := some Visibility.public_ }
+
+def checkedMsgContextFunction : FunctionDecl :=
+  { msgContextFunction with
+    returns :=
+      [ { name := some "sender", ty := Ty.address false }
+      , { name := some "value", ty := Ty.uint 256 }
+      , { name := some "sig", ty := Ty.bytesN 4 }
+      , { name := some "data"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ]
+    visibility := some Visibility.public_ }
+
+def checkedAbiSelfAddressFunction : FunctionDecl :=
+  { abiSelfAddressFunction with
+    visibility := some Visibility.public_ }
+
+def checkedCallContextContract : ContractDecl :=
+  { name := "CheckedCallContext"
+    items :=
+      [ ContractItem.function checkedMsgSigFunction
+      , ContractItem.function checkedMsgContextFunction
+      , ContractItem.function checkedAbiSelfAddressFunction ] }
+
 def environmentGlobalsFunction : FunctionDecl :=
   { name := some "env"
     returns :=

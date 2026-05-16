@@ -248,6 +248,29 @@ def callCalldataFrom (fuel : Nat) (contract : CheckedContract)
   optionToExcept ("ABI calldata call " ++ contract.decl.name)
     (callCalldataFrom? fuel contract state sender value calldata)
 
+def callCalldataAtFrom? (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFrom?
+    fuel contract.core state self sender value calldata
+
+def callCalldataAtFrom (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata call " ++ contract.decl.name)
+    (callCalldataAtFrom?
+      fuel contract state self sender value calldata)
+
+def callCalldataAt? (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataAtFrom? fuel contract state self 0 0 calldata
+
+def callCalldataAt (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataAtFrom fuel contract state self 0 0 calldata
+
 def callCalldata? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (calldata : List Byte) :
     Option CoreAbiCallResult :=
@@ -272,6 +295,33 @@ def callCalldataTransactionFrom (fuel : Nat)
   optionToExcept ("ABI calldata transaction " ++ contract.decl.name)
     (callCalldataTransactionFrom?
       fuel contract state sender value calldata)
+
+def callCalldataTransactionAtFrom? (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataTransactionAtFrom?
+    fuel contract.core state self sender value calldata
+
+def callCalldataTransactionAtFrom (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata transaction " ++ contract.decl.name)
+    (callCalldataTransactionAtFrom?
+      fuel contract state self sender value calldata)
+
+def callCalldataTransactionAt? (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataTransactionAtFrom? fuel contract state self 0 0 calldata
+
+def callCalldataTransactionAt (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataTransactionAtFrom fuel contract state self 0 0 calldata
 
 def callCalldataTransaction? (fuel : Nat)
     (contract : CheckedContract) (state : CoreState)
@@ -385,6 +435,30 @@ def callCalldataFrom (fuel : Nat) (program : CheckedProgram)
   let contract ← contract program name
   CheckedContract.callCalldataFrom fuel contract state sender value calldata
 
+def callCalldataAtFrom? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult := do
+  let contract ← contract? program name
+  CheckedContract.callCalldataAtFrom?
+    fuel contract state self sender value calldata
+
+def callCalldataAtFrom (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult := do
+  let contract ← contract program name
+  CheckedContract.callCalldataAtFrom
+    fuel contract state self sender value calldata
+
+def callCalldataAt? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (self : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  callCalldataAtFrom? fuel program name state self 0 0 calldata
+
+def callCalldataAt (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (self : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  callCalldataAtFrom fuel program name state self 0 0 calldata
+
 def callCalldata? (fuel : Nat) (program : CheckedProgram)
     (name : Name) (state : CoreState) (calldata : List Byte) :
     Option CoreAbiCallResult :=
@@ -410,6 +484,36 @@ def callCalldataTransactionFrom (fuel : Nat)
   let contract ← contract program name
   CheckedContract.callCalldataTransactionFrom
     fuel contract state sender value calldata
+
+def callCalldataTransactionAtFrom? (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let contract ← contract? program name
+  CheckedContract.callCalldataTransactionAtFrom?
+    fuel contract state self sender value calldata
+
+def callCalldataTransactionAtFrom (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let contract ← contract program name
+  CheckedContract.callCalldataTransactionAtFrom
+    fuel contract state self sender value calldata
+
+def callCalldataTransactionAt? (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataTransactionAtFrom?
+    fuel program name state self 0 0 calldata
+
+def callCalldataTransactionAt (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataTransactionAtFrom
+    fuel program name state self 0 0 calldata
 
 def callCalldataTransaction? (fuel : Nat)
     (program : CheckedProgram) (name : Name)
@@ -733,6 +837,33 @@ def callCalldataFrom {α : Type} [CheckedInput α]
   CheckedProgram.callCalldataFrom
     fuel checkedProgram name state sender value calldata
 
+def callCalldataAtFrom? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let checkedProgram ← program? input
+  CheckedProgram.callCalldataAtFrom?
+    fuel checkedProgram name state self sender value calldata
+
+def callCalldataAtFrom {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let checkedProgram ← program input
+  CheckedProgram.callCalldataAtFrom
+    fuel checkedProgram name state self sender value calldata
+
+def callCalldataAt? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self : Word) (calldata : List Byte) : Option CoreAbiCallResult :=
+  callCalldataAtFrom? fuel input name state self 0 0 calldata
+
+def callCalldataAt {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataAtFrom fuel input name state self 0 0 calldata
+
 def callCalldata? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (name : Name) (state : CoreState)
     (calldata : List Byte) : Option CoreAbiCallResult :=
@@ -758,6 +889,33 @@ def ownCallCalldataFrom {α : Type} [CheckedInput α]
   let checkedContract ← ownContract input
   CheckedContract.callCalldataFrom
     fuel checkedContract state sender value calldata
+
+def ownCallCalldataAtFrom? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let checkedContract ← ownContract? input
+  CheckedContract.callCalldataAtFrom?
+    fuel checkedContract state self sender value calldata
+
+def ownCallCalldataAtFrom {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let checkedContract ← ownContract input
+  CheckedContract.callCalldataAtFrom
+    fuel checkedContract state self sender value calldata
+
+def ownCallCalldataAt? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self : Word) (calldata : List Byte) : Option CoreAbiCallResult :=
+  ownCallCalldataAtFrom? fuel input state self 0 0 calldata
+
+def ownCallCalldataAt {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  ownCallCalldataAtFrom fuel input state self 0 0 calldata
 
 def ownCallCalldata? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (state : CoreState)
@@ -785,6 +943,35 @@ def callCalldataTransactionFrom {α : Type} [CheckedInput α]
   CheckedProgram.callCalldataTransactionFrom
     fuel checkedProgram name state sender value calldata
 
+def callCalldataTransactionAtFrom? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let checkedProgram ← program? input
+  CheckedProgram.callCalldataTransactionAtFrom?
+    fuel checkedProgram name state self sender value calldata
+
+def callCalldataTransactionAtFrom {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let checkedProgram ← program input
+  CheckedProgram.callCalldataTransactionAtFrom
+    fuel checkedProgram name state self sender value calldata
+
+def callCalldataTransactionAt? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self : Word) (calldata : List Byte) : Option CoreAbiCallResult :=
+  callCalldataTransactionAtFrom?
+    fuel input name state self 0 0 calldata
+
+def callCalldataTransactionAt {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataTransactionAtFrom
+    fuel input name state self 0 0 calldata
+
 def callCalldataTransaction? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (name : Name) (state : CoreState)
     (calldata : List Byte) : Option CoreAbiCallResult :=
@@ -810,6 +997,35 @@ def ownCallCalldataTransactionFrom {α : Type} [CheckedInput α]
   let checkedContract ← ownContract input
   CheckedContract.callCalldataTransactionFrom
     fuel checkedContract state sender value calldata
+
+def ownCallCalldataTransactionAtFrom? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let checkedContract ← ownContract? input
+  CheckedContract.callCalldataTransactionAtFrom?
+    fuel checkedContract state self sender value calldata
+
+def ownCallCalldataTransactionAtFrom {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let checkedContract ← ownContract input
+  CheckedContract.callCalldataTransactionAtFrom
+    fuel checkedContract state self sender value calldata
+
+def ownCallCalldataTransactionAt? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self : Word) (calldata : List Byte) : Option CoreAbiCallResult :=
+  ownCallCalldataTransactionAtFrom?
+    fuel input state self 0 0 calldata
+
+def ownCallCalldataTransactionAt {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  ownCallCalldataTransactionAtFrom
+    fuel input state self 0 0 calldata
 
 def ownCallCalldataTransaction? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (state : CoreState)
@@ -931,6 +1147,28 @@ def callCalldataFrom (fuel : Nat) (checked : CheckedSourceUnit)
   CheckedInput.callCalldataFrom
     fuel checked name state sender value calldata
 
+def callCalldataAtFrom? (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  CheckedInput.callCalldataAtFrom?
+    fuel checked name state self sender value calldata
+
+def callCalldataAtFrom (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataAtFrom
+    fuel checked name state self sender value calldata
+
+def callCalldataAt? (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (self : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  CheckedInput.callCalldataAt? fuel checked name state self calldata
+
+def callCalldataAt (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (state : CoreState) (self : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataAt fuel checked name state self calldata
+
 def callCalldata? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (calldata : List Byte) :
     Option CoreAbiCallResult :=
@@ -954,6 +1192,34 @@ def callCalldataTransactionFrom (fuel : Nat)
     Except TypeError CoreAbiCallResult :=
   CheckedInput.callCalldataTransactionFrom
     fuel checked name state sender value calldata
+
+def callCalldataTransactionAtFrom? (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAtFrom?
+    fuel checked name state self sender value calldata
+
+def callCalldataTransactionAtFrom (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAtFrom
+    fuel checked name state self sender value calldata
+
+def callCalldataTransactionAt? (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAt?
+    fuel checked name state self calldata
+
+def callCalldataTransactionAt (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAt
+    fuel checked name state self calldata
 
 def callCalldataTransaction? (fuel : Nat)
     (checked : CheckedSourceUnit) (name : Name)
@@ -1099,6 +1365,32 @@ def checkedCallCalldataFrom (fuel : Nat)
   CheckedInput.callCalldataFrom
     fuel source name state sender value calldata
 
+def checkedCallCalldataAtFrom? (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  CheckedInput.callCalldataAtFrom?
+    fuel source name state self sender value calldata
+
+def checkedCallCalldataAtFrom (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataAtFrom
+    fuel source name state self sender value calldata
+
+def checkedCallCalldataAt? (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.callCalldataAt? fuel source name state self calldata
+
+def checkedCallCalldataAt (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataAt fuel source name state self calldata
+
 def checkedCallCalldata? (fuel : Nat)
     (source : SourceUnitAst) (name : Name)
     (state : CoreState) (calldata : List Byte) :
@@ -1124,6 +1416,34 @@ def checkedCallCalldataTransactionFrom (fuel : Nat)
     Except TypeError CoreAbiCallResult :=
   CheckedInput.callCalldataTransactionFrom
     fuel source name state sender value calldata
+
+def checkedCallCalldataTransactionAtFrom? (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAtFrom?
+    fuel source name state self sender value calldata
+
+def checkedCallCalldataTransactionAtFrom (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAtFrom
+    fuel source name state self sender value calldata
+
+def checkedCallCalldataTransactionAt? (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAt?
+    fuel source name state self calldata
+
+def checkedCallCalldataTransactionAt (fuel : Nat)
+    (source : SourceUnitAst) (name : Name)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.callCalldataTransactionAt
+    fuel source name state self calldata
 
 def checkedCallCalldataTransaction? (fuel : Nat)
     (source : SourceUnitAst) (name : Name)
@@ -1261,6 +1581,32 @@ def checkedCallCalldataFrom (fuel : Nat)
   CheckedInput.ownCallCalldataFrom
     fuel decl state sender value calldata
 
+def checkedCallCalldataAtFrom? (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataAtFrom?
+    fuel decl state self sender value calldata
+
+def checkedCallCalldataAtFrom (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataAtFrom
+    fuel decl state self sender value calldata
+
+def checkedCallCalldataAt? (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataAt? fuel decl state self calldata
+
+def checkedCallCalldataAt (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataAt fuel decl state self calldata
+
 def checkedCallCalldata? (fuel : Nat)
     (decl : SourceContractDecl) (state : CoreState)
     (calldata : List Byte) : Option CoreAbiCallResult :=
@@ -1284,6 +1630,34 @@ def checkedCallCalldataTransactionFrom (fuel : Nat)
     Except TypeError CoreAbiCallResult :=
   CheckedInput.ownCallCalldataTransactionFrom
     fuel decl state sender value calldata
+
+def checkedCallCalldataTransactionAtFrom? (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataTransactionAtFrom?
+    fuel decl state self sender value calldata
+
+def checkedCallCalldataTransactionAtFrom (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataTransactionAtFrom
+    fuel decl state self sender value calldata
+
+def checkedCallCalldataTransactionAt? (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataTransactionAt?
+    fuel decl state self calldata
+
+def checkedCallCalldataTransactionAt (fuel : Nat)
+    (decl : SourceContractDecl) (state : CoreState)
+    (self : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  CheckedInput.ownCallCalldataTransactionAt
+    fuel decl state self calldata
 
 def checkedCallCalldataTransaction? (fuel : Nat)
     (decl : SourceContractDecl) (state : CoreState)
@@ -3988,6 +4362,67 @@ def checkedFixedBytesEchoCalldataMatches :
     (SolidCore.Solidity.Source.ABI.encodeValues?
       [SolidCore.Solidity.Source.Ty.fixedBytes 4]
       [SolidCore.Solidity.Source.Value.word 0xaabbccdd])
+
+def checkedCallContextContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedCallContextContract)
+
+def checkedMsgSigCalldataMatches : Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      Executable.Examples.checkedCallContextContract "sig" []
+  let result ←
+    ContractDecl.checkedCallCalldata 8
+      Executable.Examples.checkedCallContextContract
+      SolidCore.Solidity.Source.State.empty calldata
+  let selector ←
+    optionToExcept "msg.sig selector"
+      (SolidCore.Solidity.Source.ABI.readSelector? calldata)
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+      [SolidCore.Solidity.Source.Value.word selector]
+  Except.ok (result.success && result.output == expected)
+
+def checkedMsgContextCalldataMatches : Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      Executable.Examples.checkedCallContextContract "inspect"
+      [SolidCore.Solidity.Source.Value.word 7]
+  let result ←
+    ContractDecl.checkedCallCalldataAtFrom 16
+      Executable.Examples.checkedCallContextContract
+      SolidCore.Solidity.Source.State.empty
+      0xc0de 0xabc 55 calldata
+  let selector ←
+    optionToExcept "msg context selector"
+      (SolidCore.Solidity.Source.ABI.readSelector? calldata)
+  let expected ←
+    checkedAbiEncodeValues
+      [ SolidCore.Solidity.Source.Ty.address
+      , SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.fixedBytes 4
+      , SolidCore.Solidity.Source.Ty.bytesCalldata ]
+      [ SolidCore.Solidity.Source.Value.word 0xabc
+      , SolidCore.Solidity.Source.Value.word 55
+      , SolidCore.Solidity.Source.Value.word selector
+      , SolidCore.Solidity.Source.Value.bytes calldata ]
+  Except.ok (result.success && result.output == expected)
+
+def checkedAbiSelfAddressAtMatches : Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      Executable.Examples.checkedCallContextContract "who" []
+  let result ←
+    ContractDecl.checkedCallCalldataAt 8
+      Executable.Examples.checkedCallContextContract
+      SolidCore.Solidity.Source.State.empty 0xcafe calldata
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0xcafe]
+  Except.ok (result.success && result.output == expected)
 
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
