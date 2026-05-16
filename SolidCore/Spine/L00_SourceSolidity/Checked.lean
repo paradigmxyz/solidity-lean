@@ -10352,6 +10352,167 @@ def checkedFreeEventErrorShadowUnitsAccepted : Bool :=
       (CheckedInput.program
         Executable.Examples.inheritedEventErrorShadowUnit)
 
+def checkedInheritedNamespaceShadowingAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        privateStateShadowsInheritedPrivateFunctionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        functionShadowsInheritedPrivateStateSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedPrivateStateNameItemSource
+          inheritedStateNameModifierItem)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedPrivateStateNameItemSource inheritedStateNameEventItem)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedPrivateStateNameItemSource inheritedStateNameErrorItem)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedPrivateStateNameItemSource inheritedStateNameStructItem)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedPrivateStateNameItemSource inheritedStateNameEnumItem)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedPrivateStateNameItemSource
+          inheritedStateNameUserValueTypeItem)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        eventShadowsInheritedPrivateFunctionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventNameItemSource
+          (L00_SourceSolidity.ContractItem.eventDecl
+            { name := "announced"
+              params := [{ name := none, ty := uint256 }] }))) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedErrorNameItemSource
+          (L00_SourceSolidity.ContractItem.function
+            revertInheritedErrorFunction))) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedErrorShadowsFreeErrorSource
+          revertInheritedErrorSignatureFunction)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventShadowsFreeEventSource
+          emitInheritedEventSignatureFunction)) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit inheritedUserTypesStateSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        qualifiedInheritedStructStateSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        freeStructShadowedByInheritedSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit modifierOverrideSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit inheritedModifierSource)
+
+def checkedInheritedNamespaceShadowingRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        privateStateShadowsInheritedFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit functionShadowsInheritedStateSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedStateNameItemSource inheritedStateNameModifierItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedStateNameItemSource inheritedStateNameEventItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedStateNameItemSource inheritedStateNameErrorItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedStateNameItemSource inheritedStateNameStructItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedStateNameItemSource inheritedStateNameEnumItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedStateNameItemSource
+          inheritedStateNameUserValueTypeItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        eventShadowsInheritedFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        modifierShadowsInheritedFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedModifierNameItemSource
+          (L00_SourceSolidity.ContractItem.function
+            functionShadowsInheritedModifierFunction))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedModifierNameItemSource stateShadowsInheritedModifierItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedModifierNameItemSource inheritedStateNameEventItem)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventNameItemSource
+          (L00_SourceSolidity.ContractItem.function
+            functionShadowsInheritedEventFunction))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventNameItemSource
+          (L00_SourceSolidity.ContractItem.stateVar
+            { name := "announced"
+              ty := uint256
+              visibility := some Visibility.private_ }))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventNameItemSource
+          (L00_SourceSolidity.ContractItem.errorDecl
+            { name := "announced" }))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventNameItemSource
+          (L00_SourceSolidity.ContractItem.eventDecl
+            { name := "announced" }))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedErrorNameItemSource
+          (L00_SourceSolidity.ContractItem.eventDecl
+            { name := "Problem"
+              params := [{ name := none, ty := uint256 }] }))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedErrorShadowsFreeErrorSource
+          revertFreeErrorSignatureFunction)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (inheritedEventShadowsFreeEventSource
+          emitFreeEventSignatureFunction)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        ({ items :=
+            [ inheritedStructNameBaseSourceItem
+            , L00_SourceSolidity.SourceItem.contract
+                { name := "BadFunctionShadowsInheritedType"
+                  bases :=
+                    [{ base := userPath "InheritedStructNameBase"
+                       args := [] }]
+                  items :=
+                    [ L00_SourceSolidity.ContractItem.function
+                        { simpleReturnFunction with
+                          name := some "record"
+                          mutability := StateMutability.pure } ] } ] } :
+          L00_SourceSolidity.SourceUnit)) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        freeStructFieldHiddenByInheritedSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit missingModifierOverrideSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
