@@ -9466,6 +9466,33 @@ def checkedNonpayableConstructorRejectsValueMatches :
         (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
   | _ => Except.ok false
 
+def checkedConstructorInitializesStateMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedConstruct 16
+      Executable.Examples.constructorContract
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 42]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 42)
+  | _ => Except.ok false
+
+def checkedRevertingConstructorRollsBackMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedConstruct 16
+      Executable.Examples.revertingConstructorContract
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      SolidCore.Solidity.Source.RevertData.empty =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => Except.ok false
+
 def checkedImmutableConstructorContract :
     L00_SourceSolidity.ContractDecl :=
   { name := "CheckedImmutableConstructor"
