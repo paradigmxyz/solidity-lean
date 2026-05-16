@@ -1558,6 +1558,15 @@ def FunctionSig.internalFunctionValueTy? (sig : FunctionSig) :
   else
     none
 
+def FunctionSig.externalFunctionValueTy? (sig : FunctionSig) :
+    Option Ty :=
+  if sig.externallyCallable then
+    some
+      (L00_SourceSolidity.Ty.function sig.params sig.returns
+        sig.mutability L00_SourceSolidity.Visibility.external_)
+  else
+    none
+
 def FunctionSig.internalFunctionValueAssignableTo
     (types : TypeContext) (expected : Ty) (sig : FunctionSig) : Bool :=
   match FunctionSig.internalFunctionValueTy? sig with
@@ -1584,6 +1593,29 @@ def resolveInternalFunctionValueByName
     (functions : List FunctionSig) (target : Name) :
     Except TypeError FunctionSig :=
   resolveInternalFunctionValueByNameLoop target none functions
+
+def resolveExternalFunctionValueByNameLoop
+    (target : Name) :
+    Option FunctionSig -> List FunctionSig -> Except TypeError FunctionSig
+  | none, [] => Except.error (TypeError.unknownFunction target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target && sig.externallyCallable then
+        match found? with
+        | none =>
+            resolveExternalFunctionValueByNameLoop target (some sig) rest
+        | some found =>
+            if FunctionSig.sameResolutionTarget found sig then
+              resolveExternalFunctionValueByNameLoop target (some found) rest
+            else
+              Except.error (TypeError.ambiguousFunction target)
+      else
+        resolveExternalFunctionValueByNameLoop target found? rest
+
+def resolveExternalFunctionValueByName
+    (functions : List FunctionSig) (target : Name) :
+    Except TypeError FunctionSig :=
+  resolveExternalFunctionValueByNameLoop target none functions
 
 def resolveInternalFunctionValueAssignableTo (types : TypeContext)
     (functions : List FunctionSig) (target : Name) (expected : Ty) :
@@ -1798,6 +1830,13 @@ def TypeContext.resolveContractMemberFunction
   | some sigs => FunctionSigs.resolve sigs member args
   | none => Except.error (TypeError.unknownFunction member)
 
+def TypeContext.resolveContractExternalFunctionValue
+    (types : TypeContext) (path : Path) (member : Name) :
+    Except TypeError FunctionSig :=
+  match types.lookupContractExternalFunctionSigs? path with
+  | some sigs => FunctionSigs.resolveExternalFunctionValueByName sigs member
+  | none => Except.error (TypeError.unknownFunction member)
+
 def ModifierSig.paramsAccept : List Ty -> List Ty -> Bool
   | [], [] => true
   | actual :: actualRest, expected :: expectedRest =>
@@ -1910,6 +1949,22 @@ def ErrorSigs.resolveLoop (target : Name) (args : List ArgInfo) :
 def ErrorSigs.resolve (errors : List ErrorSig)
     (target : Name) (args : List ArgInfo) : Except TypeError ErrorSig :=
   ErrorSigs.resolveLoop target args none errors
+
+def ErrorSigs.resolveByNameLoop (target : Name) :
+    Option ErrorSig -> List ErrorSig -> Except TypeError ErrorSig
+  | none, [] => Except.error (TypeError.unknownError target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target then
+        match found? with
+        | none => ErrorSigs.resolveByNameLoop target (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        ErrorSigs.resolveByNameLoop target found? rest
+
+def ErrorSigs.resolveByName (errors : List ErrorSig) (target : Name) :
+    Except TypeError ErrorSig :=
+  ErrorSigs.resolveByNameLoop target none errors
 
 def ErrorSigs.withoutNamesOf (locals : List ErrorSig) :
     List ErrorSig -> List ErrorSig
@@ -3720,6 +3775,106 @@ def checkExpr (env : CheckEnv) :
   | expr@(L00_SourceSolidity.Expr.typeName ty) => do
       checkTy env.types ty
       Except.ok { source := expr, ty := ty, lvalue := false }
+  | expr@(L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.ident name) "selector") => do
+      match ErrorSigs.resolveByName env.errors name with
+      | Except.ok _ =>
+          Except.ok
+            { source := expr
+              ty := L00_SourceSolidity.Ty.bytesN 4
+              lvalue := false
+              stateLValue := false }
+      | Except.error _ => do
+          let baseChecked ← checkExpr env (L00_SourceSolidity.Expr.ident name)
+          match baseChecked.ty with
+          | L00_SourceSolidity.Ty.function _ _ _
+              L00_SourceSolidity.Visibility.external_ =>
+              Except.ok
+                { source := expr
+                  ty := L00_SourceSolidity.Ty.bytesN 4
+                  lvalue := false
+                  stateLValue := false }
+          | _ => Except.error (TypeError.unsupported "member selector")
+  | expr@(L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.member base member) "selector") => do
+      let baseChecked ← checkExpr env base
+      match baseChecked.ty with
+      | L00_SourceSolidity.Ty.user path =>
+          if env.types.isContractPath path then do
+            let sig ←
+              env.types.resolveContractExternalFunctionValue path member
+            match FunctionSig.externalFunctionValueTy? sig with
+            | some _ =>
+                Except.ok
+                  { source := expr
+                    ty := L00_SourceSolidity.Ty.bytesN 4
+                    lvalue := false
+                    stateLValue := false }
+            | none => Except.error (TypeError.unsupported "member selector")
+          else do
+            let fnChecked ←
+              checkExpr env (L00_SourceSolidity.Expr.member base member)
+            match fnChecked.ty with
+            | L00_SourceSolidity.Ty.function _ _ _
+                L00_SourceSolidity.Visibility.external_ =>
+                Except.ok
+                  { source := expr
+                    ty := L00_SourceSolidity.Ty.bytesN 4
+                    lvalue := false
+                    stateLValue := false }
+            | _ => Except.error (TypeError.unsupported "member selector")
+      | _ => do
+          let fnChecked ←
+            checkExpr env (L00_SourceSolidity.Expr.member base member)
+          match fnChecked.ty with
+          | L00_SourceSolidity.Ty.function _ _ _
+              L00_SourceSolidity.Visibility.external_ =>
+              Except.ok
+                { source := expr
+                  ty := L00_SourceSolidity.Ty.bytesN 4
+                  lvalue := false
+                  stateLValue := false }
+          | _ => Except.error (TypeError.unsupported "member selector")
+  | expr@(L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.member base member) "address") => do
+      let baseChecked ← checkExpr env base
+      match baseChecked.ty with
+      | L00_SourceSolidity.Ty.user path =>
+          if env.types.isContractPath path then do
+            let sig ←
+              env.types.resolveContractExternalFunctionValue path member
+            match FunctionSig.externalFunctionValueTy? sig with
+            | some _ =>
+                Except.ok
+                  { source := expr
+                    ty := L00_SourceSolidity.Ty.address false
+                    lvalue := false
+                    stateLValue := false }
+            | none => Except.error (TypeError.unsupported "member address")
+          else do
+            let fnChecked ←
+              checkExpr env (L00_SourceSolidity.Expr.member base member)
+            match fnChecked.ty with
+            | L00_SourceSolidity.Ty.function _ _ _
+                L00_SourceSolidity.Visibility.external_ =>
+                Except.ok
+                  { source := expr
+                    ty := L00_SourceSolidity.Ty.address false
+                    lvalue := false
+                    stateLValue := false }
+            | _ => Except.error (TypeError.unsupported "member address")
+      | _ => do
+          let fnChecked ←
+            checkExpr env (L00_SourceSolidity.Expr.member base member)
+          match fnChecked.ty with
+          | L00_SourceSolidity.Ty.function _ _ _
+              L00_SourceSolidity.Visibility.external_ =>
+              Except.ok
+                { source := expr
+                  ty := L00_SourceSolidity.Ty.address false
+                  lvalue := false
+                  stateLValue := false }
+          | _ => Except.error (TypeError.unsupported "member address")
   | expr@(L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.ident "msg") member) => do
       if member == "data" || member == "sig" then

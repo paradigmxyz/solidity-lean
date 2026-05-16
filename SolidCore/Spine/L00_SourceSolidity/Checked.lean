@@ -7353,6 +7353,29 @@ def checkedInterfaceIdMatchesExpected :
             Executable.Examples.interfaceIdTokenIncludingInherited)
   | _ => Except.ok false
 
+def checkedSelectorInfoContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.selectorInfoContract)
+
+def checkedSelectorInfoMatches : Except TypeError Bool :=
+  checkedOwnCallWordQuintMatches 32
+    Executable.Examples.selectorInfoContract
+    "selectors" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 0xbeef]
+    (SolidCore.Solidity.Source.ABI.selectorFromSignature
+      "set(uint256)")
+    (SolidCore.Solidity.Source.ABI.selectorFromSignature
+      "Bad(uint256)")
+    (SolidCore.Solidity.Source.ABI.selectorFromSignature
+      "stored()")
+    0 0xbeef
+
+def checkedOverloadedSelectorRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.overloadedSelectorRejectedContract)
+
 def checkedAddressEnvironmentContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit

@@ -6478,7 +6478,11 @@ def StateVarDecls.selectorEntries (decls : List StateVarDecl) :
 
 def selectorLiteralExpr (selector : Word) : Expr :=
   Expr.call (Expr.typeName (Ty.bytesN 4))
-    [Arg.positional (Expr.literal (Literal.number (toString selector)))]
+    [ Arg.positional
+        (Expr.literal
+          (Literal.bytes
+            (SolidCore.Solidity.Source.wordToBytesBE
+              SolidCore.Solidity.Source.selectorBytes selector))) ]
 
 def FunctionDecls.interfaceId? : List FunctionDecl -> Option Word
   | [] => some 0
@@ -19001,6 +19005,8 @@ def selectorInfoContract : ContractDecl :=
             body := some Stmt.empty }
       , ContractItem.function
           { name := some "selectors"
+            visibility := some Visibility.public_
+            mutability := StateMutability.view
             params :=
               [ { name := some "target"
                   ty := Ty.user { segments := ["SelectorInfo"] } } ]
@@ -19066,14 +19072,21 @@ def overloadedSelectorRejectedContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "pick"
+            visibility := some Visibility.external_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             body := some Stmt.empty }
       , ContractItem.function
           { name := some "pick"
-            params := [{ name := some "payload", ty := Ty.bytes }]
+            visibility := some Visibility.external_
+            params :=
+              [{ name := some "payload"
+                 ty := Ty.bytes
+                 location := some DataLocation.calldata }]
             body := some Stmt.empty }
       , ContractItem.function
           { name := some "selector"
+            visibility := some Visibility.public_
+            mutability := StateMutability.view
             returns := [{ name := some "out", ty := Ty.bytesN 4 }]
             body :=
               some
