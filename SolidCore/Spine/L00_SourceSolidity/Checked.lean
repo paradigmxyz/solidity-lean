@@ -10957,6 +10957,7 @@ def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
       , L00_SourceSolidity.ContractItem.stateVar
           { name := "scratch"
             ty := Ty.uint 256
+            visibility := some Visibility.public_
             mutability := VarMutability.transient }
       , L00_SourceSolidity.ContractItem.function
           { name := some "setBoth"
@@ -10992,7 +10993,62 @@ def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
             body :=
               some
                 (L00_SourceSolidity.Stmt.returnValues
-                  (some (L00_SourceSolidity.Expr.ident "scratch"))) } ] }
+                  (some (L00_SourceSolidity.Expr.ident "scratch"))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "writeScratchThenRevert"
+            visibility := some Visibility.public_
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "scratch")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.ident "value"))
+                  , L00_SourceSolidity.Stmt.revertCall
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.ident "revert") []) ]) } ] }
+
+def checkedTransientIndependentSlotsMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32 checkedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "setBoth")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 79 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
+          !state.transient.isEmpty)
+  | _ => Except.ok false
+
+def checkedTransientPublicGetterMatches :
+    Except TypeError Bool := do
+  let writeResult ←
+    ContractDecl.checkedCall 32 checkedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "setBoth")
+      SolidCore.Solidity.Source.State.empty []
+  let state ←
+    match writeResult with
+    | SolidCore.Solidity.Source.CallResult.returned state
+        [SolidCore.Solidity.Source.Value.word value] =>
+        if SolidCore.Solidity.Source.wordEq value 79 then
+          Except.ok state
+        else
+          Except.error (executableFailure "transient write result")
+    | _ => Except.error (executableFailure "transient write result")
+  let result ←
+    ContractDecl.checkedCall 32 checkedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "scratch")
+      state []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 9)
+  | _ => Except.ok false
 
 def checkedTransientPersistsWithinRawAbiFrameMatches :
     Except TypeError Bool := do
@@ -11042,6 +11098,64 @@ def checkedTransientClearedAtAbiTransactionBoundaryMatches :
         (readResult.state.loadSlot 0) 7 &&
       writeResult.state.transient == [] &&
       readResult.state.transient == [])
+
+def checkedRevertedTransientWriteDropsWrite :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32 checkedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name
+        "writeScratchThenRevert")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 11]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state _ => do
+      let getter ←
+        ContractDecl.checkedCall 32 checkedTransientStorageContract
+          (SolidCore.Solidity.Source.CallTarget.name "scratch")
+          state []
+      match getter with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq value 0 &&
+              state.transient == [])
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedRevertedTransientWritePreservesPriorValue :
+    Except TypeError Bool := do
+  let writeResult ←
+    ContractDecl.checkedCall 32 checkedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "setBoth")
+      SolidCore.Solidity.Source.State.empty []
+  let state ←
+    match writeResult with
+    | SolidCore.Solidity.Source.CallResult.returned state
+        [SolidCore.Solidity.Source.Value.word value] =>
+        if SolidCore.Solidity.Source.wordEq value 79 then
+          Except.ok state
+        else
+          Except.error (executableFailure "transient write result")
+    | _ => Except.error (executableFailure "transient write result")
+  let result ←
+    ContractDecl.checkedCall 32 checkedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name
+        "writeScratchThenRevert")
+      state [SolidCore.Solidity.Source.Value.word 11]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted revertedState _ => do
+      let getter ←
+        ContractDecl.checkedCall 32 checkedTransientStorageContract
+          (SolidCore.Solidity.Source.CallTarget.name "scratch")
+          revertedState []
+      match getter with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq value 9 &&
+              revertedState.transient == state.transient)
+      | _ => Except.ok false
+  | _ => Except.ok false
 
 def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTryCatchTarget"
