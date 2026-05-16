@@ -5516,6 +5516,198 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit subWeiEtherReturnSource)
 
+def checkedArithmeticContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedArithmeticContract)
+
+def checkedOwnCallIntMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expected : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  | _ => Except.ok false
+
+def checkedSignedIntArithmeticMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedArithmeticContract
+      (SolidCore.Solidity.Source.CallTarget.name "signedOps")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.int
+          (SharedSemantics.signedToWord (-5))
+      , SolidCore.Solidity.Source.Value.int 2 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.int quotient
+      , SolidCore.Solidity.Source.Value.int remainder
+      , SolidCore.Solidity.Source.Value.word less ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq quotient
+            (SharedSemantics.signedToWord (-2)) &&
+          SolidCore.Solidity.Source.wordEq remainder
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq less 1)
+  | _ => Except.ok false
+
+def checkedSignedIntAbiOutputMatchesExpected : Except TypeError Bool :=
+  checkedContractAbiOutputMatches 24
+    Executable.Examples.checkedArithmeticContract
+    "signedOps"
+    [ SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-5))
+    , SolidCore.Solidity.Source.Value.int 2 ]
+    Executable.Examples.signedIntAbiExpectedOutput
+
+def checkedSignedSarMatches : Except TypeError Bool :=
+  checkedOwnCallIntMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "signedSar" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-5))
+    , SolidCore.Solidity.Source.Value.word 1 ]
+    (SharedSemantics.signedToWord (-3))
+
+def checkedSignedSarAssignMatches : Except TypeError Bool :=
+  checkedOwnCallIntMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "signedSarAssign" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-5))
+    , SolidCore.Solidity.Source.Value.word 1 ]
+    (SharedSemantics.signedToWord (-3))
+
+def checkedAddOverflowPanics : Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "addOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 1] 0x11
+
+def checkedUncheckedAddWraps : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedAddWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 1] 0
+
+def checkedSubUnderflowPanics : Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "subUnderflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 2] 0x11
+
+def checkedUncheckedSubWraps : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedSubWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 2] (2 ^ 256 - 1)
+
+def checkedMulOverflowPanics : Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "mulOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 2] 0x11
+
+def checkedUncheckedMulWraps : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedMulWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 2] (2 ^ 256 - 2)
+
+def checkedSignedNegOverflowPanics : Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "signedNeg" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.int (2 ^ 255)] 0x11
+
+def checkedUncheckedSignedNegWraps : Except TypeError Bool :=
+  checkedOwnCallIntMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedSignedNeg" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.int (2 ^ 255)] (2 ^ 255)
+
+def checkedExponentiationMatches : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "powSmall" SolidCore.Solidity.Source.State.empty [] 256
+
+def checkedExponentOverflowPanics : Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "powOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word (2 ^ 128)] 0x11
+
+def checkedUncheckedExponentWraps : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedPowWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word (2 ^ 128)] 0
+
+def checkedDivisionByZeroPanics : Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "divide" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 0 ] 0x12
+
+def checkedUncheckedDivisionByZeroStillPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedDivide" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 0 ] 0x12
+
+def checkedUncheckedModuloByZeroStillPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedModulo" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 0 ] 0x12
+
+def checkedSignedDivisionOverflowPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "signedDivide" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.int (2 ^ 255)
+    , SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-1)) ] 0x11
+
+def checkedUncheckedSignedDivisionOverflowWraps :
+    Except TypeError Bool :=
+  checkedOwnCallIntMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "uncheckedSignedDivide" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.int (2 ^ 255)
+    , SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-1)) ] (2 ^ 255)
+
+def checkedUncheckedInternalCallCalleeOverflowReverts :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 48
+    Executable.Examples.checkedArithmeticContract
+    "callOverflow" SolidCore.Solidity.Source.State.empty [] 0x11
+
+def checkedUncheckedInternalCallArgumentWraps :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 48
+    Executable.Examples.checkedArithmeticContract
+    "callWithWrappedArg" SolidCore.Solidity.Source.State.empty [] 0
+
+def checkedUncheckedArithmeticInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit nestedUncheckedSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit uncheckedPlaceholderSource)
+
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordTripleMatches 32

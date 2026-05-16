@@ -21957,6 +21957,227 @@ def checkedLiteralConversionContract : ContractDecl :=
       , ContractItem.function checkedHexStringLiteralFunction
       , ContractItem.function checkedHexStringAbiEncodeFunction ] }
 
+def checkedPureStatementFunction
+    (name : Name) (params returns : List Parameter) (body : Stmt) :
+    FunctionDecl :=
+  { name := some name
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    params := params
+    returns := returns
+    body := some body }
+
+def checkedUintParam (name : Name) : Parameter :=
+  { name := some name, ty := Ty.uint 256 }
+
+def checkedIntParam (name : Name) : Parameter :=
+  { name := some name, ty := Ty.int 256 }
+
+def checkedUintReturn : List Parameter :=
+  [{ name := some "out", ty := Ty.uint 256 }]
+
+def checkedIntReturn : List Parameter :=
+  [{ name := some "out", ty := Ty.int 256 }]
+
+def checkedAddOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "addOverflow"
+    [checkedUintParam "x"] checkedUintReturn
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.add
+          (Expr.member (Expr.typeName (Ty.uint 256)) "max")
+          (Expr.ident "x"))))
+
+def checkedUncheckedAddWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedAddWrap"
+    [checkedUintParam "x"] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.add
+            (Expr.member (Expr.typeName (Ty.uint 256)) "max")
+            (Expr.ident "x")))))
+
+def checkedSubUnderflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "subUnderflow"
+    [checkedUintParam "x"] checkedUintReturn
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.sub
+          (Expr.ident "x")
+          (Expr.literal (Literal.number "3")))))
+
+def checkedUncheckedSubWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedSubWrap"
+    [checkedUintParam "x"] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.sub
+            (Expr.ident "x")
+            (Expr.literal (Literal.number "3"))))))
+
+def checkedMulOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "mulOverflow"
+    [checkedUintParam "x"] checkedUintReturn
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.mul
+          (Expr.member (Expr.typeName (Ty.uint 256)) "max")
+          (Expr.ident "x"))))
+
+def checkedUncheckedMulWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedMulWrap"
+    [checkedUintParam "x"] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.mul
+            (Expr.member (Expr.typeName (Ty.uint 256)) "max")
+            (Expr.ident "x")))))
+
+def checkedSignedNegFunction : FunctionDecl :=
+  checkedPureStatementFunction "signedNeg"
+    [checkedIntParam "x"] checkedIntReturn
+    (Stmt.returnValues
+      (some (Expr.unary UnaryOp.neg (Expr.ident "x"))))
+
+def checkedUncheckedSignedNegFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedSignedNeg"
+    [checkedIntParam "x"] checkedIntReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some (Expr.unary UnaryOp.neg (Expr.ident "x")))))
+
+def checkedExponentiationFunction : FunctionDecl :=
+  checkedPureStatementFunction "powSmall" [] checkedUintReturn
+    exponentiationStatement
+
+def checkedExponentOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "powOverflow"
+    [checkedUintParam "base"] checkedUintReturn
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.exp
+          (Expr.ident "base")
+          (Expr.literal (Literal.number "2")))))
+
+def checkedUncheckedExponentWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedPowWrap"
+    [checkedUintParam "base"] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.exp
+            (Expr.ident "base")
+            (Expr.literal (Literal.number "2"))))))
+
+def checkedDivisionFunction : FunctionDecl :=
+  checkedPureStatementFunction "divide"
+    [checkedUintParam "x", checkedUintParam "y"] checkedUintReturn
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.div
+          (Expr.ident "x") (Expr.ident "y"))))
+
+def checkedUncheckedDivisionFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedDivide"
+    [checkedUintParam "x", checkedUintParam "y"] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.div
+            (Expr.ident "x") (Expr.ident "y")))))
+
+def checkedUncheckedModuloFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedModulo"
+    [checkedUintParam "x", checkedUintParam "y"] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.mod
+            (Expr.ident "x") (Expr.ident "y")))))
+
+def checkedSignedDivisionFunction : FunctionDecl :=
+  checkedPureStatementFunction "signedDivide"
+    [checkedIntParam "x", checkedIntParam "y"] checkedIntReturn
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.div
+          (Expr.ident "x") (Expr.ident "y"))))
+
+def checkedUncheckedSignedDivisionFunction : FunctionDecl :=
+  checkedPureStatementFunction "uncheckedSignedDivide"
+    [checkedIntParam "x", checkedIntParam "y"] checkedIntReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.div
+            (Expr.ident "x") (Expr.ident "y")))))
+
+def checkedUncheckedInternalOverflowFunction : FunctionDecl :=
+  { name := some "overflow"
+    visibility := some Visibility.internal_
+    mutability := StateMutability.pure
+    returns := checkedUintReturn
+    body :=
+      some
+        (Stmt.returnValues
+          (some uncheckedInternalUintMaxPlusOne)) }
+
+def checkedUncheckedInternalIdFunction : FunctionDecl :=
+  { name := some "id"
+    visibility := some Visibility.internal_
+    mutability := StateMutability.pure
+    params := [checkedUintParam "value"]
+    returns := checkedUintReturn
+    body :=
+      some
+        (Stmt.returnValues
+          (some (Expr.ident "value"))) }
+
+def checkedUncheckedInternalCallOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "callOverflow" [] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some (Expr.call (Expr.ident "overflow") []))))
+
+def checkedUncheckedInternalCallWrappedArgFunction : FunctionDecl :=
+  checkedPureStatementFunction "callWithWrappedArg" [] checkedUintReturn
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.call (Expr.ident "id")
+            [Arg.positional uncheckedInternalUintMaxPlusOne]))))
+
+def checkedArithmeticContract : ContractDecl :=
+  { name := "CheckedArithmetic"
+    items :=
+      [ ContractItem.function (checkedPureFunction signedIntArithmeticFunction)
+      , ContractItem.function (checkedPureFunction signedSarFunction)
+      , ContractItem.function (checkedPureFunction signedSarAssignFunction)
+      , ContractItem.function checkedAddOverflowFunction
+      , ContractItem.function checkedUncheckedAddWrapFunction
+      , ContractItem.function checkedSubUnderflowFunction
+      , ContractItem.function checkedUncheckedSubWrapFunction
+      , ContractItem.function checkedMulOverflowFunction
+      , ContractItem.function checkedUncheckedMulWrapFunction
+      , ContractItem.function checkedSignedNegFunction
+      , ContractItem.function checkedUncheckedSignedNegFunction
+      , ContractItem.function checkedExponentiationFunction
+      , ContractItem.function checkedExponentOverflowFunction
+      , ContractItem.function checkedUncheckedExponentWrapFunction
+      , ContractItem.function checkedDivisionFunction
+      , ContractItem.function checkedUncheckedDivisionFunction
+      , ContractItem.function checkedUncheckedModuloFunction
+      , ContractItem.function checkedSignedDivisionFunction
+      , ContractItem.function checkedUncheckedSignedDivisionFunction
+      , ContractItem.function checkedUncheckedInternalOverflowFunction
+      , ContractItem.function checkedUncheckedInternalIdFunction
+      , ContractItem.function checkedUncheckedInternalCallOverflowFunction
+      , ContractItem.function
+          checkedUncheckedInternalCallWrappedArgFunction ] }
+
 def stringEchoFunction : FunctionDecl :=
   { name := some "echo"
     params := [{ name := some "message", ty := Ty.string }]
