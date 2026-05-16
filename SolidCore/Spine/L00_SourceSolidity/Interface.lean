@@ -17442,6 +17442,9 @@ def checkedEcrecoverArg (ty : Ty) (literal : Literal) : Expr :=
 def checkedEcrecoverNumberArg (ty : Ty) (number : String) : Expr :=
   checkedEcrecoverArg ty (Literal.number number)
 
+def checkedEcrecoverBytes32Arg (hex : String) : Expr :=
+  checkedEcrecoverArg (Ty.bytesN 32) (Literal.hexString hex)
+
 def checkedEcrecoverBuiltinFunction : FunctionDecl :=
   { ecrecoverBuiltinFunction with
     visibility := some Visibility.public_
@@ -17454,23 +17457,29 @@ def checkedEcrecoverBuiltinFunction : FunctionDecl :=
               [ TupleItem.value
                   (Expr.call (Expr.ident "ecrecover")
                     [ Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "17")
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000011")
                     , Arg.positional
                         (checkedEcrecoverNumberArg (Ty.uint 8) "27")
                     , Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "34")
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000022")
                     , Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "51") ])
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000033") ])
               , TupleItem.value
                   (Expr.call (Expr.ident "ecrecover")
                     [ Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "68")
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000044")
                     , Arg.positional
                         (checkedEcrecoverNumberArg (Ty.uint 8) "27")
                     , Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "34")
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000022")
                     , Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "51") ]) ]))) }
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000033") ]) ]))) }
 
 def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
   { name := some "precompileBuiltinsAndCalls"
@@ -17642,13 +17651,16 @@ def checkedPrecompileBuiltinsStaticcallSharedResultsFunction :
               , TupleItem.value
                   (Expr.call (Expr.ident "ecrecover")
                     [ Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "17")
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000011")
                     , Arg.positional
                         (checkedEcrecoverNumberArg (Ty.uint 8) "27")
                     , Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "34")
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000022")
                     , Arg.positional
-                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "51") ])
+                        (checkedEcrecoverBytes32Arg
+                          "0000000000000000000000000000000000000000000000000000000000000033") ])
               , TupleItem.value
                   (Expr.call
                     (Expr.member

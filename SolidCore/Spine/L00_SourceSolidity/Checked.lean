@@ -2435,6 +2435,20 @@ def checkedFixedBytesAbiRejectsDirtyPadding : Bool :=
     (ContractDecl.checkedCallCalldata 16 checkedPrimitiveAbiContract
       SolidCore.Solidity.Source.State.empty calldata)
 
+def checkedPrimitiveAbiSemanticsMatch : Except TypeError Bool := do
+  let boolIdentity ← checkedBoolIdentityCallMatches
+  let addressIdentity ← checkedAddressIdentityCallMatches
+  let addressAbi ← checkedAddressAbiCalldataMatches
+  let fixedBytesAbi ← checkedFixedBytesAbiCalldataMatches
+  Except.ok
+    (checkedPrimitiveAbiContractAccepted &&
+      boolIdentity && addressIdentity && addressAbi &&
+      checkedAddressAbiRejectsWideEncode &&
+      checkedAddressAbiRejectsWideCalldata &&
+      fixedBytesAbi &&
+      checkedFixedBytesAbiRejectsWideEncode &&
+      checkedFixedBytesAbiRejectsDirtyPadding)
+
 def checkedDataTypeSourceUnitsAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -8231,6 +8245,55 @@ def checkedConcatInvalidSourcesRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.checkedStringConcatInvalidSourceUnit)
 
+def checkedBuiltinMetadataSemanticsMatch :
+    Except TypeError Bool := do
+  let msgSig ← checkedMsgSigCalldataMatches
+  let msgContext ← checkedMsgContextCalldataMatches
+  let selfAddress ← checkedAbiSelfAddressAtMatches
+  let envGlobals ← checkedEnvironmentGlobalsMatch
+  let randaoAlias ← checkedEnvironmentRandaoAliasMatches
+  let envHash ← checkedEnvironmentHashMatches
+  let envHashOob ← checkedEnvironmentHashOutOfRangeMatches
+  let keccak ← checkedKeccakBuiltinMatchesExpected
+  let erc7201 ← checkedErc7201BuiltinMatchesEipExample
+  let externalHashes ← checkedExternalCryptoHashMatches
+  let missingHash ← checkedExternalCryptoHashMissingPanics
+  let ecrecover ← checkedEcrecoverBuiltinMatches
+  let precompileShared ←
+    checkedPrecompileBuiltinsStaticcallSharedResultsMatches
+  let typeLimits ← checkedTypeInfoLimitsMatch
+  let signedTypeLimits ← checkedSignedTypeInfoLimitsMatch
+  let contractName ← checkedContractTypeNameMatches
+  let codeInfo ← checkedContractTypeCodeInfoMatches
+  let runtimeCodeAbi ← checkedContractTypeRuntimeCodeAbiMatches
+  let interfaceId ← checkedInterfaceIdMatchesExpected
+  let selectorInfo ← checkedSelectorInfoMatches
+  let addressMembers ← checkedAddressMembersMatch
+  let addressCode ← checkedAddressCodeMemberMatch
+  let selfdestruct ← checkedSelfdestructRecordsAndStopsMatches
+  let concat ← checkedConcatBuiltinsMatch
+  let bytesConcat ← checkedBytesConcatFixedMatchesExpected
+  let stringConcat ← checkedStringConcatUnicodeMatchesExpected
+  Except.ok
+    (checkedCallContextContractAccepted &&
+      checkedEnvironmentContractAccepted &&
+      checkedHashBuiltinContractAccepted &&
+      checkedTypeMetadataSourceUnitAccepted &&
+      checkedSelectorInfoContractAccepted &&
+      checkedOverloadedSelectorRejected &&
+      checkedAddressEnvironmentContractAccepted &&
+      checkedMetadataInvalidSourcesRejected &&
+      checkedConcatBuiltinsContractAccepted &&
+      checkedConcatInvalidSourcesRejected &&
+      msgSig && msgContext && selfAddress &&
+      envGlobals && randaoAlias && envHash && envHashOob &&
+      keccak && erc7201 && externalHashes && missingHash &&
+      ecrecover && precompileShared &&
+      typeLimits && signedTypeLimits && contractName &&
+      codeInfo && runtimeCodeAbi && interfaceId && selectorInfo &&
+      addressMembers && addressCode && selfdestruct &&
+      concat && bytesConcat && stringConcat)
+
 def checkedLiteralConversionContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -8799,6 +8862,34 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
     checkedAddressConversionRejected &&
     checkedPayableTypedUint160ZeroRejected
 
+def checkedLiteralConversionSemanticsMatch :
+    Except TypeError Bool := do
+  let bytesSlice ← checkedBytesSliceMatches
+  let stringLiteral ← checkedStringLiteralMatchesExpected
+  let numericLiteral ← checkedNumericLiteralMatchesExpected
+  let scaledNumeric ← checkedScaledNumericLiteralMatchesExpected
+  let numericExpression ← checkedNumberLiteralExpressionMatchesExpected
+  let unitNumber ← checkedUnitNumberLiteralMatchesExpected
+  let typedNumeric ← checkedTypedNumericLiteralConversionMatchesExpected
+  let typedNumericVar ← checkedTypedNumericLiteralVarDeclMatchesExpected
+  let runtimeCasts ← checkedRuntimeIntegerCastsMatch
+  let fixedBytesLiteral ← checkedFixedBytesLiteralConversionMatchesExpected
+  let fixedBytesMembers ← checkedFixedBytesMembersMatch
+  let fixedBytesOob ← checkedFixedBytesIndexOutOfBoundsPanics
+  let fixedBytesRuntime ← checkedFixedBytesRuntimeConversionsMatch
+  let unicodeLiteral ← checkedUnicodeStringLiteralMatchesUtf8
+  let addressLiteral ← checkedAddressLiteralConversionMatchesExpected
+  let hexString ← checkedHexStringLiteralMatchesExpected
+  let hexStringAbi ← checkedHexStringAbiEncodeMatchesExpected
+  Except.ok
+    (checkedLiteralConversionContractAccepted &&
+      checkedLiteralInvalidSourcesRejected &&
+      bytesSlice && stringLiteral && numericLiteral && scaledNumeric &&
+      numericExpression && unitNumber && typedNumeric && typedNumericVar &&
+      runtimeCasts && fixedBytesLiteral && fixedBytesMembers &&
+      fixedBytesOob && fixedBytesRuntime && unicodeLiteral &&
+      addressLiteral && hexString && hexStringAbi)
+
 def checkedArithmeticContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -9001,6 +9092,55 @@ def checkedEmptyInlineAssemblySkips : Except TypeError Bool :=
 
 def checkedNonemptyInlineAssemblyRejected : Bool :=
   Result.isError (CheckedInput.program nonemptyInlineAssemblySource)
+
+def checkedModularCheckedArithmeticSemanticsMatch :
+    Except TypeError Bool := do
+  let modular ← checkedModularArithmeticMatches
+  let addmodZero ← checkedAddmodVariableZeroModulusPanics
+  let mulmodZero ← checkedMulmodVariableZeroModulusPanics
+  let signedOps ← checkedSignedIntArithmeticMatches
+  let signedAbi ← checkedSignedIntAbiOutputMatchesExpected
+  let signedSar ← checkedSignedSarMatches
+  let signedSarAssign ← checkedSignedSarAssignMatches
+  let addOverflow ← checkedAddOverflowPanics
+  let uncheckedAdd ← checkedUncheckedAddWraps
+  let subUnderflow ← checkedSubUnderflowPanics
+  let uncheckedSub ← checkedUncheckedSubWraps
+  let mulOverflow ← checkedMulOverflowPanics
+  let uncheckedMul ← checkedUncheckedMulWraps
+  let signedNeg ← checkedSignedNegOverflowPanics
+  let uncheckedSignedNeg ← checkedUncheckedSignedNegWraps
+  let exponent ← checkedExponentiationMatches
+  let exponentOverflow ← checkedExponentOverflowPanics
+  let uncheckedExponent ← checkedUncheckedExponentWraps
+  let divZero ← checkedDivisionByZeroPanics
+  let uncheckedDivZero ← checkedUncheckedDivisionByZeroStillPanics
+  let uncheckedModZero ← checkedUncheckedModuloByZeroStillPanics
+  let signedDivOverflow ← checkedSignedDivisionOverflowPanics
+  let uncheckedSignedDiv ← checkedUncheckedSignedDivisionOverflowWraps
+  let uncheckedInternalOverflow ←
+    checkedUncheckedInternalCallCalleeOverflowReverts
+  let uncheckedInternalArg ← checkedUncheckedInternalCallArgumentWraps
+  Except.ok
+    (checkedModularArithmeticContractAccepted &&
+      checkedModularArithmeticInvalidSourcesRejected &&
+      checkedArithmeticContractAccepted &&
+      checkedUncheckedArithmeticInvalidSourcesRejected &&
+      modular && addmodZero && mulmodZero &&
+      signedOps && signedAbi && signedSar && signedSarAssign &&
+      addOverflow && uncheckedAdd && subUnderflow && uncheckedSub &&
+      mulOverflow && uncheckedMul && signedNeg && uncheckedSignedNeg &&
+      exponent && exponentOverflow && uncheckedExponent &&
+      divZero && uncheckedDivZero && uncheckedModZero &&
+      signedDivOverflow && uncheckedSignedDiv &&
+      uncheckedInternalOverflow && uncheckedInternalArg)
+
+def checkedInlineAssemblyBoundarySemanticsMatch :
+    Except TypeError Bool := do
+  let emptyAssembly ← checkedEmptyInlineAssemblySkips
+  Except.ok
+    (checkedEmptyInlineAssemblySourceAccepted &&
+      emptyAssembly && checkedNonemptyInlineAssemblyRejected)
 
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
