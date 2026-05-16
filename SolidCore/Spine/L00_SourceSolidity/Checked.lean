@@ -3669,6 +3669,28 @@ def checkedInternalFunctionPointerParamUninitializedCallPanics :
     [checkedInternalFunctionPointerWord 21]
     internalFunctionPointerPanicCode
 
+def checkedInternalFunctionPointerSemanticsMatch :
+    Except TypeError Bool := do
+  let alias ← checkedInternalFunctionPointerAliasMatches
+  let reassign ← checkedInternalFunctionPointerReassignMatches
+  let assignAfterDecl ←
+    checkedInternalFunctionPointerAssignAfterDeclMatches
+  let deleteThenAssign ←
+    checkedInternalFunctionPointerDeleteThenAssignMatches
+  let uninitialized ←
+    checkedInternalFunctionPointerUninitializedCallPanics
+  let deleted ← checkedInternalFunctionPointerDeletedCallPanics
+  let copy ← checkedInternalFunctionPointerCopyMatches
+  let param ← checkedInternalFunctionPointerParamMatches
+  let paramDirect ← checkedInternalFunctionPointerParamDirectMatches
+  let paramUninitialized ←
+    checkedInternalFunctionPointerParamUninitializedCallPanics
+  Except.ok
+    (checkedInternalFunctionPointerContractsAccepted &&
+      alias && reassign && assignAfterDecl && deleteThenAssign &&
+      uninitialized && deleted && copy &&
+      param && paramDirect && paramUninitialized)
+
 def checkedInternalReturnEvaluationContractsAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -4030,6 +4052,36 @@ def checkedNamedReturnMatches : Except TypeError Bool := do
           SolidCore.Solidity.Source.wordEq runFallthroughValue 9 &&
           SolidCore.Solidity.Source.wordEq runDefaultValue 0)
   | _, _, _ => Except.ok false
+
+def checkedControlFlowStatementSemanticsMatch :
+    Except TypeError Bool := do
+  let internalReturnSubexpr ← checkedInternalReturnSubexpressionMatches
+  let internalReturnRight ← checkedInternalReturnRightSubexpressionMatches
+  let internalReturnShortCircuit ← checkedInternalReturnShortCircuitMatches
+  let ternarySkip ← checkedTernarySkipsRejectedBranchMatches
+  let doWhile ← checkedDoWhileRunsBeforeConditionMatches
+  let deleteLocal ← checkedDeleteLocalStatementMatches
+  let increment ← checkedIncrementStatementMatches
+  let expressionFailure ← checkedExpressionStatementFailurePanics
+  let assertFailure ← checkedAssertFailurePanics
+  let requireString ← checkedRequireFailureStringMatches
+  let revertString ← checkedRevertStringMatches
+  let ternaryBranch ← checkedInternalTernaryBranchCallMatches
+  let ifCondition ← checkedInternalIfConditionCallMatches
+  let whileCondition ← checkedInternalWhileConditionCallMatches
+  let forPost ← checkedInternalForPostCallMatches
+  let loopBreakContinue ← checkedLoopBreakContinueMatches
+  let namedReturn ← checkedNamedReturnMatches
+  Except.ok
+    (checkedInternalReturnEvaluationContractsAccepted &&
+      checkedControlFlowContractsAccepted &&
+      checkedPrimitiveStatementContractAccepted &&
+      internalReturnSubexpr && internalReturnRight &&
+      internalReturnShortCircuit &&
+      ternarySkip && doWhile && deleteLocal && increment &&
+      expressionFailure && assertFailure && requireString && revertString &&
+      ternaryBranch && ifCondition && whileCondition && forPost &&
+      loopBreakContinue && namedReturn)
 
 def checkedOwnCallWordAndSlotMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
@@ -4465,6 +4517,29 @@ def checkedNamedErrorArgumentOrderFixtureMatches :
           SolidCore.Solidity.Source.wordEq second 2)
   | _ => Except.ok false
 
+def checkedExpressionSideEffectSemanticsMatch :
+    Except TypeError Bool := do
+  let binary ← checkedInternalBinaryLocalCallMatches
+  let unary ← checkedInternalUnaryLocalCallMatches
+  let ternary ← checkedInternalTernaryLocalCallMatches
+  let requireCondition ← checkedInternalRequireConditionCallMatches
+  let requireReason ← checkedInternalRequireReasonCallMatches
+  let namedRequireError ←
+    checkedNamedRequireCustomErrorArgumentOrderMatches
+  let emitArg ← checkedInternalEmitArgumentCallMatches
+  let emitTwoArg ← checkedInternalEmitTwoArgumentCallMatches
+  let namedEventArg ← checkedNamedEventArgumentOrderFixtureMatches
+  let revertArg ← checkedInternalRevertArgumentCallMatches
+  let revertTwoArg ← checkedInternalRevertTwoArgumentCallMatches
+  let namedErrorArg ← checkedNamedErrorArgumentOrderFixtureMatches
+  Except.ok
+    (checkedExpressionEvaluationContractsAccepted &&
+      checkedSideEffectArgumentContractsAccepted &&
+      binary && unary && ternary &&
+      requireCondition && requireReason && namedRequireError &&
+      emitArg && emitTwoArg && namedEventArg &&
+      revertArg && revertTwoArg && namedErrorArg)
+
 def checkedTupleAndFreeFunctionContractsAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -4606,6 +4681,29 @@ def checkedFreeNamedArgsMatches :
   checkedCallWordMatches 32
     Executable.Examples.freeNamedArgsUnit "FreeNamedArgs"
     "run" SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedTupleFreeFunctionSemanticsMatch :
+    Except TypeError Bool := do
+  let tupleReturn ← checkedInternalTupleReturnCallMatches
+  let tupleRightReturn ← checkedInternalTupleRightReturnCallMatches
+  let tupleBothReturn ← checkedInternalTupleBothReturnCallMatches
+  let internalNamedArgs ← checkedInternalNamedArgsMatches
+  let tupleVarDecl ← checkedTupleVarDeclMatches
+  let tupleVarDeclHole ← checkedTupleVarDeclHoleMatches
+  let tupleSwap ← checkedTupleAssignmentSwapMatches
+  let tupleHole ← checkedTupleAssignmentHoleMatches
+  let internalVarDecl ← checkedInternalVarDeclCallMatches
+  let internalMultiVarDecl ← checkedInternalMultiVarDeclCallMatches
+  let freeFunction ← checkedFreeFunctionCallMatches
+  let freeNamedArgs ← checkedFreeNamedArgsMatches
+  Except.ok
+    (checkedTupleAndFreeFunctionContractsAccepted &&
+      checkedFreeFunctionStorageIsolationRejected &&
+      tupleReturn && tupleRightReturn && tupleBothReturn &&
+      internalNamedArgs &&
+      tupleVarDecl && tupleVarDeclHole && tupleSwap && tupleHole &&
+      internalVarDecl && internalMultiVarDecl &&
+      freeFunction && freeNamedArgs)
 
 def checkedTargetEffectContractsAccepted : Bool :=
   Result.isOk
