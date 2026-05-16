@@ -30304,6 +30304,10 @@ def storageReturnDirectMutationMatches : Option Bool :=
 def storageReturnConditionalBindingMatches : Option Bool :=
   storageReturnAliasCallMatches "bindConditionalReturnedStorage" 127
 
+def storageBytesByteExpr (value : Byte) : Expr :=
+  Expr.call (Expr.typeName (Ty.bytesN 1))
+    [Arg.positional (Expr.literal (Literal.bytes [value]))]
+
 def storageBytesContract : ContractDecl :=
   { name := "StorageBytes"
     items :=
@@ -30312,6 +30316,7 @@ def storageBytesContract : ContractDecl :=
             ty := Ty.bytes }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [{ name := some "input"
                  ty := Ty.bytes
@@ -30325,6 +30330,7 @@ def storageBytesContract : ContractDecl :=
                     (Expr.ident "input"))) }
       , ContractItem.function
           { name := some "writeSecond"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -30333,17 +30339,19 @@ def storageBytesContract : ContractDecl :=
                       (Expr.ident "blob")
                       (Expr.literal (Literal.number "1")))
                     AssignOp.assign
-                    (Expr.literal (Literal.number "9")))) }
+                    (storageBytesByteExpr 9))) }
       , ContractItem.function
           { name := some "pushFour"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
                   (Expr.call
                     (Expr.member (Expr.ident "blob") "push")
-                    [Arg.positional (Expr.literal (Literal.number "4"))])) }
+                    [Arg.positional (storageBytesByteExpr 4)])) }
       , ContractItem.function
           { name := some "pushZero"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -30351,6 +30359,7 @@ def storageBytesContract : ContractDecl :=
                     (Expr.member (Expr.ident "blob") "push") [])) }
       , ContractItem.function
           { name := some "popOne"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -30358,6 +30367,7 @@ def storageBytesContract : ContractDecl :=
                     (Expr.member (Expr.ident "blob") "pop") [])) }
       , ContractItem.function
           { name := some "aliasWriteSecond"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -30372,9 +30382,10 @@ def storageBytesContract : ContractDecl :=
                           (Expr.ident "ref")
                           (Expr.literal (Literal.number "1")))
                         AssignOp.assign
-                        (Expr.literal (Literal.number "8"))) ]) }
+                        (storageBytesByteExpr 8)) ]) }
       , ContractItem.function
           { name := some "aliasPushFive"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -30386,10 +30397,10 @@ def storageBytesContract : ContractDecl :=
                   , Stmt.expr
                       (Expr.call
                         (Expr.member (Expr.ident "ref") "push")
-                        [Arg.positional
-                          (Expr.literal (Literal.number "5"))]) ]) }
+                        [Arg.positional (storageBytesByteExpr 5)]) ]) }
       , ContractItem.function
           { name := some "aliasPopOne"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -30410,7 +30421,7 @@ def storageBytesContract : ContractDecl :=
               , { name := some "i"
                   ty := Ty.uint 256 }
               , { name := some "value"
-                  ty := Ty.uint 256 } ]
+                  ty := Ty.bytesN 1 } ]
             body :=
               some
                 (Stmt.block
@@ -30429,7 +30440,7 @@ def storageBytesContract : ContractDecl :=
                   ty := Ty.bytes
                   location := some DataLocation.storage }
               , { name := some "value"
-                  ty := Ty.uint 256 } ]
+                  ty := Ty.bytesN 1 } ]
             body :=
               some
                 (Stmt.block
@@ -30451,6 +30462,7 @@ def storageBytesContract : ContractDecl :=
                       (Expr.call (Expr.member (Expr.ident "buf") "pop") []) ]) }
       , ContractItem.function
           { name := some "internalBytesParamWriteSecond"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -30458,9 +30470,10 @@ def storageBytesContract : ContractDecl :=
                     (Expr.ident "writeBytesStorage")
                     [ Arg.positional (Expr.ident "blob")
                     , Arg.positional (Expr.literal (Literal.number "1"))
-                    , Arg.positional (Expr.literal (Literal.number "7")) ])) }
+                    , Arg.positional (storageBytesByteExpr 7) ])) }
       , ContractItem.function
           { name := some "internalBytesParamAliasPushSix"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -30473,10 +30486,10 @@ def storageBytesContract : ContractDecl :=
                       (Expr.call
                         (Expr.ident "pushBytesStorage")
                         [ Arg.positional (Expr.ident "ref")
-                        , Arg.positional
-                            (Expr.literal (Literal.number "6")) ]) ]) }
+                        , Arg.positional (storageBytesByteExpr 6) ]) ]) }
       , ContractItem.function
           { name := some "internalBytesParamPopOne"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -30485,12 +30498,14 @@ def storageBytesContract : ContractDecl :=
                     [Arg.positional (Expr.ident "blob")])) }
       , ContractItem.function
           { name := some "clear"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
                   (Expr.unary UnaryOp.delete (Expr.ident "blob"))) }
       , ContractItem.function
           { name := some "length"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -30498,6 +30513,7 @@ def storageBytesContract : ContractDecl :=
                   (some (Expr.member (Expr.ident "blob") "length"))) }
       , ContractItem.function
           { name := some "at"
+            visibility := some Visibility.public_
             params := [{ name := some "i", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.bytesN 1 }]
             body :=

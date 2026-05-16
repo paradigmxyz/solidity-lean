@@ -5402,6 +5402,198 @@ def checkedStorageReturnConditionalBindingMatches :
   checkedStorageReturnAliasCallMatches
     "bindConditionalReturnedStorage" 127
 
+def checkedStandaloneStorageBytesContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.storageBytesContract)
+
+def checkedStandaloneStorageBytesInput : CoreValue :=
+  SolidCore.Solidity.Source.Value.bytes [10, 20]
+
+def checkedStandaloneStorageBytesSetState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 24
+    Executable.Examples.storageBytesContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [checkedStandaloneStorageBytesInput]
+
+def checkedStandaloneStorageBytesCallState
+    (fuel : Nat) (functionName : Name) (state : CoreState) :
+    Except TypeError CoreState :=
+  checkedOwnCallState fuel
+    Executable.Examples.storageBytesContract
+    functionName state []
+
+def checkedStandaloneStorageBytesAtMatches
+    (state : CoreState) (index expected : Word) :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageBytesContract
+    "at" state [SolidCore.Solidity.Source.Value.word index]
+    expected
+
+def checkedStandaloneStorageBytesLengthMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageBytesContract
+    "length" state [] 2
+
+def checkedStandaloneStorageBytesIndexMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesAtMatches state 1 20
+
+def checkedStandaloneStorageBytesWriteState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "writeSecond" state
+
+def checkedStandaloneStorageBytesWriteSecondMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesWriteState
+  checkedStandaloneStorageBytesAtMatches state 1 9
+
+def checkedStandaloneStorageBytesPushFourState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "pushFour" state
+
+def checkedStandaloneStorageBytesPushFourMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesPushFourState
+  let length ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.storageBytesContract
+      "length" state [] 3
+  let value ← checkedStandaloneStorageBytesAtMatches state 2 4
+  Except.ok (length && value)
+
+def checkedStandaloneStorageBytesPushZeroState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "pushZero" state
+
+def checkedStandaloneStorageBytesPushZeroMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesPushZeroState
+  checkedStandaloneStorageBytesAtMatches state 2 0
+
+def checkedStandaloneStorageBytesPopState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesPushFourState
+  checkedStandaloneStorageBytesCallState 16 "popOne" state
+
+def checkedStandaloneStorageBytesPopLengthMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesPopState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageBytesContract
+    "length" state [] 2
+
+def checkedStandaloneStorageBytesAliasWriteState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "aliasWriteSecond" state
+
+def checkedStandaloneStorageBytesAliasWriteSecondMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesAliasWriteState
+  checkedStandaloneStorageBytesAtMatches state 1 8
+
+def checkedStandaloneStorageBytesAliasPushState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "aliasPushFive" state
+
+def checkedStandaloneStorageBytesAliasPushMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesAliasPushState
+  let length ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.storageBytesContract
+      "length" state [] 3
+  let value ← checkedStandaloneStorageBytesAtMatches state 2 5
+  Except.ok (length && value)
+
+def checkedStandaloneStorageBytesAliasPopState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "aliasPopOne" state
+
+def checkedStandaloneStorageBytesAliasPopMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesAliasPopState
+  let length ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.storageBytesContract
+      "length" state [] 1
+  let value ← checkedStandaloneStorageBytesAtMatches state 0 10
+  Except.ok (length && value)
+
+def checkedStandaloneStorageBytesInternalParamWriteState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState
+    24 "internalBytesParamWriteSecond" state
+
+def checkedStandaloneStorageBytesInternalParamWriteSecondMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesInternalParamWriteState
+  checkedStandaloneStorageBytesAtMatches state 1 7
+
+def checkedStandaloneStorageBytesInternalParamAliasPushState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState
+    32 "internalBytesParamAliasPushSix" state
+
+def checkedStandaloneStorageBytesInternalParamAliasPushMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesInternalParamAliasPushState
+  let length ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.storageBytesContract
+      "length" state [] 3
+  let value ← checkedStandaloneStorageBytesAtMatches state 2 6
+  Except.ok (length && value)
+
+def checkedStandaloneStorageBytesInternalParamPopState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState
+    24 "internalBytesParamPopOne" state
+
+def checkedStandaloneStorageBytesInternalParamPopMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesInternalParamPopState
+  let length ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.storageBytesContract
+      "length" state [] 1
+  let value ← checkedStandaloneStorageBytesAtMatches state 0 10
+  Except.ok (length && value)
+
+def checkedStandaloneStorageBytesClearState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSetState
+  checkedStandaloneStorageBytesCallState 16 "clear" state
+
+def checkedStandaloneStorageBytesClearLengthZero :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesClearState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageBytesContract
+    "length" state [] 0
+
+def checkedStandaloneStorageBytesClearIndexReverts :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesClearState
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.storageBytesContract
+    "at" state [SolidCore.Solidity.Source.Value.word 0]
+    0x32
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
