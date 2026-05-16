@@ -5342,6 +5342,7 @@ def Expr.storagePathCore? (storageNames : List Name) :
 
 def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
+  | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
   | Stmt.block body => do
       let coreBody ← Stmt.listToCore? storageNames body
       some (SolidCore.Solidity.Source.Stmt.block coreBody)
@@ -18189,6 +18190,23 @@ def uncheckedSignedDivisionOverflowWraps : Option Bool := do
       [SolidCore.Solidity.Source.Value.int value] =>
       some (SolidCore.Solidity.Source.wordEq value (2 ^ 255))
   | _ => some false
+
+def emptyInlineAssemblyResult : Option CoreResult :=
+  Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+    (SolidCore.Solidity.Source.Runtime.ofState
+      SolidCore.Solidity.Source.State.empty)
+    (Stmt.inlineAssembly "")
+
+def emptyInlineAssemblySkips : Option Bool := do
+  let result ← emptyInlineAssemblyResult
+  match result with
+  | SolidCore.Solidity.Source.Result.normal _ => some true
+  | _ => some false
+
+def nonemptyInlineAssemblyUnsupported : Bool :=
+  match Stmt.toCore? [] (Stmt.inlineAssembly "x := 1") with
+  | none => true
+  | some _ => false
 
 def uncheckedInternalUintMaxPlusOne : Expr :=
   Expr.binary BinaryOp.add

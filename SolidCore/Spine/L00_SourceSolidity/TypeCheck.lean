@@ -6295,8 +6295,10 @@ def checkStmt (env : CheckEnv) :
         "nested unchecked block")
       let _ ← checkStmt env.enterUnchecked body
       Except.ok { source := stmt }
-  | L00_SourceSolidity.Stmt.inlineAssembly _ =>
-      Except.error (TypeError.unsupported "inline assembly")
+  | stmt@(L00_SourceSolidity.Stmt.inlineAssembly code) => do
+      require code.isEmpty
+        (TypeError.unsupported "inline assembly")
+      Except.ok { source := stmt }
   | stmt@L00_SourceSolidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
       require (!env.inUnchecked) (TypeError.unsupported
@@ -14162,6 +14164,45 @@ def uncheckedPlaceholderSource : L00_SourceSolidity.SourceUnit :=
 
 def uncheckedPlaceholderRejected : Bool :=
   Result.isError (SourceUnit.check uncheckedPlaceholderSource)
+
+def emptyInlineAssemblyFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "emptyAssembly"
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.inlineAssembly ""
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def emptyInlineAssemblySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EmptyInlineAssembly"
+            items := [L00_SourceSolidity.ContractItem.function
+              emptyInlineAssemblyFunction] } ] }
+
+def emptyInlineAssemblyAccepted : Bool :=
+  sourceUnitAccepted? emptyInlineAssemblySource
+
+def nonemptyInlineAssemblySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NonemptyInlineAssembly"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { emptyInlineAssemblyFunction with
+                    name := some "nonemptyAssembly"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.inlineAssembly "x := 1"
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def nonemptyInlineAssemblyRejected : Bool :=
+  Result.isError (SourceUnit.check nonemptyInlineAssemblySource)
 
 def unknownModifierSource : L00_SourceSolidity.SourceUnit :=
   { items :=
