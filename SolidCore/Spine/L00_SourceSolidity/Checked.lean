@@ -5212,6 +5212,310 @@ def checkedConcatInvalidSourcesRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.checkedStringConcatInvalidSourceUnit)
 
+def checkedLiteralConversionContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedLiteralConversionContract)
+
+def checkedBytesSliceMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "sliceBytes")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes [10, 20, 30, 40, 50]]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.bytes middle
+      , SolidCore.Solidity.Source.Value.bytes tail
+      , SolidCore.Solidity.Source.Value.bytes head
+      , SolidCore.Solidity.Source.Value.word relative ] =>
+      Except.ok
+        (middle == [20, 30, 40] &&
+          tail == [40, 50] &&
+          head == [10, 20] &&
+          SolidCore.Solidity.Source.wordEq relative 20)
+  | _ => Except.ok false
+
+def checkedStringLiteralMatchesExpected : Except TypeError Bool :=
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "hello" SolidCore.Solidity.Source.State.empty [] [104, 105]
+
+def checkedNumericLiteralMatchesExpected : Except TypeError Bool :=
+  checkedOwnCallWordQuadMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "numbers" SolidCore.Solidity.Source.State.empty []
+    255 123000 12031 42
+
+def checkedScaledNumericLiteralMatchesExpected :
+    Except TypeError Bool :=
+  checkedOwnCallWordQuadMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "scaledNumbers" SolidCore.Solidity.Source.State.empty []
+    20000000000 25 5 12
+
+def checkedNumberLiteralExpressionMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "literalExpressions")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word halfTimesEight
+      , SolidCore.Solidity.Source.Value.word dividedThenAdded
+      , SolidCore.Solidity.Source.Value.word fractionalPowerScaled
+      , SolidCore.Solidity.Source.Value.word halfLessThanOne
+      , SolidCore.Solidity.Source.Value.word ratioEquality ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq halfTimesEight 4 &&
+          SolidCore.Solidity.Source.wordEq dividedThenAdded 3 &&
+          SolidCore.Solidity.Source.wordEq fractionalPowerScaled 4 &&
+          SolidCore.Solidity.Source.wordEq halfLessThanOne 1 &&
+          SolidCore.Solidity.Source.wordEq ratioEquality 1)
+  | _ => Except.ok false
+
+def checkedUnitNumberLiteralMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "unitNumbers")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word oneWei
+      , SolidCore.Solidity.Source.Value.word oneGwei
+      , SolidCore.Solidity.Source.Value.word oneEther
+      , SolidCore.Solidity.Source.Value.word twoPointFiveEther
+      , SolidCore.Solidity.Source.Value.word twoMinutes
+      , SolidCore.Solidity.Source.Value.word oneWeek
+      , SolidCore.Solidity.Source.Value.word timeEquality
+      , SolidCore.Solidity.Source.Value.word typedDays
+      , SolidCore.Solidity.Source.Value.word payableZero ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq oneWei 1 &&
+          SolidCore.Solidity.Source.wordEq oneGwei 1000000000 &&
+          SolidCore.Solidity.Source.wordEq oneEther 1000000000000000000 &&
+          SolidCore.Solidity.Source.wordEq twoPointFiveEther
+            2500000000000000000 &&
+          SolidCore.Solidity.Source.wordEq twoMinutes 120 &&
+          SolidCore.Solidity.Source.wordEq oneWeek 604800 &&
+          SolidCore.Solidity.Source.wordEq timeEquality 1 &&
+          SolidCore.Solidity.Source.wordEq typedDays 86400 &&
+          SolidCore.Solidity.Source.wordEq payableZero 0)
+  | _ => Except.ok false
+
+def checkedTypedNumericLiteralConversionMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "typedLiteralConversions")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.int negativeSmall
+      , SolidCore.Solidity.Source.Value.int negativeMin
+      , SolidCore.Solidity.Source.Value.word positiveMax
+      , SolidCore.Solidity.Source.Value.int foldedInt ] =>
+      Except.ok
+        (SharedSemantics.signedValue negativeSmall = -5 &&
+          SharedSemantics.signedValue negativeMin = -128 &&
+          SolidCore.Solidity.Source.wordEq positiveMax 255 &&
+          SharedSemantics.signedValue foldedInt = 4)
+  | _ => Except.ok false
+
+def checkedTypedNumericLiteralVarDeclMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "typedLiteralVars")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.int negative
+      , SolidCore.Solidity.Source.Value.word folded ] =>
+      Except.ok
+        (SharedSemantics.signedValue negative = -5 &&
+          SolidCore.Solidity.Source.wordEq folded 4)
+  | _ => Except.ok false
+
+def checkedRuntimeIntegerCastsMatch : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "runtimeIntegerCasts")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0x123456ff
+      , SolidCore.Solidity.Source.Value.int
+          (SharedSemantics.signedToWord (-3)) ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word low8
+      , SolidCore.Solidity.Source.Value.word low16
+      , SolidCore.Solidity.Source.Value.int signedLow
+      , SolidCore.Solidity.Source.Value.word signedAsUint
+      , SolidCore.Solidity.Source.Value.word fromBytes
+      , SolidCore.Solidity.Source.Value.word fromAddress
+      , SolidCore.Solidity.Source.Value.word roundTripAddress ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq low8 0xff &&
+          SolidCore.Solidity.Source.wordEq low16 0x56ff &&
+          SharedSemantics.signedValue signedLow = -1 &&
+          SolidCore.Solidity.Source.wordEq signedAsUint
+            (SharedSemantics.signedToWord (-3)) &&
+          SolidCore.Solidity.Source.wordEq fromBytes 0xabcd &&
+          SolidCore.Solidity.Source.wordEq fromAddress 0xbeef &&
+          SolidCore.Solidity.Source.wordEq roundTripAddress 0x123456ff)
+  | _ => Except.ok false
+
+def checkedFixedBytesLiteralConversionMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "fixedByteLiterals")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word fromHexString
+      , SolidCore.Solidity.Source.Value.word fromString
+      , SolidCore.Solidity.Source.Value.word fromHexNumber
+      , SolidCore.Solidity.Source.Value.word fromZero
+      , SolidCore.Solidity.Source.Value.word fromVarDecl ] =>
+      Except.ok
+        (Executable.Examples.fixedBytesWordBytes 2 fromHexString ==
+            [0x12, 0] &&
+          Executable.Examples.fixedBytesWordBytes 2 fromString ==
+            [Char.toNat 'x', 0] &&
+          Executable.Examples.fixedBytesWordBytes 2 fromHexNumber ==
+            [0x12, 0x34] &&
+          Executable.Examples.fixedBytesWordBytes 4 fromZero ==
+            [0, 0, 0, 0] &&
+          Executable.Examples.fixedBytesWordBytes 3 fromVarDecl ==
+            [0xab, 0, 0])
+  | _ => Except.ok false
+
+def checkedFixedBytesMembersMatch : Except TypeError Bool :=
+  checkedOwnCallWordTripleMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "fixedBytesMembers" SolidCore.Solidity.Source.State.empty []
+    2 0xaa 0xbb
+
+def checkedFixedBytesIndexOutOfBoundsPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "fixedBytesIndexOutOfBounds"
+    SolidCore.Solidity.Source.State.empty [] 0x32
+
+def checkedFixedBytesRuntimeConversionsMatch :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name
+        "fixedBytesRuntimeConversions")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.bytes [1, 2, 3, 4, 5]
+      , SolidCore.Solidity.Source.Value.bytes [9, 8] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word wide
+      , SolidCore.Solidity.Source.Value.word narrow
+      , SolidCore.Solidity.Source.Value.word fromUint
+      , SolidCore.Solidity.Source.Value.word fromAddress
+      , SolidCore.Solidity.Source.Value.word fromLongData
+      , SolidCore.Solidity.Source.Value.word fromShortData ] =>
+      Except.ok
+        (Executable.Examples.fixedBytesWordBytes 4 wide ==
+            [0x12, 0x34, 0, 0] &&
+          Executable.Examples.fixedBytesWordBytes 1 narrow == [0x12] &&
+          Executable.Examples.fixedBytesWordBytes 2 fromUint ==
+            [0xab, 0xcd] &&
+          Executable.Examples.fixedBytesWordBytes 20 fromAddress ==
+            (List.replicate 18 0 ++ [0xbe, 0xef]) &&
+          Executable.Examples.fixedBytesWordBytes 4 fromLongData ==
+            [1, 2, 3, 4] &&
+          Executable.Examples.fixedBytesWordBytes 4 fromShortData ==
+            [9, 8, 0, 0])
+  | _ => Except.ok false
+
+def checkedUnicodeStringLiteralMatchesUtf8 :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name "unicodeLiteral")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.bytes text
+      , SolidCore.Solidity.Source.Value.word fixed ] =>
+      Except.ok
+        (text == [0xc3, 0xa9] &&
+          Executable.Examples.fixedBytesWordBytes 3 fixed ==
+            [0xc3, 0xa9, 0])
+  | _ => Except.ok false
+
+def checkedAddressLiteralConversionMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedLiteralConversionContract
+      (SolidCore.Solidity.Source.CallTarget.name
+        "addressLiteralConversions")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word zeroValue
+      , SolidCore.Solidity.Source.Value.word fromInteger
+      , SolidCore.Solidity.Source.Value.word fromUint160
+      , SolidCore.Solidity.Source.Value.word fromBytes20
+      , SolidCore.Solidity.Source.Value.word payableZero
+      , SolidCore.Solidity.Source.Value.word fromVarDecl ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq zeroValue 0 &&
+          SolidCore.Solidity.Source.wordEq fromInteger 0xbeef &&
+          SolidCore.Solidity.Source.wordEq fromUint160 0xcafe &&
+          SolidCore.Solidity.Source.wordEq fromBytes20
+            0x111122223333444455556666777788889999aaaa &&
+          SolidCore.Solidity.Source.wordEq payableZero 0 &&
+          SolidCore.Solidity.Source.wordEq fromVarDecl 0xbeef)
+  | _ => Except.ok false
+
+def checkedHexStringLiteralMatchesExpected :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "hexData" SolidCore.Solidity.Source.State.empty []
+    [0, 17, 34, 255]
+
+def checkedHexStringAbiEncodeMatchesExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "hex string ABI encoding"
+      Executable.Examples.hexStringAbiEncodeExpected
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedLiteralConversionContract
+    "encodeHexData" SolidCore.Solidity.Source.State.empty [] expected
+
+def checkedLiteralInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataSliceSignedIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataSliceMemberSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit fractionalWeiReturnSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit subWeiEtherReturnSource)
+
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordTripleMatches 32

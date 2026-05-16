@@ -21785,6 +21785,178 @@ def hexStringAbiEncodeMatchesExpected : Option Bool := do
       some (bytes == expected)
   | _ => some false
 
+def checkedBytesSliceFunction : FunctionDecl :=
+  { name := some "sliceBytes"
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    params :=
+      [{ name := some "input"
+         ty := Ty.bytes
+         location := some DataLocation.calldata }]
+    returns :=
+      [ { name := some "middle"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "tail"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "head"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "relative", ty := Ty.bytesN 1 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [{ name := some "middle"
+                 ty := some Ty.bytes
+                 location := some DataLocation.memory }]
+              (some
+                (Expr.slice (Expr.ident "input")
+                  (some (Expr.literal (Literal.number "1")))
+                  (some (Expr.literal (Literal.number "4")))))
+          , Stmt.varDecl
+              [{ name := some "tail"
+                 ty := some Ty.bytes
+                 location := some DataLocation.memory }]
+              (some
+                (Expr.slice (Expr.ident "input")
+                  (some (Expr.literal (Literal.number "3"))) none))
+          , Stmt.varDecl
+              [{ name := some "head"
+                 ty := some Ty.bytes
+                 location := some DataLocation.memory }]
+              (some
+                (Expr.slice (Expr.ident "input") none
+                  (some (Expr.literal (Literal.number "2")))))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value (Expr.ident "middle")
+                  , TupleItem.value (Expr.ident "tail")
+                  , TupleItem.value (Expr.ident "head")
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "middle")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def checkedPureFunction (decl : FunctionDecl) : FunctionDecl :=
+  { decl with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedStringLiteralFunction : FunctionDecl :=
+  { stringLiteralFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.string
+         location := some DataLocation.memory }] }
+
+def checkedRuntimeIntegerCastFunction : FunctionDecl :=
+  checkedPureFunction runtimeIntegerCastFunction
+
+def checkedFixedBytesRuntimeConversionFunction : FunctionDecl :=
+  { fixedBytesRuntimeConversionFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    params :=
+      [ { name := some "longData"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "shortData"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.call (Expr.typeName (Ty.bytesN 4))
+                    [Arg.positional
+                      (Expr.call (Expr.typeName (Ty.bytesN 2))
+                        [Arg.positional
+                          (Expr.literal (Literal.number "0x1234"))])])
+              , TupleItem.value
+                  (Expr.call (Expr.typeName (Ty.bytesN 1))
+                    [Arg.positional
+                      (Expr.call (Expr.typeName (Ty.bytesN 2))
+                        [Arg.positional
+                          (Expr.literal (Literal.number "0x1234"))])])
+              , TupleItem.value
+                  (Expr.call (Expr.typeName (Ty.bytesN 2))
+                    [Arg.positional
+                      (Expr.call (Expr.typeName (Ty.uint 16))
+                        [Arg.positional
+                          (Expr.literal (Literal.number "0xabcd"))])])
+              , TupleItem.value
+                  (Expr.call (Expr.typeName (Ty.bytesN 20))
+                    [Arg.positional
+                      (Expr.call (Expr.typeName (Ty.uint 160))
+                        [Arg.positional
+                          (Expr.literal (Literal.address 0xbeef))])])
+              , TupleItem.value
+                  (Expr.call (Expr.typeName (Ty.bytesN 4))
+                    [Arg.positional (Expr.ident "longData")])
+              , TupleItem.value
+                  (Expr.call (Expr.typeName (Ty.bytesN 4))
+                    [Arg.positional (Expr.ident "shortData")]) ]))) }
+
+def checkedUnicodeStringLiteralFunction : FunctionDecl :=
+  { unicodeStringLiteralFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [ { name := some "text"
+          ty := Ty.string
+          location := some DataLocation.memory }
+      , { name := some "fixed", ty := Ty.bytesN 3 } ] }
+
+def checkedHexStringLiteralFunction : FunctionDecl :=
+  { hexStringLiteralFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedHexStringAbiEncodeFunction : FunctionDecl :=
+  { hexStringAbiEncodeFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedLiteralConversionContract : ContractDecl :=
+  { name := "CheckedLiteralConversions"
+    items :=
+      [ ContractItem.function checkedBytesSliceFunction
+      , ContractItem.function checkedStringLiteralFunction
+      , ContractItem.function (checkedPureFunction numericLiteralFunction)
+      , ContractItem.function (checkedPureFunction scaledNumericLiteralFunction)
+      , ContractItem.function (checkedPureFunction numberLiteralExpressionFunction)
+      , ContractItem.function (checkedPureFunction unitNumberLiteralFunction)
+      , ContractItem.function
+          (checkedPureFunction typedNumericLiteralConversionFunction)
+      , ContractItem.function
+          (checkedPureFunction typedNumericLiteralVarDeclFunction)
+      , ContractItem.function checkedRuntimeIntegerCastFunction
+      , ContractItem.function
+          (checkedPureFunction fixedBytesLiteralConversionFunction)
+      , ContractItem.function (checkedPureFunction fixedBytesMembersFunction)
+      , ContractItem.function
+          (checkedPureFunction fixedBytesIndexOutOfBoundsFunction)
+      , ContractItem.function checkedFixedBytesRuntimeConversionFunction
+      , ContractItem.function checkedUnicodeStringLiteralFunction
+      , ContractItem.function
+          (checkedPureFunction addressLiteralConversionFunction)
+      , ContractItem.function checkedHexStringLiteralFunction
+      , ContractItem.function checkedHexStringAbiEncodeFunction ] }
+
 def stringEchoFunction : FunctionDecl :=
   { name := some "echo"
     params := [{ name := some "message", ty := Ty.string }]
