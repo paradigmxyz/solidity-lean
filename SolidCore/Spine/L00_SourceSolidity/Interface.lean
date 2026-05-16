@@ -17151,6 +17151,28 @@ def mulmodVariableZeroModulusPanics : Option Bool := do
       some (code == 0x12)
   | _ => some false
 
+def checkedModularArithmeticFunction : FunctionDecl :=
+  { modularArithmeticFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedAddmodVariableZeroModulusFunction : FunctionDecl :=
+  { addmodVariableZeroModulusFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedMulmodVariableZeroModulusFunction : FunctionDecl :=
+  { mulmodVariableZeroModulusFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedModularArithmeticContract : ContractDecl :=
+  { name := "CheckedModularArithmetic"
+    items :=
+      [ ContractItem.function checkedModularArithmeticFunction
+      , ContractItem.function checkedAddmodVariableZeroModulusFunction
+      , ContractItem.function checkedMulmodVariableZeroModulusFunction ] }
+
 def keccakBuiltinFunction : FunctionDecl :=
   { name := some "hash"
     returns := [{ name := some "out", ty := Ty.bytesN 32 }]
@@ -17342,14 +17364,6 @@ def checkedExternalCryptoHashMissingFunction : FunctionDecl :=
     visibility := some Visibility.public_
     mutability := StateMutability.view }
 
-def checkedHashBuiltinContract : ContractDecl :=
-  { name := "CheckedHashBuiltins"
-    items :=
-      [ ContractItem.function checkedKeccakBuiltinFunction
-      , ContractItem.function checkedErc7201BuiltinFunction
-      , ContractItem.function checkedExternalCryptoHashFunction
-      , ContractItem.function checkedExternalCryptoHashMissingFunction ] }
-
 def externalCryptoHashMissingResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty externalCryptoHashMissingFunction []
@@ -17407,6 +17421,42 @@ def ecrecoverBuiltinMatches : Option Bool := do
         (SolidCore.Solidity.Source.wordEq recovered 0xcafe &&
           SolidCore.Solidity.Source.wordEq missing 0)
   | _ => some false
+
+def checkedEcrecoverArg (ty : Ty) (literal : Literal) : Expr :=
+  Expr.call (Expr.typeName ty) [Arg.positional (Expr.literal literal)]
+
+def checkedEcrecoverNumberArg (ty : Ty) (number : String) : Expr :=
+  checkedEcrecoverArg ty (Literal.number number)
+
+def checkedEcrecoverBuiltinFunction : FunctionDecl :=
+  { ecrecoverBuiltinFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.call (Expr.ident "ecrecover")
+                    [ Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "17")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.uint 8) "27")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "34")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "51") ])
+              , TupleItem.value
+                  (Expr.call (Expr.ident "ecrecover")
+                    [ Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "68")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.uint 8) "27")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "34")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "51") ]) ]))) }
 
 def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
   { name := some "precompileBuiltinsAndCalls"
@@ -17523,6 +17573,92 @@ def precompileBuiltinsStaticcallSharedResultsMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq recoverSuccess 1 &&
           recoverOutput == recoverExpected)
   | _ => some false
+
+def checkedPrecompileBuiltinsStaticcallSharedResultsFunction :
+    FunctionDecl :=
+  { precompileBuiltinsStaticcallSharedResultsFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view
+    returns :=
+      [ { name := some "sha", ty := Ty.bytesN 32 }
+      , { name := some "shaProbe"
+          ty := lowLevelCallReturnTy
+          location := some DataLocation.memory }
+      , { name := some "ripe", ty := Ty.bytesN 20 }
+      , { name := some "ripeProbe"
+          ty := lowLevelCallReturnTy
+          location := some DataLocation.memory }
+      , { name := some "recovered", ty := Ty.address false }
+      , { name := some "recoverProbe"
+          ty := lowLevelCallReturnTy
+          location := some DataLocation.memory } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.call (Expr.ident "sha256")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [1, 2]))])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.sha256)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [1, 2]))])
+              , TupleItem.value
+                  (Expr.call (Expr.ident "ripemd160")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [3, 4]))])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.ripemd160)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes [3, 4]))])
+              , TupleItem.value
+                  (Expr.call (Expr.ident "ecrecover")
+                    [ Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "17")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.uint 8) "27")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "34")
+                    , Arg.positional
+                        (checkedEcrecoverNumberArg (Ty.bytesN 32) "51") ])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.ecrecover)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal
+                        (Literal.bytes
+                          (SharedSemantics.Precompile.ecrecoverInput
+                            17 27 34 51)))]) ]))) }
+
+def checkedHashBuiltinContract : ContractDecl :=
+  { name := "CheckedHashBuiltins"
+    items :=
+      [ ContractItem.function checkedKeccakBuiltinFunction
+      , ContractItem.function checkedErc7201BuiltinFunction
+      , ContractItem.function checkedExternalCryptoHashFunction
+      , ContractItem.function checkedExternalCryptoHashMissingFunction
+      , ContractItem.function checkedEcrecoverBuiltinFunction
+      , ContractItem.function
+          checkedPrecompileBuiltinsStaticcallSharedResultsFunction ] }
 
 def abiEncodeCoreExprStatement : SolidCore.Solidity.Source.Stmt :=
   SolidCore.Solidity.Source.Stmt.returnValues

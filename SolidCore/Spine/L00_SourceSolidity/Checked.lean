@@ -4519,6 +4519,40 @@ def checkedEnvironmentHashOutOfRangeMatches :
     Executable.Examples.environmentHashOutOfRangeContext
     SolidCore.Solidity.Source.State.empty [] 0 0 0
 
+def checkedModularArithmeticContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedModularArithmeticContract)
+
+def checkedModularArithmeticMatches : Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 16
+    Executable.Examples.checkedModularArithmeticContract
+    "mods" SolidCore.Solidity.Source.State.empty [] 2 5
+
+def checkedAddmodVariableZeroModulusPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedModularArithmeticContract
+    "addmodZero" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 0] 0x12
+
+def checkedMulmodVariableZeroModulusPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedModularArithmeticContract
+    "mulmodZero" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 0] 0x12
+
+def checkedModularArithmeticInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit addmodZeroLiteralSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit mulmodZeroLiteralSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit addmodSignedArgumentSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit mulmodSignedModulusSource)
+
 def checkedHashBuiltinContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -4554,6 +4588,56 @@ def checkedExternalCryptoHashMissingPanics :
   | SolidCore.Solidity.Source.CallResult.reverted _
       (SolidCore.Solidity.Source.RevertData.panic code) =>
       Except.ok (SolidCore.Solidity.Source.wordEq code 0)
+  | _ => Except.ok false
+
+def checkedEcrecoverBuiltinMatches : Except TypeError Bool :=
+  checkedCallFunctionWithContextWordPairMatches 16
+    Executable.Examples.checkedHashBuiltinContract
+    "recover"
+    Executable.Examples.ecrecoverBuiltinContext
+    SolidCore.Solidity.Source.State.empty [] 0xcafe 0
+
+def checkedPrecompileBuiltinsStaticcallSharedResultsMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedHashBuiltinContract
+      "precompileBuiltinsAndCalls"
+      Executable.Examples.precompileBuiltinsStaticcallSharedResultsContext
+      SolidCore.Solidity.Source.State.empty []
+  let shaExpected :=
+    SolidCore.Solidity.Source.wordToBytesBE
+      SolidCore.Solidity.Source.wordBytes 0xaaaa
+  let ripeExpected :=
+    SolidCore.Solidity.Source.wordToBytesBE
+      SolidCore.Solidity.Source.wordBytes 0xbbbb
+  let recoverExpected :=
+    SolidCore.Solidity.Source.wordToBytesBE
+      SolidCore.Solidity.Source.wordBytes 0xcafe
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word sha
+      , shaProbe
+      , SolidCore.Solidity.Source.Value.word ripe
+      , ripeProbe
+      , SolidCore.Solidity.Source.Value.word recovered
+      , recoverProbe ] => do
+      let (shaSuccess, shaOutput) ←
+        checkedDecodeLowLevelReturn shaProbe
+      let (ripeSuccess, ripeOutput) ←
+        checkedDecodeLowLevelReturn ripeProbe
+      let (recoverSuccess, recoverOutput) ←
+        checkedDecodeLowLevelReturn recoverProbe
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq sha 0xaaaa &&
+          SolidCore.Solidity.Source.wordEq shaSuccess 1 &&
+          shaOutput == shaExpected &&
+          SolidCore.Solidity.Source.wordEq ripe 0xbbbb &&
+          SolidCore.Solidity.Source.wordEq ripeSuccess 1 &&
+          ripeOutput == ripeExpected &&
+          SolidCore.Solidity.Source.wordEq recovered 0xcafe &&
+          SolidCore.Solidity.Source.wordEq recoverSuccess 1 &&
+          recoverOutput == recoverExpected)
   | _ => Except.ok false
 
 def checkedIncrementExpressionVarDeclMatches :
@@ -6542,7 +6626,9 @@ def checkedPrecompileStaticcallContract :
             mutability := StateMutability.view
             returns :=
               [ { name := some "sha", ty := Ty.bytesN 32 }
-              , { name := some "probe", ty := lowLevelCallReturnTy } ]
+              , { name := some "probe"
+                  ty := lowLevelCallReturnTy
+                  location := some DataLocation.memory } ]
             body :=
               some
                 (L00_SourceSolidity.Stmt.returnValues
