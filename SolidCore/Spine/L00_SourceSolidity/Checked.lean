@@ -131,6 +131,34 @@ def callCalldata (fuel : Nat) (checked : CheckedSourceUnit)
     Except TypeError CoreAbiCallResult :=
   callCalldataFrom fuel checked name state 0 0 calldata
 
+def callCalldataTransactionFrom? (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let contract ← toCoreContract? checked name
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataTransactionFrom?
+    fuel contract state sender value calldata
+
+def callCalldataTransactionFrom (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata transaction " ++ name)
+    (callCalldataTransactionFrom?
+      fuel checked name state sender value calldata)
+
+def callCalldataTransaction? (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataTransactionFrom? fuel checked name state 0 0 calldata
+
+def callCalldataTransaction (fuel : Nat)
+    (checked : CheckedSourceUnit) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataTransactionFrom fuel checked name state 0 0 calldata
+
 end CheckedSourceUnit
 
 namespace SourceUnit
@@ -271,6 +299,37 @@ def checkedCallCalldata (fuel : Nat)
     Except TypeError CoreAbiCallResult :=
   checkedCallCalldataFrom fuel source name state 0 0 calldata
 
+def checkedCallCalldataTransactionFrom? (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let checked ← checked? source
+  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataTransactionFrom?
+    fuel checked name state sender value calldata
+
+def checkedCallCalldataTransactionFrom (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let checked ←
+    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
+      source
+  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataTransactionFrom
+    fuel checked name state sender value calldata
+
+def checkedCallCalldataTransaction? (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  checkedCallCalldataTransactionFrom? fuel source name state 0 0 calldata
+
+def checkedCallCalldataTransaction (fuel : Nat)
+    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  checkedCallCalldataTransactionFrom
+    fuel source name state 0 0 calldata
+
 end SourceUnit
 
 namespace ContractDecl
@@ -366,6 +425,32 @@ def checkedCallCalldata (fuel : Nat)
     (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
     (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
   checkedCallCalldataFrom fuel decl state 0 0 calldata
+
+def checkedCallCalldataTransactionFrom? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  SourceUnit.checkedCallCalldataTransactionFrom?
+    fuel (sourceUnit decl) decl.name state sender value calldata
+
+def checkedCallCalldataTransactionFrom (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  SourceUnit.checkedCallCalldataTransactionFrom
+    fuel (sourceUnit decl) decl.name state sender value calldata
+
+def checkedCallCalldataTransaction? (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  checkedCallCalldataTransactionFrom?
+    fuel decl state 0 0 calldata
+
+def checkedCallCalldataTransaction (fuel : Nat)
+    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  checkedCallCalldataTransactionFrom
+    fuel decl state 0 0 calldata
 
 end ContractDecl
 
@@ -566,6 +651,119 @@ def checkedMissingReceiveFallbackPlainEtherRejectsMatches :
     (!result.success &&
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
       result.output == [])
+
+def checkedFunctionCalldata (decl : L00_SourceSolidity.ContractDecl)
+    (functionName : Name) (args : List CoreValue) :
+    Except TypeError (List Byte) := do
+  let contract ← ContractDecl.checkedToCore decl
+  let function ←
+    optionToExcept ("function lookup " ++ functionName)
+      (contract.findFunctionByName? functionName)
+  optionToExcept ("ABI calldata " ++ functionName)
+    (SolidCore.Solidity.Source.ABI.calldataFor? function args)
+
+def checkedDecodeUint256 (bytes : List Byte) : Except TypeError Word := do
+  let values ←
+    optionToExcept "ABI uint256 decode"
+      (SolidCore.Solidity.Source.abiDecodeValues?
+        [SolidCore.Solidity.Source.Ty.uint256] bytes)
+  match values with
+  | [SolidCore.Solidity.Source.Value.word value] => Except.ok value
+  | _ => Except.error (executableFailure "ABI uint256 decode")
+
+def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTransientStorage"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "persistent", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.stateVar
+          { name := "scratch"
+            ty := Ty.uint 256
+            mutability := VarMutability.transient }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "setBoth"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "persistent")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "7")))
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "scratch")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "9")))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some
+                        (L00_SourceSolidity.Expr.binary BinaryOp.add
+                          (L00_SourceSolidity.Expr.binary BinaryOp.mul
+                            (L00_SourceSolidity.Expr.ident "persistent")
+                            (L00_SourceSolidity.Expr.literal
+                              (L00_SourceSolidity.Literal.number "10")))
+                          (L00_SourceSolidity.Expr.ident "scratch"))) ]) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "readScratch"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some (L00_SourceSolidity.Expr.ident "scratch"))) } ] }
+
+def checkedTransientPersistsWithinRawAbiFrameMatches :
+    Except TypeError Bool := do
+  let setCalldata ←
+    checkedFunctionCalldata checkedTransientStorageContract "setBoth" []
+  let readCalldata ←
+    checkedFunctionCalldata checkedTransientStorageContract "readScratch" []
+  let writeResult ←
+    ContractDecl.checkedCallCalldata 32 checkedTransientStorageContract
+      SolidCore.Solidity.Source.State.empty setCalldata
+  let writeValue ← checkedDecodeUint256 writeResult.output
+  let readResult ←
+    ContractDecl.checkedCallCalldata 32 checkedTransientStorageContract
+      writeResult.state readCalldata
+  let readValue ← checkedDecodeUint256 readResult.output
+  Except.ok
+    (writeResult.success &&
+      readResult.success &&
+      SolidCore.Solidity.Source.wordEq writeValue 79 &&
+      SolidCore.Solidity.Source.wordEq readValue 9 &&
+      SolidCore.Solidity.Source.wordEq
+        (readResult.state.loadSlot 0) 7 &&
+      !readResult.state.transient.isEmpty)
+
+def checkedTransientClearedAtAbiTransactionBoundaryMatches :
+    Except TypeError Bool := do
+  let setCalldata ←
+    checkedFunctionCalldata checkedTransientStorageContract "setBoth" []
+  let readCalldata ←
+    checkedFunctionCalldata checkedTransientStorageContract "readScratch" []
+  let writeResult ←
+    ContractDecl.checkedCallCalldataTransaction 32
+      checkedTransientStorageContract
+      SolidCore.Solidity.Source.State.empty setCalldata
+  let writeValue ← checkedDecodeUint256 writeResult.output
+  let readResult ←
+    ContractDecl.checkedCallCalldataTransaction 32
+      checkedTransientStorageContract
+      writeResult.state readCalldata
+  let readValue ← checkedDecodeUint256 readResult.output
+  Except.ok
+    (writeResult.success &&
+      readResult.success &&
+      SolidCore.Solidity.Source.wordEq writeValue 79 &&
+      SolidCore.Solidity.Source.wordEq readValue 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (readResult.state.loadSlot 0) 7 &&
+      writeResult.state.transient == [] &&
+      readResult.state.transient == [])
 
 def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTryCatchTarget"
