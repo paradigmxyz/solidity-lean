@@ -8358,6 +8358,22 @@ def checkedConcatInvalidSourcesRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.checkedStringConcatInvalidSourceUnit)
 
+def checkedAmbientBuiltinDisciplineAccepted : Bool :=
+  Result.isOk (TypecheckedInput.checkedSourceUnit pureMsgSigSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit viewBlockTimestampSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit viewAmbientBuiltinsSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit viewAddressEnvMembersSource)
+
+def checkedAmbientBuiltinDisciplineRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit pureMsgValueSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit pureBlockTimestampSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit pureGasleftSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit pureBlockhashSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badBlockhashArgSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit signedBlockhashArgSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit signedBlobhashArgSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit pureAddressEnvMembersSource)
+
 def checkedBuiltinMetadataSemanticsMatch :
     Except TypeError Bool := do
   let msgSig ← checkedMsgSigCalldataMatches
@@ -8398,6 +8414,8 @@ def checkedBuiltinMetadataSemanticsMatch :
       checkedMetadataInvalidSourcesRejected &&
       checkedConcatBuiltinsContractAccepted &&
       checkedConcatInvalidSourcesRejected &&
+      checkedAmbientBuiltinDisciplineAccepted &&
+      checkedAmbientBuiltinDisciplineRejected &&
       msgSig && msgContext && selfAddress &&
       envGlobals && randaoAlias && envHash && envHashOob &&
       keccak && erc7201 && externalHashes && missingHash &&
