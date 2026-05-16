@@ -9338,8 +9338,22 @@ def SourceItem.freeEvent? :
   | L00_SourceSolidity.SourceItem.freeEvent decl => some decl
   | _ => none
 
+def SourceItem.isUnresolvedImport :
+    L00_SourceSolidity.SourceItem -> Bool
+  | L00_SourceSolidity.SourceItem.importPath _ _ => true
+  | _ => false
+
+def SourceItems.hasUnresolvedImport :
+    List L00_SourceSolidity.SourceItem -> Bool
+  | [] => false
+  | item :: rest =>
+      SourceItem.isUnresolvedImport item ||
+        SourceItems.hasUnresolvedImport rest
+
 def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
     Except TypeError CheckedSourceUnit := do
+  require (!SourceItems.hasUnresolvedImport source.items)
+    (TypeError.unsupported "source import resolution")
   let contracts := source.items.filterMap SourceItem.contract?
   let freeFunctions := source.items.filterMap SourceItem.freeFunction?
   let freeConstants := source.items.filterMap SourceItem.freeConstant?
@@ -9589,6 +9603,30 @@ def simpleSource : L00_SourceSolidity.SourceUnit :=
 
 def simpleSourceAccepted : Bool :=
   sourceUnitAccepted? simpleSource
+
+def pragmaSimpleSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "solidity" "^0.8.35"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PragmaC"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaSimpleSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaSimpleSource
+
+def unresolvedImportSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.importPath "./Other.sol" none
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ImportC"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def unresolvedImportRejected : Bool :=
+  Result.isError (SourceUnit.check unresolvedImportSource)
 
 def badIfFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with

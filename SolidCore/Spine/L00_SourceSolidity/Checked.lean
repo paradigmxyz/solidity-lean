@@ -2353,10 +2353,38 @@ def checkedMultiContractDefaultNameRejected : Bool :=
     Result.isError
       (CheckedInput.defaultContractName internalAbiTwinSource)
 
+def rawImportPathStillExecutes : Option Bool := do
+  let result ←
+    Executable.SourceUnit.callContract? 16 unresolvedImportSource "ImportC"
+      (SolidCore.Solidity.Source.CallTarget.name "f")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == 7)
+  | _ => some false
+
+def checkedPragmaMetadataAccepted : Except TypeError Bool :=
+  checkedCallWordMatches 16 pragmaSimpleSource
+    "PragmaC" "f" SolidCore.Solidity.Source.State.empty [] 7
+
+def checkedUnresolvedImportRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit unresolvedImportSource)
+
+def checkedSourceUnitDirectiveBoundarySemanticsMatch :
+    Except TypeError Bool := do
+  let pragma ← checkedPragmaMetadataAccepted
+  Except.ok
+    (rawImportPathStillExecutes == some true &&
+      checkedUnresolvedImportRejected &&
+      pragma)
+
 def checkedSourceFacadeCommonSemanticsMatch :
     Except TypeError Bool := do
   let common ← checkedProgramCommonLayerMatches
-  Except.ok (common && checkedMultiContractDefaultNameRejected)
+  let directives ← checkedSourceUnitDirectiveBoundarySemanticsMatch
+  Except.ok
+    (common && checkedMultiContractDefaultNameRejected && directives)
 
 def checkedAbiCallUintMatches (fuel : Nat) (source : SourceUnitAst)
     (contractName functionName : Name) (state : CoreState)
