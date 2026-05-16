@@ -4424,6 +4424,138 @@ def checkedAbiSelfAddressAtMatches : Except TypeError Bool := do
       [SolidCore.Solidity.Source.Value.word 0xcafe]
   Except.ok (result.success && result.output == expected)
 
+def checkedCallFunctionWithContextWordPairMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB : Word) : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext
+      fuel decl functionName context state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB)
+  | _ => Except.ok false
+
+def checkedCallFunctionWithContextWordTripleMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB expectedC : Word) : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext
+      fuel decl functionName context state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word a
+      , SolidCore.Solidity.Source.Value.word b
+      , SolidCore.Solidity.Source.Value.word c ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC)
+  | _ => Except.ok false
+
+def checkedEnvironmentContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedEnvironmentContract)
+
+def checkedEnvironmentGlobalsMatch : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedEnvironmentContract "env"
+      Executable.Examples.environmentGlobalsContext
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word timestamp
+      , SolidCore.Solidity.Source.Value.word number
+      , SolidCore.Solidity.Source.Value.word basefee
+      , SolidCore.Solidity.Source.Value.word blobbasefee
+      , SolidCore.Solidity.Source.Value.word chainid
+      , SolidCore.Solidity.Source.Value.word coinbase
+      , SolidCore.Solidity.Source.Value.word gaslimit
+      , SolidCore.Solidity.Source.Value.word origin
+      , SolidCore.Solidity.Source.Value.word gasprice
+      , SolidCore.Solidity.Source.Value.word remaining ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq timestamp 100 &&
+          SolidCore.Solidity.Source.wordEq number 7 &&
+          SolidCore.Solidity.Source.wordEq basefee 11 &&
+          SolidCore.Solidity.Source.wordEq blobbasefee 12 &&
+          SolidCore.Solidity.Source.wordEq chainid 1 &&
+          SolidCore.Solidity.Source.wordEq coinbase 0xcb &&
+          SolidCore.Solidity.Source.wordEq gaslimit 30000000 &&
+          SolidCore.Solidity.Source.wordEq origin 0xabc &&
+          SolidCore.Solidity.Source.wordEq gasprice 50 &&
+          SolidCore.Solidity.Source.wordEq remaining 999)
+  | _ => Except.ok false
+
+def checkedEnvironmentRandaoAliasMatches :
+    Except TypeError Bool :=
+  checkedCallFunctionWithContextWordPairMatches 16
+    Executable.Examples.checkedEnvironmentContract
+    "randaoAlias"
+    Executable.Examples.environmentRandaoAliasContext
+    SolidCore.Solidity.Source.State.empty [] 0x2222 0x2222
+
+def checkedEnvironmentHashMatches : Except TypeError Bool :=
+  checkedCallFunctionWithContextWordTripleMatches 16
+    Executable.Examples.checkedEnvironmentContract
+    "hashes"
+    Executable.Examples.environmentHashContext
+    SolidCore.Solidity.Source.State.empty [] 0x1234 0x5678 0
+
+def checkedEnvironmentHashOutOfRangeMatches :
+    Except TypeError Bool :=
+  checkedCallFunctionWithContextWordTripleMatches 16
+    Executable.Examples.checkedEnvironmentContract
+    "hashes"
+    Executable.Examples.environmentHashOutOfRangeContext
+    SolidCore.Solidity.Source.State.empty [] 0 0 0
+
+def checkedHashBuiltinContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedHashBuiltinContract)
+
+def checkedKeccakBuiltinMatchesExpected : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedHashBuiltinContract
+    "hash" SolidCore.Solidity.Source.State.empty []
+    (SolidCore.Solidity.Source.keccakWord [1, 2, 3])
+
+def checkedErc7201BuiltinMatchesEipExample : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedHashBuiltinContract
+    "namespaceSlot" SolidCore.Solidity.Source.State.empty []
+    0x183a6125c38840424c4a85fa12bab2ab606c4b6d0e7cc73c0c06ba5300eab500
+
+def checkedExternalCryptoHashMatches : Except TypeError Bool :=
+  checkedCallFunctionWithContextWordPairMatches 16
+    Executable.Examples.checkedHashBuiltinContract
+    "externalHashes"
+    Executable.Examples.externalCryptoHashContext
+    SolidCore.Solidity.Source.State.empty [] 0xaaaa 0xbbbb
+
+def checkedExternalCryptoHashMissingPanics :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedHashBuiltinContract "missingHash"
+      SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq code 0)
+  | _ => Except.ok false
+
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordTripleMatches 32

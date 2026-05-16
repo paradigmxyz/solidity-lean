@@ -16989,6 +16989,28 @@ def environmentHashFunction : FunctionDecl :=
                   (Expr.call (Expr.ident "blockhash")
                     [Arg.positional (Expr.literal (Literal.number "8"))]) ]))) }
 
+def checkedEnvironmentGlobalsFunction : FunctionDecl :=
+  { environmentGlobalsFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedEnvironmentRandaoAliasFunction : FunctionDecl :=
+  { environmentRandaoAliasFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedEnvironmentHashFunction : FunctionDecl :=
+  { environmentHashFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedEnvironmentContract : ContractDecl :=
+  { name := "CheckedEnvironment"
+    items :=
+      [ ContractItem.function checkedEnvironmentGlobalsFunction
+      , ContractItem.function checkedEnvironmentRandaoAliasFunction
+      , ContractItem.function checkedEnvironmentHashFunction ] }
+
 def environmentHashContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
     blockEnv :=
@@ -17299,6 +17321,34 @@ def externalCryptoHashMissingFunction : FunctionDecl :=
             (Expr.call (Expr.ident "sha256")
               [Arg.positional
                 (Expr.literal (Literal.bytes [9]))]))) }
+
+def checkedKeccakBuiltinFunction : FunctionDecl :=
+  { keccakBuiltinFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedErc7201BuiltinFunction : FunctionDecl :=
+  { erc7201BuiltinFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedExternalCryptoHashFunction : FunctionDecl :=
+  { externalCryptoHashFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedExternalCryptoHashMissingFunction : FunctionDecl :=
+  { externalCryptoHashMissingFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedHashBuiltinContract : ContractDecl :=
+  { name := "CheckedHashBuiltins"
+    items :=
+      [ ContractItem.function checkedKeccakBuiltinFunction
+      , ContractItem.function checkedErc7201BuiltinFunction
+      , ContractItem.function checkedExternalCryptoHashFunction
+      , ContractItem.function checkedExternalCryptoHashMissingFunction ] }
 
 def externalCryptoHashMissingResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
