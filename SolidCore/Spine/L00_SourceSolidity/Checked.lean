@@ -2877,6 +2877,56 @@ def checkedStorageStructAbiGetterMatches :
         , SolidCore.Solidity.Source.Value.word 40 ]]
   Except.ok (result.success && result.output == expected)
 
+def checkedSourceDataTypeSemanticsMatch :
+    Except TypeError Bool := do
+  let udvtRead ← checkedUdvtReadMatches
+  let udvtGetter ← checkedUdvtPublicGetterMatches
+  let udvtRoundtrip ← checkedUdvtRoundtripMatches
+  let udvtAbiGetter ← checkedUdvtAbiGetterMatches
+  let udvtAbiEcho ← checkedUdvtAbiEchoMatches
+  let udvtEvent ← checkedUdvtEventTopicMatches
+  let udvtError ← checkedUdvtErrorSelectorMatches
+  let enumGetter ← checkedEnumPublicGetterMatches
+  let enumRead ← checkedEnumReadAsUintMatches
+  let enumMinMax ← checkedEnumTypeMinMaxMatches
+  let enumInRange ← checkedEnumConversionInRangeMatches
+  let enumOutOfRange ← checkedEnumConversionOutOfRangePanics
+  let enumAbiEcho ← checkedEnumAbiEchoUsesUint8Selector
+  let enumEvent ← checkedEnumEventTopicMatches
+  let enumError ← checkedEnumErrorSelectorMatches
+  let structConstructor ← checkedStructNamedConstructorFieldSumMatches
+  let structAssign ← checkedStructFieldAssignmentMatches
+  let structAbiEcho ← checkedStructAbiEchoMatches
+  let structEvent ← checkedStructEventTopicMatches
+  let structError ← checkedStructErrorSelectorMatches
+  let storageStructSum ← checkedStorageStructSumMatches
+  let storageStructWrite ← checkedStorageStructFieldWriteMatches
+  let storageStructAliasWrite ← checkedStorageStructAliasFieldWriteMatches
+  let storageStructAliasRead ← checkedStorageStructAliasReadMatches
+  let storageStructInternalWrite ←
+    checkedStorageStructInternalParamFieldWriteMatches
+  let storageStructInternalAliasWrite ←
+    checkedStorageStructInternalParamAliasFieldWriteMatches
+  let storageStructInternalRead ←
+    checkedStorageStructInternalParamReadMatches
+  let storageStructGetter ← checkedStorageStructPublicGetterMatches
+  let storageStructDelete ← checkedStorageStructDeleteClears
+  let storageStructAbiGetter ← checkedStorageStructAbiGetterMatches
+  Except.ok
+    (checkedDataTypeSourceUnitsAccepted &&
+      checkedStorageStructSourceUnitAccepted &&
+      udvtRead && udvtGetter && udvtRoundtrip && udvtAbiGetter &&
+      udvtAbiEcho && udvtEvent && udvtError &&
+      enumGetter && enumRead && enumMinMax && enumInRange &&
+      enumOutOfRange && enumAbiEcho && enumEvent && enumError &&
+      structConstructor && structAssign && structAbiEcho &&
+      structEvent && structError &&
+      storageStructSum && storageStructWrite &&
+      storageStructAliasWrite && storageStructAliasRead &&
+      storageStructInternalWrite && storageStructInternalAliasWrite &&
+      storageStructInternalRead && storageStructGetter &&
+      storageStructDelete && storageStructAbiGetter)
+
 def checkedStructStoragePathSourceUnitAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -3438,6 +3488,70 @@ def checkedNestedBytesStoragePathClearMatches :
         (state.loadSlot
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             checkedNestedBytesStoragePathElementSlot 1)) 0)
+
+def checkedStoragePathSemanticsMatch :
+    Except TypeError Bool := do
+  let countAdd ← checkedStructStoragePathCountAddMatches
+  let valueAdd ← checkedStructStoragePathValueAddMatches
+  let valueClear ← checkedStructStoragePathValueClearMatches
+  let directArrayPush ← checkedStructStoragePathDirectArrayPushMatches
+  let directArrayPushAssign ←
+    checkedStructStoragePathDirectArrayPushAssignMatches
+  let directArrayPop ← checkedStructStoragePathDirectArrayPopMatches
+  let directBlobPush ← checkedStructStoragePathDirectBlobPushMatches
+  let directBlobPushAssign ←
+    checkedStructStoragePathDirectBlobPushAssignMatches
+  let directBlobPop ← checkedStructStoragePathDirectBlobPopMatches
+  let aliasCountAdd ← checkedStructStoragePathAliasCountAddMatches
+  let aliasValueAdd ← checkedStructStoragePathAliasValueAddMatches
+  let aliasArrayPush ← checkedStructStoragePathAliasArrayPushMatches
+  let aliasArrayPushAssign ←
+    checkedStructStoragePathAliasArrayPushAssignMatches
+  let aliasArrayPop ← checkedStructStoragePathAliasArrayPopMatches
+  let aliasBlobPush ← checkedStructStoragePathAliasBlobPushMatches
+  let aliasBlobPushAssign ←
+    checkedStructStoragePathAliasBlobPushAssignMatches
+  let aliasBlobPop ← checkedStructStoragePathAliasBlobPopMatches
+  let aliasScoreSet ← checkedStructStoragePathAliasScoreSetMatches
+  let internalArrayPush ←
+    checkedStructStoragePathInternalArrayPushMatches
+  let internalBlobPush ←
+    checkedStructStoragePathInternalBlobPushMatches
+  let internalScoreSet ←
+    checkedStructStoragePathInternalScoreSetMatches
+  let modifierArrayPush ←
+    checkedStructStoragePathModifierArrayPushMatches
+  let modifierBlobPush ←
+    checkedStructStoragePathModifierBlobPushMatches
+  let modifierScoreSet ←
+    checkedStructStoragePathModifierScoreSetMatches
+  let matrixSet ← checkedNestedStoragePathMatrixSetMatches
+  let matrixClear ← checkedNestedStoragePathMatrixClearMatches
+  let mappingSet ← checkedNestedStoragePathMappingSetMatches
+  let mappingClear ← checkedNestedStoragePathMappingClearMatches
+  let compoundMatrixAdd ←
+    checkedNestedStoragePathCompoundMatrixAddMatches
+  let compoundMatrixInc ←
+    checkedNestedStoragePathCompoundMatrixIncMatches
+  let compoundMappingAdd ←
+    checkedNestedStoragePathCompoundMappingAddMatches
+  let nestedBytesSet ← checkedNestedBytesStoragePathSetMatches
+  let nestedBytesClear ← checkedNestedBytesStoragePathClearMatches
+  Except.ok
+    (checkedStructStoragePathSourceUnitAccepted &&
+      checkedNestedStoragePathContractsAccepted &&
+      countAdd && valueAdd && valueClear &&
+      directArrayPush && directArrayPushAssign && directArrayPop &&
+      directBlobPush && directBlobPushAssign && directBlobPop &&
+      aliasCountAdd && aliasValueAdd &&
+      aliasArrayPush && aliasArrayPushAssign && aliasArrayPop &&
+      aliasBlobPush && aliasBlobPushAssign && aliasBlobPop &&
+      aliasScoreSet &&
+      internalArrayPush && internalBlobPush && internalScoreSet &&
+      modifierArrayPush && modifierBlobPush && modifierScoreSet &&
+      matrixSet && matrixClear && mappingSet && mappingClear &&
+      compoundMatrixAdd && compoundMatrixInc && compoundMappingAdd &&
+      nestedBytesSet && nestedBytesClear)
 
 def checkedInternalFunctionPointerContractsAccepted : Bool :=
   Result.isOk
