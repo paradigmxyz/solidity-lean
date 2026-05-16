@@ -9462,6 +9462,11 @@ def sourceUnitForContractDecl (decl : SourceContractDecl) :
     SourceUnitAst :=
   { items := [L00_SourceSolidity.SourceItem.contract decl] }
 
+def SourceUnit.defaultContractName? (source : SourceUnitAst) : Option Name :=
+  match source.items.filterMap SourceItem.contract? with
+  | [decl] => some decl.name
+  | _ => none
+
 /-
 The common typechecked-source layer.
 
@@ -9478,11 +9483,11 @@ class TypecheckedInput (α : Type) where
 instance typecheckedInputCheckedSourceUnit :
     TypecheckedInput CheckedSourceUnit where
   checkedSourceUnitOf checked := Except.ok checked
-  defaultContractName? _ := none
+  defaultContractName? checked := SourceUnit.defaultContractName? checked.source
 
 instance typecheckedInputSourceUnit : TypecheckedInput SourceUnitAst where
   checkedSourceUnitOf := checkSourceUnit
-  defaultContractName? _ := none
+  defaultContractName? := SourceUnit.defaultContractName?
 
 instance typecheckedInputContractDecl :
     TypecheckedInput SourceContractDecl where

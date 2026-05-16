@@ -2273,6 +2273,10 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
   let declCheckedViaNamespace ← ContractDecl.typechecked decl
   let declSource ← TypecheckedInput.source decl
   let defaultName ← TypecheckedInput.defaultContractName decl
+  let sourceDefaultName ← TypecheckedInput.defaultContractName simpleSource
+  let checkedDefaultName ← TypecheckedInput.defaultContractName checked
+  let checkedInputDefaultName ← CheckedInput.defaultContractName simpleSource
+  let checkedSourceDefaultName ← CheckedInput.defaultContractName checked
   let _core ← CheckedInput.toCoreContract program "C"
   let function ← CheckedInput.coreFunction checked "C" "f"
   let directResult ←
@@ -2297,8 +2301,17 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
     CheckedInput.ownCall 16 decl
       (SolidCore.Solidity.Source.CallTarget.name "f")
       SolidCore.Solidity.Source.State.empty []
+  let sourceOwnResult ←
+    CheckedInput.ownCall 16 simpleSource
+      (SolidCore.Solidity.Source.CallTarget.name "f")
+      SolidCore.Solidity.Source.State.empty []
+  let checkedOwnResult ←
+    CheckedInput.ownCall 16 checked
+      (SolidCore.Solidity.Source.CallTarget.name "f")
+      SolidCore.Solidity.Source.State.empty []
   let abiValue ← checkedDecodeUint256 abiResult.output
-  match directResult, contractResult, functionResult, declResult with
+  match directResult, contractResult, functionResult, declResult,
+      sourceOwnResult, checkedOwnResult with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word direct],
     SolidCore.Solidity.Source.CallResult.returned _
@@ -2306,12 +2319,18 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
     SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word viaFunction],
     SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word viaDecl] =>
+      [SolidCore.Solidity.Source.Value.word viaDecl],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word viaSource],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word viaChecked] =>
       Except.ok
         (direct == 7 &&
           viaContract == 7 &&
           viaFunction == 7 &&
           viaDecl == 7 &&
+          viaSource == 7 &&
+          viaChecked == 7 &&
           abiResult.success &&
           abiValue == 7 &&
           function.name == some "f" &&
@@ -2321,8 +2340,23 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
           declChecked.source.items.length == 1 &&
           declCheckedViaNamespace.source.items.length == 1 &&
           declSource.items.length == 1 &&
-          defaultName == "C")
-  | _, _, _, _ => Except.ok false
+          defaultName == "C" &&
+          sourceDefaultName == "C" &&
+          checkedDefaultName == "C" &&
+          checkedInputDefaultName == "C" &&
+          checkedSourceDefaultName == "C")
+  | _, _, _, _, _, _ => Except.ok false
+
+def checkedMultiContractDefaultNameRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.defaultContractName internalAbiTwinSource) &&
+    Result.isError
+      (CheckedInput.defaultContractName internalAbiTwinSource)
+
+def checkedSourceFacadeCommonSemanticsMatch :
+    Except TypeError Bool := do
+  let common ← checkedProgramCommonLayerMatches
+  Except.ok (common && checkedMultiContractDefaultNameRejected)
 
 def checkedAbiCallUintMatches (fuel : Nat) (source : SourceUnitAst)
     (contractName functionName : Name) (state : CoreState)
@@ -14562,6 +14596,7 @@ def checkedTryCatchSemanticsMatch : Except TypeError Bool := do
 
 def checkedSourceSolidityCoreSemanticsMatch :
     Except TypeError Bool := do
+  let sourceFacade ← checkedSourceFacadeCommonSemanticsMatch
   let primitiveAbi ← checkedPrimitiveAbiSemanticsMatch
   let dataTypes ← checkedSourceDataTypeSemanticsMatch
   let functionPointers ← checkedInternalFunctionPointerSemanticsMatch
@@ -14573,7 +14608,7 @@ def checkedSourceSolidityCoreSemanticsMatch :
   let arithmetic ← checkedModularCheckedArithmeticSemanticsMatch
   let inlineAssembly ← checkedInlineAssemblyBoundarySemanticsMatch
   Except.ok
-    (primitiveAbi && dataTypes && functionPointers && controlFlow &&
+    (sourceFacade && primitiveAbi && dataTypes && functionPointers && controlFlow &&
       expressionEffects && targetEffects && tuplesAndFreeFunctions &&
       literals && arithmetic && inlineAssembly)
 
