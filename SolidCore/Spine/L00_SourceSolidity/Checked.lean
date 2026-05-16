@@ -3035,6 +3035,582 @@ def checkedNamedReturnMatches : Except TypeError Bool := do
           SolidCore.Solidity.Source.wordEq runDefaultValue 0)
   | _, _, _ => Except.ok false
 
+def checkedOwnCallWordAndSlotMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedValue expectedSlot : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value expectedValue &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) expectedSlot)
+  | _ => Except.ok false
+
+def checkedOwnCallIntAndSlotMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedValue expectedSlot : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.int value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value expectedValue &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) expectedSlot)
+  | _ => Except.ok false
+
+def checkedExpressionEvaluationContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalBinaryLocalCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalUnaryLocalCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalTernaryLocalCallContract)
+
+def checkedInternalBinaryLocalCallMatches :
+    Except TypeError Bool := do
+  let runVar ←
+    checkedOwnCallWordMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runVar" SolidCore.Solidity.Source.State.empty [] 42
+  let runAssign ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runAssign" SolidCore.Solidity.Source.State.empty [] 10 5
+  let runVarBoth ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runVarBoth" SolidCore.Solidity.Source.State.empty [] 10 5
+  let runAssignBoth ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runAssignBoth" SolidCore.Solidity.Source.State.empty [] 10 5
+  let runVarShort ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runVarShort" SolidCore.Solidity.Source.State.empty [] 0 0
+  let runAssignShort ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runAssignShort" SolidCore.Solidity.Source.State.empty [] 0 0
+  let runVarShortBoth ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runVarShortBoth" SolidCore.Solidity.Source.State.empty [] 2 2
+  let runAssignShortBoth ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runAssignShortBoth" SolidCore.Solidity.Source.State.empty [] 2 2
+  let runAssignShortBothCall ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalBinaryLocalCallContract
+      "runAssignShortBothCall" SolidCore.Solidity.Source.State.empty [] 1 1
+  Except.ok
+    (runVar && runAssign && runVarBoth && runAssignBoth &&
+      runVarShort && runAssignShort && runVarShortBoth &&
+      runAssignShortBoth && runAssignShortBothCall)
+
+def checkedInternalUnaryLocalCallMatches :
+    Except TypeError Bool := do
+  let runReturnNot ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalUnaryLocalCallContract
+      "runReturnNot" SolidCore.Solidity.Source.State.empty [] 1 7
+  let runVarNot ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalUnaryLocalCallContract
+      "runVarNot" SolidCore.Solidity.Source.State.empty [] 1 7
+  let runAssignNot ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalUnaryLocalCallContract
+      "runAssignNot" SolidCore.Solidity.Source.State.empty [] 1 7
+  let runBitNot ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalUnaryLocalCallContract
+      "runBitNot" SolidCore.Solidity.Source.State.empty []
+      (SharedSemantics.notWord 0) 11
+  let runNeg ←
+    checkedOwnCallIntAndSlotMatches 64
+      Executable.Examples.internalUnaryLocalCallContract
+      "runNeg" SolidCore.Solidity.Source.State.empty []
+      (SharedSemantics.signedToWord 5) 13
+  Except.ok
+    (runReturnNot && runVarNot && runAssignNot && runBitNot && runNeg)
+
+def checkedInternalTernaryLocalCallMatches :
+    Except TypeError Bool := do
+  let runReturnTrue ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalTernaryLocalCallContract
+      "runReturnTrue" SolidCore.Solidity.Source.State.empty [] 21 21
+  let runReturnFalse ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalTernaryLocalCallContract
+      "runReturnFalse" SolidCore.Solidity.Source.State.empty [] 22 22
+  let runVarTrue ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalTernaryLocalCallContract
+      "runVarTrue" SolidCore.Solidity.Source.State.empty [] 31 31
+  let runAssignFalse ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalTernaryLocalCallContract
+      "runAssignFalse" SolidCore.Solidity.Source.State.empty [] 42 42
+  Except.ok
+    (runReturnTrue && runReturnFalse && runVarTrue && runAssignFalse)
+
+def checkedSideEffectArgumentContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalRequireConditionCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalRequireReasonCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.namedRequireCustomErrorArgumentOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalEmitArgumentCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalEmitTwoArgumentCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.namedEventArgumentOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalRevertArgumentCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalRevertTwoArgumentCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.namedErrorArgumentOrderContract)
+
+def checkedInternalRequireConditionCallMatches :
+    Except TypeError Bool := do
+  let runAssert ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalRequireConditionCallContract
+      "runAssert" SolidCore.Solidity.Source.State.empty [] 1 1
+  let runRequire ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalRequireConditionCallContract
+      "runRequire" SolidCore.Solidity.Source.State.empty [] 1 1
+  let runRequireFail ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRequireConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runRequireFail")
+      SolidCore.Solidity.Source.State.empty []
+  let runRequireCustomFail ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRequireConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runRequireCustomFail")
+      SolidCore.Solidity.Source.State.empty []
+  let failMatches :=
+    match runRequireFail with
+    | SolidCore.Solidity.Source.CallResult.reverted state
+        (SolidCore.Solidity.Source.RevertData.error reason) =>
+        reason == "bad" &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0
+    | _ => false
+  let customMatches :=
+    match runRequireCustomFail with
+    | SolidCore.Solidity.Source.CallResult.reverted state
+        (SolidCore.Solidity.Source.RevertData.custom "Bad"
+          [SolidCore.Solidity.Source.Value.word value]) =>
+        SolidCore.Solidity.Source.wordEq value 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0
+    | _ => false
+  Except.ok
+    (runAssert && runRequire && failMatches && customMatches)
+
+def checkedInternalRequireReasonCallMatches :
+    Except TypeError Bool := do
+  let reasonTrue ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalRequireReasonCallContract
+      "runReasonTrue" SolidCore.Solidity.Source.State.empty [] 9 9
+  let customFalse ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRequireReasonCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runCustomFalse")
+      SolidCore.Solidity.Source.State.empty []
+  let bothReasonTrue ←
+    checkedOwnCallWordAndSlotMatches 64
+      Executable.Examples.internalRequireReasonCallContract
+      "runBothReasonTrue" SolidCore.Solidity.Source.State.empty [] 9 9
+  let bothCustomFalse ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRequireReasonCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBothCustomFalse")
+      SolidCore.Solidity.Source.State.empty []
+  let customMatches :=
+    match customFalse with
+    | SolidCore.Solidity.Source.CallResult.reverted state
+        (SolidCore.Solidity.Source.RevertData.custom "Bad"
+          [SolidCore.Solidity.Source.Value.word value]) =>
+        SolidCore.Solidity.Source.wordEq value 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0
+    | _ => false
+  let bothCustomMatches :=
+    match bothCustomFalse with
+    | SolidCore.Solidity.Source.CallResult.reverted state
+        (SolidCore.Solidity.Source.RevertData.custom "Bad"
+          [SolidCore.Solidity.Source.Value.word value]) =>
+        SolidCore.Solidity.Source.wordEq value 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0
+    | _ => false
+  Except.ok
+    (reasonTrue && customMatches && bothReasonTrue && bothCustomMatches)
+
+def checkedNamedRequireCustomErrorArgumentOrderMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.namedRequireCustomErrorArgumentOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 40 &&
+          SolidCore.Solidity.Source.wordEq second 2)
+  | _ => Except.ok false
+
+def checkedInternalEmitArgumentCallMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalEmitArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [SolidCore.Solidity.Source.Value.word eventValue] =>
+              Except.ok
+                (SolidCore.Solidity.Source.wordEq value 7 &&
+                  event.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq eventValue 7 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (state.loadSlot 0) 7)
+          | _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedInternalEmitTwoArgumentCallMatches :
+    Except TypeError Bool := do
+  let left ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalEmitTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runLeft")
+      SolidCore.Solidity.Source.State.empty []
+  let right ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalEmitTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runRight")
+      SolidCore.Solidity.Source.State.empty []
+  let both ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalEmitTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBoth")
+      SolidCore.Solidity.Source.State.empty []
+  match left, right, both with
+  | SolidCore.Solidity.Source.CallResult.returned leftState
+      [SolidCore.Solidity.Source.Value.word leftRet],
+    SolidCore.Solidity.Source.CallResult.returned rightState
+      [SolidCore.Solidity.Source.Value.word rightRet],
+    SolidCore.Solidity.Source.CallResult.returned bothState
+      [SolidCore.Solidity.Source.Value.word bothRet] =>
+      match leftState.events, rightState.events, bothState.events with
+      | [leftEvent], [rightEvent], [bothEvent] =>
+          match leftEvent.data, rightEvent.data, bothEvent.data with
+          | [ SolidCore.Solidity.Source.Value.word left0
+            , SolidCore.Solidity.Source.Value.word left1 ],
+            [ SolidCore.Solidity.Source.Value.word right0
+            , SolidCore.Solidity.Source.Value.word right1 ],
+            [ SolidCore.Solidity.Source.Value.word both0
+            , SolidCore.Solidity.Source.Value.word both1 ] =>
+              Except.ok
+                (leftEvent.name == "Seen" &&
+                  rightEvent.name == "Seen" &&
+                  bothEvent.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq leftRet 7 &&
+                  SolidCore.Solidity.Source.wordEq left0 7 &&
+                  SolidCore.Solidity.Source.wordEq left1 8 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (leftState.loadSlot 0) 7 &&
+                  SolidCore.Solidity.Source.wordEq rightRet 5 &&
+                  SolidCore.Solidity.Source.wordEq right0 5 &&
+                  SolidCore.Solidity.Source.wordEq right1 5 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (rightState.loadSlot 0) 5 &&
+                  SolidCore.Solidity.Source.wordEq bothRet 7 &&
+                  SolidCore.Solidity.Source.wordEq both0 7 &&
+                  SolidCore.Solidity.Source.wordEq both1 7 &&
+                  SolidCore.Solidity.Source.wordEq
+                    (bothState.loadSlot 0) 7)
+          | _, _, _ => Except.ok false
+      | _, _, _ => Except.ok false
+  | _, _, _ => Except.ok false
+
+def checkedNamedEventArgumentOrderFixtureMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.namedEventArgumentOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [ SolidCore.Solidity.Source.Value.word first
+            , SolidCore.Solidity.Source.Value.word second ] =>
+              Except.ok
+                (event.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq first 40 &&
+                  SolidCore.Solidity.Source.wordEq second 2)
+          | _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedInternalRevertArgumentCallMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRevertArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [SolidCore.Solidity.Source.Value.word value]) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => Except.ok false
+
+def checkedInternalRevertTwoArgumentCallMatches :
+    Except TypeError Bool := do
+  let left ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRevertTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runLeft")
+      SolidCore.Solidity.Source.State.empty []
+  let right ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRevertTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runRight")
+      SolidCore.Solidity.Source.State.empty []
+  let both ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalRevertTwoArgumentCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBoth")
+      SolidCore.Solidity.Source.State.empty []
+  match left, right, both with
+  | SolidCore.Solidity.Source.CallResult.reverted leftState
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word left0
+        , SolidCore.Solidity.Source.Value.word left1 ]),
+    SolidCore.Solidity.Source.CallResult.reverted rightState
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word right0
+        , SolidCore.Solidity.Source.Value.word right1 ]),
+    SolidCore.Solidity.Source.CallResult.reverted bothState
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word both0
+        , SolidCore.Solidity.Source.Value.word both1 ]) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq left0 7 &&
+          SolidCore.Solidity.Source.wordEq left1 8 &&
+          SolidCore.Solidity.Source.wordEq (leftState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq right0 5 &&
+          SolidCore.Solidity.Source.wordEq right1 5 &&
+          SolidCore.Solidity.Source.wordEq (rightState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq both0 7 &&
+          SolidCore.Solidity.Source.wordEq both1 7 &&
+          SolidCore.Solidity.Source.wordEq (bothState.loadSlot 0) 0)
+  | _, _, _ => Except.ok false
+
+def checkedNamedErrorArgumentOrderFixtureMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.namedErrorArgumentOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 40 &&
+          SolidCore.Solidity.Source.wordEq second 2)
+  | _ => Except.ok false
+
+def checkedTupleAndFreeFunctionContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalTupleReturnCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalTupleRightReturnCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalTupleBothReturnCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalNamedArgsContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.tupleVarDeclContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.tupleVarDeclHoleContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.tupleAssignmentSwapContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.tupleAssignmentHoleContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalVarDeclCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalMultiVarDeclCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.freeFunctionUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.freeNamedArgsUnit)
+
+def checkedFreeFunctionStorageIsolationRejected : Bool :=
+  match TypecheckedInput.checkedSourceUnit
+      Executable.Examples.freeFunctionStorageIsolationUnit with
+  | Except.ok _ => false
+  | Except.error _ => true
+
+def checkedOwnCallWordPairAndSlotMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedLeft expectedRight expectedSlot : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [ SolidCore.Solidity.Source.Value.word left
+      , SolidCore.Solidity.Source.Value.word right ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq left expectedLeft &&
+          SolidCore.Solidity.Source.wordEq right expectedRight &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) expectedSlot)
+  | SolidCore.Solidity.Source.CallResult.returned state [value] =>
+      let (left, right) ← checkedDecodeWordPair value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq left expectedLeft &&
+          SolidCore.Solidity.Source.wordEq right expectedRight &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) expectedSlot)
+  | _ => Except.ok false
+
+def checkedInternalTupleReturnCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairAndSlotMatches 64
+    Executable.Examples.internalTupleReturnCallContract
+    "run" SolidCore.Solidity.Source.State.empty [] 5 6 5
+
+def checkedInternalTupleRightReturnCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairAndSlotMatches 64
+    Executable.Examples.internalTupleRightReturnCallContract
+    "run" SolidCore.Solidity.Source.State.empty [] 5 5 5
+
+def checkedInternalTupleBothReturnCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairAndSlotMatches 64
+    Executable.Examples.internalTupleBothReturnCallContract
+    "run" SolidCore.Solidity.Source.State.empty [] 5 5 5
+
+def checkedInternalNamedArgsMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.internalNamedArgsContract
+    "run" SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedTupleVarDeclMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.tupleVarDeclContract
+    "run" SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedTupleVarDeclHoleMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.tupleVarDeclHoleContract
+    "run" SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedTupleAssignmentSwapMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.tupleAssignmentSwapContract
+    "run" SolidCore.Solidity.Source.State.empty [] 24
+
+def checkedTupleAssignmentHoleMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.tupleAssignmentHoleContract
+    "run" SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedInternalVarDeclCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.internalVarDeclCallContract
+    "run" SolidCore.Solidity.Source.State.empty [] 10
+
+def checkedInternalMultiVarDeclCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.internalMultiVarDeclCallContract
+    "run" SolidCore.Solidity.Source.State.empty [] 41
+
+def checkedFreeFunctionCallMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32
+    Executable.Examples.freeFunctionUnit "FreeFunctionCaller"
+    "run" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 21] 42
+
+def checkedFreeNamedArgsMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32
+    Executable.Examples.freeNamedArgsUnit "FreeNamedArgs"
+    "run" SolidCore.Solidity.Source.State.empty [] 42
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library
