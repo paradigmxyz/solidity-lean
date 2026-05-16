@@ -18350,6 +18350,102 @@ def externalFunctionPointerTryCatchCatchMatches : Option Bool := do
       some (value == 7)
   | _ => some false
 
+def checkedAbiEncodeCallTargetFunction : FunctionDecl :=
+  { name := some "set"
+    params :=
+      [ { name := some "x", ty := Ty.uint 256 }
+      , { name := some "payload"
+          ty := Ty.bytes
+          location := some DataLocation.calldata } ]
+    returns := []
+    visibility := some Visibility.external_
+    mutability := StateMutability.nonpayable
+    body := some Stmt.empty }
+
+def checkedAbiEncodeCallTargetContract : ContractDecl :=
+  { name := "Target"
+    items :=
+      [ContractItem.function checkedAbiEncodeCallTargetFunction] }
+
+def checkedAbiEncodeCallSourceFunction : FunctionDecl :=
+  { abiEncodeCallSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedAbiEncodeCallCallerContract : ContractDecl :=
+  { name := "CheckedAbiEncodeCall"
+    items :=
+      [ContractItem.function checkedAbiEncodeCallSourceFunction] }
+
+def checkedAbiEncodeCallSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract checkedAbiEncodeCallTargetContract
+      , SourceItem.contract checkedAbiEncodeCallCallerContract ] }
+
+def checkedAbiEncodeCallExternalPointerFunction : FunctionDecl :=
+  { abiEncodeCallExternalPointerFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedExternalFunctionMembersFunction : FunctionDecl :=
+  { externalFunctionMembersFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedExternalFunctionPointerCallFunction : FunctionDecl :=
+  { externalFunctionPointerCallFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedExternalFunctionPointerPayableCallFunction : FunctionDecl :=
+  { externalFunctionPointerPayableCallFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.payable }
+
+def checkedExternalFunctionPointerNonpayableGasFunction :
+    FunctionDecl :=
+  { externalFunctionPointerNonpayableGasFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.nonpayable }
+
+def checkedExternalFunctionPointerTryCatchFunction : FunctionDecl :=
+  { externalFunctionPointerTryCatchFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedExternalFunctionPointerContract : ContractDecl :=
+  { name := "CheckedExternalFunctionPointer"
+    items :=
+      [ ContractItem.function checkedAbiEncodeCallExternalPointerFunction
+      , ContractItem.function checkedExternalFunctionMembersFunction
+      , ContractItem.function checkedExternalFunctionPointerCallFunction
+      , ContractItem.function
+          checkedExternalFunctionPointerPayableCallFunction
+      , ContractItem.function
+          checkedExternalFunctionPointerNonpayableGasFunction
+      , ContractItem.function checkedExternalFunctionPointerTryCatchFunction ] }
+
+def checkedExternalFunctionPointerNonpayableValueFunction :
+    FunctionDecl :=
+  { externalFunctionPointerNonpayableValueFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.nonpayable }
+
+def checkedExternalFunctionPointerNonpayableValueContract :
+    ContractDecl :=
+  { name := "BadCheckedExternalFunctionPointerValue"
+    items :=
+      [ContractItem.function
+        checkedExternalFunctionPointerNonpayableValueFunction] }
+
 def abiEncodePackedSourceFunction : FunctionDecl :=
   { name := some "packed"
     returns := [{ name := some "out", ty := Ty.bytes }]

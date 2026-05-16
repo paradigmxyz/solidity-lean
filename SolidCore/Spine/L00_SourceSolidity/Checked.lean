@@ -4512,6 +4512,174 @@ def checkedAbiDecodeMalformedSourceReverts :
     Executable.Examples.checkedAbiBuiltinContract
     "badDecode" SolidCore.Solidity.Source.State.empty [] 0
 
+def checkedAbiEncodeCallSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedAbiEncodeCallSourceUnit)
+
+def checkedAbiEncodeCallSourceMatchesExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "abi.encodeCall expected"
+      Executable.Examples.abiEncodeCallExpected
+  let result ←
+    CheckedInput.callContract 16
+      Executable.Examples.checkedAbiEncodeCallSourceUnit
+      "CheckedAbiEncodeCall"
+      (SolidCore.Solidity.Source.CallTarget.name
+        "callDataByEncodeCall")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0x100
+      , SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.bytes [8, 9] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      Except.ok (bytes == expected)
+  | _ => Except.ok false
+
+def checkedExternalFunctionPointerContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedExternalFunctionPointerContract)
+
+def checkedAbiEncodeCallExternalPointerMatchesExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "abi.encodeCall external pointer expected"
+      Executable.Examples.abiEncodeCallExternalPointerExpected
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedExternalFunctionPointerContract
+    "callDataByExternalPointer"
+    SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef Executable.Examples.selectorEncodingSelector
+    , SolidCore.Solidity.Source.Value.word 7 ]
+    expected
+
+def checkedExternalFunctionMembersMatch :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 16
+    Executable.Examples.checkedExternalFunctionPointerContract
+    "externalFunctionMembers"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef Executable.Examples.selectorEncodingSelector]
+    Executable.Examples.selectorEncodingSelector 0xbeef
+
+def checkedExternalFunctionAbiCleanDecodeMatches : Bool :=
+  match Executable.Examples.externalFunctionAbiCleanDecodeMatches with
+  | some true => true
+  | _ => false
+
+def checkedExternalFunctionAbiRejectsDirtyPadding : Bool :=
+  Executable.Examples.externalFunctionAbiRejectsDirtyPadding
+
+def checkedExternalFunctionPointerCallMatches :
+    Except TypeError Bool := do
+  let context ←
+    optionToExcept "external function pointer call context"
+      Executable.Examples.externalFunctionPointerCallContext
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "callGetter" context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef Executable.Examples.externalFunctionPointerGetterSelector]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 99)
+  | _ => Except.ok false
+
+def checkedExternalFunctionPointerPayableCallMatches :
+    Except TypeError Bool := do
+  let context ←
+    optionToExcept "external function pointer payable call context"
+      Executable.Examples.externalFunctionPointerPayableCallContext
+  let context := { context with accountCodes := [(0xbeef, [1])] }
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "callSetter" context SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.externalFunction
+          0xbeef Executable.Examples.selectorEncodingSelector
+      , SolidCore.Solidity.Source.Value.word 7 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] =>
+      Except.ok true
+  | _ => Except.ok false
+
+def checkedExternalFunctionPointerNonpayableGasMatches :
+    Except TypeError Bool := do
+  let encodedArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 11]
+  let context :=
+    { SolidCore.Solidity.Source.Context.empty with
+      accountCodes := [(0xbeef, [1])]
+      lowLevelCallResults :=
+        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+            target := 0xbeef
+            calldata :=
+              SolidCore.Solidity.Source.wordToBytesBE
+                SolidCore.Solidity.Source.selectorBytes
+                Executable.Examples.selectorEncodingSelector ++ encodedArgs
+            gas? := some 777
+            success := true
+            output := [] } ] }
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "callSetterWithGas" context
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.externalFunction
+          0xbeef Executable.Examples.selectorEncodingSelector
+      , SolidCore.Solidity.Source.Value.word 11 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] =>
+      Except.ok true
+  | _ => Except.ok false
+
+def checkedExternalFunctionPointerNonpayableValueRejected :
+    Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedExternalFunctionPointerNonpayableValueContract)
+
+def checkedExternalFunctionPointerTryCatchSuccessMatches :
+    Except TypeError Bool := do
+  let context ←
+    optionToExcept "external function pointer try/catch context"
+      Executable.Examples.externalFunctionPointerTryCatchSuccessContext
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "tryGetter" context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef Executable.Examples.externalFunctionPointerGetterSelector]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 55)
+  | _ => Except.ok false
+
+def checkedExternalFunctionPointerTryCatchCatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "tryGetter" SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.externalFunction
+        0xbeef Executable.Examples.externalFunctionPointerGetterSelector]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 7)
+  | _ => Except.ok false
+
 def checkedCallContextContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
