@@ -785,6 +785,11 @@ def exprIsUntypedNumberLiteralExpression :
         exprIsUntypedNumberLiteralExpression rhs
   | _ => false
 
+def exprIsUntypedImplicitLiteralExpression
+    (expr : L00_SourceSolidity.Expr) : Bool :=
+  exprIsUntypedNumberLiteralExpression expr ||
+    L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate expr
+
 def enumUntypedLiteralConversionAllowed? (types : TypeContext)
     (path : Path) (expr : L00_SourceSolidity.Expr) : Option Bool :=
   if exprIsUntypedNumberLiteralExpression expr then
@@ -3242,8 +3247,9 @@ def exprContextuallyAssignableToFuel
           match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars
               expr with
           | some actual =>
-              TypeContext.canImplicitlyConvert env.types actual expected ||
-                implicitLiteralFits expected expr
+              actual == expected ||
+                (exprIsUntypedImplicitLiteralExpression expr &&
+                  implicitLiteralFits expected expr)
           | none => false
 
 def exprContextuallyAssignableTo
@@ -5479,11 +5485,16 @@ mutual
 
 def checkExprAssignableTo (env : CheckEnv) :
     L00_SourceSolidity.Expr -> Ty -> Except TypeError Unit
-  | L00_SourceSolidity.Expr.array elements,
-    L00_SourceSolidity.Ty.array elementTy (some size) => do
+  | expr@(L00_SourceSolidity.Expr.array elements),
+    expected@(L00_SourceSolidity.Ty.array _ (some size)) => do
       require (elements.length == size)
         (TypeError.arityMismatch "array literal" size elements.length)
-      checkExprsAssignableToArrayElement env elements elementTy
+      if exprContextuallyAssignableTo env expr expected then
+        let _ ← checkExpr env expr
+        Except.ok ()
+      else
+        let checked ← checkExpr env expr
+        checked.expectAssignableToIn env.types expected
   | L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr,
     expected@(L00_SourceSolidity.Ty.array _ (some _)) => do
       let condChecked ← checkExpr env cond
@@ -5497,20 +5508,6 @@ def checkExprAssignableTo (env : CheckEnv) :
           let checked ← checkExpr env expr
           checked.expectAssignableToIn env.types expected
 termination_by expr _ => sizeOf expr
-decreasing_by
-  all_goals
-    try subst expr
-    simp_wf
-    try simp_all [sizeOf]
-    try omega
-
-def checkExprsAssignableToArrayElement (env : CheckEnv) :
-    List L00_SourceSolidity.Expr -> Ty -> Except TypeError Unit
-  | [], _ => Except.ok ()
-  | expr :: rest, elementTy => do
-      checkExprAssignableTo env expr elementTy
-      checkExprsAssignableToArrayElement env rest elementTy
-termination_by elements _ => sizeOf elements
 decreasing_by
   all_goals
     try subst expr
@@ -22756,6 +22753,76 @@ def arrayLiteralWideningSource : L00_SourceSolidity.SourceUnit :=
 
 def arrayLiteralWideningAccepted : Bool :=
   sourceUnitAccepted? arrayLiteralWideningSource
+
+def badTypedElementArrayLiteralWideningFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { arrayLiteralWideningFunction with
+    name := some "badTypedElementArrayWiden"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.array
+              [uint8OneExpr, numberExpr "2"]))) }
+
+def badTypedElementArrayLiteralWideningSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTypedElementArrayLiteralWidening"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                badTypedElementArrayLiteralWideningFunction] } ] }
+
+def badTypedElementArrayLiteralWideningRejected : Bool :=
+  Result.isError
+    (SourceUnit.check badTypedElementArrayLiteralWideningSource)
+
+def takesUint16ArrayFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "takesWideArray"
+    params :=
+      [ { name := some "xs"
+          ty := L00_SourceSolidity.Ty.array uint16 (some 2)
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := uint16, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (L00_SourceSolidity.Expr.ident "xs")
+              zeroExpr))) }
+
+def badTypedElementArrayLiteralArgumentFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badTypedElementArrayArg"
+    returns := [{ name := none, ty := uint16, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "takesWideArray")
+              [L00_SourceSolidity.Arg.positional
+                (L00_SourceSolidity.Expr.array
+                  [uint8OneExpr, numberExpr "2"])]))) }
+
+def badTypedElementArrayLiteralArgumentSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTypedElementArrayLiteralArgument"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  takesUint16ArrayFunction
+              , L00_SourceSolidity.ContractItem.function
+                  badTypedElementArrayLiteralArgumentFunction ] } ] }
+
+def badTypedElementArrayLiteralArgumentRejected : Bool :=
+  Result.isError
+    (SourceUnit.check badTypedElementArrayLiteralArgumentSource)
 
 def bytes1TwelveExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
