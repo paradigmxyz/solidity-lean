@@ -31,6 +31,15 @@ def optionToExcept {α : Type} (what : String) : Option α ->
   | some value => Except.ok value
   | none => Except.error (executableFailure what)
 
+def checkSourceUnit (source : SourceUnitAst) :
+    Except TypeError CheckedSourceUnit :=
+  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
+    source
+
+def checkSourceUnit? (source : SourceUnitAst) :
+    Option CheckedSourceUnit :=
+  Result.toOption (checkSourceUnit source)
+
 /-
 The common checked source layer for execution-facing users.
 
@@ -64,17 +73,12 @@ def fromChecked (checked : CheckedSourceUnit) :
   optionToExcept "source type resolution" (fromChecked? checked)
 
 def fromSource? (source : SourceUnitAst) : Option CheckedProgram := do
-  let checked ←
-    Result.toOption
-      (_root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-        source)
+  let checked ← checkSourceUnit? source
   fromChecked? checked
 
 def fromSource (source : SourceUnitAst) :
     Except TypeError CheckedProgram := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
+  let checked ← checkSourceUnit source
   fromChecked checked
 
 def usingDecls (program : CheckedProgram) :
@@ -212,6 +216,45 @@ def callTransaction (fuel : Nat) (contract : CheckedContract)
   optionToExcept ("contract transaction " ++ contract.decl.name)
     (callTransaction? fuel contract target state args)
 
+def coreFunction? (contract : CheckedContract) (functionName : Name) :
+    Option CoreFunctionDef :=
+  contract.core.findFunctionByName? functionName
+
+def coreFunction (contract : CheckedContract) (functionName : Name) :
+    Except TypeError CoreFunctionDef :=
+  optionToExcept ("function lookup " ++ functionName)
+    (coreFunction? contract functionName)
+
+def functionCalldata? (contract : CheckedContract)
+    (functionName : Name) (args : List CoreValue) :
+    Option (List Byte) := do
+  let function ← coreFunction? contract functionName
+  SolidCore.Solidity.Source.ABI.calldataFor? function args
+
+def functionCalldata (contract : CheckedContract)
+    (functionName : Name) (args : List CoreValue) :
+    Except TypeError (List Byte) :=
+  optionToExcept ("ABI calldata " ++ functionName)
+    (functionCalldata? contract functionName args)
+
+def callFunctionWithContext? (fuel : Nat)
+    (contract : CheckedContract) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let function ← coreFunction? contract functionName
+  SolidCore.Solidity.Source.FunctionDef.call?
+    fuel context function state args
+
+def callFunctionWithContext (fuel : Nat)
+    (contract : CheckedContract) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  optionToExcept ("function call " ++ functionName)
+    (callFunctionWithContext?
+      fuel contract functionName context state args)
+
 def callCalldataFrom? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Option CoreAbiCallResult :=
@@ -308,6 +351,46 @@ def callContractTransaction (fuel : Nat) (program : CheckedProgram)
     (args : List CoreValue) : Except TypeError CoreCallResult := do
   let contract ← contract program name
   CheckedContract.callTransaction fuel contract target state args
+
+def coreFunction? (program : CheckedProgram)
+    (name functionName : Name) : Option CoreFunctionDef := do
+  let contract ← contract? program name
+  CheckedContract.coreFunction? contract functionName
+
+def coreFunction (program : CheckedProgram)
+    (name functionName : Name) : Except TypeError CoreFunctionDef := do
+  let contract ← contract program name
+  CheckedContract.coreFunction contract functionName
+
+def functionCalldata? (program : CheckedProgram)
+    (name functionName : Name) (args : List CoreValue) :
+    Option (List Byte) := do
+  let contract ← contract? program name
+  CheckedContract.functionCalldata? contract functionName args
+
+def functionCalldata (program : CheckedProgram)
+    (name functionName : Name) (args : List CoreValue) :
+    Except TypeError (List Byte) := do
+  let contract ← contract program name
+  CheckedContract.functionCalldata contract functionName args
+
+def callFunctionWithContext? (fuel : Nat)
+    (program : CheckedProgram) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let contract ← contract? program name
+  CheckedContract.callFunctionWithContext?
+    fuel contract functionName context state args
+
+def callFunctionWithContext (fuel : Nat)
+    (program : CheckedProgram) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let contract ← contract program name
+  CheckedContract.callFunctionWithContext
+    fuel contract functionName context state args
 
 def callCalldataFrom? (fuel : Nat) (program : CheckedProgram)
     (name : Name) (state : CoreState) (sender value : Word)
@@ -435,6 +518,46 @@ def callContractTransaction (fuel : Nat) (checked : CheckedSourceUnit)
   CheckedProgram.callContractTransaction
     fuel program name target state args
 
+def coreFunction? (checked : CheckedSourceUnit)
+    (name functionName : Name) : Option CoreFunctionDef := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.coreFunction? program name functionName
+
+def coreFunction (checked : CheckedSourceUnit)
+    (name functionName : Name) : Except TypeError CoreFunctionDef := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.coreFunction program name functionName
+
+def functionCalldata? (checked : CheckedSourceUnit)
+    (name functionName : Name) (args : List CoreValue) :
+    Option (List Byte) := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.functionCalldata? program name functionName args
+
+def functionCalldata (checked : CheckedSourceUnit)
+    (name functionName : Name) (args : List CoreValue) :
+    Except TypeError (List Byte) := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.functionCalldata program name functionName args
+
+def callFunctionWithContext? (fuel : Nat)
+    (checked : CheckedSourceUnit) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.callFunctionWithContext?
+    fuel program name functionName context state args
+
+def callFunctionWithContext (fuel : Nat)
+    (checked : CheckedSourceUnit) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.callFunctionWithContext
+    fuel program name functionName context state args
+
 def callCalldataFrom? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
     (calldata : List Byte) : Option CoreAbiCallResult := do
@@ -493,9 +616,7 @@ namespace SourceUnit
 
 def checked? (source : SourceUnitAst) :
     Option CheckedSourceUnit :=
-  Result.toOption
-    (_root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source)
+  checkSourceUnit? source
 
 def checkedProgram? (source : SourceUnitAst) :
     Option CheckedProgram :=
@@ -584,6 +705,46 @@ def checkedCallContractTransaction (fuel : Nat)
   let program ← checkedProgram source
   CheckedProgram.callContractTransaction
     fuel program name target state args
+
+def checkedCoreFunction? (source : SourceUnitAst)
+    (name functionName : Name) : Option CoreFunctionDef := do
+  let program ← checkedProgram? source
+  CheckedProgram.coreFunction? program name functionName
+
+def checkedCoreFunction (source : SourceUnitAst)
+    (name functionName : Name) : Except TypeError CoreFunctionDef := do
+  let program ← checkedProgram source
+  CheckedProgram.coreFunction program name functionName
+
+def checkedFunctionCalldata? (source : SourceUnitAst)
+    (name functionName : Name) (args : List CoreValue) :
+    Option (List Byte) := do
+  let program ← checkedProgram? source
+  CheckedProgram.functionCalldata? program name functionName args
+
+def checkedFunctionCalldata (source : SourceUnitAst)
+    (name functionName : Name) (args : List CoreValue) :
+    Except TypeError (List Byte) := do
+  let program ← checkedProgram source
+  CheckedProgram.functionCalldata program name functionName args
+
+def checkedCallFunctionWithContext? (fuel : Nat)
+    (source : SourceUnitAst) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let program ← checkedProgram? source
+  CheckedProgram.callFunctionWithContext?
+    fuel program name functionName context state args
+
+def checkedCallFunctionWithContext (fuel : Nat)
+    (source : SourceUnitAst) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let program ← checkedProgram source
+  CheckedProgram.callFunctionWithContext
+    fuel program name functionName context state args
 
 def checkedCallCalldataFrom? (fuel : Nat)
     (source : SourceUnitAst) (name : Name)
@@ -733,6 +894,46 @@ def checkedCallTransaction (fuel : Nat)
   let contract ← checkedContract decl
   CheckedContract.callTransaction fuel contract target state args
 
+def checkedCoreFunction? (decl : SourceContractDecl)
+    (functionName : Name) : Option CoreFunctionDef := do
+  let contract ← checkedContract? decl
+  CheckedContract.coreFunction? contract functionName
+
+def checkedCoreFunction (decl : SourceContractDecl)
+    (functionName : Name) : Except TypeError CoreFunctionDef := do
+  let contract ← checkedContract decl
+  CheckedContract.coreFunction contract functionName
+
+def checkedFunctionCalldata? (decl : SourceContractDecl)
+    (functionName : Name) (args : List CoreValue) :
+    Option (List Byte) := do
+  let contract ← checkedContract? decl
+  CheckedContract.functionCalldata? contract functionName args
+
+def checkedFunctionCalldata (decl : SourceContractDecl)
+    (functionName : Name) (args : List CoreValue) :
+    Except TypeError (List Byte) := do
+  let contract ← checkedContract decl
+  CheckedContract.functionCalldata contract functionName args
+
+def checkedCallFunctionWithContext? (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.callFunctionWithContext?
+    fuel contract functionName context state args
+
+def checkedCallFunctionWithContext (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.callFunctionWithContext
+    fuel contract functionName context state args
+
 def checkedCallCalldataFrom? (fuel : Nat)
     (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
@@ -795,14 +996,9 @@ def checkedSourceFunctionCallWithContext (fuel : Nat)
     (source : L00_SourceSolidity.SourceUnit) (contractName functionName : Name)
     (context : SolidCore.Solidity.Source.Context)
     (state : CoreState) (args : List CoreValue) :
-    Except TypeError CoreCallResult := do
-  let contract ← SourceUnit.checkedToCoreContract source contractName
-  let function ←
-    optionToExcept ("function lookup " ++ functionName)
-      (contract.findFunctionByName? functionName)
-  optionToExcept ("function call " ++ functionName)
-    (SolidCore.Solidity.Source.FunctionDef.call?
-      fuel context function state args)
+    Except TypeError CoreCallResult :=
+  SourceUnit.checkedCallFunctionWithContext
+    fuel source contractName functionName context state args
 
 def checkedStorageReturnConditionalMatches : Except TypeError Bool := do
   let result ←
@@ -989,13 +1185,8 @@ def checkedMissingReceiveFallbackPlainEtherRejectsMatches :
 
 def checkedFunctionCalldata (decl : L00_SourceSolidity.ContractDecl)
     (functionName : Name) (args : List CoreValue) :
-    Except TypeError (List Byte) := do
-  let contract ← ContractDecl.checkedToCore decl
-  let function ←
-    optionToExcept ("function lookup " ++ functionName)
-      (contract.findFunctionByName? functionName)
-  optionToExcept ("ABI calldata " ++ functionName)
-    (SolidCore.Solidity.Source.ABI.calldataFor? function args)
+    Except TypeError (List Byte) :=
+  ContractDecl.checkedFunctionCalldata decl functionName args
 
 def checkedDecodeUint256 (bytes : List Byte) : Except TypeError Word := do
   let values ←
@@ -1008,10 +1199,8 @@ def checkedDecodeUint256 (bytes : List Byte) : Except TypeError Word := do
 
 def checkedProgramCommonLayerMatches : Except TypeError Bool := do
   let program ← SourceUnit.checkedProgram simpleSource
-  let core ← CheckedProgram.toCoreContract program "C"
-  let function ←
-    optionToExcept "function lookup f"
-      (core.findFunctionByName? "f")
+  let _core ← CheckedProgram.toCoreContract program "C"
+  let function ← CheckedProgram.coreFunction program "C" "f"
   let directResult ←
     CheckedProgram.callContract 16 program "C"
       (SolidCore.Solidity.Source.CallTarget.name "f")
@@ -1021,24 +1210,31 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
     CheckedContract.call 16 contract
       (SolidCore.Solidity.Source.CallTarget.name "f")
       SolidCore.Solidity.Source.State.empty []
+  let functionResult ←
+    CheckedProgram.callFunctionWithContext 16 program "C" "f"
+      contract.core.context
+      SolidCore.Solidity.Source.State.empty []
   let calldata ←
-    optionToExcept "ABI calldata f"
-      (SolidCore.Solidity.Source.ABI.calldataFor? function [])
+    CheckedProgram.functionCalldata program "C" "f" []
   let abiResult ←
     CheckedProgram.callCalldata 16 program "C"
       SolidCore.Solidity.Source.State.empty calldata
   let abiValue ← checkedDecodeUint256 abiResult.output
-  match directResult, contractResult with
+  match directResult, contractResult, functionResult with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word direct],
     SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word viaContract] =>
+      [SolidCore.Solidity.Source.Value.word viaContract],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word viaFunction] =>
       Except.ok
         (direct == 7 &&
           viaContract == 7 &&
+          viaFunction == 7 &&
           abiResult.success &&
-          abiValue == 7)
-  | _, _ => Except.ok false
+          abiValue == 7 &&
+          function.name == some "f")
+  | _, _, _ => Except.ok false
 
 def checkedPayableConstructorValueMatches :
     Except TypeError Bool := do
@@ -1497,12 +1693,8 @@ def checkedInheritedErrorAbiPayloadMatches :
       Executable.Examples.inheritedEventErrorShadowUnit
   let contract ←
     CheckedProgram.contract program "InheritedEventErrorDerived"
-  let function ←
-    optionToExcept "function lookup fail"
-      (contract.core.findFunctionByName? "fail")
   let calldata ←
-    optionToExcept "ABI calldata fail"
-      (SolidCore.Solidity.Source.ABI.calldataFor? function [])
+    CheckedContract.functionCalldata contract "fail" []
   let result ←
     CheckedContract.callCalldata 16 contract
       SolidCore.Solidity.Source.State.empty calldata
