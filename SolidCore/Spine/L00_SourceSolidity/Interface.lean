@@ -18368,9 +18368,7 @@ def abiEncodePackedSourceFunction : FunctionDecl :=
                     [Arg.positional
                       (Expr.literal (Literal.number "3"))])
               , Arg.positional
-                  (Expr.call (Expr.typeName Ty.bytes)
-                    [Arg.positional
-                      (Expr.literal (Literal.string "Hi"))]) ]))) }
+                  (Expr.literal (Literal.bytes [72, 105])) ]))) }
 
 def abiEncodePackedSourceCallResult : Option CoreCallResult :=
   FunctionDecl.call? 12 [] [] SolidCore.Solidity.Source.Context.empty
@@ -18534,6 +18532,159 @@ def abiDecodeMalformedSourceReverts : Option Bool := do
       (SolidCore.Solidity.Source.RevertData.panic code) =>
       some (code == 0)
   | _ => some false
+
+def checkedAbiEncodeSourceFunction : FunctionDecl :=
+  { abiEncodeSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedAbiEncodeInferredSourceFunction : FunctionDecl :=
+  { abiEncodeInferredSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedAbiEncodeLocalInferredSourceFunction : FunctionDecl :=
+  { abiEncodeLocalInferredSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedKeccakAbiEncodeSourceFunction : FunctionDecl :=
+  { keccakAbiEncodeSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedSelectorEncodingSelectorExpr : Expr :=
+  Expr.call (Expr.typeName (Ty.bytesN 4))
+    [Arg.positional
+      (Expr.literal
+        (Literal.bytes
+          (SolidCore.Solidity.Source.wordToBytesBE
+            SolidCore.Solidity.Source.selectorBytes
+            selectorEncodingSelector)))]
+
+def checkedAbiEncodeWithSelectorSourceFunction : FunctionDecl :=
+  { abiEncodeWithSelectorSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member (Expr.ident "abi") "encodeWithSelector")
+              [ Arg.positional checkedSelectorEncodingSelectorExpr
+              , Arg.positional
+                  (Expr.call (Expr.typeName (Ty.uint 256))
+                    [Arg.positional
+                      (Expr.literal (Literal.number "7"))]) ]))) }
+
+def checkedAbiEncodeWithSignatureSourceFunction : FunctionDecl :=
+  { abiEncodeWithSignatureSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedAbiEncodeWithRuntimeSignatureSourceFunction :
+    FunctionDecl :=
+  { abiEncodeWithRuntimeSignatureSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedFixedBytesLiteralExpr (ty : Ty) (bytes : List Byte) : Expr :=
+  Expr.call (Expr.typeName ty)
+    [Arg.positional (Expr.literal (Literal.bytes bytes))]
+
+def checkedAbiEncodePackedSourceFunction : FunctionDecl :=
+  { abiEncodePackedSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member (Expr.ident "abi") "encodePacked")
+              [ Arg.positional
+                  (checkedFixedBytesLiteralExpr (Ty.bytesN 1) [66])
+              , Arg.positional
+                  (Expr.call (Expr.typeName (Ty.uint 256))
+                    [Arg.positional
+                      (Expr.literal (Literal.number "3"))])
+              , Arg.positional
+                  (Expr.literal (Literal.bytes [72, 105])) ]))) }
+
+def checkedAbiEncodePackedInferredSourceFunction : FunctionDecl :=
+  { abiEncodePackedInferredSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedAbiDecodeSingleSourceFunction : FunctionDecl :=
+  { abiDecodeSingleSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedAbiDecodeMultiSourceFunction : FunctionDecl :=
+  { abiDecodeMultiSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [ { name := some "x", ty := Ty.uint 256 }
+      , { name := some "payload"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ] }
+
+def checkedAbiDecodeMalformedSourceFunction : FunctionDecl :=
+  { abiDecodeMalformedSourceFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedAbiBuiltinContract : ContractDecl :=
+  { name := "CheckedAbiBuiltins"
+    items :=
+      [ ContractItem.function checkedAbiEncodeSourceFunction
+      , ContractItem.function checkedAbiEncodeInferredSourceFunction
+      , ContractItem.function checkedAbiEncodeLocalInferredSourceFunction
+      , ContractItem.function checkedKeccakAbiEncodeSourceFunction
+      , ContractItem.function checkedAbiEncodeWithSelectorSourceFunction
+      , ContractItem.function checkedAbiEncodeWithSignatureSourceFunction
+      , ContractItem.function
+          checkedAbiEncodeWithRuntimeSignatureSourceFunction
+      , ContractItem.function checkedAbiEncodePackedSourceFunction
+      , ContractItem.function checkedAbiEncodePackedInferredSourceFunction
+      , ContractItem.function checkedAbiDecodeSingleSourceFunction
+      , ContractItem.function checkedAbiDecodeMultiSourceFunction
+      , ContractItem.function checkedAbiDecodeMalformedSourceFunction ] }
 
 def uintTypeInfoFunction : FunctionDecl :=
   { name := some "limits"

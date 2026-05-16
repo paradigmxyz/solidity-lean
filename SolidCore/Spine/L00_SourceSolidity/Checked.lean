@@ -4113,6 +4113,24 @@ def checkedOwnCallBytesMatches (fuel : Nat)
       Except.ok (bytes == expected)
   | _ => Except.ok false
 
+def checkedOwnCallWordAndBytesMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedWord : Word) (expectedBytes : List Byte) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word value
+      , SolidCore.Solidity.Source.Value.bytes bytes ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value expectedWord &&
+          bytes == expectedBytes)
+  | _ => Except.ok false
+
 def checkedOwnCallBytesAndWordQuadMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
     (state : CoreState) (args : List CoreValue)
@@ -4362,6 +4380,137 @@ def checkedFixedBytesEchoCalldataMatches :
     (SolidCore.Solidity.Source.ABI.encodeValues?
       [SolidCore.Solidity.Source.Ty.fixedBytes 4]
       [SolidCore.Solidity.Source.Value.word 0xaabbccdd])
+
+def checkedAbiBuiltinContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedAbiBuiltinContract)
+
+def checkedAbiEncodeSourceMatchesExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "abi.encode expected"
+      Executable.Examples.abiEncodeSourceMatchesExpected
+  let encoded ←
+    optionToExcept "abi.encode bytes"
+      (SolidCore.Solidity.Source.abiEncodeValues?
+        [ SolidCore.Solidity.Source.Ty.uint256
+        , SolidCore.Solidity.Source.Ty.bytesCalldata ]
+        [ SolidCore.Solidity.Source.Value.word 7
+        , SolidCore.Solidity.Source.Value.bytes [8, 9] ])
+  let pack ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "pack" SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.bytes [8, 9] ] encoded
+  let inferred ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "packInferred" SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.bytes [8, 9] ] encoded
+  let localExpected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let localMatch ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "packLocal" SolidCore.Solidity.Source.State.empty []
+      localExpected
+  Except.ok (expected && pack && inferred && localMatch)
+
+def checkedKeccakAbiEncodeSourceMatchesExpected :
+    Except TypeError Bool := do
+  let encoded ←
+    checkedAbiEncodeValues
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.bytesCalldata ]
+      [ SolidCore.Solidity.Source.Value.word 7
+      , SolidCore.Solidity.Source.Value.bytes [8, 9] ]
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedAbiBuiltinContract
+    "hashPack" SolidCore.Solidity.Source.State.empty []
+    (SolidCore.Solidity.Source.keccakWord encoded)
+
+def checkedAbiEncodeWithSelectorMatchesExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "abi.encodeWithSelector expected"
+      Executable.Examples.abiEncodeWithSelectorExpected
+  let selector ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "callData" SolidCore.Solidity.Source.State.empty [] expected
+  let signature ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "callDataBySignature" SolidCore.Solidity.Source.State.empty []
+      expected
+  let runtimeSignature ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "callDataByRuntimeSignature"
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.bytes
+          (Executable.stringUtf8Bytes
+            Executable.Examples.selectorEncodingSignature)
+      , SolidCore.Solidity.Source.Value.word 7 ] expected
+  Except.ok (selector && signature && runtimeSignature)
+
+def checkedAbiEncodePackedMatchesExpected :
+    Except TypeError Bool := do
+  let expectedPacked ←
+    optionToExcept "abi.encodePacked expected"
+      (SolidCore.Solidity.Source.abiEncodePackedValues?
+        [ SolidCore.Solidity.Source.Ty.fixedBytes 1
+        , SolidCore.Solidity.Source.Ty.uint256
+        , SolidCore.Solidity.Source.Ty.bytesCalldata ]
+        [ SolidCore.Solidity.Source.Value.word 66
+        , SolidCore.Solidity.Source.Value.word 3
+        , SolidCore.Solidity.Source.Value.bytes [72, 105] ])
+  let packed ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "packed" SolidCore.Solidity.Source.State.empty []
+      expectedPacked
+  let inferred ←
+    checkedOwnCallBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "packedInferred" SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 66
+      , SolidCore.Solidity.Source.Value.word 3
+      , SolidCore.Solidity.Source.Value.bytes [72, 105] ]
+      expectedPacked
+  Except.ok (packed && inferred)
+
+def checkedAbiDecodeSourceMatchesExpected :
+    Except TypeError Bool := do
+  let singleEncoded ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let pairEncoded ←
+    optionToExcept "abi.decode pair input"
+      Executable.Examples.abiDecodeExampleBytes
+  let single ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "decodeOne" SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes singleEncoded] 7
+  let pair ←
+    checkedOwnCallWordAndBytesMatches 16
+      Executable.Examples.checkedAbiBuiltinContract
+      "decodePair" SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes pairEncoded] 7 [8, 9]
+  Except.ok (single && pair)
+
+def checkedAbiDecodeMalformedSourceReverts :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedAbiBuiltinContract
+    "badDecode" SolidCore.Solidity.Source.State.empty [] 0
 
 def checkedCallContextContractAccepted : Bool :=
   Result.isOk
