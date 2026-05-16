@@ -5284,6 +5284,124 @@ def checkedStorageArrayCopyRejectsWrongFixedSize : Bool :=
   | none => true
   | some _ => false
 
+def checkedStorageReferenceContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageReferenceAliasCheckedContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageReturnAliasContract)
+
+def checkedStorageReferenceDeleteAliasRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.storageReferenceAliasContract)
+
+def checkedStorageReferenceAliasCallMatches
+    (fuel : Nat) (functionName : Name) (expected : Word) :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches fuel
+    Executable.Examples.storageReferenceAliasCheckedContract
+    functionName SolidCore.Solidity.Source.State.empty [] expected
+
+def checkedStorageReferenceAliasWriteMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches 48 "aliasWrite" 91
+
+def checkedStorageReferenceMappingAliasMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches 48 "aliasMap" 12
+
+def checkedStorageReferenceArrayPushMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches 64 "aliasPush" 26
+
+def checkedStorageReferenceArrayPushAssignMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches 64 "aliasPushAssign" 21
+
+def checkedStorageReferenceArrayPopMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches 64 "aliasPop" 17
+
+def checkedStorageReferenceRebindMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches 80 "aliasRebind" 109
+
+def checkedStorageReferenceRebindFromAliasMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    96 "aliasRebindFromAlias" 308
+
+def checkedStorageInternalReferenceParamWriteMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    80 "internalStorageParamWrite" 9
+
+def checkedStorageInternalReferenceParamAliasArgMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    96 "internalStorageParamAliasArg" 8
+
+def checkedStorageInternalReferenceParamPushMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    96 "internalStorageParamPush" 16
+
+def checkedStorageInternalReferenceParamPopMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    128 "internalStorageParamPop" 14
+
+def checkedStorageInternalReferenceParamAliasPushMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    96 "internalStorageParamAliasPush" 17
+
+def checkedStorageInternalReferenceParamRebindMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    128 "internalStorageParamRebind" 211
+
+def checkedStorageInternalReferenceParamRebindToStateMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    128 "internalStorageParamRebindToState" 512
+
+def checkedStorageInternalMappingParamWriteMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    96 "internalStorageMappingParamWrite" 23
+
+def checkedStorageInternalMappingParamAliasArgMatches :
+    Except TypeError Bool :=
+  checkedStorageReferenceAliasCallMatches
+    96 "internalStorageMappingParamAliasArg" 31
+
+def checkedStorageReturnAliasCallMatches
+    (functionName : Name) (expected : Word) :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 128
+    Executable.Examples.storageReturnAliasContract
+    functionName SolidCore.Solidity.Source.State.empty [] expected
+
+def checkedStorageReturnSingleBindingMatches :
+    Except TypeError Bool :=
+  checkedStorageReturnAliasCallMatches "bindReturnedStorage" 16
+
+def checkedStorageReturnTupleBindingMatches :
+    Except TypeError Bool :=
+  checkedStorageReturnAliasCallMatches "bindReturnedStorageTuple" 16
+
+def checkedStorageReturnDirectMutationMatches :
+    Except TypeError Bool :=
+  checkedStorageReturnAliasCallMatches "mutateReturnedStorage" 2
+
+def checkedStorageReturnConditionalBindingMatches :
+    Except TypeError Bool :=
+  checkedStorageReturnAliasCallMatches
+    "bindConditionalReturnedStorage" 127
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit

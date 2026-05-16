@@ -29280,6 +29280,7 @@ def storageReferenceAliasContract : ContractDecl :=
             ty := Ty.mapping (Ty.uint 256) (Ty.uint 256) }
       , ContractItem.function
           { name := some "aliasWrite"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29312,6 +29313,7 @@ def storageReferenceAliasContract : ContractDecl :=
                           (Expr.member (Expr.ident "ref") "length"))) ]) }
       , ContractItem.function
           { name := some "aliasMap"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29335,6 +29337,7 @@ def storageReferenceAliasContract : ContractDecl :=
                           (Expr.literal (Literal.number "4")))) ]) }
       , ContractItem.function
           { name := some "deleteAlias"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29350,6 +29353,7 @@ def storageReferenceAliasContract : ContractDecl :=
                       (some (Expr.member (Expr.ident "items") "length")) ]) }
       , ContractItem.function
           { name := some "aliasPush"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29380,6 +29384,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "1"))))) ]) }
       , ContractItem.function
           { name := some "aliasPushAssign"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29406,6 +29411,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "aliasPop"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29438,6 +29444,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "aliasRebind"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29482,6 +29489,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "aliasRebindFromAlias"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29650,6 +29658,7 @@ def storageReferenceAliasContract : ContractDecl :=
                         (Expr.ident "value")) ]) }
       , ContractItem.function
           { name := some "internalStorageParamWrite"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29672,6 +29681,7 @@ def storageReferenceAliasContract : ContractDecl :=
                           (Expr.literal (Literal.number "0")))) ]) }
       , ContractItem.function
           { name := some "internalStorageParamPush"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29693,6 +29703,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "internalStorageParamPop"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29723,6 +29734,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "internalStorageParamAliasPush"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29749,6 +29761,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "internalStorageParamRebind"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29783,6 +29796,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "internalStorageParamRebindToState"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29816,6 +29830,7 @@ def storageReferenceAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "internalStorageParamAliasArg"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29843,6 +29858,7 @@ def storageReferenceAliasContract : ContractDecl :=
                           (Expr.literal (Literal.number "0")))) ]) }
       , ContractItem.function
           { name := some "internalStorageMappingParamWrite"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29862,6 +29878,7 @@ def storageReferenceAliasContract : ContractDecl :=
                           (Expr.literal (Literal.number "5")))) ]) }
       , ContractItem.function
           { name := some "internalStorageMappingParamAliasArg"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -29885,6 +29902,17 @@ def storageReferenceAliasContract : ContractDecl :=
                         (Expr.index
                           (Expr.ident "entries")
                           (Expr.literal (Literal.number "6")))) ]) } ] }
+
+def storageReferenceAliasCheckedContract : ContractDecl :=
+  { storageReferenceAliasContract with
+    name := "StorageReferenceAliasChecked"
+    items :=
+      storageReferenceAliasContract.items.filter
+        (fun item =>
+          match item with
+          | ContractItem.function fn =>
+              fn.name != some "deleteAlias"
+          | _ => true) }
 
 def storageReferenceAliasMatches : Option Bool := do
   let result ←
