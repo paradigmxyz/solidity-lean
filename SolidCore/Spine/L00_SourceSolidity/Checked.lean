@@ -2257,6 +2257,109 @@ def checkedAbiCallUintMatches (fuel : Nat) (source : SourceUnitAst)
   Except.ok
     (result.success && SolidCore.Solidity.Source.wordEq value expected)
 
+def checkedPrimitiveAbiContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedPrimitiveAbi"
+    items :=
+      [ ContractItem.function
+          { Executable.Examples.boolIdentityFunction with
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure }
+      , ContractItem.function
+          { Executable.Examples.addressIdentityFunction with
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure }
+      , ContractItem.function
+          { Executable.Examples.fixedBytesEchoFunction with
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure } ] }
+
+def checkedPrimitiveAbiContractAccepted : Bool :=
+  Result.isOk (CheckedInput.program checkedPrimitiveAbiContract)
+
+def checkedPrimitiveAbiOwnCallWordMatches (functionName : Name)
+    (args : List CoreValue) (expected : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 8 checkedPrimitiveAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      SolidCore.Solidity.Source.State.empty args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  | _ => Except.ok false
+
+def checkedBoolIdentityCallMatches : Except TypeError Bool :=
+  checkedPrimitiveAbiOwnCallWordMatches "idBool"
+    [SolidCore.Solidity.Source.Value.word 1] 1
+
+def checkedAddressIdentityCallMatches : Except TypeError Bool :=
+  checkedPrimitiveAbiOwnCallWordMatches "idAddress"
+    [SolidCore.Solidity.Source.Value.word 0x1234] 0x1234
+
+def checkedAddressAbiCalldataMatches : Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      checkedPrimitiveAbiContract "idAddress"
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let result ←
+    ContractDecl.checkedCallCalldata 8 checkedPrimitiveAbiContract
+      SolidCore.Solidity.Source.State.empty calldata
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  Except.ok (result.success && result.output == expected)
+
+def checkedAddressAbiRejectsWideEncode : Bool :=
+  Result.isError
+    (checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word (2 ^ 160)])
+
+def checkedAddressAbiRejectsWideCalldata : Bool :=
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "idAddress(address)")
+  let calldata :=
+    selector ++
+      SolidCore.Solidity.Source.ABI.encodeWord (2 ^ 160)
+  Result.isError
+    (ContractDecl.checkedCallCalldata 8 checkedPrimitiveAbiContract
+      SolidCore.Solidity.Source.State.empty calldata)
+
+def checkedFixedBytesAbiCalldataMatches : Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      checkedPrimitiveAbiContract "echo4"
+      [SolidCore.Solidity.Source.Value.word 0xaabbccdd]
+  let result ←
+    ContractDecl.checkedCallCalldata 16 checkedPrimitiveAbiContract
+      SolidCore.Solidity.Source.State.empty calldata
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+      [SolidCore.Solidity.Source.Value.word 0xaabbccdd]
+  Except.ok (result.success && result.output == expected)
+
+def checkedFixedBytesAbiRejectsWideEncode : Bool :=
+  Result.isError
+    (checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.fixedBytes 4]
+      [SolidCore.Solidity.Source.Value.word (2 ^ 32)])
+
+def checkedFixedBytesAbiRejectsDirtyPadding : Bool :=
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "echo4(bytes4)")
+  let calldata :=
+    selector ++ [0xaa, 0xbb, 0xcc, 0xdd, 1] ++
+      List.replicate 27 0
+  Result.isError
+    (ContractDecl.checkedCallCalldata 16 checkedPrimitiveAbiContract
+      SolidCore.Solidity.Source.State.empty calldata)
+
 def checkedDataTypeSourceUnitsAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
