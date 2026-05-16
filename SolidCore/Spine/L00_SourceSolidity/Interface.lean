@@ -36135,7 +36135,8 @@ def inheritedEnumUdvtDerivedContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "largest"
-            returns := [{ ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
+            returns := [{ ty := Ty.user (pathOfName "E") }]
             mutability := StateMutability.pure
             body :=
               some
@@ -36146,7 +36147,9 @@ def inheritedEnumUdvtDerivedContract : ContractDecl :=
                       "max"))) }
       , ContractItem.function
           { name := some "largestQualified"
-            returns := [{ ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
+            returns :=
+              [{ ty := Ty.user (qualifiedPath "EnumUdvtBase" "E") }]
             mutability := StateMutability.pure
             body :=
               some

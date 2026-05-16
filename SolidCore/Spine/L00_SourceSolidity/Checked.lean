@@ -5663,6 +5663,77 @@ def checkedInternalOverloadedDispatchMatchesExpected :
     Executable.Examples.internalOverloadedDispatchContract
     "run" SolidCore.Solidity.Source.State.empty [] 1 2 3
 
+def checkedInheritedNestedEnumUdvtUnitsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.inheritedNestedTypeUnit) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.inheritedEnumUdvtUnit)
+
+def checkedInheritedNestedTypeShadowsUnrelatedLowering :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.inheritedNestedTypeUnit
+      "NestedTypeDerived"
+  optionToExcept "inherited nested type lowering"
+    (Executable.Examples.inheritedNestedTypeFunctionReturnsFirstField?
+      "readInheritedX" contract)
+
+def checkedQualifiedInheritedNestedTypeLowering :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.toCoreContract
+      Executable.Examples.inheritedNestedTypeUnit
+      "NestedTypeDerived"
+  optionToExcept "qualified inherited nested type lowering"
+    (Executable.Examples.inheritedNestedTypeFunctionReturnsFirstField?
+      "readQualifiedInheritedX" contract)
+
+def checkedInheritedEnumMaxMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32
+    Executable.Examples.inheritedEnumUdvtUnit
+    "EnumUdvtDerived" "largest"
+    SolidCore.Solidity.Source.State.empty [] 2
+
+def checkedQualifiedInheritedEnumMaxMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32
+    Executable.Examples.inheritedEnumUdvtUnit
+    "EnumUdvtDerived" "largestQualified"
+    SolidCore.Solidity.Source.State.empty [] 2
+
+def checkedInheritedUdvtAbiEchoMatches (signature : String) :
+    Except TypeError Bool := do
+  let selector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature signature
+  let calldata ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 5]
+  let result ←
+    CheckedInput.callCalldata 32
+      Executable.Examples.inheritedEnumUdvtUnit
+      "EnumUdvtDerived"
+      SolidCore.Solidity.Source.State.empty
+      (SolidCore.Solidity.Source.wordToBytesBE
+        SolidCore.Solidity.Source.selectorBytes selector ++ calldata)
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 5]
+  Except.ok (result.success && result.output == expected)
+
+def checkedInheritedUdvtAbiEchoUsesInheritedUnderlying :
+    Except TypeError Bool :=
+  checkedInheritedUdvtAbiEchoMatches "echoToken(uint8)"
+
+def checkedQualifiedInheritedUdvtAbiEchoUsesInheritedUnderlying :
+    Except TypeError Bool :=
+  checkedInheritedUdvtAbiEchoMatches "echoQualifiedToken(uint8)"
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
