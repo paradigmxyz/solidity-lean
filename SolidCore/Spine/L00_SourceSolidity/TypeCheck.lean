@@ -18457,6 +18457,202 @@ def signedGasOptionExternalSource : L00_SourceSolidity.SourceUnit :=
 def signedGasOptionExternalRejected : Bool :=
   Result.isError (SourceUnit.check signedGasOptionExternalSource)
 
+def unknownCallOptionExternalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract calleeContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UnknownCallOptionExternal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { externalMemberCallFunction with
+                    name := some "badUnknownCallOption"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "get")
+                              [ L00_SourceSolidity.CallOption.named "foo"
+                                  (numberExpr "1") ]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "7") ]))) } ] } ] }
+
+def unknownCallOptionExternalRejected : Bool :=
+  Result.isError (SourceUnit.check unknownCallOptionExternalSource)
+
+def duplicateCallOptionExternalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract calleeContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateCallOptionExternal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { externalMemberCallFunction with
+                    name := some "badDuplicateCallOption"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "get")
+                              [ gasOption "1", gasOption "2" ]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "7") ]))) } ] } ] }
+
+def duplicateCallOptionExternalRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateCallOptionExternalSource)
+
+def internalCallOptionHelper : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "localValue"
+    params := [{ name := some "x", ty := uint256, location := none }]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "x"))) }
+
+def internalIdentifierCallOptionsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalIdentifierCallOptions"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalCallOptionHelper
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badInternalIdentifierOptions"
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.ident "localValue")
+                              [gasOption "1"]
+                              [L00_SourceSolidity.Arg.positional
+                                (numberExpr "3")]))) } ] } ] }
+
+def internalIdentifierCallOptionsRejected : Bool :=
+  Result.isError (SourceUnit.check internalIdentifierCallOptionsSource)
+
+def internalFunctionPointerCallOptionsSource :
+    L00_SourceSolidity.SourceUnit :=
+  let internalUintFunctionTy :=
+    L00_SourceSolidity.Ty.function [uint256] [uint256]
+      L00_SourceSolidity.StateMutability.pure
+      L00_SourceSolidity.Visibility.internal_
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalFunctionPointerCallOptions"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalCallOptionHelper
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badInternalFunctionPointerOptions"
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "fp"
+                                  ty := some internalUintFunctionTy
+                                  location := none } ]
+                              (some
+                                (L00_SourceSolidity.Expr.ident
+                                  "localValue"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.callWithOptions
+                                  (L00_SourceSolidity.Expr.ident "fp")
+                                  [gasOption "1"]
+                                  [L00_SourceSolidity.Arg.positional
+                                    (numberExpr "3")])) ]) } ] } ] }
+
+def internalFunctionPointerCallOptionsRejected : Bool :=
+  Result.isError (SourceUnit.check internalFunctionPointerCallOptionsSource)
+
+def lowLevelNamedArgumentSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelNamedArgument"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badLowLevelNamedArgument"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "call")
+                              [ L00_SourceSolidity.Arg.named "data"
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelNamedArgumentRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelNamedArgumentSource)
+
+def arrayMemberCallOptionsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ArrayMemberCallOptions"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "items"
+                    ty := L00_SourceSolidity.Ty.array uint256 none }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badArrayMemberOptions"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.callWithOptions
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.ident "items")
+                                  "push")
+                                [gasOption "1"]
+                                [L00_SourceSolidity.Arg.positional
+                                  (numberExpr "3")])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def arrayMemberCallOptionsRejected : Bool :=
+  Result.isError (SourceUnit.check arrayMemberCallOptionsSource)
+
+def callOptionDisciplineRejected : Bool :=
+  superCallOptionsRejected &&
+    signedValueOptionExternalRejected &&
+    signedGasOptionExternalRejected &&
+    unknownCallOptionExternalRejected &&
+    duplicateCallOptionExternalRejected &&
+    internalIdentifierCallOptionsRejected &&
+    internalFunctionPointerCallOptionsRejected &&
+    lowLevelNamedArgumentRejected &&
+    arrayMemberCallOptionsRejected
+
 def lowLevelSendFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "sendIt"

@@ -12348,6 +12348,28 @@ def checkedMappingDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit badMappingIndexSource)
 
+def checkedCallOptionDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit superCallOptionsSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedValueOptionExternalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedGasOptionExternalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit unknownCallOptionExternalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateCallOptionExternalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        internalIdentifierCallOptionsSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        internalFunctionPointerCallOptionsSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit lowLevelNamedArgumentSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit arrayMemberCallOptionsSource)
+
 def checkedStaticSourceDisciplineSemanticsMatch : Bool :=
   checkedPreValidityBoundarySemanticsMatch &&
     checkedInheritedNamespaceShadowingAccepted &&
@@ -12367,7 +12389,8 @@ def checkedStaticSourceDisciplineSemanticsMatch : Bool :=
     checkedTupleLocalBindingDisciplineAccepted &&
     checkedTupleLocalBindingDisciplineRejected &&
     checkedMappingDisciplineAccepted &&
-    checkedMappingDisciplineRejected
+    checkedMappingDisciplineRejected &&
+    checkedCallOptionDisciplineRejected
 
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
