@@ -9,8 +9,11 @@ abbrev CoreContract := L00_SourceSolidity.Executable.CoreContract
 abbrev CoreValue := L00_SourceSolidity.Executable.CoreValue
 abbrev CoreState := L00_SourceSolidity.Executable.CoreState
 abbrev CoreCallResult := L00_SourceSolidity.Executable.CoreCallResult
+abbrev CoreFunctionDef := L00_SourceSolidity.Executable.CoreFunctionDef
 abbrev CoreAbiCallResult := SolidCore.Solidity.Source.ABI.AbiCallResult
 abbrev CallTarget := SolidCore.Solidity.Source.CallTarget
+abbrev SourceUnitAst := L00_SourceSolidity.SourceUnit
+abbrev SourceContractDecl := L00_SourceSolidity.ContractDecl
 
 namespace Result
 
@@ -36,90 +39,415 @@ typechecker depends on the source surface defined there. Callers that want
 Solidity validity as part of execution should enter through this wrapper so
 `SourceUnit.check` is run before any source-to-core translation or call.
 -/
+structure CheckedProgram where
+  checked : CheckedSourceUnit
+  source : SourceUnitAst
+  deriving Repr
+
+structure CheckedContract where
+  program : CheckedProgram
+  decl : SourceContractDecl
+  core : CoreContract
+  deriving Repr
+
+namespace CheckedProgram
+
+def fromChecked? (checked : CheckedSourceUnit) :
+    Option CheckedProgram := do
+  let source ←
+    L00_SourceSolidity.Executable.SourceUnit.resolveSourceTypesContextual?
+      checked.source
+  some { checked := checked, source := source }
+
+def fromChecked (checked : CheckedSourceUnit) :
+    Except TypeError CheckedProgram :=
+  optionToExcept "source type resolution" (fromChecked? checked)
+
+def fromSource? (source : SourceUnitAst) : Option CheckedProgram := do
+  let checked ←
+    Result.toOption
+      (_root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
+        source)
+  fromChecked? checked
+
+def fromSource (source : SourceUnitAst) :
+    Except TypeError CheckedProgram := do
+  let checked ←
+    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
+      source
+  fromChecked checked
+
+def usingDecls (program : CheckedProgram) :
+    List L00_SourceSolidity.UsingDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.usingDecls program.source
+
+def freeFunctions (program : CheckedProgram) :
+    List L00_SourceSolidity.FunctionDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeFunctions program.source
+
+def freeEvents (program : CheckedProgram) :
+    List L00_SourceSolidity.EventDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeEvents program.source
+
+def freeErrors (program : CheckedProgram) :
+    List L00_SourceSolidity.ErrorDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeErrors program.source
+
+def freeConstants (program : CheckedProgram) :
+    List L00_SourceSolidity.StateVarDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeConstants program.source
+
+def contracts (program : CheckedProgram) :
+    List SourceContractDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.contracts program.source
+
+def findSourceContract? (program : CheckedProgram) (name : Name) :
+    Option SourceContractDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.findContract?
+    program.source name
+
+def toCoreContractFor? (program : CheckedProgram)
+    (decl : SourceContractDecl) : Option CoreContract :=
+  L00_SourceSolidity.Executable.ContractDecl.toCoreWithBasesAndUsing?
+    (usingDecls program) (freeFunctions program)
+    (freeEvents program) (freeErrors program)
+    (freeConstants program) (contracts program) decl
+
+def toCoreContract? (program : CheckedProgram) (name : Name) :
+    Option CoreContract := do
+  let decl ← findSourceContract? program name
+  toCoreContractFor? program decl
+
+def toCoreContract (program : CheckedProgram) (name : Name) :
+    Except TypeError CoreContract :=
+  optionToExcept ("contract translation " ++ name)
+    (toCoreContract? program name)
+
+def toCoreContracts? (program : CheckedProgram) :
+    Option (List CoreContract) :=
+  L00_SourceSolidity.Executable.mapOption
+    (fun decl => toCoreContractFor? program decl)
+    (contracts program)
+
+def toCoreContracts (program : CheckedProgram) :
+    Except TypeError (List CoreContract) :=
+  optionToExcept "source-unit translation" (toCoreContracts? program)
+
+def constructorFunctionFor? (program : CheckedProgram)
+    (decl : SourceContractDecl) : Option CoreFunctionDef :=
+  L00_SourceSolidity.Executable.ContractDecl.constructorFunctionWithBasesAndSource?
+    (usingDecls program) (freeFunctions program)
+    (freeEvents program) (freeErrors program)
+    (freeConstants program) (contracts program) decl
+
+def constructorFunction? (program : CheckedProgram) (name : Name) :
+    Option CoreFunctionDef := do
+  let decl ← findSourceContract? program name
+  constructorFunctionFor? program decl
+
+def contract? (program : CheckedProgram) (name : Name) :
+    Option CheckedContract := do
+  let decl ← findSourceContract? program name
+  let core ← toCoreContractFor? program decl
+  some { program := program, decl := decl, core := core }
+
+def contract (program : CheckedProgram) (name : Name) :
+    Except TypeError CheckedContract :=
+  optionToExcept ("checked contract " ++ name) (contract? program name)
+
+end CheckedProgram
+
+namespace CheckedContract
+
+def constructFrom? (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (sender value : Word) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let constructor ←
+    CheckedProgram.constructorFunctionFor? contract.program contract.decl
+  SolidCore.Solidity.Source.FunctionDef.call?
+    fuel
+    { contract.core.context with
+      sender := sender
+      value := value
+      construction := true }
+    constructor state args
+
+def constructFrom (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (sender value : Word) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  optionToExcept ("constructor call " ++ contract.decl.name)
+    (constructFrom? fuel contract state sender value args)
+
+def construct? (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult :=
+  constructFrom? fuel contract state 0 0 args
+
+def construct (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  constructFrom fuel contract state 0 0 args
+
+def call? (fuel : Nat) (contract : CheckedContract)
+    (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option CoreCallResult :=
+  SolidCore.Solidity.Source.Contract.call?
+    fuel contract.core target state args
+
+def call (fuel : Nat) (contract : CheckedContract)
+    (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreCallResult :=
+  optionToExcept ("contract call " ++ contract.decl.name)
+    (call? fuel contract target state args)
+
+def callTransaction? (fuel : Nat) (contract : CheckedContract)
+    (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option CoreCallResult :=
+  SolidCore.Solidity.Source.Contract.callTransaction?
+    fuel contract.core target state args
+
+def callTransaction (fuel : Nat) (contract : CheckedContract)
+    (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreCallResult :=
+  optionToExcept ("contract transaction " ++ contract.decl.name)
+    (callTransaction? fuel contract target state args)
+
+def callCalldataFrom? (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
+    fuel contract.core state sender value calldata
+
+def callCalldataFrom (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata call " ++ contract.decl.name)
+    (callCalldataFrom? fuel contract state sender value calldata)
+
+def callCalldata? (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataFrom? fuel contract state 0 0 calldata
+
+def callCalldata (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataFrom fuel contract state 0 0 calldata
+
+def callCalldataTransactionFrom? (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataTransactionFrom?
+    fuel contract.core state sender value calldata
+
+def callCalldataTransactionFrom (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata transaction " ++ contract.decl.name)
+    (callCalldataTransactionFrom?
+      fuel contract state sender value calldata)
+
+def callCalldataTransaction? (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  callCalldataTransactionFrom? fuel contract state 0 0 calldata
+
+def callCalldataTransaction (fuel : Nat)
+    (contract : CheckedContract) (state : CoreState)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  callCalldataTransactionFrom fuel contract state 0 0 calldata
+
+end CheckedContract
+
+namespace CheckedProgram
+
+def constructContractFrom? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let contract ← contract? program name
+  CheckedContract.constructFrom? fuel contract state sender value args
+
+def constructContractFrom (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let contract ← contract program name
+  CheckedContract.constructFrom fuel contract state sender value args
+
+def constructContract? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult :=
+  constructContractFrom? fuel program name state 0 0 args
+
+def constructContract (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  constructContractFrom fuel program name state 0 0 args
+
+def callContract? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let contract ← contract? program name
+  CheckedContract.call? fuel contract target state args
+
+def callContract (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let contract ← contract program name
+  CheckedContract.call fuel contract target state args
+
+def callContractTransaction? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let contract ← contract? program name
+  CheckedContract.callTransaction? fuel contract target state args
+
+def callContractTransaction (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let contract ← contract program name
+  CheckedContract.callTransaction fuel contract target state args
+
+def callCalldataFrom? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult := do
+  let contract ← contract? program name
+  CheckedContract.callCalldataFrom? fuel contract state sender value calldata
+
+def callCalldataFrom (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult := do
+  let contract ← contract program name
+  CheckedContract.callCalldataFrom fuel contract state sender value calldata
+
+def callCalldata? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataFrom? fuel program name state 0 0 calldata
+
+def callCalldata (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataFrom fuel program name state 0 0 calldata
+
+def callCalldataTransactionFrom? (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Option CoreAbiCallResult := do
+  let contract ← contract? program name
+  CheckedContract.callCalldataTransactionFrom?
+    fuel contract state sender value calldata
+
+def callCalldataTransactionFrom (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult := do
+  let contract ← contract program name
+  CheckedContract.callCalldataTransactionFrom
+    fuel contract state sender value calldata
+
+def callCalldataTransaction? (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Option CoreAbiCallResult :=
+  callCalldataTransactionFrom? fuel program name state 0 0 calldata
+
+def callCalldataTransaction (fuel : Nat)
+    (program : CheckedProgram) (name : Name)
+    (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataTransactionFrom fuel program name state 0 0 calldata
+
+end CheckedProgram
+
 namespace CheckedSourceUnit
 
 def toCoreContract? (checked : CheckedSourceUnit) (name : Name) :
-    Option CoreContract :=
-  L00_SourceSolidity.Executable.SourceUnit.toCoreContract?
-    checked.source name
+    Option CoreContract := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.toCoreContract? program name
 
 def toCoreContract (checked : CheckedSourceUnit) (name : Name) :
-    Except TypeError CoreContract :=
-  optionToExcept ("contract translation " ++ name)
-    (toCoreContract? checked name)
+    Except TypeError CoreContract := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.toCoreContract program name
 
 def toCoreContracts? (checked : CheckedSourceUnit) :
-    Option (List CoreContract) :=
-  L00_SourceSolidity.Executable.SourceUnit.toCoreContracts?
-    checked.source
+    Option (List CoreContract) := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.toCoreContracts? program
 
 def toCoreContracts (checked : CheckedSourceUnit) :
-    Except TypeError (List CoreContract) :=
-  optionToExcept "source-unit translation"
-    (toCoreContracts? checked)
+    Except TypeError (List CoreContract) := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.toCoreContracts program
 
 def constructContractFrom? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
-    (args : List CoreValue) : Option CoreCallResult :=
-  L00_SourceSolidity.Executable.SourceUnit.constructContractFrom?
-    fuel checked.source name state sender value args
+    (args : List CoreValue) : Option CoreCallResult := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.constructContractFrom?
+    fuel program name state sender value args
 
 def constructContractFrom (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
-    (args : List CoreValue) : Except TypeError CoreCallResult :=
-  optionToExcept ("constructor call " ++ name)
-    (constructContractFrom?
-      fuel checked name state sender value args)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.constructContractFrom
+    fuel program name state sender value args
 
 def constructContract? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (args : List CoreValue) :
-    Option CoreCallResult :=
-  L00_SourceSolidity.Executable.SourceUnit.constructContract?
-    fuel checked.source name state args
+    Option CoreCallResult := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.constructContract? fuel program name state args
 
 def constructContract (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (args : List CoreValue) :
-    Except TypeError CoreCallResult :=
-  optionToExcept ("constructor call " ++ name)
-    (constructContract? fuel checked name state args)
+    Except TypeError CoreCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.constructContract fuel program name state args
 
 def callContract? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (target : CallTarget) (state : CoreState)
-    (args : List CoreValue) : Option CoreCallResult :=
-  L00_SourceSolidity.Executable.SourceUnit.callContract?
-    fuel checked.source name target state args
+    (args : List CoreValue) : Option CoreCallResult := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.callContract? fuel program name target state args
 
 def callContract (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (target : CallTarget) (state : CoreState)
-    (args : List CoreValue) : Except TypeError CoreCallResult :=
-  optionToExcept ("contract call " ++ name)
-    (callContract? fuel checked name target state args)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.callContract fuel program name target state args
 
 def callContractTransaction? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (target : CallTarget) (state : CoreState)
-    (args : List CoreValue) : Option CoreCallResult :=
-  L00_SourceSolidity.Executable.SourceUnit.callContractTransaction?
-    fuel checked.source name target state args
+    (args : List CoreValue) : Option CoreCallResult := do
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.callContractTransaction?
+    fuel program name target state args
 
 def callContractTransaction (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (target : CallTarget) (state : CoreState)
-    (args : List CoreValue) : Except TypeError CoreCallResult :=
-  optionToExcept ("contract transaction " ++ name)
-    (callContractTransaction?
-      fuel checked name target state args)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.callContractTransaction
+    fuel program name target state args
 
 def callCalldataFrom? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
     (calldata : List Byte) : Option CoreAbiCallResult := do
-  let contract ← toCoreContract? checked name
-  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom?
-    fuel contract state sender value calldata
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.callCalldataFrom?
+    fuel program name state sender value calldata
 
 def callCalldataFrom (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
-    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
-  optionToExcept ("ABI calldata call " ++ name)
-    (callCalldataFrom? fuel checked name state sender value calldata)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.callCalldataFrom
+    fuel program name state sender value calldata
 
 def callCalldata? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (calldata : List Byte) :
@@ -135,17 +463,17 @@ def callCalldataTransactionFrom? (fuel : Nat)
     (checked : CheckedSourceUnit) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Option CoreAbiCallResult := do
-  let contract ← toCoreContract? checked name
-  SolidCore.Solidity.Source.ABI.Contract.callCalldataTransactionFrom?
-    fuel contract state sender value calldata
+  let program ← CheckedProgram.fromChecked? checked
+  CheckedProgram.callCalldataTransactionFrom?
+    fuel program name state sender value calldata
 
 def callCalldataTransactionFrom (fuel : Nat)
     (checked : CheckedSourceUnit) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
-    Except TypeError CoreAbiCallResult :=
-  optionToExcept ("ABI calldata transaction " ++ name)
-    (callCalldataTransactionFrom?
-      fuel checked name state sender value calldata)
+    Except TypeError CoreAbiCallResult := do
+  let program ← CheckedProgram.fromChecked checked
+  CheckedProgram.callCalldataTransactionFrom
+    fuel program name state sender value calldata
 
 def callCalldataTransaction? (fuel : Nat)
     (checked : CheckedSourceUnit) (name : Name)
@@ -163,168 +491,152 @@ end CheckedSourceUnit
 
 namespace SourceUnit
 
-def checked? (source : L00_SourceSolidity.SourceUnit) :
+def checked? (source : SourceUnitAst) :
     Option CheckedSourceUnit :=
   Result.toOption
     (_root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
       source)
 
-def checkedToCoreContract? (source : L00_SourceSolidity.SourceUnit)
+def checkedProgram? (source : SourceUnitAst) :
+    Option CheckedProgram :=
+  CheckedProgram.fromSource? source
+
+def checkedProgram (source : SourceUnitAst) :
+    Except TypeError CheckedProgram :=
+  CheckedProgram.fromSource source
+
+def checkedToCoreContract? (source : SourceUnitAst)
     (name : Name) : Option CoreContract := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.toCoreContract?
-    checked name
+  let program ← checkedProgram? source
+  CheckedProgram.toCoreContract? program name
 
-def checkedToCoreContract (source : L00_SourceSolidity.SourceUnit)
+def checkedToCoreContract (source : SourceUnitAst)
     (name : Name) : Except TypeError CoreContract := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.toCoreContract
-    checked name
+  let program ← checkedProgram source
+  CheckedProgram.toCoreContract program name
 
-def checkedToCoreContracts? (source : L00_SourceSolidity.SourceUnit) :
+def checkedToCoreContracts? (source : SourceUnitAst) :
     Option (List CoreContract) := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.toCoreContracts?
-    checked
+  let program ← checkedProgram? source
+  CheckedProgram.toCoreContracts? program
 
-def checkedToCoreContracts (source : L00_SourceSolidity.SourceUnit) :
+def checkedToCoreContracts (source : SourceUnitAst) :
     Except TypeError (List CoreContract) := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.toCoreContracts
-    checked
+  let program ← checkedProgram source
+  CheckedProgram.toCoreContracts program
 
 def checkedConstructContractFrom? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (args : List CoreValue) :
     Option CoreCallResult := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.constructContractFrom?
-    fuel checked name state sender value args
+  let program ← checkedProgram? source
+  CheckedProgram.constructContractFrom?
+    fuel program name state sender value args
 
 def checkedConstructContractFrom (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (args : List CoreValue) :
     Except TypeError CoreCallResult := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.constructContractFrom
-    fuel checked name state sender value args
+  let program ← checkedProgram source
+  CheckedProgram.constructContractFrom
+    fuel program name state sender value args
 
 def checkedConstructContract? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (args : List CoreValue) :
     Option CoreCallResult := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.constructContract?
-    fuel checked name state args
+  let program ← checkedProgram? source
+  CheckedProgram.constructContract? fuel program name state args
 
 def checkedConstructContract (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (args : List CoreValue) :
     Except TypeError CoreCallResult := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.constructContract
-    fuel checked name state args
+  let program ← checkedProgram source
+  CheckedProgram.constructContract fuel program name state args
 
 def checkedCallContract? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (target : CallTarget) (state : CoreState) (args : List CoreValue) :
     Option CoreCallResult := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callContract?
-    fuel checked name target state args
+  let program ← checkedProgram? source
+  CheckedProgram.callContract? fuel program name target state args
 
 def checkedCallContract (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (target : CallTarget) (state : CoreState) (args : List CoreValue) :
     Except TypeError CoreCallResult := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callContract
-    fuel checked name target state args
+  let program ← checkedProgram source
+  CheckedProgram.callContract fuel program name target state args
 
 def checkedCallContractTransaction? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (target : CallTarget) (state : CoreState) (args : List CoreValue) :
     Option CoreCallResult := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callContractTransaction?
-    fuel checked name target state args
+  let program ← checkedProgram? source
+  CheckedProgram.callContractTransaction?
+    fuel program name target state args
 
 def checkedCallContractTransaction (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (target : CallTarget) (state : CoreState) (args : List CoreValue) :
     Except TypeError CoreCallResult := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callContractTransaction
-    fuel checked name target state args
+  let program ← checkedProgram source
+  CheckedProgram.callContractTransaction
+    fuel program name target state args
 
 def checkedCallCalldataFrom? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Option CoreAbiCallResult := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataFrom?
-    fuel checked name state sender value calldata
+  let program ← checkedProgram? source
+  CheckedProgram.callCalldataFrom?
+    fuel program name state sender value calldata
 
 def checkedCallCalldataFrom (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Except TypeError CoreAbiCallResult := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataFrom
-    fuel checked name state sender value calldata
+  let program ← checkedProgram source
+  CheckedProgram.callCalldataFrom
+    fuel program name state sender value calldata
 
 def checkedCallCalldata? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (calldata : List Byte) :
     Option CoreAbiCallResult :=
   checkedCallCalldataFrom? fuel source name state 0 0 calldata
 
 def checkedCallCalldata (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (calldata : List Byte) :
     Except TypeError CoreAbiCallResult :=
   checkedCallCalldataFrom fuel source name state 0 0 calldata
 
 def checkedCallCalldataTransactionFrom? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Option CoreAbiCallResult := do
-  let checked ← checked? source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataTransactionFrom?
-    fuel checked name state sender value calldata
+  let program ← checkedProgram? source
+  CheckedProgram.callCalldataTransactionFrom?
+    fuel program name state sender value calldata
 
 def checkedCallCalldataTransactionFrom (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Except TypeError CoreAbiCallResult := do
-  let checked ←
-    _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.SourceUnit.check
-      source
-  _root_.SolidCore.Spine.L00_SourceSolidity.TypeCheck.CheckedSourceUnit.callCalldataTransactionFrom
-    fuel checked name state sender value calldata
+  let program ← checkedProgram source
+  CheckedProgram.callCalldataTransactionFrom
+    fuel program name state sender value calldata
 
 def checkedCallCalldataTransaction? (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (calldata : List Byte) :
     Option CoreAbiCallResult :=
   checkedCallCalldataTransactionFrom? fuel source name state 0 0 calldata
 
 def checkedCallCalldataTransaction (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (name : Name)
+    (source : SourceUnitAst) (name : Name)
     (state : CoreState) (calldata : List Byte) :
     Except TypeError CoreAbiCallResult :=
   checkedCallCalldataTransactionFrom
@@ -334,120 +646,143 @@ end SourceUnit
 
 namespace ContractDecl
 
-def sourceUnit (decl : L00_SourceSolidity.ContractDecl) :
-    L00_SourceSolidity.SourceUnit :=
+def sourceUnit (decl : SourceContractDecl) : SourceUnitAst :=
   { items := [L00_SourceSolidity.SourceItem.contract decl] }
 
-def checked? (decl : L00_SourceSolidity.ContractDecl) :
+def checked? (decl : SourceContractDecl) :
     Option CheckedSourceUnit :=
   SourceUnit.checked? (sourceUnit decl)
 
-def checkedToCore? (decl : L00_SourceSolidity.ContractDecl) :
-    Option CoreContract :=
-  SourceUnit.checkedToCoreContract? (sourceUnit decl) decl.name
+def checkedProgram? (decl : SourceContractDecl) :
+    Option CheckedProgram :=
+  SourceUnit.checkedProgram? (sourceUnit decl)
 
-def checkedToCore (decl : L00_SourceSolidity.ContractDecl) :
-    Except TypeError CoreContract :=
-  SourceUnit.checkedToCoreContract (sourceUnit decl) decl.name
+def checkedProgram (decl : SourceContractDecl) :
+    Except TypeError CheckedProgram :=
+  SourceUnit.checkedProgram (sourceUnit decl)
+
+def checkedContract? (decl : SourceContractDecl) :
+    Option CheckedContract := do
+  let program ← checkedProgram? decl
+  CheckedProgram.contract? program decl.name
+
+def checkedContract (decl : SourceContractDecl) :
+    Except TypeError CheckedContract := do
+  let program ← checkedProgram decl
+  CheckedProgram.contract program decl.name
+
+def checkedToCore? (decl : SourceContractDecl) :
+    Option CoreContract := do
+  let contract ← checkedContract? decl
+  some contract.core
+
+def checkedToCore (decl : SourceContractDecl) :
+    Except TypeError CoreContract := do
+  let contract ← checkedContract decl
+  Except.ok contract.core
 
 def checkedConstructFrom? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (args : List CoreValue) :
-    Option CoreCallResult :=
-  SourceUnit.checkedConstructContractFrom?
-    fuel (sourceUnit decl) decl.name state sender value args
+    Option CoreCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.constructFrom? fuel contract state sender value args
 
 def checkedConstructFrom (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (args : List CoreValue) :
-    Except TypeError CoreCallResult :=
-  SourceUnit.checkedConstructContractFrom
-    fuel (sourceUnit decl) decl.name state sender value args
+    Except TypeError CoreCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.constructFrom fuel contract state sender value args
 
 def checkedConstruct? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
-    (args : List CoreValue) : Option CoreCallResult :=
-  SourceUnit.checkedConstructContract?
-    fuel (sourceUnit decl) decl.name state args
+    (decl : SourceContractDecl) (state : CoreState)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.construct? fuel contract state args
 
 def checkedConstruct (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
-    (args : List CoreValue) : Except TypeError CoreCallResult :=
-  SourceUnit.checkedConstructContract
-    fuel (sourceUnit decl) decl.name state args
+    (decl : SourceContractDecl) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.construct fuel contract state args
 
 def checkedCall? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
-    (state : CoreState) (args : List CoreValue) : Option CoreCallResult :=
-  SourceUnit.checkedCallContract?
-    fuel (sourceUnit decl) decl.name target state args
+    (decl : SourceContractDecl) (target : CallTarget)
+    (state : CoreState) (args : List CoreValue) : Option CoreCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.call? fuel contract target state args
 
 def checkedCall (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
+    (decl : SourceContractDecl) (target : CallTarget)
     (state : CoreState) (args : List CoreValue) :
-    Except TypeError CoreCallResult :=
-  SourceUnit.checkedCallContract
-    fuel (sourceUnit decl) decl.name target state args
+    Except TypeError CoreCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.call fuel contract target state args
 
 def checkedCallTransaction? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
-    (state : CoreState) (args : List CoreValue) : Option CoreCallResult :=
-  SourceUnit.checkedCallContractTransaction?
-    fuel (sourceUnit decl) decl.name target state args
+    (decl : SourceContractDecl) (target : CallTarget)
+    (state : CoreState) (args : List CoreValue) : Option CoreCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.callTransaction? fuel contract target state args
 
 def checkedCallTransaction (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (target : CallTarget)
+    (decl : SourceContractDecl) (target : CallTarget)
     (state : CoreState) (args : List CoreValue) :
-    Except TypeError CoreCallResult :=
-  SourceUnit.checkedCallContractTransaction
-    fuel (sourceUnit decl) decl.name target state args
+    Except TypeError CoreCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.callTransaction fuel contract target state args
 
 def checkedCallCalldataFrom? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
-    Option CoreAbiCallResult :=
-  SourceUnit.checkedCallCalldataFrom?
-    fuel (sourceUnit decl) decl.name state sender value calldata
+    Option CoreAbiCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.callCalldataFrom?
+    fuel contract state sender value calldata
 
 def checkedCallCalldataFrom (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
-    Except TypeError CoreAbiCallResult :=
-  SourceUnit.checkedCallCalldataFrom
-    fuel (sourceUnit decl) decl.name state sender value calldata
+    Except TypeError CoreAbiCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.callCalldataFrom
+    fuel contract state sender value calldata
 
 def checkedCallCalldata? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (calldata : List Byte) : Option CoreAbiCallResult :=
   checkedCallCalldataFrom? fuel decl state 0 0 calldata
 
 def checkedCallCalldata (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
   checkedCallCalldataFrom fuel decl state 0 0 calldata
 
 def checkedCallCalldataTransactionFrom? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
-    Option CoreAbiCallResult :=
-  SourceUnit.checkedCallCalldataTransactionFrom?
-    fuel (sourceUnit decl) decl.name state sender value calldata
+    Option CoreAbiCallResult := do
+  let contract ← checkedContract? decl
+  CheckedContract.callCalldataTransactionFrom?
+    fuel contract state sender value calldata
 
 def checkedCallCalldataTransactionFrom (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
-    Except TypeError CoreAbiCallResult :=
-  SourceUnit.checkedCallCalldataTransactionFrom
-    fuel (sourceUnit decl) decl.name state sender value calldata
+    Except TypeError CoreAbiCallResult := do
+  let contract ← checkedContract decl
+  CheckedContract.callCalldataTransactionFrom
+    fuel contract state sender value calldata
 
 def checkedCallCalldataTransaction? (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (calldata : List Byte) : Option CoreAbiCallResult :=
   checkedCallCalldataTransactionFrom?
     fuel decl state 0 0 calldata
 
 def checkedCallCalldataTransaction (fuel : Nat)
-    (decl : L00_SourceSolidity.ContractDecl) (state : CoreState)
+    (decl : SourceContractDecl) (state : CoreState)
     (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
   checkedCallCalldataTransactionFrom
     fuel decl state 0 0 calldata
@@ -670,6 +1005,40 @@ def checkedDecodeUint256 (bytes : List Byte) : Except TypeError Word := do
   match values with
   | [SolidCore.Solidity.Source.Value.word value] => Except.ok value
   | _ => Except.error (executableFailure "ABI uint256 decode")
+
+def checkedProgramCommonLayerMatches : Except TypeError Bool := do
+  let program ← SourceUnit.checkedProgram simpleSource
+  let core ← CheckedProgram.toCoreContract program "C"
+  let function ←
+    optionToExcept "function lookup f"
+      (core.findFunctionByName? "f")
+  let directResult ←
+    CheckedProgram.callContract 16 program "C"
+      (SolidCore.Solidity.Source.CallTarget.name "f")
+      SolidCore.Solidity.Source.State.empty []
+  let contract ← CheckedProgram.contract program "C"
+  let contractResult ←
+    CheckedContract.call 16 contract
+      (SolidCore.Solidity.Source.CallTarget.name "f")
+      SolidCore.Solidity.Source.State.empty []
+  let calldata ←
+    optionToExcept "ABI calldata f"
+      (SolidCore.Solidity.Source.ABI.calldataFor? function [])
+  let abiResult ←
+    CheckedProgram.callCalldata 16 program "C"
+      SolidCore.Solidity.Source.State.empty calldata
+  let abiValue ← checkedDecodeUint256 abiResult.output
+  match directResult, contractResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word direct],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word viaContract] =>
+      Except.ok
+        (direct == 7 &&
+          viaContract == 7 &&
+          abiResult.success &&
+          abiValue == 7)
+  | _, _ => Except.ok false
 
 def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTransientStorage"
