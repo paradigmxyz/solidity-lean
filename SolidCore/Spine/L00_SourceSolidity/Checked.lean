@@ -11870,6 +11870,24 @@ def checkedContractFormDisciplineAccepted : Bool :=
     Result.isOk
       (TypecheckedInput.checkedSourceUnit libraryModifierSource)
 
+def checkedCallableFormDisciplineAccepted : Bool :=
+  Result.isOk (TypecheckedInput.checkedSourceUnit typedFallbackSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit fallbackOverrideSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit receiveOverrideSource)
+
+def checkedCallableFormDisciplineRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit badFallbackViewSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badFallbackParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit missingFallbackOverrideSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit payableFallbackOverrideSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit constructorVirtualSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit freeVirtualSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit freePayableSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit abstractFallbackWithoutVirtualSource)
+
 def checkedContractFormDisciplineRejected : Bool :=
   Result.isError
       (TypecheckedInput.checkedSourceUnit badInterfaceBodySource) &&
@@ -12424,6 +12442,8 @@ def checkedStaticSourceDisciplineSemanticsMatch : Bool :=
     checkedMutabilityDisciplineRejected &&
     checkedContractFormDisciplineAccepted &&
     checkedContractFormDisciplineRejected &&
+    checkedCallableFormDisciplineAccepted &&
+    checkedCallableFormDisciplineRejected &&
     checkedFunctionTypeDisciplineAccepted &&
     checkedFunctionTypeDisciplineRejected &&
     checkedContextualArrayDisciplineAccepted &&
