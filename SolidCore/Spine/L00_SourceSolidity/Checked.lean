@@ -10544,6 +10544,77 @@ def checkedMutabilityDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit viewCreatesContractSource)
 
+def checkedContractFormDisciplineAccepted : Bool :=
+  Result.isOk (TypecheckedInput.checkedSourceUnit interfaceSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit interfaceFallbackSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit interfaceReceiveSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit interfaceTypedFallbackSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit abstractMissingBodySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abstractInheritsAbstractFunctionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        implementedInterfaceFunctionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        implementedInterfaceFallbackSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        implementedInterfaceReceiveSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit abstractBodylessModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abstractInheritsAbstractModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit implementedAbstractModifierSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit libraryConstantSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit libraryModifierSource)
+
+def checkedContractFormDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit badInterfaceBodySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badInterfaceFallbackBodySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit interfaceConstructorSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit abstractInterfaceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit nonAbstractMissingBodySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit inheritedAbstractFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit inheritedInterfaceFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit inheritedInterfaceFallbackSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit inheritedInterfaceReceiveSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        abstractBodylessModifierNoVirtualSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit nonAbstractBodylessModifierSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit inheritedAbstractModifierSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit libraryStateVarSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit libraryImmutableSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit libraryVirtualFunctionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit libraryVirtualModifierSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit interfaceUsingDirectiveSource)
+
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
   let contract ← CheckedProgram.contract program "UsesFreeError"
