@@ -36902,6 +36902,7 @@ def bumpModifier : ModifierDecl :=
 
 def runWithModifier : FunctionDecl :=
   { name := some "run"
+    visibility := some Visibility.public_
     modifiers := [{ target := { segments := ["bump"] } }]
     body :=
       some
@@ -36945,6 +36946,7 @@ def multiPlaceholderModifier : ModifierDecl :=
 
 def multiPlaceholderModifierFunction : FunctionDecl :=
   { name := some "run"
+    visibility := some Visibility.public_
     modifiers := [{ target := { segments := ["twice"] } }]
     body :=
       some
@@ -36988,6 +36990,7 @@ def namedArgsModifier : ModifierDecl :=
 
 def namedArgsModifierFunction : FunctionDecl :=
   { name := some "run"
+    visibility := some Visibility.public_
     modifiers :=
       [ { target := { segments := ["bumpBy"] }
           args :=
@@ -37024,6 +37027,7 @@ def afterReturnModifier : ModifierDecl :=
 
 def returnsThroughModifierFunction : FunctionDecl :=
   { name := some "run"
+    visibility := some Visibility.public_
     returns := [{ name := some "out", ty := Ty.uint 256 }]
     modifiers := [{ target := { segments := ["afterReturn"] } }]
     body :=
@@ -37078,6 +37082,7 @@ def tryCatchAroundModifier : ModifierDecl :=
 
 def tryCatchAroundModifierFunction : FunctionDecl :=
   { name := some "run"
+    visibility := some Visibility.public_
     params := [{ name := some "target", ty := Ty.address false }]
     modifiers := [{ target := { segments := ["aroundTry"] } }]
     body :=
@@ -37162,6 +37167,7 @@ def directExternalCallModifier : ModifierDecl :=
 
 def directExternalCallModifierFunction : FunctionDecl :=
   { name := some "run"
+    visibility := some Visibility.public_
     params := [{ name := some "target", ty := Ty.address false }]
     modifiers :=
       [ { target := { segments := ["fetchBefore"] }

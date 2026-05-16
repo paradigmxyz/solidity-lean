@@ -8579,6 +8579,248 @@ def checkedUsingModifierLibraryExpansionMatches :
     SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 40] 0 42
 
+def checkedCanonicalModifierContractsAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.modifierContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.multiPlaceholderModifierContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.namedArgsModifierContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.returnsThroughModifierContract)
+
+def checkedCanonicalModifierCallMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32 Executable.Examples.modifierContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
+  | _ => Except.ok false
+
+def checkedMultiPlaceholderModifierMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 64
+      Executable.Examples.multiPlaceholderModifierContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 112)
+  | _ => Except.ok false
+
+def checkedNamedArgsModifierMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.namedArgsModifierContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 42)
+  | _ => Except.ok false
+
+def checkedReturnsThroughModifierMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.returnsThroughModifierContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 11 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => Except.ok false
+
+def checkedModifierExternalTargetTy : Ty :=
+  Ty.user { segments := ["CheckedModifierTarget"] }
+
+def checkedModifierExternalTargetContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedModifierTarget"
+    kind := ContractKind.interface
+    items :=
+      [ ContractItem.function
+          { name := some "ping"
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            returns := [{ name := some "out", ty := Ty.uint 256 }] }
+      , ContractItem.function
+          { name := some "get"
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
+
+def checkedTryCatchAroundModifierFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { Executable.Examples.tryCatchAroundModifierFunction with
+    params :=
+      [{ name := some "target", ty := checkedModifierExternalTargetTy }]
+    modifiers :=
+      [ { target := { segments := ["aroundTry"] }
+          args := [Arg.positional (Expr.ident "target")] } ]
+    visibility := some Visibility.public_ }
+
+def checkedTryCatchAroundModifier :
+    L00_SourceSolidity.ModifierDecl :=
+  { Executable.Examples.tryCatchAroundModifier with
+    params :=
+      [{ name := some "target", ty := checkedModifierExternalTargetTy }] }
+
+def checkedTryCatchAroundModifierContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTryCatchModifier"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.stateVar { name := "mark", ty := Ty.uint 256 }
+      , ContractItem.modifierDecl checkedTryCatchAroundModifier
+      , ContractItem.function checkedTryCatchAroundModifierFunction ] }
+
+def checkedTryCatchAroundModifierUnit :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          checkedModifierExternalTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedTryCatchAroundModifierContract ] }
+
+def checkedTryCatchAroundModifierSourceAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      checkedTryCatchAroundModifierUnit)
+
+def checkedTryCatchAroundModifierSuccessMatches :
+    Except TypeError Bool := do
+  let calldata ←
+    optionToExcept "modifier try/catch calldata"
+      (Executable.Examples.externalCalldata? "ping()" [] [])
+  let output ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 42]
+  let contract ←
+    CheckedInput.contract checkedTryCatchAroundModifierUnit
+      "CheckedTryCatchModifier"
+  let result ←
+    CheckedContract.callFunctionWithContext 64 contract "run"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1])]
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := calldata
+              success := true
+              output := output } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 42)
+  | _ => Except.ok false
+
+def checkedTryCatchAroundModifierCatchMatches :
+    Except TypeError Bool := do
+  let calldata ←
+    optionToExcept "modifier try/catch calldata"
+      (Executable.Examples.externalCalldata? "ping()" [] [])
+  let contract ←
+    CheckedInput.contract checkedTryCatchAroundModifierUnit
+      "CheckedTryCatchModifier"
+  let result ←
+    CheckedContract.callFunctionWithContext 64 contract "run"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1])]
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := calldata
+              success := false
+              output := [0xca, 0xfe] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 99)
+  | _ => Except.ok false
+
+def checkedDirectExternalCallModifier :
+    L00_SourceSolidity.ModifierDecl :=
+  { Executable.Examples.directExternalCallModifier with
+    params :=
+      [{ name := some "watched", ty := checkedModifierExternalTargetTy }] }
+
+def checkedDirectExternalCallModifierFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { Executable.Examples.directExternalCallModifierFunction with
+    params :=
+      [{ name := some "target", ty := checkedModifierExternalTargetTy }]
+    visibility := some Visibility.public_ }
+
+def checkedDirectExternalCallModifierContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedDirectExternalModifier"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.stateVar { name := "mark", ty := Ty.uint 256 }
+      , ContractItem.modifierDecl checkedDirectExternalCallModifier
+      , ContractItem.function
+          checkedDirectExternalCallModifierFunction ] }
+
+def checkedDirectExternalCallModifierUnit :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          checkedModifierExternalTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedDirectExternalCallModifierContract ] }
+
+def checkedDirectExternalCallModifierSourceAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      checkedDirectExternalCallModifierUnit)
+
+def checkedDirectExternalCallModifierMatches :
+    Except TypeError Bool := do
+  let calldata ←
+    optionToExcept "modifier external calldata"
+      (Executable.Examples.externalCalldata? "get()" [] [])
+  let output ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 77]
+  let contract ←
+    CheckedInput.contract checkedDirectExternalCallModifierUnit
+      "CheckedDirectExternalModifier"
+  let result ←
+    CheckedContract.callFunctionWithContext 64 contract "run"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1])]
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := calldata
+              success := true
+              output := output } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 77)
+  | _ => Except.ok false
+
 def checkedUsingConstructorContract :
     L00_SourceSolidity.ContractDecl :=
   { name := "CheckedUsingConstructor"
