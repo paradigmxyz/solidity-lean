@@ -22206,8 +22206,15 @@ def checkedArithmeticContract : ContractDecl :=
 
 def stringEchoFunction : FunctionDecl :=
   { name := some "echo"
-    params := [{ name := some "message", ty := Ty.string }]
-    returns := [{ name := some "out", ty := Ty.string }]
+    visibility := some Visibility.public_
+    params :=
+      [{ name := some "message"
+         ty := Ty.string
+         location := some DataLocation.calldata }]
+    returns :=
+      [{ name := some "out"
+         ty := Ty.string
+         location := some DataLocation.memory }]
     body := some (Stmt.returnValues (some (Expr.ident "message"))) }
 
 def stringEchoContract : ContractDecl :=
@@ -22224,6 +22231,15 @@ def stringEchoCalldataResult :
         ("ok".toList.map Char.toNat)]
   SolidCore.Solidity.Source.ABI.Contract.callCalldata?
     16 contract SolidCore.Solidity.Source.State.empty calldata
+
+def stringEchoCalldataMatches : Option Bool := do
+  let result ← stringEchoCalldataResult
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.bytesCalldata]
+      [SolidCore.Solidity.Source.Value.bytes
+        ("ok".toList.map Char.toNat)]
+  some (result.success && result.output == expected)
 
 def fallbackReceiveContract : ContractDecl :=
   { name := "FallbackReceive"

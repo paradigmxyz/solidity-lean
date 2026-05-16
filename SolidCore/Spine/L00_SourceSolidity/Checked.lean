@@ -6346,6 +6346,38 @@ def checkedMemoryStringAllocationMatches :
     [SolidCore.Solidity.Source.Value.word 3]
     [0, 0, 0]
 
+def checkedStringEchoContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.stringEchoContract)
+
+def checkedStringEchoDirectCallMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.stringEchoContract
+    "echo" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.bytes
+      ("ok".toList.map Char.toNat)]
+    ("ok".toList.map Char.toNat)
+
+def checkedStringEchoCalldataMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.stringEchoContract
+  let bytes := "ok".toList.map Char.toNat
+  let calldata ←
+    CheckedContract.functionCalldata contract "echo"
+      [SolidCore.Solidity.Source.Value.bytes bytes]
+  let result ←
+    CheckedContract.callCalldata 16 contract
+      SolidCore.Solidity.Source.State.empty calldata
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.bytesCalldata]
+      [SolidCore.Solidity.Source.Value.bytes bytes]
+  Except.ok (result.success && result.output == expected)
+
 def checkedCalldataArraySliceInput : CoreValue :=
   SolidCore.Solidity.Source.Value.dynamicArray
     [ SolidCore.Solidity.Source.Value.word 10
