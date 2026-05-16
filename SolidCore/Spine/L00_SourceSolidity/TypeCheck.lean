@@ -3228,6 +3228,13 @@ def exprContextuallyAssignableToFuel
         elements.all
           (fun element =>
             exprContextuallyAssignableToFuel env fuel element elementTy)
+  | fuel + 1,
+      L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr,
+      expected =>
+      exprContextuallyAssignableToFuel env fuel cond
+        L00_SourceSolidity.Ty.bool &&
+        exprContextuallyAssignableToFuel env fuel thenExpr expected &&
+          exprContextuallyAssignableToFuel env fuel elseExpr expected
   | _, expr, expected =>
       match checkInternalFunctionValueAssignable? env expr expected with
       | some (Except.ok _) => true
@@ -3244,11 +3251,14 @@ def exprContextuallyAssignableTo
     Bool :=
   exprContextuallyAssignableToFuel env 128 expr expected
 
-def exprIsContextualFixedArrayLiteral
+def exprIsContextualFixedArrayExpr
     (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
     Bool :=
   match expr, expected with
   | L00_SourceSolidity.Expr.array _,
+    L00_SourceSolidity.Ty.array _ (some _) =>
+      exprContextuallyAssignableTo env expr expected
+  | L00_SourceSolidity.Expr.ternary _ _ _,
     L00_SourceSolidity.Ty.array _ (some _) =>
       exprContextuallyAssignableTo env expr expected
   | _, _ => false
@@ -4914,7 +4924,7 @@ def checkArgAssignableToParam (env : CheckEnv) (expected : Ty) :
               stateLValue := false }
       | some (Except.error err) => Except.error err
       | none => do
-          if exprIsContextualFixedArrayLiteral env expr expected then
+          if exprIsContextualFixedArrayExpr env expr expected then
             Except.ok
               { source := expr
                 ty := expected
@@ -5332,6 +5342,12 @@ def checkExprAssignableTo (env : CheckEnv) :
       require (elements.length == size)
         (TypeError.arityMismatch "array literal" size elements.length)
       checkExprsAssignableToArrayElement env elements elementTy
+  | L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr,
+    expected@(L00_SourceSolidity.Ty.array _ (some _)) => do
+      let condChecked ← checkExpr env cond
+      condChecked.expectBool
+      checkExprAssignableTo env thenExpr expected
+      checkExprAssignableTo env elseExpr expected
   | expr, expected =>
       match checkInternalFunctionValueAssignable? env expr expected with
       | some result => result
@@ -23165,6 +23181,154 @@ def contextualArrayTupleAssignmentOverflowSource :
 def contextualArrayTupleAssignmentOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayTupleAssignmentOverflowSource)
+
+def contextualArrayTernaryFlagParam : L00_SourceSolidity.Parameter :=
+  { name := some "flag"
+    ty := L00_SourceSolidity.Ty.bool
+    location := none }
+
+def contextualArrayTernaryExpr
+    (first : L00_SourceSolidity.Expr) : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.ternary
+    (L00_SourceSolidity.Expr.ident "flag")
+    first
+    contextualNarrowArraySecondExpr
+
+def contextualArrayTernaryLocalFunction
+    (name : Name) (first : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params := [contextualArrayTernaryFlagParam]
+    returns := [{ name := none, ty := uint8, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "xs"
+                  ty := some contextualNarrowArrayTy
+                  location := some L00_SourceSolidity.DataLocation.memory } ]
+              (some (contextualArrayTernaryExpr first))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "0")) ]) }
+
+def contextualArrayTernaryLocalSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTernaryLocal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTernaryLocalFunction
+                    "ternaryLocal" contextualNarrowArrayExpr) ] } ] }
+
+def contextualArrayTernaryLocalAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTernaryLocalSource
+
+def contextualArrayTernaryLocalOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTernaryLocalOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTernaryLocalFunction
+                    "ternaryLocalOverflow"
+                    contextualNarrowArrayOverflowExpr) ] } ] }
+
+def contextualArrayTernaryLocalOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTernaryLocalOverflowSource)
+
+def contextualArrayTernaryReturnFunction
+    (name : Name) (first : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params := [contextualArrayTernaryFlagParam]
+    returns :=
+      [{ name := none
+         ty := contextualNarrowArrayTy
+         location := some L00_SourceSolidity.DataLocation.memory }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (contextualArrayTernaryExpr first))) }
+
+def contextualArrayTernaryReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTernaryReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTernaryReturnFunction
+                    "ternaryReturn" contextualNarrowArrayExpr) ] } ] }
+
+def contextualArrayTernaryReturnAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTernaryReturnSource
+
+def contextualArrayTernaryReturnOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTernaryReturnOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTernaryReturnFunction
+                    "ternaryReturnOverflow"
+                    contextualNarrowArrayOverflowExpr) ] } ] }
+
+def contextualArrayTernaryReturnOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTernaryReturnOverflowSource)
+
+def contextualArrayTernaryArgFunction
+    (name : Name) (first : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualArrayLiteralArgCaller with
+    name := some name
+    params := [contextualArrayTernaryFlagParam]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "takesNarrowArray")
+              [ L00_SourceSolidity.Arg.positional
+                  (contextualArrayTernaryExpr first) ]))) }
+
+def contextualArrayTernaryArgSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTernaryArg"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCallee
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTernaryArgFunction
+                    "ternaryArg" contextualNarrowArrayExpr) ] } ] }
+
+def contextualArrayTernaryArgAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTernaryArgSource
+
+def contextualArrayTernaryArgOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTernaryArgOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  contextualArrayLiteralArgCallee
+              , L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTernaryArgFunction
+                    "ternaryArgOverflow"
+                    contextualNarrowArrayOverflowExpr) ] } ] }
+
+def contextualArrayTernaryArgOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTernaryArgOverflowSource)
 
 def contextualArrayStruct : L00_SourceSolidity.StructDecl :=
   { name := "ContextualArrayStruct"
