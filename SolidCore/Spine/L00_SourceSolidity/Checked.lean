@@ -11013,6 +11013,8 @@ def checkedDataLocationDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit publicStorageParamSource) &&
     Result.isError
+      (TypecheckedInput.checkedSourceUnit valueTypeMemoryParamSource) &&
+    Result.isError
       (TypecheckedInput.checkedSourceUnit signedArrayIndexSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit signedNewArrayLengthSource) &&
@@ -11050,6 +11052,38 @@ def checkedDataLocationDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit memoryMappingLocalSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit publicMappingParamSource)
+
+def checkedTupleLocalBindingDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleReturnSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleVarDeclSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleVarDeclOmittedLiteralSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleVarDeclOmittedReturnSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit nestedBlockLocalShadowSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleAssignmentSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleAssignmentHoleSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit tupleAssignmentFromReturnSource)
+
+def checkedTupleLocalBindingDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit tupleVarDeclOmittedNoInitSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTupleVarDeclSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateBlockLocalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTupleAssignmentAritySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTupleAssignmentTypeSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTupleAssignmentTargetSource)
 
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
