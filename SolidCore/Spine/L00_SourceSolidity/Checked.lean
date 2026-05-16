@@ -1197,6 +1197,11 @@ def checkedDecodeUint256 (bytes : List Byte) : Except TypeError Word := do
   | [SolidCore.Solidity.Source.Value.word value] => Except.ok value
   | _ => Except.error (executableFailure "ABI uint256 decode")
 
+def checkedDecodeLowLevelReturn (value : CoreValue) :
+    Except TypeError (Word × List Byte) :=
+  optionToExcept "low-level return decode"
+    (Executable.CoreValue.asLowLevelReturn? value)
+
 def checkedProgramCommonLayerMatches : Except TypeError Bool := do
   let program ← SourceUnit.checkedProgram simpleSource
   let _core ← CheckedProgram.toCoreContract program "C"
@@ -1725,6 +1730,528 @@ def checkedInheritedEventEmitMatches :
                       "CollisionEvent()"))
           | _, _ => Except.ok false
       | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedLowLevelCall"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { name := some "probe"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "target", ty := Ty.address false }
+              , { name := some "payload"
+                  ty := Ty.bytes
+                  location := some DataLocation.memory } ]
+            returns := [{ name := some "out", ty := lowLevelCallReturnTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.call
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "target") "call")
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "payload")]))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "payWithOptions"
+            visibility := some Visibility.public_
+            mutability := StateMutability.payable
+            returns := [{ name := some "out", ty := lowLevelCallReturnTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.callWithOptions
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.address 0xbeef))
+                        "call")
+                      [ L00_SourceSolidity.CallOption.named "gas"
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.number "1000000"))
+                      , L00_SourceSolidity.CallOption.named "value"
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.number "5")) ]
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.bytes [1, 2]))]))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "payWithOptionEffects"
+            visibility := some Visibility.public_
+            mutability := StateMutability.payable
+            returns :=
+              [ { name := some "out", ty := lowLevelCallReturnTy }
+              , { name := some "gasSeen", ty := Ty.uint 256 }
+              , { name := some "sent", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "gasSeen"
+                         ty := some (Ty.uint 256) }]
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.varDecl
+                      [{ name := some "sent"
+                         ty := some (Ty.uint 256) }]
+                      (some
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some
+                        (L00_SourceSolidity.Expr.tuple
+                          [ L00_SourceSolidity.TupleItem.value
+                              (L00_SourceSolidity.Expr.callWithOptions
+                                (L00_SourceSolidity.Expr.member
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.address
+                                      0xbeef))
+                                  "call")
+                                [ L00_SourceSolidity.CallOption.named "gas"
+                                    (L00_SourceSolidity.Expr.assign
+                                      (L00_SourceSolidity.Expr.ident
+                                        "gasSeen")
+                                      AssignOp.assign
+                                      (L00_SourceSolidity.Expr.literal
+                                        (L00_SourceSolidity.Literal.number
+                                          "11")))
+                                , L00_SourceSolidity.CallOption.named "value"
+                                    (L00_SourceSolidity.Expr.assign
+                                      (L00_SourceSolidity.Expr.ident "sent")
+                                      AssignOp.assign
+                                      (L00_SourceSolidity.Expr.literal
+                                        (L00_SourceSolidity.Literal.number
+                                          "5"))) ]
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2]))])
+                          , L00_SourceSolidity.TupleItem.value
+                              (L00_SourceSolidity.Expr.ident "gasSeen")
+                          , L00_SourceSolidity.TupleItem.value
+                              (L00_SourceSolidity.Expr.ident "sent") ])) ]) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "probeBoth"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "target", ty := Ty.address false }
+              , { name := some "payload"
+                  ty := Ty.bytes
+                  location := some DataLocation.memory } ]
+            returns :=
+              [ { name := some "staticOut", ty := lowLevelCallReturnTy }
+              , { name := some "delegateOut", ty := lowLevelCallReturnTy } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.tuple
+                      [ L00_SourceSolidity.TupleItem.value
+                          (L00_SourceSolidity.Expr.callWithOptions
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "target")
+                              "staticcall")
+                            [L00_SourceSolidity.CallOption.named "gas"
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number
+                                  "50000"))]
+                            [L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.ident "payload")])
+                      , L00_SourceSolidity.TupleItem.value
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "target")
+                              "delegatecall")
+                            [L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.ident "payload")]) ]))) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "delegateGas"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "target", ty := Ty.address false }
+              , { name := some "payload"
+                  ty := Ty.bytes
+                  location := some DataLocation.memory } ]
+            returns := [{ name := some "out", ty := lowLevelCallReturnTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.callWithOptions
+                      (L00_SourceSolidity.Expr.member
+                        (L00_SourceSolidity.Expr.ident "target")
+                        "delegatecall")
+                      [L00_SourceSolidity.CallOption.named "gas"
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "900"))]
+                      [L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "payload")]))) } ] }
+
+def checkedLowLevelCallMatches : Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "probe"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := [1, 2, 3]
+              success := true
+              output := [9, 8] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.bytes [1, 2, 3] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [9, 8])
+  | _ => Except.ok false
+
+def checkedLowLevelCallValueMatches : Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "payWithOptions"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := [1, 2]
+              value := 5
+              gas? := some 1000000
+              success := true
+              output := [4, 5, 6] } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [4, 5, 6])
+  | _ => Except.ok false
+
+def checkedLowLevelCallGasMismatchReturnsFalse :
+    Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "payWithOptions"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := [1, 2]
+              value := 5
+              gas? := some 999999
+              success := true
+              output := [4, 5, 6] } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 0 &&
+          output == [])
+  | _ => Except.ok false
+
+def checkedLowLevelCallOptionEffectsMatches :
+    Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 32 contract "payWithOptionEffects"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := [1, 2]
+              value := 5
+              gas? := some 11
+              success := true
+              output := [4, 5, 6] } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [value, SolidCore.Solidity.Source.Value.word gasSeen,
+        SolidCore.Solidity.Source.Value.word sent] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [4, 5, 6] &&
+          SolidCore.Solidity.Source.wordEq gasSeen 11 &&
+          SolidCore.Solidity.Source.wordEq sent 5)
+  | _ => Except.ok false
+
+def checkedLowLevelStaticDelegateMatches :
+    Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "probeBoth"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xcafe
+              calldata := [7, 7]
+              gas? := some 50000
+              success := true
+              output := [1] }
+          , { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
+              target := 0xcafe
+              calldata := [7, 7]
+              success := false
+              output := [2, 3] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xcafe
+      , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [staticValue, delegateValue] => do
+      let (staticSuccess, staticOutput) ←
+        checkedDecodeLowLevelReturn staticValue
+      let (delegateSuccess, delegateOutput) ←
+        checkedDecodeLowLevelReturn delegateValue
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq staticSuccess 1 &&
+          staticOutput == [1] &&
+          SolidCore.Solidity.Source.wordEq delegateSuccess 0 &&
+          delegateOutput == [2, 3])
+  | _ => Except.ok false
+
+def checkedLowLevelDelegateCallGasOptionMatches :
+    Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "delegateGas"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
+              target := 0xcafe
+              calldata := [7, 7]
+              gas? := some 900
+              success := true
+              output := [9, 0] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xcafe
+      , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [9, 0])
+  | _ => Except.ok false
+
+def checkedLowLevelMissingResultMatches : Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "probe"
+      contract.core.context
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.bytes [1, 2, 3] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 0 &&
+          output == [])
+  | _ => Except.ok false
+
+def checkedLowLevelSendMatches : Except TypeError Bool := do
+  let program ← SourceUnit.checkedProgram lowLevelSendSource
+  let contract ← CheckedProgram.contract program "LowLevelSend"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "sendIt"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := []
+              value := 1
+              gas? := some 2300
+              success := true
+              output := [] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word ok] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq ok 1)
+  | _ => Except.ok false
+
+def checkedLowLevelSendFailureReturnsFalse :
+    Except TypeError Bool := do
+  let program ← SourceUnit.checkedProgram lowLevelSendSource
+  let contract ← CheckedProgram.contract program "LowLevelSend"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "sendIt"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := []
+              value := 1
+              gas? := some 2300
+              success := false
+              output := [0xde, 0xad] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word ok] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq ok 0)
+  | _ => Except.ok false
+
+def checkedLowLevelSendNonpayableAddressRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram
+    lowLevelSendNonpayableAddressSource)
+
+def checkedLowLevelSendSignedAmountRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram
+    lowLevelSendSignedAmountSource)
+
+def checkedLowLevelTransferSignedAmountRejected : Bool :=
+  Result.isError (SourceUnit.checkedProgram
+    lowLevelTransferSignedAmountSource)
+
+def checkedTransferValueContract : L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedTransferValue"
+    items :=
+      [ L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "pay"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "target", ty := Ty.address true }
+              , { name := some "amount", ty := Ty.uint 256 } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "1")))
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.ident "target")
+                          "transfer")
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.ident "amount")])
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "2"))) ]) } ] }
+
+def checkedTransferValueSuccessMatches : Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedTransferValueContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "pay"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := []
+              value := 5
+              gas? := some 2300
+              success := true
+              output := [] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 2)
+  | _ => Except.ok false
+
+def checkedTransferValueFailureReverts : Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedTransferValueContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "pay"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := []
+              value := 5
+              gas? := some 2300
+              success := false
+              output := [0xba, 0xad] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      (SolidCore.Solidity.Source.RevertData.raw bytes) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+          bytes == [0xba, 0xad])
+  | _ => Except.ok false
+
+def checkedPrecompileStaticcallContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedPrecompileStaticcall"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { name := some "hashAndProbe"
+            visibility := some Visibility.public_
+            mutability := StateMutability.view
+            returns :=
+              [ { name := some "sha", ty := Ty.bytesN 32 }
+              , { name := some "probe", ty := lowLevelCallReturnTy } ]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.tuple
+                      [ L00_SourceSolidity.TupleItem.value
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "sha256")
+                            [L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.bytes
+                                  [1, 2]))])
+                      , L00_SourceSolidity.TupleItem.value
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.address
+                                  (SharedSemantics.Precompile.address
+                                    SharedSemantics.Precompile.Kind.sha256)))
+                              "staticcall")
+                            [L00_SourceSolidity.Arg.positional
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.bytes
+                                  [1, 2]))]) ]))) } ] }
+
+def checkedPrecompileStaticcallMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract checkedPrecompileStaticcallContract
+  let expectedOutput :=
+    SolidCore.Solidity.Source.wordToBytesBE
+      SolidCore.Solidity.Source.wordBytes 0xaaaa
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "hashAndProbe"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ Executable.Examples.successfulPrecompileWordCall
+              SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word sha, probe] => do
+      let (success, output) ← checkedDecodeLowLevelReturn probe
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq sha 0xaaaa &&
+          SolidCore.Solidity.Source.wordEq success 1 &&
+          output == expectedOutput)
   | _ => Except.ok false
 
 def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
