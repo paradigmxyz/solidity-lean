@@ -7947,20 +7947,28 @@ def checkedHexStringAbiEncodeMatchesExpected :
     Executable.Examples.checkedLiteralConversionContract
     "encodeHexData" SolidCore.Solidity.Source.State.empty [] expected
 
-def checkedInvalidUintReturnFunction (functionName : Name)
-    (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+def checkedInvalidReturnFunction (functionName : Name)
+    (returnTy : Ty) (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
   { name := some functionName
     visibility := some Visibility.public_
     mutability := StateMutability.pure
-    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    returns := [{ name := some "out", ty := returnTy }]
     body := some (Stmt.returnValues (some expr)) }
 
-def checkedInvalidUintReturnContract (contractName : Name)
-    (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+def checkedInvalidReturnContract (contractName : Name)
+    (returnTy : Ty) (expr : L00_SourceSolidity.Expr) : ContractDecl :=
   { name := contractName
     items :=
       [ContractItem.function
-        (checkedInvalidUintReturnFunction "bad" expr)] }
+        (checkedInvalidReturnFunction "bad" returnTy expr)] }
+
+def checkedInvalidUintReturnFunction (functionName : Name)
+    (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+  checkedInvalidReturnFunction functionName (Ty.uint 256) expr
+
+def checkedInvalidUintReturnContract (contractName : Name)
+    (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+  checkedInvalidReturnContract contractName (Ty.uint 256) expr
 
 def checkedMalformedNumericLiteralsRejected : Bool :=
   Result.isError
@@ -8030,6 +8038,124 @@ def checkedNumericLiteralCastBoundsRejected : Bool :=
               (Expr.unary UnaryOp.neg
                 (Expr.literal (Literal.number "1")))])))
 
+def checkedFixedBytesLiteralConversionRejected : Bool :=
+  Result.isError
+      (CheckedInput.program
+        (checkedInvalidReturnContract "BadHexStringToBytes2"
+          (Ty.bytesN 2)
+          (Expr.call (Expr.typeName (Ty.bytesN 2))
+            [Arg.positional
+              (Expr.literal (Literal.hexString "aabbcc"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadStringToBytes2"
+          (Ty.bytesN 2)
+          (Expr.call (Expr.typeName (Ty.bytesN 2))
+            [Arg.positional
+              (Expr.literal (Literal.string "xyz"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadNumberToBytes2"
+          (Ty.bytesN 2)
+          (Expr.call (Expr.typeName (Ty.bytesN 2))
+            [Arg.positional
+              (Expr.literal (Literal.number "0x123"))])))
+
+def checkedRuntimeIntegerCastRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadBytes2ToUint8"
+          (Ty.uint 8)
+          (Expr.call (Expr.typeName (Ty.uint 8))
+            [Arg.positional
+              (Expr.call (Expr.typeName (Ty.bytesN 2))
+                [Arg.positional
+                  (Expr.literal (Literal.number "0xabcd"))])]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadAddressToInt160"
+          (Ty.int 160)
+          (Expr.call (Expr.typeName (Ty.int 160))
+            [Arg.positional
+              (Expr.literal (Literal.address 0xbeef))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadAddressToUint256"
+          (Ty.uint 256)
+          (Expr.call (Expr.typeName (Ty.uint 256))
+            [Arg.positional
+              (Expr.literal (Literal.address 0xbeef))])))
+
+def checkedFixedBytesRuntimeConversionRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadUint32ToBytes2"
+          (Ty.bytesN 2)
+          (Expr.call (Expr.typeName (Ty.bytesN 2))
+            [Arg.positional
+              (Expr.call (Expr.typeName (Ty.uint 32))
+                [Arg.positional
+                  (Expr.literal (Literal.number "1"))])]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadAddressToBytes2"
+          (Ty.bytesN 2)
+          (Expr.call (Expr.typeName (Ty.bytesN 2))
+            [Arg.positional
+              (Expr.literal (Literal.address 0xbeef))])))
+
+def checkedAddressConversionRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadWideLiteralAddress"
+          (Ty.address false)
+          (Expr.call (Expr.typeName (Ty.address false))
+            [Arg.positional
+              (Expr.literal
+                (Literal.number
+                  "0x10000000000000000000000000000000000000000"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadUint256ToAddress"
+          (Ty.address false)
+          (Expr.call (Expr.typeName (Ty.address false))
+            [Arg.positional
+              (Expr.call (Expr.typeName (Ty.uint 256))
+                [Arg.positional
+                  (Expr.literal (Literal.number "1"))])]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadBytes32ToAddress"
+          (Ty.address false)
+          (Expr.call (Expr.typeName (Ty.address false))
+            [Arg.positional
+              (Expr.call (Expr.typeName (Ty.bytesN 32))
+                [Arg.positional
+                  (Expr.literal
+                    (Literal.number
+                      "0x111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000"))])]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadStringToAddress"
+          (Ty.address false)
+          (Expr.call (Expr.typeName (Ty.address false))
+            [Arg.positional
+              (Expr.literal (Literal.string "x"))]))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadPayableFromOne"
+          (Ty.address true)
+          (Expr.payableConversion
+            (Expr.literal (Literal.number "1"))))) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        (checkedInvalidReturnContract "BadPayableFromUint160One"
+          (Ty.address true)
+          (Expr.payableConversion
+            (Expr.call (Expr.typeName (Ty.uint 160))
+              [Arg.positional
+                (Expr.literal (Literal.number "1"))]))))
+
 def checkedLiteralInvalidSourcesRejected : Bool :=
   Result.isError
       (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
@@ -8044,7 +8170,11 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
     checkedMalformedNumericLiteralsRejected &&
     checkedNonIntegralNumericLiteralsRejected &&
     checkedNonIntegralNumberLiteralExpressionRejected &&
-    checkedNumericLiteralCastBoundsRejected
+    checkedNumericLiteralCastBoundsRejected &&
+    checkedFixedBytesLiteralConversionRejected &&
+    checkedRuntimeIntegerCastRejected &&
+    checkedFixedBytesRuntimeConversionRejected &&
+    checkedAddressConversionRejected
 
 def checkedArithmeticContractAccepted : Bool :=
   Result.isOk

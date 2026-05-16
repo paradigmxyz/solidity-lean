@@ -883,13 +883,21 @@ def Ty.canExplicitlyConvert (types : TypeContext)
           Ty.fixedBytesIntegerSameSize actual target ||
           typeConversionLiteralFits target sourceExpr
     | _, L00_SourceSolidity.Ty.bytesN _ =>
-        (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
-          Ty.fixedBytesIntegerSameSize target actual) ||
+        if L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate
+            sourceExpr then
           typeConversionLiteralFits target sourceExpr
+        else
+          (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
+            Ty.fixedBytesIntegerSameSize target actual) ||
+            typeConversionLiteralFits target sourceExpr
     | _, L00_SourceSolidity.Ty.fixedBytes _ =>
-        (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
-          Ty.fixedBytesIntegerSameSize target actual) ||
+        if L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate
+            sourceExpr then
           typeConversionLiteralFits target sourceExpr
+        else
+          (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
+            Ty.fixedBytesIntegerSameSize target actual) ||
+            typeConversionLiteralFits target sourceExpr
     | L00_SourceSolidity.Ty.address _, L00_SourceSolidity.Ty.user path =>
         types.isContractPath path
     | L00_SourceSolidity.Ty.user actualPath, L00_SourceSolidity.Ty.user targetPath =>
