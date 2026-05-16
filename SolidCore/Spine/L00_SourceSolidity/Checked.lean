@@ -10309,6 +10309,129 @@ def checkedDynamicEventAbiDataBytesMatchExpected :
       | _ => Except.ok false
   | _ => Except.ok false
 
+def checkedFreeEventErrorShadowUnitsAccepted : Bool :=
+  Result.isOk (CheckedInput.program Executable.Examples.freeErrorUnit) &&
+    Result.isOk
+      (CheckedInput.program Executable.Examples.shadowedFreeErrorUnit) &&
+    Result.isOk (CheckedInput.program Executable.Examples.freeEventUnit) &&
+    Result.isOk
+      (CheckedInput.program Executable.Examples.shadowedFreeEventUnit) &&
+    Result.isOk
+      (CheckedInput.program
+        Executable.Examples.inheritedEventErrorShadowUnit)
+
+def checkedFreeErrorAbiMatches : Except TypeError Bool := do
+  let program ← CheckedInput.program Executable.Examples.freeErrorUnit
+  let contract ← CheckedProgram.contract program "UsesFreeError"
+  let calldata ←
+    CheckedContract.functionCalldata contract "check"
+      [SolidCore.Solidity.Source.Value.word 4]
+  let result ←
+    CheckedContract.callCalldata 16 contract
+      SolidCore.Solidity.Source.State.empty calldata
+  let payload ←
+    optionToExcept "free error ABI payload"
+      (SolidCore.Solidity.Source.ABI.encodeValues?
+        [SolidCore.Solidity.Source.Ty.uint256]
+        [SolidCore.Solidity.Source.Value.word 4])
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "TooSmall(uint256)")
+  Except.ok (!result.success && result.output == selector ++ payload)
+
+def checkedLocalErrorShadowsFreeAbiMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract Executable.Examples.shadowedFreeErrorUnit
+      "LocalErrorShadow"
+  match contract.core.errorDecls with
+  | [decl] =>
+      match decl.fields with
+      | [SolidCore.Solidity.Source.Ty.address] =>
+          Except.ok
+            (decl.name == "TooSmall" &&
+              SolidCore.Solidity.Source.wordEq decl.selector
+                (SolidCore.Solidity.Source.ABI.selectorFromSignature
+                  "TooSmall(address)"))
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedCanonicalFreeEventEmitMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32
+      Executable.Examples.freeEventUnit "UsesFreeEvent"
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              Except.ok
+                (event.name == "FilePing" &&
+                  SolidCore.Solidity.Source.wordEq value 5)
+          | _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedLocalEventShadowsFreeAbiMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract Executable.Examples.shadowedFreeEventUnit
+      "LocalEventShadow"
+  match contract.core.eventDecls with
+  | [decl] =>
+      match decl.fields with
+      | [{ ty := SolidCore.Solidity.Source.Ty.address, indexed := false }] =>
+          Except.ok
+            (decl.name == "FilePing" &&
+              decl.topic? ==
+                some
+                  (SolidCore.Solidity.Source.Keccak.digestWord
+                    "FilePing(address)"))
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedInheritedErrorShadowsFreeAbiMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.inheritedEventErrorShadowUnit
+      "InheritedEventErrorDerived"
+  match contract.core.errorDecls with
+  | [decl] =>
+      match decl.fields with
+      | [] =>
+          Except.ok
+            (decl.name == "Collision" &&
+              SolidCore.Solidity.Source.wordEq decl.selector
+                (SolidCore.Solidity.Source.ABI.selectorFromSignature
+                  "Collision()"))
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedInheritedEventShadowsFreeAbiMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.inheritedEventErrorShadowUnit
+      "InheritedEventErrorDerived"
+  match contract.core.eventDecls with
+  | [decl] =>
+      match decl.fields with
+      | [] =>
+          Except.ok
+            (decl.name == "CollisionEvent" &&
+              decl.topic? ==
+                some
+                  (SolidCore.Solidity.Source.Keccak.digestWord
+                    "CollisionEvent()"))
+      | _ => Except.ok false
+  | _ => Except.ok false
+
 def checkedFreeEventEmitMatches :
     Except TypeError Bool := do
   let result ←

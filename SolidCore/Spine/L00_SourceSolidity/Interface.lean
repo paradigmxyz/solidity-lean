@@ -35337,6 +35337,7 @@ def freeErrorUnit : SourceUnit :=
             items :=
               [ ContractItem.function
                   { name := some "check"
+                    visibility := some Visibility.public_
                     params := [{ name := some "value", ty := Ty.uint 256 }]
                     body :=
                       some
@@ -35384,6 +35385,7 @@ def shadowedFreeErrorUnit : SourceUnit :=
                           ty := Ty.address false } ] }
               , ContractItem.function
                   { name := some "check"
+                    visibility := some Visibility.public_
                     body :=
                       some
                         (Stmt.revertCall
@@ -35419,6 +35421,7 @@ def freeEventUnit : SourceUnit :=
             items :=
               [ ContractItem.function
                   { name := some "emitIt"
+                    visibility := some Visibility.public_
                     body :=
                       some
                         (Stmt.emitEvent
@@ -35459,6 +35462,7 @@ def shadowedFreeEventUnit : SourceUnit :=
                           ty := Ty.address false } ] }
               , ContractItem.function
                   { name := some "emitIt"
+                    visibility := some Visibility.public_
                     body :=
                       some
                         (Stmt.emitEvent
