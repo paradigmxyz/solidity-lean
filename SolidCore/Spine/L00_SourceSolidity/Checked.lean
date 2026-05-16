@@ -9150,6 +9150,22 @@ def checkedSuperChainValueMatches : Except TypeError Bool :=
     "SuperChainTop" "value"
     SolidCore.Solidity.Source.State.empty [] 77
 
+def checkedC3DispatchSourceUnitAccepted : Bool :=
+  Result.isOk (CheckedInput.program Executable.Examples.c3SourceUnit)
+
+def checkedC3DispatchOrderMatches : Except TypeError Bool := do
+  let program ← CheckedInput.program Executable.Examples.c3SourceUnit
+  let final ←
+    optionToExcept "C3 final source contract"
+      (CheckedProgram.findSourceContract? program "C3Final")
+  let order ←
+    optionToExcept "C3 dispatch order"
+      (L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
+        (CheckedProgram.contracts program) final)
+  Except.ok
+    (order.map L00_SourceSolidity.ContractDecl.name ==
+      ["C3Final", "C3Right", "C3Left", "C3Root"])
+
 def checkedInheritedStateReadMatches : Except TypeError Bool := do
   let deployed ←
     CheckedInput.constructContract 32 inheritedStateReadSource

@@ -36840,6 +36840,13 @@ def c3FinalContract : ContractDecl :=
 def c3Contracts : List ContractDecl :=
   [c3RootContract, c3LeftContract, c3RightContract, c3FinalContract]
 
+def c3SourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract c3RootContract
+      , SourceItem.contract c3LeftContract
+      , SourceItem.contract c3RightContract
+      , SourceItem.contract c3FinalContract ] }
+
 def c3DispatchOrderNames : Option (List Name) := do
   let order ← ContractDecl.dispatchOrder? c3Contracts c3FinalContract
   some (order.map ContractDecl.name)
