@@ -24856,6 +24856,7 @@ def mappingContract : ContractDecl :=
             ty := Ty.mapping (Ty.uint 256) (Ty.uint 256) }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -24899,6 +24900,7 @@ def publicMappingGetterContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -24952,6 +24954,7 @@ def bytesStringMappingKeyContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "setBytes"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key"
                   ty := Ty.bytes
@@ -24966,6 +24969,7 @@ def bytesStringMappingKeyContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "setString"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key"
                   ty := Ty.string
@@ -24980,6 +24984,7 @@ def bytesStringMappingKeyContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "readBytes"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key"
                   ty := Ty.bytes
@@ -24991,6 +24996,7 @@ def bytesStringMappingKeyContract : ContractDecl :=
                   (some (Expr.index (Expr.ident "mb") (Expr.ident "key")))) }
       , ContractItem.function
           { name := some "readString"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key"
                   ty := Ty.string
@@ -25164,6 +25170,7 @@ def publicArrayGetterContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -25272,6 +25279,7 @@ def nestedPublicGetterContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "readNested"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -30760,6 +30768,7 @@ def storageStringGetterContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "setGreeting"
+            visibility := some Visibility.public_
             params :=
               [{ name := some "input"
                  ty := Ty.string
@@ -30773,12 +30782,14 @@ def storageStringGetterContract : ContractDecl :=
                     (Expr.ident "input"))) }
       , ContractItem.function
           { name := some "clearGreeting"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
                   (Expr.unary UnaryOp.delete (Expr.ident "greeting"))) }
       , ContractItem.function
           { name := some "setRaw"
+            visibility := some Visibility.public_
             params :=
               [{ name := some "input"
                  ty := Ty.bytes

@@ -4198,6 +4198,347 @@ def checkedContractAbiOutputMatches (fuel : Nat)
   let expected ← optionToExcept "expected ABI output" expected?
   Except.ok (result.success && result.output == expected)
 
+def checkedContractAbiOutputFromStateMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expected? : Option (List Byte)) :
+    Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata decl functionName args
+  let result ←
+    ContractDecl.checkedCallCalldata fuel decl state calldata
+  let expected ← optionToExcept "expected ABI output" expected?
+  Except.ok (result.success && result.output == expected)
+
+def checkedGetterAbiWordOutput (expected : Word) :
+    Except TypeError (List Byte) :=
+  checkedAbiEncodeValues
+    [SolidCore.Solidity.Source.Ty.uint256]
+    [SolidCore.Solidity.Source.Value.word expected]
+
+def checkedGetterAbiBytesOutput (expected : List Byte) :
+    Except TypeError (List Byte) :=
+  checkedAbiEncodeValues
+    [SolidCore.Solidity.Source.Ty.bytesCalldata]
+    [SolidCore.Solidity.Source.Value.bytes expected]
+
+def checkedPublicGetterContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicMappingGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.bytesStringMappingKeyContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicArrayGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.nestedPublicGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicBytesArrayGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicStringArrayGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicMappingByteStringsGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.publicFixedBytesArrayGetterContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageStringGetterContract)
+
+def checkedPublicGetterMatches : Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.publicGetterContract
+    "x" Executable.Examples.publicGetterState [] 42
+
+def checkedPublicGetterAbiMatches : Except TypeError Bool := do
+  let expected ← checkedGetterAbiWordOutput 42
+  checkedContractAbiOutputFromStateMatches 16
+    Executable.Examples.publicGetterContract
+    "x" Executable.Examples.publicGetterState [] (some expected)
+
+def checkedPublicMappingGetterSetState : Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.publicMappingGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "public mapping getter set")
+
+def checkedPublicMappingGetterMatches : Except TypeError Bool := do
+  let state ← checkedPublicMappingGetterSetState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.publicMappingGetterContract
+    "m" state [SolidCore.Solidity.Source.Value.word 4] 9
+
+def checkedPublicMappingGetterAbiMatches : Except TypeError Bool := do
+  let state ← checkedPublicMappingGetterSetState
+  let expected ← checkedGetterAbiWordOutput 9
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.publicMappingGetterContract
+    "m" state [SolidCore.Solidity.Source.Value.word 4] (some expected)
+
+def checkedBytesStringMappingSetState : Except TypeError CoreState := do
+  let bytesSet ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.bytesStringMappingKeyContract
+      (SolidCore.Solidity.Source.CallTarget.name "setBytes")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.bytes [1, 2, 3]
+      , SolidCore.Solidity.Source.Value.word 44 ]
+  let state ←
+    match bytesSet with
+    | SolidCore.Solidity.Source.CallResult.returned state _ =>
+        Except.ok state
+    | _ => Except.error (executableFailure "bytes mapping key set")
+  let stringSet ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.bytesStringMappingKeyContract
+      (SolidCore.Solidity.Source.CallTarget.name "setString")
+      state
+      [ SolidCore.Solidity.Source.Value.bytes ("hi".toList.map Char.toNat)
+      , SolidCore.Solidity.Source.Value.word 55 ]
+  match stringSet with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "string mapping key set")
+
+def checkedPublicBytesMappingGetterMatches : Except TypeError Bool := do
+  let state ← checkedBytesStringMappingSetState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.bytesStringMappingKeyContract
+    "mb" state [SolidCore.Solidity.Source.Value.bytes [1, 2, 3]] 44
+
+def checkedPublicStringMappingGetterAbiMatches :
+    Except TypeError Bool := do
+  let state ← checkedBytesStringMappingSetState
+  let expected ← checkedGetterAbiWordOutput 55
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.bytesStringMappingKeyContract
+    "ms" state
+    [SolidCore.Solidity.Source.Value.bytes ("hi".toList.map Char.toNat)]
+    (some expected)
+
+def checkedPublicArrayGetterSetState : Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.publicArrayGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "public array getter set")
+
+def checkedPublicDynamicArrayGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedPublicArrayGetterSetState
+  checkedOwnCallWordMatches 32
+    Executable.Examples.publicArrayGetterContract
+    "items" state [SolidCore.Solidity.Source.Value.word 2] 7
+
+def checkedPublicFixedArrayGetterAbiMatches :
+    Except TypeError Bool := do
+  let state ← checkedPublicArrayGetterSetState
+  let expected ← checkedGetterAbiWordOutput 8
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.publicArrayGetterContract
+    "fixedItems" state [SolidCore.Solidity.Source.Value.word 1]
+    (some expected)
+
+def checkedPublicDynamicArrayGetterOutOfBoundsPanics :
+    Except TypeError Bool := do
+  let state ← checkedPublicArrayGetterSetState
+  checkedOwnCallPanicMatches 32
+    Executable.Examples.publicArrayGetterContract
+    "items" state [SolidCore.Solidity.Source.Value.word 3] 0x32
+
+def checkedPublicFixedArrayGetterOutOfBoundsPanics :
+    Except TypeError Bool := do
+  let state ← checkedPublicArrayGetterSetState
+  checkedOwnCallPanicMatches 32
+    Executable.Examples.publicArrayGetterContract
+    "fixedItems" state [SolidCore.Solidity.Source.Value.word 3] 0x32
+
+def checkedNestedMappingPublicGetterMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.nestedPublicGetterContract
+    "nested" Executable.Examples.nestedPublicGetterState
+    [ SolidCore.Solidity.Source.Value.word 4
+    , SolidCore.Solidity.Source.Value.word 5 ] 99
+
+def checkedNestedMappingPublicGetterAbiMatches :
+    Except TypeError Bool := do
+  let expected ← checkedGetterAbiWordOutput 99
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.nestedPublicGetterContract
+    "nested" Executable.Examples.nestedPublicGetterState
+    [ SolidCore.Solidity.Source.Value.word 4
+    , SolidCore.Solidity.Source.Value.word 5 ] (some expected)
+
+def checkedMappingArrayPublicGetterMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.nestedPublicGetterContract
+    "buckets" Executable.Examples.nestedPublicGetterState
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 1 ] 88
+
+def checkedMappingArrayPublicGetterOutOfBoundsPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 32
+    Executable.Examples.nestedPublicGetterContract
+    "buckets" Executable.Examples.nestedPublicGetterState
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 2 ] 0x32
+
+def checkedPublicBytesArrayGetterMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.publicBytesArrayGetterContract
+    "blobs" Executable.Examples.publicBytesArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 1] [10, 20, 30]
+
+def checkedPublicBytesArrayGetterAbiMatches :
+    Except TypeError Bool := do
+  let expected ← checkedGetterAbiBytesOutput [10, 20, 30]
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.publicBytesArrayGetterContract
+    "blobs" Executable.Examples.publicBytesArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 1] (some expected)
+
+def checkedPublicStringArrayGetterMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.publicStringArrayGetterContract
+    "names" Executable.Examples.publicStringArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 0] [104, 105]
+
+def checkedPublicStringArrayGetterAbiMatches :
+    Except TypeError Bool := do
+  let expected ← checkedGetterAbiBytesOutput [104, 105]
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.publicStringArrayGetterContract
+    "names" Executable.Examples.publicStringArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 0] (some expected)
+
+def checkedPublicMappingBytesGetterMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.publicMappingByteStringsGetterContract
+    "raw" Executable.Examples.publicMappingByteStringsGetterState
+    [SolidCore.Solidity.Source.Value.word 4] [1, 2]
+
+def checkedPublicMappingStringGetterAbiMatches :
+    Except TypeError Bool := do
+  let expected ← checkedGetterAbiBytesOutput [111, 107]
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.publicMappingByteStringsGetterContract
+    "text" Executable.Examples.publicMappingByteStringsGetterState
+    [SolidCore.Solidity.Source.Value.word 5] (some expected)
+
+def checkedPublicFixedBytesArrayGetterMatches :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.publicFixedBytesArrayGetterContract
+    "fixedBlobs" Executable.Examples.publicFixedBytesArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 1] [7, 8, 9]
+
+def checkedPublicFixedBytesArrayGetterAbiMatches :
+    Except TypeError Bool := do
+  let expected ← checkedGetterAbiBytesOutput [7, 8, 9]
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.publicFixedBytesArrayGetterContract
+    "fixedBlobs" Executable.Examples.publicFixedBytesArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 1] (some expected)
+
+def checkedPublicFixedBytesArrayGetterOutOfBoundsPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 32
+    Executable.Examples.publicFixedBytesArrayGetterContract
+    "fixedBlobs" Executable.Examples.publicFixedBytesArrayGetterState
+    [SolidCore.Solidity.Source.Value.word 2] 0x32
+
+def checkedStorageStringSetState : Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.storageStringGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "setGreeting")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.bytes
+          Executable.Examples.storageStringGreetingBytes ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage string set")
+
+def checkedStorageStringPublicGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStringSetState
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.storageStringGetterContract
+    "greeting" state [] Executable.Examples.storageStringGreetingBytes
+
+def checkedStorageStringPublicGetterAbiMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageStringSetState
+  let expected ←
+    checkedGetterAbiBytesOutput
+      Executable.Examples.storageStringGreetingBytes
+  checkedContractAbiOutputFromStateMatches 32
+    Executable.Examples.storageStringGetterContract
+    "greeting" state [] (some expected)
+
+def checkedStorageStringClearState : Except TypeError CoreState := do
+  let state ← checkedStorageStringSetState
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.storageStringGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "clearGreeting")
+      state []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage string clear")
+
+def checkedStorageStringClearGetterEmpty :
+    Except TypeError Bool := do
+  let state ← checkedStorageStringClearState
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.storageStringGetterContract
+    "greeting" state [] []
+
+def checkedStorageBytesSetState : Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 32
+      Executable.Examples.storageStringGetterContract
+      (SolidCore.Solidity.Source.CallTarget.name "setRaw")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes [1, 2, 3]]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ => Except.error (executableFailure "storage bytes set")
+
+def checkedStorageBytesPublicGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedStorageBytesSetState
+  checkedOwnCallBytesMatches 32
+    Executable.Examples.storageStringGetterContract
+    "raw" state [] [1, 2, 3]
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
