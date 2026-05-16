@@ -4957,6 +4957,261 @@ def checkedPrecompileBuiltinsStaticcallSharedResultsMatches :
           recoverOutput == recoverExpected)
   | _ => Except.ok false
 
+def checkedTypeMetadataSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedTypeMetadataSourceUnit)
+
+def checkedTypeInfoLimitsMatch : Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 16
+      Executable.Examples.checkedTypeMetadataSourceUnit
+      "CheckedTypeMetadata"
+      (SolidCore.Solidity.Source.CallTarget.name "limits")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word min256
+      , SolidCore.Solidity.Source.Value.word max8
+      , SolidCore.Solidity.Source.Value.word max256 ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq min256 0 &&
+          SolidCore.Solidity.Source.wordEq max8 255 &&
+          SolidCore.Solidity.Source.wordEq max256
+            (SharedSemantics.wordModulus - 1))
+  | _ => Except.ok false
+
+def checkedSignedTypeInfoLimitsMatch : Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 16
+      Executable.Examples.checkedTypeMetadataSourceUnit
+      "CheckedTypeMetadata"
+      (SolidCore.Solidity.Source.CallTarget.name "signedLimits")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.int min256
+      , SolidCore.Solidity.Source.Value.int max256 ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq min256
+            SharedSemantics.halfWordModulus &&
+          SolidCore.Solidity.Source.wordEq max256
+            (SharedSemantics.halfWordModulus - 1))
+  | _ => Except.ok false
+
+def checkedContractTypeNameMatches : Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 16
+      Executable.Examples.checkedTypeMetadataSourceUnit
+      "CheckedTypeMetadata"
+      (SolidCore.Solidity.Source.CallTarget.name "contractName")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      Except.ok (bytes == "Vault".toList.map Char.toNat)
+  | _ => Except.ok false
+
+def checkedTypeMetadataContractWithCodeContext :
+    Except TypeError CheckedContract := do
+  let program ←
+    SourceUnit.checkedProgram
+      Executable.Examples.checkedTypeMetadataSourceUnit
+  CheckedProgram.contract program "CheckedTypeMetadata"
+
+def checkedTypeMetadataCodeContext
+    (contract : CheckedContract) :
+    SolidCore.Solidity.Source.Context :=
+  { contract.core.context with
+    contractCreationCodes := [("Target", [1, 2, 3, 4])]
+    contractRuntimeCodes := [("Target", [5, 6, 7])] }
+
+def checkedContractTypeCodeInfoMatches : Except TypeError Bool := do
+  let contract ← checkedTypeMetadataContractWithCodeContext
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "codeInfo"
+      (checkedTypeMetadataCodeContext contract)
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word creationLen
+      , SolidCore.Solidity.Source.Value.word runtimeLen
+      , SolidCore.Solidity.Source.Value.bytes runtimeBytes ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq creationLen 4 &&
+          SolidCore.Solidity.Source.wordEq runtimeLen 3 &&
+          runtimeBytes == [5, 6, 7])
+  | _ => Except.ok false
+
+def checkedContractTypeRuntimeCodeAbiMatches :
+    Except TypeError Bool := do
+  let contract ← checkedTypeMetadataContractWithCodeContext
+  let expected ←
+    optionToExcept "runtimeCode ABI expected"
+      Executable.Examples.contractTypeRuntimeCodeAbiExpected
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "runtimeCodeAbi"
+      (checkedTypeMetadataCodeContext contract)
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      Except.ok (bytes == expected)
+  | _ => Except.ok false
+
+def checkedInterfaceIdMatchesExpected :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32
+      Executable.Examples.checkedTypeMetadataSourceUnit
+      "CheckedTypeMetadata"
+      (SolidCore.Solidity.Source.CallTarget.name "tokenInterfaceId")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word interfaceId] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq interfaceId
+            Executable.Examples.interfaceIdTokenExpected &&
+          !SolidCore.Solidity.Source.wordEq interfaceId
+            Executable.Examples.interfaceIdTokenIncludingInherited)
+  | _ => Except.ok false
+
+def checkedAddressEnvironmentContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedAddressEnvironmentContract)
+
+def checkedAddressMembersMatch : Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "accountInfo"
+      { contract.core.context with
+        self := 0xcafe
+        accountBalances := [(0xcafe, 1000), (0xbeef, 77)]
+        accountCodehashes := [(0xbeef, 0x123456)] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word selfAddress
+      , SolidCore.Solidity.Source.Value.word selfBalance
+      , SolidCore.Solidity.Source.Value.word otherBalance
+      , SolidCore.Solidity.Source.Value.word otherCodehash ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq selfAddress 0xcafe &&
+          SolidCore.Solidity.Source.wordEq selfBalance 1000 &&
+          SolidCore.Solidity.Source.wordEq otherBalance 77 &&
+          SolidCore.Solidity.Source.wordEq otherCodehash 0x123456)
+  | _ => Except.ok false
+
+def checkedAddressCodeMemberMatch : Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "codeInfo"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1, 2, 3, 4])] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.bytes code
+      , SolidCore.Solidity.Source.Value.word codeLength
+      , SolidCore.Solidity.Source.Value.word missingLength ] =>
+      Except.ok
+        (code == [1, 2, 3, 4] &&
+          SolidCore.Solidity.Source.wordEq codeLength 4 &&
+          SolidCore.Solidity.Source.wordEq missingLength 0)
+  | _ => Except.ok false
+
+def checkedSelfdestructRecordsAndStopsMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "destroy"
+      { contract.core.context with self := 0xcafe }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.selfdestructs with
+      | [(fromAddress, recipient)] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq fromAddress 0xcafe &&
+              SolidCore.Solidity.Source.wordEq recipient 0xbeef &&
+              SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedMetadataInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        typeCreationCodeSelfSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        typeRuntimeCodeDerivedSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        pureAddressEnvMembersSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        selfdestructNonpayableAddressSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        selfdestructViewSource)
+
+def checkedConcatBuiltinsContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedConcatBuiltinsContract)
+
+def checkedConcatBuiltinsMatch : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedConcatBuiltinsContract
+      (SolidCore.Solidity.Source.CallTarget.name "join")
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.bytes [1, 2]
+      , SolidCore.Solidity.Source.Value.bytes
+          ("!".toList.map Char.toNat) ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.bytes joinedBytes
+      , SolidCore.Solidity.Source.Value.bytes joinedString ] =>
+      Except.ok
+        (joinedBytes == [1, 2, 3, 4] &&
+          joinedString == [104, 105, 33])
+  | _ => Except.ok false
+
+def checkedBytesConcatFixedMatchesExpected :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedConcatBuiltinsContract
+    "joinFixed" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.bytes [1, 2]]
+    [0xaa, 0xbb, 0xcc, 72, 105, 1, 2]
+
+def checkedStringConcatUnicodeMatchesExpected :
+    Except TypeError Bool :=
+  checkedOwnCallBytesMatches 16
+    Executable.Examples.checkedConcatBuiltinsContract
+    "joinString" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.bytes
+      ("!".toList.map Char.toNat)]
+    [97, 0xc3, 0xa9, 33]
+
+def checkedConcatInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.checkedBytesConcatInvalidSourceUnit) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.checkedStringConcatInvalidSourceUnit)
+
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordTripleMatches 32

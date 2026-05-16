@@ -6496,7 +6496,11 @@ def InterfaceIdEnv.lookup? : InterfaceIdEnv -> Name -> Option Word
 
 def interfaceIdLiteralExpr (interfaceId : Word) : Expr :=
   Expr.call (Expr.typeName (Ty.bytesN 4))
-    [Arg.positional (Expr.literal (Literal.number (toString interfaceId)))]
+    [ Arg.positional
+        (Expr.literal
+          (Literal.bytes
+            (SolidCore.Solidity.Source.wordToBytesBE
+              SolidCore.Solidity.Source.selectorBytes interfaceId))) ]
 
 mutual
 
@@ -19944,6 +19948,128 @@ def addressCodeMemberCallMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq missingLength 0)
   | _ => some false
 
+def checkedUintTypeInfoFunction : FunctionDecl :=
+  { uintTypeInfoFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.member (Expr.typeName (Ty.uint 256)) "min")
+              , TupleItem.value
+                  (Expr.member (Expr.typeName (Ty.uint 8)) "max")
+              , TupleItem.value
+                  (Expr.member (Expr.typeName (Ty.uint 256)) "max") ]))) }
+
+def checkedIntTypeInfoFunction : FunctionDecl :=
+  { intTypeInfoFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
+def checkedContractTypeNameInfoFunction : FunctionDecl :=
+  { contractTypeNameInfoFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.string
+         location := some DataLocation.memory }] }
+
+def checkedContractTypeCodeInfoFunction : FunctionDecl :=
+  { contractTypeCodeInfoFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [ { name := some "creationLen", ty := Ty.uint 256 }
+      , { name := some "runtimeLen", ty := Ty.uint 256 }
+      , { name := some "runtimeBytes"
+          ty := Ty.bytes
+          location := some DataLocation.memory } ] }
+
+def checkedContractTypeRuntimeCodeAbiFunction : FunctionDecl :=
+  { contractTypeRuntimeCodeAbiFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }] }
+
+def checkedInterfaceIdFunction : FunctionDecl :=
+  { name := some "tokenInterfaceId"
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns := [{ name := some "out", ty := Ty.bytesN 4 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.member
+              (Expr.typeName (Ty.user { segments := ["IToken"] }))
+              "interfaceId"))) }
+
+def checkedInterfaceIdTokenInterface : ContractDecl :=
+  { interfaceIdTokenInterface with bases := [] }
+
+def checkedTypeMetadataContract : ContractDecl :=
+  { name := "CheckedTypeMetadata"
+    items :=
+      [ ContractItem.function checkedUintTypeInfoFunction
+      , ContractItem.function checkedIntTypeInfoFunction
+      , ContractItem.function checkedContractTypeNameInfoFunction
+      , ContractItem.function checkedContractTypeCodeInfoFunction
+      , ContractItem.function checkedContractTypeRuntimeCodeAbiFunction
+      , ContractItem.function checkedInterfaceIdFunction ] }
+
+def checkedTypeMetadataSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract { name := "Vault" }
+      , SourceItem.contract { name := "Target" }
+      , SourceItem.contract checkedInterfaceIdTokenInterface
+      , SourceItem.contract checkedTypeMetadataContract ] }
+
+def checkedAddressMembersFunction : FunctionDecl :=
+  { addressMembersFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view }
+
+def checkedAddressCodeMemberFunction : FunctionDecl :=
+  { addressCodeMemberFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view
+    returns :=
+      [ { name := some "code"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "codeLength", ty := Ty.uint 256 }
+      , { name := some "missingLength", ty := Ty.uint 256 } ] }
+
+def checkedSelfdestructFunction : FunctionDecl :=
+  { name := some "destroy"
+    visibility := some Visibility.public_
+    mutability := StateMutability.nonpayable
+    params := [{ name := some "target", ty := Ty.address true }]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.expr
+              (Expr.call (Expr.ident "selfdestruct")
+                [Arg.positional (Expr.ident "target")])
+          , Stmt.expr
+              (Expr.assign (Expr.ident "x") AssignOp.assign
+                (Expr.literal (Literal.number "9"))) ]) }
+
+def checkedAddressEnvironmentContract : ContractDecl :=
+  { name := "CheckedAddressEnvironment"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function checkedAddressMembersFunction
+      , ContractItem.function checkedAddressCodeMemberFunction
+      , ContractItem.function checkedSelfdestructFunction ] }
+
 def lowLevelCallFunction : FunctionDecl :=
   { name := some "probe"
     params :=
@@ -20486,6 +20612,105 @@ def stringConcatRejected : Bool :=
     with
     | none => true
     | some _ => false)
+
+def checkedConcatBuiltinsFunction : FunctionDecl :=
+  { concatBuiltinsFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    params :=
+      [ { name := some "prefix"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "suffix"
+          ty := Ty.string
+          location := some DataLocation.memory } ]
+    returns :=
+      [ { name := some "joinedBytes"
+          ty := Ty.bytes
+          location := some DataLocation.memory }
+      , { name := some "joinedString"
+          ty := Ty.string
+          location := some DataLocation.memory } ] }
+
+def checkedBytesConcatFixedFunction : FunctionDecl :=
+  { bytesConcatFixedFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    params :=
+      [{ name := some "tail"
+         ty := Ty.bytes
+         location := some DataLocation.memory }]
+    returns :=
+      [{ name := some "out"
+         ty := Ty.bytes
+         location := some DataLocation.memory }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member (Expr.ident "bytes") "concat")
+              [ Arg.positional
+                  (checkedFixedBytesLiteralExpr (Ty.bytesN 1) [0xaa])
+              , Arg.positional
+                  (checkedFixedBytesLiteralExpr (Ty.bytesN 2)
+                    [0xbb, 0xcc])
+              , Arg.positional (Expr.literal (Literal.string "Hi"))
+              , Arg.positional (Expr.ident "tail") ]))) }
+
+def checkedStringConcatUnicodeFunction : FunctionDecl :=
+  { stringConcatUnicodeFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    params :=
+      [{ name := some "suffix"
+         ty := Ty.string
+         location := some DataLocation.memory }]
+    returns :=
+      [{ name := some "out"
+         ty := Ty.string
+         location := some DataLocation.memory }] }
+
+def checkedConcatBuiltinsContract : ContractDecl :=
+  { name := "CheckedConcatBuiltins"
+    items :=
+      [ ContractItem.function checkedConcatBuiltinsFunction
+      , ContractItem.function checkedBytesConcatFixedFunction
+      , ContractItem.function checkedStringConcatUnicodeFunction ] }
+
+def checkedBytesConcatInvalidSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "BadCheckedBytesConcat"
+            items :=
+              [ ContractItem.function
+                  { checkedBytesConcatFixedFunction with
+                    name := some "badJoin"
+                    body :=
+                      some
+                        (Stmt.returnValues
+                          (some
+                            (Expr.call
+                              (Expr.member (Expr.ident "bytes") "concat")
+                              [ Arg.positional
+                                  (Expr.literal (Literal.number "1")) ]))) } ] } ] }
+
+def checkedStringConcatInvalidSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "BadCheckedStringConcat"
+            items :=
+              [ ContractItem.function
+                  { checkedStringConcatUnicodeFunction with
+                    name := some "badJoin"
+                    body :=
+                      some
+                        (Stmt.returnValues
+                          (some
+                            (Expr.call
+                              (Expr.member (Expr.ident "string") "concat")
+                              [ Arg.positional
+                                  (Expr.literal (Literal.bytes [1])) ]))) } ] } ] }
 
 def bytesSliceFunction : FunctionDecl :=
   { name := some "sliceIt"
