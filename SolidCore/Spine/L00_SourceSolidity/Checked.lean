@@ -1275,6 +1275,266 @@ def checkedInheritedBaseConstructorModifierArgMatches :
           SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 7)
   | _ => Except.ok false
 
+def checkedFreeEventEmitMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 freeEventEmitSource "EmitFreePing"
+      (SolidCore.Solidity.Source.CallTarget.name "emitPing")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word ret] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              Except.ok
+                (event.name == "Ping" &&
+                  SolidCore.Solidity.Source.wordEq ret 1 &&
+                  SolidCore.Solidity.Source.wordEq value 1)
+          | _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedFreeErrorRevertMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 revertBoomSource "RevertBoom"
+      (SolidCore.Solidity.Source.CallTarget.name "revertBoom")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "Boom"
+        [SolidCore.Solidity.Source.Value.word value]) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value 1)
+  | _ => Except.ok false
+
+def checkedNamedEventArgumentOrderMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 emitPairNamedSource
+      "EmitPairNamed"
+      (SolidCore.Solidity.Source.CallTarget.name "emitPairNamed")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word ret] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [ SolidCore.Solidity.Source.Value.word first
+            , SolidCore.Solidity.Source.Value.word second ] =>
+              Except.ok
+                (event.name == "PairSeen" &&
+                  SolidCore.Solidity.Source.wordEq ret 1 &&
+                  SolidCore.Solidity.Source.wordEq first 40 &&
+                  SolidCore.Solidity.Source.wordEq second 2)
+          | _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedNamedErrorArgumentOrderMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 revertPairNamedSource
+      "RevertPairNamed"
+      (SolidCore.Solidity.Source.CallTarget.name "revertPairNamed")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "PairBad"
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 40 &&
+          SolidCore.Solidity.Source.wordEq second 2)
+  | _ => Except.ok false
+
+def checkedRequireCustomErrorMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 requirePairNamedSource
+      "RequirePairNamed"
+      (SolidCore.Solidity.Source.CallTarget.name "requirePairNamed")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.custom "PairBad"
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 40 &&
+          SolidCore.Solidity.Source.wordEq second 2)
+  | _ => Except.ok false
+
+def checkedEventArgumentSideEffectContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedEventArgumentSideEffect"
+    items :=
+      [ L00_SourceSolidity.ContractItem.eventDecl
+          { name := "Seen"
+            params :=
+              [{ name := some "value"
+                 ty := Ty.uint 256
+                 indexed := false }] }
+      , L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "value"
+            visibility := some Visibility.internal_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "7")))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some (L00_SourceSolidity.Expr.ident "x")) ]) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.emitEvent
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.ident "Seen")
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "value") [])])
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some (L00_SourceSolidity.Expr.ident "x")) ]) } ] }
+
+def checkedEventArgumentSideEffectMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 64 checkedEventArgumentSideEffectContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word ret] =>
+      match state.events with
+      | [event] =>
+          match event.data with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              Except.ok
+                (event.name == "Seen" &&
+                  SolidCore.Solidity.Source.wordEq ret 7 &&
+                  SolidCore.Solidity.Source.wordEq value 7 &&
+                  SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7)
+          | _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedErrorRollbackContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedErrorRollback"
+    items :=
+      [ L00_SourceSolidity.ContractItem.errorDecl
+          { name := "Bad"
+            params := [{ name := some "value", ty := Ty.uint 256 }] }
+      , L00_SourceSolidity.ContractItem.stateVar
+          { name := "x", ty := Ty.uint 256 }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "value"
+            visibility := some Visibility.internal_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.assign
+                        (L00_SourceSolidity.Expr.ident "x")
+                        AssignOp.assign
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.number "7")))
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some (L00_SourceSolidity.Expr.ident "x")) ]) }
+      , L00_SourceSolidity.ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.block
+                  [ L00_SourceSolidity.Stmt.revertCall
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.ident "Bad")
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "value") [])])
+                  , L00_SourceSolidity.Stmt.returnValues
+                      (some (L00_SourceSolidity.Expr.ident "x")) ]) } ] }
+
+def checkedErrorRollbackMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCall 64 checkedErrorRollbackContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state
+      (SolidCore.Solidity.Source.RevertData.custom "Bad"
+        [SolidCore.Solidity.Source.Value.word value]) =>
+      match state.events with
+      | [] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq value 7 &&
+              SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedInheritedErrorAbiPayloadMatches :
+    Except TypeError Bool := do
+  let program ←
+    SourceUnit.checkedProgram
+      Executable.Examples.inheritedEventErrorShadowUnit
+  let contract ←
+    CheckedProgram.contract program "InheritedEventErrorDerived"
+  let function ←
+    optionToExcept "function lookup fail"
+      (contract.core.findFunctionByName? "fail")
+  let calldata ←
+    optionToExcept "ABI calldata fail"
+      (SolidCore.Solidity.Source.ABI.calldataFor? function [])
+  let result ←
+    CheckedContract.callCalldata 16 contract
+      SolidCore.Solidity.Source.State.empty calldata
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "Collision()")
+  Except.ok (!result.success && result.output == selector)
+
+def checkedInheritedEventEmitMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32
+      Executable.Examples.inheritedEventErrorShadowUnit
+      "InheritedEventErrorDerived"
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.events with
+      | [event] =>
+          match event.data, event.topics with
+          | [], [topic] =>
+              Except.ok
+                (event.name == "CollisionEvent" &&
+                  SolidCore.Solidity.Source.wordEq topic
+                    (SolidCore.Solidity.Source.Keccak.digestWord
+                      "CollisionEvent()"))
+          | _, _ => Except.ok false
+      | _ => Except.ok false
+  | _ => Except.ok false
+
 def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTransientStorage"
     items :=
