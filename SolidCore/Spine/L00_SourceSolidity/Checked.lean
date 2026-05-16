@@ -8,6 +8,7 @@ namespace TypeCheck
 abbrev CoreContract := L00_SourceSolidity.Executable.CoreContract
 abbrev CoreValue := L00_SourceSolidity.Executable.CoreValue
 abbrev CoreState := L00_SourceSolidity.Executable.CoreState
+abbrev CoreContext := L00_SourceSolidity.Executable.CoreContext
 abbrev CoreCallResult := L00_SourceSolidity.Executable.CoreCallResult
 abbrev CoreFunctionDef := L00_SourceSolidity.Executable.CoreFunctionDef
 abbrev CoreAbiCallResult := SolidCore.Solidity.Source.ABI.AbiCallResult
@@ -4679,6 +4680,313 @@ def checkedExternalFunctionPointerTryCatchCatchMatches :
       [SolidCore.Solidity.Source.Value.word value] =>
       Except.ok (SolidCore.Solidity.Source.wordEq value 7)
   | _ => Except.ok false
+
+def checkedHighLevelExternalSourceAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.checkedHighLevelExternalSource)
+
+def checkedHighLevelExternalCalldata (signature : String)
+    (tys : List SolidCore.Solidity.Source.Ty)
+    (args : List CoreValue) : Except TypeError (List Byte) :=
+  optionToExcept ("external calldata " ++ signature)
+    (Executable.Examples.externalCalldata? signature tys args)
+
+def checkedHighLevelExternalWordOutput (value : Word) :
+    Except TypeError (List Byte) :=
+  checkedAbiEncodeValues
+    [SolidCore.Solidity.Source.Ty.uint256]
+    [SolidCore.Solidity.Source.Value.word value]
+
+def checkedHighLevelExternalWordPairOutput
+    (left right : Word) : Except TypeError (List Byte) :=
+  checkedAbiEncodeValues
+    [ SolidCore.Solidity.Source.Ty.uint256
+    , SolidCore.Solidity.Source.Ty.uint256 ]
+    [ SolidCore.Solidity.Source.Value.word left
+    , SolidCore.Solidity.Source.Value.word right ]
+
+def checkedHighLevelExternalResult
+    (kind : SolidCore.Solidity.Source.LowLevelCallKind)
+    (signature : String)
+    (tys : List SolidCore.Solidity.Source.Ty)
+    (args : List CoreValue) (output : List Byte)
+    (value : Word := 0) (gas? : Option Word := none)
+    (success : Bool := true) :
+    Except TypeError SolidCore.Solidity.Source.LowLevelCallResult := do
+  let calldata ← checkedHighLevelExternalCalldata signature tys args
+  Except.ok
+    { kind := kind
+      target := 0xbeef
+      calldata := calldata
+      value := value
+      gas? := gas?
+      success := success
+      output := output }
+
+def checkedHighLevelExternalCall
+    (functionName : Name) (context : CoreContext)
+    (args : List CoreValue) : Except TypeError CoreCallResult := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.checkedHighLevelExternalSource
+      "CheckedHighLevelCaller"
+  CheckedContract.callFunctionWithContext 32 contract functionName
+    context SolidCore.Solidity.Source.State.empty args
+
+def checkedHighLevelExternalContext
+    (results : List SolidCore.Solidity.Source.LowLevelCallResult)
+    (accountCodes : List (Word × List Byte) := []) :
+    Except TypeError CoreContext := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.checkedHighLevelExternalSource
+      "CheckedHighLevelCaller"
+  Except.ok
+    { contract.core.context with
+      accountCodes := accountCodes
+      lowLevelCallResults := results }
+
+def checkedHighLevelExternalWordCallMatches
+    (functionName : Name) (context : CoreContext)
+    (args : List CoreValue) (expected : Word) :
+    Except TypeError Bool := do
+  let result ←
+    checkedHighLevelExternalCall functionName context args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  | _ => Except.ok false
+
+def checkedHighLevelExternalReturnMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 77
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "get()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "read" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 77
+
+def checkedHighLevelExternalNamedArgsReorderedMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 42
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "quote(uint256,uint256)"
+      [ SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.Ty.uint256 ]
+      [ SolidCore.Solidity.Source.Value.word 40
+      , SolidCore.Solidity.Source.Value.word 2 ] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readNamed" context
+    [ SolidCore.Solidity.Source.Value.word 0xbeef
+    , SolidCore.Solidity.Source.Value.word 40
+    , SolidCore.Solidity.Source.Value.word 2 ] 42
+
+def checkedHighLevelExternalVarDeclMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 40
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "get()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readViaLocal" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 41
+
+def checkedHighLevelExternalMultiVarDeclMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordPairOutput 20 22
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "pair()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readPairViaLocals" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 42
+
+def checkedHighLevelExternalPayableValueMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 22
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "payQuote()" [] [] output 9 (some 1234)
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "payKnown" context
+    [ SolidCore.Solidity.Source.Value.word 0xbeef
+    , SolidCore.Solidity.Source.Value.word 9 ] 22
+
+def checkedHighLevelExternalNonpayableGasMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 33
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "plainQuote()" [] [] output 0 (some 5678)
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "nonpayableGas" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 33
+
+def checkedHighLevelExternalAssignMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 12
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "get()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  let callResult ←
+    checkedHighLevelExternalCall "assignFromExternal" context
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match callResult with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 12)
+  | _ => Except.ok false
+
+def checkedHighLevelExternalDiscardMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "notify()" [] [] []
+  let context ← checkedHighLevelExternalContext [result] [(0xbeef, [1])]
+  let callResult ←
+    checkedHighLevelExternalCall "notifyExternal" context
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match callResult with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] =>
+      Except.ok true
+  | _ => Except.ok false
+
+def checkedHighLevelExternalNoReturnMissingCodeCaught :
+    Except TypeError Bool := do
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "notify()" [] [] []
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "notifyOrCatch" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 2
+
+def checkedHighLevelExternalNoReturnCodePresentSucceeds :
+    Except TypeError Bool := do
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "notify()" [] [] []
+  let context ← checkedHighLevelExternalContext [result] [(0xbeef, [1])]
+  checkedHighLevelExternalWordCallMatches "notifyOrCatch" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 1
+
+def checkedHighLevelExternalReturnNoCodeUsesReturndata :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 5
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "get()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readNoCodeReturn" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 5
+
+def checkedHighLevelExternalFailureBubblesRaw :
+    Except TypeError Bool := do
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      "get()" [] [] [0xdd, 0xee] 0 none false
+  let context ← checkedHighLevelExternalContext [result]
+  let callResult ←
+    checkedHighLevelExternalCall "read" context
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match callResult with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.raw bytes) =>
+      Except.ok (bytes == [0xdd, 0xee])
+  | _ => Except.ok false
+
+def checkedHighLevelExternalViewStaticcallMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 77
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      "viewGet()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readView" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 77
+
+def checkedHighLevelExternalPureGasStaticcallMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 88
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      "pureGet()" [] [] output 0 (some 4321)
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readPureWithGas" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 88
+
+def checkedHighLevelExternalGetterStaticcallMatches :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput 99
+  let result ←
+    checkedHighLevelExternalResult
+      SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      "x()" [] [] output
+  let context ← checkedHighLevelExternalContext [result]
+  checkedHighLevelExternalWordCallMatches "readGetter" context
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 99
+
+def checkedHighLevelThisStaticcallMatches
+    (functionName signature : Name) (expected : Word) :
+    Except TypeError Bool := do
+  let output ← checkedHighLevelExternalWordOutput expected
+  let calldata ← checkedHighLevelExternalCalldata signature [] []
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.checkedHighLevelExternalSource
+      "CheckedThisStatic"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract functionName
+      { contract.core.context with
+        self := 0xcafe
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xcafe
+              calldata := calldata
+              success := true
+              output := output } ] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  | _ => Except.ok false
+
+def checkedHighLevelThisViewStaticcallMatches :
+    Except TypeError Bool :=
+  checkedHighLevelThisStaticcallMatches "readThisView" "get()" 123
+
+def checkedHighLevelThisGetterStaticcallMatches :
+    Except TypeError Bool :=
+  checkedHighLevelThisStaticcallMatches "readThisGetter" "x()" 456
+
+def checkedHighLevelExternalInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.checkedHighLevelExternalDuplicateNamedArgsSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.checkedHighLevelExternalViewValueSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.checkedHighLevelExternalNonpayableValueSource)
 
 def checkedCallContextContractAccepted : Bool :=
   Result.isOk

@@ -23895,6 +23895,362 @@ def highLevelThisGetterStaticcallMatches : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq value 456)
   | _ => some false
 
+def checkedHighLevelExternalTargetTy : Ty :=
+  Ty.user { segments := ["CheckedHighLevelTarget"] }
+
+def checkedHighLevelExternalTargetContract : ContractDecl :=
+  { name := "CheckedHighLevelTarget"
+    kind := ContractKind.interface
+    items :=
+      [ ContractItem.function
+          { name := some "get"
+            visibility := some Visibility.external_
+            returns := checkedUintReturn }
+      , ContractItem.function
+          { name := some "pair"
+            visibility := some Visibility.external_
+            returns :=
+              [ { name := some "left", ty := Ty.uint 256 }
+              , { name := some "right", ty := Ty.uint 256 } ] }
+      , ContractItem.function
+          { name := some "quote"
+            visibility := some Visibility.external_
+            params :=
+              [ checkedUintParam "amount"
+              , checkedUintParam "bonus" ]
+            returns := checkedUintReturn }
+      , ContractItem.function
+          { name := some "notify"
+            visibility := some Visibility.external_ }
+      , ContractItem.function
+          { name := some "payQuote"
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            returns := checkedUintReturn }
+      , ContractItem.function
+          { name := some "plainQuote"
+            visibility := some Visibility.external_
+            returns := checkedUintReturn }
+      , ContractItem.function
+          { name := some "viewGet"
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            returns := checkedUintReturn }
+      , ContractItem.function
+          { name := some "pureGet"
+            visibility := some Visibility.external_
+            mutability := StateMutability.pure
+            returns := checkedUintReturn }
+      , ContractItem.function
+          { name := some "x"
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            returns := checkedUintReturn } ] }
+
+def checkedHighLevelExternalTargetParam : Parameter :=
+  { name := some "target", ty := checkedHighLevelExternalTargetTy }
+
+def checkedHighLevelExternalCallerContract : ContractDecl :=
+  { name := "CheckedHighLevelCaller"
+    items :=
+      [ ContractItem.stateVar { name := "stored", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "read"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "get") []))) }
+      , ContractItem.function
+          { name := some "readNamed"
+            visibility := some Visibility.public_
+            params :=
+              [ checkedHighLevelExternalTargetParam
+              , checkedUintParam "amount"
+              , checkedUintParam "bonus" ]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "quote")
+                      [ Arg.named "bonus" (Expr.ident "bonus")
+                      , Arg.named "amount" (Expr.ident "amount") ]))) }
+      , ContractItem.function
+          { name := some "readViaLocal"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [{ name := some "value", ty := some (Ty.uint 256) }]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.ident "target") "get") []))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.ident "value")
+                          (Expr.literal (Literal.number "1")))) ]) }
+      , ContractItem.function
+          { name := some "readPairViaLocals"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "left", ty := some (Ty.uint 256) }
+                      , { name := some "right", ty := some (Ty.uint 256) } ]
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.ident "target") "pair") []))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.ident "left")
+                          (Expr.ident "right"))) ]) }
+      , ContractItem.function
+          { name := some "payKnown"
+            visibility := some Visibility.public_
+            params :=
+              [ checkedHighLevelExternalTargetParam
+              , checkedUintParam "amount" ]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "payQuote")
+                      [ CallOption.named "value" (Expr.ident "amount")
+                      , CallOption.named "gas"
+                          (Expr.literal (Literal.number "1234")) ]
+                      []))) }
+      , ContractItem.function
+          { name := some "nonpayableGas"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "plainQuote")
+                      [ CallOption.named "gas"
+                          (Expr.literal (Literal.number "5678")) ]
+                      []))) }
+      , ContractItem.function
+          { name := some "assignFromExternal"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "stored") AssignOp.assign
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "get") []))) }
+      , ContractItem.function
+          { name := some "notifyExternal"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.ident "target") "notify") [])) }
+      , ContractItem.function
+          { name := some "notifyOrCatch"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.tryCatchReturns
+                  (Expr.call
+                    (Expr.member (Expr.ident "target") "notify") [])
+                  []
+                  (Stmt.returnValues
+                    (some (Expr.literal (Literal.number "1"))))
+                  [ CatchClause.clause none []
+                      (Stmt.returnValues
+                        (some (Expr.literal (Literal.number "2")))) ]) }
+      , ContractItem.function
+          { name := some "readNoCodeReturn"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "get") []))) }
+      , ContractItem.function
+          { name := some "readView"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "viewGet") []))) }
+      , ContractItem.function
+          { name := some "readPureWithGas"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "pureGet")
+                      [ CallOption.named "gas"
+                          (Expr.literal (Literal.number "4321")) ]
+                      []))) }
+      , ContractItem.function
+          { name := some "readGetter"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "x") []))) } ] }
+
+def checkedHighLevelThisStaticcallContract : ContractDecl :=
+  { highLevelThisStaticcallContract with
+    name := "CheckedThisStatic"
+    items :=
+      [ ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "get"
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.literal (Literal.number "0")))) }
+      , ContractItem.function
+          { name := some "readThisView"
+            visibility := some Visibility.public_
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "this") "get") []))) }
+      , ContractItem.function
+          { name := some "readThisGetter"
+            visibility := some Visibility.public_
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "this") "x") []))) } ] }
+
+def checkedHighLevelExternalSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract checkedHighLevelExternalTargetContract
+      , SourceItem.contract checkedHighLevelExternalCallerContract
+      , SourceItem.contract checkedHighLevelThisStaticcallContract ] }
+
+def checkedHighLevelExternalDuplicateNamedArgsCallerContract :
+    ContractDecl :=
+  { name := "CheckedDuplicateNamedArgsCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badNamed"
+            visibility := some Visibility.public_
+            params :=
+              [ checkedHighLevelExternalTargetParam
+              , checkedUintParam "amount"
+              , checkedUintParam "bonus" ]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.call
+                      (Expr.member (Expr.ident "target") "quote")
+                      [ Arg.named "amount" (Expr.ident "amount")
+                      , Arg.named "amount" (Expr.ident "bonus") ]))) } ] }
+
+def checkedHighLevelExternalDuplicateNamedArgsSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract checkedHighLevelExternalTargetContract
+      , SourceItem.contract
+          checkedHighLevelExternalDuplicateNamedArgsCallerContract ] }
+
+def checkedHighLevelExternalViewValueCallerContract : ContractDecl :=
+  { name := "CheckedViewValueCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badValueOnView"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "viewGet")
+                      [ CallOption.named "value"
+                          (Expr.literal (Literal.number "1")) ]
+                      []))) } ] }
+
+def checkedHighLevelExternalViewValueSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract checkedHighLevelExternalTargetContract
+      , SourceItem.contract checkedHighLevelExternalViewValueCallerContract ] }
+
+def checkedHighLevelExternalNonpayableValueCallerContract :
+    ContractDecl :=
+  { name := "CheckedNonpayableValueCaller"
+    items :=
+      [ ContractItem.function
+          { name := some "badValue"
+            visibility := some Visibility.public_
+            params := [checkedHighLevelExternalTargetParam]
+            returns := checkedUintReturn
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.callWithOptions
+                      (Expr.member (Expr.ident "target") "plainQuote")
+                      [ CallOption.named "value"
+                          (Expr.literal (Literal.number "1")) ]
+                      []))) } ] }
+
+def checkedHighLevelExternalNonpayableValueSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract checkedHighLevelExternalTargetContract
+      , SourceItem.contract
+          checkedHighLevelExternalNonpayableValueCallerContract ] }
+
 def sendValueFunction : FunctionDecl :=
   { name := some "sendValue"
     params :=
