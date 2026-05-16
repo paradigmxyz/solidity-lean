@@ -12293,6 +12293,29 @@ def checkedContractCreationCaller :
                         (L00_SourceSolidity.Expr.literal
                           (L00_SourceSolidity.Literal.number "1"))) ]) } ] }
 
+def checkedDuplicateNamedCreateCaller :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedDuplicateNamedCreateCaller"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { name := some "badNamed"
+            visibility := some Visibility.public_
+            params :=
+              [ { name := some "amount", ty := Ty.uint 256 }
+              , { name := some "bonus", ty := Ty.uint 256 } ]
+            returns :=
+              [{ name := some "created", ty := checkedNamedCreatedChildTy }]
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.newExpr
+                      checkedNamedCreatedChildTy
+                      [ L00_SourceSolidity.Arg.named "amount"
+                          (L00_SourceSolidity.Expr.ident "amount")
+                      , L00_SourceSolidity.Arg.named "amount"
+                          (L00_SourceSolidity.Expr.ident "bonus") ]))) } ] }
+
 def checkedContractCreationSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -12325,6 +12348,9 @@ def checkedContractCreationMatches : Except TypeError Bool := do
       Except.ok (SolidCore.Solidity.Source.wordEq address 0xc0de)
   | _ => Except.ok false
 
+def checkedContractCreationSuccessMatches : Except TypeError Bool :=
+  checkedContractCreationMatches
+
 def checkedContractCreationNamedArgsMatches :
     Except TypeError Bool := do
   let constructorArgs ←
@@ -12351,6 +12377,10 @@ def checkedContractCreationNamedArgsMatches :
       [SolidCore.Solidity.Source.Value.word address] =>
       Except.ok (SolidCore.Solidity.Source.wordEq address 0xc0de)
   | _ => Except.ok false
+
+def checkedContractCreationNamedArgsReorderedMatches :
+    Except TypeError Bool :=
+  checkedContractCreationNamedArgsMatches
 
 def checkedContractCreationValueSaltMatches :
     Except TypeError Bool := do
@@ -12382,6 +12412,19 @@ def checkedContractCreationValueSaltMatches :
       [SolidCore.Solidity.Source.Value.word address] =>
       Except.ok (SolidCore.Solidity.Source.wordEq address 0xcafe)
   | _ => Except.ok false
+
+def checkedContractCreationNamedArgsWithOptionsMatches :
+    Except TypeError Bool :=
+  checkedContractCreationValueSaltMatches
+
+def checkedContractCreationDuplicateNamedArgsRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkedProgram
+      { items :=
+          [ L00_SourceSolidity.SourceItem.contract
+              checkedNamedCreatedChildContract
+          , L00_SourceSolidity.SourceItem.contract
+              checkedDuplicateNamedCreateCaller ] })
 
 def checkedContractCreationFailureReverts :
     Except TypeError Bool := do
