@@ -2116,6 +2116,52 @@ def checkedNonpayableDirectCallRejectsValueMatches :
       Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
   | _ => Except.ok false
 
+def checkedFallbackReceivePayableSemanticsMatch :
+    Except TypeError Bool := do
+  let fallback ← checkedFallbackDispatchMatches
+  let receive ← checkedReceiveDispatchMatches
+  let payableFallback ← checkedPayableFallbackValueDispatchMatches
+  let payableEther ← checkedPayableFallbackPlainEtherMatches
+  let nonpayableFallback ← checkedNonpayableFallbackRejectsValueMatches
+  let missingFallback ← checkedMissingFallbackSelectorRejectsMatches
+  let missingReceive ← checkedMissingReceiveFallbackPlainEtherRejectsMatches
+  let canonicalFallback ← checkedCanonicalFallbackDispatchMatches
+  let canonicalReceive ← checkedCanonicalReceiveDispatchMatches
+  let inheritedReceive ← checkedInheritedReceiveDispatchMatches
+  let overriddenReceive ← checkedOverriddenReceiveDispatchMatches
+  let inheritedFallback ← checkedInheritedFallbackDispatchMatches
+  let overriddenFallback ← checkedOverriddenFallbackDispatchMatches
+  let fallbackBytes ← checkedFallbackBytesDispatchMatches
+  let fallbackMsgData ← checkedFallbackMsgDataDispatchMatches
+  let receiveMsgValue ← checkedReceiveMsgValueDispatchMatches
+  let fallbackSender ← checkedFallbackMsgSenderDispatchMatches
+  let canonicalPayableFallback ←
+    checkedCanonicalPayableFallbackValueDispatchMatches
+  let canonicalPayableEther ←
+    checkedCanonicalPayableFallbackPlainEtherDispatchMatches
+  let canonicalNonpayableFallback ←
+    checkedCanonicalNonpayableFallbackRejectsValueDispatchMatches
+  let canonicalMissingFallback ←
+    checkedCanonicalMissingFallbackSelectorDispatchMatches
+  let canonicalMissingReceive ←
+    checkedCanonicalMissingReceiveFallbackPlainEtherDispatchMatches
+  let payableFunctionDispatch ← checkedPayableFunctionValueDispatchMatches
+  let payableFunctionDirect ← checkedPayableFunctionDirectCallMatches
+  let nonpayableDispatch ← checkedNonpayableRejectsValueDispatchMatches
+  let nonpayableDirect ← checkedNonpayableDirectCallRejectsValueMatches
+  Except.ok
+    (checkedCanonicalFallbackValueDispatchContractsAccepted &&
+      fallback && receive && payableFallback && payableEther &&
+      nonpayableFallback && missingFallback && missingReceive &&
+      canonicalFallback && canonicalReceive && inheritedReceive &&
+      overriddenReceive && inheritedFallback && overriddenFallback &&
+      fallbackBytes && fallbackMsgData && receiveMsgValue &&
+      fallbackSender && canonicalPayableFallback &&
+      canonicalPayableEther && canonicalNonpayableFallback &&
+      canonicalMissingFallback && canonicalMissingReceive &&
+      payableFunctionDispatch && payableFunctionDirect &&
+      nonpayableDispatch && nonpayableDirect)
+
 def checkedFunctionCalldata (decl : L00_SourceSolidity.ContractDecl)
     (functionName : Name) (args : List CoreValue) :
     Except TypeError (List Byte) :=
@@ -10526,6 +10572,73 @@ def checkedBaseConstructorObligationSourcesRejected : Bool :=
     Result.isError
       (CheckedInput.program
         Executable.Examples.baseConstructorDuplicateNamedArgUnit)
+
+def checkedInheritanceConstructorSemanticsMatch :
+    Except TypeError Bool := do
+  let inheritedBase ← checkedInheritedBaseFunctionDispatchMatches
+  let virtualOverride ← checkedVirtualOverrideDispatchMatches
+  let superValue ← checkedSuperValueCallMatches
+  let explicitBase ← checkedExplicitBaseCallMatches
+  let canonicalSuperValue ← checkedCanonicalSuperValueCallMatches
+  let canonicalSuperStorage ← checkedCanonicalSuperStorageCallMatches
+  let explicitLeft ← checkedExplicitBaseDirectLeftMatches
+  let explicitRight ← checkedExplicitBaseDirectRightMatches
+  let explicitVirtual ← checkedExplicitBaseVirtualDispatchMatches
+  let superChain ← checkedSuperChainValueMatches
+  let c3Order ← checkedC3DispatchOrderMatches
+  let inheritedState ← checkedInheritedStateReadMatches
+  let superStorage ← checkedSuperStorageCallMatches
+  let layoutFields ← checkedStorageLayoutFieldsMatch
+  let layoutInit ← checkedStorageLayoutInitMatches
+  let constantLayout ← checkedConstantStorageLayoutMatches
+  let fileConstantContract ← checkedFileConstantContractMatches
+  let fileConstantFree ← checkedFileConstantFreeFunctionMatches
+  let fileConstantConstructor ← checkedFileConstantConstructorMatches
+  let constantRead ← checkedConstantReadMatches
+  let constantGetter ← checkedConstantPublicGetterMatches
+  let constantStorageFields ←
+    checkedConstantStorageFieldsSkipConstantsAndImmutables
+  let constantInit ← checkedConstantInitializerMatches
+  let immutablePure ← checkedImmutableInlineConstantPureReadMatches
+  let erc7201 ← checkedErc7201StorageLayoutMatches
+  let payableCtor ← checkedPayableConstructorValueMatches
+  let nonpayableCtor ← checkedNonpayableConstructorRejectsValueMatches
+  let constructorInit ← checkedConstructorInitializesStateMatches
+  let constructorRollback ← checkedRevertingConstructorRollsBackMatches
+  let immutableCtor ← checkedImmutableConstructorMatches
+  let immutableGetter ← checkedImmutablePublicGetterMatches
+  let constructorInternal ← checkedConstructorInternalCallMatches
+  let constructorFree ← checkedConstructorFreeFunctionMatches
+  let baseNamed ← checkedInheritedBaseConstructorNamedArgMatches
+  let basePositional ← checkedInheritedBaseConstructorPositionalArgMatches
+  let baseModifier ← checkedInheritedBaseConstructorModifierArgMatches
+  let baseDeferred ← checkedInheritedBaseConstructorDeferredArgMatches
+  Except.ok
+    (checkedCanonicalSuperBaseSourceUnitsAccepted &&
+      checkedC3DispatchSourceUnitAccepted &&
+      checkedConstantImmutableTypecheckerAccepts &&
+      checkedConstantImmutableTypecheckerRejects &&
+      checkedUnknownBaseRejected && checkedMissingOverrideRejected &&
+      checkedNonvirtualOverrideRejected && checkedBadSuperCallRejected &&
+      checkedSuperCallOptionsRejected && checkedBadExplicitBaseCallRejected &&
+      checkedC3BadRejected && checkedInheritedStorageLayoutRejected &&
+      checkedBadErc7201StorageLayoutRejected &&
+      checkedBadKeccakStorageLayoutRejected &&
+      checkedImmutableRuntimeWriteRejectedByTypechecker &&
+      checkedInheritedBaseConstructorDuplicateNamedArgRejected &&
+      checkedBaseConstructorObligationSourcesAccepted &&
+      checkedBaseConstructorObligationSourcesRejected &&
+      inheritedBase && virtualOverride && superValue && explicitBase &&
+      canonicalSuperValue && canonicalSuperStorage && explicitLeft &&
+      explicitRight && explicitVirtual && superChain && c3Order &&
+      inheritedState && superStorage && layoutFields && layoutInit &&
+      constantLayout && fileConstantContract && fileConstantFree &&
+      fileConstantConstructor && constantRead && constantGetter &&
+      constantStorageFields && constantInit && immutablePure &&
+      erc7201 && payableCtor && nonpayableCtor && constructorInit &&
+      constructorRollback && immutableCtor && immutableGetter &&
+      constructorInternal && constructorFree && baseNamed &&
+      basePositional && baseModifier && baseDeferred)
 
 def checkedEventErrorAbiRollbackContractsAccepted : Bool :=
   Result.isOk
