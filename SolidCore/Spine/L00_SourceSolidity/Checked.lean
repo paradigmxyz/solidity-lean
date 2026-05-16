@@ -7690,6 +7690,53 @@ def checkedHighLevelExternalInvalidSourcesRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.checkedHighLevelExternalNonpayableValueSource)
 
+def checkedExternalFunctionAndCallSemanticsMatch :
+    Except TypeError Bool := do
+  let encodeCall ← checkedAbiEncodeCallSourceMatchesExpected
+  let encodeCallPointer ←
+    checkedAbiEncodeCallExternalPointerMatchesExpected
+  let members ← checkedExternalFunctionMembersMatch
+  let pointerCall ← checkedExternalFunctionPointerCallMatches
+  let payablePointer ← checkedExternalFunctionPointerPayableCallMatches
+  let nonpayableGas ← checkedExternalFunctionPointerNonpayableGasMatches
+  let pointerTrySuccess ←
+    checkedExternalFunctionPointerTryCatchSuccessMatches
+  let pointerTryCatch ← checkedExternalFunctionPointerTryCatchCatchMatches
+  let highLevelReturn ← checkedHighLevelExternalReturnMatches
+  let highLevelNamed ← checkedHighLevelExternalNamedArgsReorderedMatches
+  let highLevelVarDecl ← checkedHighLevelExternalVarDeclMatches
+  let highLevelMultiVar ← checkedHighLevelExternalMultiVarDeclMatches
+  let highLevelPayable ← checkedHighLevelExternalPayableValueMatches
+  let highLevelNonpayableGas ←
+    checkedHighLevelExternalNonpayableGasMatches
+  let highLevelAssign ← checkedHighLevelExternalAssignMatches
+  let highLevelDiscard ← checkedHighLevelExternalDiscardMatches
+  let missingCode ← checkedHighLevelExternalNoReturnMissingCodeCaught
+  let codePresent ← checkedHighLevelExternalNoReturnCodePresentSucceeds
+  let noCodeReturn ← checkedHighLevelExternalReturnNoCodeUsesReturndata
+  let failureRaw ← checkedHighLevelExternalFailureBubblesRaw
+  let viewStatic ← checkedHighLevelExternalViewStaticcallMatches
+  let pureGasStatic ← checkedHighLevelExternalPureGasStaticcallMatches
+  let getterStatic ← checkedHighLevelExternalGetterStaticcallMatches
+  let thisView ← checkedHighLevelThisViewStaticcallMatches
+  let thisGetter ← checkedHighLevelThisGetterStaticcallMatches
+  Except.ok
+    (checkedAbiEncodeCallSourceUnitAccepted &&
+      checkedExternalFunctionPointerContractAccepted &&
+      checkedExternalFunctionAbiCleanDecodeMatches &&
+      checkedExternalFunctionAbiRejectsDirtyPadding &&
+      checkedExternalFunctionPointerNonpayableValueRejected &&
+      checkedHighLevelExternalSourceAccepted &&
+      checkedHighLevelExternalInvalidSourcesRejected &&
+      encodeCall && encodeCallPointer && members &&
+      pointerCall && payablePointer && nonpayableGas &&
+      pointerTrySuccess && pointerTryCatch &&
+      highLevelReturn && highLevelNamed && highLevelVarDecl &&
+      highLevelMultiVar && highLevelPayable && highLevelNonpayableGas &&
+      highLevelAssign && highLevelDiscard && missingCode && codePresent &&
+      noCodeReturn && failureRaw && viewStatic && pureGasStatic &&
+      getterStatic && thisView && thisGetter)
+
 def checkedCallContextContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -12262,6 +12309,26 @@ def checkedMappingDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit deleteMappingVariableSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit badMappingIndexSource)
+
+def checkedStaticSourceDisciplineSemanticsMatch : Bool :=
+  checkedInheritedNamespaceShadowingAccepted &&
+    checkedInheritedNamespaceShadowingRejected &&
+    checkedMutabilityDisciplineAccepted &&
+    checkedMutabilityDisciplineRejected &&
+    checkedContractFormDisciplineAccepted &&
+    checkedContractFormDisciplineRejected &&
+    checkedFunctionTypeDisciplineAccepted &&
+    checkedFunctionTypeDisciplineRejected &&
+    checkedContextualArrayDisciplineAccepted &&
+    checkedContextualArrayDisciplineRejected &&
+    checkedAbiEncodeCallDisciplineAccepted &&
+    checkedAbiEncodeCallDisciplineRejected &&
+    checkedDataLocationDisciplineAccepted &&
+    checkedDataLocationDisciplineRejected &&
+    checkedTupleLocalBindingDisciplineAccepted &&
+    checkedTupleLocalBindingDisciplineRejected &&
+    checkedMappingDisciplineAccepted &&
+    checkedMappingDisciplineRejected
 
 def checkedFreeErrorAbiMatches : Except TypeError Bool := do
   let program ← CheckedInput.program Executable.Examples.freeErrorUnit
