@@ -3876,8 +3876,18 @@ def checkExpr (env : CheckEnv) :
               require (!ArgInfos.anyNamed argInfos)
                 (TypeError.unsupported
                   "named arguments for function-typed expression")
-              checkCheckedExprsAssignableToFor env.types "function call"
-                checkedArgs params
+              let checkedArgs ←
+                match
+                    checkCheckedExprsAssignableToFor env.types
+                      "function call" checkedArgs params with
+                | Except.ok _ => Except.ok checkedArgs
+                | Except.error checkedErr =>
+                    match
+                        checkPositionalArgsAssignableToParamsFor
+                          env "function call" args params with
+                    | Except.ok contextualCheckedArgs =>
+                        Except.ok contextualCheckedArgs
+                    | Except.error _ => Except.error checkedErr
               requireCallMutabilityAllowed env mutability
               Except.ok
                 { source := expr, ty := resultTyFromReturns returns,
@@ -4331,20 +4341,42 @@ def checkExpr (env : CheckEnv) :
             | _ => checkUsingOrFallback
   | expr@(L00_SourceSolidity.Expr.call fn args) => do
       let fnChecked ← checkExpr env fn
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfos args checkedArgs
       match fnChecked.ty with
       | L00_SourceSolidity.Ty.function params returns mutability _ => do
-          require (!ArgInfos.anyNamed argInfos)
-            (TypeError.unsupported
-              "named arguments for function-typed expression")
-          checkCheckedExprsAssignableToFor env.types "function call"
-            checkedArgs params
+          let checkedArgs ←
+            match checkArgs env args with
+            | Except.ok checkedArgs =>
+                let argInfos := checkedArgInfos args checkedArgs
+                require (!ArgInfos.anyNamed argInfos)
+                  (TypeError.unsupported
+                    "named arguments for function-typed expression")
+                match
+                    checkCheckedExprsAssignableToFor env.types
+                      "function call" checkedArgs params with
+                | Except.ok _ => Except.ok checkedArgs
+                | Except.error checkedErr =>
+                    match
+                        checkPositionalArgsAssignableToParamsFor
+                          env "function call" args params with
+                    | Except.ok contextualCheckedArgs =>
+                        Except.ok contextualCheckedArgs
+                    | Except.error _ => Except.error checkedErr
+            | Except.error argErr =>
+                if Args.anyNamed args then
+                  Except.error argErr
+                else
+                  match
+                      checkPositionalArgsAssignableToParamsFor
+                        env "function call" args params with
+                  | Except.ok contextualCheckedArgs =>
+                      Except.ok contextualCheckedArgs
+                  | Except.error _ => Except.error argErr
           requireCallMutabilityAllowed env mutability
           Except.ok
             { source := expr, ty := resultTyFromReturns returns,
               lvalue := false }
       | _ =>
+          let checkedArgs ← checkArgs env args
           requireCallExprMutabilityAllowed env fn
           match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
           | some ty => Except.ok { source := expr, ty := ty, lvalue := false }
@@ -4438,17 +4470,37 @@ def checkExpr (env : CheckEnv) :
       (L00_SourceSolidity.Expr.ident name) options args) => do
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfos args checkedArgs
-      let checkedInfos := checkedArgInfosFull args checkedArgs
       match env.lookupVar? name with
       | some (L00_SourceSolidity.Ty.function params returns mutability
           visibility) => do
-          require (!ArgInfos.anyNamed argInfos)
-            (TypeError.unsupported
-              "named arguments for function-typed expression")
-          checkCheckedExprsAssignableToFor env.types "function call"
-            checkedArgs params
+          let _ ←
+            match checkArgs env args with
+            | Except.ok checkedArgs =>
+                let argInfos := checkedArgInfos args checkedArgs
+                require (!ArgInfos.anyNamed argInfos)
+                  (TypeError.unsupported
+                    "named arguments for function-typed expression")
+                match
+                    checkCheckedExprsAssignableToFor env.types
+                      "function call" checkedArgs params with
+                | Except.ok _ => Except.ok checkedArgs
+                | Except.error checkedErr =>
+                    match
+                        checkPositionalArgsAssignableToParamsFor
+                          env "function call" args params with
+                    | Except.ok contextualCheckedArgs =>
+                        Except.ok contextualCheckedArgs
+                    | Except.error _ => Except.error checkedErr
+            | Except.error argErr =>
+                if Args.anyNamed args then
+                  Except.error argErr
+                else
+                  match
+                      checkPositionalArgsAssignableToParamsFor
+                        env "function call" args params with
+                  | Except.ok contextualCheckedArgs =>
+                      Except.ok contextualCheckedArgs
+                  | Except.error _ => Except.error argErr
           if options.isEmpty then
             Except.ok ()
           else
@@ -4462,6 +4514,8 @@ def checkExpr (env : CheckEnv) :
             { source := expr, ty := resultTyFromReturns returns,
               lvalue := false }
       | _ => do
+          let checkedArgs ← checkArgs env args
+          let checkedInfos := checkedArgInfosFull args checkedArgs
           let sig ← FunctionSigs.resolveChecked env.types env.functions name
             checkedInfos
           require options.isEmpty
@@ -4599,16 +4653,37 @@ def checkExpr (env : CheckEnv) :
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       let fnChecked ← checkExpr env fn
-      let checkedArgs ← checkArgs env args
-      let argInfos := checkedArgInfos args checkedArgs
       match fnChecked.ty with
       | L00_SourceSolidity.Ty.function params returns mutability
           visibility => do
-          require (!ArgInfos.anyNamed argInfos)
-            (TypeError.unsupported
-              "named arguments for function-typed expression")
-          checkCheckedExprsAssignableToFor env.types "function call"
-            checkedArgs params
+          let _ ←
+            match checkArgs env args with
+            | Except.ok checkedArgs =>
+                let argInfos := checkedArgInfos args checkedArgs
+                require (!ArgInfos.anyNamed argInfos)
+                  (TypeError.unsupported
+                    "named arguments for function-typed expression")
+                match
+                    checkCheckedExprsAssignableToFor env.types
+                      "function call" checkedArgs params with
+                | Except.ok _ => Except.ok checkedArgs
+                | Except.error checkedErr =>
+                    match
+                        checkPositionalArgsAssignableToParamsFor
+                          env "function call" args params with
+                    | Except.ok contextualCheckedArgs =>
+                        Except.ok contextualCheckedArgs
+                    | Except.error _ => Except.error checkedErr
+            | Except.error argErr =>
+                if Args.anyNamed args then
+                  Except.error argErr
+                else
+                  match
+                      checkPositionalArgsAssignableToParamsFor
+                        env "function call" args params with
+                  | Except.ok contextualCheckedArgs =>
+                      Except.ok contextualCheckedArgs
+                  | Except.error _ => Except.error argErr
           if options.isEmpty then
             Except.ok ()
           else
@@ -4622,6 +4697,7 @@ def checkExpr (env : CheckEnv) :
             { source := expr, ty := resultTyFromReturns returns,
               lvalue := false }
       | _ =>
+          let checkedArgs ← checkArgs env args
           requireCallExprMutabilityAllowed env fn
           match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
           | some ty => Except.ok { source := expr, ty := ty, lvalue := false }
@@ -5049,6 +5125,8 @@ decreasing_by
       cases rhs <;> simp_all [sizeOf] <;> omega
     try
       cases target <;> simp_wf <;> try simp_all <;> omega
+    try
+      cases fn <;> simp_wf <;> try simp_all [sizeOf] <;> omega
 
 def checkArg (env : CheckEnv) : L00_SourceSolidity.Arg ->
     Except TypeError CheckedExpr
@@ -25992,6 +26070,117 @@ def contextualArrayTryExternalMemberCallOverflowSource :
 def contextualArrayTryExternalMemberCallOverflowRejected : Bool :=
   Result.isError (SourceUnit.check
     contextualArrayTryExternalMemberCallOverflowSource)
+
+def contextualArrayExternalFunctionValueTy : Ty :=
+  L00_SourceSolidity.Ty.function [contextualNarrowArrayTy] [uint8]
+    L00_SourceSolidity.StateMutability.view
+    L00_SourceSolidity.Visibility.external_
+
+def contextualArrayExternalFunctionValueCallFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params :=
+      [{ name := some "getter"
+         ty := contextualArrayExternalFunctionValueTy
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "getter")
+              [L00_SourceSolidity.Arg.positional arg]))) }
+
+def contextualArrayExternalFunctionValueCallWithOptionsFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualArrayExternalFunctionValueCallFunction name arg with
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.callWithOptions
+              (L00_SourceSolidity.Expr.ident "getter")
+              [L00_SourceSolidity.CallOption.named "gas" (numberExpr "100000")]
+              [L00_SourceSolidity.Arg.positional arg]))) }
+
+def contextualArrayTryExternalFunctionValueCallFunction
+    (name : Name) (arg : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { contextualArrayExternalFunctionValueCallFunction name arg with
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.tryCatchReturns
+          (L00_SourceSolidity.Expr.call
+            (L00_SourceSolidity.Expr.ident "getter")
+            [L00_SourceSolidity.Arg.positional arg])
+          [{ name := some "value", ty := uint8, location := none }]
+          (L00_SourceSolidity.Stmt.returnValues
+            (some (L00_SourceSolidity.Expr.ident "value")))
+          [tryCatchZeroClause]) }
+
+def contextualArrayExternalFunctionValueSource
+    (contractName : Name) (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items := [L00_SourceSolidity.ContractItem.function fn] } ] }
+
+def contextualArrayExternalFunctionValueCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalFunctionValueSource
+    "ContextualArrayExternalFunctionValueCall"
+    (contextualArrayExternalFunctionValueCallFunction
+      "callArray" contextualNarrowArrayExpr)
+
+def contextualArrayExternalFunctionValueCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExternalFunctionValueCallSource
+
+def contextualArrayExternalFunctionValueCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalFunctionValueSource
+    "ContextualArrayExternalFunctionValueCallOverflow"
+    (contextualArrayExternalFunctionValueCallFunction
+      "callArrayOverflow" contextualNarrowArrayOverflowExpr)
+
+def contextualArrayExternalFunctionValueCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayExternalFunctionValueCallOverflowSource)
+
+def contextualArrayExternalFunctionValueCallWithOptionsSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalFunctionValueSource
+    "ContextualArrayExternalFunctionValueCallWithOptions"
+    (contextualArrayExternalFunctionValueCallWithOptionsFunction
+      "callArrayWithOptions" contextualNarrowArrayExpr)
+
+def contextualArrayExternalFunctionValueCallWithOptionsAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayExternalFunctionValueCallWithOptionsSource
+
+def contextualArrayTryExternalFunctionValueCallSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalFunctionValueSource
+    "ContextualArrayTryExternalFunctionValueCall"
+    (contextualArrayTryExternalFunctionValueCallFunction
+      "tryArray" contextualNarrowArrayExpr)
+
+def contextualArrayTryExternalFunctionValueCallAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTryExternalFunctionValueCallSource
+
+def contextualArrayTryExternalFunctionValueCallOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  contextualArrayExternalFunctionValueSource
+    "ContextualArrayTryExternalFunctionValueCallOverflow"
+    (contextualArrayTryExternalFunctionValueCallFunction
+      "tryArrayOverflow" contextualNarrowArrayOverflowExpr)
+
+def contextualArrayTryExternalFunctionValueCallOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTryExternalFunctionValueCallOverflowSource)
 
 def abiEncodeCallTypeNameSource : L00_SourceSolidity.SourceUnit :=
   { items :=
