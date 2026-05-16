@@ -2088,6 +2088,21 @@ def Parameters.extendStorageRefEnv (fallbackPrefix : String)
     (env : StorageRefEnv) (params : List Parameter) : StorageRefEnv :=
   Parameters.extendStorageRefEnvFrom fallbackPrefix 0 env params
 
+def Parameter.isStorageRef (param : Parameter) : Bool :=
+  match param.location with
+  | some DataLocation.storage => true
+  | _ => false
+
+def Parameters.storageRefFlags : List Parameter -> List Bool
+  | [] => []
+  | param :: rest =>
+      Parameter.isStorageRef param :: Parameters.storageRefFlags rest
+
+def Parameters.hasStorageRef : List Parameter -> Bool
+  | [] => false
+  | param :: rest =>
+      Parameter.isStorageRef param || Parameters.hasStorageRef rest
+
 def FunctionDecl.typeEnv (extra : TypeEnv) (decl : FunctionDecl) :
     TypeEnv :=
   let withParams := Parameters.extendTypeEnv "_arg" extra decl.params
@@ -6279,6 +6294,28 @@ def Parameters.toDefaultVarDecls (fallbackPrefix : String)
     (params : List Parameter) : List Stmt :=
   mapIdx (Parameter.toDefaultVarDecl fallbackPrefix) 0 params
 
+def uninitializedStorageReturnTarget : Name :=
+  "__solidcore_uninitialized_storage_return"
+
+def Parameter.toStorageAwareDefaultCoreDecl? (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) : Option CoreStmt := do
+  let name := param.name.getD (fallbackPrefix ++ toString index)
+  match param.location with
+  | some DataLocation.storage =>
+      let _ ← Ty.storageReferenceSupported? param.ty
+      some
+        (SolidCore.Solidity.Source.Stmt.storageAlias
+          name uninitializedStorageReturnTarget)
+  | _ => do
+      let coreTy ← Ty.toCore? param.ty
+      some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
+
+def Parameters.toStorageAwareDefaultCoreDecls?
+    (fallbackPrefix : String) (params : List Parameter) :
+    Option (List CoreStmt) :=
+  mapOptionIdx
+    (Parameter.toStorageAwareDefaultCoreDecl? fallbackPrefix) 0 params
+
 def VarBinding.toCoreDecl? (binding : VarBinding) : Option CoreStmt := do
   let name ← binding.name
   let ty ← binding.ty
@@ -6288,6 +6325,54 @@ def VarBinding.toCoreDecl? (binding : VarBinding) : Option CoreStmt := do
 def VarBindings.toCoreDecls? :
     List VarBinding -> Option (List CoreStmt) :=
   mapOption VarBinding.toCoreDecl?
+
+def VarBindings.toCoreDeclsExceptStorageReturns? :
+    List VarBinding -> List Bool -> Option (List CoreStmt)
+  | [], [] => some []
+  | binding :: bindings, isStorageReturn :: flags => do
+      let tail ←
+        VarBindings.toCoreDeclsExceptStorageReturns? bindings flags
+      match binding.name with
+      | none => some tail
+      | some name =>
+          if isStorageReturn then
+            match binding.location with
+            | some DataLocation.storage => some tail
+            | _ => none
+          else
+            match binding.ty with
+            | some ty => do
+                let coreTy ← Ty.toCore? ty
+                some
+                  (SolidCore.Solidity.Source.Stmt.varDecl
+                    coreTy name none :: tail)
+            | none => none
+  | _, _ => none
+
+def VarBindings.assignFromReturnBindingsWithStorageRefs? :
+    List VarBinding -> List CoreBindingDecl -> List Bool ->
+      Option (List CoreStmt)
+  | [], [], [] => some []
+  | binding :: bindings, ret :: returns, isStorageReturn :: flags => do
+      let tail ←
+        VarBindings.assignFromReturnBindingsWithStorageRefs?
+          bindings returns flags
+      match binding.name with
+      | none => some tail
+      | some name =>
+          if isStorageReturn then
+            match binding.location with
+            | some DataLocation.storage =>
+                some
+                  (SolidCore.Solidity.Source.Stmt.storageAliasFrom
+                    name ret.name :: tail)
+            | _ => none
+          else
+            some
+              (SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var name)
+                (SolidCore.Solidity.Source.Expr.var ret.name) :: tail)
+  | _, _, _ => none
 
 def VarBindings.names? : List VarBinding -> Option (List Name)
   | [] => some []
@@ -8146,6 +8231,74 @@ def Expr.localStorageArrayMemberStmtCore?
     Expr -> Option CoreStmt :=
   Expr.storageRefArrayMemberStmtCore? storageRefEnv env storageNames
 
+def Parameter.returnName (fallbackPrefix : String) (index : Nat)
+    (param : Parameter) : Name :=
+  param.name.getD (fallbackPrefix ++ toString index)
+
+def Parameter.returnAssignmentStmt (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) (expr : Expr) : Stmt :=
+  Stmt.expr
+    (Expr.assign
+      (Expr.ident (Parameter.returnName fallbackPrefix index param))
+      AssignOp.assign expr)
+
+def Parameters.returnAssignmentStmtsFromItems? (fallbackPrefix : String) :
+    Nat -> List Parameter -> List TupleItem -> Option (List Stmt)
+  | _, [], [] => some []
+  | index, param :: params, TupleItem.value expr :: items => do
+      let tail ←
+        Parameters.returnAssignmentStmtsFromItems?
+          fallbackPrefix (index + 1) params items
+      some
+        (Parameter.returnAssignmentStmt
+          fallbackPrefix index param expr :: tail)
+  | _, _, _ => none
+
+def Parameters.returnAssignmentStmtsFromExpr? (fallbackPrefix : String)
+    (params : List Parameter) (expr : Expr) : Option (List Stmt) :=
+  if Parameters.hasStorageRef params then
+    match params with
+    | [param] =>
+        some [Parameter.returnAssignmentStmt fallbackPrefix 0 param expr]
+    | _ =>
+        match expr with
+        | Expr.tuple items =>
+            Parameters.returnAssignmentStmtsFromItems?
+              fallbackPrefix 0 params items
+        | _ => none
+  else
+    none
+
+mutual
+
+def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
+    (returns : List Parameter) : Stmt -> Stmt
+  | stmt@(Stmt.returnValues (some expr)) =>
+      match
+        Parameters.returnAssignmentStmtsFromExpr?
+          fallbackPrefix returns expr
+      with
+      | some assigns =>
+          Stmt.block (assigns ++ [Stmt.returnValues none])
+      | none => stmt
+  | Stmt.block body =>
+      Stmt.block
+        (Stmt.rewriteStorageReturnAssignmentsList
+          fallbackPrefix returns body)
+  | stmt => stmt
+termination_by stmt => sizeOf stmt
+
+def Stmt.rewriteStorageReturnAssignmentsList (fallbackPrefix : String)
+    (returns : List Parameter) : List Stmt -> List Stmt
+  | [] => []
+  | stmt :: rest =>
+      Stmt.rewriteStorageReturnAssignments fallbackPrefix returns stmt ::
+        Stmt.rewriteStorageReturnAssignmentsList
+          fallbackPrefix returns rest
+termination_by stmts => sizeOf stmts
+
+end
+
 def defaultInternalCallInlineFuel : Nat := 64
 
 def Ty.internalCallConversionCore? (targetTy : Ty) :
@@ -8209,7 +8362,7 @@ def FunctionDecl.internalCallParts?
     (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
-    Option (List CoreBindingDecl × List CoreStmt × CoreStmt) := do
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
   match FunctionDecl.findInternalCalleeWithArgs?
       functions env name args with
   | some (callee, sourceArgs) => do
@@ -8217,17 +8370,23 @@ def FunctionDecl.internalCallParts?
         Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
           storageRefEnv storageNames functions freeFunctions "_arg"
           callee.params sourceArgs
-      let returnDecls := Parameters.toDefaultVarDecls "_ret" callee.returns
+      let returnDecls ←
+        Parameters.toStorageAwareDefaultCoreDecls? "_ret" callee.returns
       let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
+      let returnStorageRefs := Parameters.storageRefFlags callee.returns
       let body ← callee.body
       let calleeEnv :=
         FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
       let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv "_arg" [] callee.params
+        Parameters.extendStorageRefEnv "_ret"
+          (Parameters.extendStorageRefEnv "_arg" [] callee.params)
+          callee.returns
       let body :=
         Stmt.inlineInternalFunctionAliasesFuel
           functions freeFunctions defaultInternalFunctionAliasFuel
           paramAliasEnv body
+      let body :=
+        Stmt.rewriteStorageReturnAssignments "_ret" callee.returns body
       let body := Stmt.annotateAbi calleeEnv body
       let bodyCore ←
         match internalFuel with
@@ -8243,10 +8402,8 @@ def FunctionDecl.internalCallParts?
               modifiers functions freeFunctions
               (callee.returns.map Parameter.ty) callee.modifiers body
       let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
-      let prefixCore ←
-        Stmt.listToCore? storageNames returnDecls
-      let prefixCore := paramDecls ++ prefixCore
-      some (returnBindings, prefixCore, bodyCore)
+      let prefixCore := paramDecls ++ returnDecls
+      some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
   | none => do
       let (callee, sourceArgs) ←
         FunctionDecl.findInternalCalleeWithArgs?
@@ -8255,17 +8412,23 @@ def FunctionDecl.internalCallParts?
         Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
           storageRefEnv storageNames functions freeFunctions "_arg"
           callee.params sourceArgs
-      let returnDecls := Parameters.toDefaultVarDecls "_ret" callee.returns
+      let returnDecls ←
+        Parameters.toStorageAwareDefaultCoreDecls? "_ret" callee.returns
       let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
+      let returnStorageRefs := Parameters.storageRefFlags callee.returns
       let body ← callee.body
       let calleeEnv :=
         FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
       let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv "_arg" [] callee.params
+        Parameters.extendStorageRefEnv "_ret"
+          (Parameters.extendStorageRefEnv "_arg" [] callee.params)
+          callee.returns
       let body :=
         Stmt.inlineInternalFunctionAliasesFuel
           functions freeFunctions defaultInternalFunctionAliasFuel
           paramAliasEnv body
+      let body :=
+        Stmt.rewriteStorageReturnAssignments "_ret" callee.returns body
       let body := Stmt.annotateAbi calleeEnv body
       let bodyCore ←
         match internalFuel with
@@ -8281,10 +8444,8 @@ def FunctionDecl.internalCallParts?
               [] [] freeFunctions
               (callee.returns.map Parameter.ty) callee.modifiers body
       let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
-      let prefixCore ←
-        Stmt.listToCore? storageNames returnDecls
-      let prefixCore := paramDecls ++ prefixCore
-      some (returnBindings, prefixCore, bodyCore)
+      let prefixCore := paramDecls ++ returnDecls
+      some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
 termination_by (internalFuel, 0, 0)
 
 def FunctionDecl.internalStatementCallCore?
@@ -8294,7 +8455,7 @@ def FunctionDecl.internalStatementCallCore?
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
     Option CoreStmt := do
-  let (_, prefixCore, bodyCore) ←
+  let (_, _, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
       modifiers functions freeFunctions name args
@@ -8311,7 +8472,7 @@ def FunctionDecl.internalSingleReturnCallCore?
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
     (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
-  let (returnBindings, prefixCore, bodyCore) ←
+  let (returnBindings, _, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
       modifiers functions freeFunctions name args
@@ -8327,6 +8488,51 @@ def FunctionDecl.internalSingleReturnCallCore?
   | _ => none
 termination_by (internalFuel, 0, 1)
 
+def FunctionDecl.internalSingleStorageReturnRefCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
+    (useRef : Name -> CoreStmt) : Option CoreStmt := do
+  let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  match returnBindings, returnStorageRefs with
+  | [ret], [true] =>
+      let retName := ret.name
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          (prefixCore ++
+            [ SolidCore.Solidity.Source.Stmt.captureReturn
+                [retName] bodyCore
+            , useRef retName ]))
+  | _, _ => none
+termination_by (internalFuel, 0, 1)
+
+def FunctionDecl.internalSingleStorageReturnRefCorePieces?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
+    (useRef : Name -> CoreStmt) : Option (List CoreStmt) := do
+  let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  match returnBindings, returnStorageRefs with
+  | [ret], [true] =>
+      let retName := ret.name
+      some
+        (prefixCore ++
+          [ SolidCore.Solidity.Source.Stmt.captureReturn
+              [retName] bodyCore
+          , useRef retName ])
+  | _, _ => none
+termination_by (internalFuel, 0, 1)
+
 def FunctionDecl.internalTwoSingleReturnCallsCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -8337,11 +8543,11 @@ def FunctionDecl.internalTwoSingleReturnCallsCore?
     (secondName : Name) (secondArgs : List Arg)
     (firstTmp : Name) (useResults : CoreExpr -> CoreExpr -> CoreStmt) :
     Option CoreStmt := do
-  let (firstBindings, firstPrefixCore, firstBodyCore) ←
+  let (firstBindings, _, firstPrefixCore, firstBodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
       modifiers functions freeFunctions firstName firstArgs
-  let (secondBindings, secondPrefixCore, secondBodyCore) ←
+  let (secondBindings, _, secondPrefixCore, secondBodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
       modifiers functions freeFunctions secondName secondArgs
@@ -8373,7 +8579,7 @@ def FunctionDecl.internalAssignReturnCallCore?
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
     (targetNames : List Name) : Option CoreStmt := do
-  let (returnBindings, prefixCore, bodyCore) ←
+  let (returnBindings, _, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
       modifiers functions freeFunctions name args
@@ -8388,6 +8594,40 @@ def FunctionDecl.internalAssignReturnCallCore?
           CoreBindingDecls.assignToVars targetNames returnBindings))
   else
     none
+termination_by (internalFuel, 0, 1)
+
+def FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
+    (bindings : List VarBinding) : Option (List CoreStmt) := do
+  let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  if !(returnStorageRefs.any id) then
+    none
+  else
+    some ()
+  if bindings.length == returnBindings.length then
+    some ()
+  else
+    none
+  let decls ←
+    VarBindings.toCoreDeclsExceptStorageReturns?
+      bindings returnStorageRefs
+  let assigns ←
+    VarBindings.assignFromReturnBindingsWithStorageRefs?
+      bindings returnBindings returnStorageRefs
+  let returnNames :=
+    returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+  some
+    (decls ++ prefixCore ++
+      [SolidCore.Solidity.Source.Stmt.captureReturn
+        returnNames bodyCore] ++
+      assigns)
 termination_by (internalFuel, 0, 1)
 
 def FunctionDecl.internalUnarySingleReturnUseCore?
@@ -8650,6 +8890,82 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions returnTys body
       some (SolidCore.Solidity.Source.Stmt.block coreBody)
+  | Stmt.expr
+      (Expr.call
+        (Expr.member (Expr.call (Expr.ident name) args) "push")
+        memberArgs) =>
+      match memberArgs with
+      | [] =>
+          match FunctionDecl.internalSingleStorageReturnRefCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retName =>
+                SolidCore.Solidity.Source.Stmt.storageArrayPushRef
+                  retName none) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.call (Expr.ident name) args) "push")
+                    []))
+      | [Arg.positional value] => do
+          let valueCore ← Expr.toCore? storageNames value
+          match FunctionDecl.internalSingleStorageReturnRefCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args
+              (fun retName =>
+                SolidCore.Solidity.Source.Stmt.storageArrayPushRef
+                  retName (some valueCore)) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr
+                  (Expr.call
+                    (Expr.member (Expr.call (Expr.ident name) args) "push")
+                    [Arg.positional value]))
+      | _ =>
+          Stmt.toCore? storageNames
+            (Stmt.expr
+              (Expr.call
+                (Expr.member (Expr.call (Expr.ident name) args) "push")
+                memberArgs))
+  | Stmt.expr
+      (Expr.call
+        (Expr.member (Expr.call (Expr.ident name) args) "pop") []) =>
+      match FunctionDecl.internalSingleStorageReturnRefCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retName =>
+            SolidCore.Solidity.Source.Stmt.storageArrayPopRef retName) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.expr
+              (Expr.call
+                (Expr.member (Expr.call (Expr.ident name) args) "pop") []))
+  | Stmt.expr
+      (Expr.assign
+        (Expr.index (Expr.call (Expr.ident name) args) index)
+        AssignOp.assign rhs) => do
+      let indexCore ← Expr.toCore? storageNames index
+      let rhsCore ← Expr.toCore? storageNames rhs
+      match FunctionDecl.internalSingleStorageReturnRefCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retName =>
+            SolidCore.Solidity.Source.Stmt.assign
+              (SolidCore.Solidity.Source.LValue.index
+                (SolidCore.Solidity.Source.LValue.var retName)
+                indexCore)
+              rhsCore) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.call (Expr.ident name) args) index)
+                AssignOp.assign rhs))
   | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
       | some coreStmt => some coreStmt
@@ -9204,22 +9520,21 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.ident name) args)) =>
       match binding.name with
       | some localName =>
-          match Expr.externalFunctionValueCallSingleReturnCore?
-              storageNames env expr
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.assign
-                  (SolidCore.Solidity.Source.LValue.var localName)
-                  retExpr) with
-          | some assignBlock => do
-              let declCore ←
-                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
-              some
-                (SolidCore.Solidity.Source.Stmt.block
-                  [declCore, assignBlock])
-          | none =>
-              match FunctionDecl.internalSingleReturnCallCore?
+          match binding.location with
+          | some DataLocation.storage =>
+              match FunctionDecl.internalSingleStorageReturnRefCore?
                   internalFuel storageRefEnv env externalCallKindEnv
                   storageNames modifiers functions freeFunctions name args
+                  (fun retName =>
+                    SolidCore.Solidity.Source.Stmt.storageAliasFrom
+                      localName retName) with
+              | some assignBlock => some assignBlock
+              | none => Stmt.toCore? storageNames
+                  (Stmt.varDecl [binding]
+                    (some (Expr.call (Expr.ident name) args)))
+          | _ =>
+              match Expr.externalFunctionValueCallSingleReturnCore?
+                  storageNames env expr
                   (fun retExpr =>
                     SolidCore.Solidity.Source.Stmt.assign
                       (SolidCore.Solidity.Source.LValue.var localName)
@@ -9230,9 +9545,23 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   some
                     (SolidCore.Solidity.Source.Stmt.block
                       [declCore, assignBlock])
-              | none => Stmt.toCore? storageNames
-                  (Stmt.varDecl [binding]
-                    (some (Expr.call (Expr.ident name) args)))
+              | none =>
+                  match FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions name args
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var localName)
+                          retExpr) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      some
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [declCore, assignBlock])
+                  | none => Stmt.toCore? storageNames
+                      (Stmt.varDecl [binding]
+                        (some (Expr.call (Expr.ident name) args)))
       | none => Stmt.toCore? storageNames
           (Stmt.varDecl [binding]
             (some (Expr.call (Expr.ident name) args)))
@@ -9314,17 +9643,23 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) => do
-      let names ← VarBindings.names? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        match Expr.externalFunctionValueCallAssignVarsCore?
-            storageNames env names expr with
-        | some coreStmt => some coreStmt
-        | none =>
-            FunctionDecl.internalAssignReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args names
-      some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+      match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args bindings with
+      | some pieces =>
+          some (SolidCore.Solidity.Source.Stmt.block pieces)
+      | none => do
+          let names ← VarBindings.names? bindings
+          let decls ← VarBindings.toCoreDecls? bindings
+          let callCore ←
+            match Expr.externalFunctionValueCallAssignVarsCore?
+                storageNames env names expr with
+            | some coreStmt => some coreStmt
+            | none =>
+                FunctionDecl.internalAssignReturnCallCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions name args names
+          some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) => do
       let names ← VarBindings.names? bindings
@@ -10508,27 +10843,39 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       (some expr@(Expr.call (Expr.ident name) args)) :: rest =>
       match binding.name with
       | some localName =>
-          match Expr.externalFunctionValueCallSingleReturnCore?
-              storageNames env expr
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.assign
-                  (SolidCore.Solidity.Source.LValue.var localName)
-                  retExpr) with
-          | some assignBlock => do
-              let declCore ←
-                Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
-              let tail ←
-                Stmt.listToCoreWithInternalCallsWithRefs?
-                  internalFuel
-                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
-                  (VarBinding.extendTypeEnv env binding)
-                  externalCallKindEnv
-                  storageNames modifiers functions freeFunctions returnTys rest
-              some (declCore :: assignBlock :: tail)
-          | none => do
-              match FunctionDecl.internalSingleReturnCallCore?
+          match binding.location with
+          | some DataLocation.storage =>
+              match FunctionDecl.internalSingleStorageReturnRefCorePieces?
                   internalFuel storageRefEnv env externalCallKindEnv
                   storageNames modifiers functions freeFunctions name args
+                  (fun retName =>
+                    SolidCore.Solidity.Source.Stmt.storageAliasFrom
+                      localName retName) with
+              | some assignPieces => do
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (assignPieces ++ tail)
+              | none => do
+                  let head ←
+                    Stmt.toCore? storageNames
+                      (Stmt.varDecl [binding]
+                        (some (Expr.call (Expr.ident name) args)))
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (head :: tail)
+          | _ =>
+              match Expr.externalFunctionValueCallSingleReturnCore?
+                  storageNames env expr
                   (fun retExpr =>
                     SolidCore.Solidity.Source.Stmt.assign
                       (SolidCore.Solidity.Source.LValue.var localName)
@@ -10545,18 +10892,37 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                       storageNames modifiers functions freeFunctions returnTys rest
                   some (declCore :: assignBlock :: tail)
               | none => do
-                  let head ←
-                    Stmt.toCore? storageNames
-                      (Stmt.varDecl [binding]
-                        (some (Expr.call (Expr.ident name) args)))
-                  let tail ←
-                    Stmt.listToCoreWithInternalCallsWithRefs?
-                      internalFuel
-                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
-                      (VarBinding.extendTypeEnv env binding)
-                      externalCallKindEnv
-                      storageNames modifiers functions freeFunctions returnTys rest
-                  some (head :: tail)
+                  match FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions name args
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var localName)
+                          retExpr) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      let tail ←
+                        Stmt.listToCoreWithInternalCallsWithRefs?
+                          internalFuel
+                          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                          (VarBinding.extendTypeEnv env binding)
+                          externalCallKindEnv
+                          storageNames modifiers functions freeFunctions returnTys rest
+                      some (declCore :: assignBlock :: tail)
+                  | none => do
+                      let head ←
+                        Stmt.toCore? storageNames
+                          (Stmt.varDecl [binding]
+                            (some (Expr.call (Expr.ident name) args)))
+                      let tail ←
+                        Stmt.listToCoreWithInternalCallsWithRefs?
+                          internalFuel
+                          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                          (VarBinding.extendTypeEnv env binding)
+                          externalCallKindEnv
+                          storageNames modifiers functions freeFunctions returnTys rest
+                      some (head :: tail)
       | none => do
           let head ←
             Stmt.toCore? storageNames
@@ -10648,24 +11014,37 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       some (decls ++ [callCore] ++ tail)
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) :: rest => do
-      let names ← VarBindings.names? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        match Expr.externalFunctionValueCallAssignVarsCore?
-            storageNames env names expr with
-        | some coreStmt => some coreStmt
-        | none =>
-            FunctionDecl.internalAssignReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args names
-      let tail ←
-        Stmt.listToCoreWithInternalCallsWithRefs?
-          internalFuel
-          (VarBindings.extendStorageRefEnv storageRefEnv bindings)
-          (VarBindings.extendTypeEnv env bindings)
-          externalCallKindEnv
-          storageNames modifiers functions freeFunctions returnTys rest
-      some (decls ++ [callCore] ++ tail)
+      match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args bindings with
+      | some pieces => do
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+              (VarBindings.extendTypeEnv env bindings)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (pieces ++ tail)
+      | none => do
+          let names ← VarBindings.names? bindings
+          let decls ← VarBindings.toCoreDecls? bindings
+          let callCore ←
+            match Expr.externalFunctionValueCallAssignVarsCore?
+                storageNames env names expr with
+            | some coreStmt => some coreStmt
+            | none =>
+                FunctionDecl.internalAssignReturnCallCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions name args names
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+              (VarBindings.extendTypeEnv env bindings)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (decls ++ [callCore] ++ tail)
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) :: rest => do
       let names ← VarBindings.names? bindings
@@ -27833,6 +28212,138 @@ def storageInternalMappingParamAliasArgMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       some (value == 31)
   | _ => some false
+
+def storageReturnArrayTy : Ty :=
+  Ty.array (Ty.uint 256) none
+
+def storageReturnAliasContract : ContractDecl :=
+  { name := "StorageReturnAlias"
+    items :=
+      [ ContractItem.stateVar
+          { name := "items", ty := storageReturnArrayTy }
+      , ContractItem.function
+          { name := some "getItems"
+            visibility := some Visibility.internal_
+            returns :=
+              [ { name := none
+                  ty := storageReturnArrayTy
+                  location := some DataLocation.storage } ]
+            body :=
+              some
+                (Stmt.returnValues (some (Expr.ident "items"))) }
+      , ContractItem.function
+          { name := some "getItemsAndValue"
+            visibility := some Visibility.internal_
+            returns :=
+              [ { name := none
+                  ty := storageReturnArrayTy
+                  location := some DataLocation.storage }
+              , { name := none, ty := Ty.uint 256 } ]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.tuple
+                      [ TupleItem.value (Expr.ident "items")
+                      , TupleItem.value
+                          (Expr.literal (Literal.number "6")) ]))) }
+      , ContractItem.function
+          { name := some "bindReturnedStorage"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "ref"
+                          ty := some storageReturnArrayTy
+                          location := some DataLocation.storage } ]
+                      (some (Expr.call (Expr.ident "getItems") []))
+                  , Stmt.expr
+                      (Expr.call
+                        (Expr.member (Expr.ident "ref") "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "6"))])
+                  , Stmt.returnValues
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.binary BinaryOp.mul
+                            (Expr.member (Expr.ident "items") "length")
+                            (Expr.literal (Literal.number "10")))
+                          (Expr.index
+                            (Expr.ident "items")
+                            (Expr.literal (Literal.number "0"))))) ]) }
+      , ContractItem.function
+          { name := some "bindReturnedStorageTuple"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.varDecl
+                      [ { name := some "ref"
+                          ty := some storageReturnArrayTy
+                          location := some DataLocation.storage }
+                      , { name := some "value"
+                          ty := some (Ty.uint 256) } ]
+                      (some
+                        (Expr.call (Expr.ident "getItemsAndValue") []))
+                  , Stmt.expr
+                      (Expr.call
+                        (Expr.member (Expr.ident "ref") "push")
+                        [Arg.positional (Expr.ident "value")])
+                  , Stmt.returnValues
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.binary BinaryOp.mul
+                            (Expr.member (Expr.ident "items") "length")
+                            (Expr.literal (Literal.number "10")))
+                          (Expr.index
+                            (Expr.ident "items")
+                            (Expr.literal (Literal.number "0"))))) ]) }
+      , ContractItem.function
+          { name := some "mutateReturnedStorage"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.call
+                        (Expr.member
+                          (Expr.call (Expr.ident "getItems") []) "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "1"))])
+                  , Stmt.expr
+                      (Expr.assign
+                        (Expr.index
+                          (Expr.call (Expr.ident "getItems") [])
+                          (Expr.literal (Literal.number "0")))
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "2")))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.index
+                          (Expr.ident "items")
+                          (Expr.literal (Literal.number "0")))) ]) } ] }
+
+def storageReturnAliasCallMatches (target : Name) (expected : Word) :
+    Option Bool := do
+  let result ←
+    ContractDecl.call? 128 storageReturnAliasContract
+      (SolidCore.Solidity.Source.CallTarget.name target)
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (value == expected)
+  | _ => some false
+
+def storageReturnSingleBindingMatches : Option Bool :=
+  storageReturnAliasCallMatches "bindReturnedStorage" 16
+
+def storageReturnTupleBindingMatches : Option Bool :=
+  storageReturnAliasCallMatches "bindReturnedStorageTuple" 16
+
+def storageReturnDirectMutationMatches : Option Bool :=
+  storageReturnAliasCallMatches "mutateReturnedStorage" 2
 
 def storageBytesContract : ContractDecl :=
   { name := "StorageBytes"
