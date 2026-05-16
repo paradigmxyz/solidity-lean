@@ -2353,6 +2353,163 @@ def checkedContractGlobalUsingRejected : Bool :=
 def checkedGlobalUsingNonUserValueRejected : Bool :=
   Result.isError (CheckedInput.program globalUsingNonUserValueSource)
 
+def checkedInheritedBaseFunctionDispatchMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 inheritanceSource
+    "Derived" "f"
+    SolidCore.Solidity.Source.State.empty [] 7
+
+def checkedVirtualOverrideDispatchMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 32 virtualOverrideSource
+    "VirtualDerived" "value"
+    SolidCore.Solidity.Source.State.empty [] 2
+
+def checkedSuperValueCallMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 superCallSource
+    "SuperTypeDerived" "value"
+    SolidCore.Solidity.Source.State.empty [] 3
+
+def checkedExplicitBaseCallMatches : Except TypeError Bool :=
+  checkedCallWordMatches 32 explicitBaseCallSource
+    "ExplicitBaseTypeDerived" "directBase"
+    SolidCore.Solidity.Source.State.empty [] 11
+
+def checkedInheritedStateReadMatches : Except TypeError Bool := do
+  let deployed ←
+    CheckedInput.constructContract 32 inheritedStateReadSource
+      "InheritedStateDerived" SolidCore.Solidity.Source.State.empty []
+  match deployed with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      checkedCallWordMatches 32 inheritedStateReadSource
+        "InheritedStateDerived" "read" state [] 1
+  | _ => Except.ok false
+
+def checkedSuperStorageBaseContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedSuperStorageBase"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "setX"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.assign
+                    (L00_SourceSolidity.Expr.ident "x")
+                    AssignOp.assign
+                    (L00_SourceSolidity.Expr.literal
+                      (L00_SourceSolidity.Literal.number "5")))) } ] }
+
+def checkedSuperStorageDerivedContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedSuperStorageDerived"
+    bases := [{ base := { segments := ["CheckedSuperStorageBase"] } }]
+    items :=
+      [ ContractItem.function
+          { name := some "setViaSuper"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.expr
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.ident "super") "setX")
+                    [])) } ] }
+
+def checkedSuperStorageSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          checkedSuperStorageBaseContract
+      , L00_SourceSolidity.SourceItem.contract
+          checkedSuperStorageDerivedContract ] }
+
+def checkedSuperStorageCallMatches : Except TypeError Bool :=
+  checkedCallSlotMatches 32 checkedSuperStorageSource
+    "CheckedSuperStorageDerived" "setViaSuper"
+    SolidCore.Solidity.Source.State.empty [] 0 5
+
+def checkedStorageLayoutFieldsMatch : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract storageLayoutAcceptedSource "StorageLayoutTop"
+  match contract.core.storageFields with
+  | [x, y] =>
+      Except.ok
+        (x.name == "x" &&
+          SolidCore.Solidity.Source.wordEq x.slot 5 &&
+          !x.transient &&
+          y.name == "y" &&
+          SolidCore.Solidity.Source.wordEq y.slot 6 &&
+          !y.transient)
+  | _ => Except.ok false
+
+def checkedStorageLayoutInitMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.constructContract 32 storageLayoutAcceptedSource
+      "StorageLayoutTop" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 5) 1 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 2)
+  | _ => Except.ok false
+
+def checkedConstantStorageLayoutMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.constructContract 32 constantStorageLayoutSource
+      "ConstantStorageLayout" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 9) 1)
+  | _ => Except.ok false
+
+def checkedErc7201StorageLayoutMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.constructContract 32 erc7201StorageLayoutSource
+      "Erc7201StorageLayout" SolidCore.Solidity.Source.State.empty []
+  let slot :=
+    SolidCore.Solidity.Source.erc7201Slot
+      (Executable.stringUtf8Bytes "example.main")
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot slot) 1)
+  | _ => Except.ok false
+
+def checkedUnknownBaseRejected : Bool :=
+  Result.isError (CheckedInput.program unknownBaseSource)
+
+def checkedMissingOverrideRejected : Bool :=
+  Result.isError (CheckedInput.program missingOverrideSource)
+
+def checkedNonvirtualOverrideRejected : Bool :=
+  Result.isError (CheckedInput.program nonvirtualOverrideSource)
+
+def checkedBadSuperCallRejected : Bool :=
+  Result.isError (CheckedInput.program badSuperCallSource)
+
+def checkedSuperCallOptionsRejected : Bool :=
+  Result.isError (CheckedInput.program superCallOptionsSource)
+
+def checkedBadExplicitBaseCallRejected : Bool :=
+  Result.isError (CheckedInput.program badExplicitBaseCallSource)
+
+def checkedC3BadRejected : Bool :=
+  Result.isError (CheckedInput.program c3BadSource)
+
+def checkedInheritedStorageLayoutRejected : Bool :=
+  Result.isError (CheckedInput.program inheritedStorageLayoutSource)
+
+def checkedBadErc7201StorageLayoutRejected : Bool :=
+  Result.isError (CheckedInput.program badErc7201StorageLayoutSource)
+
+def checkedBadKeccakStorageLayoutRejected : Bool :=
+  Result.isError (CheckedInput.program badKeccakStorageLayoutSource)
+
 def checkedPayableConstructorValueMatches :
     Except TypeError Bool := do
   let result ←
