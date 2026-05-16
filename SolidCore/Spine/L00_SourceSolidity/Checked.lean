@@ -1865,6 +1865,228 @@ def checkedMissingReceiveFallbackPlainEtherRejectsMatches :
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
       result.output == [])
 
+def checkedCanonicalFallbackValueDispatchContractsAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.fallbackReceiveContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.inheritedReceiveFallbackUnit) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.fallbackBytesContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.fallbackMsgDataContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.receiveMsgValueContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.fallbackMsgSenderContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.payableFallbackValueContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.missingFallbackContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.payableFunctionValueContract) &&
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.nonpayableRejectsValueContract)
+
+def checkedCanonicalFallbackDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldata 16
+      Executable.Examples.fallbackReceiveContract
+      SolidCore.Solidity.Source.State.empty
+      [0xde, 0xad, 0xbe, 0xef]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 1 &&
+      result.output == [])
+
+def checkedCanonicalReceiveDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldata 16
+      Executable.Examples.fallbackReceiveContract
+      SolidCore.Solidity.Source.State.empty []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 2 &&
+      result.output == [])
+
+def checkedInheritedReceiveDispatchMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callCalldata 16
+      Executable.Examples.inheritedReceiveFallbackUnit
+      "InheritedReceiveFallbackChild"
+      SolidCore.Solidity.Source.State.empty []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 1 &&
+      result.output == [])
+
+def checkedOverriddenReceiveDispatchMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callCalldata 16
+      Executable.Examples.inheritedReceiveFallbackUnit
+      "InheritedReceiveFallbackOverride"
+      SolidCore.Solidity.Source.State.empty []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 2 &&
+      result.output == [])
+
+def checkedInheritedFallbackDispatchMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callCalldata 16
+      Executable.Examples.inheritedReceiveFallbackUnit
+      "InheritedReceiveFallbackChild"
+      SolidCore.Solidity.Source.State.empty
+      [0xde, 0xad, 0xbe, 0xef]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 3 &&
+      result.output == [])
+
+def checkedOverriddenFallbackDispatchMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callCalldata 16
+      Executable.Examples.inheritedReceiveFallbackUnit
+      "InheritedReceiveFallbackOverride"
+      SolidCore.Solidity.Source.State.empty
+      [0xde, 0xad, 0xbe, 0xef]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 4 &&
+      result.output == [])
+
+def checkedFallbackBytesDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldata 16
+      Executable.Examples.fallbackBytesContract
+      SolidCore.Solidity.Source.State.empty [1, 2, 3]
+  Except.ok (result.success && result.output == [1, 2, 3])
+
+def checkedFallbackMsgDataDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldata 16
+      Executable.Examples.fallbackMsgDataContract
+      SolidCore.Solidity.Source.State.empty [4, 5, 6]
+  Except.ok (result.success && result.output == [4, 5, 6])
+
+def checkedReceiveMsgValueDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.receiveMsgValueContract
+      SolidCore.Solidity.Source.State.empty 0xabc 77 []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 77 &&
+      result.output == [])
+
+def checkedFallbackMsgSenderDispatchMatches : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.fallbackMsgSenderContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 0 [0xff, 0xff, 0xff, 0xff]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0xabc &&
+      result.output == [])
+
+def checkedCanonicalPayableFallbackValueDispatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.payableFallbackValueContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 33 [0xff, 0xff, 0xff, 0xff]
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 33 &&
+      result.output == [])
+
+def checkedCanonicalPayableFallbackPlainEtherDispatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.payableFallbackValueContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 44 []
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 44 &&
+      result.output == [])
+
+def checkedCanonicalNonpayableFallbackRejectsValueDispatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.fallbackReceiveContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 1 [0xff, 0xff, 0xff, 0xff]
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def checkedCanonicalMissingFallbackSelectorDispatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.missingFallbackContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 0 [0xde, 0xad, 0xbe, 0xef]
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def checkedCanonicalMissingReceiveFallbackPlainEtherDispatchMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.missingFallbackContract
+      SolidCore.Solidity.Source.State.empty
+      0xabc 1 []
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
+def checkedPayableFunctionValueDispatchMatches :
+    Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      Executable.Examples.payableFunctionValueContract "deposit" []
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.payableFunctionValueContract
+      SolidCore.Solidity.Source.State.empty 0xabc 55 calldata
+  Except.ok
+    (result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 55 &&
+      result.output == [])
+
+def checkedNonpayableRejectsValueDispatchMatches :
+    Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      Executable.Examples.nonpayableRejectsValueContract "touch" []
+  let result ←
+    ContractDecl.checkedCallCalldataFrom 16
+      Executable.Examples.nonpayableRejectsValueContract
+      SolidCore.Solidity.Source.State.empty 0xabc 1 calldata
+  Except.ok
+    (!result.success &&
+      SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
+      result.output == [])
+
 def checkedFunctionCalldata (decl : L00_SourceSolidity.ContractDecl)
     (functionName : Name) (args : List CoreValue) :
     Except TypeError (List Byte) :=

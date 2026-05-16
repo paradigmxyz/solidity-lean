@@ -22205,6 +22205,7 @@ def fallbackReceiveContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
             body :=
               some
                 (Stmt.expr
@@ -22212,6 +22213,7 @@ def fallbackReceiveContract : ContractDecl :=
                     (Expr.literal (Literal.number "1")))) }
       , ContractItem.function
           { kind := FunctionKind.receive
+            visibility := some Visibility.external_
             mutability := StateMutability.payable
             body :=
               some
@@ -22349,6 +22351,7 @@ def fallbackBytesContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
             params :=
               [{ name := some "input"
                  ty := Ty.bytes
@@ -22374,6 +22377,11 @@ def fallbackMsgDataContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
+            params :=
+              [{ name := some "input"
+                 ty := Ty.bytes
+                 location := some DataLocation.calldata }]
             returns :=
               [{ name := some "output"
                  ty := Ty.bytes
@@ -22399,6 +22407,7 @@ def receiveMsgValueContract : ContractDecl :=
       [ ContractItem.stateVar { name := "last", ty := Ty.uint 256 }
       , ContractItem.function
           { kind := FunctionKind.receive
+            visibility := some Visibility.external_
             mutability := StateMutability.payable
             body :=
               some
@@ -22426,6 +22435,7 @@ def fallbackMsgSenderContract : ContractDecl :=
       [ ContractItem.stateVar { name := "sender", ty := Ty.address false }
       , ContractItem.function
           { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
             body :=
               some
                 (Stmt.expr
@@ -22452,6 +22462,7 @@ def payableFallbackValueContract : ContractDecl :=
       [ ContractItem.stateVar { name := "last", ty := Ty.uint 256 }
       , ContractItem.function
           { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
             mutability := StateMutability.payable
             body :=
               some
@@ -22507,6 +22518,7 @@ def missingFallbackContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "touch"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -22547,6 +22559,7 @@ def payableFunctionValueContract : ContractDecl :=
       [ ContractItem.stateVar { name := "last", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "deposit"
+            visibility := some Visibility.public_
             mutability := StateMutability.payable
             body :=
               some
@@ -22577,6 +22590,7 @@ def nonpayableRejectsValueContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "touch"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
