@@ -8269,35 +8269,80 @@ def Parameters.returnAssignmentStmtsFromExpr? (fallbackPrefix : String)
   else
     none
 
-mutual
+def Stmt.rewriteStorageReturnAssignmentsFuel (fuel : Nat)
+    (fallbackPrefix : String) (returns : List Parameter) :
+    Stmt -> Stmt :=
+  match fuel with
+  | 0 => fun stmt => stmt
+  | fuel + 1 => fun
+    | stmt@(Stmt.returnValues (some expr)) =>
+        match
+          Parameters.returnAssignmentStmtsFromExpr?
+            fallbackPrefix returns expr
+        with
+        | some assigns =>
+            Stmt.block (assigns ++ [Stmt.returnValues none])
+        | none => stmt
+    | Stmt.block body =>
+        Stmt.block
+          (body.map
+            (Stmt.rewriteStorageReturnAssignmentsFuel
+              fuel fallbackPrefix returns))
+    | Stmt.ifElse cond thenBranch elseBranch =>
+        Stmt.ifElse cond
+          (Stmt.rewriteStorageReturnAssignmentsFuel
+            fuel fallbackPrefix returns thenBranch)
+          (elseBranch.map
+            (Stmt.rewriteStorageReturnAssignmentsFuel
+              fuel fallbackPrefix returns))
+    | Stmt.whileLoop cond body =>
+        Stmt.whileLoop cond
+          (Stmt.rewriteStorageReturnAssignmentsFuel
+            fuel fallbackPrefix returns body)
+    | Stmt.doWhile body cond =>
+        Stmt.doWhile
+          (Stmt.rewriteStorageReturnAssignmentsFuel
+            fuel fallbackPrefix returns body)
+          cond
+    | Stmt.forLoop init cond post body =>
+        Stmt.forLoop
+          (init.map
+            (Stmt.rewriteStorageReturnAssignmentsFuel
+              fuel fallbackPrefix returns))
+          cond post
+          (Stmt.rewriteStorageReturnAssignmentsFuel
+            fuel fallbackPrefix returns body)
+    | Stmt.tryCatch expr clauses =>
+        Stmt.tryCatch expr
+          (clauses.map
+            (fun
+              | CatchClause.clause name params body =>
+                  CatchClause.clause name params
+                    (Stmt.rewriteStorageReturnAssignmentsFuel
+                      fuel fallbackPrefix returns body)))
+    | Stmt.tryCatchReturns expr params success clauses =>
+        Stmt.tryCatchReturns expr params
+          (Stmt.rewriteStorageReturnAssignmentsFuel
+            fuel fallbackPrefix returns success)
+          (clauses.map
+            (fun
+              | CatchClause.clause name catchParams body =>
+                  CatchClause.clause name catchParams
+                    (Stmt.rewriteStorageReturnAssignmentsFuel
+                      fuel fallbackPrefix returns body)))
+    | Stmt.unchecked body =>
+        Stmt.unchecked
+          (Stmt.rewriteStorageReturnAssignmentsFuel
+            fuel fallbackPrefix returns body)
+    | stmt => stmt
+termination_by fuel
+
+def defaultStorageReturnRewriteFuel : Nat := 32
 
 def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
-    (returns : List Parameter) : Stmt -> Stmt
-  | stmt@(Stmt.returnValues (some expr)) =>
-      match
-        Parameters.returnAssignmentStmtsFromExpr?
-          fallbackPrefix returns expr
-      with
-      | some assigns =>
-          Stmt.block (assigns ++ [Stmt.returnValues none])
-      | none => stmt
-  | Stmt.block body =>
-      Stmt.block
-        (Stmt.rewriteStorageReturnAssignmentsList
-          fallbackPrefix returns body)
-  | stmt => stmt
-termination_by stmt => sizeOf stmt
-
-def Stmt.rewriteStorageReturnAssignmentsList (fallbackPrefix : String)
-    (returns : List Parameter) : List Stmt -> List Stmt
-  | [] => []
-  | stmt :: rest =>
-      Stmt.rewriteStorageReturnAssignments fallbackPrefix returns stmt ::
-        Stmt.rewriteStorageReturnAssignmentsList
-          fallbackPrefix returns rest
-termination_by stmts => sizeOf stmts
-
-end
+    (returns : List Parameter) (stmt : Stmt) : Stmt :=
+  Stmt.rewriteStorageReturnAssignmentsFuel
+    defaultStorageReturnRewriteFuel fallbackPrefix returns stmt
 
 def defaultInternalCallInlineFuel : Nat := 64
 
@@ -28221,6 +28266,8 @@ def storageReturnAliasContract : ContractDecl :=
     items :=
       [ ContractItem.stateVar
           { name := "items", ty := storageReturnArrayTy }
+      , ContractItem.stateVar
+          { name := "otherItems", ty := storageReturnArrayTy }
       , ContractItem.function
           { name := some "getItems"
             visibility := some Visibility.internal_
@@ -28231,6 +28278,22 @@ def storageReturnAliasContract : ContractDecl :=
             body :=
               some
                 (Stmt.returnValues (some (Expr.ident "items"))) }
+      , ContractItem.function
+          { name := some "chooseItems"
+            visibility := some Visibility.internal_
+            params := [{ name := some "pickItems", ty := Ty.bool }]
+            returns :=
+              [ { name := none
+                  ty := storageReturnArrayTy
+                  location := some DataLocation.storage } ]
+            body :=
+              some
+                (Stmt.ifElse
+                  (Expr.ident "pickItems")
+                  (Stmt.returnValues (some (Expr.ident "items")))
+                  (some
+                    (Stmt.returnValues
+                      (some (Expr.ident "otherItems"))))) }
       , ContractItem.function
           { name := some "getItemsAndValue"
             visibility := some Visibility.internal_
@@ -28249,6 +28312,7 @@ def storageReturnAliasContract : ContractDecl :=
                           (Expr.literal (Literal.number "6")) ]))) }
       , ContractItem.function
           { name := some "bindReturnedStorage"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28274,6 +28338,7 @@ def storageReturnAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "bindReturnedStorageTuple"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28301,6 +28366,7 @@ def storageReturnAliasContract : ContractDecl :=
                             (Expr.literal (Literal.number "0"))))) ]) }
       , ContractItem.function
           { name := some "mutateReturnedStorage"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -28322,7 +28388,51 @@ def storageReturnAliasContract : ContractDecl :=
                       (some
                         (Expr.index
                           (Expr.ident "items")
-                          (Expr.literal (Literal.number "0")))) ]) } ] }
+                          (Expr.literal (Literal.number "0")))) ]) }
+      , ContractItem.function
+          { name := some "bindConditionalReturnedStorage"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.call
+                        (Expr.member (Expr.ident "items") "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "1"))])
+                  , Stmt.expr
+                      (Expr.call
+                        (Expr.member (Expr.ident "otherItems") "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "2"))])
+                  , Stmt.varDecl
+                      [ { name := some "ref"
+                          ty := some storageReturnArrayTy
+                          location := some DataLocation.storage } ]
+                      (some
+                        (Expr.call (Expr.ident "chooseItems")
+                          [Arg.positional (Expr.literal (Literal.bool false))]))
+                  , Stmt.expr
+                      (Expr.call
+                        (Expr.member (Expr.ident "ref") "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "7"))])
+                  , Stmt.returnValues
+                      (some
+                        (Expr.binary BinaryOp.add
+                          (Expr.binary BinaryOp.add
+                            (Expr.binary BinaryOp.mul
+                              (Expr.index
+                                (Expr.ident "items")
+                                (Expr.literal (Literal.number "0")))
+                              (Expr.literal (Literal.number "100")))
+                            (Expr.binary BinaryOp.mul
+                              (Expr.member (Expr.ident "otherItems") "length")
+                              (Expr.literal (Literal.number "10"))))
+                          (Expr.index
+                            (Expr.ident "otherItems")
+                            (Expr.literal (Literal.number "1"))))) ]) } ] }
 
 def storageReturnAliasCallMatches (target : Name) (expected : Word) :
     Option Bool := do
@@ -28344,6 +28454,9 @@ def storageReturnTupleBindingMatches : Option Bool :=
 
 def storageReturnDirectMutationMatches : Option Bool :=
   storageReturnAliasCallMatches "mutateReturnedStorage" 2
+
+def storageReturnConditionalBindingMatches : Option Bool :=
+  storageReturnAliasCallMatches "bindConditionalReturnedStorage" 127
 
 def storageBytesContract : ContractDecl :=
   { name := "StorageBytes"
