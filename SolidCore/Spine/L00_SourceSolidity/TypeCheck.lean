@@ -5379,6 +5379,19 @@ decreasing_by
 
 end
 
+def checkTupleItemValuesContextuallyAssignableTo (env : CheckEnv) :
+    List L00_SourceSolidity.TupleItem -> List Ty -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest => do
+      checkExprAssignableTo env expr ty
+      checkTupleItemValuesContextuallyAssignableTo env rest tyRest
+  | L00_SourceSolidity.TupleItem.hole :: _, _ =>
+      Except.error (TypeError.unsupported "tuple hole in value position")
+  | actual, expected =>
+      Except.error
+        (TypeError.arityMismatch
+          "tuple expression" expected.length actual.length)
+
 def constantBuiltinIdentCallAllowed (name : Name) : Bool :=
   name == "keccak256" || name == "sha256" || name == "ripemd160" ||
     name == "ecrecover" || name == "addmod" || name == "mulmod" ||
@@ -5569,7 +5582,7 @@ def checkReturnExprs (env : CheckEnv)
       Except.error (TypeError.returnArityMismatch expected.length 0)
   | some expr, [expected] => checkExprAssignableTo env expr expected
   | some (L00_SourceSolidity.Expr.tuple items), expected =>
-      checkTupleItemValuesAssignableTo env items expected
+      checkTupleItemValuesContextuallyAssignableTo env items expected
   | some expr, expected => do
       let checked ← checkExpr env expr
       match checked.ty with
@@ -23054,6 +23067,58 @@ def contextualNarrowArrayExpr : L00_SourceSolidity.Expr :=
 
 def contextualNarrowArrayOverflowExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.array [numberExpr "1", numberExpr "300"]
+
+def contextualNarrowArraySecondExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.array [numberExpr "3", numberExpr "4"]
+
+def contextualArrayTupleReturnFunction
+    (name : Name) (first : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    returns :=
+      [ { name := none
+          ty := contextualNarrowArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory }
+      , { name := none
+          ty := contextualNarrowArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.tuple
+              [ L00_SourceSolidity.TupleItem.value first
+              , L00_SourceSolidity.TupleItem.value
+                  contextualNarrowArraySecondExpr ]))) }
+
+def contextualArrayTupleReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTupleReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTupleReturnFunction
+                    "returnArrayTuple" contextualNarrowArrayExpr) ] } ] }
+
+def contextualArrayTupleReturnAccepted : Bool :=
+  sourceUnitAccepted? contextualArrayTupleReturnSource
+
+def contextualArrayTupleReturnOverflowSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContextualArrayTupleReturnOverflow"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contextualArrayTupleReturnFunction
+                    "returnArrayTupleOverflow"
+                    contextualNarrowArrayOverflowExpr) ] } ] }
+
+def contextualArrayTupleReturnOverflowRejected : Bool :=
+  Result.isError (SourceUnit.check
+    contextualArrayTupleReturnOverflowSource)
 
 def contextualArrayStruct : L00_SourceSolidity.StructDecl :=
   { name := "ContextualArrayStruct"
