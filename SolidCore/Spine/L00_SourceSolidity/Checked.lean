@@ -3475,6 +3475,113 @@ def checkedControlFlowContractsAccepted : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.namedReturnContract)
 
+def checkedPrimitiveStatementContract :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "CheckedPrimitiveStatements"
+    items :=
+      [ ContractItem.function
+          { name := some "ternarySkip"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            returns := [{ ty := Ty.uint 256 }]
+            body := some Executable.Examples.ternarySkipsRejectedBranch }
+      , ContractItem.function
+          { name := some "doWhileOnce"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            returns := [{ ty := Ty.uint 256 }]
+            body := some Executable.Examples.doWhileRunsBeforeCondition }
+      , ContractItem.function
+          { name := some "deleteLocal"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            returns := [{ ty := Ty.uint 256 }]
+            body := some Executable.Examples.deleteLocalStatement }
+      , ContractItem.function
+          { name := some "incrementStatement"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            returns := [{ ty := Ty.uint 256 }]
+            body := some Executable.Examples.incrementStatement }
+      , ContractItem.function
+          { name := some "expressionFailure"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body := some Executable.Examples.expressionStatementFailure }
+      , ContractItem.function
+          { name := some "assertFailure"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body := some Executable.Examples.assertFailureStatement }
+      , ContractItem.function
+          { name := some "requireString"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body := some Executable.Examples.requireFailureStatement }
+      , ContractItem.function
+          { name := some "revertString"
+            visibility := some Visibility.public_
+            mutability := StateMutability.pure
+            body := some Executable.Examples.revertStringStatement } ] }
+
+def checkedPrimitiveStatementContractAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit checkedPrimitiveStatementContract)
+
+def checkedTernarySkipsRejectedBranchMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16 checkedPrimitiveStatementContract
+    "ternarySkip" SolidCore.Solidity.Source.State.empty [] 7
+
+def checkedDoWhileRunsBeforeConditionMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32 checkedPrimitiveStatementContract
+    "doWhileOnce" SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedDeleteLocalStatementMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16 checkedPrimitiveStatementContract
+    "deleteLocal" SolidCore.Solidity.Source.State.empty [] 0
+
+def checkedIncrementStatementMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16 checkedPrimitiveStatementContract
+    "incrementStatement" SolidCore.Solidity.Source.State.empty [] 3
+
+def checkedExpressionStatementFailurePanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16 checkedPrimitiveStatementContract
+    "expressionFailure" SolidCore.Solidity.Source.State.empty [] 0x12
+
+def checkedAssertFailurePanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16 checkedPrimitiveStatementContract
+    "assertFailure" SolidCore.Solidity.Source.State.empty [] 0x01
+
+def checkedRequireFailureStringMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16 checkedPrimitiveStatementContract
+      (SolidCore.Solidity.Source.CallTarget.name "requireString")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.error reason) =>
+      Except.ok (reason == "Nope")
+  | _ => Except.ok false
+
+def checkedRevertStringMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16 checkedPrimitiveStatementContract
+      (SolidCore.Solidity.Source.CallTarget.name "revertString")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.error reason) =>
+      Except.ok (reason == "Nope")
+  | _ => Except.ok false
+
 def checkedInternalTernaryBranchCallMatches :
     Except TypeError Bool := do
   let runReturnThen ←
