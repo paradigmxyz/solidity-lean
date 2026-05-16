@@ -31599,6 +31599,7 @@ def internalTernaryBranchCallContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "markThen"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31610,6 +31611,7 @@ def internalTernaryBranchCallContract : ContractDecl :=
                       (some (Expr.ident "x")) ]) }
       , ContractItem.function
           { name := some "markElse"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31621,6 +31623,7 @@ def internalTernaryBranchCallContract : ContractDecl :=
                       (some (Expr.ident "x")) ]) }
       , ContractItem.function
           { name := some "runReturnThen"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31633,6 +31636,7 @@ def internalTernaryBranchCallContract : ContractDecl :=
                         (Expr.literal (Literal.number "99")))))) }
       , ContractItem.function
           { name := some "runReturnElse"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31645,6 +31649,7 @@ def internalTernaryBranchCallContract : ContractDecl :=
                       (Expr.call (Expr.ident "markElse") [])))) }
       , ContractItem.function
           { name := some "runVarBothFalse"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31660,6 +31665,7 @@ def internalTernaryBranchCallContract : ContractDecl :=
                       (some (Expr.ident "y")) ]) }
       , ContractItem.function
           { name := some "runAssignBothTrue"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31727,6 +31733,7 @@ def internalIfConditionCallContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "flagTrue"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -31738,6 +31745,7 @@ def internalIfConditionCallContract : ContractDecl :=
                       (some (Expr.literal (Literal.bool true))) ]) }
       , ContractItem.function
           { name := some "flagFalse"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -31749,6 +31757,7 @@ def internalIfConditionCallContract : ContractDecl :=
                       (some (Expr.literal (Literal.bool false))) ]) }
       , ContractItem.function
           { name := some "runTrue"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31764,6 +31773,7 @@ def internalIfConditionCallContract : ContractDecl :=
                       (some (Expr.literal (Literal.number "9")))))) }
       , ContractItem.function
           { name := some "runFalse"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31807,6 +31817,7 @@ def internalWhileConditionCallContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "keepGoing"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -31825,6 +31836,7 @@ def internalWhileConditionCallContract : ContractDecl :=
                       (some (Expr.literal (Literal.bool false)))))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31855,6 +31867,7 @@ def internalForPostCallContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "bump"
+            visibility := some Visibility.internal_
             body :=
               some
                 (Stmt.expr
@@ -31862,6 +31875,7 @@ def internalForPostCallContract : ContractDecl :=
                     (Expr.literal (Literal.number "1")))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31900,6 +31914,7 @@ def loopBreakContinueContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "runBreak"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31923,6 +31938,7 @@ def loopBreakContinueContract : ContractDecl :=
                       (some (Expr.ident "x")) ]) }
       , ContractItem.function
           { name := some "runContinue"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -31985,6 +32001,7 @@ def namedReturnContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "stop"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -31997,6 +32014,7 @@ def namedReturnContract : ContractDecl :=
                         (Expr.literal (Literal.number "99"))) ]) }
       , ContractItem.function
           { name := some "runFallthrough"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -32005,6 +32023,7 @@ def namedReturnContract : ContractDecl :=
                     (Expr.literal (Literal.number "9")))) }
       , ContractItem.function
           { name := some "runDefault"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body := some Stmt.empty } ] }
 

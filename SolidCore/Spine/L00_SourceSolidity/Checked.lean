@@ -2858,6 +2858,183 @@ def checkedInternalReturnShortCircuitMatches :
             (orCallState.loadSlot 0) 1)
   | _, _, _, _ => Except.ok false
 
+def checkedControlFlowContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalTernaryBranchCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalIfConditionCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalWhileConditionCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalForPostCallContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.loopBreakContinueContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.namedReturnContract)
+
+def checkedInternalTernaryBranchCallMatches :
+    Except TypeError Bool := do
+  let runReturnThen ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runReturnThen")
+      SolidCore.Solidity.Source.State.empty []
+  let runReturnElse ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runReturnElse")
+      SolidCore.Solidity.Source.State.empty []
+  let runVarBothFalse ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runVarBothFalse")
+      SolidCore.Solidity.Source.State.empty []
+  let runAssignBothTrue ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalTernaryBranchCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runAssignBothTrue")
+      SolidCore.Solidity.Source.State.empty []
+  match runReturnThen, runReturnElse, runVarBothFalse,
+      runAssignBothTrue with
+  | SolidCore.Solidity.Source.CallResult.returned runReturnThenState
+      [SolidCore.Solidity.Source.Value.word runReturnThenValue],
+    SolidCore.Solidity.Source.CallResult.returned runReturnElseState
+      [SolidCore.Solidity.Source.Value.word runReturnElseValue],
+    SolidCore.Solidity.Source.CallResult.returned runVarBothFalseState
+      [SolidCore.Solidity.Source.Value.word runVarBothFalseValue],
+    SolidCore.Solidity.Source.CallResult.returned runAssignBothTrueState
+      [SolidCore.Solidity.Source.Value.word runAssignBothTrueValue] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq runReturnThenValue 21 &&
+          SolidCore.Solidity.Source.wordEq
+            (runReturnThenState.loadSlot 0) 21 &&
+          SolidCore.Solidity.Source.wordEq runReturnElseValue 22 &&
+          SolidCore.Solidity.Source.wordEq
+            (runReturnElseState.loadSlot 0) 22 &&
+          SolidCore.Solidity.Source.wordEq runVarBothFalseValue 22 &&
+          SolidCore.Solidity.Source.wordEq
+            (runVarBothFalseState.loadSlot 0) 22 &&
+          SolidCore.Solidity.Source.wordEq runAssignBothTrueValue 21 &&
+          SolidCore.Solidity.Source.wordEq
+            (runAssignBothTrueState.loadSlot 0) 21)
+  | _, _, _, _ => Except.ok false
+
+def checkedInternalIfConditionCallMatches :
+    Except TypeError Bool := do
+  let runTrue ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalIfConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runTrue")
+      SolidCore.Solidity.Source.State.empty []
+  let runFalse ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalIfConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "runFalse")
+      SolidCore.Solidity.Source.State.empty []
+  match runTrue, runFalse with
+  | SolidCore.Solidity.Source.CallResult.returned runTrueState
+      [SolidCore.Solidity.Source.Value.word runTrueValue],
+    SolidCore.Solidity.Source.CallResult.returned runFalseState
+      [SolidCore.Solidity.Source.Value.word runFalseValue] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq runTrueValue 2 &&
+          SolidCore.Solidity.Source.wordEq
+            (runTrueState.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq runFalseValue 3 &&
+          SolidCore.Solidity.Source.wordEq
+            (runFalseState.loadSlot 0) 1)
+  | _, _ => Except.ok false
+
+def checkedInternalWhileConditionCallMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 128
+      Executable.Examples.internalWhileConditionCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 3 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 3)
+  | _ => Except.ok false
+
+def checkedInternalForPostCallMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 128
+      Executable.Examples.internalForPostCallContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 3 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 3)
+  | _ => Except.ok false
+
+def checkedLoopBreakContinueMatches : Except TypeError Bool := do
+  let runBreak ←
+    CheckedInput.ownCall 128
+      Executable.Examples.loopBreakContinueContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBreak")
+      SolidCore.Solidity.Source.State.empty []
+  let runContinue ←
+    CheckedInput.ownCall 128
+      Executable.Examples.loopBreakContinueContract
+      (SolidCore.Solidity.Source.CallTarget.name "runContinue")
+      SolidCore.Solidity.Source.State.empty []
+  match runBreak, runContinue with
+  | SolidCore.Solidity.Source.CallResult.returned runBreakState
+      [SolidCore.Solidity.Source.Value.word runBreakValue],
+    SolidCore.Solidity.Source.CallResult.returned runContinueState
+      [SolidCore.Solidity.Source.Value.word runContinueValue] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq runBreakValue 3 &&
+          SolidCore.Solidity.Source.wordEq
+            (runBreakState.loadSlot 0) 3 &&
+          SolidCore.Solidity.Source.wordEq runContinueValue 9 &&
+          SolidCore.Solidity.Source.wordEq
+            (runContinueState.loadSlot 0) 5)
+  | _, _ => Except.ok false
+
+def checkedNamedReturnMatches : Except TypeError Bool := do
+  let stop ←
+    CheckedInput.ownCall 32
+      Executable.Examples.namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "stop")
+      SolidCore.Solidity.Source.State.empty []
+  let runFallthrough ←
+    CheckedInput.ownCall 32
+      Executable.Examples.namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "runFallthrough")
+      SolidCore.Solidity.Source.State.empty []
+  let runDefault ←
+    CheckedInput.ownCall 32
+      Executable.Examples.namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "runDefault")
+      SolidCore.Solidity.Source.State.empty []
+  match stop, runFallthrough, runDefault with
+  | SolidCore.Solidity.Source.CallResult.returned stopState [],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runFallthroughValue],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runDefaultValue] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq
+          (stopState.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq runFallthroughValue 9 &&
+          SolidCore.Solidity.Source.wordEq runDefaultValue 0)
+  | _, _, _ => Except.ok false
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library
