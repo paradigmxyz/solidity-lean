@@ -25340,6 +25340,7 @@ def nestedStoragePathContract : ContractDecl :=
                 (Ty.mapping (Ty.uint 256) (Ty.uint 256)) }
       , ContractItem.function
           { name := some "setMatrixCell"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 }
@@ -25357,6 +25358,7 @@ def nestedStoragePathContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "clearMatrixCell"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 } ]
@@ -25371,6 +25373,7 @@ def nestedStoragePathContract : ContractDecl :=
                       (Expr.ident "inner")))) }
       , ContractItem.function
           { name := some "readMatrixCell"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 } ]
@@ -25386,6 +25389,7 @@ def nestedStoragePathContract : ContractDecl :=
                       (Expr.ident "inner")))) }
       , ContractItem.function
           { name := some "setNested"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "left", ty := Ty.uint 256 }
               , { name := some "right", ty := Ty.uint 256 }
@@ -25403,6 +25407,7 @@ def nestedStoragePathContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "clearNested"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "left", ty := Ty.uint 256 }
               , { name := some "right", ty := Ty.uint 256 } ]
@@ -25417,6 +25422,7 @@ def nestedStoragePathContract : ContractDecl :=
                       (Expr.ident "right")))) }
       , ContractItem.function
           { name := some "readNested"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "left", ty := Ty.uint 256 }
               , { name := some "right", ty := Ty.uint 256 } ]
@@ -25589,6 +25595,7 @@ def nestedStoragePathCompoundContract : ContractDecl :=
                 (Ty.mapping (Ty.uint 256) (Ty.uint 256)) }
       , ContractItem.function
           { name := some "addMatrix"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 }
@@ -25606,6 +25613,7 @@ def nestedStoragePathCompoundContract : ContractDecl :=
                     (Expr.ident "delta"))) }
       , ContractItem.function
           { name := some "incMatrix"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 } ]
@@ -25622,6 +25630,7 @@ def nestedStoragePathCompoundContract : ContractDecl :=
                         (Expr.ident "inner"))))) }
       , ContractItem.function
           { name := some "addNested"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "left", ty := Ty.uint 256 }
               , { name := some "right", ty := Ty.uint 256 }
@@ -26838,6 +26847,7 @@ def nestedBytesStoragePathContract : ContractDecl :=
             ty := Ty.array Ty.bytes none }
       , ContractItem.function
           { name := some "setByte"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 }
@@ -26855,6 +26865,7 @@ def nestedBytesStoragePathContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "clearByte"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 } ]
@@ -26869,6 +26880,7 @@ def nestedBytesStoragePathContract : ContractDecl :=
                       (Expr.ident "inner")))) }
       , ContractItem.function
           { name := some "readByte"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "outer", ty := Ty.uint 256 }
               , { name := some "inner", ty := Ty.uint 256 } ]

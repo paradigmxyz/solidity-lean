@@ -2430,6 +2430,240 @@ def checkedStructStoragePathModifierScoreSetMatches :
       (state.loadSlot
         (Executable.Examples.structStoragePathScoreSlot 23)) 77)
 
+def checkedOwnCallState (fuel : Nat) (decl : SourceContractDecl)
+    (functionName : Name) (state : CoreState)
+    (args : List CoreValue) : Except TypeError CoreState := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ =>
+      Except.error (executableFailure "own contract call")
+
+def checkedOwnCallWordMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expected : Word) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  | _ => Except.ok false
+
+def checkedNestedStoragePathContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.nestedStoragePathContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.nestedStoragePathCompoundContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.nestedBytesStoragePathContract)
+
+def checkedNestedStoragePathWord (value : Word) : CoreValue :=
+  SolidCore.Solidity.Source.Value.word value
+
+def checkedNestedStoragePathInnerSlot : Word :=
+  SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+    0 0
+    (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+      (SolidCore.Solidity.Source.StorageLayout.scalar
+        SolidCore.Solidity.Source.Ty.uint256))
+
+def checkedNestedStoragePathMatrixSetMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedStoragePathContract
+      "setMatrixCell"
+      Executable.Examples.nestedStoragePathMatrixInitialState
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1
+      , checkedNestedStoragePathWord 77 ]
+  let read ←
+    checkedOwnCallWordMatches 64
+      Executable.Examples.nestedStoragePathContract
+      "readMatrixCell" state
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1 ] 77
+  Except.ok
+    (read &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedNestedStoragePathInnerSlot) 2 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedNestedStoragePathInnerSlot 1)) 77)
+
+def checkedNestedStoragePathMatrixClearMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedStoragePathContract
+      "clearMatrixCell"
+      Executable.Examples.nestedStoragePathMatrixInitialState
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedNestedStoragePathInnerSlot) 2 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedNestedStoragePathInnerSlot 0)) 11 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedNestedStoragePathInnerSlot 1)) 0)
+
+def checkedNestedStoragePathMappingSetMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedStoragePathContract
+      "setNested"
+      SolidCore.Solidity.Source.State.empty
+      [ checkedNestedStoragePathWord 3
+      , checkedNestedStoragePathWord 4
+      , checkedNestedStoragePathWord 55 ]
+  let read ←
+    checkedOwnCallWordMatches 64
+      Executable.Examples.nestedStoragePathContract
+      "readNested" state
+      [ checkedNestedStoragePathWord 3
+      , checkedNestedStoragePathWord 4 ] 55
+  Except.ok
+    (read &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          Executable.Examples.nestedStoragePathMappingSlot) 55)
+
+def checkedNestedStoragePathMappingClearMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedStoragePathContract
+      "clearNested"
+      Executable.Examples.nestedStoragePathMappingClearInitialState
+      [ checkedNestedStoragePathWord 3
+      , checkedNestedStoragePathWord 4 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.nestedStoragePathMappingSlot) 0)
+
+def checkedNestedStoragePathCompoundMatrixAddMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedStoragePathCompoundContract
+      "addMatrix"
+      Executable.Examples.nestedStoragePathMatrixInitialState
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1
+      , checkedNestedStoragePathWord 5 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          checkedNestedStoragePathInnerSlot 1)) 27)
+
+def checkedNestedStoragePathCompoundMatrixIncMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 64
+      Executable.Examples.nestedStoragePathCompoundContract
+      (SolidCore.Solidity.Source.CallTarget.name "incMatrix")
+      Executable.Examples.nestedStoragePathMatrixInitialState
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 23 &&
+          SolidCore.Solidity.Source.wordEq
+            (state.loadSlot
+              (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+                checkedNestedStoragePathInnerSlot 1)) 23)
+  | _ => Except.ok false
+
+def checkedNestedStoragePathCompoundMappingAddMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedStoragePathCompoundContract
+      "addNested"
+      Executable.Examples.nestedStoragePathMappingClearInitialState
+      [ checkedNestedStoragePathWord 3
+      , checkedNestedStoragePathWord 4
+      , checkedNestedStoragePathWord 7 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot
+        Executable.Examples.nestedStoragePathMappingSlot) 62)
+
+def checkedNestedBytesStoragePathElementSlot : Word :=
+  SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
+
+def checkedNestedBytesStoragePathSetMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedBytesStoragePathContract
+      "setByte"
+      Executable.Examples.nestedBytesStoragePathInitialState
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1
+      , checkedNestedStoragePathWord 90 ]
+  let read ←
+    checkedOwnCallWordMatches 64
+      Executable.Examples.nestedBytesStoragePathContract
+      "readByte" state
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1 ] 90
+  Except.ok
+    (read &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedNestedBytesStoragePathElementSlot) 2 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedNestedBytesStoragePathElementSlot 1)) 90)
+
+def checkedNestedBytesStoragePathClearMatches :
+    Except TypeError Bool := do
+  let state ←
+    checkedOwnCallState 64
+      Executable.Examples.nestedBytesStoragePathContract
+      "clearByte"
+      Executable.Examples.nestedBytesStoragePathInitialState
+      [ checkedNestedStoragePathWord 0
+      , checkedNestedStoragePathWord 1 ]
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedNestedBytesStoragePathElementSlot) 2 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedNestedBytesStoragePathElementSlot 0)) 10 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedNestedBytesStoragePathElementSlot 1)) 0)
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library
