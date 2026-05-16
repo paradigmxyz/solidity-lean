@@ -37793,6 +37793,7 @@ def globalUsingPriceAssignMatches : Option Bool := do
 
 def priceAddFreeFunction : FunctionDecl :=
   { name := some "priceAdd"
+    mutability := StateMutability.pure
     params :=
       [ { name := some "left", ty := priceTy }
       , { name := some "right", ty := priceTy } ]
@@ -37814,6 +37815,7 @@ def priceAddFreeFunction : FunctionDecl :=
 
 def priceLtFreeFunction : FunctionDecl :=
   { name := some "priceLt"
+    mutability := StateMutability.pure
     params :=
       [ { name := some "left", ty := priceTy }
       , { name := some "right", ty := priceTy } ]
@@ -37832,6 +37834,7 @@ def priceLtFreeFunction : FunctionDecl :=
 
 def priceNegFreeFunction : FunctionDecl :=
   { name := some "priceNeg"
+    mutability := StateMutability.pure
     params := [{ name := some "value", ty := priceTy }]
     returns := [{ name := some "out", ty := priceTy }]
     body :=
@@ -37849,6 +37852,7 @@ def priceNegFreeFunction : FunctionDecl :=
 
 def priceBitNotFreeFunction : FunctionDecl :=
   { name := some "priceBitNot"
+    mutability := StateMutability.pure
     params := [{ name := some "value", ty := priceTy }]
     returns := [{ name := some "out", ty := priceTy }]
     body :=
@@ -37869,6 +37873,7 @@ def globalUsingPriceOperatorContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "sum"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "left", ty := Ty.uint 256 }
               , { name := some "right", ty := Ty.uint 256 } ]
@@ -37897,6 +37902,7 @@ def globalUsingPriceOperatorContract : ContractDecl :=
                                 (Expr.ident "a") (Expr.ident "b")) ])) ]) }
       , ContractItem.function
           { name := some "less"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "left", ty := Ty.uint 256 }
               , { name := some "right", ty := Ty.uint 256 } ]
@@ -37922,6 +37928,7 @@ def globalUsingPriceOperatorContract : ContractDecl :=
                           (Expr.ident "a") (Expr.ident "b"))) ]) }
       , ContractItem.function
           { name := some "unary"
+            visibility := some Visibility.public_
             params := [{ name := some "raw", ty := Ty.uint 256 }]
             returns :=
               [ { name := some "negated", ty := Ty.uint 256 }

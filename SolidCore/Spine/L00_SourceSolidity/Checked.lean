@@ -8318,6 +8318,47 @@ def checkedCanonicalGlobalUsingPriceAssignMatches :
     SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 17] 18
 
+def checkedCanonicalGlobalUsingPriceOperatorUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.globalUsingPriceOperatorUnit)
+
+def checkedCanonicalGlobalUsingPriceAddOperatorMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48
+    Executable.Examples.globalUsingPriceOperatorUnit
+    "GlobalUsingPriceOperator" "sum"
+    SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 14
+    , SolidCore.Solidity.Source.Value.word 28 ] 42
+
+def checkedCanonicalGlobalUsingPriceLtOperatorMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 48
+    Executable.Examples.globalUsingPriceOperatorUnit
+    "GlobalUsingPriceOperator" "less"
+    SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 14
+    , SolidCore.Solidity.Source.Value.word 28 ] 1
+
+def checkedCanonicalGlobalUsingPriceUnaryOperatorsMatch :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 48
+      Executable.Examples.globalUsingPriceOperatorUnit
+      "GlobalUsingPriceOperator"
+      (SolidCore.Solidity.Source.CallTarget.name "unary")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 14]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word negated
+      , SolidCore.Solidity.Source.Value.word inverted ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq negated 15 &&
+          SolidCore.Solidity.Source.wordEq inverted 16)
+  | _ => Except.ok false
+
 def checkedUsingHigherOrderFunctionPointerMatches :
     Except TypeError Bool :=
   checkedCallWordMatches 64 usingHigherOrderFunctionSource
