@@ -26822,6 +26822,7 @@ def indexedDynamicArrayAssignmentContract : ContractDecl :=
                 (Ty.array (Ty.uint 256) none) }
       , ContractItem.function
           { name := some "setMatrix"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "index", ty := Ty.uint 256 }
               , { name := some "values"
@@ -26838,6 +26839,7 @@ def indexedDynamicArrayAssignmentContract : ContractDecl :=
                     (Expr.ident "values"))) }
       , ContractItem.function
           { name := some "setBucket"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key", ty := Ty.uint 256 }
               , { name := some "values"
@@ -26962,6 +26964,7 @@ def deleteNestedIndexedStorageContract : ContractDecl :=
                   , Ty.array (Ty.uint 256) none ]) }
       , ContractItem.function
           { name := some "clearMatrix"
+            visibility := some Visibility.public_
             params := [{ name := some "index", ty := Ty.uint 256 }]
             body :=
               some
@@ -26972,6 +26975,7 @@ def deleteNestedIndexedStorageContract : ContractDecl :=
                       (Expr.ident "index")))) }
       , ContractItem.function
           { name := some "clearEntry"
+            visibility := some Visibility.public_
             params := [{ name := some "key", ty := Ty.uint 256 }]
             body :=
               some

@@ -5003,6 +5003,130 @@ def checkedAssignNestedStructMappingClearsNestedTail :
           (SolidCore.Solidity.Source.dynamicArrayStorageSlot
             nestedSlot 1)) 0)
 
+def checkedIndexedDynamicArrayStorageContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.indexedDynamicArrayAssignmentContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.deleteNestedIndexedStorageContract) &&
+    indexedDynamicArrayAssignmentAccepted &&
+    deleteNestedIndexedStorageAccepted
+
+def checkedIndexedDynamicArrayInnerSlot : Word :=
+  SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+    0 0
+    (SolidCore.Solidity.Source.StorageLayout.dynamicArray
+      (SolidCore.Solidity.Source.StorageLayout.scalar
+        SolidCore.Solidity.Source.Ty.uint256))
+
+def checkedIndexedDynamicArrayAssignmentMatrixState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.indexedDynamicArrayAssignmentContract
+    "setMatrix"
+    Executable.Examples.indexedDynamicArrayAssignmentMatrixInitialState
+    [ SolidCore.Solidity.Source.Value.word 0
+    , Executable.Examples.indexedDynamicArrayShortInput ]
+
+def checkedIndexedDynamicArrayAssignmentMatrixClearsTail :
+    Except TypeError Bool := do
+  let state ← checkedIndexedDynamicArrayAssignmentMatrixState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedIndexedDynamicArrayInnerSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedIndexedDynamicArrayInnerSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedIndexedDynamicArrayInnerSlot 1)) 0)
+
+def checkedIndexedDynamicArrayBucketSlot : Word :=
+  SolidCore.Solidity.Source.mappingStorageSlot 1 7
+
+def checkedIndexedDynamicArrayAssignmentMappingState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.indexedDynamicArrayAssignmentContract
+    "setBucket"
+    Executable.Examples.indexedDynamicArrayAssignmentMappingInitialState
+    [ SolidCore.Solidity.Source.Value.word 7
+    , Executable.Examples.indexedDynamicArrayShortInput ]
+
+def checkedIndexedDynamicArrayAssignmentMappingClearsTail :
+    Except TypeError Bool := do
+  let state ← checkedIndexedDynamicArrayAssignmentMappingState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedIndexedDynamicArrayBucketSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedIndexedDynamicArrayBucketSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedIndexedDynamicArrayBucketSlot 1)) 0)
+
+def checkedDeleteNestedIndexedStorageMatrixState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.deleteNestedIndexedStorageContract
+    "clearMatrix"
+    Executable.Examples.deleteNestedIndexedStorageMatrixInitialState
+    [SolidCore.Solidity.Source.Value.word 0]
+
+def checkedDeleteNestedIndexedStorageMatrixClearsInnerArray :
+    Except TypeError Bool := do
+  let state ← checkedDeleteNestedIndexedStorageMatrixState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedIndexedDynamicArrayInnerSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedIndexedDynamicArrayInnerSlot 0)) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedIndexedDynamicArrayInnerSlot 1)) 0)
+
+def checkedDeleteNestedIndexedStorageEntrySlot : Word :=
+  SolidCore.Solidity.Source.mappingStorageSlot 1 7
+
+def checkedDeleteNestedIndexedStorageNestedSlot : Word :=
+  SolidCore.Solidity.Source.fixedArrayStorageSlot
+    checkedDeleteNestedIndexedStorageEntrySlot 1
+
+def checkedDeleteNestedIndexedStorageMappingState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.deleteNestedIndexedStorageContract
+    "clearEntry"
+    Executable.Examples.deleteNestedIndexedStorageMappingInitialState
+    [SolidCore.Solidity.Source.Value.word 7]
+
+def checkedDeleteNestedIndexedStorageMappingClearsNestedData :
+    Except TypeError Bool := do
+  let state ← checkedDeleteNestedIndexedStorageMappingState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedDeleteNestedIndexedStorageEntrySlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedDeleteNestedIndexedStorageNestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedDeleteNestedIndexedStorageNestedSlot 0)) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            checkedDeleteNestedIndexedStorageNestedSlot 1)) 0)
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
