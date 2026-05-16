@@ -2780,6 +2780,84 @@ def checkedInternalFunctionPointerParamUninitializedCallPanics :
     [checkedInternalFunctionPointerWord 21]
     internalFunctionPointerPanicCode
 
+def checkedInternalReturnEvaluationContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalReturnSubexpressionContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalReturnRightSubexpressionContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalReturnShortCircuitContract)
+
+def checkedInternalReturnSubexpressionMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.internalReturnSubexpressionContract
+    "run" SolidCore.Solidity.Source.State.empty [] 42
+
+def checkedInternalReturnRightSubexpressionMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 48
+      Executable.Examples.internalReturnRightSubexpressionContract
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 10 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
+  | _ => Except.ok false
+
+def checkedInternalReturnShortCircuitMatches :
+    Except TypeError Bool := do
+  let andSkip ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalReturnShortCircuitContract
+      (SolidCore.Solidity.Source.CallTarget.name "andSkip")
+      SolidCore.Solidity.Source.State.empty []
+  let orSkip ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalReturnShortCircuitContract
+      (SolidCore.Solidity.Source.CallTarget.name "orSkip")
+      SolidCore.Solidity.Source.State.empty []
+  let andCall ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalReturnShortCircuitContract
+      (SolidCore.Solidity.Source.CallTarget.name "andCall")
+      SolidCore.Solidity.Source.State.empty []
+  let orCall ←
+    CheckedInput.ownCall 64
+      Executable.Examples.internalReturnShortCircuitContract
+      (SolidCore.Solidity.Source.CallTarget.name "orCall")
+      SolidCore.Solidity.Source.State.empty []
+  match andSkip, orSkip, andCall, orCall with
+  | SolidCore.Solidity.Source.CallResult.returned andSkipState
+      [SolidCore.Solidity.Source.Value.word andSkipValue],
+    SolidCore.Solidity.Source.CallResult.returned orSkipState
+      [SolidCore.Solidity.Source.Value.word orSkipValue],
+    SolidCore.Solidity.Source.CallResult.returned andCallState
+      [SolidCore.Solidity.Source.Value.word andCallValue],
+    SolidCore.Solidity.Source.CallResult.returned orCallState
+      [SolidCore.Solidity.Source.Value.word orCallValue] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq andSkipValue 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (andSkipState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq orSkipValue 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (orSkipState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq andCallValue 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (andCallState.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq orCallValue 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (orCallState.loadSlot 0) 1)
+  | _, _, _, _ => Except.ok false
+
 def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library

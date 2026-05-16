@@ -30847,6 +30847,7 @@ def internalReturnSubexpressionContract : ContractDecl :=
     items :=
       [ ContractItem.function
           { name := some "base"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -30854,6 +30855,7 @@ def internalReturnSubexpressionContract : ContractDecl :=
                   (some (Expr.literal (Literal.number "41")))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -30880,6 +30882,7 @@ def internalReturnRightSubexpressionContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "read"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -30887,6 +30890,7 @@ def internalReturnRightSubexpressionContract : ContractDecl :=
                   (some (Expr.ident "x"))) }
       , ContractItem.function
           { name := some "run"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
@@ -30917,6 +30921,7 @@ def internalReturnShortCircuitContract : ContractDecl :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
       , ContractItem.function
           { name := some "mark"
+            visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -30928,6 +30933,7 @@ def internalReturnShortCircuitContract : ContractDecl :=
                       (some (Expr.literal (Literal.bool true))) ]) }
       , ContractItem.function
           { name := some "andSkip"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -30938,6 +30944,7 @@ def internalReturnShortCircuitContract : ContractDecl :=
                       (Expr.call (Expr.ident "mark") [])))) }
       , ContractItem.function
           { name := some "orSkip"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -30948,6 +30955,7 @@ def internalReturnShortCircuitContract : ContractDecl :=
                       (Expr.call (Expr.ident "mark") [])))) }
       , ContractItem.function
           { name := some "andCall"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
@@ -30958,6 +30966,7 @@ def internalReturnShortCircuitContract : ContractDecl :=
                       (Expr.call (Expr.ident "mark") [])))) }
       , ContractItem.function
           { name := some "orCall"
+            visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
