@@ -4734,6 +4734,275 @@ def checkedDeleteFixedArrayStructClearsElement :
     "fixedRecords" state [SolidCore.Solidity.Source.Value.word 1]
     0 [] 0
 
+def checkedStructArrayStorageContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.assignFixedStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.assignDynamicStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.indexAssignFixedStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.indexAssignDynamicStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.indexAssignMappingStructContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.pushStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.deleteNestedStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.assignNestedDynamicStructArrayContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.assignNestedStructMappingContract)
+
+def checkedAssignFixedStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.assignFixedStructArrayContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [Executable.Examples.assignFixedStructArrayInput]
+
+def checkedAssignFixedStructArrayGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedAssignFixedStructArrayState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.assignFixedStructArrayContract
+    "records" state [SolidCore.Solidity.Source.Value.word 1] 20 0
+
+def checkedAssignDynamicStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.assignDynamicStructArrayContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [Executable.Examples.assignDynamicStructArrayInput]
+
+def checkedAssignDynamicStructArrayGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedAssignDynamicStructArrayState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.assignDynamicStructArrayContract
+    "records" state [SolidCore.Solidity.Source.Value.word 1] 20 0
+
+def checkedIndexAssignFixedStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.indexAssignFixedStructArrayContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [Executable.Examples.indexAssignStructValue]
+
+def checkedIndexAssignFixedStructArrayGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedIndexAssignFixedStructArrayState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.indexAssignFixedStructArrayContract
+    "records" state [SolidCore.Solidity.Source.Value.word 1] 20 0
+
+def checkedIndexAssignDynamicStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.indexAssignDynamicStructArrayContract
+    "set" (SolidCore.Solidity.Source.State.empty.storeSlot 0 2)
+    [Executable.Examples.indexAssignStructValue]
+
+def checkedIndexAssignDynamicStructArrayGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedIndexAssignDynamicStructArrayState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.indexAssignDynamicStructArrayContract
+    "records" state [SolidCore.Solidity.Source.Value.word 1] 20 0
+
+def checkedIndexAssignMappingStructState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.indexAssignMappingStructContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.word 7
+    , Executable.Examples.indexAssignStructValue ]
+
+def checkedIndexAssignMappingStructGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedIndexAssignMappingStructState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.indexAssignMappingStructContract
+    "entries" state [SolidCore.Solidity.Source.Value.word 7] 20 0
+
+def checkedPushStructArrayValueState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.pushStructArrayContract
+    "pushValue" SolidCore.Solidity.Source.State.empty
+    [Executable.Examples.indexAssignStructValue]
+
+def checkedPushStructArrayValueGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedPushStructArrayValueState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.pushStructArrayContract
+    "records" state [SolidCore.Solidity.Source.Value.word 0] 20 0
+
+def checkedPushStructArrayDefaultState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.pushStructArrayContract
+    "pushDefault" Executable.Examples.pushStructArrayStaleState []
+
+def checkedPushStructArrayDefaultClearsElement :
+    Except TypeError Bool := do
+  let state ← checkedPushStructArrayDefaultState
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.pushStructArrayContract
+    "records" state [SolidCore.Solidity.Source.Value.word 0] 0 0
+
+def checkedStructArrayElementSlot : Word :=
+  let elementLayout :=
+    SolidCore.Solidity.Source.StorageLayout.struct
+      [ SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.uint256
+      , SolidCore.Solidity.Source.StorageLayout.scalar
+          SolidCore.Solidity.Source.Ty.bool ]
+  SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+    0 0 elementLayout
+
+def checkedPopStructArrayState : Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.pushStructArrayContract
+    "popOne" Executable.Examples.popStructArrayInitialState []
+
+def checkedPopStructArrayClearsElement : Except TypeError Bool := do
+  let state ← checkedPopStructArrayState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedStructArrayElementSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.fixedArrayStorageSlot
+            checkedStructArrayElementSlot 1)) 0)
+
+def checkedDeleteDynamicStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.pushStructArrayContract
+    "deleteAll" Executable.Examples.popStructArrayInitialState []
+
+def checkedDeleteDynamicStructArrayClearsElement :
+    Except TypeError Bool := do
+  let state ← checkedDeleteDynamicStructArrayState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot checkedStructArrayElementSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.fixedArrayStorageSlot
+            checkedStructArrayElementSlot 1)) 0)
+
+def checkedDeleteNestedDynamicStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.deleteNestedStructArrayContract
+    "clearDynamic"
+    Executable.Examples.deleteNestedDynamicStructArrayInitialState []
+
+def checkedDeleteNestedDynamicStructArrayClearsNestedData :
+    Except TypeError Bool := do
+  let state ← checkedDeleteNestedDynamicStructArrayState
+  let recordSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 0 Executable.Examples.nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot recordSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0)
+
+def checkedDeleteNestedFixedStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.deleteNestedStructArrayContract
+    "clearFixed"
+    Executable.Examples.deleteNestedFixedStructArrayInitialState []
+
+def checkedDeleteNestedFixedStructArrayClearsNestedData :
+    Except TypeError Bool := do
+  let state ← checkedDeleteNestedFixedStructArrayState
+  let recordSlot :=
+    SolidCore.Solidity.Source.fixedArrayLayoutStorageSlot
+      1 1 Executable.Examples.nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot recordSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0)
+
+def checkedAssignNestedDynamicStructArrayState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.assignNestedDynamicStructArrayContract
+    "set" Executable.Examples.assignNestedDynamicStructArrayInitialState
+    [Executable.Examples.assignNestedDynamicStructArrayInput]
+
+def checkedAssignNestedDynamicStructArrayClearsTail :
+    Except TypeError Bool := do
+  let state ← checkedAssignNestedDynamicStructArrayState
+  let recordSlot :=
+    SolidCore.Solidity.Source.dynamicArrayLayoutStorageSlot
+      0 1 Executable.Examples.nestedDynamicFieldStructLayout
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot recordSlot 1
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot recordSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 0)
+
+def checkedAssignNestedStructMappingState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 96
+    Executable.Examples.assignNestedStructMappingContract
+    "set" Executable.Examples.assignNestedStructMappingInitialState
+    [ SolidCore.Solidity.Source.Value.word 7
+    , Executable.Examples.assignNestedStructMappingInput ]
+
+def checkedAssignNestedStructMappingClearsNestedTail :
+    Except TypeError Bool := do
+  let state ← checkedAssignNestedStructMappingState
+  let entrySlot :=
+    SolidCore.Solidity.Source.mappingStorageSlot 0 7
+  let nestedSlot :=
+    SolidCore.Solidity.Source.fixedArrayStorageSlot entrySlot 1
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot entrySlot) 11 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot nestedSlot) 1 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 0)) 5 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
+            nestedSlot 1)) 0)
+
 def checkedMemoryAndCalldataContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit

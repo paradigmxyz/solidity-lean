@@ -26078,6 +26078,7 @@ def assignFixedStructArrayContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "values"
                   ty :=
@@ -26139,6 +26140,7 @@ def assignDynamicStructArrayContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "values"
                   ty :=
@@ -26205,6 +26207,7 @@ def indexAssignFixedStructArrayContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "value"
                   ty := Ty.tuple [Ty.uint 256, Ty.bool]
@@ -26256,6 +26259,7 @@ def indexAssignDynamicStructArrayContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "value"
                   ty := Ty.tuple [Ty.uint 256, Ty.bool]
@@ -26306,6 +26310,7 @@ def indexAssignMappingStructContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key"
                   ty := Ty.uint 256 }
@@ -26359,6 +26364,7 @@ def pushStructArrayContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "pushValue"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "value"
                   ty := Ty.tuple [Ty.uint 256, Ty.bool]
@@ -26371,6 +26377,7 @@ def pushStructArrayContract : ContractDecl :=
                     [Arg.positional (Expr.ident "value")])) }
       , ContractItem.function
           { name := some "pushDefault"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -26379,6 +26386,7 @@ def pushStructArrayContract : ContractDecl :=
                     [])) }
       , ContractItem.function
           { name := some "popOne"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -26387,6 +26395,7 @@ def pushStructArrayContract : ContractDecl :=
                     [])) }
       , ContractItem.function
           { name := some "deleteAll"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -26548,6 +26557,7 @@ def deleteNestedStructArrayContract : ContractDecl :=
                 (some 2) }
       , ContractItem.function
           { name := some "clearDynamic"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -26555,6 +26565,7 @@ def deleteNestedStructArrayContract : ContractDecl :=
                     (Expr.ident "dynamicRecords"))) }
       , ContractItem.function
           { name := some "clearFixed"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.expr
@@ -26650,6 +26661,7 @@ def assignNestedDynamicStructArrayContract : ContractDecl :=
                 none }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "values"
                   ty :=
@@ -26725,6 +26737,7 @@ def assignNestedStructMappingContract : ContractDecl :=
                   , Ty.array (Ty.uint 256) none ]) }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params :=
               [ { name := some "key", ty := Ty.uint 256 }
               , { name := some "value"

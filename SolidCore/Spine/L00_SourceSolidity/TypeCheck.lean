@@ -901,7 +901,10 @@ def checkLocationForTy (types : TypeContext) (ty : Ty)
     (location : Option L00_SourceSolidity.DataLocation) :
     Except TypeError Unit := do
   checkTy types ty
-  if !Ty.needsDataLocation types ty && location.isSome then
+  if !Ty.needsDataLocation types ty && location.isSome &&
+      !(match ty with
+        | L00_SourceSolidity.Ty.tuple _ => true
+        | _ => false) then
     Except.error (TypeError.invalidDataLocation ty location)
   else if Ty.needsDataLocation types ty && location.isNone then
     Except.error (TypeError.invalidDataLocation ty location)
