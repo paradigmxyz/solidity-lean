@@ -6667,6 +6667,18 @@ def checkedAbiDecodeMalformedSourceReverts :
     Executable.Examples.checkedAbiBuiltinContract
     "badDecode" SolidCore.Solidity.Source.State.empty [] 0
 
+def checkedAbiBuiltinSemanticsMatch :
+    Except TypeError Bool := do
+  let encode ← checkedAbiEncodeSourceMatchesExpected
+  let hash ← checkedKeccakAbiEncodeSourceMatchesExpected
+  let selector ← checkedAbiEncodeWithSelectorMatchesExpected
+  let packed ← checkedAbiEncodePackedMatchesExpected
+  let decode ← checkedAbiDecodeSourceMatchesExpected
+  let malformed ← checkedAbiDecodeMalformedSourceReverts
+  Except.ok
+    (checkedAbiBuiltinContractAccepted &&
+      encode && hash && selector && packed && decode && malformed)
+
 def checkedAbiEncodeCallSourceUnitAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
@@ -13218,6 +13230,9 @@ def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
                       (L00_SourceSolidity.Expr.call
                         (L00_SourceSolidity.Expr.ident "revert") []) ]) } ] }
 
+def checkedTransientStorageContractAccepted : Bool :=
+  Result.isOk (CheckedInput.program checkedTransientStorageContract)
+
 def checkedTransientIndependentSlotsMatches :
     Except TypeError Bool := do
   let result ←
@@ -13364,6 +13379,20 @@ def checkedRevertedTransientWritePreservesPriorValue :
               revertedState.transient == state.transient)
       | _ => Except.ok false
   | _ => Except.ok false
+
+def checkedTransientStorageSemanticsMatch :
+    Except TypeError Bool := do
+  let independent ← checkedTransientIndependentSlotsMatches
+  let getter ← checkedTransientPublicGetterMatches
+  let rawFrame ← checkedTransientPersistsWithinRawAbiFrameMatches
+  let transaction ←
+    checkedTransientClearedAtAbiTransactionBoundaryMatches
+  let dropsRevertedWrite ← checkedRevertedTransientWriteDropsWrite
+  let preservesPrior ← checkedRevertedTransientWritePreservesPriorValue
+  Except.ok
+    (checkedTransientStorageContractAccepted &&
+      independent && getter && rawFrame && transaction &&
+      dropsRevertedWrite && preservesPrior)
 
 def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTryCatchTarget"
