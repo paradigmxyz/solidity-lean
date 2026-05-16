@@ -19511,6 +19511,7 @@ def requireCustomErrorContract : ContractDecl :=
             params := [{ name := some "actual", ty := Ty.uint 256 }] }
       , ContractItem.function
           { name := some "check"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             body :=
               some
@@ -19564,6 +19565,7 @@ def eventAbiContract : ContractDecl :=
                   ty := Ty.int 256 } ] }
       , ContractItem.function
           { name := some "emitIt"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -19578,6 +19580,7 @@ def eventAbiContract : ContractDecl :=
                             (Expr.unary UnaryOp.neg (Expr.ident "v")) ]) ]) }
       , ContractItem.function
           { name := some "emitThenRevert"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.block
@@ -19638,6 +19641,7 @@ def anonymousEventAbiContract : ContractDecl :=
               , { name := some "d", ty := Ty.uint 256, indexed := true } ] }
       , ContractItem.function
           { name := some "emitIt"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.emitEvent
@@ -19706,6 +19710,7 @@ def storageRollbackContract : ContractDecl :=
             visibility := some Visibility.public_ }
       , ContractItem.function
           { name := some "set"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             body :=
               some
@@ -19716,6 +19721,7 @@ def storageRollbackContract : ContractDecl :=
                     (Expr.ident "value"))) }
       , ContractItem.function
           { name := some "writeThenRevert"
+            visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             body :=
               some
@@ -19822,6 +19828,7 @@ def dynamicEventAbiContract : ContractDecl :=
                   ty := Ty.bytes } ] }
       , ContractItem.function
           { name := some "emitIt"
+            visibility := some Visibility.public_
             body :=
               some
                 (Stmt.emitEvent

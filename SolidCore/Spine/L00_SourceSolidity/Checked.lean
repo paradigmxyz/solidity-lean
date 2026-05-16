@@ -9978,6 +9978,225 @@ def checkedBaseConstructorObligationSourcesRejected : Bool :=
       (CheckedInput.program
         Executable.Examples.baseConstructorDuplicateNamedArgUnit)
 
+def checkedEventErrorAbiRollbackContractsAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.requireCustomErrorContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.eventAbiContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.anonymousEventAbiContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.dynamicEventAbiContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.storageRollbackContract)
+
+def checkedRequireCustomErrorAbiMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.requireCustomErrorContract
+  let calldata ←
+    CheckedContract.functionCalldata contract "check"
+      [SolidCore.Solidity.Source.Value.word 4]
+  let result ←
+    CheckedContract.callCalldata 16 contract
+      SolidCore.Solidity.Source.State.empty calldata
+  let encoded ←
+    optionToExcept "custom error ABI argument"
+      (SolidCore.Solidity.Source.ABI.encodeValues?
+        [SolidCore.Solidity.Source.Ty.uint256]
+        [SolidCore.Solidity.Source.Value.word 4])
+  let expected :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "TooSmall(uint256)") ++ encoded
+  Except.ok (!result.success && result.output == expected)
+
+def checkedEventAbiTopicsMatchExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "event ABI topics"
+      Executable.Examples.eventAbiExpectedTopics
+  let result ←
+    CheckedInput.ownCall 16 Executable.Examples.eventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      match state.events with
+      | [event] => Except.ok (event.topics == expected)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedEventAbiDataBytesMatchExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16 Executable.Examples.eventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      match state.events with
+      | [event] =>
+          Except.ok
+            (event.dataBytes ==
+              Executable.Examples.eventAbiExpectedDataBytes)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedAnonymousEventAbiTopicsMatchExpected :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.anonymousEventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      match state.events with
+      | [event] => Except.ok (event.topics == [1, 2, 3, 4])
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedAnonymousEventAbiDataBytesEmpty :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.anonymousEventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      match state.events with
+      | [event] => Except.ok event.dataBytes.isEmpty
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedRevertedEventRollbackDropsLog :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16 Executable.Examples.eventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitThenRevert")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state _ =>
+      Except.ok state.events.isEmpty
+  | _ => Except.ok false
+
+def checkedRevertedEventRollbackPreservesPriorLogs :
+    Except TypeError Bool := do
+  let emitted ←
+    CheckedInput.ownCall 16 Executable.Examples.eventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  let (state, beforeName) ←
+    match emitted with
+    | SolidCore.Solidity.Source.CallResult.returned state _ =>
+        match state.events with
+        | [event] => Except.ok (state, event.name)
+        | _ => Except.error (executableFailure "event ABI initial log")
+    | _ => Except.error (executableFailure "event ABI initial call")
+  let result ←
+    CheckedInput.ownCall 16 Executable.Examples.eventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitThenRevert")
+      state []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted revertedState _ =>
+      match revertedState.events with
+      | [event] => Except.ok (event.name == beforeName)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedStorageRollbackDropsWrite :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 24 Executable.Examples.storageRollbackContract
+      (SolidCore.Solidity.Source.CallTarget.name "writeThenRevert")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 9]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted state _ =>
+      let getter ←
+        CheckedInput.ownCall 16
+          Executable.Examples.storageRollbackContract
+          (SolidCore.Solidity.Source.CallTarget.name "x")
+          state []
+      match getter with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          Except.ok (value == 0)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedStorageRollbackPreservesPriorValue :
+    Except TypeError Bool := do
+  let setResult ←
+    CheckedInput.ownCall 24 Executable.Examples.storageRollbackContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 5]
+  let setState ←
+    match setResult with
+    | SolidCore.Solidity.Source.CallResult.returned state _ =>
+        Except.ok state
+    | _ => Except.error (executableFailure "storage rollback set")
+  let result ←
+    CheckedInput.ownCall 24 Executable.Examples.storageRollbackContract
+      (SolidCore.Solidity.Source.CallTarget.name "writeThenRevert")
+      setState [SolidCore.Solidity.Source.Value.word 11]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted revertedState _ =>
+      let getter ←
+        CheckedInput.ownCall 16
+          Executable.Examples.storageRollbackContract
+          (SolidCore.Solidity.Source.CallTarget.name "x")
+          revertedState []
+      match getter with
+      | SolidCore.Solidity.Source.CallResult.returned _
+          [SolidCore.Solidity.Source.Value.word value] =>
+          Except.ok (value == 5)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedDynamicEventAbiTopicsMatchExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "dynamic event ABI topics"
+      Executable.Examples.dynamicEventAbiExpectedTopics
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.dynamicEventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      match state.events with
+      | [event] => Except.ok (event.topics == expected)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedDynamicEventAbiDataBytesMatchExpected :
+    Except TypeError Bool := do
+  let expected ←
+    optionToExcept "dynamic event ABI data"
+      Executable.Examples.dynamicEventAbiExpectedDataBytes
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.dynamicEventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      match state.events with
+      | [event] => Except.ok (event.dataBytes == expected)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
 def checkedFreeEventEmitMatches :
     Except TypeError Bool := do
   let result ←
