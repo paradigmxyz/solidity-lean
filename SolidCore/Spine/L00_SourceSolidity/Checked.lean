@@ -2677,6 +2677,93 @@ def checkedEnumConversionOutOfRangePanics :
       Except.ok (code == 0x21)
   | _ => Except.ok false
 
+def checkedEnumLiteralConversionSource : SourceUnitAst :=
+  enumConversionSource "EnumLiteralConversion"
+    (enumConversionFunction "fromLiteral" (numberExpr "1"))
+
+def checkedEnumTypedOutOfRangeConversionSource : SourceUnitAst :=
+  enumConversionSource "EnumTypedOutOfRangeConversion"
+    (enumConversionFunction "fromTyped"
+      (Expr.call (Expr.typeName uint256)
+        [Arg.positional (numberExpr "2")]))
+
+def checkedEnumToUintSource : SourceUnitAst :=
+  enumConversionSource "EnumToUint" enumToUintFunction
+
+def checkedEnumOutOfRangeLiteralConversionSource : SourceUnitAst :=
+  enumConversionSource "BadEnumOutOfRangeLiteral"
+    (enumConversionFunction "fromLiteral" (numberExpr "2"))
+
+def checkedEnumNegativeLiteralConversionSource : SourceUnitAst :=
+  enumConversionSource "BadEnumNegativeLiteral"
+    (enumConversionFunction "fromLiteral"
+      (Expr.unary UnaryOp.neg (numberExpr "1")))
+
+def checkedEnumSourceDisciplineAccepted : Bool :=
+  Result.isOk (TypecheckedInput.checkedSourceUnit enumMemberSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit enumMinMaxSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        checkedEnumLiteralConversionSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        checkedEnumTypedOutOfRangeConversionSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit checkedEnumToUintSource)
+
+def checkedEnumSourceDisciplineRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit emptyEnumSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badEnumMemberSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        checkedEnumOutOfRangeLiteralConversionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        checkedEnumNegativeLiteralConversionSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit enumToIntSource)
+
+def checkedEnumMemberFixtureMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 enumMemberSource
+    "EnumUser" "red" SolidCore.Solidity.Source.State.empty [] 0
+
+def checkedEnumMinMaxFixtureMatches :
+    Except TypeError Bool := do
+  let minimum ←
+    checkedCallWordMatches 16 enumMinMaxSource
+      "EnumMinMax" "minimum"
+      SolidCore.Solidity.Source.State.empty [] 0
+  let maximum ←
+    checkedCallWordMatches 16 enumMinMaxSource
+      "EnumMinMax" "maximum"
+      SolidCore.Solidity.Source.State.empty [] 1
+  Except.ok (minimum && maximum)
+
+def checkedEnumLiteralConversionFixtureMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 checkedEnumLiteralConversionSource
+    "EnumLiteralConversion" "fromLiteral"
+    SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedEnumTypedOutOfRangeConversionFixturePanics :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 16
+      checkedEnumTypedOutOfRangeConversionSource
+      "EnumTypedOutOfRangeConversion"
+      (SolidCore.Solidity.Source.CallTarget.name "fromTyped")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (code == 0x21)
+  | _ => Except.ok false
+
+def checkedEnumToUintConversionFixtureMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 checkedEnumToUintSource
+    "EnumToUint" "asUint" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 1] 1
+
 def checkedEnumAbiEchoUsesUint8Selector :
     Except TypeError Bool :=
   checkedAbiCallUintMatches 32 Executable.Examples.enumSourceUnit
@@ -3020,6 +3107,12 @@ def checkedSourceDataTypeSemanticsMatch :
   let enumMinMax ← checkedEnumTypeMinMaxMatches
   let enumInRange ← checkedEnumConversionInRangeMatches
   let enumOutOfRange ← checkedEnumConversionOutOfRangePanics
+  let enumMemberFixture ← checkedEnumMemberFixtureMatches
+  let enumMinMaxFixture ← checkedEnumMinMaxFixtureMatches
+  let enumLiteralFixture ← checkedEnumLiteralConversionFixtureMatches
+  let enumTypedOutOfRangeFixture ←
+    checkedEnumTypedOutOfRangeConversionFixturePanics
+  let enumToUintFixture ← checkedEnumToUintConversionFixtureMatches
   let enumAbiEcho ← checkedEnumAbiEchoUsesUint8Selector
   let enumEvent ← checkedEnumEventTopicMatches
   let enumError ← checkedEnumErrorSelectorMatches
@@ -3049,7 +3142,11 @@ def checkedSourceDataTypeSemanticsMatch :
       checkedBadUserValueUnwrapRejected &&
       udvtRead && udvtGetter && udvtRoundtrip && udvtWrapUnwrap &&
       udvtAbiGetter && udvtAbiEcho && udvtEvent && udvtError &&
+      checkedEnumSourceDisciplineAccepted &&
+      checkedEnumSourceDisciplineRejected &&
       enumGetter && enumRead && enumMinMax && enumInRange &&
+      enumMemberFixture && enumMinMaxFixture && enumLiteralFixture &&
+      enumTypedOutOfRangeFixture && enumToUintFixture &&
       enumOutOfRange && enumAbiEcho && enumEvent && enumError &&
       checkedStructConstructorInvalidSourcesRejected &&
       checkedRecursiveStructTypeDisciplineAccepted &&
