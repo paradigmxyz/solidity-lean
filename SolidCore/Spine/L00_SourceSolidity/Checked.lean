@@ -2757,6 +2757,22 @@ def checkedStructFieldAssignmentMatches : Except TypeError Bool :=
   checkedCallWordMatches 48 Executable.Examples.structSourceUnit
     "StructDemo" "replaceY" SolidCore.Solidity.Source.State.empty [] 9
 
+def checkedStructStorageFieldAssignmentMatches :
+    Except TypeError Bool := do
+  let returned ←
+    checkedCallWordMatches 16 structFieldAssignSource
+      "StructStorage" "writeField"
+      SolidCore.Solidity.Source.State.empty [] 1
+  let slot ←
+    checkedCallSlotMatches 16 structFieldAssignSource
+      "StructStorage" "writeField"
+      SolidCore.Solidity.Source.State.empty [] 0 3
+  Except.ok (returned && slot)
+
+def checkedStructStorageFieldAssignmentViewRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit structFieldAssignViewSource)
+
 def checkedStructAbiEchoMatches : Except TypeError Bool := do
   let tupleTy :=
     SolidCore.Solidity.Source.Ty.tuple
@@ -3010,6 +3026,7 @@ def checkedSourceDataTypeSemanticsMatch :
   let structConstructor ← checkedStructNamedConstructorFieldSumMatches
   let structFieldAccess ← checkedStructConstructorFieldAccessMatches
   let structAssign ← checkedStructFieldAssignmentMatches
+  let structStorageAssign ← checkedStructStorageFieldAssignmentMatches
   let structAbiEcho ← checkedStructAbiEchoMatches
   let structEvent ← checkedStructEventTopicMatches
   let structError ← checkedStructErrorSelectorMatches
@@ -3037,8 +3054,9 @@ def checkedSourceDataTypeSemanticsMatch :
       checkedStructConstructorInvalidSourcesRejected &&
       checkedRecursiveStructTypeDisciplineAccepted &&
       checkedRecursiveStructTypeDisciplineRejected &&
-      structConstructor && structFieldAccess && structAssign && structAbiEcho &&
-      structEvent && structError &&
+      checkedStructStorageFieldAssignmentViewRejected &&
+      structConstructor && structFieldAccess && structAssign &&
+      structStorageAssign && structAbiEcho && structEvent && structError &&
       storageStructSum && storageStructWrite &&
       storageStructAliasWrite && storageStructAliasRead &&
       storageStructInternalWrite && storageStructInternalAliasWrite &&
