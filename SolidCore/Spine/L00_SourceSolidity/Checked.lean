@@ -2728,6 +2728,31 @@ def checkedStructNamedConstructorFieldSumMatches :
     [ SolidCore.Solidity.Source.Value.word 7
     , SolidCore.Solidity.Source.Value.word 8 ] 15
 
+def checkedStructConstructorFieldAccessMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 pairConstructorFieldSource
+    "StructCtor" "pairX" SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedStructConstructorInvalidSourcesRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badPairConstructorMissingFieldSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badPairConstructorMixedArgsSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badStructFieldSource)
+
+def checkedRecursiveStructTypeDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit dynamicRecursiveStructSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        functionPointerRecursiveStructSource)
+
+def checkedRecursiveStructTypeDisciplineRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit mutualRecursiveStructSource)
+
 def checkedStructFieldAssignmentMatches : Except TypeError Bool :=
   checkedCallWordMatches 48 Executable.Examples.structSourceUnit
     "StructDemo" "replaceY" SolidCore.Solidity.Source.State.empty [] 9
@@ -2983,6 +3008,7 @@ def checkedSourceDataTypeSemanticsMatch :
   let enumEvent ← checkedEnumEventTopicMatches
   let enumError ← checkedEnumErrorSelectorMatches
   let structConstructor ← checkedStructNamedConstructorFieldSumMatches
+  let structFieldAccess ← checkedStructConstructorFieldAccessMatches
   let structAssign ← checkedStructFieldAssignmentMatches
   let structAbiEcho ← checkedStructAbiEchoMatches
   let structEvent ← checkedStructEventTopicMatches
@@ -3008,7 +3034,10 @@ def checkedSourceDataTypeSemanticsMatch :
       udvtAbiGetter && udvtAbiEcho && udvtEvent && udvtError &&
       enumGetter && enumRead && enumMinMax && enumInRange &&
       enumOutOfRange && enumAbiEcho && enumEvent && enumError &&
-      structConstructor && structAssign && structAbiEcho &&
+      checkedStructConstructorInvalidSourcesRejected &&
+      checkedRecursiveStructTypeDisciplineAccepted &&
+      checkedRecursiveStructTypeDisciplineRejected &&
+      structConstructor && structFieldAccess && structAssign && structAbiEcho &&
       structEvent && structError &&
       storageStructSum && storageStructWrite &&
       storageStructAliasWrite && storageStructAliasRead &&
