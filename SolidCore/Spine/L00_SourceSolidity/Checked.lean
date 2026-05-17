@@ -14779,6 +14779,25 @@ def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
 def checkedTransientStorageContractAccepted : Bool :=
   Result.isOk (CheckedInput.program checkedTransientStorageContract)
 
+def checkedTransientStorageSourceDisciplineAccepted : Bool :=
+  Result.isOk (CheckedInput.program transientUintSource) &&
+    checkedTransientStorageContractAccepted
+
+def checkedTransientStorageSourceDisciplineRejected : Bool :=
+  Result.isError (CheckedInput.program badTransientInitSource) &&
+    Result.isError (CheckedInput.program badTransientStringSource)
+
+def checkedTransientUintSourceFieldMarkedTransient :
+    Except TypeError Bool := do
+  let contract ← CheckedInput.contract transientUintSource "TransientUint"
+  match contract.core.storageFields with
+  | [field] =>
+      Except.ok
+        (field.name == "flag" &&
+          SolidCore.Solidity.Source.wordEq field.slot 0 &&
+          field.transient)
+  | _ => Except.ok false
+
 def checkedTransientIndependentSlotsMatches :
     Except TypeError Bool := do
   let result ←
@@ -14928,6 +14947,7 @@ def checkedRevertedTransientWritePreservesPriorValue :
 
 def checkedTransientStorageSemanticsMatch :
     Except TypeError Bool := do
+  let sourceField ← checkedTransientUintSourceFieldMarkedTransient
   let independent ← checkedTransientIndependentSlotsMatches
   let getter ← checkedTransientPublicGetterMatches
   let rawFrame ← checkedTransientPersistsWithinRawAbiFrameMatches
@@ -14936,8 +14956,9 @@ def checkedTransientStorageSemanticsMatch :
   let dropsRevertedWrite ← checkedRevertedTransientWriteDropsWrite
   let preservesPrior ← checkedRevertedTransientWritePreservesPriorValue
   Except.ok
-    (checkedTransientStorageContractAccepted &&
-      independent && getter && rawFrame && transaction &&
+    (checkedTransientStorageSourceDisciplineAccepted &&
+      checkedTransientStorageSourceDisciplineRejected &&
+      sourceField && independent && getter && rawFrame && transaction &&
       dropsRevertedWrite && preservesPrior)
 
 def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
