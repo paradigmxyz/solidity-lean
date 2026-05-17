@@ -10613,6 +10613,36 @@ def checkedCanonicalModifierContractsAccepted : Bool :=
     (TypecheckedInput.checkedSourceUnit
       Executable.Examples.returnsThroughModifierContract)
 
+def checkedModifierSourceDisciplineAccepted : Bool :=
+  Result.isOk (TypecheckedInput.checkedSourceUnit modifierInvocationSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit returnThroughModifierSource)
+
+def checkedModifierSourceDisciplineRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit unknownModifierSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateModifierParamNameSource)
+
+def checkedModifierInvocationFixtureMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 modifierInvocationSource
+    "ModifierUser" "withModifier"
+    SolidCore.Solidity.Source.State.empty [] 7
+
+def checkedReturnThroughModifierFixtureMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 32 returnThroughModifierSource
+      "ReturnThroughModifier"
+      (SolidCore.Solidity.Source.CallTarget.name "run")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 11 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+  | _ => Except.ok false
+
 def checkedCanonicalModifierCallMatches : Except TypeError Bool := do
   let result ←
     ContractDecl.checkedCall 32 Executable.Examples.modifierContract
@@ -10876,6 +10906,8 @@ def checkedUsingConstructorMatches : Except TypeError Bool :=
     [SolidCore.Solidity.Source.Value.word 41] 0 42
 
 def checkedModifierSemanticsMatch : Except TypeError Bool := do
+  let modifierInvocation ← checkedModifierInvocationFixtureMatches
+  let returnThroughFixture ← checkedReturnThroughModifierFixtureMatches
   let canonical ← checkedCanonicalModifierCallMatches
   let multiplePlaceholders ← checkedMultiPlaceholderModifierMatches
   let namedArgs ← checkedNamedArgsModifierMatches
@@ -10887,8 +10919,11 @@ def checkedModifierSemanticsMatch : Except TypeError Bool := do
   let usingConstructor ← checkedUsingConstructorMatches
   Except.ok
     (checkedCanonicalModifierContractsAccepted &&
+      checkedModifierSourceDisciplineAccepted &&
+      checkedModifierSourceDisciplineRejected &&
       checkedTryCatchAroundModifierSourceAccepted &&
       checkedDirectExternalCallModifierSourceAccepted &&
+      modifierInvocation && returnThroughFixture &&
       canonical && multiplePlaceholders && namedArgs && returnsThrough &&
       trySuccess && tryCatch && directExternal && usingModifier &&
       usingConstructor)
