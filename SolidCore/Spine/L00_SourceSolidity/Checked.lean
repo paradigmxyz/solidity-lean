@@ -7278,6 +7278,57 @@ def checkedAbiDecodeMalformedSourceReverts :
     Executable.Examples.checkedAbiBuiltinContract
     "badDecode" SolidCore.Solidity.Source.State.empty [] 0
 
+def checkedAbiBuiltinSourceDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abiEncodeExternalFunctionPointerSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit abiDecodeSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit bytesConcatSource)
+
+def checkedAbiBuiltinSourceDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        abiEncodeInternalFunctionPointerSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badAbiDecodeSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badBytesConcatSource)
+
+def checkedAbiEncodeExternalFunctionPointerMatches :
+    Except TypeError Bool := do
+  let pointer :=
+    SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef Executable.Examples.selectorEncodingSelector
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.externalFunction] [pointer]
+  let result ←
+    CheckedInput.callContract 16 abiEncodeExternalFunctionPointerSource
+      "AbiEncodeExternalFunctionPointer"
+      (SolidCore.Solidity.Source.CallTarget.name
+        "packExternalFunction")
+      SolidCore.Solidity.Source.State.empty [pointer]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      Except.ok (bytes == expected)
+  | _ => Except.ok false
+
+def checkedAbiDecodeFixtureMatches : Except TypeError Bool :=
+  checkedCallWordMatches 16 abiDecodeSource
+    "AbiDecode" "decode" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.bytes
+      (SolidCore.Solidity.Source.ABI.encodeWord 7)] 7
+
+def checkedBytesConcatFixtureMatches : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 16 bytesConcatSource "BytesConcat"
+      (SolidCore.Solidity.Source.CallTarget.name "join")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.bytes bytes] =>
+      Except.ok (bytes == [1, 0, 0, 0, 0])
+  | _ => Except.ok false
+
 def checkedAbiBuiltinSemanticsMatch :
     Except TypeError Bool := do
   let encode ← checkedAbiEncodeSourceMatchesExpected
@@ -7286,9 +7337,15 @@ def checkedAbiBuiltinSemanticsMatch :
   let packed ← checkedAbiEncodePackedMatchesExpected
   let decode ← checkedAbiDecodeSourceMatchesExpected
   let malformed ← checkedAbiDecodeMalformedSourceReverts
+  let externalFunction ← checkedAbiEncodeExternalFunctionPointerMatches
+  let decodeFixture ← checkedAbiDecodeFixtureMatches
+  let bytesConcatFixture ← checkedBytesConcatFixtureMatches
   Except.ok
     (checkedAbiBuiltinContractAccepted &&
-      encode && hash && selector && packed && decode && malformed)
+      checkedAbiBuiltinSourceDisciplineAccepted &&
+      checkedAbiBuiltinSourceDisciplineRejected &&
+      encode && hash && selector && packed && decode && malformed &&
+      externalFunction && decodeFixture && bytesConcatFixture)
 
 def checkedAbiEncodeCallSourceUnitAccepted : Bool :=
   Result.isOk
