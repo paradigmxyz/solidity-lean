@@ -9355,6 +9355,53 @@ def checkedUncheckedArithmeticInvalidSourcesRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit uncheckedPlaceholderSource)
 
+def checkedArithmeticSourceDisciplineAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit callUint8LiteralSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit signedBaseUnsignedExponentSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit shiftWideCountSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit bytesBitwiseSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit compoundShiftSource)
+
+def checkedArithmeticSourceDisciplineRejected : Bool :=
+  Result.isError
+      (TypecheckedInput.checkedSourceUnit badCallUint8LiteralSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit signedExponentSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badShiftSignedCountSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badBytesArithmeticSource)
+
+def checkedNarrowLiteralArgumentMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 callUint8LiteralSource
+    "CallUint8Literal" "callSmall"
+    SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedShiftWideCountMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 shiftWideCountSource
+    "ShiftWideCount" "shiftWide"
+    SolidCore.Solidity.Source.State.empty [] 4
+
+def checkedBytesBitwiseMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 bytesBitwiseSource
+    "BytesBitwise" "bytesBitwise"
+    SolidCore.Solidity.Source.State.empty []
+    (SolidCore.Solidity.Source.bytesToWordBE [1, 2, 3, 4])
+
+def checkedCompoundShiftMatches :
+    Except TypeError Bool :=
+  checkedCallWordMatches 16 compoundShiftSource
+    "CompoundShift" "compoundShift"
+    SolidCore.Solidity.Source.State.empty [] 4
+
 def checkedEmptyInlineAssemblySourceAccepted : Bool :=
   Result.isOk (CheckedInput.program emptyInlineAssemblySource)
 
@@ -9394,11 +9441,17 @@ def checkedModularCheckedArithmeticSemanticsMatch :
   let uncheckedInternalOverflow ←
     checkedUncheckedInternalCallCalleeOverflowReverts
   let uncheckedInternalArg ← checkedUncheckedInternalCallArgumentWraps
+  let narrowLiteral ← checkedNarrowLiteralArgumentMatches
+  let shiftWideCount ← checkedShiftWideCountMatches
+  let bytesBitwise ← checkedBytesBitwiseMatches
+  let compoundShift ← checkedCompoundShiftMatches
   Except.ok
     (checkedModularArithmeticContractAccepted &&
       checkedModularArithmeticInvalidSourcesRejected &&
       checkedArithmeticContractAccepted &&
       checkedUncheckedArithmeticInvalidSourcesRejected &&
+      checkedArithmeticSourceDisciplineAccepted &&
+      checkedArithmeticSourceDisciplineRejected &&
       modular && addmodZero && mulmodZero &&
       signedOps && signedAbi && signedSar && signedSarAssign &&
       addOverflow && uncheckedAdd && subUnderflow && uncheckedSub &&
@@ -9406,7 +9459,8 @@ def checkedModularCheckedArithmeticSemanticsMatch :
       exponent && exponentOverflow && uncheckedExponent &&
       divZero && uncheckedDivZero && uncheckedModZero &&
       signedDivOverflow && uncheckedSignedDiv &&
-      uncheckedInternalOverflow && uncheckedInternalArg)
+      uncheckedInternalOverflow && uncheckedInternalArg &&
+      narrowLiteral && shiftWideCount && bytesBitwise && compoundShift)
 
 def checkedInlineAssemblyBoundarySemanticsMatch :
     Except TypeError Bool := do
