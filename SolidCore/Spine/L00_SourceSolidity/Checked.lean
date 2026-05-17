@@ -11937,6 +11937,58 @@ def checkedFreeEventErrorShadowUnitsAccepted : Bool :=
       (CheckedInput.program
         Executable.Examples.inheritedEventErrorShadowUnit)
 
+def checkedEventErrorDeclarationDisciplineAccepted : Bool :=
+  Result.isOk (TypecheckedInput.checkedSourceUnit emitPingSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit freeEventEmitSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit overloadedEventSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit freeAndContractSameEventSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        freeAndContractEventNameShadowAcceptedSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit externalFunctionEventParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit threeIndexedEventSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit anonymousFourIndexedEventSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit revertBoomSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit freeAndContractSameErrorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        freeAndContractErrorNameShadowAcceptedSource)
+
+def checkedEventErrorDeclarationDisciplineRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit reservedErrorSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit reservedPanicSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateErrorParamNameSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateEventSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateFreeEventSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateEventParamNameSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        freeAndContractEventNameShadowRejectsFreeMatchSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        freeEventFunctionNameCollisionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit mappingEventParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit freeMappingEventParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit internalFunctionEventParamSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit fourIndexedEventSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit unknownEventSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        freeAndContractErrorNameShadowRejectsFreeMatchSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit unknownErrorSource)
+
 def checkedInheritedNamespaceShadowingAccepted : Bool :=
   Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -13150,6 +13202,8 @@ def checkedEventErrorRollbackSemanticsMatch :
   Except.ok
     (checkedEventErrorAbiRollbackContractsAccepted &&
       checkedFreeEventErrorShadowUnitsAccepted &&
+      checkedEventErrorDeclarationDisciplineAccepted &&
+      checkedEventErrorDeclarationDisciplineRejected &&
       requireAbi && eventTopics && eventData && anonymousTopics &&
       anonymousData && eventRollbackDrop && eventRollbackPreserve &&
       storageRollbackDrop && storageRollbackPreserve &&
