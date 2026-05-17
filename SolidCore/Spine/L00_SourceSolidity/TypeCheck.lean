@@ -5280,10 +5280,6 @@ def checkExpr (env : CheckEnv) :
       | L00_SourceSolidity.UnaryOp.delete =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner
-          match checked.ty with
-          | L00_SourceSolidity.Ty.mapping _ _ =>
-              Except.error (TypeError.unsupported "delete mapping")
-          | _ => Except.ok ()
           match Expr.directIdentName? inner with
           | some name =>
               require (!env.isLocalStorageRef name)
@@ -12553,7 +12549,7 @@ def deleteMappingVariableFunction : L00_SourceSolidity.FunctionDecl :=
 def deleteMappingVariableSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
-          { name := "BadDeleteMappingVariable"
+          { name := "DeleteMappingVariable"
             items :=
               [ L00_SourceSolidity.ContractItem.stateVar
                   { name := "m"
@@ -12562,8 +12558,8 @@ def deleteMappingVariableSource : L00_SourceSolidity.SourceUnit :=
               , L00_SourceSolidity.ContractItem.function
                   deleteMappingVariableFunction ] } ] }
 
-def deleteMappingVariableRejected : Bool :=
-  Result.isError (SourceUnit.check deleteMappingVariableSource)
+def deleteMappingVariableAccepted : Bool :=
+  sourceUnitAccepted? deleteMappingVariableSource
 
 def badMappingIndexFunction : L00_SourceSolidity.FunctionDecl :=
   { mappingReadFunction with

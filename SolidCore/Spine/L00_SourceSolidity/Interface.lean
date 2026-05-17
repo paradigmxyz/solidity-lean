@@ -29081,17 +29081,6 @@ def storageDeleteContract : ContractDecl :=
                       (Expr.ident "m")
                       (Expr.literal (Literal.number "4"))))) } ] }
 
-def storageDeleteCheckedContract : ContractDecl :=
-  { storageDeleteContract with
-    name := "StorageDeleteChecked"
-    items :=
-      storageDeleteContract.items.filter
-        (fun item =>
-          match item with
-          | ContractItem.function fn =>
-              fn.name != some "deleteMapping"
-          | _ => true) }
-
 def storageDeleteWrittenState : Option CoreState := do
   let result ←
     ContractDecl.call? 48 storageDeleteContract

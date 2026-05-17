@@ -6264,13 +6264,13 @@ def checkedStorageArrayDeleteCopyContractsAccepted : Bool :=
         Executable.Examples.dynamicStorageArrayContract) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
-        Executable.Examples.storageDeleteCheckedContract) &&
+        Executable.Examples.storageDeleteContract) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.storageArrayCopyContract)
 
-def checkedStorageDeleteWholeMappingRejected : Bool :=
-  Result.isError
+def checkedStorageDeleteWholeMappingAccepted : Bool :=
+  Result.isOk
     (TypecheckedInput.checkedSourceUnit
       Executable.Examples.storageDeleteContract)
 
@@ -6309,56 +6309,70 @@ def checkedDynamicStorageArrayPushAssignMatches :
 def checkedStorageDeleteWrittenState :
     Except TypeError CoreState :=
   checkedOwnCallState 48
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "set" SolidCore.Solidity.Source.State.empty []
 
 def checkedStorageDeleteDynamicState :
     Except TypeError CoreState := do
   let state ← checkedStorageDeleteWrittenState
   checkedOwnCallState 24
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "deleteDynamic" state []
 
 def checkedStorageDeleteDynamicLengthZero :
     Except TypeError Bool := do
   let state ← checkedStorageDeleteDynamicState
   checkedOwnCallWordMatches 16
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "length" state [] 0
 
 def checkedStorageDeleteDynamicIndexReverts :
     Except TypeError Bool := do
   let state ← checkedStorageDeleteDynamicState
   checkedOwnCallPanicMatches 16
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "readItem" state [] 0x32
 
 def checkedStorageDeleteFixedState :
     Except TypeError CoreState := do
   let state ← checkedStorageDeleteWrittenState
   checkedOwnCallState 24
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "deleteFixed" state []
 
 def checkedStorageDeleteFixedClearsElement :
     Except TypeError Bool := do
   let state ← checkedStorageDeleteFixedState
   checkedOwnCallWordMatches 16
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "readFixed" state [] 0
+
+def checkedStorageDeleteMappingState :
+    Except TypeError CoreState := do
+  let state ← checkedStorageDeleteWrittenState
+  checkedOwnCallState 24
+    Executable.Examples.storageDeleteContract
+    "deleteMapping" state []
+
+def checkedStorageDeleteMappingKeepsEntry :
+    Except TypeError Bool := do
+  let state ← checkedStorageDeleteMappingState
+  checkedOwnCallWordMatches 16
+    Executable.Examples.storageDeleteContract
+    "readMap" state [] 9
 
 def checkedStorageDeleteMappingKeyState :
     Except TypeError CoreState := do
   let state ← checkedStorageDeleteWrittenState
   checkedOwnCallState 24
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "deleteMappingKey" state []
 
 def checkedStorageDeleteMappingKeyClearsEntry :
     Except TypeError Bool := do
   let state ← checkedStorageDeleteMappingKeyState
   checkedOwnCallWordMatches 16
-    Executable.Examples.storageDeleteCheckedContract
+    Executable.Examples.storageDeleteContract
     "readMap" state [] 0
 
 def checkedStorageArrayCopyInput : List CoreValue :=
@@ -6452,7 +6466,8 @@ def checkedStorageArrayMutationSemanticsMatch :
   let deleteDynamicLength ← checkedStorageDeleteDynamicLengthZero
   let deleteDynamicIndex ← checkedStorageDeleteDynamicIndexReverts
   let deleteFixed ← checkedStorageDeleteFixedClearsElement
-  let deleteMapping ← checkedStorageDeleteMappingKeyClearsEntry
+  let deleteMappingNoop ← checkedStorageDeleteMappingKeepsEntry
+  let deleteMappingKey ← checkedStorageDeleteMappingKeyClearsEntry
   let copyLength ← checkedStorageArrayCopyLengthMatches
   let copyDynamic ← checkedStorageArrayCopyDynamicElementMatches
   let copyFixed ← checkedStorageArrayCopyFixedElementMatches
@@ -6460,7 +6475,7 @@ def checkedStorageArrayMutationSemanticsMatch :
     (checkedStructArrayStorageContractsAccepted &&
       checkedIndexedDynamicArrayStorageContractsAccepted &&
       checkedStorageArrayDeleteCopyContractsAccepted &&
-      checkedStorageDeleteWholeMappingRejected &&
+      checkedStorageDeleteWholeMappingAccepted &&
       checkedStorageArrayCopyRejectsWrongFixedSize &&
       fixedStructAssign && dynamicStructAssign &&
       fixedStructIndexAssign && dynamicStructIndexAssign &&
@@ -6474,7 +6489,7 @@ def checkedStorageArrayMutationSemanticsMatch :
       dynamicArrayLength && dynamicArrayGetter &&
       dynamicArrayPopEmpty && dynamicArrayPushAssign &&
       deleteDynamicLength && deleteDynamicIndex &&
-      deleteFixed && deleteMapping &&
+      deleteFixed && deleteMappingNoop && deleteMappingKey &&
       copyLength && copyDynamic && copyFixed)
 
 def checkedStorageReferenceContractsAccepted : Bool :=
@@ -12795,14 +12810,14 @@ def checkedMappingDisciplineAccepted : Bool :=
     Result.isOk
       (TypecheckedInput.checkedSourceUnit deleteMappingValueSource) &&
     Result.isOk
+      (TypecheckedInput.checkedSourceUnit deleteMappingVariableSource) &&
+    Result.isOk
       (TypecheckedInput.checkedSourceUnit userValueMappingKeySource) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit signedMappingKeySource)
 
 def checkedMappingDisciplineRejected : Bool :=
   Result.isError
-      (TypecheckedInput.checkedSourceUnit deleteMappingVariableSource) &&
-    Result.isError
       (TypecheckedInput.checkedSourceUnit badMappingIndexSource)
 
 def checkedCallOptionDisciplineRejected : Bool :=
