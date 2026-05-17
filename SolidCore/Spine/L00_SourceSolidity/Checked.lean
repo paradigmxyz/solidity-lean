@@ -11351,6 +11351,19 @@ def checkedBadErc7201StorageLayoutRejected : Bool :=
 def checkedBadKeccakStorageLayoutRejected : Bool :=
   Result.isError (CheckedInput.program badKeccakStorageLayoutSource)
 
+def checkedStorageLayoutSourceDisciplineAccepted : Bool :=
+  Result.isOk (CheckedInput.program storageLayoutAcceptedSource) &&
+    Result.isOk (CheckedInput.program constantStorageLayoutSource) &&
+    Result.isOk (CheckedInput.program erc7201StorageLayoutSource)
+
+def checkedStorageLayoutSourceDisciplineRejected : Bool :=
+  Result.isError (CheckedInput.program unknownConstantStorageLayoutSource) &&
+    Result.isError (CheckedInput.program abstractStorageLayoutSource) &&
+    Result.isError (CheckedInput.program mutableStorageLayoutBaseSource) &&
+    checkedInheritedStorageLayoutRejected &&
+    checkedBadErc7201StorageLayoutRejected &&
+    checkedBadKeccakStorageLayoutRejected
+
 def checkedPayableConstructorValueMatches :
     Except TypeError Bool := do
   let result ←
@@ -11723,9 +11736,9 @@ def checkedInheritanceConstructorSemanticsMatch :
       checkedUnknownBaseRejected && checkedMissingOverrideRejected &&
       checkedNonvirtualOverrideRejected && checkedBadSuperCallRejected &&
       checkedSuperCallOptionsRejected && checkedBadExplicitBaseCallRejected &&
-      checkedC3BadRejected && checkedInheritedStorageLayoutRejected &&
-      checkedBadErc7201StorageLayoutRejected &&
-      checkedBadKeccakStorageLayoutRejected &&
+      checkedC3BadRejected &&
+      checkedStorageLayoutSourceDisciplineAccepted &&
+      checkedStorageLayoutSourceDisciplineRejected &&
       checkedImmutableRuntimeWriteRejectedByTypechecker &&
       checkedInheritedBaseConstructorDuplicateNamedArgRejected &&
       checkedBaseConstructorObligationSourcesAccepted &&
