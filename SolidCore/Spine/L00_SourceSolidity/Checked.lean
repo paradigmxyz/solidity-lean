@@ -2552,6 +2552,13 @@ def checkedUdvtRoundtripMatches : Except TypeError Bool :=
     "UDVT" "roundtrip" SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 77] 77
 
+def checkedUserValueWrapUnwrapMatches : Except TypeError Bool :=
+  checkedCallWordMatches 16 userValueWrapUnwrapSource
+    "UserValueWrap" "unwrap" SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedBadUserValueUnwrapRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit badUserValueUnwrapSource)
+
 def checkedUdvtAbiSetState : Except TypeError CoreState := do
   let calldata ←
     CheckedInput.functionCalldata
@@ -2962,6 +2969,7 @@ def checkedSourceDataTypeSemanticsMatch :
   let udvtRead ← checkedUdvtReadMatches
   let udvtGetter ← checkedUdvtPublicGetterMatches
   let udvtRoundtrip ← checkedUdvtRoundtripMatches
+  let udvtWrapUnwrap ← checkedUserValueWrapUnwrapMatches
   let udvtAbiGetter ← checkedUdvtAbiGetterMatches
   let udvtAbiEcho ← checkedUdvtAbiEchoMatches
   let udvtEvent ← checkedUdvtEventTopicMatches
@@ -2995,8 +3003,9 @@ def checkedSourceDataTypeSemanticsMatch :
   Except.ok
     (checkedDataTypeSourceUnitsAccepted &&
       checkedStorageStructSourceUnitAccepted &&
-      udvtRead && udvtGetter && udvtRoundtrip && udvtAbiGetter &&
-      udvtAbiEcho && udvtEvent && udvtError &&
+      checkedBadUserValueUnwrapRejected &&
+      udvtRead && udvtGetter && udvtRoundtrip && udvtWrapUnwrap &&
+      udvtAbiGetter && udvtAbiEcho && udvtEvent && udvtError &&
       enumGetter && enumRead && enumMinMax && enumInRange &&
       enumOutOfRange && enumAbiEcho && enumEvent && enumError &&
       structConstructor && structAssign && structAbiEcho &&
@@ -8971,6 +8980,15 @@ def checkedPayableTypedUint160ZeroRejected : Bool :=
             [Arg.positional
               (Expr.literal (Literal.number "0"))]))))
 
+def checkedPayableContractConversionMatches : Except TypeError Bool :=
+  checkedCallWordMatches 16 payableContractConversionSource
+    "PayableContractConversion" "asPayable"
+    SolidCore.Solidity.Source.State.empty [] 0
+
+def checkedNonpayableContractConversionRejected : Bool :=
+  Result.isError
+    (TypecheckedInput.checkedSourceUnit nonpayableContractConversionSource)
+
 def checkedLiteralInvalidSourcesRejected : Bool :=
   Result.isError
       (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
@@ -8991,7 +9009,8 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
     checkedRuntimeIntegerCastRejected &&
     checkedFixedBytesRuntimeConversionRejected &&
     checkedAddressConversionRejected &&
-    checkedPayableTypedUint160ZeroRejected
+    checkedPayableTypedUint160ZeroRejected &&
+    checkedNonpayableContractConversionRejected
 
 def checkedLiteralConversionSemanticsMatch :
     Except TypeError Bool := do
@@ -9010,6 +9029,7 @@ def checkedLiteralConversionSemanticsMatch :
   let fixedBytesRuntime ← checkedFixedBytesRuntimeConversionsMatch
   let unicodeLiteral ← checkedUnicodeStringLiteralMatchesUtf8
   let addressLiteral ← checkedAddressLiteralConversionMatchesExpected
+  let payableContract ← checkedPayableContractConversionMatches
   let hexString ← checkedHexStringLiteralMatchesExpected
   let hexStringAbi ← checkedHexStringAbiEncodeMatchesExpected
   Except.ok
@@ -9019,7 +9039,7 @@ def checkedLiteralConversionSemanticsMatch :
       numericExpression && unitNumber && typedNumeric && typedNumericVar &&
       runtimeCasts && fixedBytesLiteral && fixedBytesMembers &&
       fixedBytesOob && fixedBytesRuntime && unicodeLiteral &&
-      addressLiteral && hexString && hexStringAbi)
+      addressLiteral && payableContract && hexString && hexStringAbi)
 
 def checkedArithmeticContractAccepted : Bool :=
   Result.isOk
