@@ -4113,6 +4113,22 @@ def checkedLoopBreakContinueMatches : Except TypeError Bool := do
             (runContinueState.loadSlot 0) 5)
   | _, _ => Except.ok false
 
+def checkedLoopBreakContinueSourceMatches : Except TypeError Bool := do
+  let runBreak ←
+    checkedCallWordMatches 128 loopBreakContinueSource
+      "LoopBreakContinue" "runBreak"
+      SolidCore.Solidity.Source.State.empty [] 3
+  let runContinue ←
+    checkedCallWordMatches 128 loopBreakContinueSource
+      "LoopBreakContinue" "runContinue"
+      SolidCore.Solidity.Source.State.empty [] 9
+  Except.ok (runBreak && runContinue)
+
+def checkedControlFlowSourceDisciplineRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit badIfSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit breakOutsideLoopSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit continueOutsideLoopSource)
+
 def checkedNamedReturnMatches : Except TypeError Bool := do
   let stop ←
     CheckedInput.ownCall 32
@@ -4160,17 +4176,19 @@ def checkedControlFlowStatementSemanticsMatch :
   let whileCondition ← checkedInternalWhileConditionCallMatches
   let forPost ← checkedInternalForPostCallMatches
   let loopBreakContinue ← checkedLoopBreakContinueMatches
+  let loopBreakContinueSource ← checkedLoopBreakContinueSourceMatches
   let namedReturn ← checkedNamedReturnMatches
   Except.ok
     (checkedInternalReturnEvaluationContractsAccepted &&
       checkedControlFlowContractsAccepted &&
+      checkedControlFlowSourceDisciplineRejected &&
       checkedPrimitiveStatementContractAccepted &&
       internalReturnSubexpr && internalReturnRight &&
       internalReturnShortCircuit &&
       ternarySkip && doWhile && deleteLocal && increment &&
       expressionFailure && assertFailure && requireString && revertString &&
       ternaryBranch && ifCondition && whileCondition && forPost &&
-      loopBreakContinue && namedReturn)
+      loopBreakContinue && loopBreakContinueSource && namedReturn)
 
 def checkedOwnCallWordAndSlotMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
