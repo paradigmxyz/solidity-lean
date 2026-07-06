@@ -67,7 +67,6 @@ SENTINEL_CASES=(
   custom-error
   abi-struct-tuples
   openzeppelin-erc20
-  solmate-erc20
   modifier-order
 )
 
@@ -81,13 +80,18 @@ if [[ "${SMOKE_WITH_FORGE:-0}" == "1" ]]; then
   FORGE_ARGS=()
 fi
 
-echo "smoke_replay: $(( ${#EXTERNAL_CASES[@]} + ${#SENTINEL_CASES[@]} )) curated cases, forge=$([[ ${#FORGE_ARGS[@]} -eq 0 ]] && echo on || echo skipped)"
+# Run cases concurrently (the machine has many cores; each case is an independent
+# solc + lean subprocess). Override with SMOKE_JOBS.
+JOBS="${SMOKE_JOBS:-10}"
+
+echo "smoke_replay: $(( ${#EXTERNAL_CASES[@]} + ${#SENTINEL_CASES[@]} )) curated cases, jobs=$JOBS, forge=$([[ ${#FORGE_ARGS[@]} -eq 0 ]] && echo on || echo skipped)"
 
 python3 "$ROOT/scripts/run_forge_interpreter_harness.py" \
   --solc "$SOLC_BIN" \
   --lake "$LAKE_BIN" \
   --forge "$FORGE_BIN" \
   --timeout 900 \
+  --jobs "$JOBS" \
   "${FORGE_ARGS[@]}" \
   "${ONLY_ARGS[@]}" \
   "$@"

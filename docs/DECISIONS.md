@@ -452,3 +452,26 @@ evaluator/statement/storage/reference/ABI/event sentinels, excluding the
 minute-plus heavy contracts (erc721-royalty, erc1155-supply variants, checkpoints,
 uniswap-v3-math, frontend-frontier) which run only in the full replay.
 `SMOKE_WITH_FORGE=1` re-enables Forge for the subset.
+
+## 2026-07-06 — Replay parallelism (`--jobs`), ~2.8× faster dev loop
+
+Diagnosed replay slowness by measurement: per case ≈ 0.07s solc-AST-import +
+~4s fixed `SolidCore` olean load + variable `#eval` (heavy OZ contracts run a
+minute+ in the pure-Lean interpreter). The harness ran cases **sequentially on 1
+of 14 cores**. Sequential smoke (28 cases, Lean-only) = **770s**.
+
+Added an opt-in `--jobs N` flag to `scripts/run_forge_interpreter_harness.py`
+(default `1` = byte-identical to the original sequential loop, so the official
+full-replay gate command is unchanged). Cases run in a `ThreadPoolExecutor`;
+per-case stdout is captured via a **thread-routing stdout** (a proxy that sends
+writes to the current thread's buffer, else the real stdout) and replayed in
+manifest order. (First attempt used `contextlib.redirect_stdout`, which swaps the
+process-global `sys.stdout` and corrupted capture across threads — only 1 of 28
+case lines survived; the thread-local router fixes it. Verified `--jobs 5`
+emits all cases in manifest order with the correct pass summary.)
+
+`smoke_replay.sh` now passes `--jobs 10` (override `SMOKE_JOBS`): smoke ≈ **272s**
+(2.8× — the floor is the single longest heavy case, not the 10× core count).
+Dropped `solmate-erc20` from the smoke set (redundant with `openzeppelin-erc20`).
+The `--jobs` flag also speeds the full replay (~20 min → a few min) when opted in;
+the commit gate keeps the default sequential command.

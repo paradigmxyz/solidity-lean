@@ -18,11 +18,13 @@ import argparse
 import json
 import os
 from pathlib import Path
+import io
 import re
 import shutil
 import signal
 import subprocess
 import sys
+import threading
 import tempfile
 from typing import Any
 
@@ -484,6 +486,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--solc", help="solc executable for Forge")
     parser.add_argument("--lake", help="lake executable")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--jobs", type=int, default=1,
+                        help="run cases concurrently (default 1 = sequential)")
     parser.add_argument("--keep-tmp", action="store_true")
     return parser
 
@@ -518,39 +522,60 @@ def main(argv: list[str] | None = None) -> int:
     failures = []
     ran = 0
 
-    try:
-        for case in manifest["cases"]:
-            if not isinstance(case, dict) or not isinstance(case.get("name"), str):
-                failures.append(
-                    (
-                        "<invalid>",
-                        outdir / "invalid_case",
-                        "invalid_case",
-                        "invalid_case",
-                        "invalid_case",
-                    )
-                )
-                continue
+    # Thread-safe stdout routing: each worker thread stashes a per-case buffer in
+    # thread-local state; the router sends writes to that buffer (or the real
+    # stdout when none is set). This avoids `redirect_stdout`, which swaps the
+    # process-global stdout and corrupts capture across concurrent threads.
+    class _ThreadRoutingStdout:
+        def __init__(self, real):
+            self._real = real
+            self._local = threading.local()
 
-            name = case["name"]
-            if selected and name not in selected:
-                continue
+        def set_buffer(self, buf):
+            self._local.buf = buf
 
-            ran += 1
+        def clear_buffer(self):
+            self._local.buf = None
+
+        def write(self, s):
+            buf = getattr(self._local, "buf", None)
+            (buf if buf is not None else self._real).write(s)
+
+        def flush(self):
+            buf = getattr(self._local, "buf", None)
+            (buf if buf is not None else self._real).flush()
+
+    router = _ThreadRoutingStdout(sys.stdout)
+
+    def run_case(case):
+        """Run one case, capturing its stdout (via the thread-routing stdout) so
+        parallel workers don't interleave. Returns
+        (name, ran_delta, output, failure_tuple_or_None)."""
+        if not isinstance(case, dict) or not isinstance(case.get("name"), str):
+            return (
+                "<invalid>",
+                0,
+                "",
+                ("<invalid>", outdir / "invalid_case",
+                 "invalid_case", "invalid_case", "invalid_case"),
+            )
+
+        name = case["name"]
+        if selected and name not in selected:
+            return (name, 0, "", None)
+
+        buf = io.StringIO()
+        router.set_buffer(buf)
+        try:
             case_tmp = outdir / re.sub("[^A-Za-z0-9_.-]+", "_", name)
             case_tmp.mkdir(parents=True, exist_ok=True)
             case_timeout = case.get("timeout", args.timeout)
             if not isinstance(case_timeout, int) or case_timeout <= 0:
-                failures.append(
-                    (
-                        name,
-                        case_tmp,
-                        "invalid_timeout",
-                        "invalid_timeout",
-                        "invalid_timeout",
-                    )
+                return (
+                    name, 1, buf.getvalue(),
+                    (name, case_tmp, "invalid_timeout",
+                     "invalid_timeout", "invalid_timeout"),
                 )
-                continue
 
             variables = {
                 "repo": str(repo),
@@ -580,10 +605,35 @@ def main(argv: list[str] | None = None) -> int:
                 f"case_result={name} solc_rejects={solc_status} forge="
                 f"{forge_status} lean={lean_status}"
             )
+        finally:
+            router.clear_buffer()
 
-            if solc_ok and forge_ok and lean_ok:
-                continue
-            failures.append((name, case_tmp, solc_status, forge_status, lean_status))
+        failure = (
+            None if (solc_ok and forge_ok and lean_ok)
+            else (name, case_tmp, solc_status, forge_status, lean_status)
+        )
+        return (name, 1, buf.getvalue(), failure)
+
+    saved_stdout = sys.stdout
+    sys.stdout = router
+    try:
+        cases = manifest["cases"]
+        jobs = max(1, args.jobs)
+        if jobs == 1:
+            results = [run_case(case) for case in cases]
+        else:
+            # Preserve manifest order in the output while running concurrently.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                results = list(pool.map(run_case, cases))
+
+        sys.stdout = saved_stdout
+        for _name, ran_delta, output, failure in results:
+            ran += ran_delta
+            if output:
+                sys.stdout.write(output)
+            if failure is not None:
+                failures.append(failure)
 
         if failures:
             print("forge_interpreter_compare=fail")
@@ -608,6 +658,7 @@ def main(argv: list[str] | None = None) -> int:
             print("logs_kept=no")
         return 0
     finally:
+        sys.stdout = saved_stdout
         if failures or keep_tmp:
             if failures and not keep_tmp:
                 print(f"kept_tmp={outdir}", file=sys.stderr)
