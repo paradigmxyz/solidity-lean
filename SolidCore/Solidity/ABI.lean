@@ -1,4 +1,4 @@
-import SharedSemantics.Word
+import SolidCore.Solidity.Shared.Word
 import SolidCore.Solidity.Interpreter
 import SolidCore.Solidity.Keccak
 
@@ -13,7 +13,7 @@ def selectorBytes : Nat := 4
 def wordBytes : Nat := 32
 
 def normalizeBytes (bytes : Bytes) : Bytes :=
-  SharedSemantics.External.normalizeBytes bytes
+  SolidCore.Solidity.Shared.External.normalizeBytes bytes
 
 def readBytes? (bytes : Bytes) (offset size : Nat) : Option Bytes :=
   let rest := bytes.drop offset
@@ -23,7 +23,7 @@ def readBytes? (bytes : Bytes) (offset size : Nat) : Option Bytes :=
     none
 
 def bytesToWordBE (bytes : Bytes) : Word :=
-  SharedSemantics.norm
+  SolidCore.Solidity.Shared.norm
     (bytes.foldl (fun acc byte => acc * 256 + normByte byte) 0)
 
 def wordToBytesBE : Nat -> Word -> Bytes
@@ -32,30 +32,30 @@ def wordToBytesBE : Nat -> Word -> Bytes
       wordToBytesBE n (value / 256) ++ [normByte value]
 
 def encodeWord (value : Word) : Bytes :=
-  wordToBytesBE wordBytes (SharedSemantics.norm value)
+  wordToBytesBE wordBytes (SolidCore.Solidity.Shared.norm value)
 
 def addressFits (value : Word) : Bool :=
-  SharedSemantics.norm value < 2 ^ 160
+  SolidCore.Solidity.Shared.norm value < 2 ^ 160
 
 def selectorFits (value : Word) : Bool :=
-  SharedSemantics.norm value < 2 ^ (8 * selectorBytes)
+  SolidCore.Solidity.Shared.norm value < 2 ^ (8 * selectorBytes)
 
 def fixedBytesFits (size : Nat) (value : Word) : Bool :=
   0 < size && size <= wordBytes &&
-    SharedSemantics.norm value < 2 ^ (8 * size)
+    SolidCore.Solidity.Shared.norm value < 2 ^ (8 * size)
 
 def allZeroBytes : Bytes -> Bool
   | [] => true
   | byte :: rest => normByte byte == 0 && allZeroBytes rest
 
 def encodeSelector (selector : Word) : Bytes :=
-  wordToBytesBE selectorBytes (SharedSemantics.norm selector)
+  wordToBytesBE selectorBytes (SolidCore.Solidity.Shared.norm selector)
 
 def structuralSelectorFromBytes (bytes : Bytes) : Word :=
   bytesToWordBE ((normalizeBytes bytes).take selectorBytes)
 
 def selectorFromSignature (signature : String) : Word :=
-  SharedSemantics.norm (Keccak.selector4 signature)
+  SolidCore.Solidity.Shared.norm (Keccak.selector4 signature)
 
 def structuralSelectorFromSignature (signature : String) : Word :=
   selectorFromSignature signature
@@ -698,9 +698,9 @@ def Contract.callContextAtWithBase (contract : Contract)
     checked := true
     construction := false
     calldata := normalizeBytes calldata
-    self := SharedSemantics.norm self
-    sender := SharedSemantics.norm sender
-    value := SharedSemantics.norm value }
+    self := SolidCore.Solidity.Shared.norm self
+    sender := SolidCore.Solidity.Shared.norm sender
+    value := SolidCore.Solidity.Shared.norm value }
 
 def Contract.callContextAt (contract : Contract)
     (self sender value : Word) (calldata : Bytes) : Context :=
@@ -993,9 +993,9 @@ def Contract.observeCalldataEntryInput (kind : AbiEntryKind) (fuel : Nat)
   let executionState := (kind.executionState state).observe self
   { kind := kind
     fuel := fuel
-    self := SharedSemantics.norm self
-    sender := SharedSemantics.norm sender
-    value := SharedSemantics.norm value
+    self := SolidCore.Solidity.Shared.norm self
+    sender := SolidCore.Solidity.Shared.norm sender
+    value := SolidCore.Solidity.Shared.norm value
     calldata := normalizeBytes calldata
     dispatch := Contract.observeCalldataDispatch contract calldata
     baseContext := base.observe

@@ -2687,7 +2687,7 @@ def checkedPackedTopLevelStorageGetterMatches :
           SolidCore.Solidity.Source.wordEq b 0x3456 &&
           SolidCore.Solidity.Source.wordEq c 1 &&
           SolidCore.Solidity.Source.wordEq s
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq d 9)
   | _, _, _, _, _ => Except.ok false
 
@@ -2814,7 +2814,7 @@ def checkedPackedStructAndArrayStorageReadMatches :
           SolidCore.Solidity.Source.wordEq b 0x3456 &&
           SolidCore.Solidity.Source.wordEq c 1 &&
           SolidCore.Solidity.Source.wordEq s
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq fixed 0xcc)
   | _, _, _, _, _ => Except.ok false
 
@@ -4036,12 +4036,12 @@ def checkedInternalUnaryLocalCallMatches :
     checkedOwnCallWordAndSlotMatches 64
       Executable.Examples.internalUnaryLocalCallContract
       "runBitNot" SolidCore.Solidity.Source.State.empty []
-      (SharedSemantics.notWord 0) 11
+      (SolidCore.Solidity.Shared.notWord 0) 11
   let runNeg ←
     checkedOwnCallIntAndSlotMatches 64
       Executable.Examples.internalUnaryLocalCallContract
       "runNeg" SolidCore.Solidity.Source.State.empty []
-      (SharedSemantics.signedToWord 5) 13
+      (SolidCore.Solidity.Shared.signedToWord 5) 13
   Except.ok
     (runReturnNot && runVarNot && runAssignNot && runBitNot && runNeg)
 
@@ -8919,7 +8919,7 @@ def checkedTypeInfoLimitsMatch : Except TypeError Bool := do
         (SolidCore.Solidity.Source.wordEq min256 0 &&
           SolidCore.Solidity.Source.wordEq max8 255 &&
           SolidCore.Solidity.Source.wordEq max256
-            (SharedSemantics.wordModulus - 1))
+            (SolidCore.Solidity.Shared.wordModulus - 1))
   | _ => Except.ok false
 
 def checkedSignedTypeInfoLimitsMatch : Except TypeError Bool := do
@@ -8935,9 +8935,9 @@ def checkedSignedTypeInfoLimitsMatch : Except TypeError Bool := do
       , SolidCore.Solidity.Source.Value.int max256 ] =>
       Except.ok
         (SolidCore.Solidity.Source.wordEq min256
-            SharedSemantics.halfWordModulus &&
+            SolidCore.Solidity.Shared.halfWordModulus &&
           SolidCore.Solidity.Source.wordEq max256
-            (SharedSemantics.halfWordModulus - 1))
+            (SolidCore.Solidity.Shared.halfWordModulus - 1))
   | _ => Except.ok false
 
 def checkedContractTypeNameMatches : Except TypeError Bool := do
@@ -9155,7 +9155,7 @@ def checkedSelfdestructRecordsAndStopsMatches :
   | SolidCore.Solidity.Source.CallResult.returned state [] =>
       let observation := state.observe 0xcafe
       let recordMatches :=
-        fun (record : SharedSemantics.Account.SelfdestructRecord) =>
+        fun (record : SolidCore.Solidity.Shared.Account.SelfdestructRecord) =>
           SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
             SolidCore.Solidity.Source.wordEq
               record.recipient 0xbeef &&
@@ -9553,10 +9553,10 @@ def checkedTypedNumericLiteralConversionMatchesExpected :
       , SolidCore.Solidity.Source.Value.word positiveMax
       , SolidCore.Solidity.Source.Value.int foldedInt ] =>
       Except.ok
-        (SharedSemantics.signedValue negativeSmall = -5 &&
-          SharedSemantics.signedValue negativeMin = -128 &&
+        (SolidCore.Solidity.Shared.signedValue negativeSmall = -5 &&
+          SolidCore.Solidity.Shared.signedValue negativeMin = -128 &&
           SolidCore.Solidity.Source.wordEq positiveMax 255 &&
-          SharedSemantics.signedValue foldedInt = 4)
+          SolidCore.Solidity.Shared.signedValue foldedInt = 4)
   | _ => Except.ok false
 
 def checkedTypedNumericLiteralVarDeclMatchesExpected :
@@ -9571,7 +9571,7 @@ def checkedTypedNumericLiteralVarDeclMatchesExpected :
       [ SolidCore.Solidity.Source.Value.int negative
       , SolidCore.Solidity.Source.Value.word folded ] =>
       Except.ok
-        (SharedSemantics.signedValue negative = -5 &&
+        (SolidCore.Solidity.Shared.signedValue negative = -5 &&
           SolidCore.Solidity.Source.wordEq folded 4)
   | _ => Except.ok false
 
@@ -9583,7 +9583,7 @@ def checkedRuntimeIntegerCastsMatch : Except TypeError Bool := do
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0x123456ff
       , SolidCore.Solidity.Source.Value.int
-          (SharedSemantics.signedToWord (-3)) ]
+          (SolidCore.Solidity.Shared.signedToWord (-3)) ]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [ SolidCore.Solidity.Source.Value.word low8
@@ -9596,9 +9596,9 @@ def checkedRuntimeIntegerCastsMatch : Except TypeError Bool := do
       Except.ok
         (SolidCore.Solidity.Source.wordEq low8 0xff &&
           SolidCore.Solidity.Source.wordEq low16 0x56ff &&
-          SharedSemantics.signedValue signedLow = -1 &&
+          SolidCore.Solidity.Shared.signedValue signedLow = -1 &&
           SolidCore.Solidity.Source.wordEq signedAsUint
-            (SharedSemantics.signedToWord (-3)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-3)) &&
           SolidCore.Solidity.Source.wordEq fromBytes 0xabcd &&
           SolidCore.Solidity.Source.wordEq fromAddress 0xbeef &&
           SolidCore.Solidity.Source.wordEq roundTripAddress 0x123456ff)
@@ -10086,7 +10086,7 @@ def checkedSignedIntArithmeticMatches : Except TypeError Bool := do
       (SolidCore.Solidity.Source.CallTarget.name "signedOps")
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.int
-          (SharedSemantics.signedToWord (-5))
+          (SolidCore.Solidity.Shared.signedToWord (-5))
       , SolidCore.Solidity.Source.Value.int 2 ]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -10095,9 +10095,9 @@ def checkedSignedIntArithmeticMatches : Except TypeError Bool := do
       , SolidCore.Solidity.Source.Value.word less ] =>
       Except.ok
         (SolidCore.Solidity.Source.wordEq quotient
-            (SharedSemantics.signedToWord (-2)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-2)) &&
           SolidCore.Solidity.Source.wordEq remainder
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq less 1)
   | _ => Except.ok false
 
@@ -10106,7 +10106,7 @@ def checkedSignedIntAbiOutputMatchesExpected : Except TypeError Bool :=
     Executable.Examples.checkedArithmeticContract
     "signedOps"
     [ SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-5))
+        (SolidCore.Solidity.Shared.signedToWord (-5))
     , SolidCore.Solidity.Source.Value.int 2 ]
     Executable.Examples.signedIntAbiExpectedOutput
 
@@ -10115,18 +10115,18 @@ def checkedSignedSarMatches : Except TypeError Bool :=
     Executable.Examples.checkedArithmeticContract
     "signedSar" SolidCore.Solidity.Source.State.empty
     [ SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-5))
+        (SolidCore.Solidity.Shared.signedToWord (-5))
     , SolidCore.Solidity.Source.Value.word 1 ]
-    (SharedSemantics.signedToWord (-3))
+    (SolidCore.Solidity.Shared.signedToWord (-3))
 
 def checkedSignedSarAssignMatches : Except TypeError Bool :=
   checkedOwnCallIntMatches 16
     Executable.Examples.checkedArithmeticContract
     "signedSarAssign" SolidCore.Solidity.Source.State.empty
     [ SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-5))
+        (SolidCore.Solidity.Shared.signedToWord (-5))
     , SolidCore.Solidity.Source.Value.word 1 ]
-    (SharedSemantics.signedToWord (-3))
+    (SolidCore.Solidity.Shared.signedToWord (-3))
 
 def checkedAddOverflowPanics : Except TypeError Bool :=
   checkedOwnCallPanicMatches 16
@@ -10223,7 +10223,7 @@ def checkedSignedDivisionOverflowPanics :
     "signedDivide" SolidCore.Solidity.Source.State.empty
     [ SolidCore.Solidity.Source.Value.int (2 ^ 255)
     , SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-1)) ] 0x11
+        (SolidCore.Solidity.Shared.signedToWord (-1)) ] 0x11
 
 def checkedUncheckedSignedDivisionOverflowWraps :
     Except TypeError Bool :=
@@ -10232,7 +10232,7 @@ def checkedUncheckedSignedDivisionOverflowWraps :
     "uncheckedSignedDivide" SolidCore.Solidity.Source.State.empty
     [ SolidCore.Solidity.Source.Value.int (2 ^ 255)
     , SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-1)) ] (2 ^ 255)
+        (SolidCore.Solidity.Shared.signedToWord (-1)) ] (2 ^ 255)
 
 def checkedUncheckedInternalCallCalleeOverflowReverts :
     Except TypeError Bool :=
@@ -12302,7 +12302,7 @@ def checkedErc7201MinusOneStorageLayoutMatches :
       "Erc7201MinusOneStorageLayout"
       SolidCore.Solidity.Source.State.empty []
   let slot :=
-    SharedSemantics.subWord
+    SolidCore.Solidity.Shared.subWord
       (SolidCore.Solidity.Source.erc7201Slot
         (Executable.stringUtf8Bytes "example.main"))
       1
@@ -13070,7 +13070,7 @@ def checkedEventAbiLogEntryObservationMatchesExpected :
       let observation :=
         SolidCore.Solidity.Source.CallResult.observe 0 result
       let entryMatches :=
-        fun (entry : SharedSemantics.Log.Entry) =>
+        fun (entry : SolidCore.Solidity.Shared.Log.Entry) =>
           entry.topics == expectedTopics &&
             entry.data ==
               Executable.Examples.eventAbiExpectedDataBytes &&
@@ -13100,7 +13100,7 @@ def checkedEventEmissionObservationMatches :
   let values :=
     [ SolidCore.Solidity.Source.Value.word 4
     , SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-2)) ]
+        (SolidCore.Solidity.Shared.signedToWord (-2)) ]
   let observation :=
     runtime.observeEventEmission context "Set" values
   let missingObservation :=
@@ -13109,7 +13109,7 @@ def checkedEventEmissionObservationMatches :
     runtime.observeEventEmission context "Set"
       [SolidCore.Solidity.Source.Value.word 4]
   let logEntryMatches :=
-    fun (entry : SharedSemantics.Log.Entry) =>
+    fun (entry : SolidCore.Solidity.Shared.Log.Entry) =>
       entry.topics == expectedTopics &&
         entry.data ==
           Executable.Examples.eventAbiExpectedDataBytes &&
@@ -13126,7 +13126,7 @@ def checkedEventEmissionObservationMatches :
               [SolidCore.Solidity.Source.Value.int value] =>
               SolidCore.Solidity.Source.wordEq key 4 &&
                 SolidCore.Solidity.Source.wordEq value
-                  (SharedSemantics.signedToWord (-2))
+                  (SolidCore.Solidity.Shared.signedToWord (-2))
           | _, _ => false)
     | none => false
   let outputLogsMatch :=
@@ -15635,8 +15635,8 @@ def checkedPrecompileStaticcallContract :
                             (Solidity.Expr.member
                               (Solidity.Expr.literal
                                 (Solidity.Literal.address
-                                  (SharedSemantics.Precompile.address
-                                    SharedSemantics.Precompile.Kind.sha256)))
+                                  (SolidCore.Solidity.Shared.Precompile.address
+                                    SolidCore.Solidity.Shared.Precompile.Kind.sha256)))
                               "staticcall")
                             [Solidity.Arg.positional
                               (Solidity.Expr.literal
@@ -15655,7 +15655,7 @@ def checkedPrecompileStaticcallMatches :
       { contract.core.context with
         lowLevelCallResults :=
           [ Executable.Examples.successfulPrecompileWordCall
-              SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
+              SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -16912,7 +16912,7 @@ def checkedPackedTransientStorageGetterMatches :
           SolidCore.Solidity.Source.wordEq b 0x3456 &&
           SolidCore.Solidity.Source.wordEq c 1 &&
           SolidCore.Solidity.Source.wordEq s
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq d 9)
   | _, _, _, _, _ => Except.ok false
 

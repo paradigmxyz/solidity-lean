@@ -1,6 +1,6 @@
-import SharedSemantics.Account
+import SolidCore.Solidity.Shared.Account
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 namespace Log
 
 abbrev Byte := Account.Byte
@@ -19,4 +19,4 @@ def appendEntry (logs : List Entry) (entry : Entry) : List Entry :=
   append logs entry
 
 end Log
-end SharedSemantics
+end SolidCore.Solidity.Shared

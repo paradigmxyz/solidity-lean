@@ -1,6 +1,6 @@
-import SharedSemantics.Account
+import SolidCore.Solidity.Shared.Account
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 namespace Call
 
 abbrev Byte := Account.Byte
@@ -38,7 +38,7 @@ def lookupNamedWord? : NamedWordMap → String → Option Word
   | [], _ => none
   | (candidate, value) :: rest, name =>
       if candidate == name then
-        some (SharedSemantics.norm value)
+        some (SolidCore.Solidity.Shared.norm value)
       else
         lookupNamedWord? rest name
 
@@ -223,4 +223,4 @@ theorem createExternal_eq_create (external : EvmExternal)
 end EvmExternal
 
 end Call
-end SharedSemantics
+end SolidCore.Solidity.Shared

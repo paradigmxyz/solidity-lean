@@ -2150,7 +2150,7 @@ def FunctionSig.abiSignature? (types : TypeContext)
       Solidity.Executable.joinStringsWith "," params ++ ")")
 
 def FunctionSig.abiSelector? (types : TypeContext)
-    (sig : FunctionSig) : Option SharedSemantics.Word := do
+    (sig : FunctionSig) : Option SolidCore.Solidity.Shared.Word := do
   let signature ← sig.abiSignature? types
   some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
 
@@ -2173,7 +2173,7 @@ def FunctionSig.sameExternalAbiSelector
     false
 
 def FunctionSig.externalAbiSelectorEntry? (types : TypeContext)
-    (sig : FunctionSig) : Option (SharedSemantics.Word × Name) :=
+    (sig : FunctionSig) : Option (SolidCore.Solidity.Shared.Word × Name) :=
   if sig.externallyCallable then do
     let selector ← sig.abiSelector? types
     some (selector, sig.name)
@@ -2201,11 +2201,11 @@ def FunctionSigs.ensureNoDuplicateExternalAbiSignatures
 
 def FunctionSigs.externalAbiSelectorEntries
     (types : TypeContext) (sigs : List FunctionSig) :
-    List (SharedSemantics.Word × Name) :=
+    List (SolidCore.Solidity.Shared.Word × Name) :=
   sigs.filterMap (FunctionSig.externalAbiSelectorEntry? types)
 
 def FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries :
-    List (SharedSemantics.Word × Name) -> Except TypeError Unit
+    List (SolidCore.Solidity.Shared.Word × Name) -> Except TypeError Unit
   | [] => Except.ok ()
   | (selector, name) :: rest => do
       if rest.any (fun other => other.fst == selector) then

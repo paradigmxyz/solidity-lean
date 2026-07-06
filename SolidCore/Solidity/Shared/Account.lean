@@ -1,7 +1,7 @@
-import SharedSemantics.Block
-import SharedSemantics.Word
+import SolidCore.Solidity.Shared.Block
+import SolidCore.Solidity.Shared.Word
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 namespace Account
 
 abbrev Byte := Nat
@@ -79,4 +79,4 @@ def selfdestructRecord (evmVersion : Block.EvmVersion)
         (addressIn selfAddress createdAccounts) }
 
 end Account
-end SharedSemantics
+end SolidCore.Solidity.Shared

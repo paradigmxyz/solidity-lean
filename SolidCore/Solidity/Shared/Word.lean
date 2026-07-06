@@ -1,7 +1,7 @@
 import Std
 import EvmYul.UInt256
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 
 def wordModulus : Nat := EvmYul.UInt256.size
 
@@ -162,4 +162,4 @@ theorem memorySizeAfter_empty_word :
     memorySizeAfter 0 0 32 = 32 := by
   rfl
 
-end SharedSemantics
+end SolidCore.Solidity.Shared

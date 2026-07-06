@@ -3251,7 +3251,7 @@ def Ty.isAddress : Ty -> Bool
   | _ => false
 
 def addressLiteralFits (value : Nat) : Bool :=
-  value < SharedSemantics.External.addressModulus
+  value < SolidCore.Solidity.Shared.External.addressModulus
 
 def Expr.isAddressLiteralCandidate : Expr -> Bool
   | Expr.literal (Literal.address _) => true
@@ -3273,7 +3273,7 @@ def Expr.toCoreAddressLiteral? : Expr -> Option CoreExpr
   | Expr.literal (Literal.address value) =>
       some
         (SolidCore.Solidity.Source.Expr.word
-          (SharedSemantics.Account.addressWord value))
+          (SolidCore.Solidity.Shared.Account.addressWord value))
   | Expr.literal (Literal.number text) => do
       let value ← parseNumberNat? text
       if addressLiteralFits value then
@@ -3292,7 +3292,7 @@ def Expr.toCorePayableLiteral? : Expr -> Option CoreExpr
   | Expr.literal (Literal.address value) =>
       some
         (SolidCore.Solidity.Source.Expr.word
-          (SharedSemantics.Account.addressWord value))
+          (SolidCore.Solidity.Shared.Account.addressWord value))
   | Expr.literal (Literal.number text) => do
       let value ← parseNumberNat? text
       if value == 0 then
@@ -3348,7 +3348,7 @@ def Expr.toCoreNumericLiteralAs? (ty : Ty) (expr : Expr) :
               if intNegativeLiteralFits bits magnitude then
                 some
                   (SolidCore.Solidity.Source.Expr.intWord
-                    (SharedSemantics.signedToWord
+                    (SolidCore.Solidity.Shared.signedToWord
                       (-(Int.ofNat magnitude))))
               else
                 none
@@ -3408,7 +3408,7 @@ def Literal.toCoreExpr? : Literal -> Option CoreExpr
   | Literal.address value =>
       some
         (SolidCore.Solidity.Source.Expr.word
-          (SharedSemantics.Account.addressWord value))
+          (SolidCore.Solidity.Shared.Account.addressWord value))
   | Literal.bytes bytes => some (SolidCore.Solidity.Source.Expr.byteArray bytes)
   | Literal.hexString text => do
       let bytes ← parseHexString? text
@@ -7313,7 +7313,7 @@ def FunctionDecls.interfaceId? : List FunctionDecl -> Option Word
   | decl :: rest => do
       let selector ← FunctionDecl.abiSelector? decl
       let tail ← FunctionDecls.interfaceId? rest
-      some (SharedSemantics.xorWord selector tail)
+      some (SolidCore.Solidity.Shared.xorWord selector tail)
 
 abbrev InterfaceIdEnv := List (Name × Word)
 
@@ -18907,7 +18907,7 @@ def ContractDecl.layoutBaseSlot? (constants : ConstantEnv)
   | some expr => do
       let expr := Expr.inlineConstants constants expr
       let value ← Expr.layoutBaseSlotValue? expr
-      if value < SharedSemantics.wordModulus then
+      if value < SolidCore.Solidity.Shared.wordModulus then
         some value
       else
         none
@@ -18915,7 +18915,7 @@ def ContractDecl.layoutBaseSlot? (constants : ConstantEnv)
 def storageLayoutBaseFits (baseSlot : Word)
     (stateVars : List StateVarDecl) : Bool :=
   baseSlot + ContractDecl.storageFieldsSlotSpan stateVars <=
-    SharedSemantics.wordModulus
+    SolidCore.Solidity.Shared.wordModulus
 
 def ContractDecl.hasLayoutBase (decl : ContractDecl) : Bool :=
   decl.layoutBase.isSome

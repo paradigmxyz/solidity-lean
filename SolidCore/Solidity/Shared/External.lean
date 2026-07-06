@@ -1,6 +1,6 @@
-import SharedSemantics.Block
+import SolidCore.Solidity.Shared.Block
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 namespace External
 
 abbrev Byte := Nat
@@ -43,17 +43,17 @@ def lookupWord? : WordMap → Word → Option Word
         lookupWord? rest key
 
 def wordListAt (values : List Word) (index : Word) : Word :=
-  SharedSemantics.Block.wordListAt values index
+  SolidCore.Solidity.Shared.Block.wordListAt values index
 
 def blobHashAt (hashes : List Word) (index : Word) : Word :=
-  SharedSemantics.Block.blobHashAt hashes index
+  SolidCore.Solidity.Shared.Block.blobHashAt hashes index
 
 def blockhashNumberInRange (current requested : Word) : Bool :=
-  SharedSemantics.Block.blockhashNumberInRange current requested
+  SolidCore.Solidity.Shared.Block.blockhashNumberInRange current requested
 
 def blockHashAt (current : Word) (hashes : WordMap)
     (requested : Word) : Word :=
-  SharedSemantics.Block.blockHashAt current hashes requested
+  SolidCore.Solidity.Shared.Block.blockHashAt current hashes requested
 
 def lookupHash? : HashMap → Bytes → Option Word
   | [], _ => none
@@ -284,4 +284,4 @@ theorem createExternal_eq_create (external : EvmExternal)
 end EvmExternal
 
 end External
-end SharedSemantics
+end SolidCore.Solidity.Shared

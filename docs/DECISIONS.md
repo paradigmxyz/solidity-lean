@@ -165,3 +165,18 @@ remaining call sites are overwhelmingly inside `observe*` walker functions
 observation layer first removes most of the old-evaluator references, making the
 consolidation a small, low-risk port of the residual sites. So the order is:
 3a, 3b, 3c, **Phase 4**, then 3d, then Phase 5.
+
+## 2026-07-06 — Phase 3c: SharedSemantics folded into SolidCore.Solidity.Shared
+
+SharedSemantics is a real, heavily-used dependency (Word/norm/Block/Call/Account/
+Precompile/Log/External — 477 occurrences), not dead adapters. Folded it wholesale:
+files moved to `SolidCore/Solidity/Shared/*.lean`, the namespace/module token
+`SharedSemantics` → `SolidCore.Solidity.Shared` everywhere (all Lean files + the
+manifest's 46 eval-expr occurrences), and the lakefile reduced to a single
+`lean_lib SolidCore` (+ the keccakParity exe). The folded primitives share the
+`SolidCore.Solidity.Shared` namespace with the interaction bridge's aliases with
+no leaf collisions. Pure rename, no behavior change: build green + one
+`Shared`-referencing case (`packed-storage`) passes end-to-end through the
+harness. Its full-corpus validation is folded into Phase 4's replay (which builds
+directly on this rename) rather than spending a separate ~20-min run on a
+pure-rename step.

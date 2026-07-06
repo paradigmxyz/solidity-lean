@@ -6,13 +6,13 @@ units). Elaboration to the executable core and the (Phase 4) observation layer
 live in Interface.lean, which imports this module.
 -/
 import SolidCore.Solidity.ABI
-import SharedSemantics.Precompile
-import SharedSemantics.Word
+import SolidCore.Solidity.Shared.Precompile
+import SolidCore.Solidity.Shared.Word
 
 namespace SolidCore
 namespace Solidity
 
-abbrev Word := SharedSemantics.Word
+abbrev Word := SolidCore.Solidity.Shared.Word
 abbrev Byte := Nat
 abbrev Name := String
 

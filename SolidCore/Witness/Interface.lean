@@ -3441,8 +3441,8 @@ def sharedPrimitiveObservationMatches : Bool :=
   let shaResult : SolidCore.Solidity.Source.LowLevelCallResult :=
     { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
       target :=
-        SharedSemantics.Precompile.address
-          SharedSemantics.Precompile.Kind.sha256
+        SolidCore.Solidity.Shared.Precompile.address
+          SolidCore.Solidity.Shared.Precompile.Kind.sha256
       calldata := [1, 2]
       value := 0
       gas? := none
@@ -3450,12 +3450,12 @@ def sharedPrimitiveObservationMatches : Bool :=
       output := SolidCore.Solidity.Source.wordToBytesBE
         SolidCore.Solidity.Source.wordBytes 0xaaaa }
   let ecrecoverInput :=
-    SharedSemantics.Precompile.ecrecoverInput 17 27 34 51
+    SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51
   let ecrecoverResult : SolidCore.Solidity.Source.LowLevelCallResult :=
     { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
       target :=
-        SharedSemantics.Precompile.address
-          SharedSemantics.Precompile.Kind.ecrecover
+        SolidCore.Solidity.Shared.Precompile.address
+          SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
       calldata := ecrecoverInput
       value := 0
       gas? := none
@@ -3626,8 +3626,8 @@ def externalResolutionObservationMatches : Bool :=
   let builtinCallObservation :=
     context.observeLowLevelCallResolution
       SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-      (SharedSemantics.Precompile.address
-        SharedSemantics.Precompile.Kind.identity)
+      (SolidCore.Solidity.Shared.Precompile.address
+        SolidCore.Solidity.Shared.Precompile.Kind.identity)
       [0xaa, 0xbb] 0 none
   let missingCallObservation :=
     context.observeLowLevelCallResolution
@@ -3654,8 +3654,8 @@ def externalResolutionObservationMatches : Bool :=
     SolidCore.Solidity.Source.LowLevelCallResult.matches
       builtinCallObservation.result
       SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-      (SharedSemantics.Precompile.address
-        SharedSemantics.Precompile.Kind.identity)
+      (SolidCore.Solidity.Shared.Precompile.address
+        SolidCore.Solidity.Shared.Precompile.Kind.identity)
       [0xaa, 0xbb] 0 none &&
     builtinCallObservation.result.success &&
     builtinCallObservation.result.output == [0xaa, 0xbb]
@@ -3726,7 +3726,7 @@ def stateEffectsObservationBoundaryMatches : Bool :=
   let observation := state2.observe 0xabcd
   let effects := observation.effects
   let recordMatches :=
-    fun (record : SharedSemantics.Account.SelfdestructRecord) =>
+    fun (record : SolidCore.Solidity.Shared.Account.SelfdestructRecord) =>
       SolidCore.Solidity.Source.wordEq record.fromAddress 0xabcd &&
         SolidCore.Solidity.Source.wordEq record.recipient 0xdddd &&
         record.deletesAccount == false
@@ -3745,7 +3745,7 @@ def stateEffectsObservationBoundaryMatches : Bool :=
         SolidCore.Solidity.Source.wordEq observed.address 0xcafe &&
         observed.output == [6]
   let logMatches :=
-    fun (entry : SharedSemantics.Log.Entry) =>
+    fun (entry : SolidCore.Solidity.Shared.Log.Entry) =>
       SolidCore.Solidity.Source.wordEq entry.address 0xabcd &&
         entry.topics == [0x11, 0x22] &&
         entry.data == [1, 2, 1]
@@ -5762,10 +5762,10 @@ def erc7201BuiltinMatchesEipExample : Option Bool := do
   | _ => none
 
 def successfulPrecompileWordCall
-    (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
+    (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte)
     (output : Word) : SolidCore.Solidity.Source.LowLevelCallResult :=
   { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-    target := SharedSemantics.Precompile.address kind
+    target := SolidCore.Solidity.Shared.Precompile.address kind
     calldata := input
     value := 0
     success := true
@@ -5796,9 +5796,9 @@ def externalCryptoHashContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
     lowLevelCallResults :=
       [ successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa
+          SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa
       , successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.ripemd160 [3, 4] 0xbbbb ] }
+          SolidCore.Solidity.Shared.Precompile.Kind.ripemd160 [3, 4] 0xbbbb ] }
 
 def externalCryptoHashCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] externalCryptoHashContext
@@ -5834,8 +5834,8 @@ def precompileBuiltinStaticcallSharedResultFunction : FunctionDecl :=
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.sha256)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.sha256)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal (Literal.bytes [1, 2]))]) ]))) }
@@ -5844,7 +5844,7 @@ def precompileBuiltinStaticcallSharedResultContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
     lowLevelCallResults :=
       [ successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
+          SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
 
 def precompileBuiltinStaticcallSharedResultCallResult :
     Option CoreCallResult :=
@@ -5868,8 +5868,8 @@ def precompileBuiltinStaticcallSharedResultMatches : Option Bool := do
   | _ => some false
 
 def canonicalPrecompileAddressesMatch : Bool :=
-  SharedSemantics.Precompile.mainnetKinds.map
-      SharedSemantics.Precompile.address ==
+  SolidCore.Solidity.Shared.Precompile.mainnetKinds.map
+      SolidCore.Solidity.Shared.Precompile.address ==
     [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 def identityPrecompilePayload : List Byte :=
@@ -5886,8 +5886,8 @@ def identityPrecompileStaticcallFunction : FunctionDecl :=
               (Expr.member
                 (Expr.literal
                   (Literal.address
-                    (SharedSemantics.Precompile.address
-                      SharedSemantics.Precompile.Kind.identity)))
+                    (SolidCore.Solidity.Shared.Precompile.address
+                      SolidCore.Solidity.Shared.Precompile.Kind.identity)))
                 "staticcall")
               [Arg.positional
                 (Expr.literal (Literal.bytes identityPrecompilePayload))]))) }
@@ -5908,10 +5908,10 @@ def identityPrecompileStaticcallMatches : Option Bool := do
   | _ => some false
 
 def modexpPrecompileInput : List Byte :=
-  SharedSemantics.Precompile.modexpInput [2] [5] [13]
+  SolidCore.Solidity.Shared.Precompile.modexpInput [2] [5] [13]
 
 def modexpPrecompileZeroModulusInput : List Byte :=
-  SharedSemantics.Precompile.modexpInput [2] [5] [0]
+  SolidCore.Solidity.Shared.Precompile.modexpInput [2] [5] [0]
 
 def modexpPrecompileStaticcallFunction : FunctionDecl :=
   { name := some "modexpPrecompile"
@@ -5928,8 +5928,8 @@ def modexpPrecompileStaticcallFunction : FunctionDecl :=
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.modexp)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.modexp)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal (Literal.bytes modexpPrecompileInput))])
@@ -5938,8 +5938,8 @@ def modexpPrecompileStaticcallFunction : FunctionDecl :=
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.modexp)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.modexp)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal
@@ -6057,8 +6057,8 @@ def ecrecoverBuiltinContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
     lowLevelCallResults :=
       [ successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.ecrecover
-          (SharedSemantics.Precompile.ecrecoverInput 17 27 34 51)
+          SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+          (SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51)
           0xcafe ] }
 
 def ecrecoverBuiltinCallResult : Option CoreCallResult :=
@@ -6144,8 +6144,8 @@ def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.sha256)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.sha256)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal (Literal.bytes [1, 2]))])
@@ -6158,8 +6158,8 @@ def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.ripemd160)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.ripemd160)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal (Literal.bytes [3, 4]))])
@@ -6174,25 +6174,25 @@ def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.ecrecover)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.ecrecover)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal
                         (Literal.bytes
-                          (SharedSemantics.Precompile.ecrecoverInput
+                          (SolidCore.Solidity.Shared.Precompile.ecrecoverInput
                             17 27 34 51)))]) ]))) }
 
 def precompileBuiltinsStaticcallSharedResultsContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
     lowLevelCallResults :=
       [ successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.sha256 [1, 2] 0xaaaa
+          SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa
       , successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.ripemd160 [3, 4] 0xbbbb
+          SolidCore.Solidity.Shared.Precompile.Kind.ripemd160 [3, 4] 0xbbbb
       , successfulPrecompileWordCall
-          SharedSemantics.Precompile.Kind.ecrecover
-          (SharedSemantics.Precompile.ecrecoverInput 17 27 34 51)
+          SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+          (SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51)
           0xcafe ] }
 
 def precompileBuiltinsStaticcallSharedResultsCallResult :
@@ -6269,8 +6269,8 @@ def checkedPrecompileBuiltinsStaticcallSharedResultsFunction :
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.sha256)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.sha256)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal (Literal.bytes [1, 2]))])
@@ -6283,8 +6283,8 @@ def checkedPrecompileBuiltinsStaticcallSharedResultsFunction :
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.ripemd160)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.ripemd160)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal (Literal.bytes [3, 4]))])
@@ -6306,13 +6306,13 @@ def checkedPrecompileBuiltinsStaticcallSharedResultsFunction :
                     (Expr.member
                       (Expr.literal
                         (Literal.address
-                          (SharedSemantics.Precompile.address
-                            SharedSemantics.Precompile.Kind.ecrecover)))
+                          (SolidCore.Solidity.Shared.Precompile.address
+                            SolidCore.Solidity.Shared.Precompile.Kind.ecrecover)))
                       "staticcall")
                     [Arg.positional
                       (Expr.literal
                         (Literal.bytes
-                          (SharedSemantics.Precompile.ecrecoverInput
+                          (SolidCore.Solidity.Shared.Precompile.ecrecoverInput
                             17 27 34 51)))]) ]))) }
 
 def checkedHashBuiltinContract : ContractDecl :=
@@ -7815,14 +7815,14 @@ def interfaceIdSourceUnit : SourceUnit :=
       , SourceItem.contract interfaceIdReaderContract ] }
 
 def interfaceIdTokenExpected : Word :=
-  SharedSemantics.xorWord
+  SolidCore.Solidity.Shared.xorWord
     (SolidCore.Solidity.Source.ABI.selectorFromSignature
       "balanceOf(address)")
     (SolidCore.Solidity.Source.ABI.selectorFromSignature
       "transfer(address,uint256)")
 
 def interfaceIdTokenIncludingInherited : Word :=
-  SharedSemantics.xorWord
+  SolidCore.Solidity.Shared.xorWord
     interfaceIdTokenExpected
     (SolidCore.Solidity.Source.ABI.selectorFromSignature
       "supportsInterface(bytes4)")
@@ -8204,7 +8204,7 @@ def signedIntArithmeticCallResult : Option CoreCallResult :=
   FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty signedIntArithmeticFunction
     [ SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-5))
+        (SolidCore.Solidity.Shared.signedToWord (-5))
     , SolidCore.Solidity.Source.Value.int 2 ]
 
 def signedSarFunction : FunctionDecl :=
@@ -8226,14 +8226,14 @@ def signedSarMatches : Option Bool := do
     FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
       SolidCore.Solidity.Source.State.empty signedSarFunction
       [ SolidCore.Solidity.Source.Value.int
-          (SharedSemantics.signedToWord (-5))
+          (SolidCore.Solidity.Shared.signedToWord (-5))
       , SolidCore.Solidity.Source.Value.word 1 ]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.int value] =>
       some
         (SolidCore.Solidity.Source.wordEq value
-          (SharedSemantics.signedToWord (-3)))
+          (SolidCore.Solidity.Shared.signedToWord (-3)))
   | _ => some false
 
 def signedSarAssignFunction : FunctionDecl :=
@@ -8258,14 +8258,14 @@ def signedSarAssignMatches : Option Bool := do
     FunctionDecl.call? 16 [] [] SolidCore.Solidity.Source.Context.empty
       SolidCore.Solidity.Source.State.empty signedSarAssignFunction
       [ SolidCore.Solidity.Source.Value.int
-          (SharedSemantics.signedToWord (-5))
+          (SolidCore.Solidity.Shared.signedToWord (-5))
       , SolidCore.Solidity.Source.Value.word 1 ]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.int value] =>
       some
         (SolidCore.Solidity.Source.wordEq value
-          (SharedSemantics.signedToWord (-3)))
+          (SolidCore.Solidity.Shared.signedToWord (-3)))
   | _ => some false
 
 def signedIntAbiContract : ContractDecl :=
@@ -8277,7 +8277,7 @@ def signedIntAbiCalldata : Option (List Byte) := do
   let function ← contract.findFunctionByName? "signedOps"
   SolidCore.Solidity.Source.ABI.calldataFor? function
     [ SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-5))
+        (SolidCore.Solidity.Shared.signedToWord (-5))
     , SolidCore.Solidity.Source.Value.int 2 ]
 
 def signedIntAbiExpectedOutput : Option (List Byte) :=
@@ -8286,9 +8286,9 @@ def signedIntAbiExpectedOutput : Option (List Byte) :=
     , SolidCore.Solidity.Source.Ty.int256
     , SolidCore.Solidity.Source.Ty.bool ]
     [ SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-2))
+        (SolidCore.Solidity.Shared.signedToWord (-2))
     , SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-1))
+        (SolidCore.Solidity.Shared.signedToWord (-1))
     , SolidCore.Solidity.Source.Value.word 1 ]
 
 def signedIntAbiCalldataResult :
@@ -8692,7 +8692,7 @@ def eventAbiExpectedTopics : Option (List Word) := do
 def eventAbiExpectedDataBytes : List Byte :=
   SolidCore.Solidity.Source.wordToBytesBE
     SolidCore.Solidity.Source.wordBytes
-    (SharedSemantics.signedToWord (-2))
+    (SolidCore.Solidity.Shared.signedToWord (-2))
 
 def eventAbiTopicsMatchExpected : Option Bool := do
   let event ← eventAbiEmittedLog
@@ -8732,7 +8732,7 @@ def eventEmissionObservationMatches : Option Bool := do
   let values :=
     [ SolidCore.Solidity.Source.Value.word 4
     , SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-2)) ]
+        (SolidCore.Solidity.Shared.signedToWord (-2)) ]
   let observation :=
     runtime.observeEventEmission context "Set" values
   let missingObservation :=
@@ -8741,7 +8741,7 @@ def eventEmissionObservationMatches : Option Bool := do
     runtime.observeEventEmission context "Set"
       [SolidCore.Solidity.Source.Value.word 4]
   let logEntryMatches :=
-    fun (entry : SharedSemantics.Log.Entry) =>
+    fun (entry : SolidCore.Solidity.Shared.Log.Entry) =>
       entry.topics == expectedTopics &&
         entry.data == eventAbiExpectedDataBytes &&
         SolidCore.Solidity.Source.wordEq entry.address 0xabc
@@ -8756,7 +8756,7 @@ def eventEmissionObservationMatches : Option Bool := do
               [SolidCore.Solidity.Source.Value.int value] =>
               SolidCore.Solidity.Source.wordEq key 4 &&
                 SolidCore.Solidity.Source.wordEq value
-                  (SharedSemantics.signedToWord (-2))
+                  (SolidCore.Solidity.Shared.signedToWord (-2))
           | _, _ => false)
     | none => false
   let outputLogsMatch :=
@@ -10543,10 +10543,10 @@ def typedNumericLiteralConversionMatchesExpected : Option Bool := do
       , SolidCore.Solidity.Source.Value.int negativeMin
       , SolidCore.Solidity.Source.Value.word positiveMax
       , SolidCore.Solidity.Source.Value.int foldedInt ] =>
-      some (SharedSemantics.signedValue negativeSmall = -5 &&
-        SharedSemantics.signedValue negativeMin = -128 &&
+      some (SolidCore.Solidity.Shared.signedValue negativeSmall = -5 &&
+        SolidCore.Solidity.Shared.signedValue negativeMin = -128 &&
         positiveMax == 255 &&
-        SharedSemantics.signedValue foldedInt = 4)
+        SolidCore.Solidity.Shared.signedValue foldedInt = 4)
   | _ => some false
 
 def numericLiteralCastBoundsRejected : Bool :=
@@ -10619,7 +10619,7 @@ def typedNumericLiteralVarDeclMatchesExpected : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [ SolidCore.Solidity.Source.Value.int negative
       , SolidCore.Solidity.Source.Value.word folded ] =>
-      some (SharedSemantics.signedValue negative = -5 &&
+      some (SolidCore.Solidity.Shared.signedValue negative = -5 &&
         folded == 4)
   | _ => some false
 
@@ -10676,7 +10676,7 @@ def runtimeIntegerCastCallResult : Option CoreCallResult :=
     SolidCore.Solidity.Source.State.empty runtimeIntegerCastFunction
     [ SolidCore.Solidity.Source.Value.word 0x123456ff
     , SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.signedToWord (-3)) ]
+        (SolidCore.Solidity.Shared.signedToWord (-3)) ]
 
 def runtimeIntegerCastsMatch : Option Bool := do
   let result ← runtimeIntegerCastCallResult
@@ -10691,8 +10691,8 @@ def runtimeIntegerCastsMatch : Option Bool := do
       , SolidCore.Solidity.Source.Value.word roundTripAddress ] =>
       some (low8 == 0xff &&
         low16 == 0x56ff &&
-        SharedSemantics.signedValue signedLow = -1 &&
-        signedAsUint == SharedSemantics.signedToWord (-3) &&
+        SolidCore.Solidity.Shared.signedValue signedLow = -1 &&
+        signedAsUint == SolidCore.Solidity.Shared.signedToWord (-3) &&
         fromBytes == 0xabcd &&
         fromAddress == 0xbeef &&
         roundTripAddress == 0x123456ff)
@@ -11738,13 +11738,13 @@ def binaryArithmeticObservationMatches : Bool :=
     SolidCore.Solidity.Source.BinaryOp.observeApply true
       SolidCore.Solidity.Source.BinaryOp.add
       (SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.halfWordModulus - 1))
+        (SolidCore.Solidity.Shared.halfWordModulus - 1))
       (SolidCore.Solidity.Source.Value.int 1)
   let signedUnchecked :=
     SolidCore.Solidity.Source.BinaryOp.observeApply false
       SolidCore.Solidity.Source.BinaryOp.add
       (SolidCore.Solidity.Source.Value.int
-        (SharedSemantics.halfWordModulus - 1))
+        (SolidCore.Solidity.Shared.halfWordModulus - 1))
       (SolidCore.Solidity.Source.Value.int 1)
   let divByZero :=
     SolidCore.Solidity.Source.BinaryOp.observeApply false
@@ -11771,7 +11771,7 @@ def binaryArithmeticObservationMatches : Bool :=
     signedOverflow.result?.isNone &&
     binaryArithmeticObservationPanic? signedOverflow == some 0x11 &&
     binaryArithmeticObservationInt? signedUnchecked ==
-      some SharedSemantics.halfWordModulus &&
+      some SolidCore.Solidity.Shared.halfWordModulus &&
     signedUnchecked.revertData?.isNone &&
     divByZero.operandMode ==
       SolidCore.Solidity.Source.BinaryArithmeticOperandMode.unsignedWord &&
@@ -15225,7 +15225,7 @@ def packedTransientStorageGetterMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq b 0x3456 &&
           SolidCore.Solidity.Source.wordEq c 1 &&
           SolidCore.Solidity.Source.wordEq s
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq d 9)
   | _, _, _, _, _ => some false
 
@@ -15510,7 +15510,7 @@ def signedMappingKeyContract : ContractDecl :=
                       (Expr.ident "key")))) } ] }
 
 def signedMappingKeyWord : Word :=
-  SharedSemantics.signedToWord (-5)
+  SolidCore.Solidity.Shared.signedToWord (-5)
 
 def signedMappingKeySetState : Option CoreState := do
   let result ←
@@ -22726,7 +22726,7 @@ def packedTopLevelStorageGetterMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq b 0x3456 &&
           SolidCore.Solidity.Source.wordEq c 1 &&
           SolidCore.Solidity.Source.wordEq s
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq d 9)
   | _, _, _, _, _ => some false
 
@@ -23050,7 +23050,7 @@ def packedStructAndArrayStorageReadMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq b 0x3456 &&
           SolidCore.Solidity.Source.wordEq c 1 &&
           SolidCore.Solidity.Source.wordEq s
-            (SharedSemantics.signedToWord (-1)) &&
+            (SolidCore.Solidity.Shared.signedToWord (-1)) &&
           SolidCore.Solidity.Source.wordEq fixed 0xcc)
   | _, _, _, _, _ => some false
 
@@ -25071,11 +25071,11 @@ def internalUnaryLocalCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot
               runAssignNotState 0) 7 &&
           SolidCore.Solidity.Source.wordEq
-            runBitNotValue (SharedSemantics.notWord 0) &&
+            runBitNotValue (SolidCore.Solidity.Shared.notWord 0) &&
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot runBitNotState 0) 11 &&
           SolidCore.Solidity.Source.wordEq
-            runNegValue (SharedSemantics.signedToWord 5) &&
+            runNegValue (SolidCore.Solidity.Shared.signedToWord 5) &&
           SolidCore.Solidity.Source.wordEq
             (SolidCore.Solidity.Source.State.loadSlot runNegState 0) 13)
   | _, _, _, _, _ => some false
@@ -29202,7 +29202,7 @@ def erc7201MinusOneStorageLayoutUnit : SourceUnit :=
   { items := [SourceItem.contract erc7201MinusOneStorageLayoutContract] }
 
 def erc7201MinusOneStorageLayoutSlot : Word :=
-  SharedSemantics.subWord erc7201StorageLayoutSlot 1
+  SolidCore.Solidity.Shared.subWord erc7201StorageLayoutSlot 1
 
 def erc7201MinusOneStorageLayoutFieldsMatch : Option Bool := do
   let contract ← SourceUnit.toCoreContract? erc7201MinusOneStorageLayoutUnit

@@ -1,6 +1,6 @@
-import SharedSemantics.Word
+import SolidCore.Solidity.Shared.Word
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 namespace Block
 
 abbrev WordMap := List (Word × Word)
@@ -175,4 +175,4 @@ def blobhash (env : TxEnv) (index : Word) : Word :=
 end TxEnv
 
 end Block
-end SharedSemantics
+end SolidCore.Solidity.Shared

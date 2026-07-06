@@ -1,6 +1,6 @@
-import SharedSemantics.Call
+import SolidCore.Solidity.Shared.Call
 
-namespace SharedSemantics
+namespace SolidCore.Solidity.Shared
 namespace Precompile
 
 abbrev Byte := Call.Byte
@@ -16,7 +16,7 @@ def normalizeBytes : Bytes → Bytes :=
   Account.normalizeBytes
 
 def bytesToWordBE (bytes : Bytes) : Word :=
-  SharedSemantics.norm
+  SolidCore.Solidity.Shared.norm
     (bytes.foldl (fun acc b => acc * 256 + byte b) 0)
 
 def bytesToNatBE (bytes : Bytes) : Nat :=
@@ -193,4 +193,4 @@ def ecrecoverAt (results : List Result) (digest v r s : Word) : Word :=
   (ecrecover? results digest v r s).getD 0
 
 end Precompile
-end SharedSemantics
+end SolidCore.Solidity.Shared

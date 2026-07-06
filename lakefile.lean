@@ -16,9 +16,9 @@ package «solid-core-spine» where
     ⟨`maxHeartbeats, 1000000⟩
   ]
 
+-- Single library. The former `SharedSemantics` EVM-primitive library is folded
+-- in under `SolidCore/Solidity/Shared/` and builds transitively from this root.
 @[default_target]
-lean_lib SharedSemantics where
-
 lean_lib SolidCore where
 
 /-- Byte-parity witness for the repo-owned pure Keccak vs the pinned FFI hash.

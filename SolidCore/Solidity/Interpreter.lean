@@ -1,29 +1,29 @@
-import SharedSemantics.Account
-import SharedSemantics.External
-import SharedSemantics.Block
-import SharedSemantics.Call
-import SharedSemantics.Log
-import SharedSemantics.Precompile
+import SolidCore.Solidity.Shared.Account
+import SolidCore.Solidity.Shared.External
+import SolidCore.Solidity.Shared.Block
+import SolidCore.Solidity.Shared.Call
+import SolidCore.Solidity.Shared.Log
+import SolidCore.Solidity.Shared.Precompile
 import SolidCore.Solidity.Keccak
 
 namespace SolidCore
 namespace Solidity
 namespace Source
 
-abbrev Word := SharedSemantics.Word
-abbrev Byte := SharedSemantics.Account.Byte
+abbrev Word := SolidCore.Solidity.Shared.Word
+abbrev Byte := SolidCore.Solidity.Shared.Account.Byte
 
 def wordModulus : Nat :=
-  SharedSemantics.wordModulus
+  SolidCore.Solidity.Shared.wordModulus
 
 def normWord (value : Nat) : Word :=
-  SharedSemantics.norm value
+  SolidCore.Solidity.Shared.norm value
 
 def normByte (value : Nat) : Byte :=
-  SharedSemantics.Account.byte value
+  SolidCore.Solidity.Shared.Account.byte value
 
 def bytesToWordBE (bytes : List Byte) : Word :=
-  SharedSemantics.norm
+  SolidCore.Solidity.Shared.norm
     (bytes.foldl (fun acc byte => acc * 256 + normByte byte) 0)
 
 def readBytes? (bytes : List Byte) (offset size : Nat) :
@@ -59,10 +59,10 @@ def boolWord (value : Bool) : Word :=
   if value then 1 else 0
 
 def wordTruthy (value : Word) : Bool :=
-  !(SharedSemantics.norm value == 0)
+  !(SolidCore.Solidity.Shared.norm value == 0)
 
 def wordEq (lhs rhs : Word) : Bool :=
-  SharedSemantics.norm lhs == SharedSemantics.norm rhs
+  SolidCore.Solidity.Shared.norm lhs == SolidCore.Solidity.Shared.norm rhs
 
 inductive Ty where
   | bool : Ty
@@ -119,29 +119,29 @@ def externalFunctionSelectorModulus : Nat :=
   2 ^ (8 * selectorBytes)
 
 def externalFunctionStorageWord? (addr selector : Word) : Option Word :=
-  if SharedSemantics.norm addr < SharedSemantics.Account.addressModulus &&
-      SharedSemantics.norm selector < externalFunctionSelectorModulus then
+  if SolidCore.Solidity.Shared.norm addr < SolidCore.Solidity.Shared.Account.addressModulus &&
+      SolidCore.Solidity.Shared.norm selector < externalFunctionSelectorModulus then
     some
       (normWord
-        (SharedSemantics.Account.addressWord addr *
+        (SolidCore.Solidity.Shared.Account.addressWord addr *
           externalFunctionSelectorModulus +
-          SharedSemantics.norm selector))
+          SolidCore.Solidity.Shared.norm selector))
   else
     none
 
 def externalFunctionValueFromStorageWord (word : Word) : Value :=
   Value.externalFunction
-    (SharedSemantics.Account.addressWord
-      (SharedSemantics.norm word / externalFunctionSelectorModulus))
-    (SharedSemantics.norm word % externalFunctionSelectorModulus)
+    (SolidCore.Solidity.Shared.Account.addressWord
+      (SolidCore.Solidity.Shared.norm word / externalFunctionSelectorModulus))
+    (SolidCore.Solidity.Shared.norm word % externalFunctionSelectorModulus)
 
 def Value.asWord? : Value -> Option Word
-  | Value.word value => some (SharedSemantics.norm value)
+  | Value.word value => some (SolidCore.Solidity.Shared.norm value)
   | _ => none
 
 def Value.asStorageWord? : Value -> Option Word
-  | Value.word value => some (SharedSemantics.norm value)
-  | Value.int value => some (SharedSemantics.norm value)
+  | Value.word value => some (SolidCore.Solidity.Shared.norm value)
+  | Value.int value => some (SolidCore.Solidity.Shared.norm value)
   | _ => none
 
 def Value.asBytes? : Value -> Option (List Byte)
@@ -162,7 +162,7 @@ def Value.length? : Value -> Option Nat
   | Value.abiLazy _ value => value.length?
 
 def Value.storageArrayLength? : Value -> Option Nat
-  | Value.word length => some (SharedSemantics.norm length)
+  | Value.word length => some (SolidCore.Solidity.Shared.norm length)
   | value => value.length?
 
 def Value.defaultLike : Value -> Value
@@ -260,22 +260,22 @@ mutual
 def AbiCleanup.accepts : AbiCleanup -> Value -> Bool
   | AbiCleanup.none, _ => true
   | AbiCleanup.uint bits, Value.word value =>
-      0 < bits && bits <= 256 && SharedSemantics.norm value < 2 ^ bits
+      0 < bits && bits <= 256 && SolidCore.Solidity.Shared.norm value < 2 ^ bits
   | AbiCleanup.int bits, Value.int value =>
       if 0 < bits && bits <= 256 then
         let modulus := 2 ^ bits
         let signBit := 2 ^ (bits - 1)
-        let low := SharedSemantics.norm value % modulus
+        let low := SolidCore.Solidity.Shared.norm value % modulus
         let canonical :=
           if signBit <= low then
-            SharedSemantics.norm (wordModulus - modulus + low)
+            SolidCore.Solidity.Shared.norm (wordModulus - modulus + low)
           else
-            SharedSemantics.norm low
+            SolidCore.Solidity.Shared.norm low
         wordEq canonical value
       else
         false
   | AbiCleanup.enum maxValue, Value.word value =>
-      SharedSemantics.norm value <= SharedSemantics.norm maxValue
+      SolidCore.Solidity.Shared.norm value <= SolidCore.Solidity.Shared.norm maxValue
   | AbiCleanup.fixedArray size cleanup, Value.fixedArray values =>
       values.length == size && AbiCleanup.acceptsAll cleanup values
   | AbiCleanup.dynamicArray cleanup, Value.dynamicArray values =>
@@ -310,11 +310,11 @@ def Value.forceAbiLazy : Value -> Except RevertData Value
   | value => Except.ok value
 
 def Value.expectWordRaw : Value -> Except RevertData Word
-  | Value.word value => Except.ok (SharedSemantics.norm value)
+  | Value.word value => Except.ok (SolidCore.Solidity.Shared.norm value)
   | _ => Except.error RevertData.typeMismatch
 
 def Value.expectWord : Value -> Except RevertData Word
-  | Value.word value => Except.ok (SharedSemantics.norm value)
+  | Value.word value => Except.ok (SolidCore.Solidity.Shared.norm value)
   | Value.abiLazy cleanup value => do
       let forced ← cleanup.forceValue value
       forced.expectWordRaw
@@ -439,19 +439,19 @@ def Value.index? (container : Value) (index : Word) :
     Except RevertData Value :=
   match container with
   | Value.bytes bs =>
-      match listGet? (bs.map normByte) (SharedSemantics.norm index) with
+      match listGet? (bs.map normByte) (SolidCore.Solidity.Shared.norm index) with
       | some byte => Except.ok (Value.word byte)
       | none => Except.error RevertData.indexOutOfBounds
   | Value.fixedArray values =>
-      match listGet? values (SharedSemantics.norm index) with
+      match listGet? values (SolidCore.Solidity.Shared.norm index) with
       | some value => Except.ok value
       | none => Except.error RevertData.indexOutOfBounds
   | Value.dynamicArray values =>
-      match listGet? values (SharedSemantics.norm index) with
+      match listGet? values (SolidCore.Solidity.Shared.norm index) with
       | some value => Except.ok value
       | none => Except.error RevertData.indexOutOfBounds
   | Value.tuple values =>
-      match listGet? values (SharedSemantics.norm index) with
+      match listGet? values (SolidCore.Solidity.Shared.norm index) with
       | some value => Except.ok value
       | none => Except.error RevertData.indexOutOfBounds
   | Value.word _ =>
@@ -472,7 +472,7 @@ def Value.index? (container : Value) (index : Word) :
 def fixedBytesIndex? (size : Nat) (value index : Word) :
     Except RevertData Value :=
   if 0 < size && size <= wordBytes then
-    match listGet? (wordToBytesBE size value) (SharedSemantics.norm index) with
+    match listGet? (wordToBytesBE size value) (SolidCore.Solidity.Shared.norm index) with
     | some byte => Except.ok (Value.word byte)
     | none => Except.error RevertData.indexOutOfBounds
   else
@@ -503,7 +503,7 @@ def fixedBytesFromBytes? (targetSize : Nat) (bytes : List Byte) :
 def uintCast? (bits : Nat) (value : Value) : Except RevertData Value :=
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
-    | some word => Except.ok (Value.word (SharedSemantics.norm word % (2 ^ bits)))
+    | some word => Except.ok (Value.word (SolidCore.Solidity.Shared.norm word % (2 ^ bits)))
     | none => Except.error RevertData.typeMismatch
   else
     Except.error RevertData.typeMismatch
@@ -513,7 +513,7 @@ def uintCleanup? (checked : Bool) (bits : Nat) (value : Value) :
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
     | some word =>
-        if checked && !(SharedSemantics.norm word < 2 ^ bits) then
+        if checked && !(SolidCore.Solidity.Shared.norm word < 2 ^ bits) then
           Except.error RevertData.overflow
         else
           uintCast? bits value
@@ -527,12 +527,12 @@ def intCast? (bits : Nat) (value : Value) : Except RevertData Value :=
     | some word =>
         let modulus := 2 ^ bits
         let signBit := 2 ^ (bits - 1)
-        let low := SharedSemantics.norm word % modulus
+        let low := SolidCore.Solidity.Shared.norm word % modulus
         let casted :=
           if signBit <= low then
-            SharedSemantics.norm (wordModulus - modulus + low)
+            SolidCore.Solidity.Shared.norm (wordModulus - modulus + low)
           else
-            SharedSemantics.norm low
+            SolidCore.Solidity.Shared.norm low
         Except.ok (Value.int casted)
     | none => Except.error RevertData.typeMismatch
   else
@@ -543,7 +543,7 @@ def intCleanup? (checked : Bool) (bits : Nat) (value : Value) :
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
     | some word =>
-        let signed := SharedSemantics.signedValue word
+        let signed := SolidCore.Solidity.Shared.signedValue word
         let min := -(Int.ofNat (2 ^ (bits - 1)))
         let max := Int.ofNat ((2 ^ (bits - 1)) - 1)
         if checked && (signed < min || max < signed) then
@@ -558,11 +558,11 @@ def sliceListByWords? {α : Type} (values : List α)
     (start? stop? : Option Word) : Except RevertData (List α) :=
   let start :=
     match start? with
-    | some value => SharedSemantics.norm value
+    | some value => SolidCore.Solidity.Shared.norm value
     | none => 0
   let stop :=
     match stop? with
-    | some value => SharedSemantics.norm value
+    | some value => SolidCore.Solidity.Shared.norm value
     | none => values.length
   if start <= stop && stop <= values.length then
     Except.ok ((values.drop start).take (stop - start))
@@ -591,23 +591,23 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
     Except RevertData Value :=
   match container with
   | Value.fixedArray values =>
-      match listUpdateAt? values (SharedSemantics.norm index) value with
+      match listUpdateAt? values (SolidCore.Solidity.Shared.norm index) value with
       | some updated => Except.ok (Value.fixedArray updated)
       | none => Except.error RevertData.indexOutOfBounds
   | Value.dynamicArray values =>
-      match listUpdateAt? values (SharedSemantics.norm index) value with
+      match listUpdateAt? values (SolidCore.Solidity.Shared.norm index) value with
       | some updated => Except.ok (Value.dynamicArray updated)
       | none => Except.error RevertData.indexOutOfBounds
   | Value.bytes bs =>
       match value.asWord? with
       | some w =>
           match listUpdateAt? (bs.map normByte)
-              (SharedSemantics.norm index) (normByte w) with
+              (SolidCore.Solidity.Shared.norm index) (normByte w) with
           | some updated => Except.ok (Value.bytes updated)
           | none => Except.error RevertData.indexOutOfBounds
       | none => Except.error RevertData.typeMismatch
   | Value.tuple values =>
-      match listUpdateAt? values (SharedSemantics.norm index) value with
+      match listUpdateAt? values (SolidCore.Solidity.Shared.norm index) value with
       | some updated => Except.ok (Value.tuple updated)
       | none => Except.error RevertData.indexOutOfBounds
   | Value.word _ =>
@@ -631,16 +631,16 @@ def WordMap.lookup? : WordMap -> Word -> Option Word
   | [], _ => none
   | (key, value) :: rest, query =>
       if wordEq key query then
-        some (SharedSemantics.norm value)
+        some (SolidCore.Solidity.Shared.norm value)
       else
         WordMap.lookup? rest query
 
 def WordMap.insertLoop : WordMap -> Word -> Word -> WordMap
   | [], key, value =>
-      [(SharedSemantics.norm key, SharedSemantics.norm value)]
+      [(SolidCore.Solidity.Shared.norm key, SolidCore.Solidity.Shared.norm value)]
   | (entryKey, entryValue) :: rest, key, value =>
       if wordEq entryKey key then
-        (SharedSemantics.norm key, SharedSemantics.norm value) :: rest
+        (SolidCore.Solidity.Shared.norm key, SolidCore.Solidity.Shared.norm value) :: rest
       else
         (entryKey, entryValue) :: WordMap.insertLoop rest key value
 
@@ -739,16 +739,16 @@ structure Event where
   deriving Repr
 
 def Event.toLogEntry (self : Word) (event : Event) :
-    SharedSemantics.Log.Entry :=
-  { address := SharedSemantics.Account.addressWord self
-    topics := event.topics.map SharedSemantics.norm
-    data := SharedSemantics.Account.normalizeBytes event.dataBytes }
+    SolidCore.Solidity.Shared.Log.Entry :=
+  { address := SolidCore.Solidity.Shared.Account.addressWord self
+    topics := event.topics.map SolidCore.Solidity.Shared.norm
+    data := SolidCore.Solidity.Shared.Account.normalizeBytes event.dataBytes }
 
 abbrev SourceExternalCallResult :=
-  SharedSemantics.Call.Result SharedSemantics.Call.ExternalCallKind
+  SolidCore.Solidity.Shared.Call.Result SolidCore.Solidity.Shared.Call.ExternalCallKind
 
 abbrev SourceContractCreationResult :=
-  SharedSemantics.Call.CreationResult
+  SolidCore.Solidity.Shared.Call.CreationResult
 
 inductive ExternalInteraction where
   | lowLevelCall : SourceExternalCallResult -> ExternalInteraction
@@ -761,7 +761,7 @@ structure State where
   transient : WordMap := []
   immutables : ImmutableMap := []
   selfdestructs : List (Word × Word) := []
-  selfdestructEffects : List SharedSemantics.Account.SelfdestructRecord := []
+  selfdestructEffects : List SolidCore.Solidity.Shared.Account.SelfdestructRecord := []
   externalInteractions : List ExternalInteraction := []
   events : List Event
   deriving Repr
@@ -770,14 +770,14 @@ def State.empty : State :=
   { storage := [], transient := [], immutables := [], events := [] }
 
 def State.logEntries (state : State) (self : Word) :
-    List SharedSemantics.Log.Entry :=
+    List SolidCore.Solidity.Shared.Log.Entry :=
   state.events.map (Event.toLogEntry self)
 
 structure StateEffectsObservation where
   selfdestructs : List (Word × Word)
-  selfdestructEffects : List SharedSemantics.Account.SelfdestructRecord
+  selfdestructEffects : List SolidCore.Solidity.Shared.Account.SelfdestructRecord
   externalInteractions : List ExternalInteraction
-  logs : List SharedSemantics.Log.Entry
+  logs : List SolidCore.Solidity.Shared.Log.Entry
   deriving Repr
 
 def State.observeEffects (state : State) (self : Word) :
@@ -793,9 +793,9 @@ structure StateObservation where
   immutables : ImmutableMap
   effects : StateEffectsObservation
   selfdestructs : List (Word × Word)
-  selfdestructEffects : List SharedSemantics.Account.SelfdestructRecord
+  selfdestructEffects : List SolidCore.Solidity.Shared.Account.SelfdestructRecord
   externalInteractions : List ExternalInteraction
-  logs : List SharedSemantics.Log.Entry
+  logs : List SolidCore.Solidity.Shared.Log.Entry
   deriving Repr
 
 def State.observe (state : State) (self : Word) : StateObservation :=
@@ -837,10 +837,10 @@ def State.storeImmutable (state : State) (name : String)
     immutables := ImmutableMap.insertLoop state.immutables name value }
 
 def State.recordSelfdestruct (state : State)
-    (evmVersion : SharedSemantics.Block.EvmVersion)
+    (evmVersion : SolidCore.Solidity.Shared.Block.EvmVersion)
     (createdAccounts : List Word) (self recipient : Word) : State :=
   let record :=
-    SharedSemantics.Account.selfdestructRecord
+    SolidCore.Solidity.Shared.Account.selfdestructRecord
       evmVersion createdAccounts self recipient
   { state with
     selfdestructs :=
@@ -1503,90 +1503,90 @@ structure ErrorDecl where
   deriving Repr
 
 abbrev BlockEnv :=
-  SharedSemantics.Block.BlockEnv
+  SolidCore.Solidity.Shared.Block.BlockEnv
 
 def BlockEnv.empty : BlockEnv :=
-  SharedSemantics.Block.BlockEnv.empty
+  SolidCore.Solidity.Shared.Block.BlockEnv.empty
 
 abbrev TxEnv :=
-  SharedSemantics.Block.TxEnv
+  SolidCore.Solidity.Shared.Block.TxEnv
 
 def TxEnv.empty : TxEnv :=
-  SharedSemantics.Block.TxEnv.empty
+  SolidCore.Solidity.Shared.Block.TxEnv.empty
 
 abbrev EvmVersion :=
-  SharedSemantics.Block.EvmVersion
+  SolidCore.Solidity.Shared.Block.EvmVersion
 
 namespace EvmVersion
 
 abbrev homestead : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.homestead
+  SolidCore.Solidity.Shared.Block.EvmVersion.homestead
 
 abbrev tangerineWhistle : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.tangerineWhistle
+  SolidCore.Solidity.Shared.Block.EvmVersion.tangerineWhistle
 
 abbrev spuriousDragon : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.spuriousDragon
+  SolidCore.Solidity.Shared.Block.EvmVersion.spuriousDragon
 
 abbrev byzantium : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.byzantium
+  SolidCore.Solidity.Shared.Block.EvmVersion.byzantium
 
 abbrev constantinople : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.constantinople
+  SolidCore.Solidity.Shared.Block.EvmVersion.constantinople
 
 abbrev petersburg : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.petersburg
+  SolidCore.Solidity.Shared.Block.EvmVersion.petersburg
 
 abbrev istanbul : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.istanbul
+  SolidCore.Solidity.Shared.Block.EvmVersion.istanbul
 
 abbrev berlin : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.berlin
+  SolidCore.Solidity.Shared.Block.EvmVersion.berlin
 
 abbrev london : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.london
+  SolidCore.Solidity.Shared.Block.EvmVersion.london
 
 abbrev paris : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.paris
+  SolidCore.Solidity.Shared.Block.EvmVersion.paris
 
 abbrev shanghai : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.shanghai
+  SolidCore.Solidity.Shared.Block.EvmVersion.shanghai
 
 abbrev cancun : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.cancun
+  SolidCore.Solidity.Shared.Block.EvmVersion.cancun
 
 abbrev prague : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.prague
+  SolidCore.Solidity.Shared.Block.EvmVersion.prague
 
 abbrev osaka : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.osaka
+  SolidCore.Solidity.Shared.Block.EvmVersion.osaka
 
 def default : EvmVersion :=
-  SharedSemantics.Block.EvmVersion.default
+  SolidCore.Solidity.Shared.Block.EvmVersion.default
 
 end EvmVersion
 
 abbrev LowLevelCallKind :=
-  SharedSemantics.Call.ExternalCallKind
+  SolidCore.Solidity.Shared.Call.ExternalCallKind
 
 namespace LowLevelCallKind
 
 abbrev call : LowLevelCallKind :=
-  SharedSemantics.Call.ExternalCallKind.call
+  SolidCore.Solidity.Shared.Call.ExternalCallKind.call
 
 abbrev staticcall : LowLevelCallKind :=
-  SharedSemantics.Call.ExternalCallKind.staticcall
+  SolidCore.Solidity.Shared.Call.ExternalCallKind.staticcall
 
 abbrev delegatecall : LowLevelCallKind :=
-  SharedSemantics.Call.ExternalCallKind.delegatecall
+  SolidCore.Solidity.Shared.Call.ExternalCallKind.delegatecall
 
 end LowLevelCallKind
 
 abbrev LowLevelCallResult :=
-  SharedSemantics.Call.Result LowLevelCallKind
+  SolidCore.Solidity.Shared.Call.Result LowLevelCallKind
 
 abbrev ContractCreationResult :=
-  SharedSemantics.Call.CreationResult
+  SolidCore.Solidity.Shared.Call.CreationResult
 
 inductive ExternalHashKind where
   | sha256
@@ -1595,31 +1595,31 @@ inductive ExternalHashKind where
 
 namespace ExternalHashKind
 
-def precompileKind : ExternalHashKind -> SharedSemantics.Precompile.Kind
-  | ExternalHashKind.sha256 => SharedSemantics.Precompile.Kind.sha256
-  | ExternalHashKind.ripemd160 => SharedSemantics.Precompile.Kind.ripemd160
+def precompileKind : ExternalHashKind -> SolidCore.Solidity.Shared.Precompile.Kind
+  | ExternalHashKind.sha256 => SolidCore.Solidity.Shared.Precompile.Kind.sha256
+  | ExternalHashKind.ripemd160 => SolidCore.Solidity.Shared.Precompile.Kind.ripemd160
 
 end ExternalHashKind
 
 def LowLevelCallResult.matches (result : LowLevelCallResult)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) (gas? : Option Word := none) : Bool :=
-  SharedSemantics.Call.Result.matchesRequest result kind target calldata value
+  SolidCore.Solidity.Shared.Call.Result.matchesRequest result kind target calldata value
     gas?
 
 def ContractCreationResult.matches (result : ContractCreationResult)
     (contractName : String) (constructorArgs : List Byte)
     (value : Word) (salt? : Option Word) : Bool :=
-  SharedSemantics.Call.CreationResult.matchesRequest result contractName
+  SolidCore.Solidity.Shared.Call.CreationResult.matchesRequest result contractName
     constructorArgs value salt?
 
 def ContractCreationResult.failedRequest
     (contractName : String) (constructorArgs : List Byte)
     (value : Word) (salt? : Option Word) : ContractCreationResult :=
   { contractName := contractName
-    constructorArgs := SharedSemantics.Account.normalizeBytes constructorArgs
-    value := SharedSemantics.norm value
-    salt? := salt?.map SharedSemantics.norm
+    constructorArgs := SolidCore.Solidity.Shared.Account.normalizeBytes constructorArgs
+    value := SolidCore.Solidity.Shared.norm value
+    salt? := salt?.map SolidCore.Solidity.Shared.norm
     success := false
     address := 0
     output := [] }
@@ -1642,9 +1642,9 @@ structure Context where
   accountBalances : WordMap
   accountCodes : ByteMap
   accountCodehashes : WordMap
-  contractAddresses : SharedSemantics.Call.NamedWordMap := []
-  contractCreationCodes : SharedSemantics.Call.NamedBytesMap := []
-  contractRuntimeCodes : SharedSemantics.Call.NamedBytesMap := []
+  contractAddresses : SolidCore.Solidity.Shared.Call.NamedWordMap := []
+  contractCreationCodes : SolidCore.Solidity.Shared.Call.NamedBytesMap := []
+  contractRuntimeCodes : SolidCore.Solidity.Shared.Call.NamedBytesMap := []
   lowLevelCallResults : List LowLevelCallResult
   contractCreationResults : List ContractCreationResult
   blockEnv : BlockEnv
@@ -1712,9 +1712,9 @@ structure ContextAccountOracleObservation where
   deriving Repr
 
 structure ContextCodeOracleObservation where
-  contractAddresses : SharedSemantics.Call.NamedWordMap
-  contractCreationCodes : SharedSemantics.Call.NamedBytesMap
-  contractRuntimeCodes : SharedSemantics.Call.NamedBytesMap
+  contractAddresses : SolidCore.Solidity.Shared.Call.NamedWordMap
+  contractCreationCodes : SolidCore.Solidity.Shared.Call.NamedBytesMap
+  contractRuntimeCodes : SolidCore.Solidity.Shared.Call.NamedBytesMap
   deriving Repr
 
 structure ContextExternalOracleObservation where
@@ -1779,7 +1779,7 @@ def Context.observe (context : Context) : ContextObservation :=
 
 def Context.checkMemoryAllocation (context : Context) (length : Word) :
     Except RevertData Nat :=
-  let size := SharedSemantics.norm length
+  let size := SolidCore.Solidity.Shared.norm length
   match context.memoryAllocationLimit? with
   | some limit =>
       if size <= limit then
@@ -1789,22 +1789,22 @@ def Context.checkMemoryAllocation (context : Context) (length : Word) :
   | none => Except.ok size
 
 def Context.lookupPrecompileCall? (context : Context)
-    (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
+    (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte)
     (gas? : Option Word := none) :
-    Option (SharedSemantics.Precompile.Result) :=
-  SharedSemantics.Precompile.lookup?
+    Option (SolidCore.Solidity.Shared.Precompile.Result) :=
+  SolidCore.Solidity.Shared.Precompile.lookup?
     context.lowLevelCallResults kind input (gas? := gas?)
 
 def Context.lookupPrecompileOutputWord? (context : Context)
-    (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
+    (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte)
     (gas? : Option Word := none) : Option Word := do
   let result ← context.lookupPrecompileCall? kind input (gas? := gas?)
-  SharedSemantics.Precompile.outputWord? result
+  SolidCore.Solidity.Shared.Precompile.outputWord? result
 
 def Context.ecrecoverAt (context : Context) (digest v r s : Word) : Word :=
   (context.lookupPrecompileOutputWord?
-    SharedSemantics.Precompile.Kind.ecrecover
-    (SharedSemantics.Precompile.ecrecoverInput digest v r s)).getD 0
+    SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+    (SolidCore.Solidity.Shared.Precompile.ecrecoverInput digest v r s)).getD 0
 
 def ExternalHashKind.lookup? (kind : ExternalHashKind)
     (context : Context) (bytes : List Byte) : Option Word :=
@@ -1835,8 +1835,8 @@ def erc7201AlignmentMask : Word :=
 
 def erc7201Slot (id : List Byte) : Word :=
   let inner := keccakWord id
-  let preimage := SharedSemantics.subWord inner 1
-  SharedSemantics.andWord
+  let preimage := SolidCore.Solidity.Shared.subWord inner 1
+  SolidCore.Solidity.Shared.andWord
     (keccakWord (storageWordBytes preimage))
     erc7201AlignmentMask
 
@@ -1869,31 +1869,31 @@ def dynamicArrayDataSlot (slot : Word) : Word :=
   keccakWord (storageWordBytes slot)
 
 def dynamicArrayStorageSlot (slot index : Word) : Word :=
-  normWord (SharedSemantics.norm (dynamicArrayDataSlot slot) +
-    SharedSemantics.norm index)
+  normWord (SolidCore.Solidity.Shared.norm (dynamicArrayDataSlot slot) +
+    SolidCore.Solidity.Shared.norm index)
 
 def fixedArrayStorageSlot (slot index : Word) : Word :=
-  normWord (SharedSemantics.norm slot + SharedSemantics.norm index)
+  normWord (SolidCore.Solidity.Shared.norm slot + SolidCore.Solidity.Shared.norm index)
 
 def dynamicArrayLayoutStorageSlot
     (slot index : Word) (elementLayout : StorageLayout) : Word :=
-  normWord (SharedSemantics.norm (dynamicArrayDataSlot slot) +
-    SharedSemantics.norm index * StorageLayout.slotSpan elementLayout)
+  normWord (SolidCore.Solidity.Shared.norm (dynamicArrayDataSlot slot) +
+    SolidCore.Solidity.Shared.norm index * StorageLayout.slotSpan elementLayout)
 
 def fixedArrayLayoutStorageSlot
     (slot index : Word) (elementLayout : StorageLayout) : Word :=
-  normWord (SharedSemantics.norm slot +
-    SharedSemantics.norm index * StorageLayout.slotSpan elementLayout)
+  normWord (SolidCore.Solidity.Shared.norm slot +
+    SolidCore.Solidity.Shared.norm index * StorageLayout.slotSpan elementLayout)
 
 def dynamicArrayLayoutStorageSlotAndLayout?
     (slot index : Word) (elementLayout : StorageLayout) :
     Option (Word × StorageLayout) := do
   let (offset, layout) ←
     StorageLayout.arrayElementOffsetAndLayout?
-      (SharedSemantics.norm index) elementLayout
+      (SolidCore.Solidity.Shared.norm index) elementLayout
   some
     ( normWord
-        (SharedSemantics.norm (dynamicArrayDataSlot slot) + offset)
+        (SolidCore.Solidity.Shared.norm (dynamicArrayDataSlot slot) + offset)
     , layout )
 
 def fixedArrayLayoutStorageSlotAndLayout?
@@ -1901,20 +1901,20 @@ def fixedArrayLayoutStorageSlotAndLayout?
     Option (Word × StorageLayout) := do
   let (offset, layout) ←
     StorageLayout.arrayElementOffsetAndLayout?
-      (SharedSemantics.norm index) elementLayout
-  some (normWord (SharedSemantics.norm slot + offset), layout)
+      (SolidCore.Solidity.Shared.norm index) elementLayout
+  some (normWord (SolidCore.Solidity.Shared.norm slot + offset), layout)
 
 def structFieldStorageSlot? (slot : Word)
     (layouts : List StorageLayout) (index : Nat) :
     Option (Word × StorageLayout) := do
   let (offset, layout) ←
     StorageLayouts.fieldOffsetAndLayout? index 0 layouts
-  some (normWord (SharedSemantics.norm slot + offset), layout)
+  some (normWord (SolidCore.Solidity.Shared.norm slot + offset), layout)
 
 def legacyIndexedStorageSlot (slot key : Word) : Word :=
   normWord
-    (SharedSemantics.norm slot * 16777619 +
-      SharedSemantics.norm key + 1)
+    (SolidCore.Solidity.Shared.norm slot * 16777619 +
+      SolidCore.Solidity.Shared.norm key + 1)
 
 def indexedStorageSlot (slot key : Word) : Word :=
   mappingStorageSlot slot key
@@ -1927,21 +1927,21 @@ def Context.lookupLowLevelCall? (context : Context)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) (gas? : Option Word) : Option LowLevelCallResult :=
   match
-      SharedSemantics.Call.Result.lookup?
+      SolidCore.Solidity.Shared.Call.Result.lookup?
         context.lowLevelCallResults kind target calldata value gas? with
   | some result => some result
   | none =>
-      SharedSemantics.Precompile.builtinStaticcallResult?
+      SolidCore.Solidity.Shared.Precompile.builtinStaticcallResult?
         kind target calldata value gas?
 
 def LowLevelCallResult.failedRequest
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) (gas? : Option Word) : LowLevelCallResult :=
   { kind := kind
-    target := SharedSemantics.Account.addressWord target
-    calldata := SharedSemantics.Account.normalizeBytes calldata
-    value := SharedSemantics.norm value
-    gas? := gas?.map SharedSemantics.norm
+    target := SolidCore.Solidity.Shared.Account.addressWord target
+    calldata := SolidCore.Solidity.Shared.Account.normalizeBytes calldata
+    value := SolidCore.Solidity.Shared.norm value
+    gas? := gas?.map SolidCore.Solidity.Shared.norm
     success := false
     output := [] }
 
@@ -1953,12 +1953,12 @@ def Context.resolveLowLevelCall (context : Context)
   | none => LowLevelCallResult.failedRequest kind target calldata value gas?
 
 def Context.accountHasCode (context : Context) (target : Word) : Bool :=
-  !(SharedSemantics.Account.codeAt context.accountCodes target).isEmpty
+  !(SolidCore.Solidity.Shared.Account.codeAt context.accountCodes target).isEmpty
 
 def Context.lookupContractCreation? (context : Context)
     (contractName : String) (constructorArgs : List Byte)
     (value : Word) (salt? : Option Word) : Option ContractCreationResult :=
-  SharedSemantics.Call.CreationResult.lookup?
+  SolidCore.Solidity.Shared.Call.CreationResult.lookup?
     context.contractCreationResults contractName constructorArgs value salt?
 
 def Context.resolveContractCreation (context : Context)
@@ -2067,54 +2067,54 @@ def EnvWord.eval (which : EnvWord) (context : Context) : Word :=
   match which with
   | EnvWord.blockBasefee =>
       if context.evmVersion.londonOrLater then
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.basefee
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.basefee
       else
         0
   | EnvWord.blockBlobbasefee =>
       if context.evmVersion.cancunOrLater then
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.blobbasefee
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.blobbasefee
       else
         0
   | EnvWord.blockChainid =>
       if context.evmVersion.istanbulOrLater then
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.chainid
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.chainid
       else
         0
   | EnvWord.blockCoinbase =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.coinbase
+      SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+        SolidCore.Solidity.Shared.Block.BlockEnv.WordField.coinbase
   | EnvWord.blockDifficulty =>
       if context.evmVersion.parisOrLater then
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.prevrandao
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.prevrandao
       else
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.difficulty
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.difficulty
   | EnvWord.blockGaslimit =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.gaslimit
+      SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+        SolidCore.Solidity.Shared.Block.BlockEnv.WordField.gaslimit
   | EnvWord.blockNumber =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.number
+      SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+        SolidCore.Solidity.Shared.Block.BlockEnv.WordField.number
   | EnvWord.blockPrevrandao =>
       if context.evmVersion.parisOrLater then
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.prevrandao
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.prevrandao
       else
-        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-          SharedSemantics.Block.BlockEnv.WordField.difficulty
+        SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+          SolidCore.Solidity.Shared.Block.BlockEnv.WordField.difficulty
   | EnvWord.blockTimestamp =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.timestamp
+      SolidCore.Solidity.Shared.Block.BlockEnv.evalWord context.blockEnv
+        SolidCore.Solidity.Shared.Block.BlockEnv.WordField.timestamp
   | EnvWord.txGasprice =>
-      SharedSemantics.Block.TxEnv.evalWord context.txEnv
-        SharedSemantics.Block.TxEnv.WordField.gasprice
+      SolidCore.Solidity.Shared.Block.TxEnv.evalWord context.txEnv
+        SolidCore.Solidity.Shared.Block.TxEnv.WordField.gasprice
   | EnvWord.txOrigin =>
-      SharedSemantics.Block.TxEnv.evalWord context.txEnv
-        SharedSemantics.Block.TxEnv.WordField.origin
+      SolidCore.Solidity.Shared.Block.TxEnv.evalWord context.txEnv
+        SolidCore.Solidity.Shared.Block.TxEnv.WordField.origin
   | EnvWord.gasleft => context.gasleft
 
 inductive EnvLookup where
@@ -2128,17 +2128,17 @@ def EnvLookup.eval (which : EnvLookup) (context : Context) (key : Word) :
     Word :=
   match which with
   | EnvLookup.blockhash =>
-      SharedSemantics.Block.BlockEnv.blockhash context.blockEnv key
+      SolidCore.Solidity.Shared.Block.BlockEnv.blockhash context.blockEnv key
   | EnvLookup.blobhash =>
       if context.evmVersion.cancunOrLater then
-        SharedSemantics.Block.TxEnv.blobhash context.txEnv key
+        SolidCore.Solidity.Shared.Block.TxEnv.blobhash context.txEnv key
       else
         0
   | EnvLookup.accountBalance =>
-      SharedSemantics.Account.balanceAt context.accountBalances key
+      SolidCore.Solidity.Shared.Account.balanceAt context.accountBalances key
   | EnvLookup.accountCodehash =>
       if context.evmVersion.constantinopleOrLater then
-        SharedSemantics.Account.codehashAt context.accountCodehashes key
+        SolidCore.Solidity.Shared.Account.codehashAt context.accountCodehashes key
       else
         0
 
@@ -2151,7 +2151,7 @@ def EnvBytesLookup.eval
     List Byte :=
   match which with
   | EnvBytesLookup.accountCode =>
-      SharedSemantics.Account.codeAt context.accountCodes key
+      SolidCore.Solidity.Shared.Account.codeAt context.accountCodes key
 
 inductive SharedPrimitiveRequest where
   | keccak : List Byte -> SharedPrimitiveRequest
@@ -2273,20 +2273,20 @@ def wordBitRange (offset width : Nat) (value : Word) : Word :=
   if width == 0 then
     0
   else
-    let shifted := SharedSemantics.norm value / (2 ^ offset)
-    SharedSemantics.norm (shifted % (2 ^ width))
+    let shifted := SolidCore.Solidity.Shared.norm value / (2 ^ offset)
+    SolidCore.Solidity.Shared.norm (shifted % (2 ^ width))
 
 def wordReplaceBitRange
     (offset width : Nat) (current value : Word) : Word :=
   if width == 0 then
-    SharedSemantics.norm current
+    SolidCore.Solidity.Shared.norm current
   else
     let shift := 2 ^ offset
     let modulus := 2 ^ width
-    let currentNorm := SharedSemantics.norm current
+    let currentNorm := SolidCore.Solidity.Shared.norm current
     let currentPart := ((currentNorm / shift) % modulus) * shift
-    let valuePart := (SharedSemantics.norm value % modulus) * shift
-    SharedSemantics.norm (currentNorm - currentPart + valuePart)
+    let valuePart := (SolidCore.Solidity.Shared.norm value % modulus) * shift
+    SolidCore.Solidity.Shared.norm (currentNorm - currentPart + valuePart)
 
 structure StorageBytesHeader where
   length : Nat
@@ -2295,7 +2295,7 @@ structure StorageBytesHeader where
 
 def storageBytesHeader? (word : Word) :
     Except RevertData StorageBytesHeader :=
-  let raw := SharedSemantics.norm word
+  let raw := SolidCore.Solidity.Shared.norm word
   let lowByte := raw % 256
   if lowByte % 2 == 0 then
     let length := lowByte / 2
@@ -2316,7 +2316,7 @@ def storageBytesShortWord (bytes : List Byte) : Word :=
 
 def storageBytesLongDataSlot (slot : Word) (chunk : Nat) : Word :=
   normWord
-    (SharedSemantics.norm (dynamicArrayDataSlot slot) + chunk)
+    (SolidCore.Solidity.Shared.norm (dynamicArrayDataSlot slot) + chunk)
 
 def storageBytesLongChunkCount (length : Nat) : Nat :=
   if length <= 31 then
@@ -2416,7 +2416,7 @@ def State.storageBytesLengthAt (state : State) (slot : Word) :
 def State.storageBytesElementSlotAndOffset (state : State) (slot key : Word) :
     Except RevertData (Word × Nat) := do
   let header ← storageBytesHeader? (state.loadSlot slot)
-  let index := SharedSemantics.norm key
+  let index := SolidCore.Solidity.Shared.norm key
   if header.length <= index then
     Except.error RevertData.indexOutOfBounds
   else if header.long then
@@ -2510,7 +2510,7 @@ def State.loadStorageLayoutAtFuel :
               fuel state slot elementLayout 0 size
           Except.ok (Value.fixedArray values)
       | StorageLayout.dynamicArray elementLayout => do
-          let length := SharedSemantics.norm (state.loadSlot slot)
+          let length := SolidCore.Solidity.Shared.norm (state.loadSlot slot)
           let values ←
             State.loadDynamicArrayLayoutSlotsFuel
               fuel state slot elementLayout 0 length
@@ -2526,7 +2526,7 @@ def State.loadStructSlotsFuel (fuel : Nat) (state : State) (slot : Word) :
   | cursor, layout :: rest => do
       let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       let fieldSlot :=
-        normWord (SharedSemantics.norm slot + offset)
+        normWord (SolidCore.Solidity.Shared.norm slot + offset)
       let value ←
         State.loadStorageLayoutAtFuel fuel state fieldSlot layout
       let tail ←
@@ -2643,7 +2643,7 @@ def State.storeStructSlots (state : State) (slot : Word) :
   | cursor, layout :: layouts, value :: values => do
       let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       let fieldSlot :=
-        normWord (SharedSemantics.norm slot + offset)
+        normWord (SolidCore.Solidity.Shared.norm slot + offset)
       let state ←
         State.storeStorageLayoutAt state fieldSlot layout value
       State.storeStructSlots
@@ -2938,7 +2938,7 @@ def State.clearLayoutSpanSlots (state : State) (slot : Word) :
   | _, 0 => state
   | offset, remaining + 1 =>
       State.clearLayoutSpanSlots
-        (state.storeSlot (normWord (SharedSemantics.norm slot + offset)) 0)
+        (state.storeSlot (normWord (SolidCore.Solidity.Shared.norm slot + offset)) 0)
         slot (offset + 1) remaining
 
 mutual
@@ -2977,7 +2977,7 @@ def State.clearStructLayoutSlots (state : State) (slot : Word) :
       let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       let state ←
         State.clearStorageLayoutAt state
-          (normWord (SharedSemantics.norm slot + offset)) layout
+          (normWord (SolidCore.Solidity.Shared.norm slot + offset)) layout
       State.clearStructLayoutSlots state slot
         nextCursor rest
 
@@ -3001,7 +3001,7 @@ def State.clearDynamicArrayLayoutSlots (state : State) (slot : Word)
 
 def State.clearDynamicArrayLayoutAt (state : State) (slot : Word)
     (elementLayout : StorageLayout) : Except RevertData State := do
-  let length := SharedSemantics.norm (state.loadSlot slot)
+  let length := SolidCore.Solidity.Shared.norm (state.loadSlot slot)
   let state ←
     State.clearDynamicArrayLayoutSlots state slot elementLayout 0 length
   Except.ok (state.storeSlot slot 0)
@@ -3051,7 +3051,7 @@ def State.clearStorageLayoutAtFuel :
                 let (offset, nextCursor) :=
                   StorageLayout.cursorStep cursor layout
                 let fieldSlot :=
-                  normWord (SharedSemantics.norm slot + offset)
+                  normWord (SolidCore.Solidity.Shared.norm slot + offset)
                 let state ←
                   State.clearStorageLayoutAtFuel fuel
                     state fieldSlot layout
@@ -3064,7 +3064,7 @@ def State.clearStorageLayoutAtFuel :
       | StorageLayout.string =>
           Except.ok (State.storeStorageBytesAt state slot [])
       | StorageLayout.dynamicArray elementLayout => do
-          let length := SharedSemantics.norm (state.loadSlot slot)
+          let length := SolidCore.Solidity.Shared.norm (state.loadSlot slot)
           let state ←
             (List.range length).foldlM
               (fun state index => do
@@ -3131,7 +3131,7 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
                   let (offset, nextCursor) :=
                     StorageLayout.cursorStep cursor layout
                   let fieldSlot :=
-                    normWord (SharedSemantics.norm slot + offset)
+                    normWord (SolidCore.Solidity.Shared.norm slot + offset)
                   let state ←
                     State.storeStorageLayoutAtWithDeepClearFuel
                       fuel state fieldSlot layout value
@@ -3159,7 +3159,7 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
             Except.error RevertData.typeMismatch
       | StorageLayout.dynamicArray elementLayout,
           Value.dynamicArray values => do
-          let oldLength := SharedSemantics.norm (state.loadSlot slot)
+          let oldLength := SolidCore.Solidity.Shared.norm (state.loadSlot slot)
           let state ←
             (List.range values.length).zip values |>.foldlM
               (fun state pair => do
@@ -3233,7 +3233,7 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
+      if SolidCore.Solidity.Shared.norm length <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3247,7 +3247,7 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
         Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
-      if size <= SharedSemantics.norm key then
+      if size <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3263,7 +3263,7 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
       let key ← index.expectWord
       match
         structFieldStorageSlot? field.slot layouts
-          (SharedSemantics.norm key)
+          (SolidCore.Solidity.Shared.norm key)
       with
       | some (fieldSlot, fieldLayout) => do
           let state ←
@@ -3353,7 +3353,7 @@ def Runtime.deleteStorageIndex (context : Context)
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
+      if SolidCore.Solidity.Shared.norm length <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3367,7 +3367,7 @@ def Runtime.deleteStorageIndex (context : Context)
         Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
-      if size <= SharedSemantics.norm key then
+      if size <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3383,7 +3383,7 @@ def Runtime.deleteStorageIndex (context : Context)
       let key ← index.expectWord
       match
         structFieldStorageSlot? field.slot layouts
-          (SharedSemantics.norm key)
+          (SolidCore.Solidity.Shared.norm key)
       with
       | some (fieldSlot, fieldLayout) => do
           let state ←
@@ -3413,7 +3413,7 @@ def State.resolveStoragePathSlot (state : State) :
   | slot, StorageLayout.dynamicArray elementLayout, index :: rest => do
       let key ← index.expectWord
       let length := state.loadSlot slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
+      if SolidCore.Solidity.Shared.norm length <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3425,7 +3425,7 @@ def State.resolveStoragePathSlot (state : State) :
           elementSlot elementSlotLayout rest
   | slot, StorageLayout.fixedArray size elementLayout, index :: rest => do
       let key ← index.expectWord
-      if size <= SharedSemantics.norm key then
+      if size <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3444,7 +3444,7 @@ def State.resolveStoragePathSlot (state : State) :
         rest
   | slot, StorageLayout.struct layouts, index :: rest => do
       let key ← index.expectWord
-      match structFieldStorageSlot? slot layouts (SharedSemantics.norm key) with
+      match structFieldStorageSlot? slot layouts (SolidCore.Solidity.Shared.norm key) with
       | some (fieldSlot, fieldLayout) =>
           State.resolveStoragePathSlot state
             fieldSlot fieldLayout rest
@@ -3580,7 +3580,7 @@ def Runtime.loadStorageIndex (context : Context)
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
+      if SolidCore.Solidity.Shared.norm length <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3592,7 +3592,7 @@ def Runtime.loadStorageIndex (context : Context)
           elementSlot elementSlotLayout
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
-      if size <= SharedSemantics.norm key then
+      if size <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3604,7 +3604,7 @@ def Runtime.loadStorageIndex (context : Context)
           elementSlot elementSlotLayout
   | some (StorageLayout.struct layouts) => do
       let key ← index.expectWord
-      match structFieldStorageSlot? field.slot layouts (SharedSemantics.norm key) with
+      match structFieldStorageSlot? field.slot layouts (SolidCore.Solidity.Shared.norm key) with
       | some (fieldSlot, fieldLayout) =>
           runtime.state.loadStorageLayoutAt
             fieldSlot fieldLayout
@@ -3644,7 +3644,7 @@ def Runtime.storeStorageIndex (context : Context)
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
+      if SolidCore.Solidity.Shared.norm length <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3658,7 +3658,7 @@ def Runtime.storeStorageIndex (context : Context)
         Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
-      if size <= SharedSemantics.norm key then
+      if size <= SolidCore.Solidity.Shared.norm key then
         Except.error RevertData.indexOutOfBounds
       else
         let (elementSlot, elementSlotLayout) ←
@@ -3674,7 +3674,7 @@ def Runtime.storeStorageIndex (context : Context)
       let key ← index.expectWord
       match
         structFieldStorageSlot? field.slot layouts
-          (SharedSemantics.norm key)
+          (SolidCore.Solidity.Shared.norm key)
       with
       | some (fieldSlot, fieldLayout) => do
           let state ←
@@ -3705,7 +3705,7 @@ def Runtime.storageArrayPush (context : Context)
   match field.layout? with
     | some (StorageLayout.dynamicArray elementLayout) => do
         let length := runtime.state.loadSlot field.slot
-        let rawLength := SharedSemantics.norm length + 1
+        let rawLength := SolidCore.Solidity.Shared.norm length + 1
         if wordModulus <= rawLength then
           Except.error RevertData.overflow
         else
@@ -3740,7 +3740,7 @@ def Runtime.storageArrayPush (context : Context)
         Except.error RevertData.typeMismatch
     | none => do
         let length := runtime.state.loadSlot field.slot
-        let rawLength := SharedSemantics.norm length + 1
+        let rawLength := SolidCore.Solidity.Shared.norm length + 1
         if wordModulus <= rawLength then
           Except.error RevertData.overflow
         else
@@ -3777,7 +3777,7 @@ def Runtime.storageArrayPop (context : Context)
           Except.error RevertData.popEmptyArray
         else
           pure ()
-        let newLength := SharedSemantics.subWord length 1
+        let newLength := SolidCore.Solidity.Shared.subWord length 1
         let (elementSlot, elementSlotLayout) ←
           match dynamicArrayLayoutStorageSlotAndLayout?
             field.slot newLength elementLayout with
@@ -3797,7 +3797,7 @@ def Runtime.storageArrayPop (context : Context)
           Except.error RevertData.popEmptyArray
         else
           pure ()
-        let newLength := SharedSemantics.subWord length 1
+        let newLength := SolidCore.Solidity.Shared.subWord length 1
         Except.ok
           { runtime with
             state :=
@@ -3830,7 +3830,7 @@ def Runtime.storageArrayPushPath (context : Context)
       match valueLayout with
         | StorageLayout.dynamicArray elementLayout => do
             let length := runtime.state.loadSlot slot
-            let rawLength := SharedSemantics.norm length + 1
+            let rawLength := SolidCore.Solidity.Shared.norm length + 1
             if wordModulus <= rawLength then
               Except.error RevertData.overflow
             else
@@ -3890,7 +3890,7 @@ def Runtime.storageArrayPopPath (context : Context)
               Except.error RevertData.popEmptyArray
             else
               pure ()
-            let newLength := SharedSemantics.subWord length 1
+            let newLength := SolidCore.Solidity.Shared.subWord length 1
             let (elementSlot, elementSlotLayout) ←
               match dynamicArrayLayoutStorageSlotAndLayout?
                 slot newLength elementLayout with
@@ -3909,14 +3909,14 @@ def Runtime.storageArrayPopPath (context : Context)
         | _ => Except.error RevertData.typeMismatch
 
 def abiAddressFits (value : Word) : Bool :=
-  SharedSemantics.norm value < 2 ^ 160
+  SolidCore.Solidity.Shared.norm value < 2 ^ 160
 
 def abiSelectorFits (value : Word) : Bool :=
-  SharedSemantics.norm value < 2 ^ (8 * selectorBytes)
+  SolidCore.Solidity.Shared.norm value < 2 ^ (8 * selectorBytes)
 
 def abiFixedBytesFits (size : Nat) (value : Word) : Bool :=
   0 < size && size <= wordBytes &&
-    SharedSemantics.norm value < 2 ^ (8 * size)
+    SolidCore.Solidity.Shared.norm value < 2 ^ (8 * size)
 
 def abiAllZeroBytes : List Byte -> Bool
   | [] => true
@@ -4677,46 +4677,46 @@ def Expr.toLValue? : Expr -> Option LValue
 
 def checkedAdd (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
-  let raw := SharedSemantics.norm lhs + SharedSemantics.norm rhs
+  let raw := SolidCore.Solidity.Shared.norm lhs + SolidCore.Solidity.Shared.norm rhs
   if checked && (wordModulus <= raw) then
     Except.error RevertData.overflow
   else
-    Except.ok (SharedSemantics.addWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.addWord lhs rhs)
 
 def checkedSub (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
-  if checked && (SharedSemantics.norm lhs < SharedSemantics.norm rhs) then
+  if checked && (SolidCore.Solidity.Shared.norm lhs < SolidCore.Solidity.Shared.norm rhs) then
     Except.error RevertData.overflow
   else
-    Except.ok (SharedSemantics.subWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.subWord lhs rhs)
 
 def checkedMul (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
-  let raw := SharedSemantics.norm lhs * SharedSemantics.norm rhs
+  let raw := SolidCore.Solidity.Shared.norm lhs * SolidCore.Solidity.Shared.norm rhs
   if checked && (wordModulus <= raw) then
     Except.error RevertData.overflow
   else
-    Except.ok (SharedSemantics.mulWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.mulWord lhs rhs)
 
 def checkedDiv (_checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
-  if SharedSemantics.norm rhs = 0 then
+  if SolidCore.Solidity.Shared.norm rhs = 0 then
     Except.error RevertData.divByZero
   else
-    Except.ok (SharedSemantics.divWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.divWord lhs rhs)
 
 def checkedMod (_checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
-  if SharedSemantics.norm rhs = 0 then
+  if SolidCore.Solidity.Shared.norm rhs = 0 then
     Except.error RevertData.divByZero
   else
-    Except.ok (SharedSemantics.modWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.modWord lhs rhs)
 
 def checkedExpLoop (checked : Bool) (base : Word) :
     Nat -> Word -> Except RevertData Word
-  | 0, acc => Except.ok (SharedSemantics.norm acc)
+  | 0, acc => Except.ok (SolidCore.Solidity.Shared.norm acc)
   | remaining + 1, acc =>
-      let raw := SharedSemantics.norm acc * SharedSemantics.norm base
+      let raw := SolidCore.Solidity.Shared.norm acc * SolidCore.Solidity.Shared.norm base
       if checked && wordModulus <= raw then
         Except.error RevertData.overflow
       else
@@ -4724,13 +4724,13 @@ def checkedExpLoop (checked : Bool) (base : Word) :
 
 def checkedExp (checked : Bool) (base exponent : Word) :
     Except RevertData Word :=
-  checkedExpLoop checked base (SharedSemantics.norm exponent) 1
+  checkedExpLoop checked base (SolidCore.Solidity.Shared.norm exponent) 1
 
 def signedIntMin : Int :=
-  -Int.ofNat SharedSemantics.halfWordModulus
+  -Int.ofNat SolidCore.Solidity.Shared.halfWordModulus
 
 def signedIntMax : Int :=
-  Int.ofNat SharedSemantics.halfWordModulus - 1
+  Int.ofNat SolidCore.Solidity.Shared.halfWordModulus - 1
 
 def signedInt256InRange (value : Int) : Bool :=
   decide (signedIntMin <= value) && decide (value <= signedIntMax)
@@ -4740,35 +4740,35 @@ def checkedSignedWord (checked : Bool) (value : Int) (wrapped : Word) :
   if checked && !(signedInt256InRange value) then
     Except.error RevertData.overflow
   else if checked then
-    Except.ok (SharedSemantics.signedToWord value)
+    Except.ok (SolidCore.Solidity.Shared.signedToWord value)
   else
     Except.ok wrapped
 
 def checkedSignedAdd (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
   checkedSignedWord checked
-    (SharedSemantics.signedValue lhs + SharedSemantics.signedValue rhs)
-    (SharedSemantics.addWord lhs rhs)
+    (SolidCore.Solidity.Shared.signedValue lhs + SolidCore.Solidity.Shared.signedValue rhs)
+    (SolidCore.Solidity.Shared.addWord lhs rhs)
 
 def checkedSignedSub (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
   checkedSignedWord checked
-    (SharedSemantics.signedValue lhs - SharedSemantics.signedValue rhs)
-    (SharedSemantics.subWord lhs rhs)
+    (SolidCore.Solidity.Shared.signedValue lhs - SolidCore.Solidity.Shared.signedValue rhs)
+    (SolidCore.Solidity.Shared.subWord lhs rhs)
 
 def checkedSignedMul (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
   checkedSignedWord checked
-    (SharedSemantics.signedValue lhs * SharedSemantics.signedValue rhs)
-    (SharedSemantics.mulWord lhs rhs)
+    (SolidCore.Solidity.Shared.signedValue lhs * SolidCore.Solidity.Shared.signedValue rhs)
+    (SolidCore.Solidity.Shared.mulWord lhs rhs)
 
 def checkedSignedNeg (checked : Bool) (value : Word) :
     Except RevertData Word :=
-  checkedSignedWord checked (-(SharedSemantics.signedValue value))
-    (SharedSemantics.subWord 0 value)
+  checkedSignedWord checked (-(SolidCore.Solidity.Shared.signedValue value))
+    (SolidCore.Solidity.Shared.subWord 0 value)
 
 def isSignedMinWord (value : Word) : Bool :=
-  wordEq value SharedSemantics.halfWordModulus
+  wordEq value SolidCore.Solidity.Shared.halfWordModulus
 
 def isSignedNegOneWord (value : Word) : Bool :=
   wordEq value (wordModulus - 1)
@@ -4780,28 +4780,28 @@ def checkedSignedDiv (checked : Bool) (lhs rhs : Word) :
   else if checked && isSignedMinWord lhs && isSignedNegOneWord rhs then
     Except.error RevertData.overflow
   else
-    Except.ok (SharedSemantics.sdivWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.sdivWord lhs rhs)
 
 def checkedSignedMod (_checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
   if wordEq rhs 0 then
     Except.error RevertData.divByZero
   else
-    Except.ok (SharedSemantics.smodWord lhs rhs)
+    Except.ok (SolidCore.Solidity.Shared.smodWord lhs rhs)
 
 def checkedAddMod (lhs rhs modulus : Word) :
     Except RevertData Word :=
   if wordEq modulus 0 then
     Except.error RevertData.divByZero
   else
-    Except.ok (SharedSemantics.addmodWord lhs rhs modulus)
+    Except.ok (SolidCore.Solidity.Shared.addmodWord lhs rhs modulus)
 
 def checkedMulMod (lhs rhs modulus : Word) :
     Except RevertData Word :=
   if wordEq modulus 0 then
     Except.error RevertData.divByZero
   else
-    Except.ok (SharedSemantics.mulmodWord lhs rhs modulus)
+    Except.ok (SolidCore.Solidity.Shared.mulmodWord lhs rhs modulus)
 
 def BinaryOp.applyWord
     (checked : Bool) (op : BinaryOp) (lhs rhs : Word) :
@@ -4813,18 +4813,18 @@ def BinaryOp.applyWord
   | BinaryOp.div => checkedDiv checked lhs rhs
   | BinaryOp.mod => checkedMod checked lhs rhs
   | BinaryOp.exp => checkedExp checked lhs rhs
-  | BinaryOp.bitAnd => Except.ok (SharedSemantics.andWord lhs rhs)
-  | BinaryOp.bitOr => Except.ok (SharedSemantics.orWord lhs rhs)
-  | BinaryOp.bitXor => Except.ok (SharedSemantics.xorWord lhs rhs)
-  | BinaryOp.shl => Except.ok (SharedSemantics.shlWord rhs lhs)
-  | BinaryOp.shr => Except.ok (SharedSemantics.shrWord rhs lhs)
-  | BinaryOp.sar => Except.ok (SharedSemantics.sarWord rhs lhs)
-  | BinaryOp.lt => Except.ok (SharedSemantics.ltWord lhs rhs)
-  | BinaryOp.gt => Except.ok (SharedSemantics.gtWord lhs rhs)
+  | BinaryOp.bitAnd => Except.ok (SolidCore.Solidity.Shared.andWord lhs rhs)
+  | BinaryOp.bitOr => Except.ok (SolidCore.Solidity.Shared.orWord lhs rhs)
+  | BinaryOp.bitXor => Except.ok (SolidCore.Solidity.Shared.xorWord lhs rhs)
+  | BinaryOp.shl => Except.ok (SolidCore.Solidity.Shared.shlWord rhs lhs)
+  | BinaryOp.shr => Except.ok (SolidCore.Solidity.Shared.shrWord rhs lhs)
+  | BinaryOp.sar => Except.ok (SolidCore.Solidity.Shared.sarWord rhs lhs)
+  | BinaryOp.lt => Except.ok (SolidCore.Solidity.Shared.ltWord lhs rhs)
+  | BinaryOp.gt => Except.ok (SolidCore.Solidity.Shared.gtWord lhs rhs)
   | BinaryOp.le =>
-      Except.ok (boolWord (!(wordTruthy (SharedSemantics.gtWord lhs rhs))))
+      Except.ok (boolWord (!(wordTruthy (SolidCore.Solidity.Shared.gtWord lhs rhs))))
   | BinaryOp.ge =>
-      Except.ok (boolWord (!(wordTruthy (SharedSemantics.ltWord lhs rhs))))
+      Except.ok (boolWord (!(wordTruthy (SolidCore.Solidity.Shared.ltWord lhs rhs))))
   | BinaryOp.eq => Except.ok (boolWord (wordEq lhs rhs))
   | BinaryOp.ne => Except.ok (boolWord (!(wordEq lhs rhs)))
   | BinaryOp.boolAnd => Except.ok (boolWord (wordTruthy lhs && wordTruthy rhs))
@@ -4850,29 +4850,29 @@ def BinaryOp.applySignedWord
       let value ← checkedSignedMod checked lhs rhs
       Except.ok (Value.int value)
   | BinaryOp.bitAnd =>
-      Except.ok (Value.int (SharedSemantics.andWord lhs rhs))
+      Except.ok (Value.int (SolidCore.Solidity.Shared.andWord lhs rhs))
   | BinaryOp.bitOr =>
-      Except.ok (Value.int (SharedSemantics.orWord lhs rhs))
+      Except.ok (Value.int (SolidCore.Solidity.Shared.orWord lhs rhs))
   | BinaryOp.bitXor =>
-      Except.ok (Value.int (SharedSemantics.xorWord lhs rhs))
+      Except.ok (Value.int (SolidCore.Solidity.Shared.xorWord lhs rhs))
   | BinaryOp.shl =>
-      Except.ok (Value.int (SharedSemantics.shlWord rhs lhs))
+      Except.ok (Value.int (SolidCore.Solidity.Shared.shlWord rhs lhs))
   | BinaryOp.shr =>
-      Except.ok (Value.int (SharedSemantics.sarWord rhs lhs))
+      Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhs lhs))
   | BinaryOp.sar =>
-      Except.ok (Value.int (SharedSemantics.sarWord rhs lhs))
-  | BinaryOp.lt => Except.ok (Value.word (SharedSemantics.sltWord lhs rhs))
-  | BinaryOp.gt => Except.ok (Value.word (SharedSemantics.sgtWord lhs rhs))
+      Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhs lhs))
+  | BinaryOp.lt => Except.ok (Value.word (SolidCore.Solidity.Shared.sltWord lhs rhs))
+  | BinaryOp.gt => Except.ok (Value.word (SolidCore.Solidity.Shared.sgtWord lhs rhs))
   | BinaryOp.le =>
       Except.ok
         (Value.word
           (boolWord
-            (!(wordTruthy (SharedSemantics.sgtWord lhs rhs)))))
+            (!(wordTruthy (SolidCore.Solidity.Shared.sgtWord lhs rhs)))))
   | BinaryOp.ge =>
       Except.ok
         (Value.word
           (boolWord
-            (!(wordTruthy (SharedSemantics.sltWord lhs rhs)))))
+            (!(wordTruthy (SolidCore.Solidity.Shared.sltWord lhs rhs)))))
   | BinaryOp.eq => Except.ok (Value.word (boolWord (wordEq lhs rhs)))
   | BinaryOp.ne => Except.ok (Value.word (boolWord (!(wordEq lhs rhs))))
   | _ => Except.error RevertData.typeMismatch
@@ -4919,11 +4919,11 @@ def BinaryOp.apply
       | Value.int lhsWord, Value.word rhsWord =>
           match op with
           | BinaryOp.shl =>
-              Except.ok (Value.int (SharedSemantics.shlWord rhsWord lhsWord))
+              Except.ok (Value.int (SolidCore.Solidity.Shared.shlWord rhsWord lhsWord))
           | BinaryOp.shr =>
-              Except.ok (Value.int (SharedSemantics.sarWord rhsWord lhsWord))
+              Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
           | BinaryOp.sar =>
-              Except.ok (Value.int (SharedSemantics.sarWord rhsWord lhsWord))
+              Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
           | _ => Except.error RevertData.typeMismatch
       | _, _ => Except.error RevertData.typeMismatch
 
@@ -4984,9 +4984,9 @@ def UnaryOp.apply (checked : Bool) (op : UnaryOp) (value : Value) :
   | UnaryOp.bitNot =>
       match value with
       | Value.word word =>
-          Except.ok (Value.word (SharedSemantics.notWord word))
+          Except.ok (Value.word (SolidCore.Solidity.Shared.notWord word))
       | Value.int word =>
-          Except.ok (Value.int (SharedSemantics.notWord word))
+          Except.ok (Value.int (SolidCore.Solidity.Shared.notWord word))
       | _ => Except.error RevertData.typeMismatch
   | UnaryOp.logicalNot =>
       match value with
@@ -5002,20 +5002,20 @@ def UnaryOp.apply (checked : Bool) (op : UnaryOp) (value : Value) :
           if checked && wordTruthy word then
             Except.error RevertData.overflow
           else
-            Except.ok (Value.word (SharedSemantics.subWord 0 word))
+            Except.ok (Value.word (SolidCore.Solidity.Shared.subWord 0 word))
       | _ => Except.error RevertData.typeMismatch
 
 def enumFromUIntValue (maxValue : Word) : Value -> Except RevertData Value
   | Value.word word =>
-      if SharedSemantics.norm word <= SharedSemantics.norm maxValue then
+      if SolidCore.Solidity.Shared.norm word <= SolidCore.Solidity.Shared.norm maxValue then
         Except.ok (Value.word word)
       else
         Except.error RevertData.enumConversion
   | Value.int word =>
-      let signed := SharedSemantics.signedValue word
+      let signed := SolidCore.Solidity.Shared.signedValue word
       if signed < 0 then
         Except.error RevertData.enumConversion
-      else if Int.ofNat (SharedSemantics.norm maxValue) < signed then
+      else if Int.ofNat (SolidCore.Solidity.Shared.norm maxValue) < signed then
         Except.error RevertData.enumConversion
       else
         Except.ok (Value.word word)
@@ -5031,17 +5031,17 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.contractAddress name =>
       Except.ok
         (Value.word
-          (SharedSemantics.Call.namedWordAt
+          (SolidCore.Solidity.Shared.Call.namedWordAt
             context.contractAddresses name))
   | Expr.contractCreationCode name =>
       Except.ok
         (Value.bytes
-          (SharedSemantics.Call.namedBytesAt
+          (SolidCore.Solidity.Shared.Call.namedBytesAt
             context.contractCreationCodes name))
   | Expr.contractRuntimeCode name =>
       Except.ok
         (Value.bytes
-          (SharedSemantics.Call.namedBytesAt
+          (SolidCore.Solidity.Shared.Call.namedBytesAt
             context.contractRuntimeCodes name))
   | Expr.calldata => Except.ok (Value.bytes (context.calldata.map normByte))
   | Expr.msgSig => Except.ok (Value.word (calldataSelectorWord context.calldata))
@@ -5828,19 +5828,19 @@ def Expr.evalWithRuntime (context : Context) :
   | runtime, Expr.contractAddress name =>
       Except.ok
         ( Value.word
-            (SharedSemantics.Call.namedWordAt
+            (SolidCore.Solidity.Shared.Call.namedWordAt
               context.contractAddresses name)
         , runtime )
   | runtime, Expr.contractCreationCode name =>
       Except.ok
         ( Value.bytes
-            (SharedSemantics.Call.namedBytesAt
+            (SolidCore.Solidity.Shared.Call.namedBytesAt
               context.contractCreationCodes name)
         , runtime )
   | runtime, Expr.contractRuntimeCode name =>
       Except.ok
         ( Value.bytes
-            (SharedSemantics.Call.namedBytesAt
+            (SolidCore.Solidity.Shared.Call.namedBytesAt
               context.contractRuntimeCodes name)
         , runtime )
   | runtime, Expr.calldata =>
@@ -6445,19 +6445,19 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
           | Expr.contractAddress name =>
               Except.ok
                 ( Value.word
-                    (SharedSemantics.Call.namedWordAt
+                    (SolidCore.Solidity.Shared.Call.namedWordAt
                       context.contractAddresses name)
                 , runtime )
           | Expr.contractCreationCode name =>
               Except.ok
                 ( Value.bytes
-                    (SharedSemantics.Call.namedBytesAt
+                    (SolidCore.Solidity.Shared.Call.namedBytesAt
                       context.contractCreationCodes name)
                 , runtime )
           | Expr.contractRuntimeCode name =>
               Except.ok
                 ( Value.bytes
-                    (SharedSemantics.Call.namedBytesAt
+                    (SolidCore.Solidity.Shared.Call.namedBytesAt
                       context.contractRuntimeCodes name)
                 , runtime )
           | Expr.calldata =>
@@ -8306,7 +8306,7 @@ structure TerminalEvaluationObservation where
   recipient? : Option Word := none
   recipientRuntime? : Option RuntimeObservation := none
   selfdestructRecord? :
-    Option SharedSemantics.Account.SelfdestructRecord := none
+    Option SolidCore.Solidity.Shared.Account.SelfdestructRecord := none
   result? : Option ResultObservation := none
   revertData? : Option RevertData := none
   status : TerminalEvaluationStatus
@@ -8541,7 +8541,7 @@ structure EventEmissionObservation where
   name : String
   values : List Value
   event? : Option Event := none
-  logEntry? : Option SharedSemantics.Log.Entry := none
+  logEntry? : Option SolidCore.Solidity.Shared.Log.Entry := none
   outputRuntime? : Option RuntimeObservation := none
   error? : Option RevertData := none
   deriving Repr
@@ -8575,7 +8575,7 @@ def Runtime.emitEvent (context : Context)
           Except.ok
             { runtime with
               state := { runtime.state with
-                events := SharedSemantics.Log.append
+                events := SolidCore.Solidity.Shared.Log.append
                   runtime.state.events event } }
       | none => Except.error RevertData.typeMismatch
   | none => Except.error RevertData.typeMismatch
@@ -8784,7 +8784,7 @@ def Stmt.observeTerminalEvaluation (context : Context) (runtime : Runtime)
                   TerminalEvaluationStatus.selfdestructRecipientTypeMismatch }
           | Except.ok recipient =>
               let record :=
-                SharedSemantics.Account.selfdestructRecord
+                SolidCore.Solidity.Shared.Account.selfdestructRecord
                   context.evmVersion context.createdInTransactionAccounts
                   context.self recipient
               let runtime'' :=
@@ -12001,7 +12001,7 @@ def defaultBoolResult : Option Result :=
 def signedArithmeticExample : Stmt :=
   Stmt.block
     [ Stmt.varDecl Ty.int256 "x"
-        (some (Expr.intWord (SharedSemantics.signedToWord (-5))))
+        (some (Expr.intWord (SolidCore.Solidity.Shared.signedToWord (-5))))
     , Stmt.varDecl Ty.int256 "y" (some (Expr.intWord 2))
     , Stmt.returnValues
         [ Expr.div (Expr.var "x") (Expr.var "y")
@@ -12015,7 +12015,7 @@ def signedArithmeticResult : Option Result :=
 def signedNegOverflowExample : Stmt :=
   Stmt.block
     [ Stmt.varDecl Ty.int256 "x"
-        (some (Expr.intWord SharedSemantics.halfWordModulus))
+        (some (Expr.intWord SolidCore.Solidity.Shared.halfWordModulus))
     , Stmt.returnValues [Expr.unary UnaryOp.neg (Expr.var "x")] ]
 
 def signedNegOverflowResult : Option Result :=
@@ -12025,7 +12025,7 @@ def signedNegOverflowResult : Option Result :=
 def uncheckedSignedNegWrapExample : Stmt :=
   Stmt.block
     [ Stmt.varDecl Ty.int256 "x"
-        (some (Expr.intWord SharedSemantics.halfWordModulus))
+        (some (Expr.intWord SolidCore.Solidity.Shared.halfWordModulus))
     , Stmt.unchecked
         (Stmt.returnValues [Expr.unary UnaryOp.neg (Expr.var "x")]) ]
 
