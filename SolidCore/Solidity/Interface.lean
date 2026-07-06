@@ -17653,12 +17653,12 @@ def Expr.storageLayoutBaseEvalAllowed : Expr -> Bool
 def Expr.evalLayoutBaseCore? (expr : Expr) : Option Word := do
   if Expr.storageLayoutBaseEvalAllowed expr then
     let core ← Expr.toCore? [] expr
-    match SolidCore.Solidity.Source.Expr.eval
+    match SolidCore.Solidity.Source.Expr.evalWithRuntimeByContext
+        core
         SolidCore.Solidity.Source.Context.empty
         (SolidCore.Solidity.Source.Runtime.ofState
-          SolidCore.Solidity.Source.State.empty)
-        core with
-    | Except.ok (SolidCore.Solidity.Source.Value.word value) => some value
+          SolidCore.Solidity.Source.State.empty) with
+    | Except.ok (SolidCore.Solidity.Source.Value.word value, _) => some value
     | _ => none
   else
     none
@@ -19289,8 +19289,8 @@ def CoreValue.asWordPair? (value : CoreValue) : Option (Word × Word) :=
 
 def CoreExpr.evalWord? (context : CoreContext) (runtime : CoreRuntime)
     (expr : CoreExpr) : Option Word :=
-  match SolidCore.Solidity.Source.Expr.eval context runtime expr with
-  | Except.ok value => CoreValue.asWord? value
+  match SolidCore.Solidity.Source.Expr.evalWithRuntimeByContext expr context runtime with
+  | Except.ok (value, _) => CoreValue.asWord? value
   | Except.error _ => none
 
 def CoreExpr.evalWordInEmptyContext? (expr : CoreExpr) : Option Word :=

@@ -266,3 +266,31 @@ witness corpus. Method and lessons:
 
 Full corpus replay green: `forge_interpreter_compare=pass`, `cases=98`,
 `paired_cases_passed=yes`. Storage-layout machinery untouched (Phase 5 needs it).
+
+## 2026-07-06 — Phase 3d: evaluator consolidation (one expression evaluator)
+
+A Fable review agent audited Phases 1–4 (confirmed the `resultState` and
+choke-point extractions definitionally exact, zero dangling refs, all
+manifest-referenced witnesses resolve) and **caught a plan error**: my earlier
+handoff note said to delete `evalWithRuntimeOrderFuel`, but that is the *engine*
+of the kept evaluator (`evalWithRuntimeByContext → evalWithRuntimeOrder →
+evalWithRuntimeOrderFuel`). Deleting it would have broken the build. Corrected.
+
+Consolidation executed:
+- Ported the 5 remaining call sites off the old generations to
+  `evalWithRuntimeByContext` (same `Except (Value × Runtime)` shape): the 3
+  `value:`/`gas:` call-option sites in `Stmt.eval` (siblings already used
+  ByContext — an unfinished migration) and the 2 pure constant-eval sites in
+  `Interface.lean` (`Expr.evalLayoutBaseCore?` and `CoreExpr.evalWord?`, both over
+  `Context.empty`/`State.empty`; projecting `.1` of the pair).
+- Deleted the two dead old expression-evaluator families: gen-1
+  (`Expr.eval`/`Expr.evalList` mutual) with its old `LValue.read/write/
+  writeContainer/applyIncDec` + `LValues.writeTuple?` helpers (which called gen-1
+  via `idx.eval` and had no kept callers), and gen-2 (`Expr.evalWithRuntime`/
+  `evalListWithRuntime`/`memoryRefOrValueWithRuntime`/`resolveLValueWithRuntime`
+  mutual). Kept: `Value.oneLike?` (used by the kept `ResolvedLValue.applyIncDec`),
+  all `ResolvedLValue.*`, and the entire `...Order`/`...OrderFuel`/`...ByContext`
+  engine. Build green confirms nothing kept referenced the deleted set.
+- Per the roadmap, a divergence at the ported sites would be a latent bug to pin;
+  the full replay is the arbiter (the call-option and erc7201-layout sites are the
+  ones to watch). Result recorded on completion.

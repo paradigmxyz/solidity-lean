@@ -46,6 +46,55 @@ shape where that future project can start without re-plumbing.
    intentional delta for pruned observation-only assertions).
 8. Known semantic gaps are recorded in this file, not silently absent.
 
+## Execution progress (as of 2026-07-06)
+
+Reviewed mid-run. Each completed phase was verified with a full green replay
+(`forge_interpreter_compare=pass`, `cases=98`, `paired_cases_passed=yes`) and
+committed; details and every non-obvious choice are in `docs/DECISIONS.md`.
+
+| Phase | Status |
+| --- | --- |
+| 1 — substrate unification | **Done** (Lean v4.28.0, `danrobinson/EVMYulLean @ 3c5c44a6`; local UInt256 shim + nethermind submodule deleted; pure Keccak kept as repo-owned with `lake exe keccakParity` byte-parity witness against the pinned FFI hash). |
+| 2 — shared interaction package | **Done** (sibling `../evm-interaction`, byte-identical extraction of `EvmCompiler.Simulation.{Interaction,OpenWorld,Outcome}`; `scripts/check_shared_interaction_hashes.py` guards drift; bridge module `SolidCore/Solidity/Interaction.lean`). |
+| 3a — witnesses out | **Done** (`SolidCore/Witness/`). |
+| 3b — rename + AST split | **Done** (`SolidCore.Solidity`, `Ast.lean`; three-sided rename). |
+| 3c — SharedSemantics folded | **Done** (`SolidCore.Solidity.Shared`, single `lean_lib SolidCore`). |
+| 4 — observation layer deleted | **Done** (commit `6c1b8d9`; ~12.2k lines removed; assertion delta 420 → 419 enumerated in `docs/phase4-assertion-delta.md`; full replay green). |
+| 3d — evaluator consolidation | **Not started** (intentionally reordered after Phase 4; see sharpened plan in Phase 3 specifics below). |
+| 5 — interaction-monad boundary | **Not started** (see added notes in Phase 5 specifics). |
+| 6 — docs/freeze | **Not started**. |
+
+Review findings on the completed work (2026-07-06):
+
+- The two dual-use choke points were extracted correctly: the old
+  `Context.observe{LowLevelCall,ContractCreation}Resolution` computed
+  `.result` as exactly `lookup… | some r => r | none => failedRequest …`,
+  the interpreter consumed only `.result`, and the new
+  `Context.lowLevelCallResult` / `Context.contractCreationResult`
+  (`Interpreter.lean` ~1868/1877) are that computation verbatim.
+- The `CallResult.resultState` re-expression is definitionally identical to
+  the deleted `(CallResult.observe self).state.externalInteractions`: the old
+  `State.observe`/`observeEffects` copied `externalInteractions` verbatim and
+  did not depend on `self` for that field; `resultState` projects the same
+  `State` in both `returned`/`reverted` arms.
+- A full sweep found zero dangling observation references (only historical
+  doc-comments and unrelated local names); all 119 manifest-referenced
+  witness defs resolve.
+- The `abi-malformed` eval #3 drop is defensible (the calldata-driven
+  constructor path existed only inside the observe layer; plain
+  `constructContract*` take decoded `Value` args and creations are
+  environment-answered). Noted residue: that eval also covered
+  dirty-static-component ABI cleanup (fixed-array/pair second element with
+  dirty high bits) at the decode boundary. If desired, that slice can be
+  restored later as a plain decoder-level assertion via
+  `ABI.decodeFunctionArgsStrict?` — restoring a previously-asserted check,
+  not new coverage — at Phase 6 discretion.
+- One correction to the recorded 3d plan (in `docs/DECISIONS.md`'s handoff
+  entry): the deletable region is **not** "~5024–7279", and
+  `Expr.evalWithRuntimeOrderFuel*` is **not** an old generation — it is the
+  engine the kept `evalWithRuntimeByContext`/`…Order` wrappers call. See the
+  corrected block map in Phase 3 specifics.
+
 ## Decisions already made
 
 - **Substrate**: match `evm-compiler` exactly (Lean v4.28.0,
@@ -516,6 +565,33 @@ need nothing but each other's ordering). End the run with a summary entry in
   autonomously with the corpus as arbiter: pin the divergence with a
   focused lane, adopt whichever behavior matches Forge/pinned-solc, and
   log the divergence and resolution in `docs/DECISIONS.md`.
+- **Phase 3d corrected block map (verified 2026-07-06, post-Phase-4 line
+  numbers in `SolidCore/Solidity/Interpreter.lean`).** KEEP: the
+  `readRaw`/`ResolvedLValue.read` mutual (~5188–5219; `readRaw` is called
+  from the kept engine at ~6844), the `ResolvedLValue.*` write/incdec defs
+  (~5221–5348), the `orderFuel` measure mutual (~5921–6021; used by the
+  kept wrappers), the `evalWithRuntimeOrderFuel` engine mutual
+  (~6023–6873), and the `…Order`/`…ByContext` wrappers (~6875–6935) —
+  `evalWithRuntimeOrderFuel` is the *engine* of the kept family, not an
+  old generation. DELETE (after porting): the gen-1 `Expr.eval` mutual
+  (~4618–5007), its only clients the `LValue.read/write/writeContainer/
+  applyIncDec`/`LValues.writeTuple?` helpers (~5009–5188; zero callers
+  elsewhere, verified), and the gen-2 `Expr.evalWithRuntime`/
+  `memoryRefOrValueWithRuntime` mutual (~5349–5919; only external callers
+  are the 3 sites below). Call sites to port first: (i) 3 sites inside
+  `Stmt.eval`'s `tryExternalCall` arm (~7995/8014/8019) where `valueExpr`
+  and the gas-second branch still use gen-2 `evalWithRuntime` while the
+  sibling operands already use `evalWithRuntimeByContext` — an unfinished
+  earlier migration; port to `evalWithRuntimeByContext` (same
+  `Except RevertData (Value × Runtime)` shape); (ii) 2 pure constant-eval
+  sites in `Interface.lean` (`Expr.evalLayoutBaseCore?` ~17656,
+  `CoreExpr.evalWord?`/`evalWordInEmptyContext?` ~19292) using gen-1
+  `Expr.eval` over `Context.empty` — port to `evalWithRuntimeByContext`
+  with the same empty context/runtime and project the value component
+  (these feed storage-layout base slots, e.g. erc7201, so any divergence
+  changes accepted layouts: corpus is the arbiter, pin first). Sequencing:
+  port all 5 sites, `lake build`, delete the three dead regions in the
+  same commit, then a single full replay.
 
 ### Phase 4 specifics
 
@@ -570,6 +646,46 @@ need nothing but each other's ordering). End the run with a summary entry in
   regresses more than ~2×, implement the fused `run` (environment applied
   during evaluation) and check it against the tree-then-fold semantics on
   the corpus.
+- **Added after the 2026-07-06 review** (with Phase 4 landed, the choke
+  points are now the plain functions `Context.lowLevelCallResult` /
+  `Context.contractCreationResult`, `Interpreter.lean` ~1868/1877; those
+  bodies are exactly what becomes request emission):
+  - **Fail-open fallback must not survive conversion.** Today an
+    unscripted request falls through `lookup… = none` to
+    `failedRequest …` (the call observably fails but execution
+    continues). Scripted responders are fail-closed. During sub-step (2),
+    every request the replay actually sees must get an *explicit*
+    responder entry — including intentional-failure ones derived from the
+    old fallback — so that "fixture intends this call to fail" and
+    "fixture never anticipated this request" become distinguishable.
+    Enumerate any fixture that was silently relying on the fallback in
+    `docs/DECISIONS.md`.
+  - **Mechanical conversion default: `postWorld` := the request's sent
+    world** (unchanged). Then fail-closed re-projection is a no-op on
+    every existing fixture and expectations cannot change. Only a fixture
+    that genuinely models external storage mutation/reentrancy needs a
+    real `postWorld` diff (none is known to today).
+  - **Checkpoint (1) matchers ignore the world snapshot** (match on
+    request fields only), since the snapshot encoding is new code with no
+    oracle. Before checkpoint (2), self-check the layout encoding
+    `E : TypedStorage → WordStorage` in isolation: build it as a
+    standalone pure function over the existing
+    `StorageLayout`/`Context.storageSlot?`/packing machinery, and verify
+    the echo-world round trip (responder returns the sent world;
+    re-projection must keep the typed state unchanged) across the corpus.
+  - **Fuel exhaustion today is `Stmt.eval`'s `fuel = 0 → none`** (Option).
+    The distinguished failure constructor replaces that `none`, not just
+    the outer entry-point wrappers.
+  - **Minimize manifest churn.** ~119 witness defs / 419 evals reference
+    the current entry-point shapes. Keep the existing `?`-named
+    Option-returning entry points as thin adapters over the
+    Interaction-returning ones through sub-steps (1)–(2), then rewrite the
+    manifest exprs mechanically in one commit at sub-step (3) (eval count
+    unchanged), rather than dribbling manifest edits through the phase.
+  - Fixture `LowLevelCallResult`/`ContractCreationResult` records map to
+    `CallResponse`/`CreateResponse`; any field with no representation on
+    the shared side (or vice versa) is recorded per the
+    partial-conversion policy above, not papered over.
 
 ### Autonomous fallback policies (formerly stop-and-ask)
 
