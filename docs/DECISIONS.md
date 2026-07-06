@@ -591,3 +591,31 @@ Deferred limitation recorded here and in `ROADMAP.md`'s gap registry: the emitte
 mismatch analogous to `gasleft` erasure, resolved at the future lowering.
 
 Build + smoke green.
+
+## 2026-07-06 — Phase 5 stage 1d: precompile builtins emit (open-world staticcalls)
+
+`ecrecover`/`sha256`/`ripemd160` are, in the EVM, a `STATICCALL` to address
+1/2/3 — ordinary external calls, not a residue family. Their evaluator sites now
+emit `Query.external default (.call request)` via a new `emitPrecompileWord`
+helper (`kind := .staticcall`, `recipient/codeAddress := Precompile.address kind`,
+`calldata := input`, `value := 0`, `gas? := none`), decoding the output word with
+`Precompile.outputWord?` — exactly what `lookupPrecompileOutputWord?` did inline.
+`keccak256` is the KECCAK256 opcode (computed in-EVM), so it stays local — no
+query.
+
+The result is computed **in the responder**: `answerCall` already reaches these
+rows — `LowLevelCallResult` and `Precompile.Result` are the same type
+(`Call.Result ExternalCallKind`), and `answerCall → lookupLowLevelCall? →
+Call.Result.lookup? context.lowLevelCallResults` reads the very rows
+`Precompile.lookup?` keyed (kind=staticcall, target=address, calldata=input,
+value=0, gas?=none), resolved through the existing exact-gas-first-then-no-gas
+fallback. No `answerCall` extension and no fixture-row change were needed.
+
+The two converted sites (`Expr.externalHash`, `Expr.ecrecover`) leave
+`Context.ecrecoverAt`, `ExternalHashKind.lookup?`, `lookupPrecompileOutputWord?`,
+and `lookupPrecompileCall?` unused on the execution path; they still read
+`context.lowLevelCallResults` and are deleted at stage 3 with the oracle fields.
+Required before stage 3 (they blocked deleting the field) and for the eventual
+ForwardRel composition (the Yul side emits these precompile staticcalls).
+
+Build + smoke green.

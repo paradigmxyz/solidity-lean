@@ -1939,6 +1939,21 @@ def emitLowLevelCall (context : Context) (kind : LowLevelCallKind)
     (fun response =>
       .done (.ok (decodeCallResponse response kind target calldata value gas?)))
 
+/-- Emit a precompile builtin (ecrecover/sha256/ripemd160) as a `STATICCALL` to
+    address 1/2/3 and decode its 32-byte output word. In the EVM these builtins
+    ARE ordinary external calls (a staticcall to the precompile address), so they
+    emit `Query.external` like any call; the deterministic result is computed in
+    the responder (`answerCall` → `lookupLowLevelCall?`, which reads the same
+    oracle rows `Precompile.lookup?` keyed). Mirrors `Precompile.outputWord?`: a
+    failed call or short output yields `none`. `keccak256` is the KECCAK256
+    opcode, computed in-EVM, so it stays local — no query. -/
+def emitPrecompileWord (context : Context)
+    (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte) :
+    SolI (Option Word) := do
+  let result ← emitLowLevelCall context LowLevelCallKind.staticcall
+    (SolidCore.Solidity.Shared.Precompile.address kind) input 0 none
+  pure (SolidCore.Solidity.Shared.Precompile.outputWord? result)
+
 /-- Source-canonical initCode for a create: 32-byte big-endian UTF-8-name
     length ‖ name bytes ‖ constructor args. The source semantics creates by
     contract *name* (pre-compilation; fixtures key the oracle by name and do
@@ -5493,7 +5508,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  match kind.lookup? context bytes with
+                  match ← emitPrecompileWord context kind.precompileKind bytes with
                   | some hash => pure (Value.word hash, runtime')
                   | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -5507,8 +5522,10 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let v ← vValue.expectWord
                   let r ← rValue.expectWord
                   let s ← sValue.expectWord
-                  let address := context.ecrecoverAt digest v r s
-                  pure (Value.word address, runtime')
+                  let address ← emitPrecompileWord context
+                    SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+                    (SolidCore.Solidity.Shared.Precompile.ecrecoverInput digest v r s)
+                  pure (Value.word (address.getD 0), runtime')
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.tuple exprs => do
               let (values, runtime') ←
