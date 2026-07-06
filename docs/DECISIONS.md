@@ -230,3 +230,39 @@ Phase 5 (external world as the shared interaction monad) and Phase 6
 
 The repository is left green and committed at Phase 3c. `../evm-compiler` was
 never modified. `../evm-interaction` was created and committed.
+
+## 2026-07-06 — Phase 4 executed (observation layer deleted), green
+
+Deleted all `*Observation` structures + `observe*` walkers (~294 declaration
+blocks, ~12k lines) from `ABI.lean`/`Interface.lean`/`Interpreter.lean` and the
+witness corpus. Method and lessons:
+
+- **Declaration-level deletion, not line-range.** A parser removed whole
+  top-level blocks whose name/text matched the observation pattern. No
+  observation code was inside a *mixed* mutual block, so this was clean.
+- **Pattern breadth matters.** The first pass required a word boundary after
+  "Observation" and so missed `*ObservationStatus`/`*ObservationBoundary*` names
+  and `.observe` (lowercase) methods; broadened to match "Observation" anywhere
+  and `\.observe\b`.
+- **Dual-use choke points.** `observeLowLevelCallResolution` /
+  `observeContractCreationResolution` computed the real `.result` consumed by the
+  live `SharedPrimitiveRequest.eval`; extracted plain
+  `Context.lowLevelCallResult` / `Context.contractCreationResult` first (faithful
+  copies of the `.result` match), then deleted the observe wrappers.
+- **Dead-aggregator fallout.** Deleting observation defs orphaned 5 surviving
+  witness aggregators that only combined them (`checkedSourceSolidityCoreSemanticsMatch`
+  etc.). A transitive-broken sweep (delete surviving witness defs that reference a
+  deleted name) removed exactly those 5, with a safety assert that no
+  manifest-referenced def was caught. (Scoped to broken defs — did NOT garbage-
+  collect the whole unreachable witness corpus, which stays in scope for the
+  frozen regression suite.)
+- **Manifest reclassification (420 → 419).** See `docs/phase4-assertion-delta.md`.
+  The subtle one: 8 evals read the external-call transcript via
+  `(CallResult.observe self).state.externalInteractions`. `externalInteractions`
+  is a real `State` field and the deleted `State.observeEffects` copied it
+  verbatim (no filtering by `self`), so this was faithfully re-expressed with a
+  new plain accessor `CallResult.resultState : CallResult → State`. These are the
+  very transcripts Phase 5 will formalize as the `Query` sequence.
+
+Full corpus replay green: `forge_interpreter_compare=pass`, `cases=98`,
+`paired_cases_passed=yes`. Storage-layout machinery untouched (Phase 5 needs it).

@@ -496,12 +496,6 @@ structure AbiCallResult where
   state : State
   deriving Repr
 
-structure AbiCallObservation where
-  success : Bool
-  output : Bytes
-  state : StateObservation
-  deriving Repr
-
 inductive AbiResultEncodingMode where
   | returned
   | reverted
@@ -519,50 +513,6 @@ inductive AbiDispatchKind where
   | missing
   deriving Repr, BEq
 
-structure AbiDispatchObservation where
-  kind : AbiDispatchKind
-  selector? : Option Word
-  selectedFunctionName? : Option String
-  selectedSelector? : Option Word
-  decodedArgs? : Option (List Value)
-  deriving Repr
-
-structure AbiResultEncodingObservation where
-  mode : AbiResultEncodingMode
-  sourceResult : CallObservation
-  returnTys : List Ty
-  expectedSuccess : Bool
-  encodedOutput : Bytes
-  abiResult : AbiCallObservation
-  deriving Repr
-
-structure AbiEntryInputObservation where
-  kind : AbiEntryKind
-  fuel : Nat
-  self : Word
-  sender : Word
-  value : Word
-  calldata : Bytes
-  dispatch : AbiDispatchObservation
-  baseContext : ContextObservation
-  callContext : ContextObservation
-  submittedState : StateObservation
-  executionState : StateObservation
-  deriving Repr
-
-structure AbiEntryObservation where
-  input : AbiEntryInputObservation
-  functionEntry? : Option FunctionEntryObservation := none
-  result? : Option AbiCallObservation := none
-  resultEncoding? : Option AbiResultEncodingObservation := none
-  deriving Repr
-
-def AbiCallResult.observe (result : AbiCallResult) (self : Word) :
-    AbiCallObservation :=
-  { success := result.success
-    output := normalizeBytes result.output
-    state := result.state.observe self }
-
 def encodeReturnOutputForDispatch? (dispatchKind : AbiDispatchKind)
     (returns : List BindingDecl) (values : List Value) :
     Option Bytes :=
@@ -572,35 +522,6 @@ def encodeReturnOutputForDispatch? (dispatchKind : AbiDispatchKind)
       [{ ty := Ty.bytesCalldata, name := _ }], [Value.bytes bytes] =>
       some (normalizeBytes bytes)
   | _, _, _ => encodeValues? (returns.map BindingDecl.ty) values
-
-def AbiResultEncodingObservation.fromFunctionEntry?
-    (contract : Contract) (dispatchKind : AbiDispatchKind)
-    (entry : FunctionEntryObservation)
-    (abiResult : AbiCallObservation) :
-    Option AbiResultEncodingObservation := do
-  let sourceResult ← entry.result?
-  match sourceResult.mode with
-  | CallExitMode.returned => do
-      let encoded ←
-        encodeReturnOutputForDispatch?
-          dispatchKind entry.input.returns sourceResult.returnValues
-      some
-        { mode := AbiResultEncodingMode.returned
-          sourceResult := sourceResult
-          returnTys := entry.input.returns.map BindingDecl.ty
-          expectedSuccess := true
-          encodedOutput := encoded
-          abiResult := abiResult }
-  | CallExitMode.reverted => do
-      let revert ← sourceResult.revertData?
-      let encoded ← Contract.encodeRevertData? contract revert
-      some
-        { mode := AbiResultEncodingMode.reverted
-          sourceResult := sourceResult
-          returnTys := entry.input.returns.map BindingDecl.ty
-          expectedSuccess := false
-          encodedOutput := encoded
-          abiResult := abiResult }
 
 def AbiCallResult.clearTransient (result : AbiCallResult) : AbiCallResult :=
   { result with state := result.state.clearTransient }
@@ -641,52 +562,6 @@ def FunctionDef.encodeFallbackOutput? (function : FunctionDef)
   | [{ ty := Ty.bytesCalldata, name := _ }], [Value.bytes bytes] =>
       some (normalizeBytes bytes)
   | _, _ => encodeValues? (function.returns.map BindingDecl.ty) values
-
-def Contract.observeFallbackDispatch (contract : Contract)
-    (selector? : Option Word) (calldata : Bytes) :
-    AbiDispatchObservation :=
-  match Contract.findFallback? contract with
-  | some function =>
-      { kind := AbiDispatchKind.fallback
-        selector? := selector?
-        selectedFunctionName? := some function.name
-        selectedSelector? := function.selector?
-        decodedArgs? := FunctionDef.fallbackArgs? function calldata }
-  | none =>
-      { kind := AbiDispatchKind.missing
-        selector? := selector?
-        selectedFunctionName? := none
-        selectedSelector? := none
-        decodedArgs? := none }
-
-def Contract.observeCalldataDispatch
-    (contract : Contract) (calldata : Bytes) : AbiDispatchObservation :=
-  let selector? := readSelector? calldata
-  match selector? with
-  | some selector =>
-      match contract.findFunctionBySelector? selector with
-      | some function =>
-          { kind := AbiDispatchKind.functionSelector
-            selector? := some selector
-            selectedFunctionName? := some function.name
-            selectedSelector? := function.selector?
-            decodedArgs? :=
-              decodeFunctionArgs? function (calldata.drop selectorBytes) }
-      | none =>
-          Contract.observeFallbackDispatch contract (some selector) calldata
-  | none =>
-      if calldata.isEmpty then
-        match Contract.findReceive? contract with
-        | some function =>
-            { kind := AbiDispatchKind.receive
-              selector? := none
-              selectedFunctionName? := some function.name
-              selectedSelector? := function.selector?
-              decodedArgs? := some [] }
-        | none =>
-            Contract.observeFallbackDispatch contract none calldata
-      else
-        Contract.observeFallbackDispatch contract none calldata
 
 def Contract.callContextAtWithBase (contract : Contract)
     (base : Context) (self sender value : Word) (calldata : Bytes) :
@@ -944,66 +819,6 @@ def AbiEntryKind.executionState (kind : AbiEntryKind) (state : State) :
   | AbiEntryKind.messageCall => state
   | AbiEntryKind.transaction => state.clearTransient
 
-def Contract.observeCalldataFunctionEntry? (kind : AbiEntryKind)
-    (fuel : Nat) (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) :
-    Option FunctionEntryObservation :=
-  let executionState := kind.executionState state
-  let context :=
-    Contract.callContextAtWithBase contract base self sender value calldata
-  let observeFunction :=
-    fun (function : FunctionDef) (args : List Value) =>
-      FunctionDef.observeCallEntry function FunctionEntryKind.ordinary
-        fuel context executionState args self
-  match readSelector? calldata with
-  | some selector =>
-      match contract.findFunctionBySelector? selector with
-      | some function => do
-          let args ←
-            decodeFunctionArgs? function (calldata.drop selectorBytes)
-          some (observeFunction function args)
-      | none =>
-          match Contract.findFallback? contract with
-          | some function => do
-              let args ← FunctionDef.fallbackArgs? function calldata
-              some (observeFunction function args)
-          | none => none
-  | none =>
-      if calldata.isEmpty then
-        match Contract.findReceive? contract with
-        | some function => some (observeFunction function [])
-        | none =>
-            match Contract.findFallback? contract with
-            | some function => do
-                let args ← FunctionDef.fallbackArgs? function calldata
-                some (observeFunction function args)
-            | none => none
-      else
-        match Contract.findFallback? contract with
-        | some function => do
-            let args ← FunctionDef.fallbackArgs? function calldata
-            some (observeFunction function args)
-        | none => none
-
-def Contract.observeCalldataEntryInput (kind : AbiEntryKind) (fuel : Nat)
-    (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) :
-    AbiEntryInputObservation :=
-  let submittedState := state.observe self
-  let executionState := (kind.executionState state).observe self
-  { kind := kind
-    fuel := fuel
-    self := SolidCore.Solidity.Shared.norm self
-    sender := SolidCore.Solidity.Shared.norm sender
-    value := SolidCore.Solidity.Shared.norm value
-    calldata := normalizeBytes calldata
-    dispatch := Contract.observeCalldataDispatch contract calldata
-    baseContext := base.observe
-    callContext :=
-      (Contract.callContextAtWithBase contract base self sender value calldata).observe
-    submittedState := submittedState
-    executionState := executionState }
-
 def Contract.callCalldataEntryAtFromWithContext? (kind : AbiEntryKind)
     (fuel : Nat) (contract : Contract) (base : Context) (state : State)
     (self sender value : Word) (calldata : Bytes) :
@@ -1015,45 +830,6 @@ def Contract.callCalldataEntryAtFromWithContext? (kind : AbiEntryKind)
   | AbiEntryKind.transaction =>
       Contract.callCalldataTransactionAtFromWithContext?
         fuel contract base state self sender value calldata
-
-def Contract.observeCalldataEntryAtFromWithContext (kind : AbiEntryKind)
-    (fuel : Nat) (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) :
-    AbiEntryObservation :=
-  let input :=
-    Contract.observeCalldataEntryInput
-      kind fuel contract base state self sender value calldata
-  let functionEntry? :=
-    Contract.observeCalldataFunctionEntry?
-      kind fuel contract base state self sender value calldata
-  let result? :=
-    (Contract.callCalldataEntryAtFromWithContext?
-      kind fuel contract base state self sender value calldata).map
-      (fun result => result.observe self)
-  { input := input
-    functionEntry? := functionEntry?
-    result? := result?
-    resultEncoding? := do
-      let entry ← functionEntry?
-      let result ← result?
-      AbiResultEncodingObservation.fromFunctionEntry?
-        contract input.dispatch.kind entry result }
-
-def Contract.observeCalldataCallAtFromWithContext (fuel : Nat)
-    (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) :
-    AbiEntryObservation :=
-  Contract.observeCalldataEntryAtFromWithContext
-    AbiEntryKind.messageCall fuel contract base state self sender value
-    calldata
-
-def Contract.observeCalldataTransactionAtFromWithContext (fuel : Nat)
-    (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) :
-    AbiEntryObservation :=
-  Contract.observeCalldataEntryAtFromWithContext
-    AbiEntryKind.transaction fuel contract base state self sender value
-    calldata
 
 end ABI
 end Source
