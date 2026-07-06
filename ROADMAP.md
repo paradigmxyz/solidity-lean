@@ -422,9 +422,16 @@ when picked up.
 
 ## Implementation notes for the executor (disambiguation)
 
-This section resolves decisions the phase descriptions leave open. When a
-situation arises that neither the phases nor these notes cover, **stop and
-ask** rather than inventing a design.
+This section resolves decisions the phase descriptions leave open. The run
+is **fully autonomous**: no decision waits on a human. When a situation
+arises that neither the phases nor these notes cover, take the most
+conservative behavior-preserving option, record what was decided and why in
+`docs/DECISIONS.md` (create it; one dated entry per decision), and continue.
+If a phase is genuinely stuck after serious attempts, record the blocker in
+`docs/DECISIONS.md` and move to the next phase that does not depend on it
+(dependencies: Phase 2 needs Phase 1; Phase 5 needs Phases 2–4; Phases 3–4
+need nothing but each other's ordering). End the run with a summary entry in
+`docs/DECISIONS.md`: phases completed, corpus status, every deviation.
 
 ### Hard rules
 
@@ -465,7 +472,8 @@ ask** rather than inventing a design.
   it to make local-ness explicit, and add a corpus-checked byte-parity
   witness against the pinned one — do not silently keep a shim.
 - Toolchain-downgrade fixes must be mechanical (syntax, elaborator quirks).
-  If a fix would change behavior, stop: pin a corpus lane first.
+  If a fix would change behavior, pin a corpus lane first, then fix, and
+  log it in `docs/DECISIONS.md`.
 - Delete in this phase: `EvmYul/` and `EvmYul.lean`, the `lean_lib EvmYul`
   target, `external/nethermind/` (submodule + `.gitmodules` entry).
 
@@ -484,7 +492,12 @@ ask** rather than inventing a design.
   copied **verbatim** — same namespaces, same declaration names — so the
   hash-check script (lives in this repo, reads `../evm-compiler` read-only)
   can compare byte-for-byte. If the closure drags in Yul/EVM semantics
-  files, stop and report the entanglement instead of extracting them.
+  files, do not extract those: narrow the package to what separates
+  cleanly, vendor the entangled remainder verbatim **inside this repo**
+  under the same hash-check, and log the entanglement in
+  `docs/DECISIONS.md`. If even the minimal package cannot be separated,
+  skip the sibling package entirely and vendor everything here with the
+  hash-check — the alphabet identity is what matters, not the packaging.
 
 ### Phase 3 specifics
 
@@ -499,8 +512,10 @@ ask** rather than inventing a design.
   (d) evaluator consolidation.
 - Evaluator consolidation: if switching a call site from an older evaluator
   generation to `evalWithRuntimeByContext` changes **any** corpus result,
-  halt that sub-step and report — that difference is a latent bug to pin,
-  not a porting detail to smooth over.
+  that difference is a latent bug, not a porting detail. Resolve it
+  autonomously with the corpus as arbiter: pin the divergence with a
+  focused lane, adopt whichever behavior matches Forge/pinned-solc, and
+  log the divergence and resolution in `docs/DECISIONS.md`.
 
 ### Phase 4 specifics
 
@@ -542,8 +557,11 @@ ask** rather than inventing a design.
   (request-matcher, response) pairs derived mechanically from the existing
   oracle tables, applied fail-closed — an unmatched or out-of-order request
   is a test failure with a diff of expected vs actual request. Expectations
-  must not change; a fixture whose oracle data cannot be expressed as a
-  consistent responder is a fixture bug to surface, not to patch around.
+  must not change. A fixture whose oracle data cannot be expressed as a
+  consistent responder is a fixture bug: correct the responder data
+  minimally so it is world-consistent while the paired Forge test remains
+  the authority on observable behavior, and log the inconsistency and the
+  correction in `docs/DECISIONS.md`.
 - Sub-step order, corpus replay after each: (1) introduce the monad and emit
   requests at the existing choke points, with a temporary
   replay-from-`Context` environment so fixtures run unmodified; (2) convert
@@ -553,16 +571,25 @@ ask** rather than inventing a design.
   during evaluation) and check it against the tree-then-fold semantics on
   the corpus.
 
-### Decisions that remain open (stop and ask)
+### Autonomous fallback policies (formerly stop-and-ask)
 
-- Anything requiring an edit to `evm-compiler` (e.g. the shared-package
-  closure turns out to be inseparable from frozen files beyond verbatim
-  copying).
-- Any corpus expectation that seems *wrong* (as opposed to
-  observation-only): pin it, report it, do not change it unilaterally.
-- Any place where the shared `Query`/`OpenWorld` types cannot represent
-  something the Solidity semantics needs to say — that is a design gap, not
-  something to work around with a local variant type.
+- **Something seems to require editing `evm-compiler`.** It never does for
+  this phase's purposes: fall back to verbatim vendored copies plus the
+  hash-check (see Phase 2 specifics). If a fallback still fails, log it and
+  defer that sub-goal; do not touch `../evm-compiler`.
+- **A corpus expectation seems wrong.** The pinned Forge/solc side is
+  ground truth for observable behavior. If the Lean side must change to
+  match Forge, that is an ordinary bug: pin, fix, log. If the *Forge-side*
+  expectation itself looks wrong, leave it untouched, keep the paired Lean
+  witness matching it, and log the suspicion in `docs/DECISIONS.md` for
+  human review — never edit both sides to a new agreed value.
+- **The shared `Query`/`OpenWorld` types cannot represent something the
+  Solidity semantics needs to say.** Never fork or locally extend the
+  shared types. Leave that specific construct on the old oracle path,
+  clearly marked (add it to the deferred-gap registry in this file with a
+  pointer to the code), convert everything else, and log it. Partial
+  conversion with an explicit, enumerated residue is the correct outcome;
+  an invented alphabet variant is not.
 
 ## Phase ordering and discipline
 
