@@ -69,8 +69,10 @@ Three consequences fix everything downstream:
 `Yul.InteractionSemantics.exec` layer. A Solidity→Yul step only has to reach a
 **Yul object** (dispatcher `Stmt` + function map, `EvmYul.Yul.Ast`); Solidus
 carries it the rest of the way. That is the single most important fact for
-sizing the future project: **we produce Yul, and inherit ~11 verified layers
-below it.**
+sizing the future project: **we produce Yul, and inherit Solidus's ~7 verified
+intermediate IRs below it** (Yul → Functions → Locals → Expressions → Structured
+→ TypedCfg → Assembly → Bytecode; enumerated in §3). But "produce Yul" is itself
+a tower, not one hop — see §3.
 
 ---
 
@@ -376,51 +378,190 @@ would quantify over them or discharge them then.
 
 ---
 
-## 3. Proposed horizontal layer map for a future Solidity→Yul lowering
+## 3. The Solidity→Yul lowering as a stratified tower of intermediate IRs
 
-Bottom-up (each layer a complete verified abstraction over the one below;
-adjacent same-observation `ForwardRel`, composed by `trans`). Layers **L0–L2 are
-imported from evm-compiler** — we build nothing below Yul.
+**Correction to an earlier draft of this section.** A prior version proposed a
+single new refinement layer ("elaborated `CoreContract` ⊑ Yul") for the whole
+lowering. That badly understates the work and is not how Solidus is built. The
+**composition seam** into `compile_correct` is indeed one new spine segment
+(Solidity-source ⊑ Yul, chained by `ForwardRel.trans`), but the **proof** of
+that segment must itself be a tower of intermediate IRs, each its own adjacent
+`ForwardRel`, to be tractable — exactly as Solidus decomposes the *smaller*
+Yul⊑EVM gap.
+
+### What Solidus actually does for the smaller (Yul→EVM) gap
+
+Verified by reading `../evm-compiler/EvmCompiler/`: `compile_correct`
+(`Correctness.lean:99`) is **not** a Yul⊑EVM one-step proof. It is the transitive
+composition (`ForwardRel.trans`, `Interaction.lean:2244`) of a chain of
+per-IR refinements, one directory each:
 
 ```
-(imported, frozen)  L0  Bytecode / gasful EVM.X          — compile_correct's target
-(imported, frozen)  L1  Assembly / TypedCfg / Structured / Expressions / Functions
-(imported, frozen)  L2  Canonical Yul  (Yul.InteractionSemantics.exec)
-                        ── the join point: our top layer must ForwardRel-refine this ──
-        TARGET      L3  Yul object  (EvmYul.Yul.Ast: dispatcher Stmt + function map)
-                        our lowering EMITS this; Solidus carries L3→L0
-
-        NEW LAYERS a Solidity→Yul lowering would build, top-down:
-
-  S4  Core Solidity contract   (CoreContract: flat FunctionDef list, word Expr/Stmt,
-                                explicit cleanups, precomputed layout/selectors)
-                                — anchored on the interpreter's SolI semantics
-      │  lowering S4→L3:  dispatch table → Yul dispatcher switch;
-      │                   each FunctionDef → Yul function (RE-INTRODUCING the
-      │                   function boundary lost to inlining — see D1);
-      │                   storage paths → slot arithmetic via the materialized E;
-      │                   structural values/bytes → memory layout;
-      │                   RevertData → revert bytes; events → logN.
-      │  done-rel: OpenWorld (storage/transient/balance/code) + output/revert bytes
-      │            + logs; queries identical (calls/creates/precompiles/gas).
-
-  S5  (optional) an intermediate "Yul-shaped Solidity" IR if S4→L3 is too big a
-      step — e.g. memory-explicit values first, then function-structured — so each
-      adjacent proof introduces ONE abstraction (memory layout; then dispatch).
-
-  ── above S4 (frontend, NOT part of the verified lowering spine) ──
-  Surface AST → TypeCheck (acceptance) → Elaboration → CoreContract.
-  Elaboration is an executable oracle; if the lowering theorem is stated over
-  CoreContract, elaboration correctness is a SEPARATE obligation (or the surface
-  is treated as trusted input, matching how Solidus treats solc's Yul emission).
+Yul (canonical)                Yul/InteractionSemantics.lean
+  ⊑ Functions                  Functions/Interaction*Preservation.lean   (hoist fns; stack-alloc layout)
+  ⊑ Locals                     Locals/InteractionPreservation.lean        (named locals → stack slots)
+  ⊑ Expressions                Expressions/InteractionPreservation.lean   (nested exprs → flat stack code)
+  ⊑ Structured                 Structured/Interaction*Preservation.lean   (block/branch/loop/switch → labels)
+  ⊑ TypedCfg                   TypedCfg/InteractionPreservation.lean       (structured → CFG + labels)
+  ⊑ Assembly                   Assembly/InteractionPreservation.lean       (CFG → instruction list; + gasless→gasful bridge)
+  ⊑ Bytecode / EVM.X           Assembly/InteractionBytecode.lean, GasfulBridge
 ```
 
-The key judgement: **S4 (the elaborated core) is the right top layer**, and it
-is *already in good shape* as an IR — with the one exception that the function
-boundary and recursion were dissolved by inlining before S4 exists. Whether to
-push a function-preserving representation up into S4 (recommendation **D1**) is
-the main architectural question the lowering project must answer, and the
-cheapest time to influence it is now.
+~7 intermediate IRs for a gap where **Yul already provides** words, memory,
+storage, keccak, and calls as primitives. Two structural lessons for us:
+- **Each seam introduces exactly one abstraction** and carries its **own
+  done-relation**, which grows more machine-specific downward: `Functions`
+  `StateOutcomeRel layout suffix` (stack layout appears), `Locals`/`Expressions`
+  `OutcomeRel baseStack`/locals-`Ctx`-keyed (stack slots appear), `TypedCfg`
+  `SegmentDoneRel` over CFG exit tokens (labels appear). The high, abstract
+  done-relations near the top compare *values*; the low ones compare *stacks and
+  layouts*. Same transcript throughout (`Query` alphabet is invariant).
+- Truncation (`OutOfFuel`) is threaded through every seam and reflected by each
+  `trans`'s `hReflect` — the discipline is uniform, one instrument per layer.
+
+### Why Solidity→Yul is a *larger* gap, and its tower is *taller*
+
+Solidity is much higher-level than Yul. Yul is not the problem to *implement*
+(it already has memory/storage/keccak/call builtins); the job is to **lay out
+high-level constructs onto those builtins** — and that layout decomposes into
+several independent abstractions, each of which wants its own IR and its own
+refinement to stay tractable. The elaborated `CoreContract` is **not the top of
+one short hop**; it is a partly-collapsed IR that a real tower would *un-collapse*
+into distinct layers. The realistic tower, top-down from `CoreContract` to a Yul
+object:
+
+```
+        (frontend, trusted or separately-verified — NOT the lowering spine)
+        Surface AST → TypeCheck (acceptance) → Elaboration → CoreContract
+
+  ── the new lowering spine: Solidity-source ⊑ Yul, decomposed ──
+
+  Sd  DISPATCH / OBJECT layer     CoreContract (flat FunctionDef list + selector table,
+                                   storage/event/error decls, immutables)
+      abstracts: the contract-as-callable — one public entry answering calldata.
+      seam Sd→Sc: selector table → Yul dispatcher `switch`; public fns → external
+                  entry wrappers (ABI decode args / encode returns around the call);
+                  receive/fallback arms; constructor → creation object.
+      done-rel: OpenWorld + exact output/revert bytes + logs (the TOP relation,
+                = the composition seam's done-rel; compares observable values, no layout).
+      size: MEDIUM. Mostly a table→switch structural map; the ABI wrappers are
+            shared with Sb. Hardest part is receive/fallback/constructor corner cases.
+
+  Sc  CALLING-CONVENTION / FUNCTION layer   functions with internal calls + params/returns
+      abstracts: the internal-function boundary and internal (possibly recursive) calls.
+      seam Sc→Sb: each Solidity internal function → a real Yul function; internal
+                  call → Yul function call; named returns / multiple returns → Yul
+                  return-var convention; modifier wrappers → caller/callee split.
+      done-rel: OpenWorld + return values (as words/memory refs) + control outcome
+                (normal/return/revert), quantified over the call graph by induction
+                on source fuel / the evaluation derivation.
+      size: LARGE and HARDEST — and today it has NOTHING to refine, because
+            elaboration has already INLINED internal calls and modifiers away
+            (fuel 64) before CoreContract exists (§2a, D1). This layer's source IR
+            must be RECONSTRUCTED (keep functions as functions upstream) or the
+            layer is impossible and recursion stays unsupported. See D1.
+
+  Sm  MEMORY-LAYOUT layer         structural values (tuple/array/bytes/string, memoryRef)
+      abstracts: aggregate values as regions of a flat byte memory.
+      seam Sm→(word/byte ops): structs/arrays → head/tail + length-prefix layout on
+                  Yul memory; free-memory-pointer discipline at 0x80; memoryRef →
+                  concrete offset; copy/allocation → mstore/mload sequences.
+      done-rel: value ≅ (region of the flat `ByteArray` memory) under a memory
+                invariant; final `memory`/`activeWords` match the Yul done-rel's
+                memory fields.
+      size: LARGE. Full translation layer — the interpreter's object-heap memory
+            (List (Nat × Value) with aliasing) does NOT correspond to Yul memory
+            at all, and the byte-shadow that would is DEAD (§4 hinder-M). New model,
+            new invariant, per-type layout proofs. Deliberately roadmap-deferred.
+
+  Sy  STORAGE-LAYOUT layer        typed storage paths (mappings/arrays/packing)
+      abstracts: typed field/mapping/array access as slot arithmetic + keccak.
+      seam Sy→(sload/sstore): storagePathRef → slot via the materialized encoding E
+                  (keccak(key‖slot), keccak(slot)+i, packed bit-ranges, short/long
+                  bytes); read/write/deep-clear → word ops.
+      done-rel: typed storage state ≅ word storage under E; = the OpenWorld storage
+                field. NEAR-IDENTITY on our side — storage is already word-addressed,
+                E already computed (needs materializing, P1).
+      size: SMALL–MEDIUM, the CHEAPEST seam. Our representation already lives at
+            the target. Mostly: lift E out (P1) + prove the per-access path = E.
+
+  Sx  ABI-CODEC layer             encode/decode of args/returns/revert/events
+      abstracts: values ↔ ABI byte strings (head/tail, dynamic offsets, selectors).
+      seam Sx→(byte/memory ops): encodeValues/decodeArgs → Yul ABI encode/decode
+                  builtins over memory; RevertData → error/panic/custom bytes;
+                  event fields → topics + data bytes.
+      done-rel: produced bytes byte-identical to Yul's; already computed here over
+                List Byte (bridge to ByteArray). Interlocks with Sm (codec writes
+                to the memory model) and Sd (dispatch uses the codec).
+      size: MEDIUM. The spec logic exists and is faithful; the work is relating it
+            to Yul's codec over the concrete memory model (so it rides on Sm).
+
+  Sk  ARITHMETIC / CONTROL layer  checked/unchecked word ops; if/for/while; require/revert
+      abstracts: (almost nothing — this is where we already ARE at Yul level).
+      seam Sk→Yul: BinaryOp → Yul builtin; checked guard → Yul overflow-check
+                  snippet + Panic; *Cleanup → Yul cleanup fn; structured control →
+                  Yul if/for/switch/break/continue/leave; Result(broke/continued/
+                  returned) → Yul control encoding.
+      done-rel: word-for-word equality; structured-control outcome match.
+      size: SMALLEST, near-1:1. Word ops are DEFINITIONALLY EvmYul.UInt256 (§2c);
+            checked = wrapping-builtin + explicit Panic = solc's own Yul shape;
+            control shapes line up with Yul's (and with Solidus's Structured layer).
+```
+
+These are not a strict linear stack — `Sm`, `Sy`, `Sx`, `Sk` are **largely
+orthogonal abstractions** that a real compiler applies together, and a proof
+engineer would sequence them as independent refinements (or bundle memory+ABI,
+since ABI encoding *targets* the memory model). `Sd`/`Sc` are the genuinely
+*vertical* ones (contract→functions→function bodies). A plausible ordering that
+keeps each adjacent theorem to one abstraction: **Sy (storage) and Sk
+(arith/control) first — cheap, our IR is already there — then Sx+Sm together
+(codec on memory), then Sc (calling convention), then Sd (dispatch/object) on
+top.** The composition seam's done-relation is `Sd`'s top relation (observable
+`OpenWorld` + bytes + logs); the internal seams' done-relations are progressively
+more concrete (memory offsets, slot arithmetic, stack-free but layout-explicit).
+
+### Where the elaborated CoreContract actually sits
+
+**Not at the top of a short hop — mid-tower, with some layers already collapsed
+and one prematurely destroyed.** Concretely:
+- CoreContract has **already applied Sy-input and Sk-input shape**: storage
+  access is explicit typed paths (good — Sy's source), arithmetic is explicit
+  word ops with cleanup nodes (good — Sk's source). For these seams the core is
+  a clean, aligned top IR.
+- CoreContract has **already partly collapsed Sm**: values are still structural
+  (`tuple/array/bytes`), so Sm's *source* is present — but memory is an object
+  heap, so there is representation work, not just a layout choice.
+- CoreContract has **destroyed Sc's source**: internal calls and modifiers are
+  inlined away and recursion is unrepresentable (§2a). The calling-convention
+  layer has **no IR to refine** unless a function-preserving representation is
+  kept upstream. This is the tower's structural break, not a detail.
+- CoreContract **is** roughly Sd's source (flat function list + selector table),
+  so the dispatch layer sits naturally on it.
+
+So the honest picture: the current core is a good **Sy/Sk/Sd** anchor, an
+**adequate-but-heap-mismatched Sm/Sx** anchor, and a **broken Sc** anchor. A
+real tower would either (a) re-introduce a function-structured IR above the
+current inlined core, or (b) explicitly scope the lowering to non-recursive
+internal calls and accept inlining — a stated fragment, which the
+verified-compiler discipline warns against doing silently.
+
+### Hardest seams (ranked)
+
+1. **Sc (calling convention / function boundary)** — hardest, and currently
+   *impossible on the existing IR* because the boundary is inlined away and
+   recursion is unrepresentable. Needs the source IR reconstructed (D1). Its
+   proof is the induction-on-source-fuel/derivation over the call graph — the
+   one place the skill insists you must not use an "all callees preserve"
+   oracle.
+2. **Sm (memory layout)** — full translation layer; the object-heap memory has
+   no correspondence to Yul's flat bytes, and the would-be byte model is dead
+   code. New model + invariant + per-type layout proofs. Interlocks with Sx.
+3. **Sx (ABI codec) on the memory model** — faithful spec exists, but relating
+   it to Yul's codec over concrete memory rides on Sm and touches the public
+   done-relation (revert/return bytes).
+
+Cheapest, by contrast: **Sy (storage)** and **Sk (arithmetic/control)** — our
+representation already lives at the Yul level for both.
 
 ---
 
@@ -542,23 +683,33 @@ storage seam de-risked early; otherwise it is a clean early task for the lowerin
 project. Recommend: **flag, lean toward deferring** unless storage is the first
 lowering layer.
 
-**D1 — Decide the function-boundary representation (hinder-D1) — DESIGN NOTE, not
-a refactor to execute now.** *Rationale:* this is the one deep mismatch. A
-faithful Yul lowering keeps Solidity internal functions as Yul functions and
-must support recursion; the current elaboration **inlines them away (fuel 64)
-before the core IR**, so the core cannot express recursion and has no function
-boundary to preserve. *Options:* (a) keep inlining and scope the lowering to
-non-recursive internal calls (a stated accepted-fragment — but the skill warns
-against silently shrinking scope); (b) add a core-level internal-call/function
-construct so S4 preserves the boundary, lowering it to Yul functions.
-*Recommendation:* **do NOT refactor now** — this is squarely the lowering
-project's central design decision and building it speculatively violates the
-roadmap's "no new speculative interfaces." But **record it now** (this doc + the
-roadmap's gap registry) as the #1 lowering-design question, because it also
-bounds what the current inlining-based semantics can ever claim (recursion is
-currently unsupported end-to-end, and inline-fuel exhaustion silently rejects
-deep call graphs — arguably itself a recorded semantic gap worth a lane).
-*Cost now:* zero (documentation). *Cost later:* large, and load-bearing.
+**D1 — The function-boundary gap destroys an entire tower layer's source IR —
+DESIGN NOTE, not a refactor to execute now.** *Rationale (sharpened per §3):*
+this is not merely "one deep mismatch" among the seams — it is the tower's
+**structural break**. The realistic Solidity→Yul tower has a dedicated
+**calling-convention layer Sc** (Solidity internal functions → real Yul
+functions; internal calls → Yul calls; modifiers → caller/callee split), whose
+entire *point* is to preserve and lower the function boundary, and whose
+correctness proof is the induction-on-source-fuel over the call graph. That
+layer needs a function-structured source IR to refine. The current elaboration
+**inlines internal calls and modifiers away (fuel 64) before `CoreContract`
+exists**, so Sc has **nothing to refine** and **recursion is unrepresentable**
+end-to-end (inline-fuel exhaustion → elaboration `none`, silently rejecting deep
+or recursive call graphs). Every other seam (Sy/Sk/Sm/Sx/Sd) has a viable source
+in the current core; Sc alone does not. *Options:* (a) keep inlining and scope
+the lowering to non-recursive internal calls — a *stated accepted-fragment*,
+which the verified-compiler discipline permits only if named in the theorem, not
+smuggled; (b) keep a function-structured IR **above** the inlined core (a new top
+layer that lowers to today's core by an inlining refinement, or replaces it) so
+Sc has a boundary to preserve. *Recommendation:* **do NOT build it now** —
+speculative construction violates the roadmap's "no new speculative interfaces,"
+and the right design belongs to the lowering project. But **record it now, as
+the #1 lowering-design question**, and additionally **treat the current
+recursion/deep-call-graph rejection as a candidate recorded semantic gap** (a
+paired lane would pin whether solc accepts programs this elaboration silently
+drops) — because that boundary limits what the *current* semantics can claim
+irrespective of any lowering. *Cost now:* zero (documentation). *Cost later:*
+large, load-bearing, and gating the hardest seam.
 
 **V3 — Evaluate collapsing the `unspecifiedOrders` scaffolding (vestigial-3).**
 *Rationale:* the latitude machinery (`callUnspecifiedResults`,
@@ -591,20 +742,56 @@ decide. *Now-vs-later:* low priority; harmless. Flag, likely defer. Anchors:
 
 ## 6. Summary
 
-**Layer map:** import Solidus's Yul→bytecode tower (L0–L2, frozen); **emit a Yul
-object (L3)**; add the new lowering layer **S4 = the elaborated `CoreContract`**
-(optionally an S5 memory/function intermediate), stated as a `ForwardRel`
-same-observation refinement of `Yul.InteractionSemantics.exec` and composed with
-`compile_correct` via `ForwardRel.trans`. The done-relation is `OpenWorld` +
-output/revert bytes + logs; the transcript is the shared `Query` alphabet; fuel
-exhaustion is the reflectable `outOfFuel` outcome.
+**Layer map (§3):** import Solidus's Yul→bytecode tower (frozen) — we emit a Yul
+object and inherit ~7 verified IRs below it. The Solidity→Yul gap is a **single
+composition seam** (Solidity-source ⊑ Yul, chained into `compile_correct` by
+`ForwardRel.trans`) whose **proof is its own stratified tower**, because
+Solidity→Yul is a *larger* semantic distance than the Yul→EVM gap Solidus itself
+decomposed into ~7 IRs. Ordered intermediate IRs (top-down from the elaborated
+core to Yul), each an adjacent `ForwardRel` with its own done-relation:
+- **Sd — dispatch/object**: selector table → Yul dispatcher `switch`. done-rel:
+  `OpenWorld` + output/revert bytes + logs (this *is* the composition seam's
+  top done-relation — observable values, no layout). MEDIUM.
+- **Sc — calling convention / function boundary**: internal fns → Yul functions,
+  internal calls → Yul calls, modifiers → caller/callee. done-rel: `OpenWorld` +
+  return values + control outcome, by induction on source fuel. **LARGE, HARDEST,
+  and currently has no source IR to refine (D1).**
+- **Sm — memory layout**: structural values/`bytes` → flat Yul memory + FMP +
+  head/tail. done-rel: value ≅ memory region under an invariant; final
+  `memory`/`activeWords` match. LARGE — full translation layer (our memory is an
+  object heap; the would-be byte model is dead).
+- **Sx — ABI codec**: encode/decode/dispatch → byte/memory ops. done-rel:
+  byte-identical bytes. MEDIUM, rides on Sm.
+- **Sy — storage layout**: typed paths/mappings/arrays/packing → slot arithmetic
+  via keccak (the materialized `E`). done-rel: typed store ≅ word store under `E`
+  = `OpenWorld` storage. SMALL–MEDIUM, near-identity on our side.
+- **Sk — arithmetic/control**: checked ops+Panic → Yul overflow snippets;
+  structured control → Yul control. done-rel: word equality + control match.
+  SMALLEST, near-1:1.
+The transcript is the shared `Query` alphabet at every seam; fuel exhaustion is
+the reflectable `outOfFuel` outcome each `trans` `hReflect` needs.
 
-**The semantics is already well-positioned:** word arithmetic is definitionally
-the EVM package's with solc-shaped checked guards; storage is word-addressed and
-solc-exact with real keccak; evaluation order is deterministic and
-Yul-compatible; external effects are already an interaction tree; fuel is a
-distinguished outcome. These are the expensive things to get right and they are
-right.
+**Which tower layers are already cheap vs face a full translation layer.** The
+earlier "well-positioned" framing was too flat — position varies sharply *by
+layer*:
+- **Cheap / already at the Yul level (aligned representation):** *Sy (storage)* —
+  storage is word-addressed, solc-exact, real keccak; *Sk (arithmetic/control)* —
+  word ops definitionally `EvmYul.UInt256`, checked = wrapping-builtin + explicit
+  Panic = solc's own Yul shape, structured control lines up. Deterministic
+  Yul-compatible evaluation order and the `outOfFuel` outcome make the shared
+  parts of *every* seam (transcript, truncation) well-defined. These are the
+  expensive-to-get-right primitives, and they are right.
+- **Full translation layer (representation mismatch):** *Sm (memory)* — the
+  object-heap memory has no correspondence to Yul's flat bytes and the would-be
+  byte model is dead code (a new model, invariant, and per-type layout proofs);
+  *Sx (ABI)* rides on it. *Sd (dispatch)* is a moderate structural map.
+- **Broken source (no IR to refine):** *Sc (calling convention)* — the function
+  boundary is inlined away and recursion is unrepresentable before the core
+  exists. This is the tower's structural break, not a wart.
+
+So the current core is a strong **Sy/Sk/Sd** anchor, an adequate-but-mismatched
+**Sm/Sx** anchor, and a **broken Sc** anchor — mid-tower, with layers collapsed
+and one prematurely destroyed, not the top of a single short hop.
 
 **Top 3–5 "do it now" refactorings:**
 1. **N1** — delete the ~14 dead observation-era classifier enums (second, smaller
@@ -614,10 +801,12 @@ right.
 3. **N3** — move in-file example defs to `Witness/` (no mixed-concern file).
 4. **N4** — fix `Ast.lean`'s import of `ABI.lean` (surface AST should not depend
    on the interpreter; keeps the core-first dependency floor clean).
-5. **D1 (record, don't build)** — flag the inlined-function-boundary /
-   unrepresentable-recursion mismatch as the #1 lowering-design question and a
-   candidate recorded semantic gap; **P1** (materialize the storage-layout `E`)
-   as an optional early de-risking, lean toward deferring.
+5. **D1 (record, don't build)** — the inlined-function-boundary /
+   unrepresentable-recursion mismatch destroys the source IR for the tower's
+   hardest layer (Sc, calling convention); record it as the #1 lowering-design
+   question **and** a candidate recorded semantic gap (recursion/deep-call-graph
+   silent rejection). **P1** (materialize the storage-layout `E`, the Sy artifact)
+   as optional early de-risking, lean toward deferring.
 
 Everything genuinely lowering-shaped (memory layout, revert-bytes relation, exp,
 immutables, gas/initCode alignment, elaboration correctness) is deferred, per the
