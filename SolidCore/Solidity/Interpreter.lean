@@ -1873,6 +1873,9 @@ def SolI.ofExcept {α : Type} : Except RevertData α → SolI α
   | .ok a => .done (.ok a)
   | .error e => .done (.error (.revert e))
 
+/-- Auto-lift pure `Except RevertData` helpers inside `SolI` do-blocks. -/
+instance : MonadLift (Except RevertData) SolI := ⟨SolI.ofExcept⟩
+
 -- Total bridges to the shared alphabet.
 def wordToU256 (w : Word) : EvmYul.UInt256 := EvmYul.UInt256.ofNat w
 def u256ToWord (u : EvmYul.UInt256) : Word := u.toNat
@@ -1894,7 +1897,7 @@ def lowLevelKindToCallKind :
 def callKindToLowLevel :
     EvmCompiler.Simulation.CallKind → LowLevelCallKind
   | .call => SolidCore.Solidity.Shared.Call.ExternalCallKind.call
-  | .callcode => SolidCore.Solidity.Shared.Call.ExternalCallKind.call
+  | .callcode => SolidCore.Solidity.Shared.Call.ExternalCallKind.callcode
   | .delegatecall => SolidCore.Solidity.Shared.Call.ExternalCallKind.delegatecall
   | .staticcall => SolidCore.Solidity.Shared.Call.ExternalCallKind.staticcall
 
@@ -1947,12 +1950,15 @@ def answerCall (context : Context)
   let target := addressToWord request.recipient
   let calldata := byteArrayToBytes request.calldata
   let value := u256ToWord request.transferValue
+  -- Exact-gas-first: match a fixture row keyed on the sent gas, else fall to the
+  -- no-gas resolution (which fail-opens to `failedRequest`). The residual
+  -- no-gas vs `{gas: gasleft}` ambiguity is the deferred `gasleft` limitation.
   let result :=
-    match context.lookupLowLevelCall? kind target calldata value none with
+    match context.lookupLowLevelCall? kind target calldata value
+        (some (u256ToWord request.requestedGas)) with
     | some r => r
     | none =>
-        context.resolveLowLevelCall kind target calldata value
-          (some (u256ToWord request.requestedGas))
+        context.resolveLowLevelCall kind target calldata value none
   { success := result.success
     returnData := bytesToByteArray result.output
     postWorld := default
@@ -5008,116 +5014,116 @@ mutual
 
 def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
     (context : Context) : Runtime -> Expr ->
-    Except RevertData (Value × Runtime)
+    SolI (Value × Runtime)
   | runtime, expr =>
       match fuel with
-      | 0 => Except.error RevertData.typeMismatch
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
       | fuel + 1 =>
           match expr with
           | Expr.word value =>
-              Except.ok (Value.word (normWord value), runtime)
+              pure (Value.word (normWord value), runtime)
           | Expr.intWord value =>
-              Except.ok (Value.int (normWord value), runtime)
+              pure (Value.int (normWord value), runtime)
           | Expr.byteArray bytes =>
-              Except.ok (Value.bytes (bytes.map normByte), runtime)
+              pure (Value.bytes (bytes.map normByte), runtime)
           | Expr.contractAddress name =>
-              Except.ok
+              pure
                 ( Value.word
                     (SolidCore.Solidity.Shared.Call.namedWordAt
                       context.contractAddresses name)
                 , runtime )
           | Expr.contractCreationCode name =>
-              Except.ok
+              pure
                 ( Value.bytes
                     (SolidCore.Solidity.Shared.Call.namedBytesAt
                       context.contractCreationCodes name)
                 , runtime )
           | Expr.contractRuntimeCode name =>
-              Except.ok
+              pure
                 ( Value.bytes
                     (SolidCore.Solidity.Shared.Call.namedBytesAt
                       context.contractRuntimeCodes name)
                 , runtime )
           | Expr.calldata =>
-              Except.ok (Value.bytes (context.calldata.map normByte), runtime)
+              pure (Value.bytes (context.calldata.map normByte), runtime)
           | Expr.msgSig =>
-              Except.ok
+              pure
                 (Value.word (calldataSelectorWord context.calldata), runtime)
           | Expr.caller =>
-              Except.ok (Value.word context.sender, runtime)
+              pure (Value.word context.sender, runtime)
           | Expr.callValue =>
-              Except.ok (Value.word context.value, runtime)
+              pure (Value.word context.value, runtime)
           | Expr.self =>
-              Except.ok (Value.word context.self, runtime)
+              pure (Value.word context.self, runtime)
           | Expr.env which =>
-              Except.ok (Value.word (which.eval context), runtime)
+              pure (Value.word (which.eval context), runtime)
           | Expr.envLookup which keyExpr => do
               let (keyValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
               let key ← keyValue.expectWord
-              Except.ok (Value.word (which.eval context key), runtime')
+              pure (Value.word (which.eval context key), runtime')
           | Expr.envBytesLookup which keyExpr => do
               let (keyValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
               let key ← keyValue.expectWord
-              Except.ok (Value.bytes (which.eval context key), runtime')
+              pure (Value.bytes (which.eval context key), runtime')
           | Expr.var name =>
               match runtime.lookupStoragePathRef? name with
               | some (target, indexes) => do
                   let value ←
                     runtime.loadStorageRefPathValue context target indexes
-                  Except.ok (value, runtime)
+                  pure (value, runtime)
               | none =>
                   match runtime.lookupLocal? name with
                   | some value => do
                       let value ← runtime.derefMemoryValue value
-                      Except.ok (value, runtime)
-                  | none => Except.error RevertData.typeMismatch
+                      pure (value, runtime)
+                  | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.immutable name => do
               let value ← runtime.loadImmutableField context name
-              Except.ok (value, runtime)
+              pure (value, runtime)
           | Expr.storage name => do
               let value ← runtime.loadStorageField context name
-              Except.ok (value, runtime)
+              pure (value, runtime)
           | Expr.storageBytes name => do
               let value ← runtime.loadStorageByteStringField context name
-              Except.ok (value, runtime)
+              pure (value, runtime)
           | Expr.storageIndex name idx => do
               let (indexValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime idx
               let value ← runtime'.loadStorageIndex context name indexValue
-              Except.ok (value, runtime')
+              pure (value, runtime')
           | Expr.storagePath name indexes => do
               let (indexValues, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   indexes
               let value ← runtime'.loadStoragePath context name indexValues
-              Except.ok (value, runtime')
+              pure (value, runtime')
           | Expr.externalFunctionValue addressExpr selector => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime
                   addressExpr
               let addr ← value.expectWord
-              Except.ok (Value.externalFunction addr selector, runtime')
+              pure (Value.externalFunction addr selector, runtime')
           | Expr.externalFunctionSelector expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value with
               | Value.externalFunction _ selector =>
-                  Except.ok (Value.word selector, runtime')
-              | _ => Except.error RevertData.typeMismatch
+                  pure (Value.word selector, runtime')
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.externalFunctionAddress expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value with
               | Value.externalFunction addr _ =>
-                  Except.ok (Value.word addr, runtime')
-              | _ => Except.error RevertData.typeMismatch
+                  pure (Value.word addr, runtime')
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.unary op expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let result ← op.apply context.checked value
-              Except.ok (result, runtime')
+              pure (result, runtime')
           | Expr.preIncrement target => do
               let (resolved, runtime') ←
                 Expr.resolveLValueWithRuntimeOrderFuel fuel order context
@@ -5153,7 +5159,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (value, runtime'') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
                         runtime' rhs
-                    Except.ok (resolved, value, runtime'')
+                    pure (resolved, value, runtime'')
                 | ChildEvalOrder.rightToLeft => do
                     let (value, runtime') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
@@ -5161,9 +5167,9 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (resolved, runtime'') ←
                       Expr.resolveLValueWithRuntimeOrderFuel fuel order
                         context runtime' target
-                    Except.ok (resolved, value, runtime'')
+                    pure (resolved, value, runtime'')
               let updated ← resolved.write context runtime'' value
-              Except.ok (value, updated)
+              pure (value, updated)
           | Expr.assignOpExpr target op rhs => do
               let (resolved, lhsValue, rhsValue, runtime'') ←
                 match order with
@@ -5175,7 +5181,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (rhsValue, runtime'') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
                         runtime' rhs
-                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+                    pure (resolved, lhsValue, rhsValue, runtime'')
                 | ChildEvalOrder.rightToLeft => do
                     let (rhsValue, runtime') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
@@ -5184,10 +5190,10 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                       Expr.resolveLValueWithRuntimeOrderFuel fuel order
                         context runtime' target
                     let lhsValue ← resolved.read context runtime''
-                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+                    pure (resolved, lhsValue, rhsValue, runtime'')
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
               let updated ← resolved.write context runtime'' value
-              Except.ok (value, updated)
+              pure (value, updated)
           | Expr.assignOpCleanupExpr target op rhs cleanup => do
               let (resolved, lhsValue, rhsValue, runtime'') ←
                 match order with
@@ -5199,7 +5205,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (rhsValue, runtime'') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
                         runtime' rhs
-                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+                    pure (resolved, lhsValue, rhsValue, runtime'')
                 | ChildEvalOrder.rightToLeft => do
                     let (rhsValue, runtime') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
@@ -5208,11 +5214,11 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                       Expr.resolveLValueWithRuntimeOrderFuel fuel order
                         context runtime' target
                     let lhsValue ← resolved.read context runtime''
-                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+                    pure (resolved, lhsValue, rhsValue, runtime'')
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
               let cleaned ← cleanup.apply context.checked value
               let updated ← resolved.write context runtime'' cleaned
-              Except.ok (cleaned, updated)
+              pure (cleaned, updated)
           | Expr.binary BinaryOp.boolAnd lhs rhs => do
               let (lhsValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime lhs
@@ -5221,21 +5227,21 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 let (rhsValue, runtime'') ←
                   Expr.evalWithRuntimeOrderFuel fuel order context runtime' rhs
                 let rhsWord ← rhsValue.expectWord
-                Except.ok
+                pure
                   (Value.word (boolWord (wordTruthy rhsWord)), runtime'')
               else
-                Except.ok (Value.word 0, runtime')
+                pure (Value.word 0, runtime')
           | Expr.binary BinaryOp.boolOr lhs rhs => do
               let (lhsValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime lhs
               let lhsWord ← lhsValue.expectWord
               if wordTruthy lhsWord then
-                Except.ok (Value.word 1, runtime')
+                pure (Value.word 1, runtime')
               else
                 let (rhsValue, runtime'') ←
                   Expr.evalWithRuntimeOrderFuel fuel order context runtime' rhs
                 let rhsWord ← rhsValue.expectWord
-                Except.ok
+                pure
                   (Value.word (boolWord (wordTruthy rhsWord)), runtime'')
           | Expr.binary op lhs rhs => do
               let ((lhsValue, rhsValue), runtime'') ←
@@ -5247,7 +5253,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (rhsValue, runtime'') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context runtime'
                         rhs
-                    Except.ok ((lhsValue, rhsValue), runtime'')
+                    pure ((lhsValue, rhsValue), runtime'')
                 | ChildEvalOrder.rightToLeft => do
                     let (rhsValue, runtime') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context runtime
@@ -5255,9 +5261,9 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (lhsValue, runtime'') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context runtime'
                         lhs
-                    Except.ok ((lhsValue, rhsValue), runtime'')
+                    pure ((lhsValue, rhsValue), runtime'')
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
-              Except.ok (value, runtime'')
+              pure (value, runtime'')
           | Expr.addMod lhs rhs modulus => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
@@ -5268,8 +5274,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let rhsWord ← rhsValue.expectWord
                   let modulusWord ← modulusValue.expectWord
                   let value ← checkedAddMod lhsWord rhsWord modulusWord
-                  Except.ok (Value.word value, runtime')
-              | _ => Except.error RevertData.typeMismatch
+                  pure (Value.word value, runtime')
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.mulMod lhs rhs modulus => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
@@ -5280,15 +5286,15 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let rhsWord ← rhsValue.expectWord
                   let modulusWord ← modulusValue.expectWord
                   let value ← checkedMulMod lhsWord rhsWord modulusWord
-                  Except.ok (Value.word value, runtime')
-              | _ => Except.error RevertData.typeMismatch
+                  pure (Value.word value, runtime')
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.concatBytes exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
               match Value.concatBytes? values with
-              | some bs => Except.ok (Value.bytes bs, runtime')
-              | none => Except.error RevertData.typeMismatch
+              | some bs => pure (Value.bytes bs, runtime')
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.fixedBytesIndex size base idx => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
@@ -5298,65 +5304,65 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let word ← baseValue.expectWord
                   let indexWord ← indexValue.expectWord
                   let value ← fixedBytesIndex? size word indexWord
-                  Except.ok (value, runtime')
-              | _ => Except.error RevertData.typeMismatch
+                  pure (value, runtime')
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.fixedBytesCast targetSize sourceSize expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let word ← value.expectWord
               let casted ← fixedBytesCast? targetSize sourceSize word
-              Except.ok (casted, runtime')
+              pure (casted, runtime')
           | Expr.fixedBytesFromBytes targetSize expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes => do
                   let casted ← fixedBytesFromBytes? targetSize bytes
-                  Except.ok (casted, runtime')
-              | none => Except.error RevertData.typeMismatch
+                  pure (casted, runtime')
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.uintCast bits expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let casted ← uintCast? bits value
-              Except.ok (casted, runtime')
+              pure (casted, runtime')
           | Expr.intCast bits expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let casted ← intCast? bits value
-              Except.ok (casted, runtime')
+              pure (casted, runtime')
           | Expr.uintCleanup bits expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let casted ← uintCleanup? context.checked bits value
-              Except.ok (casted, runtime')
+              pure (casted, runtime')
           | Expr.intCleanup bits expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let casted ← intCleanup? context.checked bits value
-              Except.ok (casted, runtime')
+              pure (casted, runtime')
           | Expr.keccak256 expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  Except.ok (Value.word (keccakWord bytes), runtime')
-              | none => Except.error RevertData.typeMismatch
+                  pure (Value.word (keccakWord bytes), runtime')
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.erc7201 expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  Except.ok (Value.word (erc7201Slot bytes), runtime')
-              | none => Except.error RevertData.typeMismatch
+                  pure (Value.word (erc7201Slot bytes), runtime')
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.externalHash kind expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes =>
                   match kind.lookup? context bytes with
-                  | some hash => Except.ok (Value.word hash, runtime')
-                  | none => Except.error RevertData.typeMismatch
-              | none => Except.error RevertData.typeMismatch
+                  | some hash => pure (Value.word hash, runtime')
+                  | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.ecrecover digestExpr vExpr rExpr sExpr => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
@@ -5368,25 +5374,25 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let r ← rValue.expectWord
                   let s ← sValue.expectWord
                   let address := context.ecrecoverAt digest v r s
-                  Except.ok (Value.word address, runtime')
-              | _ => Except.error RevertData.typeMismatch
+                  pure (Value.word address, runtime')
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.tuple exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
-              Except.ok (Value.tuple values, runtime')
+              pure (Value.tuple values, runtime')
           | Expr.fixedArray exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
-              Except.ok (Value.fixedArray values, runtime')
+              pure (Value.fixedArray values, runtime')
           | Expr.abiEncode tys exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
               match abiEncodeValues? tys values with
-              | some bytes => Except.ok (Value.bytes bytes, runtime')
-              | none => Except.error RevertData.typeMismatch
+              | some bytes => pure (Value.bytes bytes, runtime')
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiEncodeWithSelector selectorExpr tys exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
@@ -5396,19 +5402,19 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let selector ← selectorValue.expectWord
                   match abiEncodeValues? tys argValues with
                   | some bytes =>
-                      Except.ok
+                      pure
                         ( Value.bytes
                             (wordToBytesBE selectorBytes selector ++ bytes)
                         , runtime' )
-                  | none => Except.error RevertData.typeMismatch
-              | _ => Except.error RevertData.typeMismatch
+                  | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiEncodePacked tys exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
               match abiEncodePackedValues? tys values with
-              | some bytes => Except.ok (Value.bytes bytes, runtime')
-              | none => Except.error RevertData.typeMismatch
+              | some bytes => pure (Value.bytes bytes, runtime')
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiDecode tys cleanups expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
@@ -5418,13 +5424,13 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   | some decoded =>
                       if AbiCleanups.acceptOrUnspecified cleanups decoded then
                         match decoded with
-                        | [value] => Except.ok (value, runtime')
+                        | [value] => pure (value, runtime')
                         | values =>
-                            Except.ok (Value.tuple values, runtime')
+                            pure (Value.tuple values, runtime')
                       else
-                        Except.error RevertData.empty
-                  | none => Except.error RevertData.empty
-              | none => Except.error RevertData.typeMismatch
+                        throw <| SolidityFailure.revert RevertData.empty
+                  | none => throw <| SolidityFailure.revert RevertData.empty
+              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr
               gasExpr? _gasFirst => do
               let (values, runtime') ←
@@ -5440,13 +5446,13 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let target ← targetValue.expectWord
                   let calldata ←
                     match calldataValue.asBytes? with
-                    | some bytes => Except.ok bytes
-                    | none => Except.error RevertData.typeMismatch
+                    | some bytes => pure bytes
+                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
-                  let result :=
-                    context.resolveLowLevelCall
+                  let result ←
+                    emitLowLevelCall context
                       kind target calldata value none
-                  Except.ok
+                  pure
                     ( Value.tuple
                         [ Value.word (boolWord result.success)
                         , Value.bytes result.output ]
@@ -5456,20 +5462,20 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let target ← targetValue.expectWord
                   let calldata ←
                     match calldataValue.asBytes? with
-                    | some bytes => Except.ok bytes
-                    | none => Except.error RevertData.typeMismatch
+                    | some bytes => pure bytes
+                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let gas ← gasValue.expectWord
-                  let result :=
-                    context.resolveLowLevelCall
+                  let result ←
+                    emitLowLevelCall context
                       kind target calldata value (some gas)
-                  Except.ok
+                  pure
                     ( Value.tuple
                         [ Value.word (boolWord result.success)
                         , Value.bytes result.output ]
                     , runtime'.recordExternalInteraction
                         (ExternalInteraction.lowLevelCall result) )
-              | _ => Except.error RevertData.typeMismatch
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.contractCreate contractName constructorArgsExpr valueExpr
               saltExpr? => do
               let (values, runtime') ←
@@ -5484,26 +5490,26 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | [argsValue, valueValue] => do
                   let constructorArgs ←
                     match argsValue.asBytes? with
-                    | some bytes => Except.ok bytes
-                    | none => Except.error RevertData.typeMismatch
+                    | some bytes => pure bytes
+                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   match
                       context.lookupContractCreation?
                         contractName constructorArgs value none with
                   | some result =>
                       if result.success then
-                        Except.ok
+                        pure
                           ( Value.word result.address
                           , runtime'.recordExternalInteraction
                               (ExternalInteraction.contractCreation result) )
                       else
-                        Except.error (RevertData.fromRawBytes result.output)
-                  | none => Except.error RevertData.empty
+                        throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
+                  | none => throw <| SolidityFailure.revert RevertData.empty
               | [argsValue, valueValue, saltValue] => do
                   let constructorArgs ←
                     match argsValue.asBytes? with
-                    | some bytes => Except.ok bytes
-                    | none => Except.error RevertData.typeMismatch
+                    | some bytes => pure bytes
+                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let salt ← saltValue.expectWord
                   match
@@ -5511,14 +5517,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         contractName constructorArgs value (some salt) with
                   | some result =>
                       if result.success then
-                        Except.ok
+                        pure
                           ( Value.word result.address
                           , runtime'.recordExternalInteraction
                               (ExternalInteraction.contractCreation result) )
                       else
-                        Except.error (RevertData.fromRawBytes result.output)
-                  | none => Except.error RevertData.empty
-              | _ => Except.error RevertData.typeMismatch
+                        throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
+                  | none => throw <| SolidityFailure.revert RevertData.empty
+              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.newBytes lengthExpr => do
               let (lengthValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime
@@ -5526,7 +5532,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let length ← lengthValue.expectWord
               let size ← context.checkMemoryAllocation length
               let footprint := dynamicBytesMemoryFootprint size
-              Except.ok
+              pure
                 ( Value.bytes (List.replicate size 0)
                 , runtime'.noteMemoryAllocation footprint
                     (dynamicBytesMemoryContent size) )
@@ -5537,7 +5543,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let length ← lengthValue.expectWord
               let size ← context.checkMemoryAllocation length
               let footprint := dynamicArrayMemoryFootprint elementTy size
-              Except.ok
+              pure
                 ( Value.dynamicArray
                     (List.replicate size elementTy.defaultValue)
                 , runtime'.noteMemoryAllocation footprint
@@ -5546,7 +5552,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               let coerced ← enumFromUIntValue maxValue value
-              Except.ok (coerced, runtime')
+              pure (coerced, runtime')
           | Expr.ternary cond thenExpr elseExpr => do
               let (condValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime cond
@@ -5558,13 +5564,13 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime'
                   elseExpr
           | Expr.length expr => do
-              let lengthValue (value : Value) : Except RevertData Value :=
+              let lengthValue (value : Value) : SolI Value :=
                 match value with
-                | Value.word len => Except.ok (Value.word len)
+                | Value.word len => pure (Value.word len)
                 | _ =>
                     match value.length? with
-                    | some len => Except.ok (Value.word len)
-                    | none => Except.error RevertData.typeMismatch
+                    | some len => pure (Value.word len)
+                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               match expr with
               | Expr.var name =>
                   match runtime.lookupStoragePathRef? name with
@@ -5572,13 +5578,13 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                       let value ←
                         runtime.loadStorageRefPathValue context target indexes
                       let len ← lengthValue value
-                      Except.ok (len, runtime)
+                      pure (len, runtime)
                   | none =>
                       let (value, runtime') ←
                         Expr.evalWithRuntimeOrderFuel fuel order context
                           runtime expr
                       let len ← lengthValue value
-                      Except.ok (len, runtime')
+                      pure (len, runtime')
               | _ =>
                   if expr.hasStorageRoot || expr.hasStorageRefRoot runtime then
                     let (target, runtime') ←
@@ -5589,14 +5595,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         let value ←
                           runtime'.loadStorageRefPathValue context name indexes
                         let len ← lengthValue value
-                        Except.ok (len, runtime')
-                    | none => Except.error RevertData.typeMismatch
+                        pure (len, runtime')
+                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   else
                     let (value, runtime') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context runtime
                         expr
                     let len ← lengthValue value
-                    Except.ok (len, runtime')
+                    pure (len, runtime')
           | Expr.index base idx => do
               if base.hasStorageRoot then
                 let (baseTarget, runtime') ←
@@ -5610,14 +5616,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let value ←
                       runtime''.loadStoragePath context name
                         (indexes ++ [indexValue])
-                    Except.ok (value, runtime'')
-                | none => Except.error RevertData.typeMismatch
+                    pure (value, runtime'')
+                | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               else if base.hasStorageRefRoot runtime then
                 let (resolved, runtime') ←
                   Expr.resolveLValueWithRuntimeOrderFuel fuel order context
                     runtime (Expr.index base idx)
                 let value ← resolved.read context runtime'
-                Except.ok (value, runtime')
+                pure (value, runtime')
               else
                 match base with
                 | Expr.var name =>
@@ -5629,7 +5635,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         let value ←
                           runtime'.loadStoragePath context target
                             (indexes ++ [indexValue])
-                        Except.ok (value, runtime')
+                        pure (value, runtime')
                     | none =>
                         let (values, runtime') ←
                           Expr.evalListWithRuntimeOrderFuel fuel order
@@ -5641,8 +5647,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                               runtime'.derefMemoryValue baseValue
                             let value ← baseValue.index? indexWord
                             let value ← runtime'.derefMemoryValue value
-                            Except.ok (value, runtime')
-                        | _ => Except.error RevertData.typeMismatch
+                            pure (value, runtime')
+                        | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
                 | _ =>
                     let (values, runtime') ←
                       Expr.evalListWithRuntimeOrderFuel fuel order context
@@ -5653,27 +5659,27 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         let baseValue ← runtime'.derefMemoryValue baseValue
                         let value ← baseValue.index? indexWord
                         let value ← runtime'.derefMemoryValue value
-                        Except.ok (value, runtime')
-                    | _ => Except.error RevertData.typeMismatch
+                        pure (value, runtime')
+                    | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.slice base start stop => do
               let readSlice (baseValue : Value)
                   (startValue? stopValue? : Option Value)
                   (runtime' : Runtime) :
-                  Except RevertData (Value × Runtime) := do
+                  SolI (Value × Runtime) := do
                 let startWord? ←
                   match startValue? with
                   | some value => do
                       let word ← value.expectWord
-                      Except.ok (some word)
-                  | none => Except.ok none
+                      pure (some word)
+                  | none => pure none
                 let stopWord? ←
                   match stopValue? with
                   | some value => do
                       let word ← value.expectWord
-                      Except.ok (some word)
-                  | none => Except.ok none
+                      pure (some word)
+                  | none => pure none
                 let value ← baseValue.slice? startWord? stopWord?
-                Except.ok (value, runtime')
+                pure (value, runtime')
               match start, stop with
               | none, none => do
                   let (baseValue, runtime') ←
@@ -5687,7 +5693,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   match values with
                   | [baseValue, startValue] =>
                       readSlice baseValue (some startValue) none runtime'
-                  | _ => Except.error RevertData.typeMismatch
+                  | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
               | none, some stopExpr => do
                   let (values, runtime') ←
                     Expr.evalListWithRuntimeOrderFuel fuel order context
@@ -5695,7 +5701,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   match values with
                   | [baseValue, stopValue] =>
                       readSlice baseValue none (some stopValue) runtime'
-                  | _ => Except.error RevertData.typeMismatch
+                  | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
               | some startExpr, some stopExpr => do
                   let (values, runtime') ←
                     Expr.evalListWithRuntimeOrderFuel fuel order context
@@ -5704,17 +5710,17 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   | [baseValue, startValue, stopValue] =>
                       readSlice baseValue (some startValue) (some stopValue)
                         runtime'
-                  | _ => Except.error RevertData.typeMismatch
+                  | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
 
 def Expr.evalListWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
     (context : Context) : Runtime -> List Expr ->
-    Except RevertData (List Value × Runtime)
+    SolI (List Value × Runtime)
   | runtime, exprs =>
       match fuel with
-      | 0 => Except.error RevertData.typeMismatch
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
       | fuel + 1 =>
           match exprs with
-          | [] => Except.ok ([], runtime)
+          | [] => pure ([], runtime)
           | expr :: rest =>
               match order with
               | ChildEvalOrder.leftToRight => do
@@ -5724,7 +5730,7 @@ def Expr.evalListWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let (values, runtime'') ←
                     Expr.evalListWithRuntimeOrderFuel fuel order context
                       runtime' rest
-                  Except.ok (value :: values, runtime'')
+                  pure (value :: values, runtime'')
               | ChildEvalOrder.rightToLeft => do
                   let (values, runtime') ←
                     Expr.evalListWithRuntimeOrderFuel fuel order context
@@ -5732,18 +5738,18 @@ def Expr.evalListWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let (value, runtime'') ←
                       Expr.evalWithRuntimeOrderFuel fuel order context
                         runtime' expr
-                    Except.ok (value :: values, runtime'')
+                    pure (value :: values, runtime'')
 
 def Expr.memoryRefOrValueWithRuntimeOrderFuel
     (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
-    Runtime -> Expr -> Except RevertData (Option Nat × Option Value × Runtime)
+    Runtime -> Expr -> SolI (Option Nat × Option Value × Runtime)
   | runtime, expr =>
       match fuel with
-      | 0 => Except.error RevertData.typeMismatch
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
       | fuel + 1 =>
           match expr with
           | Expr.var name =>
-              Except.ok (runtime.lookupMemoryRef? name, none, runtime)
+              pure (runtime.lookupMemoryRef? name, none, runtime)
           | Expr.index base idx => do
               let finish (baseValue indexValue : Value)
                   (runtime' : Runtime) :
@@ -5754,8 +5760,8 @@ def Expr.memoryRefOrValueWithRuntimeOrderFuel
                 let value ← baseValue.index? indexWord
                 match value with
                 | Value.memoryRef id =>
-                    Except.ok (some id, none, runtime')
-                | _ => Except.ok (none, some value, runtime')
+                    pure (some id, none, runtime')
+                | _ => pure (none, some value, runtime')
               match order with
               | ChildEvalOrder.leftToRight => do
                   let (baseValue, runtime') ←
@@ -5773,68 +5779,66 @@ def Expr.memoryRefOrValueWithRuntimeOrderFuel
                     Expr.evalWithRuntimeOrderFuel fuel order context
                       runtime' base
                   finish baseValue indexValue runtime''
-          | _ => Except.ok (none, none, runtime)
+          | _ => pure (none, none, runtime)
 
 def Expr.resolveLValueWithRuntimeOrderFuel
     (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
-    Runtime -> Expr -> Except RevertData (ResolvedLValue × Runtime)
+    Runtime -> Expr -> SolI (ResolvedLValue × Runtime)
   | runtime, expr =>
       match fuel with
-      | 0 => Except.error RevertData.typeMismatch
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
       | fuel + 1 =>
           match expr with
           | Expr.var name =>
               match runtime.lookupStoragePathRef? name with
               | some (target, []) =>
-                  Except.ok (ResolvedLValue.storageField target, runtime)
+                  pure (ResolvedLValue.storageField target, runtime)
               | some (target, indexes) =>
-                  Except.ok (ResolvedLValue.storagePath target indexes,
+                  pure (ResolvedLValue.storagePath target indexes,
                     runtime)
               | none =>
                   match runtime.lookupLocal? name with
-                  | some _ => Except.ok (ResolvedLValue.local name, runtime)
-                  | none => Except.error RevertData.typeMismatch
+                  | some _ => pure (ResolvedLValue.local name, runtime)
+                  | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.immutable name =>
-              Except.ok (ResolvedLValue.immutable name, runtime)
+              pure (ResolvedLValue.immutable name, runtime)
           | Expr.storage name =>
-              Except.ok (ResolvedLValue.storageField name, runtime)
+              pure (ResolvedLValue.storageField name, runtime)
           | Expr.storageIndex name idx => do
               let (indexValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime idx
-              Except.ok (ResolvedLValue.storageIndex name indexValue,
+              pure (ResolvedLValue.storageIndex name indexValue,
                 runtime')
           | Expr.index base idx => do
               let finish (baseTarget : ResolvedLValue)
                   (indexValue : Value) (runtime' : Runtime) :
-                  Except RevertData (ResolvedLValue × Runtime) := do
+                  SolI (ResolvedLValue × Runtime) := do
                 match baseTarget with
                 | ResolvedLValue.storageField name =>
-                    Except.ok
+                    pure
                       (ResolvedLValue.storageIndex name indexValue,
                         runtime')
                 | ResolvedLValue.storageIndex name firstIndex =>
-                    Except.ok
+                    pure
                       (ResolvedLValue.storagePath name
                           [firstIndex, indexValue],
                         runtime')
                 | ResolvedLValue.storagePath name indexes =>
-                    Except.ok
+                    pure
                       (ResolvedLValue.storagePath name
                           (indexes ++ [indexValue]),
                         runtime')
                 | _ =>
                     let indexWord ← indexValue.expectWord
-                    let target ←
-                      match baseTarget.readRaw context runtime' with
-                      | Except.ok (Value.memoryRef id) =>
-                          Except.ok
-                            (ResolvedLValue.valueIndex
-                              (ResolvedLValue.memoryCell id) indexWord)
-                      | Except.ok _ =>
-                          Except.ok
-                            (ResolvedLValue.valueIndex baseTarget indexWord)
-                      | Except.error err => Except.error err
-                    Except.ok (target, runtime')
+                    let rawValue ← baseTarget.readRaw context runtime'
+                    let target :=
+                      match rawValue with
+                      | Value.memoryRef id =>
+                          ResolvedLValue.valueIndex
+                            (ResolvedLValue.memoryCell id) indexWord
+                      | _ =>
+                          ResolvedLValue.valueIndex baseTarget indexWord
+                    pure (target, runtime')
               match order with
               | ChildEvalOrder.leftToRight => do
                   let (baseTarget, runtime') ←
@@ -5852,38 +5856,38 @@ def Expr.resolveLValueWithRuntimeOrderFuel
                     Expr.resolveLValueWithRuntimeOrderFuel fuel order
                       context runtime' base
                   finish baseTarget indexValue runtime''
-          | _ => Except.error RevertData.typeMismatch
+          | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
 
 end
 
 def Expr.evalWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
-    (expr : Expr) : Except RevertData (Value × Runtime) :=
+    (expr : Expr) : SolI (Value × Runtime) :=
   Expr.evalWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
     order context runtime expr
 
 def Expr.evalListWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
-    (exprs : List Expr) : Except RevertData (List Value × Runtime) :=
+    (exprs : List Expr) : SolI (List Value × Runtime) :=
   Expr.evalListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
     order context runtime exprs
 
 def Expr.memoryRefOrValueWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
-    (expr : Expr) : Except RevertData (Option Nat × Option Value × Runtime) :=
+    (expr : Expr) : SolI (Option Nat × Option Value × Runtime) :=
   Expr.memoryRefOrValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
     order context runtime expr
 
 def Expr.resolveLValueWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
-    (expr : Expr) : Except RevertData (ResolvedLValue × Runtime) :=
+    (expr : Expr) : SolI (ResolvedLValue × Runtime) :=
   Expr.resolveLValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
     order context runtime expr
 
 def Expr.evalBinaryWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
     (op : BinaryOp) (lhs rhs : Expr) :
-    Except RevertData (Value × Runtime) :=
+    SolI (Value × Runtime) :=
   Expr.evalWithRuntimeOrder order context runtime (Expr.binary op lhs rhs)
 
 def Context.withChildEvalOrder
@@ -5906,17 +5910,24 @@ def Context.withUnspecifiedChildEvalOrders
     (context : Context) : List Context :=
   ChildEvalOrder.unspecifiedOrders.map context.withChildEvalOrder
 
+def SolI.foldExpr {α : Type} (fuel : Nat) (context : Context) (tree : SolI α) :
+    Except RevertData α :=
+  match SolI.runFromContext fuel context tree with
+  | .ok v => .ok v
+  | .error (.revert e) => .error e
+  | .error .outOfFuel => .error RevertData.typeMismatch
+
 def Expr.evalWithRuntimeByContext
     (expr : Expr) (context : Context) (runtime : Runtime) :
     Except RevertData (Value × Runtime) :=
-  Expr.evalWithRuntimeOrder
-    context.effectiveChildEvalOrder context runtime expr
+  SolI.foldExpr (Expr.orderFuel expr + 1) context
+    (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder context runtime expr)
 
 def Expr.evalListWithRuntimeByContext
     (context : Context) (runtime : Runtime) (exprs : List Expr) :
     Except RevertData (List Value × Runtime) :=
-  Expr.evalListWithRuntimeOrder
-    context.effectiveChildEvalOrder context runtime exprs
+  SolI.foldExpr (Expr.listEvalFuel exprs + 1) context
+    (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder context runtime exprs)
 
 inductive LowLevelCallEvaluationStatus where
   | resolved
@@ -5953,34 +5964,36 @@ inductive TernaryBranch where
 def Expr.memoryRefOrValueWithRuntimeByContext
     (expr : Expr) (context : Context) (runtime : Runtime) :
     Except RevertData (Option Nat × Option Value × Runtime) :=
-  Expr.memoryRefOrValueWithRuntimeOrder
-    context.effectiveChildEvalOrder context runtime expr
+  SolI.foldExpr (Expr.orderFuel expr + 1) context
+    (Expr.memoryRefOrValueWithRuntimeOrder
+      context.effectiveChildEvalOrder context runtime expr)
 
 def Expr.resolveLValueWithRuntimeByContext
     (expr : Expr) (context : Context) (runtime : Runtime) :
     Except RevertData (ResolvedLValue × Runtime) :=
-  Expr.resolveLValueWithRuntimeOrder
-    context.effectiveChildEvalOrder context runtime expr
+  SolI.foldExpr (Expr.orderFuel expr + 1) context
+    (Expr.resolveLValueWithRuntimeOrder
+      context.effectiveChildEvalOrder context runtime expr)
 
 def Expr.evalReturnValueWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
-    (expr : Expr) : Except RevertData (Value × Runtime) :=
+    (expr : Expr) : SolI (Value × Runtime) :=
   match expr with
   | Expr.var name =>
       match runtime.lookupMemoryRef? name with
-      | some id => Except.ok (Value.memoryRef id, runtime)
+      | some id => pure (Value.memoryRef id, runtime)
       | none => Expr.evalWithRuntimeOrder order context runtime expr
   | _ => Expr.evalWithRuntimeOrder order context runtime expr
 
 def Expr.evalReturnListWithRuntimeOrderFuel
     (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
-    Runtime -> List Expr -> Except RevertData (List Value × Runtime)
+    Runtime -> List Expr -> SolI (List Value × Runtime)
   | runtime, exprs =>
       match fuel with
-      | 0 => Except.error RevertData.typeMismatch
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
       | fuel + 1 =>
           match exprs with
-          | [] => Except.ok ([], runtime)
+          | [] => pure ([], runtime)
           | expr :: rest =>
               match order with
               | ChildEvalOrder.leftToRight => do
@@ -5990,7 +6003,7 @@ def Expr.evalReturnListWithRuntimeOrderFuel
                   let (values, runtime'') ←
                     Expr.evalReturnListWithRuntimeOrderFuel fuel order
                       context runtime' rest
-                  Except.ok (value :: values, runtime'')
+                  pure (value :: values, runtime'')
               | ChildEvalOrder.rightToLeft => do
                   let (values, runtime') ←
                     Expr.evalReturnListWithRuntimeOrderFuel fuel order
@@ -5998,19 +6011,20 @@ def Expr.evalReturnListWithRuntimeOrderFuel
                   let (value, runtime'') ←
                     Expr.evalReturnValueWithRuntimeOrder order context
                       runtime' expr
-                  Except.ok (value :: values, runtime'')
+                  pure (value :: values, runtime'')
 
 def Expr.evalReturnListWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
-    (exprs : List Expr) : Except RevertData (List Value × Runtime) :=
+    (exprs : List Expr) : SolI (List Value × Runtime) :=
   Expr.evalReturnListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
     order context runtime exprs
 
 def Expr.evalReturnListWithRuntimeByContext
     (context : Context) (runtime : Runtime) (exprs : List Expr) :
     Except RevertData (List Value × Runtime) :=
-  Expr.evalReturnListWithRuntimeOrder
-    context.effectiveChildEvalOrder context runtime exprs
+  SolI.foldExpr (Expr.listEvalFuel exprs + 1) context
+    (Expr.evalReturnListWithRuntimeOrder
+      context.effectiveChildEvalOrder context runtime exprs)
 
 def LValue.resolveWithRuntime (target : LValue) (context : Context)
     (runtime : Runtime) : Except RevertData (ResolvedLValue × Runtime) :=

@@ -60,8 +60,8 @@ committed; details and every non-obvious choice are in `docs/DECISIONS.md`.
 | 3b — rename + AST split | **Done** (`SolidCore.Solidity`, `Ast.lean`; three-sided rename). |
 | 3c — SharedSemantics folded | **Done** (`SolidCore.Solidity.Shared`, single `lean_lib SolidCore`). |
 | 4 — observation layer deleted | **Done** (commit `6c1b8d9`; ~12.2k lines removed; assertion delta 420 → 419 enumerated in `docs/phase4-assertion-delta.md`; full replay green). |
-| 3d — evaluator consolidation | **Not started** (intentionally reordered after Phase 4; see sharpened plan in Phase 3 specifics below). |
-| 5 — interaction-monad boundary | **Not started** (see added notes in Phase 5 specifics). |
+| 3d — evaluator consolidation | **Done** (commit `b8a5fac`; single `...Order`/`...OrderFuel`/`...ByContext` engine; gen-1/gen-2 evaluator families deleted; full replay green, cases=98). |
+| 5 — interaction-monad boundary | **In progress.** Foundation committed (`480d7ce`: `SolidityFailure`/`SolI`, total bridges, `emitLowLevelCall`, replay-from-`Context` answerer, two-call demo tree). Expression-evaluator conversion to `SolI` is in the working tree (both `Expr.lowLevelCall` sites emit `Query.external`; `...ByContext` folds via `SolI.foldExpr`), pending full-replay green before commit. Declared residue still on the synchronous oracle path: `Stmt.eval`'s high-level external-call site (~`Interpreter.lean` 7041) and both create paths (`Expr.contractCreate` ~5493/5513, `Stmt` `resolveContractCreation` ~7129). See "2026-07-06 mid-Phase-5 review" under Phase 5 specifics for required fixes before sub-step (2). |
 | 6 — docs/freeze | **Not started**. |
 
 Review findings on the completed work (2026-07-06):
@@ -686,6 +686,85 @@ need nothing but each other's ordering). End the run with a summary entry in
     `CallResponse`/`CreateResponse`; any field with no representation on
     the shared side (or vice versa) is recorded per the
     partial-conversion policy above, not papered over.
+
+- **Added after the 2026-07-06 mid-Phase-5 review** (of foundation commit
+  `480d7ce` + the uncommitted expression-evaluator conversion):
+  - **Fuel bound in `SolI.foldExpr` — verified safe, record the invariant.**
+    `runFromContext` spends fuel only on query nodes, and the query count on
+    any executed path is ≤ the number of syntactic `Expr.lowLevelCall` nodes
+    ≤ `Expr.orderFuel expr` (every constructor contributes ≥ 1; `Expr` has no
+    repetition constructs — loops/internal calls live in `Stmt`, and each
+    Stmt-level use re-folds with fresh fuel; every evaluator case evaluates
+    each subexpression at most once). So `orderFuel expr + 1` can never
+    spuriously exhaust. NOTE the sound argument is this *syntactic count*,
+    not "evaluator steps ≤ fuel": the evaluator's own fuel is a depth
+    allowance (sibling recursive calls share the once-decremented `fuel`),
+    so total node evaluations are NOT bounded by initial fuel. Put this
+    invariant (`transcript length ≤ orderFuel`) in a comment at `foldExpr`
+    now; it is the obvious first lemma when Phase 5 grows proofs.
+  - **Fix before commit or immediately after replay: `answerCall` gas-key
+    ordering.** `optionWordEq` is exact (`none` matches only `none`), so the
+    old sites matched fixture rows on the *exact* `gas?` option; the current
+    `answerCall` tries `gas? = none` rows first for every request, then
+    falls back to `some requestedGas`. Divergence quadrants: (a) an
+    explicit-`{gas: g}` call is answered by a `gas? = none` row even when a
+    `some g` row with different output exists (or succeeds where it used to
+    fail-open with `failedRequest`); (b) a no-gas call sends
+    `requestedGas = gasleft` (default **0**) and can spuriously match a
+    `gas? = some 0` row. A green replay only shows current fixtures lack
+    these shapes; it is a latent divergence class. Required order: try
+    `some requestedGas` **first**, then `none`. The residual ambiguity
+    (no-gas vs `{gas:}` equal to ambient `gasleft` is indistinguishable
+    after erasure into `CallRequest.requestedGas`) is inherent; add it to
+    the deferred-`gasleft` limitation note in `docs/DECISIONS.md`.
+  - **Fix (one line): `callKindToLowLevel` maps `.callcode → .call`**
+    (`Interpreter.lean` ~1900). A callcode request keys the oracle as
+    `call`: misses callcode rows, can match call rows. Dormant while the
+    corpus has no callcode, but it is committed foundation code and will
+    definitely mis-drive scripted responders. Change to
+    `.callcode => ExternalCallKind.callcode`.
+  - **Declared residue (gates sub-step (3)).** Three synchronous oracle
+    reads remain after the evaluator conversion: `Stmt.eval`'s high-level
+    external-call resolve (~7041, the `accountHasCode`/try-catch path —
+    high-level calls currently emit *no* query, so transcripts are
+    incomplete by design at this checkpoint), and both create paths
+    (`Expr.contractCreate` ~5493/5513; `Stmt` `resolveContractCreation`
+    ~7129). Deleting `Context.lowLevelCallResults`/`contractCreationResults`
+    (sub-step (3)) is blocked until all three emit queries. The Phase 5
+    acceptance transcript witness must be read with this residue in mind
+    until then.
+  - **Create-residue bridge (do this when converting creates).** The
+    impedance mismatch (`CreateRequest.initCode : ByteArray` vs
+    creation-by-name) is soluble without touching the shared types:
+    `initCode := namedBytesAt contractCreationCodes name ++ constructorArgs`
+    (standard EVM initCode = creation code ++ ABI-encoded args); the
+    replay/scripted responder recovers the name by prefix-matching initCode
+    against the same `contractCreationCodes` map (fail-closed on ambiguity).
+    No alphabet variant needed.
+  - **Before sub-step (2): kind-dependent `buildCallRequest` fields.**
+    Today `recipient := target`, `codeAddress := target`,
+    `transferValue := apparentValue := value` for every kind. This
+    round-trips against `answerCall` (which only inverts `recipient`), but
+    scripted responders reading the shared alphabet will misinterpret
+    delegatecall (recipient/storage context should be self, `transferValue`
+    0, `apparentValue` inherited) and staticcall (`transferValue` 0). Fix
+    the mapping at the emit site in the same change as the responder
+    conversion, with the kind-bridge fix above.
+  - **`.outOfFuel → typeMismatch` collapse in `foldExpr`:** acceptable at
+    this checkpoint because unreachable (fuel bound above), and the
+    evaluator's own `fuel = 0` arm still throws `.revert typeMismatch`
+    (behavior-preserving — correct for now; the `docs/DECISIONS.md` "Phase 5
+    prep" entry saying that arm became `outOfFuel` misstates the code and
+    should be corrected at the next docs commit). When `Stmt.eval` converts
+    to `SolI`, delete the collapse and propagate `SolidityFailure` outward
+    so fuel truncation stays a distinguished failure per this phase's
+    acceptance.
+  - **Low-probability latent divergence, note only:** `answerCall` keys the
+    oracle with `target` round-tripped through `AccountAddress` (mod
+    2^160), while the old lookup compared raw words mod 2^256. A
+    dirty-high-bits target that used to miss (fail-open) can now match a
+    160-bit fixture row. Only reachable via non-address-cleaned targets;
+    record, do not redesign.
 
 ### Autonomous fallback policies (formerly stop-and-ask)
 

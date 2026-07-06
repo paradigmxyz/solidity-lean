@@ -359,9 +359,9 @@ Two corrections/findings while starting the rewrite:
   `Interaction` with only `done` leaves (it returns `Except RevertData (Value ×
   Runtime)`). So the conversion is: change the return type to
   `Interaction SolidityFailure (Value × Runtime)`; `Except.ok x → pure x`,
-  `Except.error e → throw (…revert e)`; the `fuel = 0 → Except.error` arm →
-  `throw …outOfFuel` (the distinguished fuel-exhaustion failure the roadmap
-  wants); and at the ~4 live sites emit `Query.external world (CallRequest/…)` and
+  `Except.error e → throw (…revert e)`; the expression evaluator's `fuel = 0` arm stays a
+  `.revert typeMismatch` (behavior-preserving); `outOfFuel` is reserved for the
+  future `Stmt.eval`-level truncation the roadmap wants; and at the ~4 live sites emit `Query.external world (CallRequest/…)` and
   resume on `Call/CreateResponse` (sub-step 1: answered from the Context
   environment so fixtures run unchanged). `do`-notation carries over via the Monad
   instance. The change is pervasive (every `Except.ok`/`error` and result-match in
@@ -398,3 +398,57 @@ Remaining Phase 5 work is the evaluator wiring: change `Expr.evalWithRuntimeOrde
 ~5345/5362/6929/7016) with `emitLowLevelCall`/an `emitContractCreation` analog;
 keep `?`-named Option adapters (via `SolI.runFromContext`) for the manifest; then
 sub-steps (2) scripted responders and (3) delete the oracle `Context` fields.
+
+## 2026-07-06 — Phase 5 sub-step-1a: expression evaluator emits Query.external (green)
+
+Converted the expression evaluator's return type `Except RevertData (Value ×
+Runtime)` → `SolI (Value × Runtime)` across the `...OrderFuel` mutual block, the
+`...Order` wrappers, and the `evalReturn*Order` family. Mechanical: `Except.ok →
+pure`, `Except.error e → throw <| SolidityFailure.revert e`, aided by
+`instance : MonadLift (Except RevertData) SolI` (pure helpers auto-lift in
+do-blocks). The 2 live low-level-call sites now `emitLowLevelCall` (emitting a
+`Query.external default (.call request)` node) instead of a synchronous
+`resolveLowLevelCall`. The `...ByContext` functions (the boundary `Stmt.eval`
+matches on) stay `Except`-returning and fold the SolI tree via `SolI.foldExpr fuel
+context` (= `runFromContext` then `.revert e → .error e`, `.outOfFuel →
+typeMismatch`), with `fuel = orderFuel expr + 1`.
+
+A Fable review of this increment: **fuel bound verified safe** (query count ≤
+syntactic `Expr.lowLevelCall` node count ≤ `orderFuel`, since `Expr` has no
+repetition constructs — loops/internal calls are in `Stmt`, re-folded per use — so
+`.outOfFuel` is unreachable; my earlier "steps ≤ fuel" framing was wrong but the
+syntactic-count argument holds); `decodeCallResponse` verified faithful
+(success/output exact modulo the norm the oracle already applies). Two dormant
+bugs it caught, both fixed before commit:
+- `callKindToLowLevel .callcode` mapped to `.call` (would misroute callcode oracle
+  keys under scripted responders) → now maps to `.callcode`.
+- `answerCall` gas ordering: tried the `gas?=none` oracle row first for every
+  request, which could shadow an exact `gas?=some g` row → now exact-gas-first
+  (`some requestedGas`), then no-gas resolution.
+Correction to the earlier "prep" note: the evaluator's `fuel = 0` arm stays
+`.revert typeMismatch` (behavior-preserving); `outOfFuel` is reserved for the
+future `Stmt.eval`-level truncation.
+
+**Not yet converted (recorded residue, sub-step-1b):** a third live external site
+in `Stmt.eval` (high-level call / try-catch path, ~7041) and the 2 contract-create
+sites (~5493/5513, still reading `lookupContractCreation?`). Creates are soluble in
+the shared alphabet via `initCode := creationCode ++ constructorArgs` (responder
+recovers the name by prefix-match) — no shared-type change needed. Sub-step (3)
+(delete oracle `Context` fields) is gated on converting all three.
+
+Full corpus replay green: `forge_interpreter_compare=pass`, `cases=98`,
+`paired_cases_passed=yes`.
+
+## 2026-07-06 — Dev-loop smoke replay added
+
+`scripts/smoke_replay.sh`: a curated ~29-case subset run Lean-only
+(`--skip-forge`) for the edit/build/check dev loop; the full replay stays the
+commit gate. Rationale: only the Lean interpreter changes during development, so
+re-running Forge (per-case solc-compile + Foundry-EVM run, the dominant cost) is
+waste — `--skip-forge` still generates each witness from the solc AST and
+validates the Lean `#eval`s return `true`, catching any Lean regression. The set
+covers the full Phase 5 external-effect surface plus broad
+evaluator/statement/storage/reference/ABI/event sentinels, excluding the
+minute-plus heavy contracts (erc721-royalty, erc1155-supply variants, checkpoints,
+uniswap-v3-math, frontend-frontier) which run only in the full replay.
+`SMOKE_WITH_FORGE=1` re-enables Forge for the subset.
