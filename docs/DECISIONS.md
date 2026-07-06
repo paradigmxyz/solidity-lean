@@ -368,3 +368,33 @@ Two corrections/findings while starting the rewrite:
   the mutual block, then propagation through `Stmt.eval`/`Contract.call`/
   `callTransaction`/ABI entries, with `?`-named Option adapters kept for the
   manifest through sub-step (2)), but each edit is mechanical.
+
+## 2026-07-06 — Phase 5 foundation landed (green)
+
+Built and proved the shared-alphabet foundation in `Interpreter.lean` (additive,
+build green, corpus-neutral — validation folds into the sub-step-1 checkpoint):
+
+- `SolidityFailure` (revert | outOfFuel) and `abbrev SolI := Interaction
+  SolidityFailure` — the interaction monad the external boundary emits into.
+- Total bridges: `wordToU256`/`u256ToWord`, `bytesToByteArray`/`byteArrayToBytes`,
+  `wordToAddress`/`addressToWord`, `lowLevelKindToCallKind`/`callKindToLowLevel`.
+- `buildCallRequest` (fills `requestedGas` from `{gas:}` else ambient `gasleft`)
+  and `decodeCallResponse`.
+- `emitLowLevelCall`: emits `Query.external default (.call request)` and resumes on
+  the `CallResponse` (checkpoint-1: world snapshot is placeholder `default`).
+- `answerCall`/`contextAnswer`: replay-from-Context answerer (gas-lenient — try
+  the oracle without gas, else the sent `requestedGas`). `SolI.runFromContext`
+  folds the tree (fuel-bounded); `SolI.queryTranscript` exposes the query sequence.
+- `phase5DemoTree`: a two-external-call interaction tree. Verified end-to-end —
+  `phase5DemoTranscriptLength Context.empty = 2`; `runFromContext` folds it to
+  `some [false, false]` against the empty oracle (fail-closed); transcript length
+  2. This is the Phase 5 acceptance "demo witness shows a two-call execution as an
+  explicit Interaction tree with its query transcript" in foundation form.
+
+Remaining Phase 5 work is the evaluator wiring: change `Expr.evalWithRuntimeOrderFuel`
+(+ mutual companions, `Stmt.eval`, `FunctionDef.call?`, `Contract.call?`/
+`callTransaction?`) return types to `SolI`; replace the synchronous
+`resolveLowLevelCall`/`resolveContractCreation` reads (Interpreter.lean
+~5345/5362/6929/7016) with `emitLowLevelCall`/an `emitContractCreation` analog;
+keep `?`-named Option adapters (via `SolI.runFromContext`) for the manifest; then
+sub-steps (2) scripted responders and (3) delete the oracle `Context` fields.

@@ -5,6 +5,7 @@ import SolidCore.Solidity.Shared.Call
 import SolidCore.Solidity.Shared.Log
 import SolidCore.Solidity.Shared.Precompile
 import SolidCore.Solidity.Keccak
+import SolidCore.Solidity.Interaction
 
 namespace SolidCore
 namespace Solidity
@@ -1841,6 +1842,171 @@ def EnvBytesLookup.eval
   match which with
   | EnvBytesLookup.accountCode =>
       SolidCore.Solidity.Shared.Account.codeAt context.accountCodes key
+
+/-!
+## Phase 5 — external world as the shared interaction monad (foundation)
+
+The interpreter's external boundary (low-level calls, contract creations) emits
+into `EvmCompiler.Simulation.Interaction` over the shared `Query` alphabet.
+`SolidityFailure` is the Solidity-owned failure payload; the only request nodes
+are external calls/creates. This block is the foundation: the failure type, the
+monad alias, total bridges to the shared alphabet, request/response mapping, the
+emit helper, a replay-from-Context runner, and a runnable demo interaction tree.
+Threading `SolI` through the `Expr`/`Stmt` evaluator (return-type change) is the
+remaining sub-step-1 work; the live choke points are `Context.resolveLowLevelCall`
+and `Context.resolveContractCreation`.
+-/
+
+/-- Distinguished interpreter failures: reverts and fuel exhaustion (the latter
+    mirrors Yul's `.OutOfFuel` truncation arm). -/
+inductive SolidityFailure where
+  | revert : RevertData → SolidityFailure
+  | outOfFuel : SolidityFailure
+  deriving Repr
+
+/-- The interaction monad the interpreter emits into: an interaction tree over
+    the shared `Query` alphabet with Solidity-owned failures. -/
+abbrev SolI := EvmCompiler.Simulation.Interaction SolidityFailure
+
+/-- Lift a pure `Except RevertData` helper into the interaction monad. -/
+def SolI.ofExcept {α : Type} : Except RevertData α → SolI α
+  | .ok a => .done (.ok a)
+  | .error e => .done (.error (.revert e))
+
+-- Total bridges to the shared alphabet.
+def wordToU256 (w : Word) : EvmYul.UInt256 := EvmYul.UInt256.ofNat w
+def u256ToWord (u : EvmYul.UInt256) : Word := u.toNat
+def bytesToByteArray (bs : List Byte) : ByteArray :=
+  ⟨Array.mk (bs.map (fun n => UInt8.ofNat n))⟩
+def byteArrayToBytes (ba : ByteArray) : List Byte :=
+  ba.toList.map UInt8.toNat
+def wordToAddress (w : Word) : EvmYul.AccountAddress :=
+  EvmYul.AccountAddress.ofUInt256 (wordToU256 w)
+def addressToWord (a : EvmYul.AccountAddress) : Word := a.val
+
+def lowLevelKindToCallKind :
+    LowLevelCallKind → EvmCompiler.Simulation.CallKind
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.call => .call
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.callcode => .callcode
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.staticcall => .staticcall
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.delegatecall => .delegatecall
+
+def callKindToLowLevel :
+    EvmCompiler.Simulation.CallKind → LowLevelCallKind
+  | .call => SolidCore.Solidity.Shared.Call.ExternalCallKind.call
+  | .callcode => SolidCore.Solidity.Shared.Call.ExternalCallKind.call
+  | .delegatecall => SolidCore.Solidity.Shared.Call.ExternalCallKind.delegatecall
+  | .staticcall => SolidCore.Solidity.Shared.Call.ExternalCallKind.staticcall
+
+/-- Build a shared `CallRequest` from the interpreter's low-level-call params.
+    `requestedGas` is the explicit `{gas: …}` option else the ambient `gasleft`
+    (exact gas alignment is the deferred `gasleft` work). -/
+def buildCallRequest (context : Context) (kind : LowLevelCallKind)
+    (target : Word) (calldata : List Byte) (value : Word) (gas? : Option Word) :
+    EvmCompiler.Simulation.CallRequest :=
+  { kind := lowLevelKindToCallKind kind
+    requestedGas := wordToU256 (gas?.getD context.gasleft)
+    caller := wordToAddress context.self
+    recipient := wordToAddress target
+    codeAddress := wordToAddress target
+    transferValue := wordToU256 value
+    apparentValue := wordToU256 value
+    calldata := bytesToByteArray calldata
+    permission := true }
+
+/-- Decode a shared `CallResponse` (answer) into the interpreter's
+    `LowLevelCallResult`; the request params are carried through so the result
+    keys the fixture oracle exactly. `postWorld` is ignored at checkpoint 1. -/
+def decodeCallResponse (response : EvmCompiler.Simulation.CallResponse)
+    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
+    (value : Word) (gas? : Option Word) : LowLevelCallResult :=
+  { kind := kind, target := target, calldata := calldata, value := value,
+    gas? := gas?, success := response.success,
+    output := byteArrayToBytes response.returnData }
+
+/-- Emit an external low-level call as a `Query.external` node and resume on the
+    `CallResponse`. Checkpoint-1: world snapshot is a placeholder `default`. -/
+def emitLowLevelCall (context : Context) (kind : LowLevelCallKind)
+    (target : Word) (calldata : List Byte) (value : Word) (gas? : Option Word) :
+    SolI LowLevelCallResult :=
+  let request := buildCallRequest context kind target calldata value gas?
+  .request
+    (EvmCompiler.Simulation.Query.external default
+      (EvmCompiler.Simulation.ExternalRequest.call request))
+    (fun response =>
+      .done (.ok (decodeCallResponse response kind target calldata value gas?)))
+
+/-- Replay-from-Context: answer an external-call query from the fixture oracle.
+    Params are reconstructed from the request; gas is matched leniently (the
+    deferred gas limitation) — try the oracle without gas, else with the sent
+    `requestedGas`. -/
+def answerCall (context : Context)
+    (request : EvmCompiler.Simulation.CallRequest) :
+    EvmCompiler.Simulation.CallResponse :=
+  let kind := callKindToLowLevel request.kind
+  let target := addressToWord request.recipient
+  let calldata := byteArrayToBytes request.calldata
+  let value := u256ToWord request.transferValue
+  let result :=
+    match context.lookupLowLevelCall? kind target calldata value none with
+    | some r => r
+    | none =>
+        context.resolveLowLevelCall kind target calldata value
+          (some (u256ToWord request.requestedGas))
+  { success := result.success
+    returnData := bytesToByteArray result.output
+    postWorld := default
+    returnedGas := request.requestedGas }
+
+/-- Fold a `SolI` interaction tree against a replay-from-Context environment
+    (fuel-bounded; external-call queries answered from the oracle, others by the
+    canonical default answer). -/
+def SolI.runFromContext {α : Type} (fuel : Nat) (context : Context) :
+    SolI α → Except SolidityFailure α
+  | .done r => r
+  | .request
+      (EvmCompiler.Simulation.Query.external _
+        (EvmCompiler.Simulation.ExternalRequest.call request)) k =>
+      match fuel with
+      | 0 => .error .outOfFuel
+      | Nat.succ fuel' =>
+          SolI.runFromContext fuel' context (k (answerCall context request))
+  | .request query k =>
+      match fuel with
+      | 0 => .error .outOfFuel
+      | Nat.succ fuel' =>
+          SolI.runFromContext fuel' context
+            (k (EvmCompiler.Simulation.Query.defaultAnswer query))
+
+/-- The replay-from-Context answerer as a dependent function `(q : Query) → Answer q`. -/
+def contextAnswer (context : Context) :
+    (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q
+  | EvmCompiler.Simulation.Query.external _
+      (EvmCompiler.Simulation.ExternalRequest.call request) => answerCall context request
+  | q => EvmCompiler.Simulation.Query.defaultAnswer q
+
+/-- The ordered query transcript of a `SolI` tree under a given answerer. -/
+def SolI.queryTranscript {α : Type} (fuel : Nat)
+    (answer : (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q) :
+    SolI α → List EvmCompiler.Simulation.Query
+  | .done _ => []
+  | .request query k =>
+      match fuel with
+      | 0 => []
+      | Nat.succ fuel' =>
+          query :: SolI.queryTranscript fuel' answer (k (answer query))
+
+/-- Short witness: a two-external-call execution as an explicit interaction tree.
+    `phase5DemoTree` is the tree; folding it with `runFromContext` replays the
+    fixture oracle, and `queryTranscript` exposes its two external-call queries. -/
+def phase5DemoTree (context : Context) : SolI (List LowLevelCallResult) := do
+  let r1 ← emitLowLevelCall context LowLevelCallKind.call 0xa11ce [0x11, 0x22] 0 none
+  let r2 ← emitLowLevelCall context LowLevelCallKind.call 0xb0b [0x33] 7 (some 50000)
+  pure [r1, r2]
+
+/-- The demo tree emits exactly two external-call queries. -/
+def phase5DemoTranscriptLength (context : Context) : Nat :=
+  (SolI.queryTranscript 8 (contextAnswer context) (phase5DemoTree context)).length
 
 def loadStorageWordAs (state : State) (slot : Word) (ty : Ty) :
     Except RevertData Value :=
