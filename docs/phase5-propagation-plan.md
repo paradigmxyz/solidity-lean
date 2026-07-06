@@ -305,6 +305,17 @@ encoding, not creation bytecode).
    mismatch, well before the stage-2 responder conversion).
 
 ### Stage 1d — precompile builtins emit (m, small) — REQUIRED before stage 3
+
+**Framing (corrected):** precompiles are NOT a residue family — they are ordinary
+external calls. Source builtins `ecrecover`/`sha256`/`ripemd160` are, in the EVM, a
+`STATICCALL` to address 1/2/3, so they emit `Query.external` like any call; the
+deterministic result is computed **in the responder** (`answerCall` →
+`lookupLowLevelCall?` → `builtinStaticcallResult?`/`ecrecoverAt`), not inline in
+the evaluator. This is required for the eventual ForwardRel composition: the Yul
+side emits these precompile staticcalls, so a source transcript that omitted them
+could not compose. (`keccak256` is the KECCAK256 opcode, computed in-EVM, so it
+correctly stays local — no query.)
+
 Found during planning; not in the roadmap's three-residue list:
 `Context.ecrecoverAt` (1565) and `ExternalHashKind.lookup?` (1570) read
 `context.lowLevelCallResults` via `Precompile.lookup?` (1552–1557). The
