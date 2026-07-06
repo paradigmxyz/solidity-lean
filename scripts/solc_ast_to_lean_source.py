@@ -569,6 +569,30 @@ def array_length_nat_from_node(node: dict[str, Any]) -> int:
     fail("ArrayTypeName length must resolve to a concrete static length")
 
 
+def type_expression_length_nat_from_node(index: dict[str, Any]) -> int:
+    # The index of an array *type expression* (e.g. `uint8[1e1]`) may be a
+    # scientific/unit-denominated literal that isn't a bare `[0-9]+`. Mirror the
+    # typeString fallback used by `array_length_nat_from_node`: read solc's
+    # already-folded value off the index node's typeDescriptions.
+    try:
+        return literal_number_nat(index)
+    except ImportError:
+        pass
+    type_descriptions = index.get("typeDescriptions")
+    if isinstance(type_descriptions, dict):
+        raw_type_string = type_descriptions.get("typeString")
+        if isinstance(raw_type_string, str):
+            match = re.search("int_const ([0-9]+)$", raw_type_string)
+            if match:
+                return int(match.group(1))
+        type_identifier = type_descriptions.get("typeIdentifier")
+        if isinstance(type_identifier, str):
+            match = re.fullmatch("t_rational_([0-9]+)_by_1", type_identifier)
+            if match:
+                return int(match.group(1))
+    fail("array type expression length must resolve to a concrete static length")
+
+
 def is_type_expression_node(node: dict[str, Any]) -> bool:
     type_descriptions = node.get("typeDescriptions")
     if not isinstance(type_descriptions, dict):
@@ -655,7 +679,7 @@ def type_from_expression_node(node: dict[str, Any]) -> str:
         if index is not None:
             if not isinstance(index, dict):
                 fail("array type expression index must be an object")
-            length_part = f"some {literal_number_nat(index)}"
+            length_part = f"some {type_expression_length_nat_from_node(index)}"
         return "Ty.array (" + type_from_expression_node(base) + ") (" + length_part + ")"
     fail(f"unsupported type expression node {node_type!r}")
 

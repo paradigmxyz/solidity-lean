@@ -57,6 +57,68 @@
       }
     },
     {
+      "name": "rational-constants",
+      "description": "Forge checks solc/EVM values of folded rational constants (incl. the negative A1 over-reject cases -5/-7/-93); pinned solc rejects a fractional constant into an integer type and a negative into an unsigned type; Lean imports the same accepts contract (now typechecks) and pins the fold values and the rejection boundary via named witnesses.",
+      "forge": {
+        "root": "tests/forge-harness/rational-constants",
+        "match_contract": "RationalConstantsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/rational-constants/src/RationalConstants.sol",
+        "contract": "RationalConstantsHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RationalConstants"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/rational-constants/invalid/FractionalIntoInt.sol",
+        "tests/forge-harness/rational-constants/invalid/NegIntoUint.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.RationalConstants"
+        ],
+        "evals": [
+          {
+            "label": "importedAcceptsContractTypechecks",
+            "expr": "SolidCore.Solidity.SolcAstImport.RationalConstants.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "negFiveFolds",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.negFiveFolds",
+            "expect": "true"
+          },
+          {
+            "label": "negSubFolds",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.negSubFolds",
+            "expect": "true"
+          },
+          {
+            "label": "fracNegFolds",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.fracNegFolds",
+            "expect": "true"
+          },
+          {
+            "label": "fracNegAcceptedInt256",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.fracNegAcceptedInt256",
+            "expect": "true"
+          },
+          {
+            "label": "fractionalIntoIntRejected",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.fractionalIntoIntRejected",
+            "expect": "true"
+          },
+          {
+            "label": "negIntoUintRejected",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.negIntoUintRejected",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
       "name": "storage-counter",
       "description": "Forge checks solc/EVM storage mutation; Lean imports the same source contract from solc AST and checks source storage readback.",
       "forge": {
@@ -412,7 +474,7 @@
           },
           {
             "label": "importedUserDefinedOperatorSweep",
-            "expr": "(do\n  let ok ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 128 SolidCore.Solidity.SolcAstImport.FrontendFrontier.importedSourceUnit \"FrontendFrontierGlobalUsing\" \"operatorSweep\" SolidCore.Solidity.Source.State.empty [] 992\n  Except.ok ok)",
+            "expr": "(do\n  let ok \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 128 SolidCore.Solidity.SolcAstImport.FrontendFrontier.importedSourceUnit \"FrontendFrontierGlobalUsing\" \"operatorSweep\" SolidCore.Solidity.Source.State.empty [] 992\n  Except.ok ok)",
             "expect": "Except.ok true"
           },
           {
@@ -3666,7 +3728,6 @@
             "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.AbiMalformed.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiMalformed\"\n  let encodeWord := SolidCore.Solidity.Source.ABI.encodeWord\n  let zeros := fun count => List.replicate count 0\n  let valid := encodeWord 32 ++ encodeWord 1 ++ [97] ++ zeros 31\n  let missing := encodeWord 32 ++ encodeWord 1 ++ [97]\n  let nonzero := encodeWord 32 ++ encodeWord 1 ++ [97] ++ zeros 30 ++ [1]\n  let trailing := valid ++ [255]\n  let unaligned := encodeWord 33 ++ [0] ++ encodeWord 1 ++ [97] ++ zeros 31\n  let headAlias := encodeWord 0\n  let malformedArrayArgs := encodeWord 32 ++ encodeWord 1 ++ encodeWord 256\n  let malformedFixedArrayArgs := encodeWord 7 ++ encodeWord 256\n  let call := fun name args => SolidCore.Solidity.TypeCheck.CheckedContract.call 256 contract (SolidCore.Solidity.Source.CallTarget.name name) SolidCore.Solidity.Source.State.empty args\n  let wordOk := fun result expected =>\n    match result with\n    | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word value] => SolidCore.Solidity.Source.wordEq value expected\n    | _ => false\n  let emptyRevert := fun result =>\n    match result with\n    | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => true\n    | _ => false\n  let validResult <- call \"decodeBytes\" [SolidCore.Solidity.Source.Value.bytes valid]\n  let missingResult <- call \"decodeBytes\" [SolidCore.Solidity.Source.Value.bytes missing]\n  let nonzeroResult <- call \"decodeBytes\" [SolidCore.Solidity.Source.Value.bytes nonzero]\n  let trailingResult <- call \"decodeBytes\" [SolidCore.Solidity.Source.Value.bytes trailing]\n  let unalignedResult <- call \"decodeBytes\" [SolidCore.Solidity.Source.Value.bytes unaligned]\n  let aliasResult <- call \"decodeBytes\" [SolidCore.Solidity.Source.Value.bytes headAlias]\n  let malformedBool <- call \"decodeBool\" [SolidCore.Solidity.Source.Value.bytes (encodeWord 2)]\n  let validAddress <- call \"decodeAddress\" [SolidCore.Solidity.Source.Value.bytes (encodeWord 0xa11ce)]\n  let malformedAddress <- call \"decodeAddress\" [SolidCore.Solidity.Source.Value.bytes (encodeWord (2 ^ 160))]\n  let validFixed <- call \"decodeFixedBytes\" [SolidCore.Solidity.Source.Value.bytes ([1, 2, 3, 4] ++ zeros 28)]\n  let malformedFixed <- call \"decodeFixedBytes\" [SolidCore.Solidity.Source.Value.bytes ([1, 2, 3, 4] ++ zeros 27 ++ [1])]\n  let malformedEnum <- call \"decodeEnum\" [SolidCore.Solidity.Source.Value.bytes (encodeWord 2)]\n  let malformedUint <- call \"decodeUint8\" [SolidCore.Solidity.Source.Value.bytes (encodeWord 256)]\n  let malformedInt <- call \"decodeInt8\" [SolidCore.Solidity.Source.Value.bytes (encodeWord 255)]\n  let malformedArray <- call \"decodeUint8Array\" [SolidCore.Solidity.Source.Value.bytes malformedArrayArgs]\n  let malformedFixedArray <- call \"decodeUint8FixedArray\" [SolidCore.Solidity.Source.Value.bytes malformedFixedArrayArgs]\n  Except.ok (wordOk validResult 1 && wordOk missingResult 1 && wordOk nonzeroResult 1 && wordOk trailingResult 1 && wordOk unalignedResult 1 && wordOk aliasResult 0 && emptyRevert malformedBool && wordOk validAddress 0xa11ce && emptyRevert malformedAddress && wordOk validFixed 0x01020304 && emptyRevert malformedFixed && emptyRevert malformedEnum && emptyRevert malformedUint && emptyRevert malformedInt && emptyRevert malformedArray && emptyRevert malformedFixedArray))",
             "expect": "Except.ok true"
           },
-          
           {
             "label": "importedHighLevelMalformedReturnBoundary",
             "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.AbiMalformed.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiMalformed\"\n  let emptyRevert := fun result =>\n    match result with\n    | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => true\n    | _ => false\n  let check := fun functionName target signature output => do\n    let calldata := SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)\n    let callResult : SolidCore.Solidity.Source.LowLevelCallResult :=\n      { kind := SolidCore.Solidity.Source.LowLevelCallKind.call\n        target := target\n        calldata := calldata\n        success := true\n        output := output }\n    let context :=\n      { contract.core.context with\n        accountCodes := [(target, [0x60, 0x00])]\n        lowLevelCallResults := [callResult] }\n    let result <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContext 256 contract functionName context SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word target]\n    Except.ok (emptyRevert result)\n  let narrow <- check \"highLevelNarrowReturn\" 0xbeef \"narrowValue()\" (SolidCore.Solidity.Source.ABI.encodeWord 256)\n  let enum <- check \"highLevelEnumReturn\" 0xee11 \"enumValue()\" (SolidCore.Solidity.Source.ABI.encodeWord 2)\n  let address <- check \"highLevelAddressReturn\" 0xaadd \"addressValue()\" (SolidCore.Solidity.Source.ABI.encodeWord (2 ^ 160))\n  let fixed <- check \"highLevelFixedBytesReturn\" 0xf1ed \"fixedBytesValue()\" ([1, 2, 3, 4] ++ List.replicate 27 0 ++ [1])\n  let ignoredAddress <- check \"highLevelIgnoredAddressReturn\" 0x1a11 \"pairValue()\" (SolidCore.Solidity.Source.ABI.encodeWord 7 ++ SolidCore.Solidity.Source.ABI.encodeWord (2 ^ 160))\n  let ignoredFixed <- check \"highLevelIgnoredFixedBytesReturn\" 0x1f1d \"pairValue()\" (SolidCore.Solidity.Source.ABI.encodeWord 7 ++ [1, 2, 3, 4] ++ List.replicate 27 0 ++ [1])\n  Except.ok (narrow && enum && address && fixed && ignoredAddress && ignoredFixed))",
