@@ -315,12 +315,24 @@ Design:
      being ad hoc oracle lookups and become reads of a `OpenWorld`-shaped
      environment carried in the source state — mirroring how Yul reads its
      `SharedState` without emitting queries. Post-answer, the
-     `CallResponse.postWorld` replaces that environment (and the self
-     account's storage words re-project into typed storage through the
-     layout encoding — for this phase it is acceptable to *restrict* to
-     environments whose postWorld leaves self-storage words in the image of
-     the layout encoding, failing closed otherwise; the general inverse is
-     lowering-era work).
+     `CallResponse.postWorld` replaces that environment. The self account
+     needs care: the answer may legitimately change *our own* storage words
+     (reentrancy), but the layout encoding `E : TypedStorage → WordStorage`
+     has no computable inverse in general (non-image word states; keccak-
+     derived mapping slots are unattributable without knowing the key).
+     Resolution for this phase — **fail-closed re-projection**: diff the
+     answered self-storage words against the snapshot we sent; unchanged →
+     keep the typed state; changed slots attributable to known typed paths
+     (static layout, plus mapping/array keys the execution has touched)
+     with clean field encodings → decode back; anything else → distinguished
+     execution failure rather than guessing. This makes "layout-respecting
+     environments" an **explicit assumption** the future composed theorems
+     quantify over (realizable reentrancy satisfies it, since reentrant
+     writes go through our own code and hence through `E`). Known escape
+     hatch if that assumption ever chafes: flip self-storage to word-backed
+     state with typed reads/writes as layout views (read-with-cleanup,
+     matching deployed-code behavior) — absorbs any postWorld trivially and
+     is plausibly the lowering-era representation; not this phase.
 4. **Failure/result mapping.** Solidity reverts/panics map to a
    Solidity-owned `Failure` payload; the final `done` leaf carries the rich
    source state. No attempt yet to relate these to Yul's `Exception` — that
