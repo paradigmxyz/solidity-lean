@@ -1991,6 +1991,38 @@ def contextAnswer (context : Context) :
       (EvmCompiler.Simulation.ExternalRequest.call request) => answerCall context request
   | q => EvmCompiler.Simulation.Query.defaultAnswer q
 
+/-- Fold a `SolI` interaction tree to its final `Except SolidityFailure` result
+    by answering every query from `Context` (`contextAnswer`). Unlike
+    `SolI.runFromContext` this needs **no fuel**: `Interaction` is a plain
+    inductive whose `request` continuation `k answer` is a structural subterm, so
+    the recursion is structural and total.
+
+    Termination note (R9): this depends on `Interaction` being an *inductive*; a
+    representation change upstream (coinductive/quotiented) would break the
+    structural recursion, and no honest Stmt-level fuel bound exists (loops emit
+    one query per iteration), so such a change must revisit this fold. -/
+def SolI.run {α : Type} (context : Context) :
+    SolI α → Except SolidityFailure α
+  | .done r => r
+  | .request q k => SolI.run context (k (contextAnswer context q))
+
+/-- Reify a (throw-revert) interaction tree's revert leaf into an
+    `Except RevertData` *value*, while re-throwing `outOfFuel` (truncation must
+    keep propagating). Statement sites consume Expr trees through this helper.
+
+    Correctness rests on the two threading laws of the shared monad
+    (`Interaction.lean` `bind`/`tryCatch`): both thread `request` nodes, so an
+    in-flight external-call query inside an expression survives the catch and
+    propagates upward; only the `done (.error …)` leaf is intercepted.
+
+    Greppable invariant: `caught` is the ONLY `tryCatch` use in this
+    interpreter — every Expr-tree bind inside the Stmt block goes through it. -/
+def SolI.caught {α : Type} (tree : SolI α) : SolI (Except RevertData α) :=
+  tryCatch (Except.ok <$> tree) (fun failure =>
+    match failure with
+    | SolidityFailure.revert e => pure (Except.error e)
+    | SolidityFailure.outOfFuel => throw SolidityFailure.outOfFuel)
+
 /-- The ordered query transcript of a `SolI` tree under a given answerer. -/
 def SolI.queryTranscript {α : Type} (fuel : Nat)
     (answer : (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q) :
@@ -6027,19 +6059,20 @@ def Expr.evalReturnListWithRuntimeByContext
       context.effectiveChildEvalOrder context runtime exprs)
 
 def LValue.resolveWithRuntime (target : LValue) (context : Context)
-    (runtime : Runtime) : Except RevertData (ResolvedLValue × Runtime) :=
-  target.toExpr.resolveLValueWithRuntimeByContext context runtime
+    (runtime : Runtime) : SolI (ResolvedLValue × Runtime) :=
+  Expr.resolveLValueWithRuntimeOrder context.effectiveChildEvalOrder context
+    runtime target.toExpr
 
-def LValues.writeTupleWithRuntime? (context : Context) :
-    Runtime -> List (Option LValue) -> List Value -> Except RevertData Runtime
-  | runtime, [], [] => Except.ok runtime
+def LValues.writeTupleWithRuntime (context : Context) :
+    Runtime -> List (Option LValue) -> List Value -> SolI Runtime
+  | runtime, [], [] => pure runtime
   | runtime, some target :: targets, value :: values => do
       let (resolved, runtime') ← target.resolveWithRuntime context runtime
       let updated ← resolved.write context runtime' value
-      LValues.writeTupleWithRuntime? context updated targets values
+      LValues.writeTupleWithRuntime context updated targets values
   | runtime, none :: targets, _ :: values =>
-      LValues.writeTupleWithRuntime? context runtime targets values
-  | _, _, _ => Except.error RevertData.typeMismatch
+      LValues.writeTupleWithRuntime context runtime targets values
+  | _, _, _ => throw (SolidityFailure.revert RevertData.typeMismatch)
 
 structure BindingDecl where
   name : String
@@ -6380,163 +6413,171 @@ def Stmt.findSwitchBranch? (value : Word)
 mutual
 
 def Stmt.eval (fuel : Nat) (context : Context)
-    (runtime : Runtime) : Stmt -> Option Result :=
+    (runtime : Runtime) : Stmt -> SolI Result :=
   match fuel with
-  | 0 => fun _ => none
+  | 0 => fun _ => throw SolidityFailure.outOfFuel
   | fuel + 1 => fun stmt =>
       match stmt with
-      | Stmt.skip => some (Result.normal runtime)
-      | Stmt.block body =>
-          match Stmt.evalList fuel context runtime.pushScope body with
-          | some result => some (result.mapRuntime Runtime.popScope)
-          | none => none
+      | Stmt.skip => pure (Result.normal runtime)
+      | Stmt.block body => do
+          let result ← Stmt.evalList fuel context runtime.pushScope body
+          pure (result.mapRuntime Runtime.popScope)
       | Stmt.varDecl ty name init =>
           match init with
-          | some expr =>
-              match expr.evalWithRuntimeByContext context runtime with
+          | some expr => do
+              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match ty.coerceValue? value with
                   | some coerced =>
-                      some
+                      pure
                         (Result.normal
                           (runtime'.declareLocal name coerced))
                   | none =>
-                      some (Result.reverted runtime RevertData.typeMismatch)
+                      pure (Result.reverted runtime RevertData.typeMismatch)
               | Except.error err =>
-                  some (Result.reverted runtime err)
+                  pure (Result.reverted runtime err)
           | none =>
-              some
+              pure
                 (Result.normal
                   (runtime.declareLocal name ty.defaultValue))
       | Stmt.memoryVarDecl ty name init =>
           match init with
-          | some expr =>
-              match
-                Expr.memoryRefOrValueWithRuntimeByContext
-                  expr context runtime
+          | some expr => do
+              match ←
+                (Expr.memoryRefOrValueWithRuntimeOrder
+                  context.effectiveChildEvalOrder context runtime expr).caught
               with
               | Except.ok (some id, _, runtime') =>
-                  some
+                  pure
                     (Result.normal
                       (runtime'.declareLocal name (Value.memoryRef id)))
               | Except.ok (none, some value, runtime') =>
                   match runtime'.declareMemoryLocal ty name value with
-                  | some updated => some (Result.normal updated)
+                  | some updated => pure (Result.normal updated)
                   | none =>
-                      some (Result.reverted runtime RevertData.typeMismatch)
+                      pure (Result.reverted runtime RevertData.typeMismatch)
               | Except.ok (none, none, runtime') =>
-                  match expr.evalWithRuntimeByContext context runtime' with
+                  match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                      context runtime' expr).caught with
                   | Except.ok (value, runtime'') =>
                       match runtime''.declareMemoryLocal ty name value with
-                      | some updated => some (Result.normal updated)
+                      | some updated => pure (Result.normal updated)
                       | none =>
-                          some (Result.reverted runtime RevertData.typeMismatch)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
+                          pure (Result.reverted runtime RevertData.typeMismatch)
+                  | Except.error err => pure (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime err)
           | none =>
               match runtime.declareMemoryLocal ty name ty.defaultValue with
-              | some updated => some (Result.normal updated)
-              | none => some (Result.reverted runtime RevertData.typeMismatch)
+              | some updated => pure (Result.normal updated)
+              | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.memoryLocalize ty name =>
           match runtime.localizeMemoryLocal ty name with
-          | some updated => some (Result.normal updated)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
+          | some updated => pure (Result.normal updated)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAlias name target =>
-          some
+          pure
             (Result.normal
               (runtime.declareLocal name (Value.storageRef target)))
-      | Stmt.storageAliasPath name target indexes =>
-          match Expr.evalListWithRuntimeByContext context runtime indexes with
+      | Stmt.storageAliasPath name target indexes => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
-              some
+              pure
                 (Result.normal
                   (runtime'.declareLocal name
                     (Value.storageRefForPath target indexValues)))
-          | Except.error err => some (Result.reverted runtime err)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageAliasFrom name source =>
           match runtime.lookupStoragePathRef? source with
           | some (target, indexes) =>
-              some
+              pure
                 (Result.normal
                   (runtime.declareLocal name
                     (Value.storageRefForPath target indexes)))
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasFromPath name source extraIndexes =>
           match runtime.lookupStoragePathRef? source with
-          | some (target, indexes) =>
-              match
-                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+          | some (target, indexes) => do
+              match ←
+                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
-                  some
+                  pure
                     (Result.normal
                       (runtime'.declareLocal name
                         (Value.storageRefForPath target
                           (indexes ++ extraIndexValues))))
-              | Except.error err => some (Result.reverted runtime err)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssign name target =>
           match runtime.assignStorageRef? name target with
-          | some updated => some (Result.normal updated)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
-      | Stmt.storageAliasAssignPath name target indexes =>
-          match Expr.evalListWithRuntimeByContext context runtime indexes with
+          | some updated => pure (Result.normal updated)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageAliasAssignPath name target indexes => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match
                 runtime'.assignStoragePathRef? name target indexValues
               with
-              | some updated => some (Result.normal updated)
-              | none => some (Result.reverted runtime RevertData.typeMismatch)
-          | Except.error err => some (Result.reverted runtime err)
+              | some updated => pure (Result.normal updated)
+              | none => pure (Result.reverted runtime RevertData.typeMismatch)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageAliasAssignFrom name source =>
           match runtime.lookupStoragePathRef? source with
           | some (target, indexes) =>
               match runtime.assignStoragePathRef? name target indexes with
-              | some updated => some (Result.normal updated)
-              | none => some (Result.reverted runtime RevertData.typeMismatch)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
+              | some updated => pure (Result.normal updated)
+              | none => pure (Result.reverted runtime RevertData.typeMismatch)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssignFromPath name source extraIndexes =>
           match runtime.lookupStoragePathRef? source with
-          | some (target, indexes) =>
-              match
-                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+          | some (target, indexes) => do
+              match ←
+                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   match
                     runtime'.assignStoragePathRef? name target
                       (indexes ++ extraIndexValues)
                   with
-                  | some updated => some (Result.normal updated)
-                  | none => some (Result.reverted runtime RevertData.typeMismatch)
-              | Except.error err => some (Result.reverted runtime err)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
-      | Stmt.exprStmt expr =>
-          match expr.evalWithRuntimeByContext context runtime with
-          | Except.ok (_, runtime') => some (Result.normal runtime')
-          | Except.error err => some (Result.reverted runtime err)
+                  | some updated => pure (Result.normal updated)
+                  | none => pure (Result.reverted runtime RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.exprStmt expr => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime expr).caught with
+          | Except.ok (_, runtime') => pure (Result.normal runtime')
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.assign target expr =>
           let writeAssigned
               (resolved : ResolvedLValue) (value : Value)
-              (runtime' : Runtime) :=
+              (runtime' : Runtime) : SolI Result :=
             match resolved.write context runtime' value with
-            | Except.ok updated => some (Result.normal updated)
-            | Except.error err => some (Result.reverted runtime err)
-          let evalTargetThenRhs :=
-            match target.resolveWithRuntime context runtime with
+            | Except.ok updated => pure (Result.normal updated)
+            | Except.error err => pure (Result.reverted runtime err)
+          let evalTargetThenRhs : SolI Result := do
+            match ← (target.resolveWithRuntime context runtime).caught with
             | Except.ok (resolved, runtime') =>
-                match expr.evalWithRuntimeByContext context runtime' with
+                match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                    context runtime' expr).caught with
                 | Except.ok (value, runtime'') =>
                     writeAssigned resolved value runtime''
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
-          let evalRhsThenTarget :=
-            match expr.evalWithRuntimeByContext context runtime with
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
+          let evalRhsThenTarget : SolI Result := do
+            match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                context runtime expr).caught with
             | Except.ok (value, runtime') =>
-                match target.resolveWithRuntime context runtime' with
+                match ← (target.resolveWithRuntime context runtime').caught with
                 | Except.ok (resolved, runtime'') =>
                     writeAssigned resolved value runtime''
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
           match target, expr with
           | LValue.var name, Expr.var source =>
               match runtime.lookupMemoryRef? name,
@@ -6545,9 +6586,9 @@ def Stmt.eval (fuel : Nat) (context : Context)
                   match
                     runtime.assignLocalRaw? name (Value.memoryRef sourceId)
                   with
-                  | some updated => some (Result.normal updated)
+                  | some updated => pure (Result.normal updated)
                   | none =>
-                      some (Result.reverted runtime RevertData.typeMismatch)
+                      pure (Result.reverted runtime RevertData.typeMismatch)
               | _, _ =>
                   match context.effectiveChildEvalOrder with
                   | ChildEvalOrder.leftToRight => evalTargetThenRhs
@@ -6556,84 +6597,90 @@ def Stmt.eval (fuel : Nat) (context : Context)
               match context.effectiveChildEvalOrder with
               | ChildEvalOrder.leftToRight => evalTargetThenRhs
               | ChildEvalOrder.rightToLeft => evalRhsThenTarget
-      | Stmt.assignTuple targets expr =>
-          match expr.evalWithRuntimeByContext context runtime with
+      | Stmt.assignTuple targets expr => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime expr).caught with
           | Except.ok (Value.tuple values, runtime') =>
-              match LValues.writeTupleWithRuntime? context runtime' targets values with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
-          | Except.ok _ => some (Result.reverted runtime RevertData.typeMismatch)
-          | Except.error err => some (Result.reverted runtime err)
+              match ← (LValues.writeTupleWithRuntime context runtime' targets
+                  values).caught with
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
+          | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.assignOp target op expr =>
           let writeApplied
               (resolved : ResolvedLValue) (lhs rhs : Value)
-              (runtime' : Runtime) :=
+              (runtime' : Runtime) : SolI Result :=
             match BinaryOp.apply context.checked op lhs rhs with
             | Except.ok value =>
                 match resolved.write context runtime' value with
-                | Except.ok updated => some (Result.normal updated)
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
-          let evalTargetThenRhs :=
-            match target.resolveWithRuntime context runtime with
+                | Except.ok updated => pure (Result.normal updated)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
+          let evalTargetThenRhs : SolI Result := do
+            match ← (target.resolveWithRuntime context runtime).caught with
             | Except.ok (resolved, runtime') =>
                 match resolved.read context runtime' with
                 | Except.ok lhs =>
-                    match expr.evalWithRuntimeByContext context runtime' with
+                    match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                        context runtime' expr).caught with
                     | Except.ok (rhs, runtime'') =>
                         writeApplied resolved lhs rhs runtime''
-                    | Except.error err => some (Result.reverted runtime err)
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
-          let evalRhsThenTarget :=
-            match expr.evalWithRuntimeByContext context runtime with
+                    | Except.error err => pure (Result.reverted runtime err)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
+          let evalRhsThenTarget : SolI Result := do
+            match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                context runtime expr).caught with
             | Except.ok (rhs, runtime') =>
-                match target.resolveWithRuntime context runtime' with
+                match ← (target.resolveWithRuntime context runtime').caught with
                 | Except.ok (resolved, runtime'') =>
                     match resolved.read context runtime'' with
                     | Except.ok lhs =>
                         writeApplied resolved lhs rhs runtime''
-                    | Except.error err => some (Result.reverted runtime err)
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
+                    | Except.error err => pure (Result.reverted runtime err)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
           match context.effectiveChildEvalOrder with
           | ChildEvalOrder.leftToRight => evalTargetThenRhs
           | ChildEvalOrder.rightToLeft => evalRhsThenTarget
       | Stmt.assignOpCleanup target op expr cleanup =>
           let writeApplied
               (resolved : ResolvedLValue) (lhs rhs : Value)
-              (runtime' : Runtime) :=
+              (runtime' : Runtime) : SolI Result :=
             match BinaryOp.apply context.checked op lhs rhs with
             | Except.ok value =>
                 match cleanup.apply context.checked value with
                 | Except.ok cleaned =>
                     match resolved.write context runtime' cleaned with
-                    | Except.ok updated => some (Result.normal updated)
-                    | Except.error err => some (Result.reverted runtime err)
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
-          let evalTargetThenRhs :=
-            match target.resolveWithRuntime context runtime with
+                    | Except.ok updated => pure (Result.normal updated)
+                    | Except.error err => pure (Result.reverted runtime err)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
+          let evalTargetThenRhs : SolI Result := do
+            match ← (target.resolveWithRuntime context runtime).caught with
             | Except.ok (resolved, runtime') =>
                 match resolved.read context runtime' with
                 | Except.ok lhs =>
-                    match expr.evalWithRuntimeByContext context runtime' with
+                    match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                        context runtime' expr).caught with
                     | Except.ok (rhs, runtime'') =>
                         writeApplied resolved lhs rhs runtime''
-                    | Except.error err => some (Result.reverted runtime err)
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
-          let evalRhsThenTarget :=
-            match expr.evalWithRuntimeByContext context runtime with
+                    | Except.error err => pure (Result.reverted runtime err)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
+          let evalRhsThenTarget : SolI Result := do
+            match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                context runtime expr).caught with
             | Except.ok (rhs, runtime') =>
-                match target.resolveWithRuntime context runtime' with
+                match ← (target.resolveWithRuntime context runtime').caught with
                 | Except.ok (resolved, runtime'') =>
                     match resolved.read context runtime'' with
                     | Except.ok lhs =>
                         writeApplied resolved lhs rhs runtime''
-                    | Except.error err => some (Result.reverted runtime err)
-                | Except.error err => some (Result.reverted runtime err)
-            | Except.error err => some (Result.reverted runtime err)
+                    | Except.error err => pure (Result.reverted runtime err)
+                | Except.error err => pure (Result.reverted runtime err)
+            | Except.error err => pure (Result.reverted runtime err)
           match context.effectiveChildEvalOrder with
           | ChildEvalOrder.leftToRight => evalTargetThenRhs
           | ChildEvalOrder.rightToLeft => evalRhsThenTarget
@@ -6641,112 +6688,122 @@ def Stmt.eval (fuel : Nat) (context : Context)
           match target with
           | LValue.storage name =>
               match runtime.deleteStorageField context name with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
           | LValue.var name =>
               match runtime.lookupStoragePathRef? name with
               | some _ =>
-                  some (Result.reverted runtime RevertData.typeMismatch)
-              | none =>
-                  match target.resolveWithRuntime context runtime with
+                  pure (Result.reverted runtime RevertData.typeMismatch)
+              | none => do
+                  match ← (target.resolveWithRuntime context runtime).caught with
                   | Except.ok (resolved, runtime') =>
                       match resolved.delete context runtime' with
-                      | Except.ok updated => some (Result.normal updated)
-                      | Except.error err => some (Result.reverted runtime err)
-                  | Except.error err => some (Result.reverted runtime err)
-          | _ =>
-              match target.resolveWithRuntime context runtime with
+                      | Except.ok updated => pure (Result.normal updated)
+                      | Except.error err => pure (Result.reverted runtime err)
+                  | Except.error err => pure (Result.reverted runtime err)
+          | _ => do
+              match ← (target.resolveWithRuntime context runtime).caught with
               | Except.ok (resolved, runtime') =>
                   match resolved.delete context runtime' with
-                  | Except.ok updated => some (Result.normal updated)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPush name value? =>
           match value? with
-          | some expr =>
-              match expr.evalWithRuntimeByContext context runtime with
+          | some expr => do
+              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match runtime'.storageArrayPush context name (some value) with
-                  | Except.ok updated => some (Result.normal updated)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime err)
           | none =>
               match runtime.storageArrayPush context name none with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPushRef name value? =>
           match runtime.lookupStoragePathRef? name, value? with
-          | some (target, indexes), some expr =>
-              match expr.evalWithRuntimeByContext context runtime with
+          | some (target, indexes), some expr => do
+              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match
                     runtime'.storageArrayPushPath context target indexes
                       (some value)
                   with
-                  | Except.ok updated => some (Result.normal updated)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime err)
           | some (target, indexes), none =>
               match runtime.storageArrayPushPath context target indexes none with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
-          | none, _ => some (Result.reverted runtime RevertData.typeMismatch)
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none, _ => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPushRefPath name extraIndexes value? =>
           match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) =>
-              match
-                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+          | some (target, indexes) => do
+              match ←
+                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   let allIndexes := indexes ++ extraIndexValues
                   match value? with
                   | some expr =>
-                      match expr.evalWithRuntimeByContext context runtime' with
+                      match ← (Expr.evalWithRuntimeOrder
+                          context.effectiveChildEvalOrder context runtime'
+                          expr).caught with
                       | Except.ok (value, runtime'') =>
                           match
                             runtime''.storageArrayPushPath context target
                               allIndexes (some value)
                           with
-                          | Except.ok updated => some (Result.normal updated)
+                          | Except.ok updated => pure (Result.normal updated)
                           | Except.error err =>
-                              some (Result.reverted runtime err)
-                      | Except.error err => some (Result.reverted runtime' err)
+                              pure (Result.reverted runtime err)
+                      | Except.error err => pure (Result.reverted runtime' err)
                   | none =>
                       match
                         runtime'.storageArrayPushPath context target
                           allIndexes none
                       with
-                      | Except.ok updated => some (Result.normal updated)
-                      | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
-      | Stmt.storageArrayPushPath name indexes value? =>
-          match Expr.evalListWithRuntimeByContext context runtime indexes with
+                      | Except.ok updated => pure (Result.normal updated)
+                      | Except.error err => pure (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageArrayPushPath name indexes value? => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match value? with
               | some expr =>
-                  match expr.evalWithRuntimeByContext context runtime' with
+                  match ← (Expr.evalWithRuntimeOrder
+                      context.effectiveChildEvalOrder context runtime'
+                      expr).caught with
                   | Except.ok (value, runtime'') =>
                       match
                         runtime''.storageArrayPushPath context name indexValues
                           (some value)
                       with
-                      | Except.ok updated => some (Result.normal updated)
-                      | Except.error err => some (Result.reverted runtime err)
-                  | Except.error err => some (Result.reverted runtime' err)
+                      | Except.ok updated => pure (Result.normal updated)
+                      | Except.error err => pure (Result.reverted runtime err)
+                  | Except.error err => pure (Result.reverted runtime' err)
               | none =>
                   match
                     runtime'.storageArrayPushPath context name indexValues none
                   with
-                  | Except.ok updated => some (Result.normal updated)
-                  | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.storageArrayPushPathAssign name indexes rhs =>
-          match Expr.evalListWithRuntimeByContext context runtime indexes with
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.storageArrayPushPathAssign name indexes rhs => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match runtime'.storageArrayPushPath context name indexValues none with
-              | Except.ok pushed =>
-                  match rhs.evalWithRuntimeByContext context pushed with
+              | Except.ok pushed => do
+                  match ← (Expr.evalWithRuntimeOrder
+                      context.effectiveChildEvalOrder context pushed rhs).caught with
                   | Except.ok (value, runtime'') =>
                       match
                         runtime''.loadStorageRefPathValue
@@ -6763,31 +6820,34 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                   value
                               with
                               | Except.ok updated =>
-                                  some (Result.normal updated)
+                                  pure (Result.normal updated)
                               | Except.error err =>
-                                  some (Result.reverted runtime'' err)
+                                  pure (Result.reverted runtime'' err)
                           | none =>
-                              some
+                              pure
                                 (Result.reverted runtime''
                                   RevertData.typeMismatch)
                       | Except.error err =>
-                          some (Result.reverted runtime'' err)
-                  | Except.error err => some (Result.reverted pushed err)
-              | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
+                          pure (Result.reverted runtime'' err)
+                  | Except.error err => pure (Result.reverted pushed err)
+              | Except.error err => pure (Result.reverted runtime err)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPushRefPathAssign name extraIndexes rhs =>
           match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) =>
-              match
-                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+          | some (target, indexes) => do
+              match ←
+                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   let allIndexes := indexes ++ extraIndexValues
                   match
                     runtime'.storageArrayPushPath context target allIndexes none
                   with
-                  | Except.ok pushed =>
-                      match rhs.evalWithRuntimeByContext context pushed with
+                  | Except.ok pushed => do
+                      match ← (Expr.evalWithRuntimeOrder
+                          context.effectiveChildEvalOrder context pushed
+                          rhs).caught with
                       | Except.ok (value, runtime'') =>
                           match
                             runtime''.loadStorageRefPathValue
@@ -6804,128 +6864,136 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                       value
                                   with
                                   | Except.ok updated =>
-                                      some (Result.normal updated)
+                                      pure (Result.normal updated)
                                   | Except.error err =>
-                                      some (Result.reverted runtime'' err)
+                                      pure (Result.reverted runtime'' err)
                               | none =>
-                                  some
+                                  pure
                                     (Result.reverted runtime''
                                       RevertData.typeMismatch)
                           | Except.error err =>
-                              some (Result.reverted runtime'' err)
-                      | Except.error err => some (Result.reverted pushed err)
-                  | Except.error err => some (Result.reverted runtime' err)
-              | Except.error err => some (Result.reverted runtime err)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
+                              pure (Result.reverted runtime'' err)
+                      | Except.error err => pure (Result.reverted pushed err)
+                  | Except.error err => pure (Result.reverted runtime' err)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPop name =>
           match runtime.storageArrayPop context name with
-          | Except.ok updated => some (Result.normal updated)
-          | Except.error err => some (Result.reverted runtime err)
+          | Except.ok updated => pure (Result.normal updated)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPopRef name =>
           match runtime.lookupStoragePathRef? name with
           | some (target, indexes) =>
               match runtime.storageArrayPopPath context target indexes with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPopRefPath name extraIndexes =>
           match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) =>
-              match
-                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+          | some (target, indexes) => do
+              match ←
+                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   match
                     runtime'.storageArrayPopPath context target
                       (indexes ++ extraIndexValues)
                   with
-                  | Except.ok updated => some (Result.normal updated)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
-          | none => some (Result.reverted runtime RevertData.typeMismatch)
-      | Stmt.storageArrayPopPath name indexes =>
-          match Expr.evalListWithRuntimeByContext context runtime indexes with
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime err)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageArrayPopPath name indexes => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match runtime'.storageArrayPopPath context name indexValues with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.panic code =>
-          some (Result.reverted runtime (RevertData.panic code))
-      | Stmt.assertStmt cond =>
-          match cond.evalWithRuntimeByContext context runtime with
+          pure (Result.reverted runtime (RevertData.panic code))
+      | Stmt.assertStmt cond => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime cond).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
-                    some (Result.normal runtime')
+                    pure (Result.normal runtime')
                   else
-                    some (Result.reverted runtime' RevertData.assertFailure)
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.requireStmt cond reason =>
-          match cond.evalWithRuntimeByContext context runtime with
+                    pure (Result.reverted runtime' RevertData.assertFailure)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.requireStmt cond reason => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime cond).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
-                    some (Result.normal runtime')
+                    pure (Result.normal runtime')
                   else
                     match reason with
                     | some message =>
-                        some (Result.reverted runtime' (RevertData.error message))
+                        pure (Result.reverted runtime' (RevertData.error message))
                     | none =>
-                        some (Result.reverted runtime' RevertData.empty)
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.requireErrorExpr cond reasonExpr =>
-          match cond.evalWithRuntimeByContext context runtime with
+                        pure (Result.reverted runtime' RevertData.empty)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.requireErrorExpr cond reasonExpr => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime cond).caught with
           | Except.ok (value, runtime') =>
-              match reasonExpr.evalWithRuntimeByContext context runtime' with
+              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime' reasonExpr).caught with
               | Except.ok (reasonValue, runtime'') =>
                   match value.expectWord with
                   | Except.ok word =>
                       if wordTruthy word then
-                        some (Result.normal runtime'')
+                        pure (Result.normal runtime'')
                       else
                         match errorStringBytesRevert? reasonValue with
                         | some payload =>
-                            some (Result.reverted runtime'' payload)
+                            pure (Result.reverted runtime'' payload)
                         | none =>
-                            some (Result.reverted runtime''
+                            pure (Result.reverted runtime''
                               RevertData.typeMismatch)
-                  | Except.error err => some (Result.reverted runtime'' err)
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.requireCustom cond name exprs =>
-          match cond.evalWithRuntimeByContext context runtime with
+                  | Except.error err => pure (Result.reverted runtime'' err)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.requireCustom cond name exprs => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime cond).caught with
           | Except.ok (value, runtime') =>
-              match Expr.evalListWithRuntimeByContext context runtime' exprs with
+              match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime' exprs).caught with
               | Except.ok (args, runtime'') =>
                   match value.expectWord with
                   | Except.ok word =>
                       if wordTruthy word then
-                        some (Result.normal runtime'')
+                        pure (Result.normal runtime'')
                       else
-                        some
+                        pure
                           (Result.reverted runtime''
                             (RevertData.custom name args))
-                  | Except.error err => some (Result.reverted runtime'' err)
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.captureReturn returnNames body =>
-          match Stmt.eval fuel context runtime body with
-          | some (Result.returned runtime' values) =>
+                  | Except.error err => pure (Result.reverted runtime'' err)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.captureReturn returnNames body => do
+          match ← Stmt.eval fuel context runtime body with
+          | Result.returned runtime' values =>
               if values.isEmpty || returnNames.isEmpty then
-                some (Result.normal runtime')
+                pure (Result.normal runtime')
               else
                 match runtime'.assignNamedValues? returnNames values with
-                | some updated => some (Result.normal updated)
-                | none => some (Result.reverted runtime' RevertData.typeMismatch)
-          | some result => some result
-          | none => none
-      | Stmt.ifElse cond thenBranch elseBranch =>
-          match cond.evalWithRuntimeByContext context runtime with
+                | some updated => pure (Result.normal updated)
+                | none => pure (Result.reverted runtime' RevertData.typeMismatch)
+          | result => pure result
+      | Stmt.ifElse cond thenBranch elseBranch => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime cond).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
@@ -6933,32 +7001,31 @@ def Stmt.eval (fuel : Nat) (context : Context)
                     Stmt.eval fuel context runtime' thenBranch
                   else
                     Stmt.eval fuel context runtime' elseBranch
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.switch discr cases defaultBranch =>
-          match discr.evalWithRuntimeByContext context runtime with
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.switch discr cases defaultBranch => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime discr).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
                   match Stmt.findSwitchBranch? word cases, defaultBranch with
                   | some branch, _ => Stmt.eval fuel context runtime' branch
                   | none, some branch => Stmt.eval fuel context runtime' branch
-                  | none, none => some (Result.normal runtime')
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
+                  | none, none => pure (Result.normal runtime')
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.whileLoop cond body =>
           Stmt.evalWhile fuel context runtime cond body
       | Stmt.doWhile body cond =>
           Stmt.evalDoWhile fuel context runtime body cond
-      | Stmt.forLoop init cond post body =>
+      | Stmt.forLoop init cond post body => do
           let loopRuntime := runtime.pushScope
-          match Stmt.eval fuel context loopRuntime init with
-          | some (Result.normal initialized) =>
-              match Stmt.evalFor fuel context initialized cond post body with
-              | some result => some (result.mapRuntime Runtime.popScope)
-              | none => none
-          | some result => some (result.mapRuntime Runtime.popScope)
-          | none => none
+          match ← Stmt.eval fuel context loopRuntime init with
+          | Result.normal initialized =>
+              let result ← Stmt.evalFor fuel context initialized cond post body
+              pure (result.mapRuntime Runtime.popScope)
+          | result => pure (result.mapRuntime Runtime.popScope)
         | Stmt.tryExternalCall kind targetExpr calldataExpr valueExpr
             gasExpr? gasFirst checkTargetCode returns returnAbiCleanups successBody
             catchClauses =>
@@ -7058,55 +7125,51 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                                 returnAbiCleanups decoded then
                                               match BindingDecl.bindArgs?
                                                   returns decoded with
-                                              | some frame =>
-                                                  match Stmt.eval fuel context
+                                              | some frame => do
+                                                  let result ← Stmt.eval fuel context
                                                       (runtimeWithInteraction.withFrame
                                                         frame)
-                                                      successBody with
-                                                  | some result =>
-                                                      some
-                                                      (result.mapRuntime
-                                                        Runtime.popScope)
-                                                  | none => none
+                                                      successBody
+                                                  pure
+                                                    (result.mapRuntime
+                                                      Runtime.popScope)
                                               | none =>
-                                                  some
+                                                  pure
                                                     (Result.reverted
                                                       runtimeWithInteraction
                                                       RevertData.typeMismatch)
                                             else
-                                                some
+                                                pure
                                                   (Result.reverted
                                                     runtimeWithInteraction
                                                     RevertData.empty)
                                         | none =>
-                                            some
+                                            pure
                                               (Result.reverted
                                                 runtimeWithInteraction
                                                 RevertData.empty)
                                     else
                                         match TryCatchClause.findMatch?
                                             output catchClauses with
-                                        | some (frame, body) =>
-                                            match Stmt.eval fuel context
+                                        | some (frame, body) => do
+                                            let result ← Stmt.eval fuel context
                                                 (runtimeWithInteraction.withFrame
-                                                  frame) body with
-                                            | some result =>
-                                                some
-                                                (result.mapRuntime
-                                                  Runtime.popScope)
-                                            | none => none
+                                                  frame) body
+                                            pure
+                                              (result.mapRuntime
+                                                Runtime.popScope)
                                         | none =>
-                                            some
+                                            pure
                                               (Result.reverted
                                                 runtimeWithInteraction
                                                 (RevertData.fromRawBytes output))
                             | Except.error (runtimeFailed, err) =>
-                                some (Result.reverted runtimeFailed err)
+                                pure (Result.reverted runtimeFailed err)
                         | none =>
-                            some (Result.reverted runtime'' RevertData.typeMismatch)
-                    | Except.error err => some (Result.reverted runtime' err)
-                | Except.error err => some (Result.reverted runtime' err)
-            | Except.error err => some (Result.reverted runtime err)
+                            pure (Result.reverted runtime'' RevertData.typeMismatch)
+                    | Except.error err => pure (Result.reverted runtime' err)
+                | Except.error err => pure (Result.reverted runtime' err)
+            | Except.error err => pure (Result.reverted runtime err)
         | Stmt.tryContractCreate contractName constructorArgsExpr valueExpr
             saltExpr? returns successBody catchClauses =>
             match constructorArgsExpr.evalWithRuntimeByContext context runtime with
@@ -7145,82 +7208,83 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                   else
                                     [Value.word address]
                                 match BindingDecl.bindArgs? returns values with
-                                | some frame =>
-                                    match Stmt.eval fuel context
+                                | some frame => do
+                                    let result ← Stmt.eval fuel context
                                           (runtimeWithInteraction.withFrame frame)
-                                          successBody with
-                                      | some result =>
-                                        some
-                                          (result.mapRuntime
-                                            Runtime.popScope)
-                                      | none => none
+                                          successBody
+                                    pure
+                                      (result.mapRuntime
+                                        Runtime.popScope)
                                   | none =>
-                                      some
+                                      pure
                                         (Result.reverted runtimeWithInteraction
                                           RevertData.typeMismatch)
                                 else
                                   match TryCatchClause.findMatch?
                                       output catchClauses with
-                                  | some (frame, body) =>
-                                      match Stmt.eval fuel context
+                                  | some (frame, body) => do
+                                      let result ← Stmt.eval fuel context
                                           (runtimeWithInteraction.withFrame frame)
-                                          body with
-                                      | some result =>
-                                        some
-                                          (result.mapRuntime
-                                            Runtime.popScope)
-                                      | none => none
+                                          body
+                                      pure
+                                        (result.mapRuntime
+                                          Runtime.popScope)
                                   | none =>
-                                      some
+                                      pure
                                         (Result.reverted runtimeWithInteraction
                                           (RevertData.fromRawBytes output))
                             | Except.error err =>
-                                some (Result.reverted runtime'' err)
-                        | Except.error err => some (Result.reverted runtime'' err)
-                    | Except.error err => some (Result.reverted runtime' err)
+                                pure (Result.reverted runtime'' err)
+                        | Except.error err => pure (Result.reverted runtime'' err)
+                    | Except.error err => pure (Result.reverted runtime' err)
                 | none =>
-                    some (Result.reverted runtime' RevertData.typeMismatch)
-            | Except.error err => some (Result.reverted runtime err)
-      | Stmt.break => some (Result.broke runtime)
-      | Stmt.continue => some (Result.continued runtime)
-      | Stmt.returnValues exprs =>
-          match Expr.evalReturnListWithRuntimeByContext context runtime exprs with
+                    pure (Result.reverted runtime' RevertData.typeMismatch)
+            | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.break => pure (Result.broke runtime)
+      | Stmt.continue => pure (Result.continued runtime)
+      | Stmt.returnValues exprs => do
+          match ← (Expr.evalReturnListWithRuntimeOrder
+              context.effectiveChildEvalOrder context runtime exprs).caught with
           | Except.ok (values, runtime') =>
-              some (Result.returned runtime' values)
-          | Except.error err => some (Result.reverted runtime err)
+              pure (Result.returned runtime' values)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.revertError reason =>
           match reason with
           | some message =>
-              some (Result.reverted runtime (RevertData.error message))
+              pure (Result.reverted runtime (RevertData.error message))
           | none =>
-              some (Result.reverted runtime RevertData.empty)
-      | Stmt.revertErrorExpr reasonExpr =>
-          match reasonExpr.evalWithRuntimeByContext context runtime with
+              pure (Result.reverted runtime RevertData.empty)
+      | Stmt.revertErrorExpr reasonExpr => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime reasonExpr).caught with
           | Except.ok (reasonValue, runtime') =>
               match errorStringBytesRevert? reasonValue with
               | some payload =>
-                  some (Result.reverted runtime' payload)
+                  pure (Result.reverted runtime' payload)
               | none =>
-                  some (Result.reverted runtime' RevertData.typeMismatch)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.revert name exprs =>
-          match Expr.evalListWithRuntimeByContext context runtime exprs with
+                  pure (Result.reverted runtime' RevertData.typeMismatch)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.revert name exprs => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime exprs).caught with
           | Except.ok (values, runtime') =>
-              some (Result.reverted runtime' (RevertData.custom name values))
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.emitEvent name exprs =>
-          match Expr.evalListWithRuntimeByContext context runtime exprs with
+              pure (Result.reverted runtime' (RevertData.custom name values))
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.emitEvent name exprs => do
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime exprs).caught with
           | Except.ok (values, runtime') =>
               match runtime'.emitEvent context name values with
-              | Except.ok updated => some (Result.normal updated)
-              | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
-      | Stmt.selfdestruct recipientExpr =>
-          match recipientExpr.evalWithRuntimeByContext context runtime with
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.selfdestruct recipientExpr => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime recipientExpr).caught with
           | Except.ok (recipientValue, runtime') =>
               match recipientValue.expectWord with
               | Except.ok recipient =>
-                  some
+                  pure
                     (Result.selfdestructed
                       { runtime' with
                         state :=
@@ -7228,114 +7292,112 @@ def Stmt.eval (fuel : Nat) (context : Context)
                             context.evmVersion
                             context.createdInTransactionAccounts
                             context.self recipient })
-              | Except.error err => some (Result.reverted runtime' err)
-          | Except.error err => some (Result.reverted runtime err)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.checked body =>
           Stmt.eval fuel { context with checked := true } runtime body
       | Stmt.unchecked body =>
           Stmt.eval fuel { context with checked := false } runtime body
 
 def Stmt.evalList (fuel : Nat) (context : Context)
-    (runtime : Runtime) : List Stmt -> Option Result
-  | [] => some (Result.normal runtime)
-  | stmt :: rest =>
-      match Stmt.eval fuel context runtime stmt with
-      | some (Result.normal runtime') =>
+    (runtime : Runtime) : List Stmt -> SolI Result
+  | [] => pure (Result.normal runtime)
+  | stmt :: rest => do
+      match ← Stmt.eval fuel context runtime stmt with
+      | Result.normal runtime' =>
           Stmt.evalList fuel context runtime' rest
-      | some result => some result
-      | none => none
+      | result => pure result
 
 def Stmt.evalWhile (fuel : Nat) (context : Context)
     (runtime : Runtime) (cond : Expr) (body : Stmt) :
-    Option Result :=
+    SolI Result :=
   match fuel with
-  | 0 => none
-  | fuel + 1 =>
-      match cond.evalWithRuntimeByContext context runtime with
+  | 0 => throw SolidityFailure.outOfFuel
+  | fuel + 1 => do
+      match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          context runtime cond).caught with
       | Except.ok (value, runtime') =>
           match value.expectWord with
           | Except.ok word =>
               if wordTruthy word then
-                match Stmt.eval fuel context runtime' body with
-                | some (Result.normal runtime') =>
+                match ← Stmt.eval fuel context runtime' body with
+                | Result.normal runtime' =>
                     Stmt.evalWhile fuel context runtime' cond body
-                | some (Result.continued runtime') =>
+                | Result.continued runtime' =>
                     Stmt.evalWhile fuel context runtime' cond body
-                | some (Result.broke runtime') =>
-                    some (Result.normal runtime')
-                | some result => some result
-                | none => none
+                | Result.broke runtime' =>
+                    pure (Result.normal runtime')
+                | result => pure result
               else
-                some (Result.normal runtime')
-          | Except.error err => some (Result.reverted runtime' err)
-      | Except.error err => some (Result.reverted runtime err)
+                pure (Result.normal runtime')
+          | Except.error err => pure (Result.reverted runtime' err)
+      | Except.error err => pure (Result.reverted runtime err)
 
 def Stmt.evalDoWhile (fuel : Nat) (context : Context)
     (runtime : Runtime) (body : Stmt) (cond : Expr) :
-    Option Result :=
+    SolI Result :=
   match fuel with
-  | 0 => none
-  | fuel + 1 =>
-      match Stmt.eval fuel context runtime body with
-      | some (Result.normal runtime') =>
-          match cond.evalWithRuntimeByContext context runtime' with
+  | 0 => throw SolidityFailure.outOfFuel
+  | fuel + 1 => do
+      match ← Stmt.eval fuel context runtime body with
+      | Result.normal runtime' =>
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime' cond).caught with
           | Except.ok (value, runtime'') =>
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
                     Stmt.evalDoWhile fuel context runtime'' body cond
                   else
-                    some (Result.normal runtime'')
-              | Except.error err => some (Result.reverted runtime'' err)
-          | Except.error err => some (Result.reverted runtime' err)
-      | some (Result.continued runtime') =>
-          match cond.evalWithRuntimeByContext context runtime' with
+                    pure (Result.normal runtime'')
+              | Except.error err => pure (Result.reverted runtime'' err)
+          | Except.error err => pure (Result.reverted runtime' err)
+      | Result.continued runtime' =>
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime' cond).caught with
           | Except.ok (value, runtime'') =>
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
                     Stmt.evalDoWhile fuel context runtime'' body cond
                   else
-                    some (Result.normal runtime'')
-              | Except.error err => some (Result.reverted runtime'' err)
-          | Except.error err => some (Result.reverted runtime' err)
-      | some (Result.broke runtime') =>
-          some (Result.normal runtime')
-      | some result => some result
-      | none => none
+                    pure (Result.normal runtime'')
+              | Except.error err => pure (Result.reverted runtime'' err)
+          | Except.error err => pure (Result.reverted runtime' err)
+      | Result.broke runtime' =>
+          pure (Result.normal runtime')
+      | result => pure result
 
 def Stmt.evalFor (fuel : Nat) (context : Context)
     (runtime : Runtime) (cond : Expr) (post : Stmt) (body : Stmt) :
-    Option Result :=
+    SolI Result :=
   match fuel with
-  | 0 => none
-  | fuel + 1 =>
-      match cond.evalWithRuntimeByContext context runtime with
+  | 0 => throw SolidityFailure.outOfFuel
+  | fuel + 1 => do
+      match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          context runtime cond).caught with
       | Except.ok (value, runtime') =>
           match value.expectWord with
           | Except.ok word =>
               if wordTruthy word then
-                match Stmt.eval fuel context runtime' body with
-                | some (Result.normal runtime') =>
-                    match Stmt.eval fuel context runtime' post with
-                    | some (Result.normal posted) =>
+                match ← Stmt.eval fuel context runtime' body with
+                | Result.normal runtime' =>
+                    match ← Stmt.eval fuel context runtime' post with
+                    | Result.normal posted =>
                         Stmt.evalFor fuel context posted cond post body
-                    | some result => some result
-                    | none => none
-                | some (Result.continued runtime') =>
-                    match Stmt.eval fuel context runtime' post with
-                    | some (Result.normal posted) =>
+                    | result => pure result
+                | Result.continued runtime' =>
+                    match ← Stmt.eval fuel context runtime' post with
+                    | Result.normal posted =>
                         Stmt.evalFor fuel context posted cond post body
-                    | some result => some result
-                    | none => none
-                | some (Result.broke runtime') =>
-                    some (Result.normal runtime')
-                | some result => some result
-                | none => none
+                    | result => pure result
+                | Result.broke runtime' =>
+                    pure (Result.normal runtime')
+                | result => pure result
               else
-                some (Result.normal runtime')
-          | Except.error err => some (Result.reverted runtime' err)
-      | Except.error err => some (Result.reverted runtime err)
+                pure (Result.normal runtime')
+          | Except.error err => pure (Result.reverted runtime' err)
+      | Except.error err => pure (Result.reverted runtime err)
 
 end
 
@@ -7489,25 +7551,39 @@ def FunctionDef.callBodyResult (function : FunctionDef)
       let _ := runtime'
       CallResult.reverted state RevertData.typeMismatch
 
-def FunctionDef.evalBodyEntry? (fuel : Nat) (context : Context)
+/-- Enter a function body. `none` means a *static* absence (value not accepted
+    or arity/frame construction failed) — NOT an effect; the returned tree
+    encodes execution. -/
+def FunctionDef.evalBodyEntry (fuel : Nat) (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
-    Option Result :=
+    Option (SolI Result) :=
   if function.acceptsValue context.value then
     match function.initialFrame? args with
     | some frame =>
         let runtime : Runtime := { state, locals := [frame] }
-        Stmt.eval fuel context runtime function.body
+        some (Stmt.eval fuel context runtime function.body)
     | none => none
   else
     some
-      (Result.reverted (Runtime.ofState state) RevertData.empty)
+      (pure (Result.reverted (Runtime.ofState state) RevertData.empty))
 
+/-- Execute a function call as an interaction tree; `none` is static absence. -/
+def FunctionDef.call (fuel : Nat) (context : Context)
+    (function : FunctionDef) (state : State) (args : List Value) :
+    Option (SolI CallResult) :=
+  (function.evalBodyEntry fuel context state args).map
+    (Functor.map (function.callBodyResult state))
+
+/-- Frozen adapter: fold the call tree under `context` to an `Option CallResult`.
+    `.error` can only be `.outOfFuel` by construction (reverts are caught into
+    `Result.reverted` values below), but both are matched totally. -/
 def FunctionDef.call? (fuel : Nat) (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
     Option CallResult :=
-  match function.evalBodyEntry? fuel context state args with
-  | some result => some (function.callBodyResult state result)
-  | none => none
+  (function.call fuel context state args).bind fun tree =>
+    match SolI.run context tree with
+    | .ok result => some result
+    | .error _ => none
 
 inductive FunctionEntryKind where
   | ordinary
@@ -7559,11 +7635,14 @@ theorem FunctionDef.call?_reverted_rolls_back
   (hEval :
       Stmt.eval fuel context { state := state, locals := [frame] }
           function.body =
-        some (Result.reverted runtime revert)) :
+        pure (Result.reverted runtime revert)) :
     function.call? fuel context state args =
       some (CallResult.reverted state revert) := by
-  simp [FunctionDef.call?, FunctionDef.evalBodyEntry?,
-    FunctionDef.callBodyResult, hAccepts, hFrame, hEval]
+  simp [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry,
+    FunctionDef.callBodyResult, SolI.run, Functor.map, Pure.pure,
+    EvmCompiler.Simulation.Interaction.pure,
+    EvmCompiler.Simulation.Interaction.map,
+    EvmCompiler.Simulation.Interaction.bind, hAccepts, hFrame, hEval]
 
 structure Contract where
   storageFields : List StorageField := []
@@ -7629,19 +7708,41 @@ def Contract.resolveCallFunction? (contract : Contract)
   | CallTarget.selector selector =>
       contract.findFunctionBySelector? selector
 
+/-- Execute a contract call as an interaction tree; `none` is static absence
+    (function not resolvable). -/
+def Contract.call (fuel : Nat) (contract : Contract)
+    (target : CallTarget) (state : State) (args : List Value) :
+    Option (SolI CallResult) :=
+  match contract.resolveCallFunction? target args with
+  | some function =>
+      function.call fuel contract.context state args
+  | none => none
+
+/-- Frozen adapter: fold the contract-call tree under `contract.context`. -/
 def Contract.call? (fuel : Nat) (contract : Contract)
     (target : CallTarget) (state : State) (args : List Value) :
     Option CallResult :=
-  match contract.resolveCallFunction? target args with
-  | some function =>
-      function.call? fuel contract.context state args
-  | none => none
+  (contract.call fuel target state args).bind fun tree =>
+    match SolI.run contract.context tree with
+    | .ok result => some result
+    | .error _ => none
 
+/-- Transaction-scoped contract call as a tree: clear transient state before,
+    and map `CallResult.clearTransient` over the resulting tree. -/
+def Contract.callTransaction (fuel : Nat) (contract : Contract)
+    (target : CallTarget) (state : State) (args : List Value) :
+    Option (SolI CallResult) :=
+  (Contract.call fuel contract target state.clearTransient args).map
+    (Functor.map CallResult.clearTransient)
+
+/-- Frozen adapter over `Contract.callTransaction`. -/
 def Contract.callTransaction? (fuel : Nat) (contract : Contract)
     (target : CallTarget) (state : State) (args : List Value) :
-    Option CallResult := do
-  let result ← Contract.call? fuel contract target state.clearTransient args
-  some result.clearTransient
+    Option CallResult :=
+  (contract.callTransaction fuel target state args).bind fun tree =>
+    match SolI.run contract.context tree with
+    | .ok result => some result
+    | .error _ => none
 
 inductive ContractCallKind where
   | messageCall
@@ -7731,8 +7832,9 @@ def compositionalControlExample : Stmt :=
     ]
 
 def compositionalControlResult : Option Result :=
-  Stmt.eval 20 Context.empty (Runtime.ofState State.empty)
-    compositionalControlExample
+  (SolI.run Context.empty
+    (Stmt.eval 20 Context.empty (Runtime.ofState State.empty)
+      compositionalControlExample)).toOption
 
 def ternarySkipsRejectedBranch : Stmt :=
   Stmt.returnValues
@@ -7741,8 +7843,9 @@ def ternarySkipsRejectedBranch : Stmt :=
         (Expr.div (Expr.word 1) (Expr.word 0)) ]
 
 def ternarySkipsRejectedBranchResult : Option Result :=
-  Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
-    ternarySkipsRejectedBranch
+  (SolI.run Context.empty
+    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+      ternarySkipsRejectedBranch)).toOption
 
 def doWhileRunsBeforeCondition : Stmt :=
   Stmt.block
@@ -7753,15 +7856,17 @@ def doWhileRunsBeforeCondition : Stmt :=
     , Stmt.returnValues [Expr.var "x"] ]
 
 def doWhileRunsBeforeConditionResult : Option Result :=
-  Stmt.eval 16 Context.empty (Runtime.ofState State.empty)
-    doWhileRunsBeforeCondition
+  (SolI.run Context.empty
+    (Stmt.eval 16 Context.empty (Runtime.ofState State.empty)
+      doWhileRunsBeforeCondition)).toOption
 
 def expressionStatementFailure : Stmt :=
   Stmt.exprStmt (Expr.div (Expr.word 1) (Expr.word 0))
 
 def expressionStatementFailureResult : Option Result :=
-  Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
-    expressionStatementFailure
+  (SolI.run Context.empty
+    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+      expressionStatementFailure)).toOption
 
 def deleteLocalExample : Stmt :=
   Stmt.block
@@ -7770,8 +7875,9 @@ def deleteLocalExample : Stmt :=
     , Stmt.returnValues [Expr.var "x"] ]
 
 def deleteLocalResult : Option Result :=
-  Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
-    deleteLocalExample
+  (SolI.run Context.empty
+    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+      deleteLocalExample)).toOption
 
 def defaultBoolExample : Stmt :=
   Stmt.block
@@ -7779,8 +7885,9 @@ def defaultBoolExample : Stmt :=
     , Stmt.returnValues [Expr.var "ok"] ]
 
 def defaultBoolResult : Option Result :=
-  Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
-    defaultBoolExample
+  (SolI.run Context.empty
+    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+      defaultBoolExample)).toOption
 
 def signedArithmeticExample : Stmt :=
   Stmt.block
@@ -7793,8 +7900,9 @@ def signedArithmeticExample : Stmt :=
         , Expr.lt (Expr.var "x") (Expr.var "y") ] ]
 
 def signedArithmeticResult : Option Result :=
-  Stmt.eval 12 Context.empty (Runtime.ofState State.empty)
-    signedArithmeticExample
+  (SolI.run Context.empty
+    (Stmt.eval 12 Context.empty (Runtime.ofState State.empty)
+      signedArithmeticExample)).toOption
 
 def signedNegOverflowExample : Stmt :=
   Stmt.block
@@ -7803,8 +7911,9 @@ def signedNegOverflowExample : Stmt :=
     , Stmt.returnValues [Expr.unary UnaryOp.neg (Expr.var "x")] ]
 
 def signedNegOverflowResult : Option Result :=
-  Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
-    signedNegOverflowExample
+  (SolI.run Context.empty
+    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+      signedNegOverflowExample)).toOption
 
 def uncheckedSignedNegWrapExample : Stmt :=
   Stmt.block
@@ -7814,29 +7923,33 @@ def uncheckedSignedNegWrapExample : Stmt :=
         (Stmt.returnValues [Expr.unary UnaryOp.neg (Expr.var "x")]) ]
 
 def uncheckedSignedNegWrapResult : Option Result :=
-  Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
-    uncheckedSignedNegWrapExample
+  (SolI.run Context.empty
+    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+      uncheckedSignedNegWrapExample)).toOption
 
 def assertFailureExample : Stmt :=
   Stmt.assertStmt (Expr.word 0)
 
 def assertFailureResult : Option Result :=
-  Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
-    assertFailureExample
+  (SolI.run Context.empty
+    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+      assertFailureExample)).toOption
 
 def requireFailureExample : Stmt :=
   Stmt.requireStmt (Expr.word 0) (some "Nope")
 
 def requireFailureResult : Option Result :=
-  Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
-    requireFailureExample
+  (SolI.run Context.empty
+    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+      requireFailureExample)).toOption
 
 def revertStringExample : Stmt :=
   Stmt.revertError (some "Nope")
 
 def revertStringResult : Option Result :=
-  Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
-    revertStringExample
+  (SolI.run Context.empty
+    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+      revertStringExample)).toOption
 
 def captureReturnExample : Stmt :=
   Stmt.block
@@ -7850,15 +7963,17 @@ def captureReturnExample : Stmt :=
     , Stmt.returnValues [Expr.var "ret", Expr.var "x"] ]
 
 def captureReturnResult : Option Result :=
-  Stmt.eval 16 Context.empty (Runtime.ofState State.empty)
-    captureReturnExample
+  (SolI.run Context.empty
+    (Stmt.eval 16 Context.empty (Runtime.ofState State.empty)
+      captureReturnExample)).toOption
 
 def bytesReturnExample : Stmt :=
   Stmt.returnValues [Expr.byteArray [0x41, 0x42]]
 
 def bytesReturnResult : Option Result :=
-  Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
-    bytesReturnExample
+  (SolI.run Context.empty
+    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+      bytesReturnExample)).toOption
 
 def rollbackContext : Context :=
   { Context.empty with

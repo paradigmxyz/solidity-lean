@@ -19212,7 +19212,9 @@ def Stmt.eval? (fuel : Nat) (storageNames : List Name)
     (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
     Option CoreResult := do
   let coreStmt ← Stmt.toCore? storageNames stmt
-  SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt
+  -- Frozen `?`-adapter: fold the interaction tree under `context` (phase 5).
+  (SolidCore.Solidity.Source.SolI.run context
+    (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
 
 def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)
     (modifiers : List SourceModifierDecl)

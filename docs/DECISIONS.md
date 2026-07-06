@@ -498,3 +498,49 @@ Hardening: `scripts/smoke_replay.sh` now runs `lake build SolidCore` first, so a
 library/witness break can never again hide behind a green replay. The Phase 5
 propagation plan (model A refined; 8 buildable stages; build-validated PoC) is
 committed as the roadmap for the remaining work.
+
+## 2026-07-06 — Phase 5 stage 1: thread `SolI` through `Stmt.eval` + call chain
+
+Executed stage 1 of `docs/phase5-propagation-plan.md` (model A refined). The
+statement evaluator and function/contract call chain now produce a propagating
+`Interaction` tree; a single top-level adapter folds it back to
+`Option`/`Except`.
+
+- Added `SolI.run` (fuel-free structural fold over `Interaction`, answering each
+  query from `Context` via `contextAnswer`) and `SolI.caught` (reifies a
+  throw-revert Expr tree's revert leaf into an `Except RevertData` value while
+  re-throwing `outOfFuel`). `caught` is the ONLY `tryCatch` in the interpreter.
+- `LValue.resolveWithRuntime` and `LValues.writeTupleWithRuntime` (renamed from
+  `writeTupleWithRuntime?`) now return `SolI`.
+- The whole `Stmt.eval`/`evalList`/`evalWhile`/`evalDoWhile`/`evalFor` mutual
+  block returns `SolI Result`. The four `fuel = 0 → none` arms became
+  `throw SolidityFailure.outOfFuel` (the only throw that escapes `Stmt.eval`);
+  recursive `some/none` matches became do-binds; `…ByContext` scrutinees became
+  `← (…WithRuntimeOrder tree).caught`; the 9 resolve/writeTuple sites became
+  `← (…).caught`.
+- `Stmt.tryExternalCall`/`tryContractCreate` kept their `…ByContext`/oracle
+  reads synchronous (that is stage 1b/1c); only their Option/Except plumbing was
+  threaded (leaves `some → pure`, the four recursive `Stmt.eval` sites do-bind).
+- `FunctionDef.evalBodyEntry` : `Option (SolI Result)`, `FunctionDef.call` :
+  `Option (SolI CallResult)`, and `Contract.call`/`Contract.callTransaction` :
+  `Option (SolI CallResult)`. The frozen `?`-named adapters (`FunctionDef.call?`,
+  `Contract.call?`, `Contract.callTransaction?`) keep their exact signatures and
+  fold via `SolI.run`, so the manifest, ABI.lean, Checked.lean, and Context stay
+  unchanged. `FunctionDef.call?_reverted_rolls_back` was restated against the
+  tree (`= pure (Result.reverted …)`) and reproved with the extended simp set.
+
+Why behavior-preserving: `contextAnswer` is a pure function of `Context`, so
+answering a query at the per-call fold (now) or the per-expression fold (before)
+yields identical answers; the only delta is `fuel = 0` propagation, invisible
+through the `Option`/`Except` adapters. Full `lake build SolidCore` and
+`scripts/smoke_replay.sh` (28 cases, `forge_interpreter_compare=pass`) are green.
+
+Scope deviation (necessary for a green library build): besides
+`SolidCore/Solidity/Interpreter.lean`, three direct `Stmt.eval` callers outside
+the plan's type table had to be adapted to the new tree type, each a minimal
+signature-preserving fold at the boundary (`(SolI.run ctx …).toOption`):
+`Stmt.eval?` in `SolidCore/Solidity/Interface.lean` (a frozen witness-facing
+`?`-adapter) and two hand-written witness helpers in
+`SolidCore/Witness/Interface.lean` (`abiEncodeCoreExprResult`,
+`unspecifiedTupleOrderStmtEval`). No fixtures, manifest, ABI.lean, Checked.lean,
+TypeCheck.lean, or Context were touched.

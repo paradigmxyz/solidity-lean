@@ -4231,11 +4231,13 @@ def abiEncodeCoreExprStatement : SolidCore.Solidity.Source.Stmt :=
         , SolidCore.Solidity.Source.Expr.byteArray [8, 9] ] ]
 
 def abiEncodeCoreExprResult : Option CoreResult :=
-  SolidCore.Solidity.Source.Stmt.eval 8
+  (SolidCore.Solidity.Source.SolI.run
     SolidCore.Solidity.Source.Context.empty
-    (SolidCore.Solidity.Source.Runtime.ofState
-      SolidCore.Solidity.Source.State.empty)
-    abiEncodeCoreExprStatement
+    (SolidCore.Solidity.Source.Stmt.eval 8
+      SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      abiEncodeCoreExprStatement)).toOption
 
 def abiEncodeCoreExprMatchesExpected : Option Bool := do
   let result ← abiEncodeCoreExprResult
@@ -20936,10 +20938,11 @@ def unspecifiedTupleOrderStmtEval
   let context :=
     unspecifiedBinaryOrderContext.withChildEvalOrder order
   match
-    SolidCore.Solidity.Source.Stmt.eval 16 context
-      (SolidCore.Solidity.Source.Runtime.ofState
-        SolidCore.Solidity.Source.State.empty)
-      core
+    (SolidCore.Solidity.Source.SolI.run context
+      (SolidCore.Solidity.Source.Stmt.eval 16 context
+        (SolidCore.Solidity.Source.Runtime.ofState
+          SolidCore.Solidity.Source.State.empty)
+        core)).toOption
   with
   | some
       (SolidCore.Solidity.Source.Result.returned runtime
