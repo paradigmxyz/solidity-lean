@@ -1,16 +1,15 @@
-import SolidCore.Spine.L00_SourceSolidity.Interface
+import SolidCore.Solidity.Interface
 
 namespace SolidCore
-namespace Spine
-namespace L00_SourceSolidity
+namespace Solidity
 namespace TypeCheck
 
-abbrev Name := L00_SourceSolidity.Name
-abbrev Ty := L00_SourceSolidity.Ty
-abbrev Path := L00_SourceSolidity.Path
-abbrev TypeEnv := L00_SourceSolidity.Executable.TypeEnv
-abbrev SourceUnitAst := L00_SourceSolidity.SourceUnit
-abbrev SourceContractDecl := L00_SourceSolidity.ContractDecl
+abbrev Name := Solidity.Name
+abbrev Ty := Solidity.Ty
+abbrev Path := Solidity.Path
+abbrev TypeEnv := Solidity.Executable.TypeEnv
+abbrev SourceUnitAst := Solidity.SourceUnit
+abbrev SourceContractDecl := Solidity.ContractDecl
 abbrev EvmVersion := SolidCore.Solidity.Source.EvmVersion
 
 namespace EvmVersion
@@ -64,9 +63,9 @@ end EvmVersion
 
 structure TypeContext where
   contracts : List Path := []
-  contractDecls : List (Path × L00_SourceSolidity.ContractDecl) := []
-  structs : List (Path × L00_SourceSolidity.StructDecl) := []
-  enums : List (Path × L00_SourceSolidity.EnumDecl) := []
+  contractDecls : List (Path × Solidity.ContractDecl) := []
+  structs : List (Path × Solidity.StructDecl) := []
+  enums : List (Path × Solidity.EnumDecl) := []
   userValueTypes : List (Path × Ty) := []
   abiCoderV1 : Bool := false
   evmVersion : EvmVersion := EvmVersion.default
@@ -102,15 +101,15 @@ def lookupContract? (ctx : TypeContext) (path : Path) : Option Path :=
   if pathIn path ctx.contracts then some path else none
 
 def lookupStruct? (ctx : TypeContext) (path : Path) :
-    Option L00_SourceSolidity.StructDecl :=
+    Option Solidity.StructDecl :=
   lookupPath? path ctx.structs
 
 def lookupContractDecl? (ctx : TypeContext) (path : Path) :
-    Option L00_SourceSolidity.ContractDecl :=
+    Option Solidity.ContractDecl :=
   lookupPath? path ctx.contractDecls
 
 def lookupEnum? (ctx : TypeContext) (path : Path) :
-    Option L00_SourceSolidity.EnumDecl :=
+    Option Solidity.EnumDecl :=
   lookupPath? path ctx.enums
 
 def lookupUserValueType? (ctx : TypeContext) (path : Path) :
@@ -142,7 +141,7 @@ def isContractPath (ctx : TypeContext) (path : Path) : Bool :=
 
 def isLibraryPath (ctx : TypeContext) (path : Path) : Bool :=
   match lookupContractDecl? ctx path with
-  | some decl => decl.kind == L00_SourceSolidity.ContractKind.library
+  | some decl => decl.kind == Solidity.ContractKind.library
   | none => false
 
 def isContractValuePath (ctx : TypeContext) (path : Path) : Bool :=
@@ -168,72 +167,72 @@ def isKnownPath (ctx : TypeContext) (path : Path) : Bool :=
     isEnumPath ctx path || isUserValueTypePath ctx path
 
 def contractQualifiedStructEntries (contractName : Name) :
-    List L00_SourceSolidity.StructDecl ->
-    List (Path × L00_SourceSolidity.StructDecl)
+    List Solidity.StructDecl ->
+    List (Path × Solidity.StructDecl)
   | [] => []
   | decl :: rest =>
       (qualifiedPath contractName decl.name, decl) ::
         contractQualifiedStructEntries contractName rest
 
 def contractQualifiedEnumEntries (contractName : Name) :
-    List L00_SourceSolidity.EnumDecl ->
-    List (Path × L00_SourceSolidity.EnumDecl)
+    List Solidity.EnumDecl ->
+    List (Path × Solidity.EnumDecl)
   | [] => []
   | decl :: rest =>
       (qualifiedPath contractName decl.name, decl) ::
         contractQualifiedEnumEntries contractName rest
 
 def contractQualifiedUserValueTypeEntries (contractName : Name) :
-    List L00_SourceSolidity.UserValueTypeDecl -> List (Path × Ty)
+    List Solidity.UserValueTypeDecl -> List (Path × Ty)
   | [] => []
   | decl :: rest =>
       (qualifiedPath contractName decl.name, decl.underlying) ::
         contractQualifiedUserValueTypeEntries contractName rest
 
 def contractSourceStructEntries :
-    List L00_SourceSolidity.ContractDecl ->
-    List (Path × L00_SourceSolidity.StructDecl)
+    List Solidity.ContractDecl ->
+    List (Path × Solidity.StructDecl)
   | [] => []
   | contract :: rest =>
       contractQualifiedStructEntries contract.name
         (contract.items.filterMap
           (fun item =>
             match item with
-            | L00_SourceSolidity.ContractItem.structDecl decl => some decl
+            | Solidity.ContractItem.structDecl decl => some decl
             | _ => none)) ++
         contractSourceStructEntries rest
 
 def contractSourceEnumEntries :
-    List L00_SourceSolidity.ContractDecl ->
-    List (Path × L00_SourceSolidity.EnumDecl)
+    List Solidity.ContractDecl ->
+    List (Path × Solidity.EnumDecl)
   | [] => []
   | contract :: rest =>
       contractQualifiedEnumEntries contract.name
         (contract.items.filterMap
           (fun item =>
             match item with
-            | L00_SourceSolidity.ContractItem.enumDecl decl => some decl
+            | Solidity.ContractItem.enumDecl decl => some decl
             | _ => none)) ++
         contractSourceEnumEntries rest
 
 def contractSourceUserValueTypeEntries :
-    List L00_SourceSolidity.ContractDecl -> List (Path × Ty)
+    List Solidity.ContractDecl -> List (Path × Ty)
   | [] => []
   | contract :: rest =>
       contractQualifiedUserValueTypeEntries contract.name
         (contract.items.filterMap
           (fun item =>
             match item with
-            | L00_SourceSolidity.ContractItem.userValueTypeDecl decl =>
+            | Solidity.ContractItem.userValueTypeDecl decl =>
                 some decl
             | _ => none)) ++
         contractSourceUserValueTypeEntries rest
 
 def withSourceTypes (ctx : TypeContext)
-    (contracts : List L00_SourceSolidity.ContractDecl)
-    (structs : List L00_SourceSolidity.StructDecl)
-    (enums : List L00_SourceSolidity.EnumDecl)
-    (userValueTypes : List L00_SourceSolidity.UserValueTypeDecl) :
+    (contracts : List Solidity.ContractDecl)
+    (structs : List Solidity.StructDecl)
+    (enums : List Solidity.EnumDecl)
+    (userValueTypes : List Solidity.UserValueTypeDecl) :
     TypeContext :=
   { ctx with
     contracts :=
@@ -254,8 +253,8 @@ def withSourceTypes (ctx : TypeContext)
         ctx.userValueTypes }
 
 def contractStructEntries (contractName : Name) :
-    List L00_SourceSolidity.StructDecl ->
-    List (Path × L00_SourceSolidity.StructDecl)
+    List Solidity.StructDecl ->
+    List (Path × Solidity.StructDecl)
   | [] => []
   | decl :: rest =>
       (pathOfName decl.name, decl) ::
@@ -263,8 +262,8 @@ def contractStructEntries (contractName : Name) :
         contractStructEntries contractName rest
 
 def contractEnumEntries (contractName : Name) :
-    List L00_SourceSolidity.EnumDecl ->
-    List (Path × L00_SourceSolidity.EnumDecl)
+    List Solidity.EnumDecl ->
+    List (Path × Solidity.EnumDecl)
   | [] => []
   | decl :: rest =>
       (pathOfName decl.name, decl) ::
@@ -272,7 +271,7 @@ def contractEnumEntries (contractName : Name) :
         contractEnumEntries contractName rest
 
 def contractUserValueTypeEntries (contractName : Name) :
-    List L00_SourceSolidity.UserValueTypeDecl -> List (Path × Ty)
+    List Solidity.UserValueTypeDecl -> List (Path × Ty)
   | [] => []
   | decl :: rest =>
       (pathOfName decl.name, decl.underlying) ::
@@ -280,9 +279,9 @@ def contractUserValueTypeEntries (contractName : Name) :
         contractUserValueTypeEntries contractName rest
 
 def withContractTypes (ctx : TypeContext) (contractName : Name)
-    (structs : List L00_SourceSolidity.StructDecl)
-    (enums : List L00_SourceSolidity.EnumDecl)
-    (userValueTypes : List L00_SourceSolidity.UserValueTypeDecl) :
+    (structs : List Solidity.StructDecl)
+    (enums : List Solidity.EnumDecl)
+    (userValueTypes : List Solidity.UserValueTypeDecl) :
     TypeContext :=
   { ctx with
     structs := contractStructEntries contractName structs ++ ctx.structs
@@ -321,13 +320,13 @@ inductive TypeError where
   | mutabilityViolation : String -> TypeError
   | duplicateSignature : Name -> TypeError
   | valueCallToNonpayable : TypeError
-  | invalidDataLocation : Ty -> Option L00_SourceSolidity.DataLocation ->
+  | invalidDataLocation : Ty -> Option Solidity.DataLocation ->
       TypeError
   | expectedType : Ty -> Ty -> TypeError
   | expectedBool : Ty -> TypeError
   | expectedNumeric : Ty -> TypeError
   | expectedInteger : Ty -> TypeError
-  | expectedLValue : L00_SourceSolidity.Expr -> TypeError
+  | expectedLValue : Solidity.Expr -> TypeError
   | arityMismatch : String -> Nat -> Nat -> TypeError
   | returnArityMismatch : Nat -> Nat -> TypeError
   | breakOutsideLoop
@@ -358,49 +357,49 @@ def requireEqTy (expected actual : Ty) : Except TypeError Unit :=
   require (actual == expected) (TypeError.expectedType expected actual)
 
 def Ty.isBool : Ty -> Bool
-  | L00_SourceSolidity.Ty.bool => true
+  | Solidity.Ty.bool => true
   | _ => false
 
 def Ty.isUnsignedInteger : Ty -> Bool
-  | L00_SourceSolidity.Ty.uint _ => true
+  | Solidity.Ty.uint _ => true
   | _ => false
 
 def Ty.isSignedInteger : Ty -> Bool
-  | L00_SourceSolidity.Ty.int _ => true
+  | Solidity.Ty.int _ => true
   | _ => false
 
 def Ty.isInteger (ty : Ty) : Bool :=
   Ty.isUnsignedInteger ty || Ty.isSignedInteger ty
 
 def Ty.isFixedPoint : Ty -> Bool
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
   | _ => false
 
 def Ty.isSignedArithmeticOperand : Ty -> Bool
-  | L00_SourceSolidity.Ty.int _ => true
-  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
   | _ => false
 
 def Ty.isNumeric : Ty -> Bool
-  | L00_SourceSolidity.Ty.uint _ => true
-  | L00_SourceSolidity.Ty.int _ => true
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
-  | L00_SourceSolidity.Ty.bytesN _ => true
-  | L00_SourceSolidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.uint _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
   | _ => false
 
 def Ty.isArithmeticOperand : Ty -> Bool
-  | L00_SourceSolidity.Ty.uint _ => true
-  | L00_SourceSolidity.Ty.int _ => true
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.uint _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
   | _ => false
 
 def Ty.isFixedBytesOperand : Ty -> Bool
-  | L00_SourceSolidity.Ty.bytesN _ => true
-  | L00_SourceSolidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
   | _ => false
 
 def Ty.isBitwiseOperand (ty : Ty) : Bool :=
@@ -408,67 +407,67 @@ def Ty.isBitwiseOperand (ty : Ty) : Bool :=
 
 def Ty.isRelationalOperand (ty : Ty) : Bool :=
   match ty with
-  | L00_SourceSolidity.Ty.address _ => true
+  | Solidity.Ty.address _ => true
   | _ => Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
 
 def Ty.isShiftLeftOperand (ty : Ty) : Bool :=
   Ty.isInteger ty || Ty.isFixedBytesOperand ty
 
 def Ty.integerBits? : Ty -> Option Nat
-  | L00_SourceSolidity.Ty.uint bits => some bits
-  | L00_SourceSolidity.Ty.int bits => some bits
+  | Solidity.Ty.uint bits => some bits
+  | Solidity.Ty.int bits => some bits
   | _ => none
 
 def Ty.isBuiltInValueTypeShape : Ty -> Bool
-  | L00_SourceSolidity.Ty.bool => true
-  | L00_SourceSolidity.Ty.address _ => true
-  | L00_SourceSolidity.Ty.uint _ => true
-  | L00_SourceSolidity.Ty.int _ => true
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
-  | L00_SourceSolidity.Ty.bytesN _ => true
-  | L00_SourceSolidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.bool => true
+  | Solidity.Ty.address _ => true
+  | Solidity.Ty.uint _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
   | _ => false
 
 def TypeContext.isValueTypeShape (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.bool => true
-  | L00_SourceSolidity.Ty.address _ => true
-  | L00_SourceSolidity.Ty.uint _ => true
-  | L00_SourceSolidity.Ty.int _ => true
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
-  | L00_SourceSolidity.Ty.bytesN _ => true
-  | L00_SourceSolidity.Ty.fixedBytes _ => true
-  | L00_SourceSolidity.Ty.user path =>
+  | Solidity.Ty.bool => true
+  | Solidity.Ty.address _ => true
+  | Solidity.Ty.uint _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.user path =>
       types.isContractValuePath path || types.isEnumPath path ||
         types.isUserValueTypePath path
-  | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ _ => true
+  | Solidity.Ty.functionWithLocations _ _ _ _ _ _ => true
   | _ => false
 
 def TypeContext.isConstantStateVarTypeShape
     (types : TypeContext) (ty : Ty) : Bool :=
   TypeContext.isValueTypeShape types ty ||
-    ty == L00_SourceSolidity.Ty.bytes ||
-      ty == L00_SourceSolidity.Ty.string
+    ty == Solidity.Ty.bytes ||
+      ty == Solidity.Ty.string
 
 def TypeContext.isImmutableStateVarTypeShape
     (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-      L00_SourceSolidity.Visibility.external_ => false
+  | Solidity.Ty.functionWithLocations _ _ _ _ _
+      Solidity.Visibility.external_ => false
   | ty => TypeContext.isValueTypeShape types ty
 
 def Ty.isMappingKeyShape (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.bool => true
-  | L00_SourceSolidity.Ty.address _ => true
-  | L00_SourceSolidity.Ty.uint _ => true
-  | L00_SourceSolidity.Ty.int _ => true
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
-  | L00_SourceSolidity.Ty.bytesN _ => true
-  | L00_SourceSolidity.Ty.fixedBytes _ => true
-  | L00_SourceSolidity.Ty.bytes => true
-  | L00_SourceSolidity.Ty.string => true
-  | L00_SourceSolidity.Ty.user path =>
+  | Solidity.Ty.bool => true
+  | Solidity.Ty.address _ => true
+  | Solidity.Ty.uint _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.bytes => true
+  | Solidity.Ty.string => true
+  | Solidity.Ty.user path =>
       types.isContractValuePath path || types.isEnumPath path ||
         types.isUserValueTypePath path
   | _ => false
@@ -476,12 +475,12 @@ def Ty.isMappingKeyShape (types : TypeContext) : Ty -> Bool
 mutual
 
 def Ty.needsDataLocation (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.bytes => true
-  | L00_SourceSolidity.Ty.string => true
-  | L00_SourceSolidity.Ty.array _ _ => true
-  | L00_SourceSolidity.Ty.mapping _ _ => true
-  | L00_SourceSolidity.Ty.user path => types.isStructPath path
-  | L00_SourceSolidity.Ty.tuple tys =>
+  | Solidity.Ty.bytes => true
+  | Solidity.Ty.string => true
+  | Solidity.Ty.array _ _ => true
+  | Solidity.Ty.mapping _ _ => true
+  | Solidity.Ty.user path => types.isStructPath path
+  | Solidity.Ty.tuple tys =>
       Tys.needsDataLocation types tys
   | _ => false
 
@@ -498,15 +497,15 @@ mutual
 
 def Ty.containsLibraryType (types : TypeContext) : Nat -> Ty -> Bool
   | 0, _ => false
-  | _ + 1, L00_SourceSolidity.Ty.user path => types.isLibraryPath path
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+  | _ + 1, Solidity.Ty.user path => types.isLibraryPath path
+  | fuel + 1, Solidity.Ty.array element _ =>
       Ty.containsLibraryType types fuel element
-  | fuel + 1, L00_SourceSolidity.Ty.mapping key value =>
+  | fuel + 1, Solidity.Ty.mapping key value =>
       Ty.containsLibraryType types fuel key ||
         Ty.containsLibraryType types fuel value
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+  | fuel + 1, Solidity.Ty.tuple tys =>
       Tys.containsLibraryType types fuel tys
-  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+  | fuel + 1, Solidity.Ty.functionWithLocations params _ returns _
       _ _ =>
       Tys.containsLibraryType types fuel params ||
         Tys.containsLibraryType types fuel returns
@@ -525,23 +524,23 @@ mutual
 
 def TypeContext.tyContainsFixedPointFuel (types : TypeContext)
     (fuel : Nat) : Ty -> Bool
-  | L00_SourceSolidity.Ty.fixed _ _ => true
-  | L00_SourceSolidity.Ty.ufixed _ _ => true
-  | L00_SourceSolidity.Ty.array element _ =>
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.array element _ =>
       match fuel with
       | 0 => false
       | fuel + 1 => TypeContext.tyContainsFixedPointFuel types fuel element
-  | L00_SourceSolidity.Ty.mapping key value =>
+  | Solidity.Ty.mapping key value =>
       match fuel with
       | 0 => false
       | fuel + 1 =>
           TypeContext.tyContainsFixedPointFuel types fuel key ||
             TypeContext.tyContainsFixedPointFuel types fuel value
-  | L00_SourceSolidity.Ty.tuple tys =>
+  | Solidity.Ty.tuple tys =>
       match fuel with
       | 0 => false
       | fuel + 1 => Tys.containsFixedPointFuel types fuel tys
-  | L00_SourceSolidity.Ty.user path =>
+  | Solidity.Ty.user path =>
       match fuel with
       | 0 => false
       | fuel + 1 =>
@@ -564,7 +563,7 @@ def Tys.containsFixedPointFuel (types : TypeContext) (fuel : Nat) :
 
 def StructFields.containsFixedPointFuel
     (types : TypeContext) (fuel : Nat) :
-    List L00_SourceSolidity.StructField -> Bool
+    List Solidity.StructField -> Bool
   | [] => false
   | field :: rest =>
       TypeContext.tyContainsFixedPointFuel types fuel field.ty ||
@@ -593,21 +592,21 @@ mutual
 def Ty.isExternalFunctionAbiTypeShape (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => false
-  | _ + 1, L00_SourceSolidity.Ty.bool => true
-  | _ + 1, L00_SourceSolidity.Ty.address _ => true
-  | _ + 1, L00_SourceSolidity.Ty.uint _ => true
-  | _ + 1, L00_SourceSolidity.Ty.int _ => true
-  | _ + 1, L00_SourceSolidity.Ty.fixed _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.ufixed _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.bytesN _ => true
-  | _ + 1, L00_SourceSolidity.Ty.fixedBytes _ => true
-  | _ + 1, L00_SourceSolidity.Ty.bytes => true
-  | _ + 1, L00_SourceSolidity.Ty.string => true
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+  | _ + 1, Solidity.Ty.bool => true
+  | _ + 1, Solidity.Ty.address _ => true
+  | _ + 1, Solidity.Ty.uint _ => true
+  | _ + 1, Solidity.Ty.int _ => true
+  | _ + 1, Solidity.Ty.fixed _ _ => true
+  | _ + 1, Solidity.Ty.ufixed _ _ => true
+  | _ + 1, Solidity.Ty.bytesN _ => true
+  | _ + 1, Solidity.Ty.fixedBytes _ => true
+  | _ + 1, Solidity.Ty.bytes => true
+  | _ + 1, Solidity.Ty.string => true
+  | fuel + 1, Solidity.Ty.array element _ =>
       Ty.isExternalFunctionAbiTypeShape types fuel element
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+  | fuel + 1, Solidity.Ty.tuple tys =>
       Tys.allExternalFunctionAbiTypeShape types fuel tys
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | fuel + 1, Solidity.Ty.user path =>
       if types.isContractValuePath path || types.isEnumPath path then
         true
       else
@@ -620,9 +619,9 @@ def Ty.isExternalFunctionAbiTypeShape (types : TypeContext) :
                 StructFields.allExternalFunctionAbiTypeShape types fuel
                   decl.fields
             | none => false
-  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+  | fuel + 1, Solidity.Ty.functionWithLocations params _ returns _
       _ visibility =>
-      visibility == L00_SourceSolidity.Visibility.external_ &&
+      visibility == Solidity.Visibility.external_ &&
         Tys.allExternalFunctionAbiTypeShape types fuel params &&
           Tys.allExternalFunctionAbiTypeShape types fuel returns
   | _ + 1, _ => false
@@ -635,7 +634,7 @@ def Tys.allExternalFunctionAbiTypeShape (types : TypeContext)
         Tys.allExternalFunctionAbiTypeShape types fuel rest
 
 def StructFields.allExternalFunctionAbiTypeShape (types : TypeContext)
-    (fuel : Nat) : List L00_SourceSolidity.StructField -> Bool
+    (fuel : Nat) : List Solidity.StructField -> Bool
   | [] => true
   | field :: rest =>
       Ty.isExternalFunctionAbiTypeShape types fuel field.ty &&
@@ -647,16 +646,16 @@ mutual
 
 def Ty.containsMapping (types : TypeContext) : Nat -> Ty -> Bool
   | 0, _ => false
-  | _ + 1, L00_SourceSolidity.Ty.mapping _ _ => true
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+  | _ + 1, Solidity.Ty.mapping _ _ => true
+  | fuel + 1, Solidity.Ty.array element _ =>
       Ty.containsMapping types fuel element
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+  | fuel + 1, Solidity.Ty.tuple tys =>
       Tys.containsMapping types fuel tys
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | fuel + 1, Solidity.Ty.user path =>
       match types.lookupStruct? path with
       | some structDecl => StructFields.containsMapping types fuel structDecl.fields
       | none => false
-  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+  | fuel + 1, Solidity.Ty.functionWithLocations params _ returns _
       _ _ =>
       Tys.containsMapping types fuel params ||
         Tys.containsMapping types fuel returns
@@ -669,7 +668,7 @@ def Tys.containsMapping (types : TypeContext) (fuel : Nat) :
       Ty.containsMapping types fuel ty || Tys.containsMapping types fuel rest
 
 def StructFields.containsMapping (types : TypeContext) (fuel : Nat) :
-    List L00_SourceSolidity.StructField -> Bool
+    List Solidity.StructField -> Bool
   | [] => false
   | field :: rest =>
       Ty.containsMapping types fuel field.ty ||
@@ -678,16 +677,16 @@ def StructFields.containsMapping (types : TypeContext) (fuel : Nat) :
 end
 
 def Ty.functionDataLocationValid (types : TypeContext) (ty : Ty)
-    (location : Option L00_SourceSolidity.DataLocation) : Bool :=
+    (location : Option Solidity.DataLocation) : Bool :=
   if Ty.needsDataLocation types ty then
     location.isSome &&
       (!Ty.containsMapping types 64 ty ||
-        location == some L00_SourceSolidity.DataLocation.storage)
+        location == some Solidity.DataLocation.storage)
   else
     location.isNone
 
 def Tys.functionDataLocationsValid (types : TypeContext) :
-    List Ty -> List (Option L00_SourceSolidity.DataLocation) -> Bool
+    List Ty -> List (Option Solidity.DataLocation) -> Bool
   | [], [] => true
   | ty :: tyRest, location :: locationRest =>
       Ty.functionDataLocationValid types ty location &&
@@ -695,44 +694,44 @@ def Tys.functionDataLocationsValid (types : TypeContext) :
   | _, _ => false
 
 def Tys.externalFunctionDataLocationsValid (types : TypeContext) :
-    List Ty -> List (Option L00_SourceSolidity.DataLocation) -> Bool
+    List Ty -> List (Option Solidity.DataLocation) -> Bool
   | [], [] => true
   | ty :: tyRest, location :: locationRest =>
       Ty.functionDataLocationValid types ty location &&
-        location != some L00_SourceSolidity.DataLocation.storage &&
+        location != some Solidity.DataLocation.storage &&
         Tys.externalFunctionDataLocationsValid types tyRest locationRest
   | _, _ => false
 
 mutual
 
 def Ty.isValid (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.uint bits =>
+  | Solidity.Ty.uint bits =>
       bits > 0 && bits <= 256 && bits % 8 == 0
-  | L00_SourceSolidity.Ty.int bits =>
+  | Solidity.Ty.int bits =>
       bits > 0 && bits <= 256 && bits % 8 == 0
-  | L00_SourceSolidity.Ty.fixed bits decimals =>
-      L00_SourceSolidity.Ty.validFixedPointShape bits decimals
-  | L00_SourceSolidity.Ty.ufixed bits decimals =>
-      L00_SourceSolidity.Ty.validFixedPointShape bits decimals
-  | L00_SourceSolidity.Ty.bytesN size => size > 0 && size <= 32
-  | L00_SourceSolidity.Ty.fixedBytes size => size > 0 && size <= 32
-  | L00_SourceSolidity.Ty.array element none => Ty.isValid types element
-  | L00_SourceSolidity.Ty.array element (some size) =>
+  | Solidity.Ty.fixed bits decimals =>
+      Solidity.Ty.validFixedPointShape bits decimals
+  | Solidity.Ty.ufixed bits decimals =>
+      Solidity.Ty.validFixedPointShape bits decimals
+  | Solidity.Ty.bytesN size => size > 0 && size <= 32
+  | Solidity.Ty.fixedBytes size => size > 0 && size <= 32
+  | Solidity.Ty.array element none => Ty.isValid types element
+  | Solidity.Ty.array element (some size) =>
       size > 0 && Ty.isValid types element
-  | L00_SourceSolidity.Ty.mapping key value =>
+  | Solidity.Ty.mapping key value =>
       Ty.isValid types key && Ty.isValid types value &&
         Ty.isMappingKeyShape types key
-  | L00_SourceSolidity.Ty.tuple tys => Tys.allValid types tys
-  | L00_SourceSolidity.Ty.user path => types.isKnownPath path
-  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+  | Solidity.Ty.tuple tys => Tys.allValid types tys
+  | Solidity.Ty.user path => types.isKnownPath path
+  | Solidity.Ty.functionWithLocations params paramLocations returns
       returnLocations mutability visibility =>
       Tys.allValid types params && Tys.allValid types returns &&
         Tys.functionDataLocationsValid types params paramLocations &&
         Tys.functionDataLocationsValid types returns returnLocations &&
-        (mutability != L00_SourceSolidity.StateMutability.payable ||
-          visibility == L00_SourceSolidity.Visibility.external_) &&
-        (visibility == L00_SourceSolidity.Visibility.internal_ ||
-          (visibility == L00_SourceSolidity.Visibility.external_ &&
+        (mutability != Solidity.StateMutability.payable ||
+          visibility == Solidity.Visibility.external_) &&
+        (visibility == Solidity.Visibility.internal_ ||
+          (visibility == Solidity.Visibility.external_ &&
             Tys.externalFunctionDataLocationsValid types params
               paramLocations &&
             Tys.externalFunctionDataLocationsValid types returns
@@ -752,14 +751,14 @@ mutual
 def Ty.abiEncodedDynamic? (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => true
-  | _ + 1, L00_SourceSolidity.Ty.bytes => true
-  | _ + 1, L00_SourceSolidity.Ty.string => true
-  | _ + 1, L00_SourceSolidity.Ty.array _ none => true
-  | fuel + 1, L00_SourceSolidity.Ty.array element (some _) =>
+  | _ + 1, Solidity.Ty.bytes => true
+  | _ + 1, Solidity.Ty.string => true
+  | _ + 1, Solidity.Ty.array _ none => true
+  | fuel + 1, Solidity.Ty.array element (some _) =>
       Ty.abiEncodedDynamic? types fuel element
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+  | fuel + 1, Solidity.Ty.tuple tys =>
       Tys.anyAbiEncodedDynamic? types fuel tys
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | fuel + 1, Solidity.Ty.user path =>
       match types.lookupUserValueType? path with
       | some underlying => Ty.abiEncodedDynamic? types fuel underlying
       | none =>
@@ -776,7 +775,7 @@ def Tys.anyAbiEncodedDynamic? (types : TypeContext) (fuel : Nat) :
         Tys.anyAbiEncodedDynamic? types fuel rest
 
 def StructFields.anyAbiEncodedDynamic? (types : TypeContext) (fuel : Nat) :
-    List L00_SourceSolidity.StructField -> Bool
+    List Solidity.StructField -> Bool
   | [] => false
   | field :: rest =>
       Ty.abiEncodedDynamic? types fuel field.ty ||
@@ -789,18 +788,18 @@ mutual
 def Ty.requiresAbiCoderV2? (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => true
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+  | fuel + 1, Solidity.Ty.array element _ =>
       Ty.requiresAbiCoderV2? types fuel element ||
         Ty.abiEncodedDynamic? types fuel element
-  | _ + 1, L00_SourceSolidity.Ty.tuple _ => true
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | _ + 1, Solidity.Ty.tuple _ => true
+  | fuel + 1, Solidity.Ty.user path =>
       match types.lookupStruct? path with
       | some _ => true
       | none =>
           match types.lookupUserValueType? path with
           | some underlying => Ty.requiresAbiCoderV2? types fuel underlying
           | none => false
-  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+  | fuel + 1, Solidity.Ty.functionWithLocations params _ returns _
       _ _ =>
       Tys.anyRequiresAbiCoderV2? types fuel params ||
         Tys.anyRequiresAbiCoderV2? types fuel returns
@@ -829,7 +828,7 @@ def Tys.firstAbiCoderV2Only? (types : TypeContext) :
         some ty
 
 def Parameters.firstAbiCoderV2OnlyTy? (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> Option Ty
+    List Solidity.Parameter -> Option Ty
   | [] => none
   | param :: rest =>
       if TypeContext.abiCoderSupports types param.ty then
@@ -842,11 +841,11 @@ mutual
 def Ty.omittedFromStructPublicGetter? (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => true
-  | _ + 1, L00_SourceSolidity.Ty.mapping _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.array _ _ => true
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+  | _ + 1, Solidity.Ty.mapping _ _ => true
+  | _ + 1, Solidity.Ty.array _ _ => true
+  | fuel + 1, Solidity.Ty.tuple tys =>
       Tys.omittedFromStructPublicGetter? types fuel tys
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | fuel + 1, Solidity.Ty.user path =>
       match types.lookupStruct? path with
       | some structDecl =>
           StructFields.omittedFromStructPublicGetter?
@@ -863,7 +862,7 @@ def Tys.omittedFromStructPublicGetter? (types : TypeContext)
 
 def StructFields.omittedFromStructPublicGetter?
     (types : TypeContext) (fuel : Nat) :
-    List L00_SourceSolidity.StructField -> Bool
+    List Solidity.StructField -> Bool
   | [] => false
   | field :: rest =>
       Ty.omittedFromStructPublicGetter? types fuel field.ty ||
@@ -872,7 +871,7 @@ def StructFields.omittedFromStructPublicGetter?
 end
 
 def structGetterReturnTys (types : TypeContext) :
-    List L00_SourceSolidity.StructField -> List Ty
+    List Solidity.StructField -> List Ty
   | [] => []
   | field :: rest =>
       if Ty.omittedFromStructPublicGetter? types 64 field.ty then
@@ -891,19 +890,19 @@ def tupleGetterReturnTys (types : TypeContext) : List Ty -> List Ty
 def Ty.publicGetterShape? (types : TypeContext) :
     Nat -> Ty -> Option (List Ty × List Ty)
   | 0, _ => none
-  | fuel + 1, L00_SourceSolidity.Ty.mapping key value => do
+  | fuel + 1, Solidity.Ty.mapping key value => do
       let tail ← Ty.publicGetterShape? types fuel value
       some (key :: tail.fst, tail.snd)
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ => do
+  | fuel + 1, Solidity.Ty.array element _ => do
       let tail ← Ty.publicGetterShape? types fuel element
-      some (L00_SourceSolidity.Ty.uint 256 :: tail.fst, tail.snd)
-  | _ + 1, L00_SourceSolidity.Ty.tuple tys =>
+      some (Solidity.Ty.uint 256 :: tail.fst, tail.snd)
+  | _ + 1, Solidity.Ty.tuple tys =>
       some ([], tupleGetterReturnTys types tys)
-  | _ + 1, L00_SourceSolidity.Ty.user path =>
+  | _ + 1, Solidity.Ty.user path =>
       match types.lookupStruct? path with
       | some structDecl =>
           some ([], structGetterReturnTys types structDecl.fields)
-      | none => some ([], [L00_SourceSolidity.Ty.user path])
+      | none => some ([], [Solidity.Ty.user path])
   | _ + 1, ty => some ([], [ty])
 
 mutual
@@ -911,58 +910,58 @@ mutual
 def TypeContext.abiCanonicalFuel? (types : TypeContext) :
     Nat -> Ty -> Option String
   | 0, _ => none
-  | _ + 1, L00_SourceSolidity.Ty.bool => some "bool"
-  | _ + 1, L00_SourceSolidity.Ty.address _ => some "address"
-  | _ + 1, L00_SourceSolidity.Ty.uint bits =>
+  | _ + 1, Solidity.Ty.bool => some "bool"
+  | _ + 1, Solidity.Ty.address _ => some "address"
+  | _ + 1, Solidity.Ty.uint bits =>
       if bits == 0 then
         some "uint256"
       else if bits % 8 == 0 && bits <= 256 then
         some ("uint" ++ toString bits)
       else
         none
-  | _ + 1, L00_SourceSolidity.Ty.int bits =>
+  | _ + 1, Solidity.Ty.int bits =>
       if bits == 0 then
         some "int256"
       else if bits % 8 == 0 && bits <= 256 then
         some ("int" ++ toString bits)
       else
         none
-  | _ + 1, L00_SourceSolidity.Ty.fixed bits decimals =>
-      if L00_SourceSolidity.Ty.validFixedPointShape bits decimals then
+  | _ + 1, Solidity.Ty.fixed bits decimals =>
+      if Solidity.Ty.validFixedPointShape bits decimals then
         some ("fixed" ++ toString bits ++ "x" ++ toString decimals)
       else
         none
-  | _ + 1, L00_SourceSolidity.Ty.ufixed bits decimals =>
-      if L00_SourceSolidity.Ty.validFixedPointShape bits decimals then
+  | _ + 1, Solidity.Ty.ufixed bits decimals =>
+      if Solidity.Ty.validFixedPointShape bits decimals then
         some ("ufixed" ++ toString bits ++ "x" ++ toString decimals)
       else
         none
-  | _ + 1, L00_SourceSolidity.Ty.bytesN size =>
+  | _ + 1, Solidity.Ty.bytesN size =>
       if 0 < size && size <= 32 then
         some ("bytes" ++ toString size)
       else
         none
-  | _ + 1, L00_SourceSolidity.Ty.fixedBytes size =>
+  | _ + 1, Solidity.Ty.fixedBytes size =>
       if 0 < size && size <= 32 then
         some ("bytes" ++ toString size)
       else
         none
-  | _ + 1, L00_SourceSolidity.Ty.bytes => some "bytes"
-  | _ + 1, L00_SourceSolidity.Ty.string => some "string"
-  | fuel + 1, L00_SourceSolidity.Ty.array ty none => do
+  | _ + 1, Solidity.Ty.bytes => some "bytes"
+  | _ + 1, Solidity.Ty.string => some "string"
+  | fuel + 1, Solidity.Ty.array ty none => do
       let base ← TypeContext.abiCanonicalFuel? types fuel ty
       some (base ++ "[]")
-  | fuel + 1, L00_SourceSolidity.Ty.array ty (some size) => do
+  | fuel + 1, Solidity.Ty.array ty (some size) => do
       let base ← TypeContext.abiCanonicalFuel? types fuel ty
       some (base ++ "[" ++ toString size ++ "]")
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys => do
+  | fuel + 1, Solidity.Ty.tuple tys => do
       let elements ← TypeContext.abiCanonicalListFuel? types fuel tys
       some ("(" ++
-        L00_SourceSolidity.Executable.joinStringsWith "," elements ++ ")")
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+        Solidity.Executable.joinStringsWith "," elements ++ ")")
+  | fuel + 1, Solidity.Ty.user path =>
       match types.lookupContractDecl? path with
       | some decl =>
-          if decl.kind == L00_SourceSolidity.ContractKind.library then
+          if decl.kind == Solidity.ContractKind.library then
             none
           else
             some "address"
@@ -978,8 +977,8 @@ def TypeContext.abiCanonicalFuel? (types : TypeContext) :
                   | some decl =>
                       StructDecl.abiCanonicalFuel? types fuel decl
                   | none => none
-  | _ + 1, L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
-      if visibility == L00_SourceSolidity.Visibility.external_ then
+  | _ + 1, Solidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
+      if visibility == Solidity.Visibility.external_ then
         some "function"
       else
         none
@@ -994,13 +993,13 @@ def TypeContext.abiCanonicalListFuel? (types : TypeContext) (fuel : Nat) :
       some (head :: tail)
 
 def StructDecl.abiCanonicalFuel? (types : TypeContext) (fuel : Nat)
-    (decl : L00_SourceSolidity.StructDecl) : Option String := do
+    (decl : Solidity.StructDecl) : Option String := do
   let elements ← StructFields.abiCanonicalFuel? types fuel decl.fields
   some ("(" ++
-    L00_SourceSolidity.Executable.joinStringsWith "," elements ++ ")")
+    Solidity.Executable.joinStringsWith "," elements ++ ")")
 
 def StructFields.abiCanonicalFuel? (types : TypeContext) (fuel : Nat) :
-    List L00_SourceSolidity.StructField -> Option (List String)
+    List Solidity.StructField -> Option (List String)
   | [] => some []
   | field :: rest => do
       let head ← TypeContext.abiCanonicalFuel? types fuel field.ty
@@ -1032,19 +1031,19 @@ def Tys.firstNonAbiEncodable? (types : TypeContext) :
         some ty
 
 def StateMutability.canImplicitlyConvertFunction
-    (actual expected : L00_SourceSolidity.StateMutability) : Bool :=
+    (actual expected : Solidity.StateMutability) : Bool :=
   if actual == expected then
     true
   else
     match actual, expected with
-    | L00_SourceSolidity.StateMutability.pure,
-      L00_SourceSolidity.StateMutability.view => true
-    | L00_SourceSolidity.StateMutability.pure,
-      L00_SourceSolidity.StateMutability.nonpayable => true
-    | L00_SourceSolidity.StateMutability.view,
-      L00_SourceSolidity.StateMutability.nonpayable => true
-    | L00_SourceSolidity.StateMutability.payable,
-      L00_SourceSolidity.StateMutability.nonpayable => true
+    | Solidity.StateMutability.pure,
+      Solidity.StateMutability.view => true
+    | Solidity.StateMutability.pure,
+      Solidity.StateMutability.nonpayable => true
+    | Solidity.StateMutability.view,
+      Solidity.StateMutability.nonpayable => true
+    | Solidity.StateMutability.payable,
+      Solidity.StateMutability.nonpayable => true
     | _, _ => false
 
 def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
@@ -1052,41 +1051,41 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
     true
   else
     match actual, expected with
-    | L00_SourceSolidity.Ty.address true,
-      L00_SourceSolidity.Ty.address false => true
-    | L00_SourceSolidity.Ty.uint actualBits,
-      L00_SourceSolidity.Ty.uint expectedBits => actualBits <= expectedBits
-    | L00_SourceSolidity.Ty.int actualBits,
-      L00_SourceSolidity.Ty.int expectedBits => actualBits <= expectedBits
-    | L00_SourceSolidity.Ty.uint actualBits,
-      L00_SourceSolidity.Ty.int expectedBits => actualBits < expectedBits
-    | L00_SourceSolidity.Ty.fixed actualBits actualDecimals,
-      L00_SourceSolidity.Ty.fixed expectedBits expectedDecimals =>
-        L00_SourceSolidity.Ty.fixedPointImplicitlyConvertible
+    | Solidity.Ty.address true,
+      Solidity.Ty.address false => true
+    | Solidity.Ty.uint actualBits,
+      Solidity.Ty.uint expectedBits => actualBits <= expectedBits
+    | Solidity.Ty.int actualBits,
+      Solidity.Ty.int expectedBits => actualBits <= expectedBits
+    | Solidity.Ty.uint actualBits,
+      Solidity.Ty.int expectedBits => actualBits < expectedBits
+    | Solidity.Ty.fixed actualBits actualDecimals,
+      Solidity.Ty.fixed expectedBits expectedDecimals =>
+        Solidity.Ty.fixedPointImplicitlyConvertible
           true actualBits actualDecimals true expectedBits expectedDecimals
-    | L00_SourceSolidity.Ty.ufixed actualBits actualDecimals,
-      L00_SourceSolidity.Ty.ufixed expectedBits expectedDecimals =>
-        L00_SourceSolidity.Ty.fixedPointImplicitlyConvertible
+    | Solidity.Ty.ufixed actualBits actualDecimals,
+      Solidity.Ty.ufixed expectedBits expectedDecimals =>
+        Solidity.Ty.fixedPointImplicitlyConvertible
           false actualBits actualDecimals false expectedBits expectedDecimals
-    | L00_SourceSolidity.Ty.ufixed actualBits actualDecimals,
-      L00_SourceSolidity.Ty.fixed expectedBits expectedDecimals =>
-        L00_SourceSolidity.Ty.fixedPointImplicitlyConvertible
+    | Solidity.Ty.ufixed actualBits actualDecimals,
+      Solidity.Ty.fixed expectedBits expectedDecimals =>
+        Solidity.Ty.fixedPointImplicitlyConvertible
           false actualBits actualDecimals true expectedBits expectedDecimals
-    | L00_SourceSolidity.Ty.bytesN actualSize,
-      L00_SourceSolidity.Ty.bytesN expectedSize => actualSize <= expectedSize
-    | L00_SourceSolidity.Ty.fixedBytes actualSize,
-      L00_SourceSolidity.Ty.fixedBytes expectedSize =>
+    | Solidity.Ty.bytesN actualSize,
+      Solidity.Ty.bytesN expectedSize => actualSize <= expectedSize
+    | Solidity.Ty.fixedBytes actualSize,
+      Solidity.Ty.fixedBytes expectedSize =>
         actualSize <= expectedSize
-    | L00_SourceSolidity.Ty.bytesN actualSize,
-      L00_SourceSolidity.Ty.fixedBytes expectedSize =>
+    | Solidity.Ty.bytesN actualSize,
+      Solidity.Ty.fixedBytes expectedSize =>
         actualSize <= expectedSize
-    | L00_SourceSolidity.Ty.fixedBytes actualSize,
-      L00_SourceSolidity.Ty.bytesN expectedSize =>
+    | Solidity.Ty.fixedBytes actualSize,
+      Solidity.Ty.bytesN expectedSize =>
         actualSize <= expectedSize
-    | L00_SourceSolidity.Ty.functionWithLocations actualParams
+    | Solidity.Ty.functionWithLocations actualParams
         actualParamLocations actualReturns actualReturnLocations
         actualMutability actualVisibility,
-      L00_SourceSolidity.Ty.functionWithLocations expectedParams
+      Solidity.Ty.functionWithLocations expectedParams
         expectedParamLocations expectedReturns expectedReturnLocations
         expectedMutability expectedVisibility =>
         actualParams == expectedParams &&
@@ -1099,9 +1098,9 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
     | _, _ => false
 
 def Ty.fixedBytesSize? : Ty -> Option Nat
-  | L00_SourceSolidity.Ty.bytesN size =>
+  | Solidity.Ty.bytesN size =>
       if 0 < size && size <= 32 then some size else none
-  | L00_SourceSolidity.Ty.fixedBytes size =>
+  | Solidity.Ty.fixedBytes size =>
       if 0 < size && size <= 32 then some size else none
   | _ => none
 
@@ -1111,17 +1110,17 @@ def Ty.isFixedBytes (ty : Ty) : Bool :=
   | none => false
 
 def Ty.uintBits? : Ty -> Option Nat
-  | L00_SourceSolidity.Ty.uint bits =>
+  | Solidity.Ty.uint bits =>
       if bits > 0 && bits <= 256 && bits % 8 == 0 then some bits else none
   | _ => none
 
 def Ty.intBits? : Ty -> Option Nat
-  | L00_SourceSolidity.Ty.int bits =>
+  | Solidity.Ty.int bits =>
       if bits > 0 && bits <= 256 && bits % 8 == 0 then some bits else none
   | _ => none
 
 def Ty.isSignedIntegerTy : Ty -> Bool
-  | L00_SourceSolidity.Ty.int _ => true
+  | Solidity.Ty.int _ => true
   | _ => false
 
 def Ty.sameIntegerWidth (actual target : Ty) : Bool :=
@@ -1142,15 +1141,15 @@ def Ty.fixedBytesIntegerSameSize (fixedTy intTy : Ty) : Bool :=
   | _, _ => false
 
 def TypeContext.isContractTy (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.user path => types.isContractPath path
+  | Solidity.Ty.user path => types.isContractPath path
   | _ => false
 
 def TypeContext.isEnumTy (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.user path => types.isEnumPath path
+  | Solidity.Ty.user path => types.isEnumPath path
   | _ => false
 
 def TypeContext.isUserValueTy (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.user path => types.isUserValueTypePath path
+  | Solidity.Ty.user path => types.isUserValueTypePath path
   | _ => false
 
 def TypeContext.contractHasAncestorPathFuel
@@ -1174,16 +1173,16 @@ def TypeContext.contractsRelated (types : TypeContext)
     TypeContext.contractHasAncestorPathFuel types 64 right left
 
 def FunctionDecl.canReceiveEther
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
-  (fn.kind == L00_SourceSolidity.FunctionKind.receive &&
-      fn.mutability == L00_SourceSolidity.StateMutability.payable) ||
-    (fn.kind == L00_SourceSolidity.FunctionKind.fallback &&
-      fn.mutability == L00_SourceSolidity.StateMutability.payable)
+    (fn : Solidity.FunctionDecl) : Bool :=
+  (fn.kind == Solidity.FunctionKind.receive &&
+      fn.mutability == Solidity.StateMutability.payable) ||
+    (fn.kind == Solidity.FunctionKind.fallback &&
+      fn.mutability == Solidity.StateMutability.payable)
 
 def ContractItems.canReceiveEther :
-    List L00_SourceSolidity.ContractItem -> Bool
+    List Solidity.ContractItem -> Bool
   | [] => false
-  | L00_SourceSolidity.ContractItem.function fn :: rest =>
+  | Solidity.ContractItem.function fn :: rest =>
       FunctionDecl.canReceiveEther fn || ContractItems.canReceiveEther rest
   | _ :: rest => ContractItems.canReceiveEther rest
 
@@ -1208,8 +1207,8 @@ def TypeContext.canImplicitlyConvert (types : TypeContext)
     true
   else
     match actual, expected with
-    | L00_SourceSolidity.Ty.user actualPath,
-      L00_SourceSolidity.Ty.user expectedPath =>
+    | Solidity.Ty.user actualPath,
+      Solidity.Ty.user expectedPath =>
         TypeContext.pathsAreLocalAliasIn
           types.structs actualPath expectedPath ||
         TypeContext.pathsAreLocalAliasIn
@@ -1223,8 +1222,8 @@ def TypeContext.canImplicitlyConvert (types : TypeContext)
     | _, _ => false
 
 def fixedPointLiteralRaw? (decimals : Nat)
-    (expr : L00_SourceSolidity.Expr) : Option Nat := do
-  let value ← L00_SourceSolidity.Executable.Expr.numberLiteralRat? expr
+    (expr : Solidity.Expr) : Option Nat := do
+  let value ← Solidity.Executable.Expr.numberLiteralRat? expr
   let scaled := value.num * 10 ^ decimals
   if scaled % value.den == 0 then
     some (scaled / value.den)
@@ -1232,27 +1231,27 @@ def fixedPointLiteralRaw? (decimals : Nat)
     none
 
 def negatedFixedPointLiteralRaw? (decimals : Nat) :
-    L00_SourceSolidity.Expr -> Option Nat
-  | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
+    Solidity.Expr -> Option Nat
+  | Solidity.Expr.unary Solidity.UnaryOp.neg inner =>
       fixedPointLiteralRaw? decimals inner
-  | L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.typeName _) [L00_SourceSolidity.Arg.positional expr] =>
+  | Solidity.Expr.call
+      (Solidity.Expr.typeName _) [Solidity.Arg.positional expr] =>
       negatedFixedPointLiteralRaw? decimals expr
   | _ => none
 
 def fixedPointLiteralFits (target : Ty)
-    (expr : L00_SourceSolidity.Expr) : Bool :=
+    (expr : Solidity.Expr) : Bool :=
   match target with
-  | L00_SourceSolidity.Ty.fixed bits decimals =>
-      L00_SourceSolidity.Ty.validFixedPointShape bits decimals &&
+  | Solidity.Ty.fixed bits decimals =>
+      Solidity.Ty.validFixedPointShape bits decimals &&
         match negatedFixedPointLiteralRaw? decimals expr with
         | some magnitude => magnitude <= 2 ^ (bits - 1)
         | none =>
             match fixedPointLiteralRaw? decimals expr with
             | some value => value < 2 ^ (bits - 1)
             | none => false
-  | L00_SourceSolidity.Ty.ufixed bits decimals =>
-      L00_SourceSolidity.Ty.validFixedPointShape bits decimals &&
+  | Solidity.Ty.ufixed bits decimals =>
+      Solidity.Ty.validFixedPointShape bits decimals &&
         match negatedFixedPointLiteralRaw? decimals expr with
         | some magnitude => magnitude == 0
         | none =>
@@ -1262,78 +1261,78 @@ def fixedPointLiteralFits (target : Ty)
   | _ => false
 
 def typeConversionLiteralFits (target : Ty)
-    (expr : L00_SourceSolidity.Expr) : Bool :=
-  match L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs? target expr with
+    (expr : Solidity.Expr) : Bool :=
+  match Solidity.Executable.Expr.toCoreNumericLiteralAs? target expr with
   | some _ => true
   | none =>
-      match L00_SourceSolidity.Executable.Expr.toCoreFixedBytesLiteralAs?
+      match Solidity.Executable.Expr.toCoreFixedBytesLiteralAs?
           target expr with
       | some _ => true
       | none =>
           fixedPointLiteralFits target expr ||
             match target with
-            | L00_SourceSolidity.Ty.address false =>
-                match L00_SourceSolidity.Executable.Expr.toCoreAddressLiteral?
+            | Solidity.Ty.address false =>
+                match Solidity.Executable.Expr.toCoreAddressLiteral?
                     expr with
                 | some _ => true
                 | none => false
             | _ => false
 
 def implicitLiteralFits (target : Ty)
-    (expr : L00_SourceSolidity.Expr) : Bool :=
-  match L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs? target expr with
+    (expr : Solidity.Expr) : Bool :=
+  match Solidity.Executable.Expr.toCoreNumericLiteralAs? target expr with
   | some _ => true
   | none =>
-      match L00_SourceSolidity.Executable.Expr.toCoreFixedBytesLiteralAs?
+      match Solidity.Executable.Expr.toCoreFixedBytesLiteralAs?
           target expr with
       | some _ => true
       | none =>
-          (target == L00_SourceSolidity.Ty.bytes &&
+          (target == Solidity.Ty.bytes &&
             match expr with
-            | L00_SourceSolidity.Expr.literal
-                (L00_SourceSolidity.Literal.string _) => true
-            | L00_SourceSolidity.Expr.literal
-                (L00_SourceSolidity.Literal.unicodeString _) => true
+            | Solidity.Expr.literal
+                (Solidity.Literal.string _) => true
+            | Solidity.Expr.literal
+                (Solidity.Literal.unicodeString _) => true
             | _ => false) ||
             fixedPointLiteralFits target expr
 
-def exprIsUint256ZeroLiteral (expr : L00_SourceSolidity.Expr) : Bool :=
+def exprIsUint256ZeroLiteral (expr : Solidity.Expr) : Bool :=
   match
-      L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs?
-        (L00_SourceSolidity.Ty.uint 256) expr with
+      Solidity.Executable.Expr.toCoreNumericLiteralAs?
+        (Solidity.Ty.uint 256) expr with
   | some (SolidCore.Solidity.Source.Expr.word value) =>
       SolidCore.Solidity.Source.wordEq value 0
   | _ => false
 
 def exprIsUntypedNumberLiteralExpression :
-    L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.number _) => true
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.unitNumber _ _) => true
-  | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
+    Solidity.Expr -> Bool
+  | Solidity.Expr.literal
+      (Solidity.Literal.number _) => true
+  | Solidity.Expr.literal
+      (Solidity.Literal.unitNumber _ _) => true
+  | Solidity.Expr.unary Solidity.UnaryOp.neg inner =>
       exprIsUntypedNumberLiteralExpression inner
-  | L00_SourceSolidity.Expr.binary _ lhs rhs =>
+  | Solidity.Expr.binary _ lhs rhs =>
       exprIsUntypedNumberLiteralExpression lhs &&
         exprIsUntypedNumberLiteralExpression rhs
   | _ => false
 
 def exprIsUntypedImplicitLiteralExpression
-    (expr : L00_SourceSolidity.Expr) : Bool :=
+    (expr : Solidity.Expr) : Bool :=
   exprIsUntypedNumberLiteralExpression expr ||
-    L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate expr
+    Solidity.Executable.Expr.isFixedBytesLiteralCandidate expr
 
 def enumUntypedLiteralConversionAllowed? (types : TypeContext)
-    (path : Path) (expr : L00_SourceSolidity.Expr) : Option Bool :=
+    (path : Path) (expr : Solidity.Expr) : Option Bool :=
   if exprIsUntypedNumberLiteralExpression expr then
     some
       (match types.lookupEnum? path with
       | some decl =>
-          match L00_SourceSolidity.Executable.EnumDecl.maxValue? decl with
+          match Solidity.Executable.EnumDecl.maxValue? decl with
           | some maxValue =>
               match
-                  L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs?
-                    (L00_SourceSolidity.Ty.uint 256) expr with
+                  Solidity.Executable.Expr.toCoreNumericLiteralAs?
+                    (Solidity.Ty.uint 256) expr with
               | some (SolidCore.Solidity.Source.Expr.word value) =>
                   value <= maxValue
               | _ => false
@@ -1343,19 +1342,19 @@ def enumUntypedLiteralConversionAllowed? (types : TypeContext)
     none
 
 def Ty.canExplicitlyConvert (types : TypeContext)
-    (sourceExpr : L00_SourceSolidity.Expr) (actual target : Ty) : Bool :=
+    (sourceExpr : Solidity.Expr) (actual target : Ty) : Bool :=
   if exprIsUntypedNumberLiteralExpression sourceExpr then
     match target with
-    | L00_SourceSolidity.Ty.address false =>
+    | Solidity.Ty.address false =>
         typeConversionLiteralFits target sourceExpr
-    | L00_SourceSolidity.Ty.uint _
-    | L00_SourceSolidity.Ty.int _
-    | L00_SourceSolidity.Ty.fixed _ _
-    | L00_SourceSolidity.Ty.ufixed _ _
-    | L00_SourceSolidity.Ty.bytesN _
-    | L00_SourceSolidity.Ty.fixedBytes _ =>
+    | Solidity.Ty.uint _
+    | Solidity.Ty.int _
+    | Solidity.Ty.fixed _ _
+    | Solidity.Ty.ufixed _ _
+    | Solidity.Ty.bytesN _
+    | Solidity.Ty.fixedBytes _ =>
         typeConversionLiteralFits target sourceExpr
-    | L00_SourceSolidity.Ty.user path =>
+    | Solidity.Ty.user path =>
         match enumUntypedLiteralConversionAllowed? types path sourceExpr with
         | some allowed => allowed
         | none => false
@@ -1364,70 +1363,70 @@ def Ty.canExplicitlyConvert (types : TypeContext)
     true
   else
     match actual, target with
-    | _, L00_SourceSolidity.Ty.address true => false
-    | L00_SourceSolidity.Ty.address _, L00_SourceSolidity.Ty.address false => true
-    | L00_SourceSolidity.Ty.uint 160, L00_SourceSolidity.Ty.address false => true
-    | L00_SourceSolidity.Ty.bytesN 20, L00_SourceSolidity.Ty.address false => true
-    | L00_SourceSolidity.Ty.fixedBytes 20, L00_SourceSolidity.Ty.address false => true
-    | L00_SourceSolidity.Ty.user path, L00_SourceSolidity.Ty.address false =>
+    | _, Solidity.Ty.address true => false
+    | Solidity.Ty.address _, Solidity.Ty.address false => true
+    | Solidity.Ty.uint 160, Solidity.Ty.address false => true
+    | Solidity.Ty.bytesN 20, Solidity.Ty.address false => true
+    | Solidity.Ty.fixedBytes 20, Solidity.Ty.address false => true
+    | Solidity.Ty.user path, Solidity.Ty.address false =>
         types.isContractPath path
-    | _, L00_SourceSolidity.Ty.address false =>
+    | _, Solidity.Ty.address false =>
         typeConversionLiteralFits target sourceExpr
-    | L00_SourceSolidity.Ty.string, L00_SourceSolidity.Ty.bytes => true
-    | L00_SourceSolidity.Ty.bytes, L00_SourceSolidity.Ty.string => true
-    | _, L00_SourceSolidity.Ty.uint _ =>
+    | Solidity.Ty.string, Solidity.Ty.bytes => true
+    | Solidity.Ty.bytes, Solidity.Ty.string => true
+    | _, Solidity.Ty.uint _ =>
         (match actual with
-        | L00_SourceSolidity.Ty.user path => types.isEnumPath path
+        | Solidity.Ty.user path => types.isEnumPath path
         | _ => false) ||
           actual.isFixedPoint ||
           Ty.integerExplicitConversionAllowed actual target ||
           Ty.fixedBytesIntegerSameSize actual target ||
           (match actual with
-          | L00_SourceSolidity.Ty.address false =>
-              target == L00_SourceSolidity.Ty.uint 160
+          | Solidity.Ty.address false =>
+              target == Solidity.Ty.uint 160
           | _ => false) ||
           typeConversionLiteralFits target sourceExpr
-    | _, L00_SourceSolidity.Ty.int _ =>
+    | _, Solidity.Ty.int _ =>
         Ty.integerExplicitConversionAllowed actual target ||
           actual.isFixedPoint ||
           Ty.fixedBytesIntegerSameSize actual target ||
           typeConversionLiteralFits target sourceExpr
-    | _, L00_SourceSolidity.Ty.fixed _ _
-    | _, L00_SourceSolidity.Ty.ufixed _ _ =>
+    | _, Solidity.Ty.fixed _ _
+    | _, Solidity.Ty.ufixed _ _ =>
         actual.isFixedPoint ||
           typeConversionLiteralFits target sourceExpr
-    | _, L00_SourceSolidity.Ty.bytesN _ =>
-        if L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate
+    | _, Solidity.Ty.bytesN _ =>
+        if Solidity.Executable.Expr.isFixedBytesLiteralCandidate
             sourceExpr then
           typeConversionLiteralFits target sourceExpr
         else
-          (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
-            (actual == L00_SourceSolidity.Ty.address false &&
-              target == L00_SourceSolidity.Ty.bytesN 20) ||
+          (actual.isFixedBytes || actual == Solidity.Ty.bytes ||
+            (actual == Solidity.Ty.address false &&
+              target == Solidity.Ty.bytesN 20) ||
             Ty.fixedBytesIntegerSameSize target actual) ||
             typeConversionLiteralFits target sourceExpr
-    | _, L00_SourceSolidity.Ty.fixedBytes _ =>
-        if L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate
+    | _, Solidity.Ty.fixedBytes _ =>
+        if Solidity.Executable.Expr.isFixedBytesLiteralCandidate
             sourceExpr then
           typeConversionLiteralFits target sourceExpr
         else
-          (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
-            (actual == L00_SourceSolidity.Ty.address false &&
-              target == L00_SourceSolidity.Ty.fixedBytes 20) ||
+          (actual.isFixedBytes || actual == Solidity.Ty.bytes ||
+            (actual == Solidity.Ty.address false &&
+              target == Solidity.Ty.fixedBytes 20) ||
             Ty.fixedBytesIntegerSameSize target actual) ||
             typeConversionLiteralFits target sourceExpr
-    | L00_SourceSolidity.Ty.address sourcePayable,
-      L00_SourceSolidity.Ty.user path =>
+    | Solidity.Ty.address sourcePayable,
+      Solidity.Ty.user path =>
         types.isContractPath path &&
           (sourcePayable || !types.contractCanReceiveEther path)
-    | L00_SourceSolidity.Ty.user actualPath, L00_SourceSolidity.Ty.user targetPath =>
+    | Solidity.Ty.user actualPath, Solidity.Ty.user targetPath =>
         if types.isContractPath actualPath && types.isContractPath targetPath then
           types.contractsRelated actualPath targetPath
         else if types.isEnumPath targetPath then
           actual.isInteger
         else
           false
-    | _, L00_SourceSolidity.Ty.user path =>
+    | _, Solidity.Ty.user path =>
         if types.isEnumPath path then
           match enumUntypedLiteralConversionAllowed? types path sourceExpr with
           | some allowed => allowed
@@ -1440,21 +1439,21 @@ def checkTy (types : TypeContext) (ty : Ty) : Except TypeError Unit :=
   require (Ty.isValid types ty) (TypeError.invalidType ty)
 
 def checkLocationForTy (types : TypeContext) (ty : Ty)
-    (location : Option L00_SourceSolidity.DataLocation) :
+    (location : Option Solidity.DataLocation) :
     Except TypeError Unit := do
   checkTy types ty
   require (!Ty.containsLibraryType types 64 ty)
     (TypeError.invalidType ty)
   if !Ty.needsDataLocation types ty && location.isSome &&
       !(match ty with
-        | L00_SourceSolidity.Ty.tuple _ => true
+        | Solidity.Ty.tuple _ => true
         | _ => false) then
     Except.error (TypeError.invalidDataLocation ty location)
   else if Ty.needsDataLocation types ty && location.isNone then
     Except.error (TypeError.invalidDataLocation ty location)
   else if Ty.containsMapping types 64 ty then
     match location with
-    | some L00_SourceSolidity.DataLocation.storage => Except.ok ()
+    | some Solidity.DataLocation.storage => Except.ok ()
     | _ => Except.error (TypeError.invalidDataLocation ty location)
   else
     Except.ok ()
@@ -1465,14 +1464,14 @@ structure FunctionSig where
   paramNames : List (Option Name) := []
   paramStorageRefs : List Bool := []
   paramDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
+    List (Option Solidity.DataLocation) := []
   returns : List Ty := []
   returnStorageRefs : List Bool := []
   returnDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
-  visibility : Option L00_SourceSolidity.Visibility := none
-  mutability : L00_SourceSolidity.StateMutability :=
-    L00_SourceSolidity.StateMutability.nonpayable
+    List (Option Solidity.DataLocation) := []
+  visibility : Option Solidity.Visibility := none
+  mutability : Solidity.StateMutability :=
+    Solidity.StateMutability.nonpayable
   origin : Option Path := none
   deriving Repr
 
@@ -1482,7 +1481,7 @@ structure ModifierSig where
   paramNames : List (Option Name) := []
   paramStorageRefs : List Bool := []
   paramDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
+    List (Option Solidity.DataLocation) := []
   deriving Repr
 
 structure ErrorSig where
@@ -1505,26 +1504,26 @@ structure CheckEnv where
   localNames : List Name := []
   blockScopeNames : List Name := []
   localStorageRefs : List Name := []
-  localDataLocations : List (Name × L00_SourceSolidity.DataLocation) := []
+  localDataLocations : List (Name × Solidity.DataLocation) := []
   constantBindings : List (Name × Bool) := []
   immutableNames : List Name := []
   functions : List FunctionSig := []
   superFunctions : List FunctionSig := []
   modifiers : List ModifierSig := []
-  modifierDecls : List L00_SourceSolidity.ModifierDecl := []
-  usingDecls : List L00_SourceSolidity.UsingDecl := []
+  modifierDecls : List Solidity.ModifierDecl := []
+  usingDecls : List Solidity.UsingDecl := []
   errors : List ErrorSig := []
   events : List EventSig := []
-  contractKind : Option L00_SourceSolidity.ContractKind := none
+  contractKind : Option Solidity.ContractKind := none
   currentContractAbstract : Bool := false
   currentContract : Option Path := none
   ancestorPaths : List Path := []
-  currentMutability : Option L00_SourceSolidity.StateMutability := none
+  currentMutability : Option Solidity.StateMutability := none
   returnTys : List Ty := []
   returnNames : List (Option Name) := []
   returnStorageRefs : List Bool := []
   returnDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
+    List (Option Solidity.DataLocation) := []
   loopDepth : Nat := 0
   inModifier : Bool := false
   inUnchecked : Bool := false
@@ -1532,34 +1531,34 @@ structure CheckEnv where
   deriving Repr
 
 def CheckEnv.lookupVar? (env : CheckEnv) (name : Name) : Option Ty :=
-  L00_SourceSolidity.Executable.TypeEnv.lookup? env.vars name
+  Solidity.Executable.TypeEnv.lookup? env.vars name
 
 def CheckEnv.isStateName (env : CheckEnv) (name : Name) : Bool :=
-  L00_SourceSolidity.Executable.nameIn name env.stateNames
+  Solidity.Executable.nameIn name env.stateNames
 
 def CheckEnv.isLocalName (env : CheckEnv) (name : Name) : Bool :=
-  L00_SourceSolidity.Executable.nameIn name env.localNames
+  Solidity.Executable.nameIn name env.localNames
 
 def CheckEnv.isLocalStorageRef (env : CheckEnv) (name : Name) : Bool :=
-  L00_SourceSolidity.Executable.nameIn name env.localStorageRefs
+  Solidity.Executable.nameIn name env.localStorageRefs
 
 def CheckEnv.isPointerReturnName (env : CheckEnv) (name : Name) : Bool :=
   let rec go :
       List (Option Name) ->
-      List (Option L00_SourceSolidity.DataLocation) -> Bool
+      List (Option Solidity.DataLocation) -> Bool
     | some candidate :: nameRest, location :: locationRest =>
         (candidate == name &&
-          (location == some L00_SourceSolidity.DataLocation.storage ||
-            location == some L00_SourceSolidity.DataLocation.calldata)) ||
+          (location == some Solidity.DataLocation.storage ||
+            location == some Solidity.DataLocation.calldata)) ||
           go nameRest locationRest
     | _ :: nameRest, _ :: locationRest => go nameRest locationRest
     | _, _ => false
   go env.returnNames env.returnDataLocations
 
 def CheckEnv.lookupLocalDataLocation? (env : CheckEnv)
-    (name : Name) : Option L00_SourceSolidity.DataLocation :=
-  let rec go : List (Name × L00_SourceSolidity.DataLocation) ->
-      Option L00_SourceSolidity.DataLocation
+    (name : Name) : Option Solidity.DataLocation :=
+  let rec go : List (Name × Solidity.DataLocation) ->
+      Option Solidity.DataLocation
     | [] => none
     | (candidate, location) :: rest =>
         if candidate == name then some location else go rest
@@ -1580,10 +1579,10 @@ def CheckEnv.isConstantName (env : CheckEnv) (name : Name) : Bool :=
 
 def CheckEnv.isImmutableName (env : CheckEnv) (name : Name) : Bool :=
   !env.isLocalName name &&
-    L00_SourceSolidity.Executable.nameIn name env.immutableNames
+    Solidity.Executable.nameIn name env.immutableNames
 
 def CheckEnv.extendDataLocations (env : CheckEnv)
-    (locations : List (Name × L00_SourceSolidity.DataLocation)) :
+    (locations : List (Name × Solidity.DataLocation)) :
     CheckEnv :=
   { env with localDataLocations := locations ++ env.localDataLocations }
 
@@ -1615,7 +1614,7 @@ def CheckEnv.extendVarsWithStorageRefs (env : CheckEnv) :
         (env.extendVarWithStorageRef name ty isStorageRef) rest
 
 def CheckEnv.inLibrary (env : CheckEnv) : Bool :=
-  env.contractKind == some L00_SourceSolidity.ContractKind.library
+  env.contractKind == some Solidity.ContractKind.library
 
 def CheckEnv.enterLoop (env : CheckEnv) : CheckEnv :=
   { env with loopDepth := env.loopDepth + 1 }
@@ -1627,8 +1626,8 @@ def CheckEnv.enterUnchecked (env : CheckEnv) : CheckEnv :=
   { env with inUnchecked := true }
 
 def lookupModifierDeclIn? (target : Name) :
-    List L00_SourceSolidity.ModifierDecl ->
-    Option L00_SourceSolidity.ModifierDecl
+    List Solidity.ModifierDecl ->
+    Option Solidity.ModifierDecl
   | [] => none
   | decl :: rest =>
       if decl.name == target then
@@ -1637,7 +1636,7 @@ def lookupModifierDeclIn? (target : Name) :
         lookupModifierDeclIn? target rest
 
 def CheckEnv.lookupModifierDecl? (env : CheckEnv) (target : Name) :
-    Option L00_SourceSolidity.ModifierDecl :=
+    Option Solidity.ModifierDecl :=
   lookupModifierDeclIn? target env.modifierDecls
 
 def CheckEnv.isCurrentOrAncestorContract (env : CheckEnv)
@@ -1649,29 +1648,29 @@ def CheckEnv.isCurrentOrAncestorContract (env : CheckEnv)
   | none => false
 
 def mutabilityAllowsStateRead :
-    Option L00_SourceSolidity.StateMutability -> Bool
-  | some L00_SourceSolidity.StateMutability.pure => false
+    Option Solidity.StateMutability -> Bool
+  | some Solidity.StateMutability.pure => false
   | _ => true
 
 def mutabilityAllowsStateWrite :
-    Option L00_SourceSolidity.StateMutability -> Bool
-  | some L00_SourceSolidity.StateMutability.pure => false
-  | some L00_SourceSolidity.StateMutability.view => false
+    Option Solidity.StateMutability -> Bool
+  | some Solidity.StateMutability.pure => false
+  | some Solidity.StateMutability.view => false
   | _ => true
 
 def mutabilityAllowsLogOrCreate :
-    Option L00_SourceSolidity.StateMutability -> Bool :=
+    Option Solidity.StateMutability -> Bool :=
   mutabilityAllowsStateWrite
 
 def mutabilityAllowsCall
-    (caller : Option L00_SourceSolidity.StateMutability)
-    (callee : L00_SourceSolidity.StateMutability) : Bool :=
+    (caller : Option Solidity.StateMutability)
+    (callee : Solidity.StateMutability) : Bool :=
   match caller with
-  | some L00_SourceSolidity.StateMutability.pure =>
-      callee == L00_SourceSolidity.StateMutability.pure
-  | some L00_SourceSolidity.StateMutability.view =>
-      callee == L00_SourceSolidity.StateMutability.pure ||
-        callee == L00_SourceSolidity.StateMutability.view
+  | some Solidity.StateMutability.pure =>
+      callee == Solidity.StateMutability.pure
+  | some Solidity.StateMutability.view =>
+      callee == Solidity.StateMutability.pure ||
+        callee == Solidity.StateMutability.view
   | _ => true
 
 def requireStateReadAllowed (env : CheckEnv) :
@@ -1690,35 +1689,35 @@ def requireLogOrCreateAllowed (env : CheckEnv) (what : String) :
     (TypeError.mutabilityViolation what)
 
 def requireCallMutabilityAllowed (env : CheckEnv)
-    (callee : L00_SourceSolidity.StateMutability) :
+    (callee : Solidity.StateMutability) :
     Except TypeError Unit :=
   require (mutabilityAllowsCall env.currentMutability callee)
     (TypeError.mutabilityViolation
       "call mutability exceeds current function mutability")
 
 def callMemberMutability? (member : Name) :
-    Option L00_SourceSolidity.StateMutability :=
+    Option Solidity.StateMutability :=
   if member == "staticcall" then
-    some L00_SourceSolidity.StateMutability.view
+    some Solidity.StateMutability.view
   else if member == "call" || member == "delegatecall" ||
       member == "send" || member == "transfer" then
-    some L00_SourceSolidity.StateMutability.nonpayable
+    some Solidity.StateMutability.nonpayable
   else
     none
 
 def requireCallExprMutabilityAllowed (env : CheckEnv)
-    (fn : L00_SourceSolidity.Expr) : Except TypeError Unit :=
+    (fn : Solidity.Expr) : Except TypeError Unit :=
   match fn with
-  | L00_SourceSolidity.Expr.member _ member =>
+  | Solidity.Expr.member _ member =>
       match callMemberMutability? member with
       | some mutability => requireCallMutabilityAllowed env mutability
       | none => Except.ok ()
   | _ => Except.ok ()
 
 def builtinIdentCallMutability? (name : Name) :
-    Option L00_SourceSolidity.StateMutability :=
+    Option Solidity.StateMutability :=
   if name == "gasleft" || name == "blockhash" || name == "blobhash" then
-    some L00_SourceSolidity.StateMutability.view
+    some Solidity.StateMutability.view
   else
     none
 
@@ -1751,7 +1750,7 @@ def requireLondonOrLater (env : CheckEnv) (what : String) :
 def namesUniqueFrom (seen : List Name) : List Name -> Bool
   | [] => true
   | name :: rest =>
-      !L00_SourceSolidity.Executable.nameIn name seen &&
+      !Solidity.Executable.nameIn name seen &&
         namesUniqueFrom (name :: seen) rest
 
 def namesUnique (names : List Name) : Bool :=
@@ -1762,7 +1761,7 @@ def ensureUniqueNames (what : String) (names : List Name) :
   match names with
   | [] => Except.ok ()
   | name :: rest =>
-      if L00_SourceSolidity.Executable.nameIn name rest then
+      if Solidity.Executable.nameIn name rest then
         Except.error (TypeError.duplicateName what name)
       else
         ensureUniqueNames what rest
@@ -1771,33 +1770,33 @@ def ensureNamesDisjointFrom (what : String) (reserved : List Name) :
     List Name -> Except TypeError Unit
   | [] => Except.ok ()
   | name :: rest => do
-      require (!L00_SourceSolidity.Executable.nameIn name reserved)
+      require (!Solidity.Executable.nameIn name reserved)
         (TypeError.duplicateName what name)
       ensureNamesDisjointFrom what reserved rest
 
 def Parameter.check (types : TypeContext)
-    (param : L00_SourceSolidity.Parameter) :
+    (param : Solidity.Parameter) :
     Except TypeError Unit :=
   checkLocationForTy types param.ty param.location
 
 def Parameter.hasStorageLocation
-    (param : L00_SourceSolidity.Parameter) : Bool :=
-  param.location == some L00_SourceSolidity.DataLocation.storage
+    (param : Solidity.Parameter) : Bool :=
+  param.location == some Solidity.DataLocation.storage
 
 def Parameter.isStorageRef (types : TypeContext)
-    (param : L00_SourceSolidity.Parameter) : Bool :=
+    (param : Solidity.Parameter) : Bool :=
   Ty.needsDataLocation types param.ty &&
     Parameter.hasStorageLocation param
 
 def Parameters.check (types : TypeContext) :
-    List L00_SourceSolidity.Parameter ->
+    List Solidity.Parameter ->
     Except TypeError Unit
   | [] => Except.ok ()
   | param :: rest => do
       Parameter.check types param
       Parameters.check types rest
 
-def Parameters.namedTypes : List L00_SourceSolidity.Parameter ->
+def Parameters.namedTypes : List Solidity.Parameter ->
     List (Name × Ty)
   | [] => []
   | param :: rest =>
@@ -1806,7 +1805,7 @@ def Parameters.namedTypes : List L00_SourceSolidity.Parameter ->
       | none => Parameters.namedTypes rest
 
 def Parameters.namedTypeStorageRefs (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> List (Name × Ty × Bool)
+    List Solidity.Parameter -> List (Name × Ty × Bool)
   | [] => []
   | param :: rest =>
       match param.name with
@@ -1816,8 +1815,8 @@ def Parameters.namedTypeStorageRefs (types : TypeContext) :
       | none => Parameters.namedTypeStorageRefs types rest
 
 def Parameters.namedDataLocations (types : TypeContext) :
-    List L00_SourceSolidity.Parameter ->
-    List (Name × L00_SourceSolidity.DataLocation)
+    List Solidity.Parameter ->
+    List (Name × Solidity.DataLocation)
   | [] => []
   | param :: rest =>
       match param.name, param.location with
@@ -1828,44 +1827,44 @@ def Parameters.namedDataLocations (types : TypeContext) :
             Parameters.namedDataLocations types rest
       | _, _ => Parameters.namedDataLocations types rest
 
-def Parameters.tys (params : List L00_SourceSolidity.Parameter) : List Ty :=
-  params.map L00_SourceSolidity.Parameter.ty
+def Parameters.tys (params : List Solidity.Parameter) : List Ty :=
+  params.map Solidity.Parameter.ty
 
 def Parameters.storageRefFlags (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> List Bool
+    List Solidity.Parameter -> List Bool
   | [] => []
   | param :: rest =>
       Parameter.isStorageRef types param ::
         Parameters.storageRefFlags types rest
 
 def Parameters.storageLocationFlags :
-    List L00_SourceSolidity.Parameter -> List Bool
+    List Solidity.Parameter -> List Bool
   | [] => []
   | param :: rest =>
       Parameter.hasStorageLocation param ::
         Parameters.storageLocationFlags rest
 
 def Parameters.dataLocations :
-    List L00_SourceSolidity.Parameter ->
-    List (Option L00_SourceSolidity.DataLocation)
+    List Solidity.Parameter ->
+    List (Option Solidity.DataLocation)
   | [] => []
   | param :: rest => param.location :: Parameters.dataLocations rest
 
 def Parameters.anyStorageRef (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> Bool
+    List Solidity.Parameter -> Bool
   | [] => false
   | param :: rest =>
       Parameter.isStorageRef types param ||
         Parameters.anyStorageRef types rest
 
-def Parameters.anyCalldata : List L00_SourceSolidity.Parameter -> Bool
+def Parameters.anyCalldata : List Solidity.Parameter -> Bool
   | [] => false
   | param :: rest =>
-      param.location == some L00_SourceSolidity.DataLocation.calldata ||
+      param.location == some Solidity.DataLocation.calldata ||
         Parameters.anyCalldata rest
 
 def Parameters.firstMappingContainingTy? (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> Option Ty
+    List Solidity.Parameter -> Option Ty
   | [] => none
   | param :: rest =>
       if Ty.containsMapping types 64 param.ty then
@@ -1874,7 +1873,7 @@ def Parameters.firstMappingContainingTy? (types : TypeContext) :
         Parameters.firstMappingContainingTy? types rest
 
 def Parameters.firstNonAbiEncodableTy? (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> Option Ty
+    List Solidity.Parameter -> Option Ty
   | [] => none
   | param :: rest =>
       if TypeContext.isAbiEncodable types param.ty then
@@ -1882,14 +1881,14 @@ def Parameters.firstNonAbiEncodableTy? (types : TypeContext) :
       else
         some param.ty
 
-def FunctionDecl.signature? (fn : L00_SourceSolidity.FunctionDecl) :
+def FunctionDecl.signature? (fn : Solidity.FunctionDecl) :
     Option FunctionSig :=
   match fn.kind, fn.name with
-  | L00_SourceSolidity.FunctionKind.function, some name =>
+  | Solidity.FunctionKind.function, some name =>
       some
         { name := name
           params := Parameters.tys fn.params
-          paramNames := fn.params.map L00_SourceSolidity.Parameter.name
+          paramNames := fn.params.map Solidity.Parameter.name
           paramStorageRefs := Parameters.storageLocationFlags fn.params
           paramDataLocations := Parameters.dataLocations fn.params
           returns := Parameters.tys fn.returns
@@ -1899,7 +1898,7 @@ def FunctionDecl.signature? (fn : L00_SourceSolidity.FunctionDecl) :
           mutability := fn.mutability }
   | _, _ => none
 
-def FunctionDecls.signatures : List L00_SourceSolidity.FunctionDecl ->
+def FunctionDecls.signatures : List Solidity.FunctionDecl ->
     List FunctionSig
   | [] => []
   | fn :: rest =>
@@ -1907,13 +1906,13 @@ def FunctionDecls.signatures : List L00_SourceSolidity.FunctionDecl ->
       | some sig => sig :: FunctionDecls.signatures rest
       | none => FunctionDecls.signatures rest
 
-def FunctionDecl.constructorSignature? (fn : L00_SourceSolidity.FunctionDecl) :
+def FunctionDecl.constructorSignature? (fn : Solidity.FunctionDecl) :
     Option FunctionSig :=
-  if fn.kind == L00_SourceSolidity.FunctionKind.constructor then
+  if fn.kind == Solidity.FunctionKind.constructor then
     some
       { name := "constructor"
         params := Parameters.tys fn.params
-        paramNames := fn.params.map L00_SourceSolidity.Parameter.name
+        paramNames := fn.params.map Solidity.Parameter.name
         paramStorageRefs := Parameters.storageLocationFlags fn.params
         paramDataLocations := Parameters.dataLocations fn.params
         returns := []
@@ -1925,51 +1924,51 @@ def FunctionDecl.constructorSignature? (fn : L00_SourceSolidity.FunctionDecl) :
     none
 
 def ContractItems.constructorSignature? :
-    List L00_SourceSolidity.ContractItem -> Option FunctionSig
+    List Solidity.ContractItem -> Option FunctionSig
   | [] => none
-  | L00_SourceSolidity.ContractItem.function fn :: rest =>
+  | Solidity.ContractItem.function fn :: rest =>
       match FunctionDecl.constructorSignature? fn with
       | some sig => some sig
       | none => ContractItems.constructorSignature? rest
   | _ :: rest => ContractItems.constructorSignature? rest
 
 def ContractDecl.defaultConstructorSignature
-    (decl : L00_SourceSolidity.ContractDecl) : FunctionSig :=
+    (decl : Solidity.ContractDecl) : FunctionSig :=
   { name := decl.name
     params := []
     paramNames := []
     returns := []
     visibility := none
-    mutability := L00_SourceSolidity.StateMutability.nonpayable }
+    mutability := Solidity.StateMutability.nonpayable }
 
 def ContractDecl.constructorSignature
-    (decl : L00_SourceSolidity.ContractDecl) : FunctionSig :=
+    (decl : Solidity.ContractDecl) : FunctionSig :=
   match ContractItems.constructorSignature? decl.items with
   | some sig => sig
   | none => ContractDecl.defaultConstructorSignature decl
 
-def ModifierDecl.signature (modifier : L00_SourceSolidity.ModifierDecl) :
+def ModifierDecl.signature (modifier : Solidity.ModifierDecl) :
     ModifierSig :=
   { name := modifier.name
     params := Parameters.tys modifier.params
-    paramNames := modifier.params.map L00_SourceSolidity.Parameter.name
+    paramNames := modifier.params.map Solidity.Parameter.name
     paramStorageRefs := Parameters.storageLocationFlags modifier.params
     paramDataLocations := Parameters.dataLocations modifier.params }
 
-def EventDecl.signature (event : L00_SourceSolidity.EventDecl) : EventSig :=
+def EventDecl.signature (event : Solidity.EventDecl) : EventSig :=
   { name := event.name
     params := event.params.map (fun param => param.ty)
-    paramNames := event.params.map L00_SourceSolidity.EventParam.name
+    paramNames := event.params.map Solidity.EventParam.name
     anonymous := event.anonymous }
 
-def ErrorDecl.signature (err : L00_SourceSolidity.ErrorDecl) : ErrorSig :=
+def ErrorDecl.signature (err : Solidity.ErrorDecl) : ErrorSig :=
   { name := err.name
     params := Parameters.tys err.params
-    paramNames := err.params.map L00_SourceSolidity.Parameter.name }
+    paramNames := err.params.map Solidity.Parameter.name }
 
-def EnumDecl.hasCase (decl : L00_SourceSolidity.EnumDecl)
+def EnumDecl.hasCase (decl : Solidity.EnumDecl)
     (target : Name) : Bool :=
-  L00_SourceSolidity.Executable.nameIn target decl.cases
+  Solidity.Executable.nameIn target decl.cases
 
 def sameLength {α β : Type} : List α -> List β -> Bool
   | [], [] => true
@@ -2053,17 +2052,17 @@ def FunctionSig.lookupParamTyByName? :
   | _, _, _ => none
 
 def resultTyFromReturns : List Ty -> Ty
-  | [] => L00_SourceSolidity.Ty.tuple []
+  | [] => Solidity.Ty.tuple []
   | [ty] => ty
-  | tys => L00_SourceSolidity.Ty.tuple tys
+  | tys => Solidity.Ty.tuple tys
 
 def returnStorageRefsSingle : List Ty -> List Bool -> Bool
   | [_], [true] => true
   | _, _ => false
 
 def returnDataLocationSingle? :
-    List Ty -> List (Option L00_SourceSolidity.DataLocation) ->
-    Option L00_SourceSolidity.DataLocation
+    List Ty -> List (Option Solidity.DataLocation) ->
+    Option Solidity.DataLocation
   | [_], [location] => location
   | _, _ => none
 
@@ -2106,26 +2105,26 @@ def FunctionSig.atAbiBoundary (types : TypeContext)
     returnDataLocations :=
       sig.returns.map (fun ty =>
         if Ty.needsDataLocation types ty then
-          some L00_SourceSolidity.DataLocation.memory
+          some Solidity.DataLocation.memory
         else
           none) }
 
 def libraryAbiParamDataLocations :
-    List Bool -> List (Option L00_SourceSolidity.DataLocation) ->
-    List (Option L00_SourceSolidity.DataLocation)
+    List Bool -> List (Option Solidity.DataLocation) ->
+    List (Option Solidity.DataLocation)
   | [], _ => []
   | needsStorage :: storageRest, locations =>
       let location :=
         if needsStorage then
-          some L00_SourceSolidity.DataLocation.storage
+          some Solidity.DataLocation.storage
         else
           none
       location ::
         libraryAbiParamDataLocations storageRest locations.tail
 
 def FunctionSig.externallyCallable (sig : FunctionSig) : Bool :=
-  sig.visibility == some L00_SourceSolidity.Visibility.public_ ||
-    sig.visibility == some L00_SourceSolidity.Visibility.external_
+  sig.visibility == some Solidity.Visibility.public_ ||
+    sig.visibility == some Solidity.Visibility.external_
 
 def FunctionSig.atLibraryCallBoundary (types : TypeContext)
     (sig : FunctionSig) : FunctionSig :=
@@ -2148,7 +2147,7 @@ def FunctionSig.abiSignature? (types : TypeContext)
   let params ← sig.abiParamTypes? types
   some
     (sig.name ++ "(" ++
-      L00_SourceSolidity.Executable.joinStringsWith "," params ++ ")")
+      Solidity.Executable.joinStringsWith "," params ++ ")")
 
 def FunctionSig.abiSelector? (types : TypeContext)
     (sig : FunctionSig) : Option SharedSemantics.Word := do
@@ -2241,27 +2240,27 @@ def FunctionSigs.resolve (functions : List FunctionSig)
   FunctionSigs.resolveLoop target args none functions
 
 def FunctionSig.internallyCallable (sig : FunctionSig) : Bool :=
-  !(sig.visibility == some L00_SourceSolidity.Visibility.external_)
+  !(sig.visibility == some Solidity.Visibility.external_)
 
 def FunctionSig.nonPrivate (sig : FunctionSig) : Bool :=
-  !(sig.visibility == some L00_SourceSolidity.Visibility.private_)
+  !(sig.visibility == some Solidity.Visibility.private_)
 
 def FunctionSig.internalFunctionValueTy? (sig : FunctionSig) :
     Option Ty :=
   if sig.internallyCallable then
     some
-      (L00_SourceSolidity.Ty.functionWithLocations sig.params
+      (Solidity.Ty.functionWithLocations sig.params
         sig.paramDataLocations sig.returns sig.returnDataLocations
-        sig.mutability L00_SourceSolidity.Visibility.internal_)
+        sig.mutability Solidity.Visibility.internal_)
   else
     none
 
 def canonicalExternalFunctionDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) ->
-    List (Option L00_SourceSolidity.DataLocation) :=
+    List (Option Solidity.DataLocation) ->
+    List (Option Solidity.DataLocation) :=
   List.map (fun location =>
     if location.isSome then
-      some L00_SourceSolidity.DataLocation.memory
+      some Solidity.DataLocation.memory
     else
       none)
 
@@ -2269,11 +2268,11 @@ def FunctionSig.externalFunctionValueTy? (sig : FunctionSig) :
     Option Ty :=
   if sig.externallyCallable then
     some
-      (L00_SourceSolidity.Ty.functionWithLocations sig.params
+      (Solidity.Ty.functionWithLocations sig.params
         (canonicalExternalFunctionDataLocations sig.paramDataLocations)
         sig.returns
         (canonicalExternalFunctionDataLocations sig.returnDataLocations)
-        sig.mutability L00_SourceSolidity.Visibility.external_)
+        sig.mutability Solidity.Visibility.external_)
   else
     none
 
@@ -2414,19 +2413,19 @@ def atLibraryCallBoundary (types : TypeContext) :
 end FunctionSigs
 
 def ContractDecl.directFunctionSigs
-    (decl : L00_SourceSolidity.ContractDecl) : List FunctionSig :=
+    (decl : Solidity.ContractDecl) : List FunctionSig :=
   decl.items.filterMap
     (fun item =>
       match item with
-      | L00_SourceSolidity.ContractItem.function fn =>
+      | Solidity.ContractItem.function fn =>
           FunctionDecl.signature? fn
       | _ => none)
 
 def ContractItem.localTypeName? :
-    L00_SourceSolidity.ContractItem -> Option Name
-  | L00_SourceSolidity.ContractItem.structDecl decl => some decl.name
-  | L00_SourceSolidity.ContractItem.enumDecl decl => some decl.name
-  | L00_SourceSolidity.ContractItem.userValueTypeDecl decl => some decl.name
+    Solidity.ContractItem -> Option Name
+  | Solidity.ContractItem.structDecl decl => some decl.name
+  | Solidity.ContractItem.enumDecl decl => some decl.name
+  | Solidity.ContractItem.userValueTypeDecl decl => some decl.name
   | _ => none
 
 def localTypePathQualified (contractName : Name)
@@ -2443,22 +2442,22 @@ mutual
 
 def Ty.qualifyLocalUserTypes (contractName : Name)
     (localTypeNames : List Name) : Ty -> Ty
-  | L00_SourceSolidity.Ty.array element size =>
-      L00_SourceSolidity.Ty.array
+  | Solidity.Ty.array element size =>
+      Solidity.Ty.array
         (Ty.qualifyLocalUserTypes contractName localTypeNames element) size
-  | L00_SourceSolidity.Ty.mapping key value =>
-      L00_SourceSolidity.Ty.mapping
+  | Solidity.Ty.mapping key value =>
+      Solidity.Ty.mapping
         (Ty.qualifyLocalUserTypes contractName localTypeNames key)
         (Ty.qualifyLocalUserTypes contractName localTypeNames value)
-  | L00_SourceSolidity.Ty.tuple tys =>
-      L00_SourceSolidity.Ty.tuple
+  | Solidity.Ty.tuple tys =>
+      Solidity.Ty.tuple
         (Tys.qualifyLocalUserTypes contractName localTypeNames tys)
-  | L00_SourceSolidity.Ty.user path =>
-      L00_SourceSolidity.Ty.user
+  | Solidity.Ty.user path =>
+      Solidity.Ty.user
         (localTypePathQualified contractName localTypeNames path)
-  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+  | Solidity.Ty.functionWithLocations params paramLocations returns
       returnLocations mutability visibility =>
-      L00_SourceSolidity.Ty.functionWithLocations
+      Solidity.Ty.functionWithLocations
         (Tys.qualifyLocalUserTypes contractName localTypeNames params)
         paramLocations
         (Tys.qualifyLocalUserTypes contractName localTypeNames returns)
@@ -2482,11 +2481,11 @@ def FunctionSig.qualifyLocalUserTypes (contractName : Name)
       Tys.qualifyLocalUserTypes contractName localTypeNames sig.returns }
 
 def ContractDecl.localTypeNames
-    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+    (decl : Solidity.ContractDecl) : List Name :=
   decl.items.filterMap ContractItem.localTypeName?
 
 def ContractDecl.directFunctionSigsQualifiedLocalTypes
-    (decl : L00_SourceSolidity.ContractDecl) : List FunctionSig :=
+    (decl : Solidity.ContractDecl) : List FunctionSig :=
   let localTypeNames := ContractDecl.localTypeNames decl
   (ContractDecl.directFunctionSigs decl).map
     (FunctionSig.qualifyLocalUserTypes decl.name localTypeNames)
@@ -2544,22 +2543,22 @@ def CheckEnv.qualifyVisibleLocalUserPath (env : CheckEnv)
 mutual
 
 def Ty.qualifyVisibleLocalUserTypes (env : CheckEnv) : Ty -> Ty
-  | L00_SourceSolidity.Ty.array element size =>
-      L00_SourceSolidity.Ty.array
+  | Solidity.Ty.array element size =>
+      Solidity.Ty.array
         (Ty.qualifyVisibleLocalUserTypes env element) size
-  | L00_SourceSolidity.Ty.mapping key value =>
-      L00_SourceSolidity.Ty.mapping
+  | Solidity.Ty.mapping key value =>
+      Solidity.Ty.mapping
         (Ty.qualifyVisibleLocalUserTypes env key)
         (Ty.qualifyVisibleLocalUserTypes env value)
-  | L00_SourceSolidity.Ty.tuple tys =>
-      L00_SourceSolidity.Ty.tuple
+  | Solidity.Ty.tuple tys =>
+      Solidity.Ty.tuple
         (Tys.qualifyVisibleLocalUserTypes env tys)
-  | L00_SourceSolidity.Ty.user path =>
-      L00_SourceSolidity.Ty.user
+  | Solidity.Ty.user path =>
+      Solidity.Ty.user
         (env.qualifyVisibleLocalUserPath path)
-  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+  | Solidity.Ty.functionWithLocations params paramLocations returns
       returnLocations mutability visibility =>
-      L00_SourceSolidity.Ty.functionWithLocations
+      Solidity.Ty.functionWithLocations
         (Tys.qualifyVisibleLocalUserTypes env params)
         paramLocations
         (Tys.qualifyVisibleLocalUserTypes env returns)
@@ -2578,10 +2577,10 @@ def CheckEnv.qualifyCurrentLocalUserTypes (env : CheckEnv) (ty : Ty) : Ty :=
   Ty.qualifyVisibleLocalUserTypes env ty
 
 def StateVarDecl.publicGetterFunctionSig?
-    (types : TypeContext) (decl : L00_SourceSolidity.StateVarDecl) :
+    (types : TypeContext) (decl : Solidity.StateVarDecl) :
     Option FunctionSig :=
   match decl.visibility with
-  | some L00_SourceSolidity.Visibility.public_ => do
+  | some Solidity.Visibility.public_ => do
       let shape ← Ty.publicGetterShape? types 64 decl.ty
       some
         { name := decl.name
@@ -2590,18 +2589,18 @@ def StateVarDecl.publicGetterFunctionSig?
           paramStorageRefs := List.replicate shape.fst.length false
           returns := shape.snd
           returnStorageRefs := List.replicate shape.snd.length false
-          visibility := some L00_SourceSolidity.Visibility.external_
-          mutability := L00_SourceSolidity.StateMutability.view }
+          visibility := some Solidity.Visibility.external_
+          mutability := Solidity.StateMutability.view }
   | _ => none
 
 def ContractDecl.directPublicGetterSigs
-    (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
+    (types : TypeContext) (decl : Solidity.ContractDecl) :
     List FunctionSig :=
   let localTypeNames := ContractDecl.localTypeNames decl
   decl.items.filterMap
     (fun item =>
       match item with
-      | L00_SourceSolidity.ContractItem.stateVar stateVar =>
+      | Solidity.ContractItem.stateVar stateVar =>
           match StateVarDecl.publicGetterFunctionSig? types stateVar with
           | some sig =>
               some
@@ -2611,54 +2610,54 @@ def ContractDecl.directPublicGetterSigs
       | _ => none)
 
 def ContractDecl.directExternalFunctionSigs
-    (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
+    (types : TypeContext) (decl : Solidity.ContractDecl) :
     List FunctionSig :=
   ContractDecl.directFunctionSigsQualifiedLocalTypes decl ++
     ContractDecl.directPublicGetterSigs types decl
 
 def ContractDecl.directModifierDecls
-    (decl : L00_SourceSolidity.ContractDecl) :
-    List L00_SourceSolidity.ModifierDecl :=
+    (decl : Solidity.ContractDecl) :
+    List Solidity.ModifierDecl :=
   decl.items.filterMap
     (fun item =>
       match item with
-      | L00_SourceSolidity.ContractItem.modifierDecl modifier =>
+      | Solidity.ContractItem.modifierDecl modifier =>
           some modifier
       | _ => none)
 
 namespace ModifierDecls
 
 def containsName (name : Name) :
-    List L00_SourceSolidity.ModifierDecl -> Bool
+    List Solidity.ModifierDecl -> Bool
   | [] => false
   | modifier :: rest =>
       modifier.name == name || containsName name rest
 
-def addIfNewName (modifiers : List L00_SourceSolidity.ModifierDecl)
-    (modifier : L00_SourceSolidity.ModifierDecl) :
-    List L00_SourceSolidity.ModifierDecl :=
+def addIfNewName (modifiers : List Solidity.ModifierDecl)
+    (modifier : Solidity.ModifierDecl) :
+    List Solidity.ModifierDecl :=
   if containsName modifier.name modifiers then
     modifiers
   else
     modifiers ++ [modifier]
 
-def addAllIfNewName (modifiers : List L00_SourceSolidity.ModifierDecl) :
-    List L00_SourceSolidity.ModifierDecl ->
-    List L00_SourceSolidity.ModifierDecl
+def addAllIfNewName (modifiers : List Solidity.ModifierDecl) :
+    List Solidity.ModifierDecl ->
+    List Solidity.ModifierDecl
   | [] => modifiers
   | modifier :: rest =>
       addAllIfNewName (addIfNewName modifiers modifier) rest
 
-def signatures (modifiers : List L00_SourceSolidity.ModifierDecl) :
+def signatures (modifiers : List Solidity.ModifierDecl) :
     List ModifierSig :=
   modifiers.map ModifierDecl.signature
 
 end ModifierDecls
 
 def ContractDecl.modifierDeclsFromOrderFrom
-    (modifiers : List L00_SourceSolidity.ModifierDecl) :
-    List L00_SourceSolidity.ContractDecl ->
-    List L00_SourceSolidity.ModifierDecl
+    (modifiers : List Solidity.ModifierDecl) :
+    List Solidity.ContractDecl ->
+    List Solidity.ModifierDecl
   | [] => modifiers
   | decl :: rest =>
       ContractDecl.modifierDeclsFromOrderFrom
@@ -2667,13 +2666,13 @@ def ContractDecl.modifierDeclsFromOrderFrom
         rest
 
 def ContractDecl.modifierDeclsFromOrder
-    (order : List L00_SourceSolidity.ContractDecl) :
-    List L00_SourceSolidity.ModifierDecl :=
+    (order : List Solidity.ContractDecl) :
+    List Solidity.ModifierDecl :=
   ContractDecl.modifierDeclsFromOrderFrom [] order
 
 def ContractDecl.externalFunctionSigsFromOrderFrom (types : TypeContext)
     (sigs : List FunctionSig) :
-    List L00_SourceSolidity.ContractDecl -> List FunctionSig
+    List Solidity.ContractDecl -> List FunctionSig
   | [] => sigs
   | decl :: rest =>
       ContractDecl.externalFunctionSigsFromOrderFrom types
@@ -2682,12 +2681,12 @@ def ContractDecl.externalFunctionSigsFromOrderFrom (types : TypeContext)
         rest
 
 def ContractDecl.externalFunctionSigsFromOrder (types : TypeContext)
-    (order : List L00_SourceSolidity.ContractDecl) : List FunctionSig :=
+    (order : List Solidity.ContractDecl) : List FunctionSig :=
   ContractDecl.externalFunctionSigsFromOrderFrom types [] order
 
 def ContractDecl.nonPrivateFunctionSigsFromOrderFrom
     (sigs : List FunctionSig) :
-    List L00_SourceSolidity.ContractDecl -> List FunctionSig
+    List Solidity.ContractDecl -> List FunctionSig
   | [] => sigs
   | decl :: rest =>
       ContractDecl.nonPrivateFunctionSigsFromOrderFrom
@@ -2696,14 +2695,14 @@ def ContractDecl.nonPrivateFunctionSigsFromOrderFrom
         rest
 
 def ContractDecl.nonPrivateFunctionSigsFromOrder
-    (order : List L00_SourceSolidity.ContractDecl) : List FunctionSig :=
+    (order : List Solidity.ContractDecl) : List FunctionSig :=
   ContractDecl.nonPrivateFunctionSigsFromOrderFrom [] order
 
 def TypeContext.lookupContractExternalFunctionSigs?
     (types : TypeContext) (path : Path) : Option (List FunctionSig) := do
   let decl ← types.lookupContractDecl? path
   let order ←
-    L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
+    Solidity.Executable.ContractDecl.dispatchOrder?
       (types.contractDecls.map Prod.snd) decl
   some
     (FunctionSigs.atAbiBoundary types
@@ -2877,30 +2876,30 @@ def ErrorSigs.withoutNamesOf (locals : List ErrorSig) :
       else
         sig :: ErrorSigs.withoutNamesOf locals rest
 
-def Expr.directIdentName? : L00_SourceSolidity.Expr -> Option Name
-  | L00_SourceSolidity.Expr.ident name => some name
+def Expr.directIdentName? : Solidity.Expr -> Option Name
+  | Solidity.Expr.ident name => some name
   | _ => none
 
 structure CheckedExpr where
-  source : L00_SourceSolidity.Expr
+  source : Solidity.Expr
   ty : Ty
   lvalue : Bool := false
   stateLValue : Bool := false
   storageRefs : List Bool := []
-  dataLocations : List (Option L00_SourceSolidity.DataLocation) := []
-  dataLocation? : Option L00_SourceSolidity.DataLocation := none
+  dataLocations : List (Option Solidity.DataLocation) := []
+  dataLocation? : Option Solidity.DataLocation := none
   arraySlice : Bool := false
   deriving Repr
 
 def FunctionSig.checkedResult (sig : FunctionSig)
-    (source : L00_SourceSolidity.Expr) : CheckedExpr :=
+    (source : Solidity.Expr) : CheckedExpr :=
   let storageRef := sig.singleStorageRefReturn
   let location :=
     match returnDataLocationSingle? sig.returns sig.returnDataLocations with
     | some location => some location
     | none =>
         if storageRef then
-          some L00_SourceSolidity.DataLocation.storage
+          some Solidity.DataLocation.storage
         else
           none
   { source := source
@@ -2912,39 +2911,39 @@ def FunctionSig.checkedResult (sig : FunctionSig)
     dataLocation? := location }
 
 def CheckedExpr.locationIsCalldata (expr : CheckedExpr) : Bool :=
-  expr.dataLocation? == some L00_SourceSolidity.DataLocation.calldata
+  expr.dataLocation? == some Solidity.DataLocation.calldata
 
 def CheckedExpr.locationAssignableTo
     (expr : CheckedExpr)
-    (expected : Option L00_SourceSolidity.DataLocation) : Bool :=
+    (expected : Option Solidity.DataLocation) : Bool :=
   match expected with
-  | some L00_SourceSolidity.DataLocation.storage => expr.stateLValue
-  | some L00_SourceSolidity.DataLocation.calldata => expr.locationIsCalldata
+  | some Solidity.DataLocation.storage => expr.stateLValue
+  | some Solidity.DataLocation.calldata => expr.locationIsCalldata
   | _ => true
 
 def CheckedExpr.expectLocationAssignableTo
     (expr : CheckedExpr) (expectedTy : Ty)
-    (expected : Option L00_SourceSolidity.DataLocation) :
+    (expected : Option Solidity.DataLocation) :
     Except TypeError Unit :=
   require (expr.locationAssignableTo expected)
     (TypeError.invalidDataLocation expectedTy expected)
 
 def CheckedExpr.expectWritableLocation (expr : CheckedExpr)
-    (target : L00_SourceSolidity.Expr) : Except TypeError Unit :=
+    (target : Solidity.Expr) : Except TypeError Unit :=
   require
     (!(expr.locationIsCalldata && (Expr.directIdentName? target).isNone))
     (TypeError.invalidDataLocation expr.ty
-      (some L00_SourceSolidity.DataLocation.calldata))
+      (some Solidity.DataLocation.calldata))
 
 def CheckedExpr.expectStorageMutationTarget (expr : CheckedExpr)
-    (target : L00_SourceSolidity.Expr) : Except TypeError Unit := do
+    (target : Solidity.Expr) : Except TypeError Unit := do
   require (expr.lvalue || expr.stateLValue) (TypeError.expectedLValue target)
   require
-    (expr.dataLocation? == some L00_SourceSolidity.DataLocation.storage)
+    (expr.dataLocation? == some Solidity.DataLocation.storage)
     (TypeError.invalidDataLocation expr.ty expr.dataLocation?)
 
 def CheckEnv.assignmentRebindsStoragePointer
-    (env : CheckEnv) (target : L00_SourceSolidity.Expr)
+    (env : CheckEnv) (target : Solidity.Expr)
     (actualStorageRef : Bool) : Bool :=
   match Expr.directIdentName? target with
   | some name =>
@@ -2953,7 +2952,7 @@ def CheckEnv.assignmentRebindsStoragePointer
   | none => false
 
 def CheckEnv.requireNoMappingStorageCopy
-    (env : CheckEnv) (target : L00_SourceSolidity.Expr)
+    (env : CheckEnv) (target : Solidity.Expr)
     (targetChecked : CheckedExpr) (actualStorageRef : Bool) :
     Except TypeError Unit :=
   require
@@ -3025,12 +3024,12 @@ def CheckedExpr.expectImplicitlyAssignableToIn (types : TypeContext)
     (TypeError.expectedType expected expr.ty)
 
 abbrev TupleAssignmentTarget :=
-  Option (L00_SourceSolidity.Expr × CheckedExpr)
+  Option (Solidity.Expr × CheckedExpr)
 
 def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
     (actualStorageRef : Bool)
-    (actualLocation : Option L00_SourceSolidity.DataLocation)
-    (target : L00_SourceSolidity.Expr)
+    (actualLocation : Option Solidity.DataLocation)
+    (target : Solidity.Expr)
     (targetChecked : CheckedExpr) (rhsTy : Ty) :
     Except TypeError Ty := do
   env.requireNoMappingStorageCopy target targetChecked actualStorageRef
@@ -3038,11 +3037,11 @@ def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
   | some name =>
       require (!env.isLocalStorageRef name || actualStorageRef)
         (TypeError.invalidDataLocation targetChecked.ty
-          (some L00_SourceSolidity.DataLocation.storage))
+          (some Solidity.DataLocation.storage))
   | none => Except.ok ()
   if targetChecked.locationIsCalldata then
     require
-      (actualLocation == some L00_SourceSolidity.DataLocation.calldata)
+      (actualLocation == some Solidity.DataLocation.calldata)
       (TypeError.invalidDataLocation targetChecked.ty
         targetChecked.dataLocation?)
   else
@@ -3055,7 +3054,7 @@ def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
 
 def checkTupleAssignmentTargetsWithTys (env : CheckEnv)
     : List TupleAssignmentTarget -> List Ty -> List Bool ->
-    List (Option L00_SourceSolidity.DataLocation) ->
+    List (Option Solidity.DataLocation) ->
     Except TypeError (List Ty)
   | [], [], _, _ => Except.ok []
   | none :: targetRest, _ :: tyRest, storageRefs, locations =>
@@ -3076,28 +3075,28 @@ def checkTupleAssignmentTargetsWithTys (env : CheckEnv)
         (TypeError.arityMismatch
           "tuple assignment" targets.length tys.length)
 
-def Arg.name? : L00_SourceSolidity.Arg -> Option Name
-  | L00_SourceSolidity.Arg.positional _ => none
-  | L00_SourceSolidity.Arg.named name _ => some name
+def Arg.name? : Solidity.Arg -> Option Name
+  | Solidity.Arg.positional _ => none
+  | Solidity.Arg.named name _ => some name
 
 namespace Args
 
-def anyNamed : List L00_SourceSolidity.Arg -> Bool
+def anyNamed : List Solidity.Arg -> Bool
   | [] => false
-  | L00_SourceSolidity.Arg.named _ _ :: _ => true
-  | L00_SourceSolidity.Arg.positional _ :: rest => anyNamed rest
+  | Solidity.Arg.named _ _ :: _ => true
+  | Solidity.Arg.positional _ :: rest => anyNamed rest
 
-def positionalExprs? : List L00_SourceSolidity.Arg ->
-    Option (List L00_SourceSolidity.Expr)
+def positionalExprs? : List Solidity.Arg ->
+    Option (List Solidity.Expr)
   | [] => some []
-  | L00_SourceSolidity.Arg.positional expr :: rest => do
+  | Solidity.Arg.positional expr :: rest => do
       let tail ← positionalExprs? rest
       some (expr :: tail)
-  | L00_SourceSolidity.Arg.named _ _ :: _ => none
+  | Solidity.Arg.named _ _ :: _ => none
 
 end Args
 
-def checkedArgInfos : List L00_SourceSolidity.Arg -> List CheckedExpr ->
+def checkedArgInfos : List Solidity.Arg -> List CheckedExpr ->
     List ArgInfo
   | [], [] => []
   | arg :: argRest, checked :: checkedRest =>
@@ -3154,20 +3153,20 @@ def ordered? (paramNames : List (Option Name))
 
 end CheckedArgInfos
 
-def checkedArgInfosFull : List L00_SourceSolidity.Arg -> List CheckedExpr ->
+def checkedArgInfosFull : List Solidity.Arg -> List CheckedExpr ->
     List CheckedArgInfo
   | [], [] => []
   | arg :: argRest, checked :: checkedRest =>
       (Arg.name? arg, checked) :: checkedArgInfosFull argRest checkedRest
   | _, _ => []
 
-def Expr.literalNat? : L00_SourceSolidity.Expr -> Option Nat
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.number text) =>
-      L00_SourceSolidity.Executable.parseNumberNat? text
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.unitNumber text unit) =>
-      L00_SourceSolidity.Executable.parseUnitNumberNat? text unit
+def Expr.literalNat? : Solidity.Expr -> Option Nat
+  | Solidity.Expr.literal
+      (Solidity.Literal.number text) =>
+      Solidity.Executable.parseNumberNat? text
+  | Solidity.Expr.literal
+      (Solidity.Literal.unitNumber text unit) =>
+      Solidity.Executable.parseUnitNumberNat? text unit
   | _ => none
 
 def Ty.commonImplicit? (left right : Ty) : Option Ty :=
@@ -3175,43 +3174,43 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
     some left
   else
     match left, right with
-    | L00_SourceSolidity.Ty.address _,
-      L00_SourceSolidity.Ty.address _ =>
-        some (L00_SourceSolidity.Ty.address false)
-    | L00_SourceSolidity.Ty.uint leftBits,
-      L00_SourceSolidity.Ty.uint rightBits =>
-        some (L00_SourceSolidity.Ty.uint (max leftBits rightBits))
-    | L00_SourceSolidity.Ty.int leftBits,
-      L00_SourceSolidity.Ty.int rightBits =>
-        some (L00_SourceSolidity.Ty.int (max leftBits rightBits))
-    | L00_SourceSolidity.Ty.fixed leftBits leftDecimals,
-      L00_SourceSolidity.Ty.fixed rightBits rightDecimals =>
-        L00_SourceSolidity.Ty.commonFixedPoint?
+    | Solidity.Ty.address _,
+      Solidity.Ty.address _ =>
+        some (Solidity.Ty.address false)
+    | Solidity.Ty.uint leftBits,
+      Solidity.Ty.uint rightBits =>
+        some (Solidity.Ty.uint (max leftBits rightBits))
+    | Solidity.Ty.int leftBits,
+      Solidity.Ty.int rightBits =>
+        some (Solidity.Ty.int (max leftBits rightBits))
+    | Solidity.Ty.fixed leftBits leftDecimals,
+      Solidity.Ty.fixed rightBits rightDecimals =>
+        Solidity.Ty.commonFixedPoint?
           true leftBits leftDecimals true rightBits rightDecimals
-    | L00_SourceSolidity.Ty.ufixed leftBits leftDecimals,
-      L00_SourceSolidity.Ty.ufixed rightBits rightDecimals =>
-        L00_SourceSolidity.Ty.commonFixedPoint?
+    | Solidity.Ty.ufixed leftBits leftDecimals,
+      Solidity.Ty.ufixed rightBits rightDecimals =>
+        Solidity.Ty.commonFixedPoint?
           false leftBits leftDecimals false rightBits rightDecimals
-    | L00_SourceSolidity.Ty.fixed leftBits leftDecimals,
-      L00_SourceSolidity.Ty.ufixed rightBits rightDecimals =>
-        L00_SourceSolidity.Ty.commonFixedPoint?
+    | Solidity.Ty.fixed leftBits leftDecimals,
+      Solidity.Ty.ufixed rightBits rightDecimals =>
+        Solidity.Ty.commonFixedPoint?
           true leftBits leftDecimals false rightBits rightDecimals
-    | L00_SourceSolidity.Ty.ufixed leftBits leftDecimals,
-      L00_SourceSolidity.Ty.fixed rightBits rightDecimals =>
-        L00_SourceSolidity.Ty.commonFixedPoint?
+    | Solidity.Ty.ufixed leftBits leftDecimals,
+      Solidity.Ty.fixed rightBits rightDecimals =>
+        Solidity.Ty.commonFixedPoint?
           false leftBits leftDecimals true rightBits rightDecimals
-    | L00_SourceSolidity.Ty.bytesN leftSize,
-      L00_SourceSolidity.Ty.bytesN rightSize =>
-        some (L00_SourceSolidity.Ty.bytesN (max leftSize rightSize))
-    | L00_SourceSolidity.Ty.fixedBytes leftSize,
-      L00_SourceSolidity.Ty.fixedBytes rightSize =>
-        some (L00_SourceSolidity.Ty.fixedBytes (max leftSize rightSize))
-    | L00_SourceSolidity.Ty.bytesN leftSize,
-      L00_SourceSolidity.Ty.fixedBytes rightSize =>
-        some (L00_SourceSolidity.Ty.fixedBytes (max leftSize rightSize))
-    | L00_SourceSolidity.Ty.fixedBytes leftSize,
-      L00_SourceSolidity.Ty.bytesN rightSize =>
-        some (L00_SourceSolidity.Ty.fixedBytes (max leftSize rightSize))
+    | Solidity.Ty.bytesN leftSize,
+      Solidity.Ty.bytesN rightSize =>
+        some (Solidity.Ty.bytesN (max leftSize rightSize))
+    | Solidity.Ty.fixedBytes leftSize,
+      Solidity.Ty.fixedBytes rightSize =>
+        some (Solidity.Ty.fixedBytes (max leftSize rightSize))
+    | Solidity.Ty.bytesN leftSize,
+      Solidity.Ty.fixedBytes rightSize =>
+        some (Solidity.Ty.fixedBytes (max leftSize rightSize))
+    | Solidity.Ty.fixedBytes leftSize,
+      Solidity.Ty.bytesN rightSize =>
+        some (Solidity.Ty.fixedBytes (max leftSize rightSize))
     | _, _ =>
         if Ty.canImplicitlyConvert left right then
           some right
@@ -3220,8 +3219,8 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
         else
           none
 
-def Expr.isDirectLiteral : L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.literal _ => true
+def Expr.isDirectLiteral : Solidity.Expr -> Bool
+  | Solidity.Expr.literal _ => true
   | _ => false
 
 def CheckedExpr.commonArrayElementTy? (left right : CheckedExpr) :
@@ -3324,7 +3323,7 @@ def checkedExprParamsAcceptStorageRefs (types : TypeContext) :
 
 def checkedExprDataLocationsAccept :
     List CheckedExpr ->
-    List (Option L00_SourceSolidity.DataLocation) -> Bool
+    List (Option Solidity.DataLocation) -> Bool
   | _, [] => true
   | actual :: actualRest, expected :: expectedRest =>
       actual.locationAssignableTo expected &&
@@ -3530,13 +3529,13 @@ end FunctionSigs
 
 def UsingFunction.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
-    (binding : L00_SourceSolidity.UsingFunction) :
+    (binding : Solidity.UsingFunction) :
     Except TypeError (List FunctionSig) := do
   match binding.operator? with
   | some _ => Except.ok []
   | none =>
       let (libraryPath, functionName) ←
-        match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+        match Solidity.Executable.pathInitLast? binding.function with
         | some parts => Except.ok parts
         | none => Except.error (TypeError.unknownFunction member)
       if functionName == member then
@@ -3551,7 +3550,7 @@ def UsingFunction.memberCandidates (env : CheckEnv)
             match env.types.lookupContractDecl? libraryPath with
             | some libraryDecl => Except.ok libraryDecl
             | none => Except.error (TypeError.unknownType libraryPath)
-          require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+          require (libraryDecl.kind == Solidity.ContractKind.library)
             (TypeError.invalidContractHeader "using target is not a library")
           Except.ok
             (FunctionSigs.usingMemberCandidates env.types receiver member
@@ -3566,7 +3565,7 @@ def UsingFunction.memberCandidates (env : CheckEnv)
 
 def UsingFunctions.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name) :
-    List L00_SourceSolidity.UsingFunction ->
+    List Solidity.UsingFunction ->
     Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | binding :: rest => do
@@ -3575,30 +3574,30 @@ def UsingFunctions.memberCandidates (env : CheckEnv)
       Except.ok (head ++ tail)
 
 def UsingDecl.appliesToReceiver
-    (decl : L00_SourceSolidity.UsingDecl) (receiverTy : Ty) : Bool :=
+    (decl : Solidity.UsingDecl) (receiverTy : Ty) : Bool :=
   match decl.target with
   | some targetTy => receiverTy == targetTy
   | none => true
 
 def UsingDecl.appliesToBinaryOperands
-    (decl : L00_SourceSolidity.UsingDecl) (lhsTy rhsTy : Ty) : Bool :=
+    (decl : Solidity.UsingDecl) (lhsTy rhsTy : Ty) : Bool :=
   match decl.target with
   | some targetTy => lhsTy == targetTy || rhsTy == targetTy
   | none => true
 
-def UsingFunction.same (a b : L00_SourceSolidity.UsingFunction) : Bool :=
+def UsingFunction.same (a b : Solidity.UsingFunction) : Bool :=
   a.function == b.function && a.operator? == b.operator?
 
 def UsingFunctions.same :
-    List L00_SourceSolidity.UsingFunction ->
-      List L00_SourceSolidity.UsingFunction -> Bool
+    List Solidity.UsingFunction ->
+      List Solidity.UsingFunction -> Bool
   | [], [] => true
   | a :: restA, b :: restB =>
       UsingFunction.same a b && UsingFunctions.same restA restB
   | _, _ => false
 
 def UsingDecl.same
-    (a b : L00_SourceSolidity.UsingDecl) : Bool :=
+    (a b : Solidity.UsingDecl) : Bool :=
   a.library == b.library &&
     UsingFunctions.same a.functions b.functions &&
     a.target == b.target &&
@@ -3606,15 +3605,15 @@ def UsingDecl.same
 
 namespace UsingDecls
 
-def containsSame (target : L00_SourceSolidity.UsingDecl) :
-    List L00_SourceSolidity.UsingDecl -> Bool
+def containsSame (target : Solidity.UsingDecl) :
+    List Solidity.UsingDecl -> Bool
   | [] => false
   | decl :: rest =>
       UsingDecl.same target decl || containsSame target rest
 
-def dedupAux (seen : List L00_SourceSolidity.UsingDecl) :
-    List L00_SourceSolidity.UsingDecl ->
-      List L00_SourceSolidity.UsingDecl
+def dedupAux (seen : List Solidity.UsingDecl) :
+    List Solidity.UsingDecl ->
+      List Solidity.UsingDecl
   | [] => []
   | decl :: rest =>
       if containsSame decl seen then
@@ -3622,41 +3621,41 @@ def dedupAux (seen : List L00_SourceSolidity.UsingDecl) :
       else
         decl :: dedupAux (decl :: seen) rest
 
-def dedup (decls : List L00_SourceSolidity.UsingDecl) :
-    List L00_SourceSolidity.UsingDecl :=
+def dedup (decls : List Solidity.UsingDecl) :
+    List Solidity.UsingDecl :=
   dedupAux [] decls
 
 end UsingDecls
 
 def BinaryOp.userDefinedOperatorResultTy? (targetTy : Ty) :
-    L00_SourceSolidity.BinaryOp -> Option Ty
-  | L00_SourceSolidity.BinaryOp.add
-  | L00_SourceSolidity.BinaryOp.sub
-  | L00_SourceSolidity.BinaryOp.mul
-  | L00_SourceSolidity.BinaryOp.div
-  | L00_SourceSolidity.BinaryOp.mod
-  | L00_SourceSolidity.BinaryOp.bitAnd
-  | L00_SourceSolidity.BinaryOp.bitOr
-  | L00_SourceSolidity.BinaryOp.bitXor => some targetTy
-  | L00_SourceSolidity.BinaryOp.lt
-  | L00_SourceSolidity.BinaryOp.gt
-  | L00_SourceSolidity.BinaryOp.le
-  | L00_SourceSolidity.BinaryOp.ge
-  | L00_SourceSolidity.BinaryOp.eq
-  | L00_SourceSolidity.BinaryOp.ne => some L00_SourceSolidity.Ty.bool
+    Solidity.BinaryOp -> Option Ty
+  | Solidity.BinaryOp.add
+  | Solidity.BinaryOp.sub
+  | Solidity.BinaryOp.mul
+  | Solidity.BinaryOp.div
+  | Solidity.BinaryOp.mod
+  | Solidity.BinaryOp.bitAnd
+  | Solidity.BinaryOp.bitOr
+  | Solidity.BinaryOp.bitXor => some targetTy
+  | Solidity.BinaryOp.lt
+  | Solidity.BinaryOp.gt
+  | Solidity.BinaryOp.le
+  | Solidity.BinaryOp.ge
+  | Solidity.BinaryOp.eq
+  | Solidity.BinaryOp.ne => some Solidity.Ty.bool
   | _ => none
 
 def UnaryOp.userDefinedOperatorResultTy? (targetTy : Ty) :
-    L00_SourceSolidity.UnaryOp -> Option Ty
-  | L00_SourceSolidity.UnaryOp.bitNot
-  | L00_SourceSolidity.UnaryOp.neg => some targetTy
+    Solidity.UnaryOp -> Option Ty
+  | Solidity.UnaryOp.bitNot
+  | Solidity.UnaryOp.neg => some targetTy
   | _ => none
 
 def UsingOperator.userDefinedResultTy? (targetTy : Ty) :
-    L00_SourceSolidity.UsingOperator -> Option Ty
-  | L00_SourceSolidity.UsingOperator.binary op =>
+    Solidity.UsingOperator -> Option Ty
+  | Solidity.UsingOperator.binary op =>
       BinaryOp.userDefinedOperatorResultTy? targetTy op
-  | L00_SourceSolidity.UsingOperator.unary op =>
+  | Solidity.UsingOperator.unary op =>
       UnaryOp.userDefinedOperatorResultTy? targetTy op
 
 def FunctionSig.hasParamTy (targetTy : Ty) : List Ty -> Bool
@@ -3665,11 +3664,11 @@ def FunctionSig.hasParamTy (targetTy : Ty) : List Ty -> Bool
 
 def FunctionSig.matchesUserDefinedBinaryOperator
     (types : TypeContext) (targetTy : Ty)
-    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr)
+    (op : Solidity.BinaryOp) (lhs rhs : CheckedExpr)
     (sig : FunctionSig) : Bool :=
   match BinaryOp.userDefinedOperatorResultTy? targetTy op with
   | some resultTy =>
-      sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+      sig.mutability == Solidity.StateMutability.pure &&
         sig.returns == [resultTy] &&
         FunctionSig.hasParamTy targetTy sig.params &&
         sig.matchesCheckedArgs types [(none, lhs), (none, rhs)]
@@ -3677,47 +3676,47 @@ def FunctionSig.matchesUserDefinedBinaryOperator
 
 def FunctionSig.matchesUserDefinedUnaryOperator
     (types : TypeContext) (targetTy : Ty)
-    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr)
+    (op : Solidity.UnaryOp) (operand : CheckedExpr)
     (sig : FunctionSig) : Bool :=
   match UnaryOp.userDefinedOperatorResultTy? targetTy op with
   | some resultTy =>
-      sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+      sig.mutability == Solidity.StateMutability.pure &&
         sig.returns == [resultTy] &&
         FunctionSig.hasParamTy targetTy sig.params &&
         sig.matchesCheckedArgs types [(none, operand)]
   | none => false
 
 def FunctionSig.matchesUserDefinedOperatorDecl (targetTy : Ty)
-    (operator : L00_SourceSolidity.UsingOperator)
+    (operator : Solidity.UsingOperator)
     (sig : FunctionSig) : Bool :=
   match operator with
-  | L00_SourceSolidity.UsingOperator.binary op =>
+  | Solidity.UsingOperator.binary op =>
       match BinaryOp.userDefinedOperatorResultTy? targetTy op with
       | some resultTy =>
-          sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+          sig.mutability == Solidity.StateMutability.pure &&
             sig.params.length == 2 &&
             FunctionSig.hasParamTy targetTy sig.params &&
             sig.returns == [resultTy]
       | none => false
-  | L00_SourceSolidity.UsingOperator.unary op =>
+  | Solidity.UsingOperator.unary op =>
       match UnaryOp.userDefinedOperatorResultTy? targetTy op with
       | some resultTy =>
-          sig.mutability == L00_SourceSolidity.StateMutability.pure &&
+          sig.mutability == Solidity.StateMutability.pure &&
             sig.params.length == 1 &&
             FunctionSig.hasParamTy targetTy sig.params &&
             sig.returns == [resultTy]
       | none => false
 
 def UsingFunction.binaryOperatorCandidates (env : CheckEnv)
-    (targetTy : Ty) (op : L00_SourceSolidity.BinaryOp)
+    (targetTy : Ty) (op : Solidity.BinaryOp)
     (lhs rhs : CheckedExpr)
-    (binding : L00_SourceSolidity.UsingFunction) :
+    (binding : Solidity.UsingFunction) :
     Except TypeError (List FunctionSig) := do
   match binding.operator? with
-  | some (L00_SourceSolidity.UsingOperator.binary bindingOp) =>
+  | some (Solidity.UsingOperator.binary bindingOp) =>
       if bindingOp == op then
         let (libraryPath, functionName) ←
-          match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+          match Solidity.Executable.pathInitLast? binding.function with
           | some parts => Except.ok parts
           | none => Except.error (TypeError.unknownFunction "operator")
         if libraryPath.segments.isEmpty then
@@ -3735,9 +3734,9 @@ def UsingFunction.binaryOperatorCandidates (env : CheckEnv)
   | _ => Except.ok []
 
 def UsingFunctions.binaryOperatorCandidates (env : CheckEnv)
-    (targetTy : Ty) (op : L00_SourceSolidity.BinaryOp)
+    (targetTy : Ty) (op : Solidity.BinaryOp)
     (lhs rhs : CheckedExpr) :
-    List L00_SourceSolidity.UsingFunction ->
+    List Solidity.UsingFunction ->
     Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | binding :: rest => do
@@ -3749,15 +3748,15 @@ def UsingFunctions.binaryOperatorCandidates (env : CheckEnv)
       Except.ok (head ++ tail)
 
 def UsingFunction.unaryOperatorCandidates (env : CheckEnv)
-    (targetTy : Ty) (op : L00_SourceSolidity.UnaryOp)
+    (targetTy : Ty) (op : Solidity.UnaryOp)
     (operand : CheckedExpr)
-    (binding : L00_SourceSolidity.UsingFunction) :
+    (binding : Solidity.UsingFunction) :
     Except TypeError (List FunctionSig) := do
   match binding.operator? with
-  | some (L00_SourceSolidity.UsingOperator.unary bindingOp) =>
+  | some (Solidity.UsingOperator.unary bindingOp) =>
       if bindingOp == op then
         let (libraryPath, functionName) ←
-          match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+          match Solidity.Executable.pathInitLast? binding.function with
           | some parts => Except.ok parts
           | none => Except.error (TypeError.unknownFunction "operator")
         if libraryPath.segments.isEmpty then
@@ -3775,9 +3774,9 @@ def UsingFunction.unaryOperatorCandidates (env : CheckEnv)
   | _ => Except.ok []
 
 def UsingFunctions.unaryOperatorCandidates (env : CheckEnv)
-    (targetTy : Ty) (op : L00_SourceSolidity.UnaryOp)
+    (targetTy : Ty) (op : Solidity.UnaryOp)
     (operand : CheckedExpr) :
-    List L00_SourceSolidity.UsingFunction ->
+    List Solidity.UsingFunction ->
     Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | binding :: rest => do
@@ -3789,8 +3788,8 @@ def UsingFunctions.unaryOperatorCandidates (env : CheckEnv)
       Except.ok (head ++ tail)
 
 def UsingDecl.binaryOperatorCandidates (env : CheckEnv)
-    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr)
-    (decl : L00_SourceSolidity.UsingDecl) :
+    (op : Solidity.BinaryOp) (lhs rhs : CheckedExpr)
+    (decl : Solidity.UsingDecl) :
     Except TypeError (List FunctionSig) := do
   match decl.target with
   | some targetTy =>
@@ -3802,8 +3801,8 @@ def UsingDecl.binaryOperatorCandidates (env : CheckEnv)
   | none => Except.ok []
 
 def UsingDecl.unaryOperatorCandidates (env : CheckEnv)
-    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr)
-    (decl : L00_SourceSolidity.UsingDecl) :
+    (op : Solidity.UnaryOp) (operand : CheckedExpr)
+    (decl : Solidity.UsingDecl) :
     Except TypeError (List FunctionSig) := do
   match decl.target with
   | some targetTy =>
@@ -3815,8 +3814,8 @@ def UsingDecl.unaryOperatorCandidates (env : CheckEnv)
   | none => Except.ok []
 
 def UsingDecls.binaryOperatorCandidates (env : CheckEnv)
-    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr) :
-    List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
+    (op : Solidity.BinaryOp) (lhs rhs : CheckedExpr) :
+    List Solidity.UsingDecl -> Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | decl :: rest => do
       let head ← UsingDecl.binaryOperatorCandidates env op lhs rhs decl
@@ -3825,8 +3824,8 @@ def UsingDecls.binaryOperatorCandidates (env : CheckEnv)
       Except.ok (head ++ tail)
 
 def UsingDecls.unaryOperatorCandidates (env : CheckEnv)
-    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr) :
-    List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
+    (op : Solidity.UnaryOp) (operand : CheckedExpr) :
+    List Solidity.UsingDecl -> Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | decl :: rest => do
       let head ← UsingDecl.unaryOperatorCandidates env op operand decl
@@ -3836,7 +3835,7 @@ def UsingDecls.unaryOperatorCandidates (env : CheckEnv)
 
 def UsingDecl.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
-    (decl : L00_SourceSolidity.UsingDecl) :
+    (decl : Solidity.UsingDecl) :
     Except TypeError (List FunctionSig) := do
   if UsingDecl.appliesToReceiver decl receiver.ty then
     if decl.functions.isEmpty then
@@ -3844,7 +3843,7 @@ def UsingDecl.memberCandidates (env : CheckEnv)
         match env.types.lookupContractDecl? decl.library with
         | some libraryDecl => Except.ok libraryDecl
         | none => Except.error (TypeError.unknownType decl.library)
-      require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+      require (libraryDecl.kind == Solidity.ContractKind.library)
         (TypeError.invalidContractHeader "using target is not a library")
       Except.ok
         (FunctionSigs.usingMemberCandidates env.types receiver member
@@ -3860,7 +3859,7 @@ def UsingDecl.memberCandidates (env : CheckEnv)
 
 def UsingDecls.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name) :
-    List L00_SourceSolidity.UsingDecl -> Except TypeError (List FunctionSig)
+    List Solidity.UsingDecl -> Except TypeError (List FunctionSig)
   | [] => Except.ok []
   | decl :: rest => do
       let head ← UsingDecl.memberCandidates env receiver member decl
@@ -3875,7 +3874,7 @@ def CheckEnv.resolveUsingMemberFunctionChecked (env : CheckEnv)
   FunctionSigs.resolveChecked env.types candidates member args
 
 def CheckEnv.resolveUsingBinaryOperator? (env : CheckEnv)
-    (op : L00_SourceSolidity.BinaryOp) (lhs rhs : CheckedExpr) :
+    (op : Solidity.BinaryOp) (lhs rhs : CheckedExpr) :
     Except TypeError (Option FunctionSig) := do
   let candidates ←
     UsingDecls.binaryOperatorCandidates env op lhs rhs env.usingDecls
@@ -3885,7 +3884,7 @@ def CheckEnv.resolveUsingBinaryOperator? (env : CheckEnv)
   | _ => Except.error (TypeError.ambiguousFunction "operator")
 
 def CheckEnv.resolveUsingUnaryOperator? (env : CheckEnv)
-    (op : L00_SourceSolidity.UnaryOp) (operand : CheckedExpr) :
+    (op : Solidity.UnaryOp) (operand : CheckedExpr) :
     Except TypeError (Option FunctionSig) := do
   let candidates ←
     UsingDecls.unaryOperatorCandidates env op operand env.usingDecls
@@ -3902,7 +3901,7 @@ def TypeContext.resolveLibraryFunctionChecked (types : TypeContext)
     match types.lookupContractDecl? path with
     | some libraryDecl => Except.ok libraryDecl
     | none => Except.error (TypeError.unknownType path)
-  require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+  require (libraryDecl.kind == Solidity.ContractKind.library)
     (TypeError.invalidContractHeader "library call target is not a library")
   FunctionSigs.resolveChecked types
     (FunctionSigs.nonPrivate
@@ -3926,80 +3925,80 @@ def CheckEnv.resolveExplicitBaseMemberFunctionChecked
       (ContractDecl.directFunctionSigsQualifiedLocalTypes baseDecl))
     member args
 
-def literalTy? : L00_SourceSolidity.Literal -> Option Ty
-  | L00_SourceSolidity.Literal.number text => do
-      let _ ← L00_SourceSolidity.Executable.parseNumberRat? text
-      some (L00_SourceSolidity.Ty.uint 256)
-  | L00_SourceSolidity.Literal.unitNumber text unit => do
-      let _ ← L00_SourceSolidity.Executable.parseUnitNumberNat? text unit
-      some (L00_SourceSolidity.Ty.uint 256)
-  | literal => L00_SourceSolidity.Executable.Literal.abiTy? literal
+def literalTy? : Solidity.Literal -> Option Ty
+  | Solidity.Literal.number text => do
+      let _ ← Solidity.Executable.parseNumberRat? text
+      some (Solidity.Ty.uint 256)
+  | Solidity.Literal.unitNumber text unit => do
+      let _ ← Solidity.Executable.parseUnitNumberNat? text unit
+      some (Solidity.Ty.uint 256)
+  | literal => Solidity.Executable.Literal.abiTy? literal
 
-def CallOptions.names : List L00_SourceSolidity.CallOption -> List Name
+def CallOptions.names : List Solidity.CallOption -> List Name
   | [] => []
-  | L00_SourceSolidity.CallOption.named name _ :: rest =>
+  | Solidity.CallOption.named name _ :: rest =>
       name :: CallOptions.names rest
 
-def CallOptions.hasValue : List L00_SourceSolidity.CallOption -> Bool
+def CallOptions.hasValue : List Solidity.CallOption -> Bool
   | [] => false
-  | L00_SourceSolidity.CallOption.named name _ :: rest =>
+  | Solidity.CallOption.named name _ :: rest =>
       name == "value" || CallOptions.hasValue rest
 
-def CallOptions.hasGas : List L00_SourceSolidity.CallOption -> Bool
+def CallOptions.hasGas : List Solidity.CallOption -> Bool
   | [] => false
-  | L00_SourceSolidity.CallOption.named name _ :: rest =>
+  | Solidity.CallOption.named name _ :: rest =>
       name == "gas" || CallOptions.hasGas rest
 
-def CallOptions.hasSalt : List L00_SourceSolidity.CallOption -> Bool
+def CallOptions.hasSalt : List Solidity.CallOption -> Bool
   | [] => false
-  | L00_SourceSolidity.CallOption.named name _ :: rest =>
+  | Solidity.CallOption.named name _ :: rest =>
       name == "salt" || CallOptions.hasSalt rest
 
 def CallOptions.nameAllowed (allowed : List Name) (name : Name) : Bool :=
-  L00_SourceSolidity.Executable.nameIn name allowed
+  Solidity.Executable.nameIn name allowed
 
 def CallOptions.allNamesAllowed (allowed : List Name) :
-    List L00_SourceSolidity.CallOption -> Bool
+    List Solidity.CallOption -> Bool
   | [] => true
-  | L00_SourceSolidity.CallOption.named name _ :: rest =>
+  | Solidity.CallOption.named name _ :: rest =>
       CallOptions.nameAllowed allowed name &&
         CallOptions.allNamesAllowed allowed rest
 
 def requireCallOptionsAllowedNames (allowed : List Name)
-    (options : List L00_SourceSolidity.CallOption) :
+    (options : List Solidity.CallOption) :
     Except TypeError Unit :=
   require (CallOptions.allNamesAllowed allowed options)
     (TypeError.unsupported "call option is not allowed here")
 
 def Ty.isAddressLike (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.address _ => true
-  | L00_SourceSolidity.Ty.user path => types.isContractPath path
+  | Solidity.Ty.address _ => true
+  | Solidity.Ty.user path => types.isContractPath path
   | _ => false
 
 def Ty.isAddressBuiltinReceiver : Ty -> Bool
-  | L00_SourceSolidity.Ty.address _ => true
+  | Solidity.Ty.address _ => true
   | _ => false
 
 def Ty.isPayableAddress : Ty -> Bool
-  | L00_SourceSolidity.Ty.address true => true
+  | Solidity.Ty.address true => true
   | _ => false
 
 def Ty.hasLengthMember : Ty -> Bool
-  | L00_SourceSolidity.Ty.bytes => true
-  | L00_SourceSolidity.Ty.bytesN _ => true
-  | L00_SourceSolidity.Ty.fixedBytes _ => true
-  | L00_SourceSolidity.Ty.array _ _ => true
+  | Solidity.Ty.bytes => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.array _ _ => true
   | _ => false
 
 def Ty.hasArrayMutationMemberSurface : Ty -> Bool
-  | L00_SourceSolidity.Ty.bytes => true
-  | L00_SourceSolidity.Ty.array _ _ => true
+  | Solidity.Ty.bytes => true
+  | Solidity.Ty.array _ _ => true
   | _ => false
 
 def Ty.dynamicStorageArrayElement? : Ty -> Option Ty
-  | L00_SourceSolidity.Ty.bytes =>
-      some (L00_SourceSolidity.Ty.bytesN 1)
-  | L00_SourceSolidity.Ty.array element none => some element
+  | Solidity.Ty.bytes =>
+      some (Solidity.Ty.bytesN 1)
+  | Solidity.Ty.array element none => some element
   | _ => none
 
 def lowLevelCallMember (member : Name) : Bool :=
@@ -4007,23 +4006,23 @@ def lowLevelCallMember (member : Name) : Bool :=
     member == "delegatecall" || member == "send" || member == "transfer"
 
 def lowLevelCallReturnTy : Ty :=
-  L00_SourceSolidity.Ty.tuple
-    [L00_SourceSolidity.Ty.bool, L00_SourceSolidity.Ty.bytes]
+  Solidity.Ty.tuple
+    [Solidity.Ty.bool, Solidity.Ty.bytes]
 
 def checkCallTargetExpr (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Except TypeError CheckedExpr :=
+    (expr : Solidity.Expr) : Except TypeError CheckedExpr :=
   match expr with
-  | L00_SourceSolidity.Expr.ident "this" => do
+  | Solidity.Expr.ident "this" => do
       requireStateReadAllowed env
       match env.currentContract with
       | some path =>
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.user path
+              ty := Solidity.Ty.user path
               lvalue := false
               stateLValue := false }
       | none => Except.error (TypeError.unknownIdentifier "this")
-  | L00_SourceSolidity.Expr.ident name =>
+  | Solidity.Expr.ident name =>
       match env.lookupVar? name with
       | some ty => do
           let isState := env.isStateName name && !env.isLocalName name
@@ -4033,7 +4032,7 @@ def checkCallTargetExpr (env : CheckEnv)
           let dataLocation? :=
             if Ty.needsDataLocation env.types ty then
               if isState || isStorageRef then
-                some L00_SourceSolidity.DataLocation.storage
+                some Solidity.DataLocation.storage
               else
                 env.lookupLocalDataLocation? name
             else
@@ -4051,16 +4050,16 @@ def checkCallTargetExpr (env : CheckEnv)
               dataLocation? := dataLocation? }
       | none => Except.error (TypeError.unknownIdentifier name)
   | _ =>
-      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty => Except.ok { source := expr, ty := ty, lvalue := false }
       | none => Except.error (TypeError.unsupported "call target")
 
 def requireValueOptionAllowed
-    (mutability : L00_SourceSolidity.StateMutability)
-    (options : List L00_SourceSolidity.CallOption) :
+    (mutability : Solidity.StateMutability)
+    (options : List Solidity.CallOption) :
     Except TypeError Unit :=
   if CallOptions.hasValue options &&
-      !(mutability == L00_SourceSolidity.StateMutability.payable) then
+      !(mutability == Solidity.StateMutability.payable) then
     Except.error TypeError.valueCallToNonpayable
   else
     Except.ok ()
@@ -4088,19 +4087,19 @@ mutual
 def Ty.isAbiEncodePackedArgShape (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => false
-  | _ + 1, L00_SourceSolidity.Ty.bool => true
-  | _ + 1, L00_SourceSolidity.Ty.address _ => true
-  | _ + 1, L00_SourceSolidity.Ty.uint _ => true
-  | _ + 1, L00_SourceSolidity.Ty.int _ => true
-  | _ + 1, L00_SourceSolidity.Ty.fixed _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.ufixed _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.bytesN _ => true
-  | _ + 1, L00_SourceSolidity.Ty.fixedBytes _ => true
-  | _ + 1, L00_SourceSolidity.Ty.bytes => true
-  | _ + 1, L00_SourceSolidity.Ty.string => true
-  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+  | _ + 1, Solidity.Ty.bool => true
+  | _ + 1, Solidity.Ty.address _ => true
+  | _ + 1, Solidity.Ty.uint _ => true
+  | _ + 1, Solidity.Ty.int _ => true
+  | _ + 1, Solidity.Ty.fixed _ _ => true
+  | _ + 1, Solidity.Ty.ufixed _ _ => true
+  | _ + 1, Solidity.Ty.bytesN _ => true
+  | _ + 1, Solidity.Ty.fixedBytes _ => true
+  | _ + 1, Solidity.Ty.bytes => true
+  | _ + 1, Solidity.Ty.string => true
+  | fuel + 1, Solidity.Ty.array element _ =>
       Ty.isAbiEncodePackedArrayElementShape types fuel element
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | fuel + 1, Solidity.Ty.user path =>
       if types.isContractPath path || types.isEnumPath path then
         true
       else
@@ -4108,22 +4107,22 @@ def Ty.isAbiEncodePackedArgShape (types : TypeContext) :
         | some underlying =>
             Ty.isAbiEncodePackedArgShape types fuel underlying
         | none => false
-  | _ + 1, L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
-      visibility == L00_SourceSolidity.Visibility.external_
+  | _ + 1, Solidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
+      visibility == Solidity.Visibility.external_
   | _ + 1, _ => false
 
 def Ty.isAbiEncodePackedArrayElementShape (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => false
-  | _ + 1, L00_SourceSolidity.Ty.bool => true
-  | _ + 1, L00_SourceSolidity.Ty.address _ => true
-  | _ + 1, L00_SourceSolidity.Ty.uint _ => true
-  | _ + 1, L00_SourceSolidity.Ty.int _ => true
-  | _ + 1, L00_SourceSolidity.Ty.fixed _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.ufixed _ _ => true
-  | _ + 1, L00_SourceSolidity.Ty.bytesN _ => true
-  | _ + 1, L00_SourceSolidity.Ty.fixedBytes _ => true
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | _ + 1, Solidity.Ty.bool => true
+  | _ + 1, Solidity.Ty.address _ => true
+  | _ + 1, Solidity.Ty.uint _ => true
+  | _ + 1, Solidity.Ty.int _ => true
+  | _ + 1, Solidity.Ty.fixed _ _ => true
+  | _ + 1, Solidity.Ty.ufixed _ _ => true
+  | _ + 1, Solidity.Ty.bytesN _ => true
+  | _ + 1, Solidity.Ty.fixedBytes _ => true
+  | fuel + 1, Solidity.Ty.user path =>
       if types.isContractPath path || types.isEnumPath path then
         true
       else
@@ -4131,8 +4130,8 @@ def Ty.isAbiEncodePackedArrayElementShape (types : TypeContext) :
         | some underlying =>
             Ty.isAbiEncodePackedArrayElementShape types fuel underlying
         | none => false
-  | _ + 1, L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
-      visibility == L00_SourceSolidity.Visibility.external_
+  | _ + 1, Solidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
+      visibility == Solidity.Visibility.external_
   | _ + 1, _ => false
 
 end
@@ -4146,11 +4145,11 @@ def CheckedExpr.expectAbiEncodePackedEncodable (types : TypeContext)
 
 def CheckedExpr.expectBytesLike (expr : CheckedExpr) :
     Except TypeError Unit :=
-  expr.expectAssignableTo L00_SourceSolidity.Ty.bytes
+  expr.expectAssignableTo Solidity.Ty.bytes
 
 def CheckedExpr.expectStringLike (expr : CheckedExpr) :
     Except TypeError Unit :=
-  expr.expectAssignableTo L00_SourceSolidity.Ty.string
+  expr.expectAssignableTo Solidity.Ty.string
 
 def checkAbiEncodableArgs (types : TypeContext) :
     List CheckedExpr -> Except TypeError Unit
@@ -4169,22 +4168,22 @@ def checkAbiEncodePackedArgs (types : TypeContext) :
 def checkBytesConcatArgs : List CheckedExpr -> Except TypeError Unit
   | [] => Except.ok ()
   | expr :: rest => do
-      require (L00_SourceSolidity.Executable.Ty.isBytesConcatArg expr.ty)
+      require (Solidity.Executable.Ty.isBytesConcatArg expr.ty)
         (TypeError.invalidAbiType expr.ty)
       checkBytesConcatArgs rest
 
 def checkStringConcatArgs : List CheckedExpr -> Except TypeError Unit
   | [] => Except.ok ()
   | expr :: rest => do
-      require (L00_SourceSolidity.Executable.Ty.isStringConcatArg expr.ty)
+      require (Solidity.Executable.Ty.isStringConcatArg expr.ty)
         (TypeError.invalidAbiType expr.ty)
       checkStringConcatArgs rest
 
 def checkAbiDecodeTupleItems (types : TypeContext) :
-    List L00_SourceSolidity.TupleItem -> Except TypeError (List Ty)
+    List Solidity.TupleItem -> Except TypeError (List Ty)
   | [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.value
-      (L00_SourceSolidity.Expr.typeName ty) :: rest => do
+  | Solidity.TupleItem.value
+      (Solidity.Expr.typeName ty) :: rest => do
       checkTy types ty
       require (TypeContext.isAbiEncodable types ty)
         (TypeError.invalidAbiType ty)
@@ -4197,15 +4196,15 @@ def checkAbiDecodeTupleItems (types : TypeContext) :
         (TypeError.invalidAbiCall "abi.decode expects type names")
 
 def checkAbiDecodeTypesExpr (types : TypeContext) :
-    L00_SourceSolidity.Expr -> Except TypeError (List Ty)
-  | L00_SourceSolidity.Expr.typeName ty => do
+    Solidity.Expr -> Except TypeError (List Ty)
+  | Solidity.Expr.typeName ty => do
       checkTy types ty
       require (TypeContext.isAbiEncodable types ty)
         (TypeError.invalidAbiType ty)
       require (TypeContext.abiCoderSupports types ty)
         (TypeError.invalidAbiType ty)
       Except.ok [ty]
-  | L00_SourceSolidity.Expr.tuple items =>
+  | Solidity.Expr.tuple items =>
       checkAbiDecodeTupleItems types items
   | _ =>
       Except.error
@@ -4216,87 +4215,87 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     Except TypeError (Option Ty) :=
   if name == "gasleft" then do
     requireNoNamedArgs "gasleft" argInfos
-    requireCallMutabilityAllowed env L00_SourceSolidity.StateMutability.view
+    requireCallMutabilityAllowed env Solidity.StateMutability.view
     require (checkedArgs.length == 0)
       (TypeError.arityMismatch "gasleft" 0 checkedArgs.length)
-    Except.ok (some (L00_SourceSolidity.Ty.uint 256))
+    Except.ok (some (Solidity.Ty.uint 256))
   else if name == "blockhash" || name == "blobhash" then do
     requireNoNamedArgs name argInfos
-    requireCallMutabilityAllowed env L00_SourceSolidity.StateMutability.view
+    requireCallMutabilityAllowed env Solidity.StateMutability.view
     if name == "blobhash" then
       requireCancunOrLater env "blobhash"
     else
       Except.ok ()
     match checkedArgs with
     | [number] => do
-        number.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
-        Except.ok (some (L00_SourceSolidity.Ty.bytesN 32))
+        number.expectAssignableTo (Solidity.Ty.uint 256)
+        Except.ok (some (Solidity.Ty.bytesN 32))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "addmod" || name == "mulmod" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [lhs, rhs, modulus] => do
-        lhs.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
-        rhs.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
-        modulus.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
-        Except.ok (some (L00_SourceSolidity.Ty.uint 256))
+        lhs.expectAssignableTo (Solidity.Ty.uint 256)
+        rhs.expectAssignableTo (Solidity.Ty.uint 256)
+        modulus.expectAssignableTo (Solidity.Ty.uint 256)
+        Except.ok (some (Solidity.Ty.uint 256))
     | _ => Except.error (TypeError.arityMismatch name 3 checkedArgs.length)
   else if name == "keccak256" || name == "sha256" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [payload] => do
         payload.expectBytesLike
-        Except.ok (some (L00_SourceSolidity.Ty.bytesN 32))
+        Except.ok (some (Solidity.Ty.bytesN 32))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "erc7201" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [id] => do
         id.expectStringLike
-        Except.ok (some (L00_SourceSolidity.Ty.uint 256))
+        Except.ok (some (Solidity.Ty.uint 256))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "ripemd160" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [payload] => do
         payload.expectBytesLike
-        Except.ok (some (L00_SourceSolidity.Ty.bytesN 20))
+        Except.ok (some (Solidity.Ty.bytesN 20))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "ecrecover" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [hash, v, r, s] => do
-        hash.expectAssignableTo (L00_SourceSolidity.Ty.bytesN 32)
-        v.expectAssignableTo (L00_SourceSolidity.Ty.uint 8)
-        r.expectAssignableTo (L00_SourceSolidity.Ty.bytesN 32)
-        s.expectAssignableTo (L00_SourceSolidity.Ty.bytesN 32)
-        Except.ok (some (L00_SourceSolidity.Ty.address false))
+        hash.expectAssignableTo (Solidity.Ty.bytesN 32)
+        v.expectAssignableTo (Solidity.Ty.uint 8)
+        r.expectAssignableTo (Solidity.Ty.bytesN 32)
+        s.expectAssignableTo (Solidity.Ty.bytesN 32)
+        Except.ok (some (Solidity.Ty.address false))
     | _ => Except.error (TypeError.arityMismatch name 4 checkedArgs.length)
   else if name == "assert" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [cond] => do
         cond.expectBool
-        Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+        Except.ok (some (Solidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "require" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
     | [cond] => do
         cond.expectBool
-        Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+        Except.ok (some (Solidity.Ty.tuple []))
     | [cond, reason] => do
         cond.expectBool
         reason.expectStringLike
-        Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+        Except.ok (some (Solidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 2 checkedArgs.length)
   else if name == "revert" then do
     requireNoNamedArgs name argInfos
     match checkedArgs with
-    | [] => Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+    | [] => Except.ok (some (Solidity.Ty.tuple []))
     | [reason] => do
         reason.expectStringLike
-        Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+        Except.ok (some (Solidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else if name == "selfdestruct" then do
     requireNoNamedArgs name argInfos
@@ -4304,8 +4303,8 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     match checkedArgs with
     | [recipient] => do
         recipient.expectAssignableToIn env.types
-          (L00_SourceSolidity.Ty.address true)
-        Except.ok (some (L00_SourceSolidity.Ty.tuple []))
+          (Solidity.Ty.address true)
+        Except.ok (some (Solidity.Ty.tuple []))
     | _ => Except.error (TypeError.arityMismatch name 1 checkedArgs.length)
   else
     Except.ok none
@@ -4350,7 +4349,7 @@ def checkCheckedExprsStorageRefsFor (what : String) :
 
 def checkCheckedExprsDataLocationsFor (what : String) :
     List CheckedExpr ->
-    List (Option L00_SourceSolidity.DataLocation) ->
+    List (Option Solidity.DataLocation) ->
     Except TypeError Unit
   | _, [] => Except.ok ()
   | expr :: exprRest, expected :: expectedRest => do
@@ -4362,7 +4361,7 @@ def checkCheckedExprsDataLocationsFor (what : String) :
 
 def checkCheckedExprsReferenceLocationsFor (what : String)
     (actual : List CheckedExpr) (storageRefs : List Bool)
-    (locations : List (Option L00_SourceSolidity.DataLocation)) :
+    (locations : List (Option Solidity.DataLocation)) :
     Except TypeError Unit := do
   checkCheckedExprsStorageRefsFor what actual storageRefs
   checkCheckedExprsDataLocationsFor what actual locations
@@ -4370,7 +4369,7 @@ def checkCheckedExprsReferenceLocationsFor (what : String)
 def checkCheckedArgsAssignableToSignature
     (types : TypeContext) (what : String)
     (paramNames : List (Option Name)) (params : List Ty)
-    (args : List L00_SourceSolidity.Arg)
+    (args : List Solidity.Arg)
     (checkedArgs : List CheckedExpr) : Except TypeError Unit := do
   match CheckedArgInfos.ordered? paramNames
       (checkedArgInfosFull args checkedArgs) with
@@ -4382,7 +4381,7 @@ def checkCheckedArgsAssignableToSignature
 
 def checkCheckedArgsAssignableToFunctionSig
     (types : TypeContext) (what : String) (sig : FunctionSig)
-    (args : List L00_SourceSolidity.Arg)
+    (args : List Solidity.Arg)
     (checkedArgs : List CheckedExpr) : Except TypeError Unit := do
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
@@ -4395,7 +4394,7 @@ def checkCheckedArgsAssignableToFunctionSig
         (TypeError.arityMismatch what sig.params.length checkedArgs.length)
 
 def checkArrayMutationCall? (env : CheckEnv)
-    (expr target : L00_SourceSolidity.Expr) (member : Name)
+    (expr target : Solidity.Expr) (member : Name)
     (argInfos : List ArgInfo) (checkedArgs : List CheckedExpr)
     (targetChecked : CheckedExpr) :
     Except TypeError (Option CheckedExpr) := do
@@ -4416,13 +4415,13 @@ def checkArrayMutationCall? (env : CheckEnv)
                       lvalue := true
                       stateLValue := targetChecked.stateLValue
                       dataLocation? :=
-                        some L00_SourceSolidity.DataLocation.storage })
+                        some Solidity.DataLocation.storage })
             | [value] => do
                 value.expectAssignableToIn env.types element
                 Except.ok
                   (some
                     { source := expr
-                      ty := L00_SourceSolidity.Ty.tuple []
+                      ty := Solidity.Ty.tuple []
                       lvalue := false })
             | _ =>
                 Except.error
@@ -4433,7 +4432,7 @@ def checkArrayMutationCall? (env : CheckEnv)
                 Except.ok
                   (some
                     { source := expr
-                      ty := L00_SourceSolidity.Ty.tuple []
+                      ty := Solidity.Ty.tuple []
                       lvalue := false })
             | _ =>
                 Except.error
@@ -4445,17 +4444,17 @@ def checkArrayMutationCall? (env : CheckEnv)
   else
     Except.ok none
 
-def StructDecl.fieldNames (decl : L00_SourceSolidity.StructDecl) :
+def StructDecl.fieldNames (decl : Solidity.StructDecl) :
     List (Option Name) :=
   decl.fields.map (fun field => some field.name)
 
-def StructDecl.fieldTys (decl : L00_SourceSolidity.StructDecl) :
+def StructDecl.fieldTys (decl : Solidity.StructDecl) :
     List Ty :=
-  decl.fields.map L00_SourceSolidity.StructField.ty
+  decl.fields.map Solidity.StructField.ty
 
 def checkStructConstructorArgs
-    (types : TypeContext) (decl : L00_SourceSolidity.StructDecl)
-    (args : List L00_SourceSolidity.Arg)
+    (types : TypeContext) (decl : Solidity.StructDecl)
+    (args : List Solidity.Arg)
     (checkedArgs : List CheckedExpr) : Except TypeError Unit := do
   let ordered? :=
     CheckedArgInfos.ordered? (StructDecl.fieldNames decl)
@@ -4468,28 +4467,28 @@ def checkStructConstructorArgs
   | none => Except.error (TypeError.invalidStructConstructor decl.name)
 
 def functionPointerSig (name : Name) (params : List Ty)
-    (paramLocations : List (Option L00_SourceSolidity.DataLocation))
+    (paramLocations : List (Option Solidity.DataLocation))
     (returns : List Ty)
-    (returnLocations : List (Option L00_SourceSolidity.DataLocation))
-    (mutability : L00_SourceSolidity.StateMutability)
-    (visibility : L00_SourceSolidity.Visibility) : FunctionSig :=
+    (returnLocations : List (Option Solidity.DataLocation))
+    (mutability : Solidity.StateMutability)
+    (visibility : Solidity.Visibility) : FunctionSig :=
   { name := name
     params := params
     paramNames := List.replicate params.length none
     paramStorageRefs :=
       paramLocations.map (fun location =>
-        location == some L00_SourceSolidity.DataLocation.storage)
+        location == some Solidity.DataLocation.storage)
     paramDataLocations := paramLocations
     returns := returns
     returnStorageRefs :=
       returnLocations.map (fun location =>
-        location == some L00_SourceSolidity.DataLocation.storage)
+        location == some Solidity.DataLocation.storage)
     returnDataLocations := returnLocations
     visibility := some visibility
     mutability := mutability }
 
 def functionPointerSig? (name : Name) : Ty -> Option FunctionSig
-  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+  | Solidity.Ty.functionWithLocations params paramLocations returns
       returnLocations mutability visibility =>
       some
         (functionPointerSig name params paramLocations returns returnLocations
@@ -4498,18 +4497,18 @@ def functionPointerSig? (name : Name) : Ty -> Option FunctionSig
 
 def requireExternalEncodeCallPointer
     (sig : FunctionSig) : Except TypeError FunctionSig := do
-  require (sig.visibility == some L00_SourceSolidity.Visibility.external_)
+  require (sig.visibility == some Solidity.Visibility.external_)
     (TypeError.invalidAbiCall
       "abi.encodeCall expects an external function pointer")
   Except.ok sig
 
 def resolveEncodeCallFunction (env : CheckEnv)
-    (pointer : L00_SourceSolidity.Expr)
+    (pointer : Solidity.Expr)
     (argInfos : List CheckedArgInfo) :
     Except TypeError FunctionSig :=
   match pointer with
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.user path))
+  | Solidity.Expr.member
+      (Solidity.Expr.typeName (Solidity.Ty.user path))
       member => do
       require (env.types.isContractValuePath path)
         (TypeError.invalidAbiCall
@@ -4520,10 +4519,10 @@ def resolveEncodeCallFunction (env : CheckEnv)
         (TypeError.invalidAbiCall
           "abi.encodeCall expects an external function")
       Except.ok sig
-  | L00_SourceSolidity.Expr.member target member => do
+  | Solidity.Expr.member target member => do
       let targetChecked ← checkCallTargetExpr env target
       match targetChecked.ty with
-      | L00_SourceSolidity.Ty.user path => do
+      | Solidity.Ty.user path => do
           require (env.types.isContractValuePath path)
             (TypeError.invalidAbiCall
               "abi.encodeCall expects a contract function value")
@@ -4537,8 +4536,8 @@ def resolveEncodeCallFunction (env : CheckEnv)
       | other =>
           Except.error
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address false) other)
-  | L00_SourceSolidity.Expr.ident name => do
+              (Solidity.Ty.address false) other)
+  | Solidity.Expr.ident name => do
       match env.lookupVar? name with
       | some ty => do
           let isState := env.isStateName name && !env.isLocalName name
@@ -4562,8 +4561,8 @@ def resolveEncodeCallFunction (env : CheckEnv)
           "abi.encodeCall expects a function pointer")
 
 def requireCreatableContractDecl
-    (decl : L00_SourceSolidity.ContractDecl) : Except TypeError Unit := do
-  require (decl.kind == L00_SourceSolidity.ContractKind.contract)
+    (decl : Solidity.ContractDecl) : Except TypeError Unit := do
+  require (decl.kind == Solidity.ContractKind.contract)
     (TypeError.invalidContractHeader
       "contract creation target is not a contract")
   require (!decl.abstract)
@@ -4571,12 +4570,12 @@ def requireCreatableContractDecl
       "contract creation target is abstract")
 
 def checkInternalFunctionValueAssignable?
-    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    (env : CheckEnv) (expr : Solidity.Expr) (expected : Ty) :
     Option (Except TypeError Unit) :=
   match expr, expected with
-  | L00_SourceSolidity.Expr.ident name,
-    L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-      L00_SourceSolidity.Visibility.internal_ =>
+  | Solidity.Expr.ident name,
+    Solidity.Ty.functionWithLocations _ _ _ _ _
+      Solidity.Visibility.internal_ =>
       match env.lookupVar? name with
       | some _ => none
       | none =>
@@ -4589,117 +4588,117 @@ def checkInternalFunctionValueAssignable?
   | _, _ => none
 
 def exprContextualTyFuel? (env : CheckEnv) :
-    Nat -> L00_SourceSolidity.Expr -> Option Ty
+    Nat -> Solidity.Expr -> Option Ty
   | 0, _ => none
   | fuel + 1, expr =>
-      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty => some (env.qualifyCurrentLocalUserTypes ty)
       | none =>
           match expr with
-          | L00_SourceSolidity.Expr.unary
-              L00_SourceSolidity.UnaryOp.bitNot inner
-          | L00_SourceSolidity.Expr.unary
-              L00_SourceSolidity.UnaryOp.neg inner
-          | L00_SourceSolidity.Expr.unary
-              L00_SourceSolidity.UnaryOp.preIncrement inner
-          | L00_SourceSolidity.Expr.unary
-              L00_SourceSolidity.UnaryOp.preDecrement inner
-          | L00_SourceSolidity.Expr.unary
-              L00_SourceSolidity.UnaryOp.postIncrement inner
-          | L00_SourceSolidity.Expr.unary
-              L00_SourceSolidity.UnaryOp.postDecrement inner =>
+          | Solidity.Expr.unary
+              Solidity.UnaryOp.bitNot inner
+          | Solidity.Expr.unary
+              Solidity.UnaryOp.neg inner
+          | Solidity.Expr.unary
+              Solidity.UnaryOp.preIncrement inner
+          | Solidity.Expr.unary
+              Solidity.UnaryOp.preDecrement inner
+          | Solidity.Expr.unary
+              Solidity.UnaryOp.postIncrement inner
+          | Solidity.Expr.unary
+              Solidity.UnaryOp.postDecrement inner =>
               exprContextualTyFuel? env fuel inner
-          | L00_SourceSolidity.Expr.assign lhs _ _ =>
+          | Solidity.Expr.assign lhs _ _ =>
               exprContextualTyFuel? env fuel lhs
-          | L00_SourceSolidity.Expr.binary op lhs _ =>
+          | Solidity.Expr.binary op lhs _ =>
               match op with
-              | L00_SourceSolidity.BinaryOp.lt
-              | L00_SourceSolidity.BinaryOp.gt
-              | L00_SourceSolidity.BinaryOp.le
-              | L00_SourceSolidity.BinaryOp.ge
-              | L00_SourceSolidity.BinaryOp.eq
-              | L00_SourceSolidity.BinaryOp.ne
-              | L00_SourceSolidity.BinaryOp.boolAnd
-              | L00_SourceSolidity.BinaryOp.boolOr =>
-                  some L00_SourceSolidity.Ty.bool
+              | Solidity.BinaryOp.lt
+              | Solidity.BinaryOp.gt
+              | Solidity.BinaryOp.le
+              | Solidity.BinaryOp.ge
+              | Solidity.BinaryOp.eq
+              | Solidity.BinaryOp.ne
+              | Solidity.BinaryOp.boolAnd
+              | Solidity.BinaryOp.boolOr =>
+                  some Solidity.Ty.bool
               | _ => exprContextualTyFuel? env fuel lhs
-          | L00_SourceSolidity.Expr.ternary _ thenExpr _ =>
+          | Solidity.Expr.ternary _ thenExpr _ =>
               exprContextualTyFuel? env fuel thenExpr
-          | L00_SourceSolidity.Expr.member base "balance" =>
+          | Solidity.Expr.member base "balance" =>
               match exprContextualTyFuel? env fuel base with
-              | some _ => some (L00_SourceSolidity.Ty.uint 256)
+              | some _ => some (Solidity.Ty.uint 256)
               | none => none
-          | L00_SourceSolidity.Expr.member base "code" =>
+          | Solidity.Expr.member base "code" =>
               match exprContextualTyFuel? env fuel base with
-              | some _ => some L00_SourceSolidity.Ty.bytes
+              | some _ => some Solidity.Ty.bytes
               | none => none
-          | L00_SourceSolidity.Expr.member base "codehash" =>
+          | Solidity.Expr.member base "codehash" =>
               match exprContextualTyFuel? env fuel base with
-              | some _ => some (L00_SourceSolidity.Ty.bytesN 32)
+              | some _ => some (Solidity.Ty.bytesN 32)
               | none => none
-          | L00_SourceSolidity.Expr.member base "length" =>
+          | Solidity.Expr.member base "length" =>
               match exprContextualTyFuel? env fuel base with
-              | some _ => some (L00_SourceSolidity.Ty.uint 256)
+              | some _ => some (Solidity.Ty.uint 256)
               | none => none
-          | L00_SourceSolidity.Expr.member base member => do
+          | Solidity.Expr.member base member => do
               let baseTy ← exprContextualTyFuel? env fuel base
               match baseTy with
-              | L00_SourceSolidity.Ty.user path =>
+              | Solidity.Ty.user path =>
                   let structDecl ← env.types.lookupStruct? path
                   let field ←
                     structDecl.fields.find?
                       (fun field => field.name == member)
                   some (env.qualifyStructFieldTy path field.ty)
               | _ => none
-          | L00_SourceSolidity.Expr.index base indexExpr => do
+          | Solidity.Expr.index base indexExpr => do
               let baseTy ← exprContextualTyFuel? env fuel base
               match Ty.fixedBytesSize? baseTy with
-              | some _ => some (L00_SourceSolidity.Ty.bytesN 1)
+              | some _ => some (Solidity.Ty.bytesN 1)
               | none =>
                   match baseTy with
-                  | L00_SourceSolidity.Ty.bytes =>
-                      some (L00_SourceSolidity.Ty.bytesN 1)
-                  | L00_SourceSolidity.Ty.array elementTy _ =>
+                  | Solidity.Ty.bytes =>
+                      some (Solidity.Ty.bytesN 1)
+                  | Solidity.Ty.array elementTy _ =>
                       some elementTy
-                  | L00_SourceSolidity.Ty.mapping _ valueTy =>
+                  | Solidity.Ty.mapping _ valueTy =>
                       some valueTy
-                  | L00_SourceSolidity.Ty.tuple elements => do
+                  | Solidity.Ty.tuple elements => do
                       let index ←
-                        L00_SourceSolidity.Executable.Expr.numberLiteralNat?
+                        Solidity.Executable.Expr.numberLiteralNat?
                           indexExpr
-                      L00_SourceSolidity.Executable.listGet? elements index
+                      Solidity.Executable.listGet? elements index
                   | _ => none
-          | L00_SourceSolidity.Expr.slice base _ _ => do
+          | Solidity.Expr.slice base _ _ => do
               let baseTy ← exprContextualTyFuel? env fuel base
               match baseTy with
-              | L00_SourceSolidity.Ty.bytes =>
-                  some L00_SourceSolidity.Ty.bytes
-              | L00_SourceSolidity.Ty.string =>
-                  some L00_SourceSolidity.Ty.string
-              | L00_SourceSolidity.Ty.array elementTy _ =>
-                  some (L00_SourceSolidity.Ty.array elementTy none)
+              | Solidity.Ty.bytes =>
+                  some Solidity.Ty.bytes
+              | Solidity.Ty.string =>
+                  some Solidity.Ty.string
+              | Solidity.Ty.array elementTy _ =>
+                  some (Solidity.Ty.array elementTy none)
               | _ => none
           | _ => none
 
 def exprContextualTy? (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Option Ty :=
+    (expr : Solidity.Expr) : Option Ty :=
   exprContextualTyFuel? env 128 expr
 
 def exprContextuallyAssignableToFuel
     (env : CheckEnv) :
-    Nat -> L00_SourceSolidity.Expr -> Ty -> Bool
+    Nat -> Solidity.Expr -> Ty -> Bool
   | 0, _, _ => false
-  | fuel + 1, L00_SourceSolidity.Expr.array elements,
-      L00_SourceSolidity.Ty.array elementTy (some size) =>
+  | fuel + 1, Solidity.Expr.array elements,
+      Solidity.Ty.array elementTy (some size) =>
       elements.length == size &&
         elements.all
           (fun element =>
             exprContextuallyAssignableToFuel env fuel element elementTy)
   | fuel + 1,
-      L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr,
+      Solidity.Expr.ternary cond thenExpr elseExpr,
       expected =>
       exprContextuallyAssignableToFuel env fuel cond
-        L00_SourceSolidity.Ty.bool &&
+        Solidity.Ty.bool &&
         exprContextuallyAssignableToFuel env fuel thenExpr expected &&
           exprContextuallyAssignableToFuel env fuel elseExpr expected
   | _, expr, expected =>
@@ -4716,35 +4715,35 @@ def exprContextuallyAssignableToFuel
           | none => false
 
 def exprContextuallyAssignableTo
-    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    (env : CheckEnv) (expr : Solidity.Expr) (expected : Ty) :
     Bool :=
   exprContextuallyAssignableToFuel env 128 expr expected
 
 def exprIsContextualFixedArrayExpr
-    (env : CheckEnv) (expr : L00_SourceSolidity.Expr) (expected : Ty) :
+    (env : CheckEnv) (expr : Solidity.Expr) (expected : Ty) :
     Bool :=
   match expr, expected with
-  | L00_SourceSolidity.Expr.array _,
-    L00_SourceSolidity.Ty.array _ (some _) =>
+  | Solidity.Expr.array _,
+    Solidity.Ty.array _ (some _) =>
       exprContextuallyAssignableTo env expr expected
-  | L00_SourceSolidity.Expr.ternary _ _ _,
-    L00_SourceSolidity.Ty.array _ (some _) =>
+  | Solidity.Expr.ternary _ _ _,
+    Solidity.Ty.array _ (some _) =>
       exprContextuallyAssignableTo env expr expected
   | _, _ => false
 
 def exprHasStorageRefRoot (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.ident name =>
+    Solidity.Expr -> Bool
+  | Solidity.Expr.ident name =>
       (env.isStateName name && !env.isLocalName name) ||
         env.isLocalStorageRef name
-  | L00_SourceSolidity.Expr.member base _ =>
+  | Solidity.Expr.member base _ =>
       exprHasStorageRefRoot env base
-  | L00_SourceSolidity.Expr.index base _ =>
+  | Solidity.Expr.index base _ =>
       exprHasStorageRefRoot env base
   | _ => false
 
 def exprContextuallyStorageOk
-    (env : CheckEnv) (expr : L00_SourceSolidity.Expr)
+    (env : CheckEnv) (expr : Solidity.Expr)
     (needsStorage : Bool) : Bool :=
   if needsStorage then
     exprHasStorageRefRoot env expr
@@ -4752,7 +4751,7 @@ def exprContextuallyStorageOk
     true
 
 def exprsContextuallyMatchParamTys (env : CheckEnv) :
-    List L00_SourceSolidity.Expr -> List Ty -> Bool
+    List Solidity.Expr -> List Ty -> Bool
   | [], [] => true
   | expr :: exprRest, ty :: tyRest =>
       exprContextuallyAssignableTo env expr ty &&
@@ -4760,7 +4759,7 @@ def exprsContextuallyMatchParamTys (env : CheckEnv) :
   | _, _ => false
 
 def exprsContextuallyMatchParams (env : CheckEnv) :
-    List L00_SourceSolidity.Expr -> List Ty -> List Bool -> Bool
+    List Solidity.Expr -> List Ty -> List Bool -> Bool
   | [], [], [] => true
   | expr :: exprRest, ty :: tyRest, storage :: storageRest =>
       exprContextuallyAssignableTo env expr ty &&
@@ -4772,9 +4771,9 @@ def exprsContextuallyMatchParams (env : CheckEnv) :
 
 def FunctionSig.contextuallyMatchesArgs
     (env : CheckEnv) (sig : FunctionSig)
-    (args : List L00_SourceSolidity.Arg) : Bool :=
+    (args : List Solidity.Arg) : Bool :=
   match
-      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+      Solidity.Executable.Args.toExprsForParamNames?
         sig.paramNames args with
   | some exprs =>
       exprsContextuallyMatchParams env exprs sig.params
@@ -4783,9 +4782,9 @@ def FunctionSig.contextuallyMatchesArgs
 
 def ModifierSig.contextuallyMatchesArgs
     (env : CheckEnv) (sig : ModifierSig)
-    (args : List L00_SourceSolidity.Arg) : Bool :=
+    (args : List Solidity.Arg) : Bool :=
   match
-      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+      Solidity.Executable.Args.toExprsForParamNames?
         sig.paramNames args with
   | some exprs =>
       exprsContextuallyMatchParams env exprs sig.params
@@ -4794,18 +4793,18 @@ def ModifierSig.contextuallyMatchesArgs
 
 def EventSig.contextuallyMatchesArgs
     (env : CheckEnv) (sig : EventSig)
-    (args : List L00_SourceSolidity.Arg) : Bool :=
+    (args : List Solidity.Arg) : Bool :=
   match
-      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+      Solidity.Executable.Args.toExprsForParamNames?
         sig.paramNames args with
   | some exprs => exprsContextuallyMatchParamTys env exprs sig.params
   | none => false
 
 def ErrorSig.contextuallyMatchesArgs
     (env : CheckEnv) (sig : ErrorSig)
-    (args : List L00_SourceSolidity.Arg) : Bool :=
+    (args : List Solidity.Arg) : Bool :=
   match
-      L00_SourceSolidity.Executable.Args.toExprsForParamNames?
+      Solidity.Executable.Args.toExprsForParamNames?
         sig.paramNames args with
   | some exprs => exprsContextuallyMatchParamTys env exprs sig.params
   | none => false
@@ -4813,7 +4812,7 @@ def ErrorSig.contextuallyMatchesArgs
 namespace FunctionSigs
 
 def resolveContextualLoop (env : CheckEnv)
-    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    (target : Name) (args : List Solidity.Arg) :
     Option FunctionSig -> List FunctionSig -> Except TypeError FunctionSig
   | none, [] => Except.error (TypeError.unknownFunction target)
   | some found, [] => Except.ok found
@@ -4831,37 +4830,37 @@ def resolveContextualLoop (env : CheckEnv)
 
 def resolveContextual (env : CheckEnv)
     (functions : List FunctionSig) (target : Name)
-    (args : List L00_SourceSolidity.Arg) : Except TypeError FunctionSig :=
+    (args : List Solidity.Arg) : Except TypeError FunctionSig :=
   resolveContextualLoop env target args none functions
 
 end FunctionSigs
 
 def TypeContext.resolveContractMemberFunctionContextual
     (env : CheckEnv) (path : Path) (member : Name)
-    (args : List L00_SourceSolidity.Arg) : Except TypeError FunctionSig :=
+    (args : List Solidity.Arg) : Except TypeError FunctionSig :=
   match env.types.lookupContractExternalFunctionSigs? path with
   | some sigs => FunctionSigs.resolveContextual env sigs member args
   | none => Except.error (TypeError.unknownFunction member)
 
 def tupleItemsAsPositionalArgs :
-    List L00_SourceSolidity.TupleItem ->
-    Except TypeError (List L00_SourceSolidity.Arg)
+    List Solidity.TupleItem ->
+    Except TypeError (List Solidity.Arg)
   | [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.hole :: _ =>
+  | Solidity.TupleItem.hole :: _ =>
       Except.error
         (TypeError.invalidAbiCall
           "abi.encodeCall argument tuple cannot contain holes")
-  | L00_SourceSolidity.TupleItem.value expr :: rest => do
+  | Solidity.TupleItem.value expr :: rest => do
       let tail ← tupleItemsAsPositionalArgs rest
-      Except.ok (L00_SourceSolidity.Arg.positional expr :: tail)
+      Except.ok (Solidity.Arg.positional expr :: tail)
 
 def resolveEncodeCallFunctionContextual (env : CheckEnv)
-    (pointer : L00_SourceSolidity.Expr)
-    (args : List L00_SourceSolidity.Arg) :
+    (pointer : Solidity.Expr)
+    (args : List Solidity.Arg) :
     Except TypeError FunctionSig :=
   match pointer with
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.user path))
+  | Solidity.Expr.member
+      (Solidity.Expr.typeName (Solidity.Ty.user path))
       member => do
       require (env.types.isContractValuePath path)
         (TypeError.invalidAbiCall
@@ -4873,10 +4872,10 @@ def resolveEncodeCallFunctionContextual (env : CheckEnv)
         (TypeError.invalidAbiCall
           "abi.encodeCall expects an external function")
       Except.ok sig
-  | L00_SourceSolidity.Expr.member target member => do
+  | Solidity.Expr.member target member => do
       let targetChecked ← checkCallTargetExpr env target
       match targetChecked.ty with
-      | L00_SourceSolidity.Ty.user path => do
+      | Solidity.Ty.user path => do
           require (env.types.isContractValuePath path)
             (TypeError.invalidAbiCall
               "abi.encodeCall expects a contract function value")
@@ -4890,8 +4889,8 @@ def resolveEncodeCallFunctionContextual (env : CheckEnv)
       | other =>
           Except.error
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address false) other)
-  | L00_SourceSolidity.Expr.ident name => do
+              (Solidity.Ty.address false) other)
+  | Solidity.Expr.ident name => do
       match env.lookupVar? name with
       | some ty => do
           let isState := env.isStateName name && !env.isLocalName name
@@ -4917,7 +4916,7 @@ def resolveEncodeCallFunctionContextual (env : CheckEnv)
 namespace ModifierSigs
 
 def resolveContextualLoop (env : CheckEnv)
-    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    (target : Name) (args : List Solidity.Arg) :
     Option ModifierSig -> List ModifierSig -> Except TypeError ModifierSig
   | none, [] => Except.error (TypeError.unknownFunction target)
   | some found, [] => Except.ok found
@@ -4931,7 +4930,7 @@ def resolveContextualLoop (env : CheckEnv)
 
 def resolveContextual (env : CheckEnv)
     (modifiers : List ModifierSig) (target : Name)
-    (args : List L00_SourceSolidity.Arg) : Except TypeError ModifierSig :=
+    (args : List Solidity.Arg) : Except TypeError ModifierSig :=
   resolveContextualLoop env target args none modifiers
 
 end ModifierSigs
@@ -4939,7 +4938,7 @@ end ModifierSigs
 namespace EventSigs
 
 def resolveContextualLoop (env : CheckEnv)
-    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    (target : Name) (args : List Solidity.Arg) :
     Option EventSig -> List EventSig -> Except TypeError EventSig
   | none, [] => Except.error (TypeError.unknownEvent target)
   | some found, [] => Except.ok found
@@ -4953,7 +4952,7 @@ def resolveContextualLoop (env : CheckEnv)
 
 def resolveContextual (env : CheckEnv)
     (events : List EventSig) (target : Name)
-    (args : List L00_SourceSolidity.Arg) : Except TypeError EventSig :=
+    (args : List Solidity.Arg) : Except TypeError EventSig :=
   resolveContextualLoop env target args none events
 
 end EventSigs
@@ -4961,7 +4960,7 @@ end EventSigs
 namespace ErrorSigs
 
 def resolveContextualLoop (env : CheckEnv)
-    (target : Name) (args : List L00_SourceSolidity.Arg) :
+    (target : Name) (args : List Solidity.Arg) :
     Option ErrorSig -> List ErrorSig -> Except TypeError ErrorSig
   | none, [] => Except.error (TypeError.unknownError target)
   | some found, [] => Except.ok found
@@ -4975,7 +4974,7 @@ def resolveContextualLoop (env : CheckEnv)
 
 def resolveContextual (env : CheckEnv)
     (errors : List ErrorSig) (target : Name)
-    (args : List L00_SourceSolidity.Arg) : Except TypeError ErrorSig :=
+    (args : List Solidity.Arg) : Except TypeError ErrorSig :=
   resolveContextualLoop env target args none errors
 
 end ErrorSigs
@@ -4983,22 +4982,22 @@ end ErrorSigs
 mutual
 
 def checkExpr (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Except TypeError CheckedExpr
-  | expr@(L00_SourceSolidity.Expr.literal literal) =>
+    Solidity.Expr -> Except TypeError CheckedExpr
+  | expr@(Solidity.Expr.literal literal) =>
       match literalTy? literal with
       | some ty => Except.ok { source := expr, ty := ty, lvalue := false }
       | none => Except.error (TypeError.unsupported "literal")
-  | expr@(L00_SourceSolidity.Expr.ident "this") => do
+  | expr@(Solidity.Expr.ident "this") => do
       requireStateReadAllowed env
       match env.currentContract with
       | some path =>
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.user path
+              ty := Solidity.Ty.user path
               lvalue := false
               stateLValue := false }
       | none => Except.error (TypeError.unknownIdentifier "this")
-  | expr@(L00_SourceSolidity.Expr.ident name) =>
+  | expr@(Solidity.Expr.ident name) =>
       match env.lookupVar? name with
       | some ty => do
           let isState := env.isStateName name && !env.isLocalName name
@@ -5008,7 +5007,7 @@ def checkExpr (env : CheckEnv) :
           let dataLocation? :=
             if Ty.needsDataLocation env.types ty then
               if isState || isStorageRef then
-                some L00_SourceSolidity.DataLocation.storage
+                some Solidity.DataLocation.storage
               else
                 env.lookupLocalDataLocation? name
             else
@@ -5037,16 +5036,16 @@ def checkExpr (env : CheckEnv) :
                       stateLValue := false }
               | none => Except.error (TypeError.unknownIdentifier name)
           | Except.error _ => Except.error (TypeError.unknownIdentifier name)
-  | expr@(L00_SourceSolidity.Expr.typeName ty) => do
+  | expr@(Solidity.Expr.typeName ty) => do
       checkTy env.types ty
       Except.ok { source := expr, ty := ty, lvalue := false }
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident name) "selector") => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.ident name) "selector") => do
       match ErrorSigs.resolveByName env.errors name with
       | Except.ok _ =>
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.bytesN 4
+              ty := Solidity.Ty.bytesN 4
               lvalue := false
               stateLValue := false }
       | Except.error _ => do
@@ -5056,30 +5055,30 @@ def checkExpr (env : CheckEnv) :
                 (TypeError.unsupported "anonymous event selector")
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.bytesN 32
+                  ty := Solidity.Ty.bytesN 32
                   lvalue := false
                   stateLValue := false }
           | Except.error _ => do
               let baseChecked ←
-                checkExpr env (L00_SourceSolidity.Expr.ident name)
+                checkExpr env (Solidity.Expr.ident name)
               match baseChecked.ty with
-              | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-                  L00_SourceSolidity.Visibility.external_ =>
+              | Solidity.Ty.functionWithLocations _ _ _ _ _
+                  Solidity.Visibility.external_ =>
                   Except.ok
                     { source := expr
-                      ty := L00_SourceSolidity.Ty.bytesN 4
+                      ty := Solidity.Ty.bytesN 4
                       lvalue := false
                       stateLValue := false }
               | _ => Except.error (TypeError.unsupported "member selector")
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.member base member) "selector") => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.member base member) "selector") => do
       let baseChecked ← checkExpr env base
       match baseChecked.ty with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           let receiverAllowed :=
             match base with
-            | L00_SourceSolidity.Expr.typeName
-                (L00_SourceSolidity.Ty.user _) =>
+            | Solidity.Expr.typeName
+                (Solidity.Ty.user _) =>
                 env.types.isContractPath path
             | _ => env.types.isContractValuePath path
           if receiverAllowed then do
@@ -5089,42 +5088,42 @@ def checkExpr (env : CheckEnv) :
             | some _ =>
                 Except.ok
                   { source := expr
-                    ty := L00_SourceSolidity.Ty.bytesN 4
+                    ty := Solidity.Ty.bytesN 4
                     lvalue := false
                     stateLValue := false }
             | none => Except.error (TypeError.unsupported "member selector")
           else do
             let fnChecked ←
-              checkExpr env (L00_SourceSolidity.Expr.member base member)
+              checkExpr env (Solidity.Expr.member base member)
             match fnChecked.ty with
-            | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-                L00_SourceSolidity.Visibility.external_ =>
+            | Solidity.Ty.functionWithLocations _ _ _ _ _
+                Solidity.Visibility.external_ =>
                 Except.ok
                   { source := expr
-                    ty := L00_SourceSolidity.Ty.bytesN 4
+                    ty := Solidity.Ty.bytesN 4
                     lvalue := false
                     stateLValue := false }
             | _ => Except.error (TypeError.unsupported "member selector")
       | _ => do
           let fnChecked ←
-            checkExpr env (L00_SourceSolidity.Expr.member base member)
+            checkExpr env (Solidity.Expr.member base member)
           match fnChecked.ty with
-          | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-              L00_SourceSolidity.Visibility.external_ =>
+          | Solidity.Ty.functionWithLocations _ _ _ _ _
+              Solidity.Visibility.external_ =>
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.bytesN 4
+                  ty := Solidity.Ty.bytesN 4
                   lvalue := false
                   stateLValue := false }
           | _ => Except.error (TypeError.unsupported "member selector")
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.member base member) "address") => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.member base member) "address") => do
       let baseChecked ← checkExpr env base
       match baseChecked.ty with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           let receiverAllowed :=
             match base with
-            | L00_SourceSolidity.Expr.typeName _ => false
+            | Solidity.Expr.typeName _ => false
             | _ => env.types.isContractValuePath path
           if receiverAllowed then do
             let sig ←
@@ -5133,41 +5132,41 @@ def checkExpr (env : CheckEnv) :
             | some _ =>
                 Except.ok
                   { source := expr
-                    ty := L00_SourceSolidity.Ty.address false
+                    ty := Solidity.Ty.address false
                     lvalue := false
                     stateLValue := false }
             | none => Except.error (TypeError.unsupported "member address")
           else do
             let fnChecked ←
-              checkExpr env (L00_SourceSolidity.Expr.member base member)
+              checkExpr env (Solidity.Expr.member base member)
             match fnChecked.ty with
-            | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-                L00_SourceSolidity.Visibility.external_ =>
+            | Solidity.Ty.functionWithLocations _ _ _ _ _
+                Solidity.Visibility.external_ =>
                 Except.ok
                   { source := expr
-                    ty := L00_SourceSolidity.Ty.address false
+                    ty := Solidity.Ty.address false
                     lvalue := false
                     stateLValue := false }
             | _ => Except.error (TypeError.unsupported "member address")
       | _ => do
           let fnChecked ←
-            checkExpr env (L00_SourceSolidity.Expr.member base member)
+            checkExpr env (Solidity.Expr.member base member)
           match fnChecked.ty with
-          | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-              L00_SourceSolidity.Visibility.external_ =>
+          | Solidity.Ty.functionWithLocations _ _ _ _ _
+              Solidity.Visibility.external_ =>
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.address false
+                  ty := Solidity.Ty.address false
                   lvalue := false
                   stateLValue := false }
           | _ => Except.error (TypeError.unsupported "member address")
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident "msg") member) => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.ident "msg") member) => do
       if member == "data" || member == "sig" then
         Except.ok ()
       else
         requireStateReadAllowed env
-      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty =>
           Except.ok
             { source := expr
@@ -5176,12 +5175,12 @@ def checkExpr (env : CheckEnv) :
               stateLValue := false
               dataLocation? :=
                 if member == "data" then
-                  some L00_SourceSolidity.DataLocation.calldata
+                  some Solidity.DataLocation.calldata
                 else
                   none }
       | none => Except.error (TypeError.unsupported ("member " ++ member))
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident "block") member) => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.ident "block") member) => do
       requireStateReadAllowed env
       if member == "basefee" then
         requireLondonOrLater env "block.basefee"
@@ -5191,7 +5190,7 @@ def checkExpr (env : CheckEnv) :
         requireIstanbulOrLater env "block.chainid"
       else
         Except.ok ()
-      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty =>
           Except.ok
             { source := expr
@@ -5199,10 +5198,10 @@ def checkExpr (env : CheckEnv) :
               lvalue := false
               stateLValue := false }
       | none => Except.error (TypeError.unsupported ("member " ++ member))
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident "tx") member) => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.ident "tx") member) => do
       requireStateReadAllowed env
-      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty =>
           Except.ok
             { source := expr
@@ -5210,13 +5209,13 @@ def checkExpr (env : CheckEnv) :
               lvalue := false
               stateLValue := false }
       | none => Except.error (TypeError.unsupported ("member " ++ member))
-  | expr@(L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName ty) member) => do
+  | expr@(Solidity.Expr.member
+      (Solidity.Expr.typeName ty) member) => do
       checkTy env.types ty
       let ty := env.qualifyCurrentLocalUserTypes ty
       match ty with
-      | L00_SourceSolidity.Ty.uint _
-      | L00_SourceSolidity.Ty.int _ =>
+      | Solidity.Ty.uint _
+      | Solidity.Ty.int _ =>
           if member == "min" || member == "max" then
             Except.ok
               { source := expr
@@ -5225,7 +5224,7 @@ def checkExpr (env : CheckEnv) :
                 stateLValue := false }
           else
             Except.error (TypeError.unsupported ("member " ++ member))
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           match env.types.lookupEnum? path with
           | some enumDecl =>
               if member == "min" || member == "max" then
@@ -5248,31 +5247,31 @@ def checkExpr (env : CheckEnv) :
                   if member == "name" then
                     Except.ok
                       { source := expr
-                        ty := L00_SourceSolidity.Ty.string
+                        ty := Solidity.Ty.string
                         lvalue := false
                         stateLValue := false }
                   else if member == "creationCode" ||
                       member == "runtimeCode" then
                     require
                       (contractDecl.kind !=
-                          L00_SourceSolidity.ContractKind.interface &&
+                          Solidity.ContractKind.interface &&
                         !contractDecl.abstract)
                       (TypeError.unsupported ("member " ++ member))
                     require (!env.isCurrentOrAncestorContract path)
                       (TypeError.unsupported ("member " ++ member))
                     Except.ok
                       { source := expr
-                        ty := L00_SourceSolidity.Ty.bytes
+                        ty := Solidity.Ty.bytes
                         lvalue := false
                         stateLValue := false }
                   else if member == "interfaceId" then
                     require
                       (contractDecl.kind ==
-                        L00_SourceSolidity.ContractKind.interface)
+                        Solidity.ContractKind.interface)
                       (TypeError.unsupported ("member " ++ member))
                     Except.ok
                       { source := expr
-                        ty := L00_SourceSolidity.Ty.bytesN 4
+                        ty := Solidity.Ty.bytesN 4
                         lvalue := false
                         stateLValue := false }
                   else
@@ -5281,7 +5280,7 @@ def checkExpr (env : CheckEnv) :
               | none =>
                   Except.error (TypeError.unsupported ("member " ++ member))
       | _ => Except.error (TypeError.unsupported ("member " ++ member))
-  | expr@(L00_SourceSolidity.Expr.member base member) => do
+  | expr@(Solidity.Expr.member base member) => do
       let baseChecked ← checkExpr env base
       if baseChecked.stateLValue then
         requireStateReadAllowed env
@@ -5290,7 +5289,7 @@ def checkExpr (env : CheckEnv) :
       require (!baseChecked.arraySlice)
         (TypeError.unsupported "member on array slice")
       let checkBoundExternalFunctionMember
-          (path : L00_SourceSolidity.Path) :
+          (path : Solidity.Path) :
           Except TypeError CheckedExpr := do
         require (env.types.isContractValuePath path)
           (TypeError.unsupported ("member " ++ member))
@@ -5309,20 +5308,20 @@ def checkExpr (env : CheckEnv) :
           requireStateReadAllowed env
           require baseChecked.ty.isAddressBuiltinReceiver
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address false) baseChecked.ty)
+              (Solidity.Ty.address false) baseChecked.ty)
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.uint 256
+              ty := Solidity.Ty.uint 256
               lvalue := false
               stateLValue := false }
         else if member == "code" then
           requireStateReadAllowed env
           require baseChecked.ty.isAddressBuiltinReceiver
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address false) baseChecked.ty)
+              (Solidity.Ty.address false) baseChecked.ty)
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.bytes
+              ty := Solidity.Ty.bytes
               lvalue := false
               stateLValue := false }
         else if member == "codehash" then
@@ -5330,10 +5329,10 @@ def checkExpr (env : CheckEnv) :
           requireConstantinopleOrLater env "address.codehash"
           require baseChecked.ty.isAddressBuiltinReceiver
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address false) baseChecked.ty)
+              (Solidity.Ty.address false) baseChecked.ty)
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.bytesN 32
+              ty := Solidity.Ty.bytesN 32
               lvalue := false
               stateLValue := false }
         else if member == "length" then
@@ -5341,11 +5340,11 @@ def checkExpr (env : CheckEnv) :
             (TypeError.unsupported "length member for non-array value")
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.uint 256
+              ty := Solidity.Ty.uint 256
               lvalue := false
               stateLValue := false }
         else
-          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+          match Solidity.Executable.Expr.abiTyWithEnv?
               env.vars expr with
           | some ty =>
               Except.ok
@@ -5356,7 +5355,7 @@ def checkExpr (env : CheckEnv) :
                   dataLocation? := baseChecked.dataLocation? }
           | none => Except.error (TypeError.unsupported ("member " ++ member))
       match baseChecked.ty with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           match env.types.lookupStruct? path with
           | some structDecl =>
               match structDecl.fields.find?
@@ -5375,7 +5374,7 @@ def checkExpr (env : CheckEnv) :
               | Except.ok checked => Except.ok checked
               | Except.error _ => checkNonStructMember
       | _ => checkNonStructMember
-  | expr@(L00_SourceSolidity.Expr.index base index) => do
+  | expr@(Solidity.Expr.index base index) => do
       let baseChecked ← checkExpr env base
       if baseChecked.stateLValue then
         requireStateReadAllowed env
@@ -5383,29 +5382,29 @@ def checkExpr (env : CheckEnv) :
         Except.ok ()
       let indexChecked ← checkExpr env index
       match baseChecked.ty with
-      | L00_SourceSolidity.Ty.bytes =>
-          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+      | Solidity.Ty.bytes =>
+          indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
           Except.ok
-            { source := expr, ty := L00_SourceSolidity.Ty.bytesN 1,
+            { source := expr, ty := Solidity.Ty.bytesN 1,
               lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
-      | L00_SourceSolidity.Ty.bytesN _ =>
-          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+      | Solidity.Ty.bytesN _ =>
+          indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
           Except.ok
-            { source := expr, ty := L00_SourceSolidity.Ty.bytesN 1,
+            { source := expr, ty := Solidity.Ty.bytesN 1,
               lvalue := false }
-      | L00_SourceSolidity.Ty.array element _ =>
-          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+      | Solidity.Ty.array element _ =>
+          indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
           Except.ok
             { source := expr
               ty := env.qualifyCurrentLocalUserTypes element
               lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
-      | L00_SourceSolidity.Ty.tuple tys => do
+      | Solidity.Ty.tuple tys => do
           Except.error (TypeError.unsupported "tuple index")
-      | L00_SourceSolidity.Ty.mapping key value => do
+      | Solidity.Ty.mapping key value => do
           indexChecked.expectAssignableToIn env.types key
           Except.ok
             { source := expr
@@ -5414,44 +5413,44 @@ def checkExpr (env : CheckEnv) :
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | other => Except.error (TypeError.expectedType
-          (L00_SourceSolidity.Ty.array other none) other)
-  | expr@(L00_SourceSolidity.Expr.slice base start? stop?) => do
+          (Solidity.Ty.array other none) other)
+  | expr@(Solidity.Expr.slice base start? stop?) => do
       let baseChecked ← checkExpr env base
       let sliceTy ←
         match baseChecked.ty with
-        | L00_SourceSolidity.Ty.bytes => Except.ok baseChecked.ty
-        | L00_SourceSolidity.Ty.string => Except.ok baseChecked.ty
-        | L00_SourceSolidity.Ty.array element _ =>
-            Except.ok (L00_SourceSolidity.Ty.array element none)
+        | Solidity.Ty.bytes => Except.ok baseChecked.ty
+        | Solidity.Ty.string => Except.ok baseChecked.ty
+        | Solidity.Ty.array element _ =>
+            Except.ok (Solidity.Ty.array element none)
         | other =>
             Except.error
               (TypeError.expectedType
-                (L00_SourceSolidity.Ty.array other none) other)
+                (Solidity.Ty.array other none) other)
       require
         (baseChecked.dataLocation? ==
-          some L00_SourceSolidity.DataLocation.calldata)
+          some Solidity.DataLocation.calldata)
         (TypeError.invalidDataLocation baseChecked.ty
           baseChecked.dataLocation?)
       match start? with
       | some start =>
           let startChecked ← checkExpr env start
           startChecked.expectAssignableToIn env.types
-            (L00_SourceSolidity.Ty.uint 256)
+            (Solidity.Ty.uint 256)
       | none => Except.ok ()
       match stop? with
       | some stop =>
           let stopChecked ← checkExpr env stop
           stopChecked.expectAssignableToIn env.types
-            (L00_SourceSolidity.Ty.uint 256)
+            (Solidity.Ty.uint 256)
       | none => Except.ok ()
       Except.ok
         { source := expr
           ty := sliceTy
           lvalue := false
-          dataLocation? := some L00_SourceSolidity.DataLocation.calldata
+          dataLocation? := some Solidity.DataLocation.calldata
           arraySlice := true }
-  | expr@(L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.typeName targetTy) args) => do
+  | expr@(Solidity.Expr.call
+      (Solidity.Expr.typeName targetTy) args) => do
       checkTy env.types targetTy
       let checkTypeConversion : Except TypeError CheckedExpr := do
         env.types.requireNoFixedPointValue targetTy "conversion to"
@@ -5472,7 +5471,7 @@ def checkExpr (env : CheckEnv) :
             ty := env.qualifyCurrentLocalUserTypes targetTy
             lvalue := false }
       match targetTy with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           match env.types.lookupStruct? path with
           | some structDecl => do
               match checkArgs env args with
@@ -5523,14 +5522,14 @@ def checkExpr (env : CheckEnv) :
                   lvalue := false }
           | none => checkTypeConversion
       | _ => checkTypeConversion
-  | expr@(L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.ident name) args) => do
+  | expr@(Solidity.Expr.call
+      (Solidity.Expr.ident name) args) => do
       match checkArgs env args with
       | Except.ok checkedArgs =>
           let argInfos := checkedArgInfos args checkedArgs
           let checkedInfos := checkedArgInfosFull args checkedArgs
           match env.lookupVar? name with
-          | some (L00_SourceSolidity.Ty.functionWithLocations params
+          | some (Solidity.Ty.functionWithLocations params
               paramLocations returns returnLocations mutability visibility) => do
               let sig :=
                 functionPointerSig name params paramLocations returns
@@ -5601,7 +5600,7 @@ def checkExpr (env : CheckEnv) :
                           Except.ok
                             { source := expr, ty := ty, lvalue := false }
                       | Except.ok none =>
-                          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+                          match Solidity.Executable.Expr.abiTyWithEnv?
                               env.vars expr with
                           | some ty => do
                               requireBuiltinIdentCallAllowed env name
@@ -5615,7 +5614,7 @@ def checkExpr (env : CheckEnv) :
             Except.error argErr
           else
             match env.lookupVar? name with
-            | some (L00_SourceSolidity.Ty.functionWithLocations params
+            | some (Solidity.Ty.functionWithLocations params
                 paramLocations returns returnLocations mutability visibility) =>
                 let sig :=
                   functionPointerSig name params paramLocations returns
@@ -5659,23 +5658,23 @@ def checkExpr (env : CheckEnv) :
                     Except.ok
                       (sig.checkedResult expr)
                 | Except.error _ => Except.error argErr
-  | expr@(L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.member
-        (L00_SourceSolidity.Expr.ident "abi") "encodeCall") args) => do
+  | expr@(Solidity.Expr.call
+      (Solidity.Expr.member
+        (Solidity.Expr.ident "abi") "encodeCall") args) => do
       match args with
-      | [ L00_SourceSolidity.Arg.positional functionPointer
-        , L00_SourceSolidity.Arg.positional argumentExpr ] => do
+      | [ Solidity.Arg.positional functionPointer
+        , Solidity.Arg.positional argumentExpr ] => do
           let tupleArgs ←
             match argumentExpr with
-            | L00_SourceSolidity.Expr.tuple items =>
+            | Solidity.Expr.tuple items =>
                 tupleItemsAsPositionalArgs items
             | scalar =>
-                Except.ok [L00_SourceSolidity.Arg.positional scalar]
+                Except.ok [Solidity.Arg.positional scalar]
           let sig ←
             match functionPointer with
-            | L00_SourceSolidity.Expr.member
-                (L00_SourceSolidity.Expr.typeName
-                  (L00_SourceSolidity.Ty.user path)) member => do
+            | Solidity.Expr.member
+                (Solidity.Expr.typeName
+                  (Solidity.Ty.user path)) member => do
                 require (env.types.isContractValuePath path)
                   (TypeError.invalidAbiCall
                     "abi.encodeCall cannot use a library function")
@@ -5686,10 +5685,10 @@ def checkExpr (env : CheckEnv) :
                   (TypeError.invalidAbiCall
                     "abi.encodeCall expects an external function")
                 Except.ok sig
-            | L00_SourceSolidity.Expr.member target member => do
+            | Solidity.Expr.member target member => do
                 let targetChecked ← checkExpr env target
                 match targetChecked.ty with
-                | L00_SourceSolidity.Ty.user path => do
+                | Solidity.Ty.user path => do
                     require (env.types.isContractValuePath path)
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects a contract function value")
@@ -5703,8 +5702,8 @@ def checkExpr (env : CheckEnv) :
                 | other =>
                     Except.error
                       (TypeError.expectedType
-                        (L00_SourceSolidity.Ty.address false) other)
-            | L00_SourceSolidity.Expr.ident name => do
+                        (Solidity.Ty.address false) other)
+            | Solidity.Expr.ident name => do
                 let checked ← checkExpr env functionPointer
                 match functionPointerSig? name checked.ty with
                 | some sig => requireExternalEncodeCallPointer sig
@@ -5721,7 +5720,7 @@ def checkExpr (env : CheckEnv) :
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects a function pointer")
           match argumentExpr with
-          | L00_SourceSolidity.Expr.tuple items =>
+          | Solidity.Expr.tuple items =>
               let _ ←
                 checkEncodeCallTupleItemsAssignableTo env items sig.params
               Except.ok ()
@@ -5730,7 +5729,7 @@ def checkExpr (env : CheckEnv) :
               | [ty] =>
                   let _ ←
                     checkArgAssignableToParam env ty
-                      (L00_SourceSolidity.Arg.positional scalar)
+                      (Solidity.Arg.positional scalar)
                   Except.ok ()
               | expected =>
                   Except.error
@@ -5738,19 +5737,19 @@ def checkExpr (env : CheckEnv) :
                       "abi.encodeCall" expected.length 1)
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.bytes
+              ty := Solidity.Ty.bytes
               lvalue := false }
       | _ =>
           Except.error
             (TypeError.invalidAbiCall
               "abi.encodeCall expects a function pointer and arguments")
-  | expr@(L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.member
-        (L00_SourceSolidity.Expr.typeName targetTy) member) args) => do
+  | expr@(Solidity.Expr.call
+      (Solidity.Expr.member
+        (Solidity.Expr.typeName targetTy) member) args) => do
       checkTy env.types targetTy
       let targetTy := env.qualifyCurrentLocalUserTypes targetTy
       match targetTy with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           match env.types.lookupUserValueType? path with
           | some underlying =>
               let checkedArgs ← checkArgs env args
@@ -5786,7 +5785,7 @@ def checkExpr (env : CheckEnv) :
               match env.types.lookupContractDecl? path with
               | some libraryDecl =>
                   if libraryDecl.kind ==
-                      L00_SourceSolidity.ContractKind.library then
+                      Solidity.ContractKind.library then
                     let checkedArgs ← checkArgs env args
                     let sig ←
                       match
@@ -5833,7 +5832,7 @@ def checkExpr (env : CheckEnv) :
                       (TypeError.unsupported ("member call " ++ member))
               | none =>
                   Except.error (TypeError.unsupported ("member call " ++ member))
-      | L00_SourceSolidity.Ty.bytes =>
+      | Solidity.Ty.bytes =>
           require (member == "concat")
             (TypeError.unsupported ("member call " ++ member))
           let checkedArgs ← checkArgs env args
@@ -5842,9 +5841,9 @@ def checkExpr (env : CheckEnv) :
           checkBytesConcatArgs checkedArgs
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.bytes
+              ty := Solidity.Ty.bytes
               lvalue := false }
-      | L00_SourceSolidity.Ty.string =>
+      | Solidity.Ty.string =>
           require (member == "concat")
             (TypeError.unsupported ("member call " ++ member))
           let checkedArgs ← checkArgs env args
@@ -5853,19 +5852,19 @@ def checkExpr (env : CheckEnv) :
           checkStringConcatArgs checkedArgs
           Except.ok
             { source := expr
-              ty := L00_SourceSolidity.Ty.string
+              ty := Solidity.Ty.string
               lvalue := false }
       | _ =>
           Except.error (TypeError.unsupported ("member call " ++ member))
-  | expr@(L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.member
-        (L00_SourceSolidity.Expr.member
-          (L00_SourceSolidity.Expr.typeName
-            (L00_SourceSolidity.Ty.user parentPath)) typeName) member)
+  | expr@(Solidity.Expr.call
+      (Solidity.Expr.member
+        (Solidity.Expr.member
+          (Solidity.Expr.typeName
+            (Solidity.Ty.user parentPath)) typeName) member)
       args) => do
       let targetPath : Path :=
         { segments := parentPath.segments ++ [typeName] }
-      let targetTy := L00_SourceSolidity.Ty.user targetPath
+      let targetTy := Solidity.Ty.user targetPath
       checkTy env.types targetTy
       match env.types.lookupUserValueType? targetPath with
       | some underlying =>
@@ -5900,11 +5899,11 @@ def checkExpr (env : CheckEnv) :
             Except.error (TypeError.unsupported ("member call " ++ member))
       | none =>
           Except.error (TypeError.unsupported ("member call " ++ member))
-  | L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.member target member) args => do
+  | Solidity.Expr.call
+      (Solidity.Expr.member target member) args => do
       let expr :=
-        L00_SourceSolidity.Expr.call
-          (L00_SourceSolidity.Expr.member target member) args
+        Solidity.Expr.call
+          (Solidity.Expr.member target member) args
       let checkedArgs ←
         match checkArgs env args with
         | Except.ok checkedArgs => Except.ok checkedArgs
@@ -5920,18 +5919,18 @@ def checkExpr (env : CheckEnv) :
           (TypeError.unsupported "named arguments for low-level call")
         require (targetChecked.ty.isAddressLike env.types)
           (TypeError.expectedType
-            (L00_SourceSolidity.Ty.address false) targetChecked.ty)
+            (Solidity.Ty.address false) targetChecked.ty)
         if member == "staticcall" then
           requireCallMutabilityAllowed env
-            L00_SourceSolidity.StateMutability.view
+            Solidity.StateMutability.view
         else
           requireCallMutabilityAllowed env
-            L00_SourceSolidity.StateMutability.nonpayable
+            Solidity.StateMutability.nonpayable
         if member == "call" || member == "staticcall" ||
             member == "delegatecall" then
           match checkedArgs with
           | [data] => do
-              data.expectAssignableTo L00_SourceSolidity.Ty.bytes
+              data.expectAssignableTo Solidity.Ty.bytes
               Except.ok { source := expr, ty := lowLevelCallReturnTy }
           | _ =>
               Except.error
@@ -5940,47 +5939,47 @@ def checkExpr (env : CheckEnv) :
         else if member == "send" then
           require targetChecked.ty.isPayableAddress
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address true) targetChecked.ty)
+              (Solidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              amount.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok
-                { source := expr, ty := L00_SourceSolidity.Ty.bool }
+                { source := expr, ty := Solidity.Ty.bool }
           | _ =>
               Except.error
                 (TypeError.arityMismatch "send" 1 checkedArgs.length)
         else
           require targetChecked.ty.isPayableAddress
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address true) targetChecked.ty)
+              (Solidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              amount.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.tuple [] }
+                  ty := Solidity.Ty.tuple [] }
           | _ =>
               Except.error
                 (TypeError.arityMismatch "transfer" 1 checkedArgs.length)
       match target with
-        | L00_SourceSolidity.Expr.ident "abi" =>
+        | Solidity.Expr.ident "abi" =>
             requireNoNamedArgs ("abi." ++ member) argInfos
             if member == "encode" then
               checkAbiEncodableArgs env.types checkedArgs
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.bytes
+                  ty := Solidity.Ty.bytes
                   lvalue := false }
             else if member == "encodePacked" then
               checkAbiEncodePackedArgs env.types checkedArgs
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.bytes
+                  ty := Solidity.Ty.bytes
                   lvalue := false }
             else if member == "decode" then
               match args, checkedArgs with
-              | [ L00_SourceSolidity.Arg.positional _,
-                  L00_SourceSolidity.Arg.positional typesExpr ],
+              | [ Solidity.Arg.positional _,
+                  Solidity.Arg.positional typesExpr ],
                 [data, _] => do
                   data.expectBytesLike
                   let tys ← checkAbiDecodeTypesExpr env.types typesExpr
@@ -5998,11 +5997,11 @@ def checkExpr (env : CheckEnv) :
             else if member == "encodeWithSelector" then
               match checkedArgs with
               | selector :: rest => do
-                  selector.expectAssignableTo (L00_SourceSolidity.Ty.bytesN 4)
+                  selector.expectAssignableTo (Solidity.Ty.bytesN 4)
                   checkAbiEncodableArgs env.types rest
                   Except.ok
                     { source := expr
-                      ty := L00_SourceSolidity.Ty.bytes
+                      ty := Solidity.Ty.bytes
                       lvalue := false }
               | [] =>
                   Except.error
@@ -6015,7 +6014,7 @@ def checkExpr (env : CheckEnv) :
                   checkAbiEncodableArgs env.types rest
                   Except.ok
                     { source := expr
-                      ty := L00_SourceSolidity.Ty.bytes
+                      ty := Solidity.Ty.bytes
                       lvalue := false }
               | [] =>
                   Except.error
@@ -6023,25 +6022,25 @@ def checkExpr (env : CheckEnv) :
                       "abi.encodeWithSignature" 1 0)
             else
               Except.error (TypeError.unsupported ("member " ++ member))
-        | L00_SourceSolidity.Expr.ident "bytes" =>
+        | Solidity.Expr.ident "bytes" =>
             require (member == "concat")
               (TypeError.unsupported ("member " ++ member))
             requireNoNamedArgs "bytes.concat" argInfos
             checkBytesConcatArgs checkedArgs
             Except.ok
               { source := expr
-                ty := L00_SourceSolidity.Ty.bytes
+                ty := Solidity.Ty.bytes
                 lvalue := false }
-        | L00_SourceSolidity.Expr.ident "string" =>
+        | Solidity.Expr.ident "string" =>
             require (member == "concat")
               (TypeError.unsupported ("member " ++ member))
             requireNoNamedArgs "string.concat" argInfos
             checkStringConcatArgs checkedArgs
             Except.ok
               { source := expr
-                ty := L00_SourceSolidity.Ty.string
+                ty := Solidity.Ty.string
                 lvalue := false }
-        | L00_SourceSolidity.Expr.ident "super" => do
+        | Solidity.Expr.ident "super" => do
             let sig ←
               match
                   FunctionSigs.resolveChecked env.types env.superFunctions
@@ -6090,7 +6089,7 @@ def checkExpr (env : CheckEnv) :
                       Except.ok
                         (sig.checkedResult expr)
                     match targetChecked.ty with
-                    | L00_SourceSolidity.Ty.user path =>
+                    | Solidity.Ty.user path =>
                         if env.types.isContractValuePath path then
                           match env.types.resolveContractMemberFunctionChecked path
                               member checkedInfos with
@@ -6110,19 +6109,19 @@ def checkExpr (env : CheckEnv) :
                         else
                           checkUsingCall
                     | _ =>
-                        match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+                        match Solidity.Executable.Expr.abiTyWithEnv?
                             env.vars expr with
                         | some ty =>
                             Except.ok
                               { source := expr, ty := ty, lvalue := false }
                         | none => checkUsingCall
             match targetExpr with
-            | L00_SourceSolidity.Expr.typeName
-                (L00_SourceSolidity.Ty.user libraryPath) =>
+            | Solidity.Expr.typeName
+                (Solidity.Ty.user libraryPath) =>
                 match env.types.lookupContractDecl? libraryPath with
                 | some libraryDecl =>
                     if libraryDecl.kind ==
-                        L00_SourceSolidity.ContractKind.library then
+                        Solidity.ContractKind.library then
                       let sig ←
                         match
                             FunctionSigs.resolveChecked env.types
@@ -6167,7 +6166,7 @@ def checkExpr (env : CheckEnv) :
                     else
                       checkUsingOrFallback
                 | none => checkUsingOrFallback
-            | L00_SourceSolidity.Expr.ident libraryName =>
+            | Solidity.Expr.ident libraryName =>
                 if (env.lookupVar? libraryName).isNone &&
                     TypeContext.pathIn
                       (TypeContext.pathOfName libraryName)
@@ -6192,7 +6191,7 @@ def checkExpr (env : CheckEnv) :
                         (TypeContext.pathOfName libraryName) with
                   | none, some libraryDecl =>
                       if libraryDecl.kind ==
-                          L00_SourceSolidity.ContractKind.library then
+                          Solidity.ContractKind.library then
                         let sig ←
                           match
                               env.types.resolveLibraryFunctionChecked
@@ -6211,10 +6210,10 @@ def checkExpr (env : CheckEnv) :
                         checkUsingOrFallback
                   | _, _ => checkUsingOrFallback
             | _ => checkUsingOrFallback
-  | expr@(L00_SourceSolidity.Expr.call fn args) => do
+  | expr@(Solidity.Expr.call fn args) => do
       let fnChecked ← checkExpr env fn
       match fnChecked.ty with
-      | L00_SourceSolidity.Ty.functionWithLocations params paramLocations
+      | Solidity.Ty.functionWithLocations params paramLocations
           returns returnLocations mutability visibility => do
           let sig :=
             functionPointerSig "<expression>" params paramLocations returns
@@ -6254,14 +6253,14 @@ def checkExpr (env : CheckEnv) :
       | _ =>
           let checkedArgs ← checkArgs env args
           requireCallExprMutabilityAllowed env fn
-          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+          match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
           | some ty => Except.ok { source := expr, ty := ty, lvalue := false }
           | none =>
               Except.error
                 (TypeError.unsupported
                   ("call with " ++ toString checkedArgs.length ++ " arguments"))
-  | expr@(L00_SourceSolidity.Expr.callWithOptions
-      (L00_SourceSolidity.Expr.newExpr ty []) options args) => do
+  | expr@(Solidity.Expr.callWithOptions
+      (Solidity.Expr.newExpr ty []) options args) => do
       checkTy env.types ty
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
@@ -6271,7 +6270,7 @@ def checkExpr (env : CheckEnv) :
       else
         Except.ok ()
       match ty with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           let contractDecl ←
             match env.types.lookupContractDecl? path with
             | some decl => Except.ok decl
@@ -6348,12 +6347,12 @@ def checkExpr (env : CheckEnv) :
           requireValueOptionAllowed constructorSig.mutability options
           Except.ok { source := expr, ty := ty, lvalue := false }
       | _ => Except.error (TypeError.invalidType ty)
-  | expr@(L00_SourceSolidity.Expr.callWithOptions
-      (L00_SourceSolidity.Expr.ident name) options args) => do
+  | expr@(Solidity.Expr.callWithOptions
+      (Solidity.Expr.ident name) options args) => do
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       match env.lookupVar? name with
-      | some (L00_SourceSolidity.Ty.functionWithLocations params
+      | some (Solidity.Ty.functionWithLocations params
           paramLocations returns returnLocations mutability visibility) => do
           let sig :=
             functionPointerSig name params paramLocations returns
@@ -6391,7 +6390,7 @@ def checkExpr (env : CheckEnv) :
           if options.isEmpty then
             Except.ok ()
           else
-            require (visibility == L00_SourceSolidity.Visibility.external_)
+            require (visibility == Solidity.Visibility.external_)
               (TypeError.unsupported
                 "call options on internal function value")
           requireCallOptionsAllowedNames ["gas", "value"] options
@@ -6412,9 +6411,9 @@ def checkExpr (env : CheckEnv) :
           requireCallMutabilityAllowed env sig.mutability
           Except.ok
             (sig.checkedResult expr)
-  | expr@(L00_SourceSolidity.Expr.callWithOptions
-      (L00_SourceSolidity.Expr.member
-        (L00_SourceSolidity.Expr.ident "super") member) options args) => do
+  | expr@(Solidity.Expr.callWithOptions
+      (Solidity.Expr.member
+        (Solidity.Expr.ident "super") member) options args) => do
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       require options.isEmpty
@@ -6439,11 +6438,11 @@ def checkExpr (env : CheckEnv) :
       requireCallMutabilityAllowed env sig.mutability
       Except.ok
         (sig.checkedResult expr)
-  | L00_SourceSolidity.Expr.callWithOptions
-      (L00_SourceSolidity.Expr.member target member) options args => do
+  | Solidity.Expr.callWithOptions
+      (Solidity.Expr.member target member) options args => do
       let expr :=
-        L00_SourceSolidity.Expr.callWithOptions
-          (L00_SourceSolidity.Expr.member target member) options args
+        Solidity.Expr.callWithOptions
+          (Solidity.Expr.member target member) options args
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       let checkedArgs ← checkArgs env args
@@ -6456,7 +6455,7 @@ def checkExpr (env : CheckEnv) :
           (TypeError.unsupported "named arguments for low-level call")
         require (targetChecked.ty.isAddressLike env.types)
           (TypeError.expectedType
-            (L00_SourceSolidity.Ty.address false) targetChecked.ty)
+            (Solidity.Ty.address false) targetChecked.ty)
         if member == "call" then
           requireCallOptionsAllowedNames ["gas", "value"] options
         else if member == "staticcall" || member == "delegatecall" then
@@ -6465,15 +6464,15 @@ def checkExpr (env : CheckEnv) :
           requireCallOptionsAllowedNames [] options
         if member == "staticcall" then
           requireCallMutabilityAllowed env
-            L00_SourceSolidity.StateMutability.view
+            Solidity.StateMutability.view
         else
           requireCallMutabilityAllowed env
-            L00_SourceSolidity.StateMutability.nonpayable
+            Solidity.StateMutability.nonpayable
         if member == "call" || member == "staticcall" ||
             member == "delegatecall" then
           match checkedArgs with
           | [data] => do
-              data.expectAssignableTo L00_SourceSolidity.Ty.bytes
+              data.expectAssignableTo Solidity.Ty.bytes
               Except.ok { source := expr, ty := lowLevelCallReturnTy }
           | _ =>
               Except.error
@@ -6482,25 +6481,25 @@ def checkExpr (env : CheckEnv) :
         else if member == "send" then
           require targetChecked.ty.isPayableAddress
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address true) targetChecked.ty)
+              (Solidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              amount.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok
-                { source := expr, ty := L00_SourceSolidity.Ty.bool }
+                { source := expr, ty := Solidity.Ty.bool }
           | _ =>
               Except.error
                 (TypeError.arityMismatch "send" 1 checkedArgs.length)
         else
           require targetChecked.ty.isPayableAddress
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address true) targetChecked.ty)
+              (Solidity.Ty.address true) targetChecked.ty)
           match checkedArgs with
           | [amount] => do
-              amount.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              amount.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.tuple [] }
+                  ty := Solidity.Ty.tuple [] }
           | _ =>
               Except.error
                 (TypeError.arityMismatch "transfer" 1 checkedArgs.length)
@@ -6518,7 +6517,7 @@ def checkExpr (env : CheckEnv) :
         | none =>
             requireCallOptionsAllowedNames ["gas", "value"] options
             match targetChecked.ty with
-            | L00_SourceSolidity.Ty.user path => do
+            | Solidity.Ty.user path => do
                 require (env.types.isContractValuePath path)
                   (TypeError.unsupported
                     "member call on a transient library value")
@@ -6537,19 +6536,19 @@ def checkExpr (env : CheckEnv) :
                 Except.ok
                   (sig.checkedResult expr)
             | _ =>
-                match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+                match Solidity.Executable.Expr.abiTyWithEnv?
                     env.vars expr with
                 | some ty =>
                     Except.ok { source := expr, ty := ty, lvalue := false }
                 | none =>
                     Except.error
                       (TypeError.unsupported ("member call " ++ member))
-  | expr@(L00_SourceSolidity.Expr.callWithOptions fn options args) => do
+  | expr@(Solidity.Expr.callWithOptions fn options args) => do
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       let fnChecked ← checkExpr env fn
       match fnChecked.ty with
-      | L00_SourceSolidity.Ty.functionWithLocations params paramLocations
+      | Solidity.Ty.functionWithLocations params paramLocations
           returns returnLocations mutability visibility => do
           let sig :=
             functionPointerSig "<expression>" params paramLocations returns
@@ -6587,7 +6586,7 @@ def checkExpr (env : CheckEnv) :
           if options.isEmpty then
             Except.ok ()
           else
-            require (visibility == L00_SourceSolidity.Visibility.external_)
+            require (visibility == Solidity.Visibility.external_)
               (TypeError.unsupported
                 "call options on internal function value")
           requireCallOptionsAllowedNames ["gas", "value"] options
@@ -6597,50 +6596,50 @@ def checkExpr (env : CheckEnv) :
       | _ =>
           let checkedArgs ← checkArgs env args
           requireCallExprMutabilityAllowed env fn
-          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+          match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
           | some ty => Except.ok { source := expr, ty := ty, lvalue := false }
           | none =>
               Except.error
                 (TypeError.unsupported
                   ("call with " ++ toString checkedArgs.length ++ " arguments"))
-  | expr@(L00_SourceSolidity.Expr.newExpr ty args) => do
+  | expr@(Solidity.Expr.newExpr ty args) => do
       checkTy env.types ty
       match ty with
-      | L00_SourceSolidity.Ty.bytes =>
+      | Solidity.Ty.bytes =>
           let checkedArgs ← checkArgs env args
           let argInfos := checkedArgInfos args checkedArgs
           requireNoNamedArgs "new bytes" argInfos
           match checkedArgs with
           | [length] => do
-              length.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              length.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok { source := expr, ty := ty, lvalue := false }
           | _ =>
               Except.error
                 (TypeError.arityMismatch "new bytes" 1 checkedArgs.length)
-      | L00_SourceSolidity.Ty.string =>
+      | Solidity.Ty.string =>
           let checkedArgs ← checkArgs env args
           let argInfos := checkedArgInfos args checkedArgs
           requireNoNamedArgs "new string" argInfos
           match checkedArgs with
           | [length] => do
-              length.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              length.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok { source := expr, ty := ty, lvalue := false }
           | _ =>
               Except.error
                 (TypeError.arityMismatch "new string" 1 checkedArgs.length)
-      | L00_SourceSolidity.Ty.array _ none =>
+      | Solidity.Ty.array _ none =>
           let checkedArgs ← checkArgs env args
           let argInfos := checkedArgInfos args checkedArgs
           requireNoNamedArgs "new dynamic array" argInfos
           match checkedArgs with
           | [length] => do
-              length.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+              length.expectAssignableTo (Solidity.Ty.uint 256)
               Except.ok { source := expr, ty := ty, lvalue := false }
           | _ =>
               Except.error
                 (TypeError.arityMismatch
                   "new dynamic array" 1 checkedArgs.length)
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           let contractDecl ←
             match env.types.lookupContractDecl? path with
             | some decl => Except.ok decl
@@ -6716,14 +6715,14 @@ def checkExpr (env : CheckEnv) :
               | Except.error _ => Except.error argErr
           Except.ok { source := expr, ty := ty, lvalue := false }
       | _ => Except.error (TypeError.invalidType ty)
-  | expr@(L00_SourceSolidity.Expr.tuple items) => do
+  | expr@(Solidity.Expr.tuple items) => do
       let tys ← checkTupleItems env items
       Except.ok
-        { source := expr, ty := L00_SourceSolidity.Ty.tuple tys,
+        { source := expr, ty := Solidity.Ty.tuple tys,
           lvalue := false }
-  | L00_SourceSolidity.Expr.array [] =>
+  | Solidity.Expr.array [] =>
       Except.error (TypeError.unsupported "empty array literal")
-  | expr@(L00_SourceSolidity.Expr.array (head :: rest)) => do
+  | expr@(Solidity.Expr.array (head :: rest)) => do
       let checkedElements ← checkExprList env (head :: rest)
       let elementTy ←
         match CheckedExprs.commonArrayElementTy? checkedElements with
@@ -6735,17 +6734,17 @@ def checkExpr (env : CheckEnv) :
         (List.replicate checkedElements.length elementTy)
       Except.ok
         { source := expr
-          ty := L00_SourceSolidity.Ty.array elementTy
+          ty := Solidity.Ty.array elementTy
             (some (head :: rest).length)
           lvalue := false }
-  | expr@(L00_SourceSolidity.Expr.enumFromUInt _ inner) => do
+  | expr@(Solidity.Expr.enumFromUInt _ inner) => do
       let checkedInner ← checkExpr env inner
       checkedInner.expectInteger
       Except.ok
         { source := expr
-          ty := L00_SourceSolidity.Ty.uint 8
+          ty := Solidity.Ty.uint 8
           lvalue := false }
-  | expr@(L00_SourceSolidity.Expr.unary op inner) => do
+  | expr@(Solidity.Expr.unary op inner) => do
       let checked ← checkExpr env inner
       let usingOperator? ←
         CheckEnv.resolveUsingUnaryOperator? env op checked
@@ -6756,31 +6755,31 @@ def checkExpr (env : CheckEnv) :
           | _ => Except.error (TypeError.unknownFunction "operator")
       | none =>
       match op with
-      | L00_SourceSolidity.UnaryOp.logicalNot =>
+      | Solidity.UnaryOp.logicalNot =>
           checked.expectBool
-          Except.ok { source := expr, ty := L00_SourceSolidity.Ty.bool }
-      | L00_SourceSolidity.UnaryOp.bitNot =>
+          Except.ok { source := expr, ty := Solidity.Ty.bool }
+      | Solidity.UnaryOp.bitNot =>
           checked.expectShiftLeftOperand
           Except.ok { source := expr, ty := checked.ty }
-      | L00_SourceSolidity.UnaryOp.neg =>
-          match L00_SourceSolidity.Executable.Expr.toCoreNumericLiteralAs?
-              (L00_SourceSolidity.Ty.int 256) expr with
+      | Solidity.UnaryOp.neg =>
+          match Solidity.Executable.Expr.toCoreNumericLiteralAs?
+              (Solidity.Ty.int 256) expr with
           | some _ =>
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.int 256 }
+                  ty := Solidity.Ty.int 256 }
           | none => do
               require checked.ty.isSignedArithmeticOperand
                 (TypeError.expectedInteger checked.ty)
               Except.ok { source := expr, ty := checked.ty }
-      | L00_SourceSolidity.UnaryOp.delete =>
+      | Solidity.UnaryOp.delete =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner
           require (!checked.locationIsCalldata)
             (TypeError.invalidDataLocation checked.ty
-              (some L00_SourceSolidity.DataLocation.calldata))
+              (some Solidity.DataLocation.calldata))
           match checked.ty with
-          | L00_SourceSolidity.Ty.mapping _ _ =>
+          | Solidity.Ty.mapping _ _ =>
               Except.error
                 (TypeError.unsupported "delete on mapping lvalue")
           | _ => Except.ok ()
@@ -6788,17 +6787,17 @@ def checkExpr (env : CheckEnv) :
           | some name =>
               require (!env.isLocalStorageRef name)
                 (TypeError.invalidDataLocation checked.ty
-                  (some L00_SourceSolidity.DataLocation.storage))
+                  (some Solidity.DataLocation.storage))
           | none => Except.ok ()
           if checked.stateLValue then
             requireStateWriteAllowed env
           else
             Except.ok ()
           Except.ok { source := expr, ty := checked.ty, lvalue := false }
-      | L00_SourceSolidity.UnaryOp.preIncrement
-      | L00_SourceSolidity.UnaryOp.preDecrement
-      | L00_SourceSolidity.UnaryOp.postIncrement
-      | L00_SourceSolidity.UnaryOp.postDecrement =>
+      | Solidity.UnaryOp.preIncrement
+      | Solidity.UnaryOp.preDecrement
+      | Solidity.UnaryOp.postIncrement
+      | Solidity.UnaryOp.postDecrement =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner
           if checked.stateLValue then
@@ -6807,7 +6806,7 @@ def checkExpr (env : CheckEnv) :
             Except.ok ()
           checked.expectInteger
           Except.ok { source := expr, ty := checked.ty, lvalue := false }
-  | expr@(L00_SourceSolidity.Expr.binary op lhs rhs) => do
+  | expr@(Solidity.Expr.binary op lhs rhs) => do
       let lhsChecked ← checkExpr env lhs
       let rhsChecked ← checkExpr env rhs
       let usingOperator? ←
@@ -6819,19 +6818,19 @@ def checkExpr (env : CheckEnv) :
           | _ => Except.error (TypeError.unknownFunction "operator")
       | none =>
       match op with
-      | L00_SourceSolidity.BinaryOp.boolAnd
-      | L00_SourceSolidity.BinaryOp.boolOr =>
+      | Solidity.BinaryOp.boolAnd
+      | Solidity.BinaryOp.boolOr =>
           lhsChecked.expectBool
           rhsChecked.expectBool
-          Except.ok { source := expr, ty := L00_SourceSolidity.Ty.bool }
-      | L00_SourceSolidity.BinaryOp.lt
-      | L00_SourceSolidity.BinaryOp.gt
-      | L00_SourceSolidity.BinaryOp.le
-      | L00_SourceSolidity.BinaryOp.ge =>
+          Except.ok { source := expr, ty := Solidity.Ty.bool }
+      | Solidity.BinaryOp.lt
+      | Solidity.BinaryOp.gt
+      | Solidity.BinaryOp.le
+      | Solidity.BinaryOp.ge =>
           let _ ← CheckedExprs.relationalTy lhsChecked rhsChecked
-          Except.ok { source := expr, ty := L00_SourceSolidity.Ty.bool }
-      | L00_SourceSolidity.BinaryOp.eq
-      | L00_SourceSolidity.BinaryOp.ne =>
+          Except.ok { source := expr, ty := Solidity.Ty.bool }
+      | Solidity.BinaryOp.eq
+      | Solidity.BinaryOp.ne =>
           require
             ((TypeContext.canImplicitlyConvert env.types
                 rhsChecked.ty lhsChecked.ty ||
@@ -6840,33 +6839,33 @@ def checkExpr (env : CheckEnv) :
                 lhsChecked.ty rhsChecked.ty ||
               implicitLiteralFits rhsChecked.ty lhsChecked.source))
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
-          Except.ok { source := expr, ty := L00_SourceSolidity.Ty.bool }
-      | L00_SourceSolidity.BinaryOp.add
-      | L00_SourceSolidity.BinaryOp.sub
-      | L00_SourceSolidity.BinaryOp.mul
-      | L00_SourceSolidity.BinaryOp.div
-      | L00_SourceSolidity.BinaryOp.mod =>
+          Except.ok { source := expr, ty := Solidity.Ty.bool }
+      | Solidity.BinaryOp.add
+      | Solidity.BinaryOp.sub
+      | Solidity.BinaryOp.mul
+      | Solidity.BinaryOp.div
+      | Solidity.BinaryOp.mod =>
           let ty ← CheckedExprs.arithmeticTy lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
-      | L00_SourceSolidity.BinaryOp.exp =>
+      | Solidity.BinaryOp.exp =>
           lhsChecked.expectInteger
           rhsChecked.expectUnsignedInteger
           Except.ok { source := expr, ty := lhsChecked.ty }
-      | L00_SourceSolidity.BinaryOp.bitAnd
-      | L00_SourceSolidity.BinaryOp.bitOr
-      | L00_SourceSolidity.BinaryOp.bitXor =>
+      | Solidity.BinaryOp.bitAnd
+      | Solidity.BinaryOp.bitOr
+      | Solidity.BinaryOp.bitXor =>
           let ty ← CheckedExprs.bitwiseTy lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
-      | L00_SourceSolidity.BinaryOp.shl
-      | L00_SourceSolidity.BinaryOp.shr =>
+      | Solidity.BinaryOp.shl
+      | Solidity.BinaryOp.shr =>
           lhsChecked.expectShiftLeftOperand
           rhsChecked.expectUnsignedInteger
           Except.ok { source := expr, ty := lhsChecked.ty }
-      | L00_SourceSolidity.BinaryOp.sar =>
+      | Solidity.BinaryOp.sar =>
           lhsChecked.expectSignedInteger
           rhsChecked.expectUnsignedInteger
           Except.ok { source := expr, ty := lhsChecked.ty }
-  | expr@(L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr) => do
+  | expr@(Solidity.Expr.ternary cond thenExpr elseExpr) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       let thenChecked ← checkExpr env thenExpr
@@ -6891,22 +6890,22 @@ def checkExpr (env : CheckEnv) :
         { source := expr
           ty := resultTy
           dataLocation? := resultLocation }
-  | expr@(L00_SourceSolidity.Expr.assign lhs _ rhs) => do
+  | expr@(Solidity.Expr.assign lhs _ rhs) => do
       match lhs with
-      | L00_SourceSolidity.Expr.tuple lhsItems =>
+      | Solidity.Expr.tuple lhsItems =>
           match expr with
-          | L00_SourceSolidity.Expr.assign _
-              L00_SourceSolidity.AssignOp.assign _ => do
+          | Solidity.Expr.assign _
+              Solidity.AssignOp.assign _ => do
               let targets ← checkTupleAssignmentTargets env lhsItems
               let resultTys ←
                 match rhs with
-                | L00_SourceSolidity.Expr.tuple _ =>
+                | Solidity.Expr.tuple _ =>
                     checkTupleAssignmentTargetsWithTupleExprAssignableTo env
                       targets rhs
                 | _ => do
                     let rhsChecked ← checkExpr env rhs
                     match rhsChecked.ty with
-                    | L00_SourceSolidity.Ty.tuple tys =>
+                    | Solidity.Ty.tuple tys =>
                         checkTupleAssignmentTargetsWithTys env targets tys
                           rhsChecked.storageRefs rhsChecked.dataLocations
                     | _ =>
@@ -6915,7 +6914,7 @@ def checkExpr (env : CheckEnv) :
                             "tuple assignment" lhsItems.length 1)
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.tuple resultTys
+                  ty := Solidity.Ty.tuple resultTys
                   lvalue := false }
           | _ => Except.error (TypeError.expectedLValue lhs)
       | _ => do
@@ -6924,8 +6923,8 @@ def checkExpr (env : CheckEnv) :
           lhsChecked.expectWritableLocation lhs
           let rebindsStoragePointer :=
             match expr, Expr.directIdentName? lhs with
-            | L00_SourceSolidity.Expr.assign _
-                L00_SourceSolidity.AssignOp.assign _, some name =>
+            | Solidity.Expr.assign _
+                Solidity.AssignOp.assign _, some name =>
                 env.isPointerReturnName name || env.isLocalStorageRef name
             | _, _ => false
           if lhsChecked.stateLValue && !rebindsStoragePointer then
@@ -6938,7 +6937,7 @@ def checkExpr (env : CheckEnv) :
             | some name =>
                 require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
                   (TypeError.invalidDataLocation lhsChecked.ty
-                    (some L00_SourceSolidity.DataLocation.storage))
+                    (some Solidity.DataLocation.storage))
             | none => Except.ok ()
             if lhsChecked.locationIsCalldata then
               rhsChecked.expectLocationAssignableTo lhsChecked.ty
@@ -6947,39 +6946,39 @@ def checkExpr (env : CheckEnv) :
               Except.ok ()
             let opResultTy ←
               match expr with
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.assign _ => do
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.assign _ => do
                   env.requireNoMappingStorageCopy lhs lhsChecked
                     rhsChecked.stateLValue
                   rhsChecked.expectAssignableToIn env.types lhsChecked.ty
                   Except.ok lhsChecked.ty
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.addAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.subAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.mulAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.divAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.modAssign _ =>
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.addAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.subAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.mulAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.divAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.modAssign _ =>
                   CheckedExprs.arithmeticTy lhsChecked rhsChecked
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.bitAndAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.bitOrAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.bitXorAssign _ =>
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.bitAndAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.bitOrAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.bitXorAssign _ =>
                   CheckedExprs.bitwiseTy lhsChecked rhsChecked
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.shlAssign _
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.shrAssign _ => do
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.shlAssign _
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.shrAssign _ => do
                   lhsChecked.expectShiftLeftOperand
                   rhsChecked.expectUnsignedInteger
                   Except.ok lhsChecked.ty
-              | L00_SourceSolidity.Expr.assign _
-                  L00_SourceSolidity.AssignOp.sarAssign _ => do
+              | Solidity.Expr.assign _
+                  Solidity.AssignOp.sarAssign _ => do
                   lhsChecked.expectSignedInteger
                   rhsChecked.expectUnsignedInteger
                   Except.ok lhsChecked.ty
@@ -6991,8 +6990,8 @@ def checkExpr (env : CheckEnv) :
             Except.ok
               { source := expr, ty := lhsChecked.ty, lvalue := false }
           match expr with
-          | L00_SourceSolidity.Expr.assign _
-              L00_SourceSolidity.AssignOp.assign _ =>
+          | Solidity.Expr.assign _
+              Solidity.AssignOp.assign _ =>
               match
                   checkInternalFunctionValueAssignable?
                     env rhs lhsChecked.ty with
@@ -7008,7 +7007,7 @@ def checkExpr (env : CheckEnv) :
                     | some name => do
                         require (!env.isLocalStorageRef name)
                           (TypeError.invalidDataLocation lhsChecked.ty
-                            (some L00_SourceSolidity.DataLocation.storage))
+                            (some Solidity.DataLocation.storage))
                         let rhsChecked ← checkExpr env rhs
                         if lhsChecked.locationIsCalldata then
                           rhsChecked.expectLocationAssignableTo lhsChecked.ty
@@ -7028,31 +7027,31 @@ def checkExpr (env : CheckEnv) :
                   else
                     checkOrdinaryRhs
           | _ => checkOrdinaryRhs
-  | expr@(L00_SourceSolidity.Expr.payableConversion inner) => do
+  | expr@(Solidity.Expr.payableConversion inner) => do
       let checked ← checkExpr env inner
       match checked.ty with
-      | L00_SourceSolidity.Ty.address _ =>
+      | Solidity.Ty.address _ =>
           Except.ok
-            { source := expr, ty := L00_SourceSolidity.Ty.address true,
+            { source := expr, ty := Solidity.Ty.address true,
               lvalue := false }
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           require (env.types.contractCanReceiveEther path)
             (TypeError.expectedType
-              (L00_SourceSolidity.Ty.address false) checked.ty)
+              (Solidity.Ty.address false) checked.ty)
           Except.ok
-            { source := expr, ty := L00_SourceSolidity.Ty.address true,
+            { source := expr, ty := Solidity.Ty.address true,
               lvalue := false }
       | other =>
-          match L00_SourceSolidity.Executable.Expr.toCorePayableLiteral?
+          match Solidity.Executable.Expr.toCorePayableLiteral?
               inner with
           | some _ =>
               Except.ok
-                { source := expr, ty := L00_SourceSolidity.Ty.address true,
+                { source := expr, ty := Solidity.Ty.address true,
                   lvalue := false }
           | none =>
               Except.error
                 (TypeError.expectedType
-                  (L00_SourceSolidity.Ty.address false) other)
+                  (Solidity.Ty.address false) other)
 termination_by expr => sizeOf expr
 decreasing_by
   all_goals
@@ -7070,10 +7069,10 @@ decreasing_by
     try
       cases fn <;> simp_wf <;> try simp_all [sizeOf] <;> omega
 
-def checkArg (env : CheckEnv) : L00_SourceSolidity.Arg ->
+def checkArg (env : CheckEnv) : Solidity.Arg ->
     Except TypeError CheckedExpr
-  | L00_SourceSolidity.Arg.positional expr => checkExpr env expr
-  | L00_SourceSolidity.Arg.named _ expr => checkExpr env expr
+  | Solidity.Arg.positional expr => checkExpr env expr
+  | Solidity.Arg.named _ expr => checkExpr env expr
 termination_by arg => sizeOf arg
 decreasing_by
   all_goals
@@ -7081,7 +7080,7 @@ decreasing_by
     simp_wf
     try omega
 
-def checkArgs (env : CheckEnv) : List L00_SourceSolidity.Arg ->
+def checkArgs (env : CheckEnv) : List Solidity.Arg ->
     Except TypeError (List CheckedExpr)
   | [] => Except.ok []
   | arg :: rest => do
@@ -7096,9 +7095,9 @@ decreasing_by
     try omega
 
 def checkArgAssignableToParam (env : CheckEnv) (expected : Ty) :
-    L00_SourceSolidity.Arg -> Except TypeError CheckedExpr
-  | L00_SourceSolidity.Arg.positional expr
-  | L00_SourceSolidity.Arg.named _ expr =>
+    Solidity.Arg -> Except TypeError CheckedExpr
+  | Solidity.Arg.positional expr
+  | Solidity.Arg.named _ expr =>
       let expected := env.qualifyCurrentLocalUserTypes expected
       match checkInternalFunctionValueAssignable? env expr expected with
       | some (Except.ok _) =>
@@ -7129,7 +7128,7 @@ decreasing_by
 
 def checkPositionalArgsAssignableToParamsFor
     (env : CheckEnv) (what : String) :
-    List L00_SourceSolidity.Arg -> List Ty ->
+    List Solidity.Arg -> List Ty ->
     Except TypeError (List CheckedExpr)
   | [], [] => Except.ok []
   | arg :: argRest, ty :: tyRest => do
@@ -7149,9 +7148,9 @@ decreasing_by
 def checkNamedArgsAssignableToParamsFor
     (env : CheckEnv) (what : String)
     (paramNames : List (Option Name)) (params : List Ty) :
-    List L00_SourceSolidity.Arg -> Except TypeError (List CheckedExpr)
+    List Solidity.Arg -> Except TypeError (List CheckedExpr)
   | [] => Except.ok []
-  | L00_SourceSolidity.Arg.named name expr :: rest => do
+  | Solidity.Arg.named name expr :: rest => do
       let expected ←
         match FunctionSig.lookupParamTyByName? paramNames params name with
         | some ty => Except.ok ty
@@ -7160,11 +7159,11 @@ def checkNamedArgsAssignableToParamsFor
               (TypeError.arityMismatch what params.length (rest.length + 1))
       let checked ←
         checkArgAssignableToParam env expected
-          (L00_SourceSolidity.Arg.named name expr)
+          (Solidity.Arg.named name expr)
       let tail ←
         checkNamedArgsAssignableToParamsFor env what paramNames params rest
       Except.ok (checked :: tail)
-  | L00_SourceSolidity.Arg.positional _ :: rest =>
+  | Solidity.Arg.positional _ :: rest =>
       Except.error
         (TypeError.arityMismatch what params.length (rest.length + 1))
 termination_by args => sizeOf args
@@ -7175,7 +7174,7 @@ decreasing_by
 
 def checkContractMemberCallArgsContextualForPath
     (env : CheckEnv) (path : Path) (member : Name)
-    (args : List L00_SourceSolidity.Arg) :
+    (args : List Solidity.Arg) :
     Except TypeError (FunctionSig × List CheckedExpr) := do
   let sig ←
     TypeContext.resolveContractMemberFunctionContextual env path member args
@@ -7204,14 +7203,14 @@ decreasing_by
 
 def checkLibraryMemberCallArgsContextual
     (env : CheckEnv) (libraryName member : Name)
-    (args : List L00_SourceSolidity.Arg) :
+    (args : List Solidity.Arg) :
     Except TypeError (FunctionSig × List CheckedExpr) := do
   let path := TypeContext.pathOfName libraryName
   let libraryDecl ←
     match env.types.lookupContractDecl? path with
     | some libraryDecl => Except.ok libraryDecl
     | none => Except.error (TypeError.unknownType path)
-  require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+  require (libraryDecl.kind == Solidity.ContractKind.library)
     (TypeError.invalidContractHeader "library call target is not a library")
   let sig ←
     FunctionSigs.resolveContextual env
@@ -7244,7 +7243,7 @@ decreasing_by
 
 def checkExplicitBaseMemberCallArgsContextual
     (env : CheckEnv) (baseName member : Name)
-    (args : List L00_SourceSolidity.Arg) :
+    (args : List Solidity.Arg) :
     Except TypeError (FunctionSig × List CheckedExpr) := do
   let path := TypeContext.pathOfName baseName
   require (TypeContext.pathIn path env.ancestorPaths)
@@ -7284,7 +7283,7 @@ decreasing_by
 
 def checkSuperMemberCallArgsContextual
     (env : CheckEnv) (member : Name)
-    (args : List L00_SourceSolidity.Arg) :
+    (args : List Solidity.Arg) :
     Except TypeError (FunctionSig × List CheckedExpr) := do
   let sig ←
     FunctionSigs.resolveContextual env env.superFunctions member args
@@ -7312,13 +7311,13 @@ decreasing_by
     try omega
 
 def checkMemberCallArgsContextual
-    (env : CheckEnv) (target : L00_SourceSolidity.Expr)
-    (member : Name) (args : List L00_SourceSolidity.Arg) :
+    (env : CheckEnv) (target : Solidity.Expr)
+    (member : Name) (args : List Solidity.Arg) :
     Except TypeError (List CheckedExpr) := do
   let targetChecked ← checkExpr env target
   if lowLevelCallMember member then
     match targetChecked.ty with
-    | L00_SourceSolidity.Ty.user path =>
+    | Solidity.Ty.user path =>
         require (env.types.isContractPath path)
           (TypeError.unsupported "contextual low-level member call")
     | _ =>
@@ -7327,7 +7326,7 @@ def checkMemberCallArgsContextual
     (TypeError.unsupported "member call on array slice")
   let candidates ←
     match target with
-    | L00_SourceSolidity.Expr.ident libraryName =>
+    | Solidity.Expr.ident libraryName =>
         if (env.lookupVar? libraryName).isNone &&
             TypeContext.pathIn
               (TypeContext.pathOfName libraryName) env.ancestorPaths then
@@ -7348,7 +7347,7 @@ def checkMemberCallArgsContextual
                 (TypeContext.pathOfName libraryName) with
           | none, some libraryDecl =>
               if libraryDecl.kind ==
-                  L00_SourceSolidity.ContractKind.library then
+                  Solidity.ContractKind.library then
                 Except.ok
                   (FunctionSigs.nonPrivate
                     (FunctionSigs.atLibraryCallBoundary env.types
@@ -7388,13 +7387,13 @@ decreasing_by
     try omega
 
 def checkCallOption (env : CheckEnv) :
-    L00_SourceSolidity.CallOption -> Except TypeError Unit
-  | L00_SourceSolidity.CallOption.named name expr => do
+    Solidity.CallOption -> Except TypeError Unit
+  | Solidity.CallOption.named name expr => do
       let checked ← checkExpr env expr
       if name == "gas" || name == "value" then
-        checked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
+        checked.expectAssignableTo (Solidity.Ty.uint 256)
       else if name == "salt" then
-        requireEqTy (L00_SourceSolidity.Ty.bytesN 32) checked.ty
+        requireEqTy (Solidity.Ty.bytesN 32) checked.ty
       else
         Except.error (TypeError.unsupported ("call option " ++ name))
 termination_by option => sizeOf option
@@ -7405,7 +7404,7 @@ decreasing_by
     try omega
 
 def checkCallOptionsLoop (env : CheckEnv) :
-    List L00_SourceSolidity.CallOption -> Except TypeError Unit
+    List Solidity.CallOption -> Except TypeError Unit
   | [] => Except.ok ()
   | option :: rest => do
       checkCallOption env option
@@ -7418,12 +7417,12 @@ decreasing_by
     try omega
 
 def checkTupleItems (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> Except TypeError (List Ty)
+    List Solidity.TupleItem -> Except TypeError (List Ty)
   | [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.hole :: rest => do
+  | Solidity.TupleItem.hole :: rest => do
       let tail ← checkTupleItems env rest
       Except.ok tail
-  | L00_SourceSolidity.TupleItem.value expr :: rest => do
+  | Solidity.TupleItem.value expr :: rest => do
       let checked ← checkExpr env expr
       let tail ← checkTupleItems env rest
       Except.ok (checked.ty :: tail)
@@ -7435,13 +7434,13 @@ decreasing_by
     try omega
 
 def checkTupleAssignmentTargets (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem ->
+    List Solidity.TupleItem ->
     Except TypeError (List TupleAssignmentTarget)
   | [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.hole :: rest => do
+  | Solidity.TupleItem.hole :: rest => do
       let tail ← checkTupleAssignmentTargets env rest
       Except.ok (none :: tail)
-  | L00_SourceSolidity.TupleItem.value target :: rest => do
+  | Solidity.TupleItem.value target :: rest => do
       let targetChecked ← checkExpr env target
       require targetChecked.lvalue (TypeError.expectedLValue target)
       targetChecked.expectWritableLocation target
@@ -7459,26 +7458,26 @@ decreasing_by
     try omega
 
 def checkTupleAssignmentTargetsWithTupleExprAssignableTo (env : CheckEnv) :
-    List TupleAssignmentTarget -> L00_SourceSolidity.Expr ->
+    List TupleAssignmentTarget -> Solidity.Expr ->
     Except TypeError (List Ty)
-  | [], L00_SourceSolidity.Expr.tuple [] => Except.ok []
+  | [], Solidity.Expr.tuple [] => Except.ok []
   | none :: targetRest,
-      L00_SourceSolidity.Expr.tuple
-        (L00_SourceSolidity.TupleItem.value expr :: itemRest) => do
+      Solidity.Expr.tuple
+        (Solidity.TupleItem.value expr :: itemRest) => do
       let _ ← checkExpr env expr
       checkTupleAssignmentTargetsWithTupleExprAssignableTo env targetRest
-        (L00_SourceSolidity.Expr.tuple itemRest)
+        (Solidity.Expr.tuple itemRest)
   | some (target, targetChecked) :: targetRest,
-      L00_SourceSolidity.Expr.tuple
-        (L00_SourceSolidity.TupleItem.value expr :: itemRest) => do
+      Solidity.Expr.tuple
+        (Solidity.TupleItem.value expr :: itemRest) => do
       let checked ←
         checkArgAssignableToParam env targetChecked.ty
-          (L00_SourceSolidity.Arg.positional expr)
+          (Solidity.Arg.positional expr)
       match Expr.directIdentName? target with
       | some name =>
           require (!env.isLocalStorageRef name || checked.stateLValue)
             (TypeError.invalidDataLocation targetChecked.ty
-              (some L00_SourceSolidity.DataLocation.storage))
+              (some Solidity.DataLocation.storage))
       | none => Except.ok ()
       env.requireNoMappingStorageCopy target targetChecked
         checked.stateLValue
@@ -7489,12 +7488,12 @@ def checkTupleAssignmentTargetsWithTupleExprAssignableTo (env : CheckEnv) :
         Except.ok ()
       let tail ←
         checkTupleAssignmentTargetsWithTupleExprAssignableTo env targetRest
-          (L00_SourceSolidity.Expr.tuple itemRest)
+          (Solidity.Expr.tuple itemRest)
       Except.ok (targetChecked.ty :: tail)
-  | _ :: _, L00_SourceSolidity.Expr.tuple
-      (L00_SourceSolidity.TupleItem.hole :: _) =>
+  | _ :: _, Solidity.Expr.tuple
+      (Solidity.TupleItem.hole :: _) =>
       Except.error (TypeError.unsupported "tuple hole in value position")
-  | targets, L00_SourceSolidity.Expr.tuple items =>
+  | targets, Solidity.Expr.tuple items =>
       Except.error
         (TypeError.arityMismatch
           "tuple assignment" targets.length items.length)
@@ -7510,13 +7509,13 @@ decreasing_by
     try omega
 
 def checkTupleItemValuesAssignableTo (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> List Ty -> Except TypeError Unit
+    List Solidity.TupleItem -> List Ty -> Except TypeError Unit
   | [], [] => Except.ok ()
-  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest => do
+  | Solidity.TupleItem.value expr :: rest, ty :: tyRest => do
       let checked ← checkExpr env expr
       checked.expectAssignableToIn env.types ty
       checkTupleItemValuesAssignableTo env rest tyRest
-  | L00_SourceSolidity.TupleItem.hole :: _, _ =>
+  | Solidity.TupleItem.hole :: _, _ =>
       Except.error (TypeError.unsupported "tuple hole in value position")
   | actual, expected =>
       Except.error
@@ -7530,17 +7529,17 @@ decreasing_by
     try omega
 
 def checkEncodeCallTupleItemsAssignableTo (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> List Ty ->
+    List Solidity.TupleItem -> List Ty ->
     Except TypeError (List CheckedExpr)
   | [], [] => Except.ok []
-  | L00_SourceSolidity.TupleItem.hole :: _, _ =>
+  | Solidity.TupleItem.hole :: _, _ =>
       Except.error
         (TypeError.invalidAbiCall
           "abi.encodeCall argument tuple cannot contain holes")
-  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest => do
+  | Solidity.TupleItem.value expr :: rest, ty :: tyRest => do
       let checked ←
         checkArgAssignableToParam env ty
-          (L00_SourceSolidity.Arg.positional expr)
+          (Solidity.Arg.positional expr)
       let tail ← checkEncodeCallTupleItemsAssignableTo env rest tyRest
       Except.ok (checked :: tail)
   | actual, expected =>
@@ -7555,7 +7554,7 @@ decreasing_by
     try omega
 
 def checkArrayElements (env : CheckEnv) (expected : Ty) :
-    List L00_SourceSolidity.Expr -> Except TypeError Unit
+    List Solidity.Expr -> Except TypeError Unit
   | [] => Except.ok ()
   | expr :: rest => do
       let checked ← checkExpr env expr
@@ -7569,7 +7568,7 @@ decreasing_by
     try omega
 
 def checkExprList (env : CheckEnv) :
-    List L00_SourceSolidity.Expr -> Except TypeError (List CheckedExpr)
+    List Solidity.Expr -> Except TypeError (List CheckedExpr)
   | [] => Except.ok []
   | expr :: rest => do
       let checked ← checkExpr env expr
@@ -7587,7 +7586,7 @@ end
 def checkContextualArgsAssignableToParamsFor
     (env : CheckEnv) (what : String)
     (paramNames : List (Option Name)) (params : List Ty)
-    (args : List L00_SourceSolidity.Arg) :
+    (args : List Solidity.Arg) :
     Except TypeError (List CheckedExpr) := do
   let checkedArgs ←
     if Args.anyNamed args then
@@ -7606,8 +7605,8 @@ def checkContextualArgsAssignableToParamsWithStorageRefsFor
     (paramNames : List (Option Name)) (params : List Ty)
     (paramStorageRefs : List Bool)
     (paramDataLocations :
-      List (Option L00_SourceSolidity.DataLocation))
-    (args : List L00_SourceSolidity.Arg) :
+      List (Option Solidity.DataLocation))
+    (args : List Solidity.Arg) :
     Except TypeError (List CheckedExpr) := do
   let checkedArgs ←
     checkContextualArgsAssignableToParamsFor env what paramNames params args
@@ -7622,7 +7621,7 @@ def checkContextualArgsAssignableToParamsWithStorageRefsFor
         (TypeError.arityMismatch what params.length checkedArgs.length)
 
 def checkModifierArgs (env : CheckEnv)
-    (name : Name) (args : List L00_SourceSolidity.Arg) :
+    (name : Name) (args : List Solidity.Arg) :
     Except TypeError Unit := do
   match checkArgs env args with
   | Except.ok checkedArgs =>
@@ -7649,7 +7648,7 @@ def checkModifierArgs (env : CheckEnv)
       | Except.error _ => Except.error argErr
 
 def checkEventArgs (env : CheckEnv)
-    (name : Name) (args : List L00_SourceSolidity.Arg) :
+    (name : Name) (args : List Solidity.Arg) :
     Except TypeError Unit := do
   match checkArgs env args with
   | Except.ok checkedArgs =>
@@ -7674,7 +7673,7 @@ def checkEventArgs (env : CheckEnv)
       | Except.error _ => Except.error argErr
 
 def checkCustomErrorArgs (env : CheckEnv)
-    (name : Name) (args : List L00_SourceSolidity.Arg) :
+    (name : Name) (args : List Solidity.Arg) :
     Except TypeError Unit := do
   match checkArgs env args with
   | Except.ok checkedArgs =>
@@ -7701,9 +7700,9 @@ def checkCustomErrorArgs (env : CheckEnv)
 mutual
 
 def checkExprAssignableTo (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Ty -> Except TypeError Unit
-  | expr@(L00_SourceSolidity.Expr.array elements),
-    expected@(L00_SourceSolidity.Ty.array _ (some size)) => do
+    Solidity.Expr -> Ty -> Except TypeError Unit
+  | expr@(Solidity.Expr.array elements),
+    expected@(Solidity.Ty.array _ (some size)) => do
       require (elements.length == size)
         (TypeError.arityMismatch "array literal" size elements.length)
       if exprContextuallyAssignableTo env expr expected then
@@ -7712,8 +7711,8 @@ def checkExprAssignableTo (env : CheckEnv) :
       else
         let checked ← checkExpr env expr
         checked.expectAssignableToIn env.types expected
-  | L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr,
-    expected@(L00_SourceSolidity.Ty.array _ (some _)) => do
+  | Solidity.Expr.ternary cond thenExpr elseExpr,
+    expected@(Solidity.Ty.array _ (some _)) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       checkExprAssignableTo env thenExpr expected
@@ -7735,12 +7734,12 @@ decreasing_by
 end
 
 def checkTupleItemValuesContextuallyAssignableTo (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> List Ty -> Except TypeError Unit
+    List Solidity.TupleItem -> List Ty -> Except TypeError Unit
   | [], [] => Except.ok ()
-  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest => do
+  | Solidity.TupleItem.value expr :: rest, ty :: tyRest => do
       checkExprAssignableTo env expr ty
       checkTupleItemValuesContextuallyAssignableTo env rest tyRest
-  | L00_SourceSolidity.TupleItem.hole :: _, _ =>
+  | Solidity.TupleItem.hole :: _, _ =>
       Except.error (TypeError.unsupported "tuple hole in value position")
   | actual, expected =>
       Except.error
@@ -7748,48 +7747,48 @@ def checkTupleItemValuesContextuallyAssignableTo (env : CheckEnv) :
           "tuple expression" expected.length actual.length)
 
 def checkExprAssignableToReferenceLocation (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) (expected : Ty)
+    (expr : Solidity.Expr) (expected : Ty)
     (needsStorageRef : Bool)
-    (expectedLocation : Option L00_SourceSolidity.DataLocation) :
+    (expectedLocation : Option Solidity.DataLocation) :
     Except TypeError Unit := do
   checkExprAssignableTo env expr expected
   let checked ← checkExpr env expr
   if needsStorageRef then
     require checked.stateLValue
       (TypeError.invalidDataLocation expected
-        (some L00_SourceSolidity.DataLocation.storage))
+        (some Solidity.DataLocation.storage))
   else
     Except.ok ()
   checked.expectLocationAssignableTo expected expectedLocation
 
 def checkTupleItemValuesContextuallyAssignableToWithStorageRefs
     (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> List Ty -> List Bool ->
-    List (Option L00_SourceSolidity.DataLocation) ->
+    List Solidity.TupleItem -> List Ty -> List Bool ->
+    List (Option Solidity.DataLocation) ->
     Except TypeError Unit
   | [], [], _, _ => Except.ok ()
-  | L00_SourceSolidity.TupleItem.value expr :: rest,
+  | Solidity.TupleItem.value expr :: rest,
       ty :: tyRest, storageRef :: storageRest,
       location :: locationRest => do
       checkExprAssignableToReferenceLocation env expr ty storageRef location
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
         tyRest storageRest locationRest
-  | L00_SourceSolidity.TupleItem.value expr :: rest,
+  | Solidity.TupleItem.value expr :: rest,
       ty :: tyRest, storageRef :: storageRest, [] => do
       checkExprAssignableToReferenceLocation env expr ty storageRef none
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
         tyRest storageRest []
-  | L00_SourceSolidity.TupleItem.value expr :: rest,
+  | Solidity.TupleItem.value expr :: rest,
       ty :: tyRest, [], location :: locationRest => do
       checkExprAssignableToReferenceLocation env expr ty false location
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
         tyRest [] locationRest
-  | L00_SourceSolidity.TupleItem.value expr :: rest,
+  | Solidity.TupleItem.value expr :: rest,
       ty :: tyRest, [], [] => do
       checkExprAssignableToReferenceLocation env expr ty false none
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
         tyRest [] []
-  | L00_SourceSolidity.TupleItem.hole :: _, _, _, _ =>
+  | Solidity.TupleItem.hole :: _, _, _, _ =>
       Except.error (TypeError.unsupported "tuple hole in value position")
   | actual, expected, _, _ =>
       Except.error
@@ -7807,43 +7806,43 @@ def constantAbiMemberCallAllowed (member : Name) : Bool :=
     member == "decode"
 
 def exprIsCompileTimeConstantCallTarget
-    (fn : L00_SourceSolidity.Expr) : Bool :=
+    (fn : Solidity.Expr) : Bool :=
   match fn with
-  | L00_SourceSolidity.Expr.typeName _ => true
-  | L00_SourceSolidity.Expr.ident name =>
+  | Solidity.Expr.typeName _ => true
+  | Solidity.Expr.ident name =>
       constantBuiltinIdentCallAllowed name
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident "abi") member =>
+  | Solidity.Expr.member
+      (Solidity.Expr.ident "abi") member =>
       constantAbiMemberCallAllowed member
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident "bytes") "concat" => true
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.ident "string") "concat" => true
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName L00_SourceSolidity.Ty.bytes)
+  | Solidity.Expr.member
+      (Solidity.Expr.ident "bytes") "concat" => true
+  | Solidity.Expr.member
+      (Solidity.Expr.ident "string") "concat" => true
+  | Solidity.Expr.member
+      (Solidity.Expr.typeName Solidity.Ty.bytes)
       "concat" => true
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName L00_SourceSolidity.Ty.string)
+  | Solidity.Expr.member
+      (Solidity.Expr.typeName Solidity.Ty.string)
       "concat" => true
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName _) member =>
+  | Solidity.Expr.member
+      (Solidity.Expr.typeName _) member =>
       member == "wrap" || member == "unwrap"
   | _ => false
 
 mutual
 
 def exprIsCompileTimeConstant (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.literal _ => true
-  | L00_SourceSolidity.Expr.ident name => env.isConstantName name
-  | L00_SourceSolidity.Expr.typeName _ => true
-  | L00_SourceSolidity.Expr.member
-      (L00_SourceSolidity.Expr.typeName _) _ => true
-  | L00_SourceSolidity.Expr.member _ _ => false
-  | L00_SourceSolidity.Expr.index base index =>
+    Solidity.Expr -> Bool
+  | Solidity.Expr.literal _ => true
+  | Solidity.Expr.ident name => env.isConstantName name
+  | Solidity.Expr.typeName _ => true
+  | Solidity.Expr.member
+      (Solidity.Expr.typeName _) _ => true
+  | Solidity.Expr.member _ _ => false
+  | Solidity.Expr.index base index =>
       exprIsCompileTimeConstant env base &&
         exprIsCompileTimeConstant env index
-  | L00_SourceSolidity.Expr.slice base start? stop? =>
+  | Solidity.Expr.slice base start? stop? =>
       let startOk :=
         match start? with
         | none => true
@@ -7854,69 +7853,69 @@ def exprIsCompileTimeConstant (env : CheckEnv) :
         | some stop => exprIsCompileTimeConstant env stop
       exprIsCompileTimeConstant env base &&
         startOk && stopOk
-  | L00_SourceSolidity.Expr.call fn args =>
+  | Solidity.Expr.call fn args =>
       exprIsCompileTimeConstantCallTarget fn &&
         argsAllCompileTimeConstant env args
-  | L00_SourceSolidity.Expr.callWithOptions _ _ _ => false
-  | L00_SourceSolidity.Expr.newExpr _ args =>
+  | Solidity.Expr.callWithOptions _ _ _ => false
+  | Solidity.Expr.newExpr _ args =>
       argsAllCompileTimeConstant env args
-  | L00_SourceSolidity.Expr.tuple items =>
+  | Solidity.Expr.tuple items =>
       tupleItemsAllCompileTimeConstant env items
-  | L00_SourceSolidity.Expr.array exprs =>
+  | Solidity.Expr.array exprs =>
       exprsAllCompileTimeConstant env exprs
-  | L00_SourceSolidity.Expr.enumFromUInt _ inner =>
+  | Solidity.Expr.enumFromUInt _ inner =>
       exprIsCompileTimeConstant env inner
-  | L00_SourceSolidity.Expr.unary op inner =>
+  | Solidity.Expr.unary op inner =>
       match op with
-      | L00_SourceSolidity.UnaryOp.logicalNot
-      | L00_SourceSolidity.UnaryOp.bitNot
-      | L00_SourceSolidity.UnaryOp.neg =>
+      | Solidity.UnaryOp.logicalNot
+      | Solidity.UnaryOp.bitNot
+      | Solidity.UnaryOp.neg =>
           exprIsCompileTimeConstant env inner
-      | L00_SourceSolidity.UnaryOp.delete
-      | L00_SourceSolidity.UnaryOp.preIncrement
-      | L00_SourceSolidity.UnaryOp.preDecrement
-      | L00_SourceSolidity.UnaryOp.postIncrement
-      | L00_SourceSolidity.UnaryOp.postDecrement => false
-  | L00_SourceSolidity.Expr.binary _ lhs rhs =>
+      | Solidity.UnaryOp.delete
+      | Solidity.UnaryOp.preIncrement
+      | Solidity.UnaryOp.preDecrement
+      | Solidity.UnaryOp.postIncrement
+      | Solidity.UnaryOp.postDecrement => false
+  | Solidity.Expr.binary _ lhs rhs =>
       exprIsCompileTimeConstant env lhs &&
         exprIsCompileTimeConstant env rhs
-  | L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr =>
+  | Solidity.Expr.ternary cond thenExpr elseExpr =>
       exprIsCompileTimeConstant env cond &&
         exprIsCompileTimeConstant env thenExpr &&
           exprIsCompileTimeConstant env elseExpr
-  | L00_SourceSolidity.Expr.assign _ _ _ => false
-  | L00_SourceSolidity.Expr.payableConversion inner =>
+  | Solidity.Expr.assign _ _ _ => false
+  | Solidity.Expr.payableConversion inner =>
       exprIsCompileTimeConstant env inner
 
 def exprsAllCompileTimeConstant (env : CheckEnv) :
-    List L00_SourceSolidity.Expr -> Bool
+    List Solidity.Expr -> Bool
   | [] => true
   | expr :: rest =>
       exprIsCompileTimeConstant env expr &&
         exprsAllCompileTimeConstant env rest
 
 def argIsCompileTimeConstant (env : CheckEnv) :
-    L00_SourceSolidity.Arg -> Bool
-  | L00_SourceSolidity.Arg.positional expr =>
+    Solidity.Arg -> Bool
+  | Solidity.Arg.positional expr =>
       exprIsCompileTimeConstant env expr
-  | L00_SourceSolidity.Arg.named _ expr =>
+  | Solidity.Arg.named _ expr =>
       exprIsCompileTimeConstant env expr
 
 def argsAllCompileTimeConstant (env : CheckEnv) :
-    List L00_SourceSolidity.Arg -> Bool
+    List Solidity.Arg -> Bool
   | [] => true
   | arg :: rest =>
       argIsCompileTimeConstant env arg &&
         argsAllCompileTimeConstant env rest
 
 def tupleItemIsCompileTimeConstant (env : CheckEnv) :
-    L00_SourceSolidity.TupleItem -> Bool
-  | L00_SourceSolidity.TupleItem.hole => true
-  | L00_SourceSolidity.TupleItem.value expr =>
+    Solidity.TupleItem -> Bool
+  | Solidity.TupleItem.hole => true
+  | Solidity.TupleItem.value expr =>
       exprIsCompileTimeConstant env expr
 
 def tupleItemsAllCompileTimeConstant (env : CheckEnv) :
-    List L00_SourceSolidity.TupleItem -> Bool
+    List Solidity.TupleItem -> Bool
   | [] => true
   | item :: rest =>
       tupleItemIsCompileTimeConstant env item &&
@@ -7925,48 +7924,48 @@ def tupleItemsAllCompileTimeConstant (env : CheckEnv) :
 end
 
 def Expr.isCompileTimeConstant (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Bool :=
+    (expr : Solidity.Expr) : Bool :=
   exprIsCompileTimeConstant env expr
 
 def exprIsStorageLayoutBaseErc7201Id (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.string _) => true
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.unicodeString _) => true
-  | L00_SourceSolidity.Expr.ident name => env.isConstantName name
+    Solidity.Expr -> Bool
+  | Solidity.Expr.literal
+      (Solidity.Literal.string _) => true
+  | Solidity.Expr.literal
+      (Solidity.Literal.unicodeString _) => true
+  | Solidity.Expr.ident name => env.isConstantName name
   | _ => false
 
 def exprIsStorageLayoutBaseComptime (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.literal (L00_SourceSolidity.Literal.number _) =>
+    Solidity.Expr -> Bool
+  | Solidity.Expr.literal (Solidity.Literal.number _) =>
       true
-  | L00_SourceSolidity.Expr.literal
-      (L00_SourceSolidity.Literal.unitNumber _ _) => true
-  | L00_SourceSolidity.Expr.ident name => env.isConstantName name
-  | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident "erc7201")
-      [L00_SourceSolidity.Arg.positional id] =>
+  | Solidity.Expr.literal
+      (Solidity.Literal.unitNumber _ _) => true
+  | Solidity.Expr.ident name => env.isConstantName name
+  | Solidity.Expr.call (Solidity.Expr.ident "erc7201")
+      [Solidity.Arg.positional id] =>
       exprIsStorageLayoutBaseErc7201Id env id
-  | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
+  | Solidity.Expr.unary Solidity.UnaryOp.neg inner =>
       exprIsStorageLayoutBaseComptime env inner
-  | L00_SourceSolidity.Expr.binary op lhs rhs =>
-      L00_SourceSolidity.Executable.BinaryOp.storageLayoutBaseEvalAllowed op &&
+  | Solidity.Expr.binary op lhs rhs =>
+      Solidity.Executable.BinaryOp.storageLayoutBaseEvalAllowed op &&
         exprIsStorageLayoutBaseComptime env lhs &&
         exprIsStorageLayoutBaseComptime env rhs
   | _ => false
 
 def Expr.isStorageLayoutBaseComptime (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Bool :=
+    (expr : Solidity.Expr) : Bool :=
   exprIsStorageLayoutBaseComptime env expr
 
 def Exprs.allCompileTimeConstant (env : CheckEnv)
-    (exprs : List L00_SourceSolidity.Expr) : Bool :=
+    (exprs : List Solidity.Expr) : Bool :=
   exprsAllCompileTimeConstant env exprs
 
 def StateVarDecl.hasCompileTimeImmutableInit
     (constantBindings : List (Name × Bool))
-    (decl : L00_SourceSolidity.StateVarDecl) : Bool :=
-  decl.mutability == L00_SourceSolidity.VarMutability.immutable &&
+    (decl : Solidity.StateVarDecl) : Bool :=
+  decl.mutability == Solidity.VarMutability.immutable &&
     match decl.init with
     | some init =>
         Expr.isCompileTimeConstant
@@ -7975,10 +7974,10 @@ def StateVarDecl.hasCompileTimeImmutableInit
 
 def StateVarDecl.runtimeStateNameWith?
     (constantBindings : List (Name × Bool))
-    (decl : L00_SourceSolidity.StateVarDecl) : Option Name :=
-  if decl.mutability == L00_SourceSolidity.VarMutability.mutable ||
-      decl.mutability == L00_SourceSolidity.VarMutability.transient ||
-      (decl.mutability == L00_SourceSolidity.VarMutability.immutable &&
+    (decl : Solidity.StateVarDecl) : Option Name :=
+  if decl.mutability == Solidity.VarMutability.mutable ||
+      decl.mutability == Solidity.VarMutability.transient ||
+      (decl.mutability == Solidity.VarMutability.immutable &&
         !StateVarDecl.hasCompileTimeImmutableInit constantBindings decl) then
     some decl.name
   else
@@ -7986,7 +7985,7 @@ def StateVarDecl.runtimeStateNameWith?
 
 def StateVarDecls.runtimeStateNamesWith
     (constantBindings : List (Name × Bool)) :
-    List L00_SourceSolidity.StateVarDecl -> List Name
+    List Solidity.StateVarDecl -> List Name
   | [] => []
   | decl :: rest =>
       match StateVarDecl.runtimeStateNameWith? constantBindings decl with
@@ -7996,9 +7995,9 @@ def StateVarDecls.runtimeStateNamesWith
 
 def checkTysAssignableWithReferenceLocations (types : TypeContext) :
     List Ty -> List Bool ->
-    List (Option L00_SourceSolidity.DataLocation) ->
+    List (Option Solidity.DataLocation) ->
     List Ty -> List Bool ->
-    List (Option L00_SourceSolidity.DataLocation) ->
+    List (Option Solidity.DataLocation) ->
     Except TypeError Unit
   | [], _, _, [], _, _ => Except.ok ()
   | actualTy :: actualRest, actualStorageRefs, actualLocations,
@@ -8013,12 +8012,12 @@ def checkTysAssignableWithReferenceLocations (types : TypeContext) :
       let expectedLocation := expectedLocations.head?.join
       require (!expectedStorage || actualStorage)
         (TypeError.invalidDataLocation expectedTy
-          (some L00_SourceSolidity.DataLocation.storage))
+          (some Solidity.DataLocation.storage))
       match expectedLocation with
-      | some L00_SourceSolidity.DataLocation.calldata =>
+      | some Solidity.DataLocation.calldata =>
           require
             (actualLocation ==
-              some L00_SourceSolidity.DataLocation.calldata)
+              some Solidity.DataLocation.calldata)
             (TypeError.invalidDataLocation expectedTy expectedLocation)
       | _ => Except.ok ()
       checkTysAssignableWithReferenceLocations types actualRest
@@ -8029,7 +8028,7 @@ def checkTysAssignableWithReferenceLocations (types : TypeContext) :
         (TypeError.returnArityMismatch expected.length actual.length)
 
 def checkReturnExprs (env : CheckEnv)
-    (expr? : Option L00_SourceSolidity.Expr) : Except TypeError Unit :=
+    (expr? : Option Solidity.Expr) : Except TypeError Unit :=
   match expr?, env.returnTys with
   | none, [] => Except.ok ()
   | none, expected =>
@@ -8038,12 +8037,12 @@ def checkReturnExprs (env : CheckEnv)
         (TypeError.returnArityMismatch expected.length 0)
   | some expr, [] =>
       match expr with
-      | L00_SourceSolidity.Expr.call
-          (L00_SourceSolidity.Expr.ident "require")
-          [ L00_SourceSolidity.Arg.positional cond
-          , L00_SourceSolidity.Arg.positional
-              (L00_SourceSolidity.Expr.call
-                (L00_SourceSolidity.Expr.ident errorName) errorArgs) ] => do
+      | Solidity.Expr.call
+          (Solidity.Expr.ident "require")
+          [ Solidity.Arg.positional cond
+          , Solidity.Arg.positional
+              (Solidity.Expr.call
+                (Solidity.Expr.ident errorName) errorArgs) ] => do
           let condChecked ← checkExpr env cond
           condChecked.expectBool
           match checkCustomErrorArgs env errorName errorArgs with
@@ -8053,18 +8052,18 @@ def checkReturnExprs (env : CheckEnv)
                 Except.error err
               else do
                 let checked ← checkExpr env expr
-                requireEqTy (L00_SourceSolidity.Ty.tuple []) checked.ty
-      | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.delete _ => do
+                requireEqTy (Solidity.Ty.tuple []) checked.ty
+      | Solidity.Expr.unary Solidity.UnaryOp.delete _ => do
           let _ ← checkExpr env expr
           Except.ok ()
       | _ => do
           let checked ← checkExpr env expr
-          requireEqTy (L00_SourceSolidity.Ty.tuple []) checked.ty
-  | some expr@(L00_SourceSolidity.Expr.ternary _ _ _), [expected] =>
+          requireEqTy (Solidity.Ty.tuple []) checked.ty
+  | some expr@(Solidity.Expr.ternary _ _ _), [expected] =>
       checkExprAssignableToReferenceLocation env expr expected
         (returnStorageRefsSingle [expected] env.returnStorageRefs)
         (returnDataLocationSingle? [expected] env.returnDataLocations)
-  | some (L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr), _ => do
+  | some (Solidity.Expr.ternary cond thenExpr elseExpr), _ => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       checkReturnExprs env (some thenExpr)
@@ -8073,13 +8072,13 @@ def checkReturnExprs (env : CheckEnv)
       checkExprAssignableToReferenceLocation env expr expected
         (returnStorageRefsSingle [expected] env.returnStorageRefs)
         (returnDataLocationSingle? [expected] env.returnDataLocations)
-  | some (L00_SourceSolidity.Expr.tuple items), expected =>
+  | some (Solidity.Expr.tuple items), expected =>
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env items
         expected env.returnStorageRefs env.returnDataLocations
   | some expr, expected => do
       let checked ← checkExpr env expr
       match checked.ty with
-      | L00_SourceSolidity.Ty.tuple actual =>
+      | Solidity.Ty.tuple actual =>
           require (sameLength actual expected)
             (TypeError.returnArityMismatch expected.length actual.length)
           checkTysAssignableWithReferenceLocations env.types actual
@@ -8110,36 +8109,36 @@ def CheckedExpr.expectAssignableToTys (types : TypeContext)
     (checked : CheckedExpr) (expected : List Ty) :
     Except TypeError Unit :=
   match expected with
-  | [] => requireEqTy (L00_SourceSolidity.Ty.tuple []) checked.ty
+  | [] => requireEqTy (Solidity.Ty.tuple []) checked.ty
   | [ty] => checked.expectAssignableToIn types ty
   | tys =>
       match checked.ty with
-      | L00_SourceSolidity.Ty.tuple actual =>
+      | Solidity.Ty.tuple actual =>
           checkTysAssignableTo types actual tys
       | _ => Except.error (TypeError.returnArityMismatch tys.length 1)
 
 def Ty.isExternalFunction : Ty -> Bool
-  | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
-      L00_SourceSolidity.Visibility.external_ => true
+  | Solidity.Ty.functionWithLocations _ _ _ _ _
+      Solidity.Visibility.external_ => true
   | _ => false
 
 def isKnownContractCreationTryTarget (env : CheckEnv) :
-    L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.newExpr
-      (L00_SourceSolidity.Ty.user path) _ =>
+    Solidity.Expr -> Bool
+  | Solidity.Expr.newExpr
+      (Solidity.Ty.user path) _ =>
       env.types.isContractPath path
-  | L00_SourceSolidity.Expr.callWithOptions
-      (L00_SourceSolidity.Expr.newExpr
-        (L00_SourceSolidity.Ty.user path) _) _ _ =>
+  | Solidity.Expr.callWithOptions
+      (Solidity.Expr.newExpr
+        (Solidity.Ty.user path) _) _ _ =>
       env.types.isContractPath path
   | _ => false
 
 def checkTryExternalMemberCallTarget (env : CheckEnv)
-    (target : L00_SourceSolidity.Expr) (member : Name)
-    (args : List L00_SourceSolidity.Arg) : Except TypeError Unit := do
+    (target : Solidity.Expr) (member : Name)
+    (args : List Solidity.Arg) : Except TypeError Unit := do
   let targetChecked ← checkExpr env target
   match targetChecked.ty with
-  | L00_SourceSolidity.Ty.user path =>
+  | Solidity.Ty.user path =>
       require (env.types.isContractValuePath path)
         (TypeError.invalidTryCatch
           "try target is not a contract function value")
@@ -8171,16 +8170,16 @@ def checkTryExternalMemberCallTarget (env : CheckEnv)
           "try target is not an external function call")
 
 def checkTryTargetKind (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Except TypeError Unit :=
+    (expr : Solidity.Expr) : Except TypeError Unit :=
   match expr with
-  | L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.member target member) args =>
+  | Solidity.Expr.call
+      (Solidity.Expr.member target member) args =>
       checkTryExternalMemberCallTarget env target member args
-  | L00_SourceSolidity.Expr.callWithOptions
-      (L00_SourceSolidity.Expr.member target member) _ args =>
+  | Solidity.Expr.callWithOptions
+      (Solidity.Expr.member target member) _ args =>
       checkTryExternalMemberCallTarget env target member args
-  | L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.ident name) _ =>
+  | Solidity.Expr.call
+      (Solidity.Expr.ident name) _ =>
       match env.lookupVar? name with
       | some ty =>
           require ty.isExternalFunction
@@ -8190,12 +8189,12 @@ def checkTryTargetKind (env : CheckEnv)
           Except.error
             (TypeError.invalidTryCatch
               "try target is not an external function call")
-  | L00_SourceSolidity.Expr.call fn _ => do
+  | Solidity.Expr.call fn _ => do
       let fnChecked ← checkExpr env fn
       require fnChecked.ty.isExternalFunction
         (TypeError.invalidTryCatch
           "try target is not an external function call")
-  | L00_SourceSolidity.Expr.callWithOptions fn _ _ => do
+  | Solidity.Expr.callWithOptions fn _ _ => do
       if isKnownContractCreationTryTarget env expr then
         Except.ok ()
       else
@@ -8209,33 +8208,33 @@ def checkTryTargetKind (env : CheckEnv)
           "try target is not an external call or contract creation")
 
 def checkTryTarget (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Except TypeError CheckedExpr := do
+    (expr : Solidity.Expr) : Except TypeError CheckedExpr := do
   checkTryTargetKind env expr
   checkExpr env expr
 
 def checkEventEmission (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Except TypeError Unit :=
+    (expr : Solidity.Expr) : Except TypeError Unit :=
   match expr with
-  | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident name) args => do
+  | Solidity.Expr.call (Solidity.Expr.ident name) args => do
       checkEventArgs env name args
   | other => do
       let _ ← checkExpr env other
       Except.ok ()
 
 def checkRevertCall (env : CheckEnv)
-    (expr : L00_SourceSolidity.Expr) : Except TypeError Unit :=
+    (expr : Solidity.Expr) : Except TypeError Unit :=
   match expr with
-  | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident "revert") _ => do
+  | Solidity.Expr.call (Solidity.Expr.ident "revert") _ => do
       let _ ← checkExpr env expr
       Except.ok ()
-  | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident name) args => do
+  | Solidity.Expr.call (Solidity.Expr.ident name) args => do
       checkCustomErrorArgs env name args
   | other => do
       let _ ← checkExpr env other
       Except.ok ()
 
 def VarBinding.checkType (env : CheckEnv)
-    (binding : L00_SourceSolidity.VarBinding) :
+    (binding : Solidity.VarBinding) :
     Except TypeError Ty :=
   match binding.ty, binding.name with
   | some ty, _ => do
@@ -8245,11 +8244,11 @@ def VarBinding.checkType (env : CheckEnv)
   | none, none => Except.error (TypeError.unsupported "anonymous untyped binding")
 
 def VarBinding.isAnonymousUntyped
-    (binding : L00_SourceSolidity.VarBinding) : Bool :=
+    (binding : Solidity.VarBinding) : Bool :=
   binding.ty.isNone && binding.name.isNone
 
 def VarBinding.namedType? (env : CheckEnv)
-    (binding : L00_SourceSolidity.VarBinding) :
+    (binding : Solidity.VarBinding) :
     Except TypeError (Option (Name × Ty)) := do
   if VarBinding.isAnonymousUntyped binding then
     Except.ok none
@@ -8260,15 +8259,15 @@ def VarBinding.namedType? (env : CheckEnv)
     | none => Except.ok none
 
 def VarBinding.isStorageRef (types : TypeContext)
-    (binding : L00_SourceSolidity.VarBinding) : Bool :=
+    (binding : Solidity.VarBinding) : Bool :=
   match binding.ty with
   | some ty =>
       Ty.needsDataLocation types ty &&
-        binding.location == some L00_SourceSolidity.DataLocation.storage
+        binding.location == some Solidity.DataLocation.storage
   | none => false
 
 def VarBinding.namedTypeStorageRef? (env : CheckEnv)
-    (binding : L00_SourceSolidity.VarBinding) :
+    (binding : Solidity.VarBinding) :
     Except TypeError (Option (Name × Ty × Bool)) := do
   if VarBinding.isAnonymousUntyped binding then
     Except.ok none
@@ -8281,8 +8280,8 @@ def VarBinding.namedTypeStorageRef? (env : CheckEnv)
     | none => Except.ok none
 
 def VarBinding.namedDataLocation? (env : CheckEnv)
-    (binding : L00_SourceSolidity.VarBinding) :
-    Except TypeError (Option (Name × L00_SourceSolidity.DataLocation)) := do
+    (binding : Solidity.VarBinding) :
+    Except TypeError (Option (Name × Solidity.DataLocation)) := do
   if VarBinding.isAnonymousUntyped binding then
     Except.ok none
   else
@@ -8296,7 +8295,7 @@ def VarBinding.namedDataLocation? (env : CheckEnv)
     | _, _ => Except.ok none
 
 def VarBinding.checkStorageRefInitializer (env : CheckEnv)
-    (binding : L00_SourceSolidity.VarBinding) (checked : CheckedExpr) :
+    (binding : Solidity.VarBinding) (checked : CheckedExpr) :
     Except TypeError Unit := do
   let ty ← VarBinding.checkType env binding
   if VarBinding.isStorageRef env.types binding then
@@ -8304,13 +8303,13 @@ def VarBinding.checkStorageRefInitializer (env : CheckEnv)
     require checked.stateLValue
       (TypeError.invalidDataLocation ty binding.location)
   else if binding.location ==
-      some L00_SourceSolidity.DataLocation.calldata then
+      some Solidity.DataLocation.calldata then
     checked.expectLocationAssignableTo ty binding.location
   else
     Except.ok ()
 
 def VarBindings.namedTypes (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding ->
+    List Solidity.VarBinding ->
     Except TypeError (List (Name × Ty))
   | [] => Except.ok []
   | binding :: rest => do
@@ -8321,7 +8320,7 @@ def VarBindings.namedTypes (env : CheckEnv) :
       | none => Except.ok tail
 
 def VarBindings.namedTypeStorageRefs (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding ->
+    List Solidity.VarBinding ->
     Except TypeError (List (Name × Ty × Bool))
   | [] => Except.ok []
   | binding :: rest => do
@@ -8332,8 +8331,8 @@ def VarBindings.namedTypeStorageRefs (env : CheckEnv) :
       | none => Except.ok tail
 
 def VarBindings.namedDataLocations (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding ->
-    Except TypeError (List (Name × L00_SourceSolidity.DataLocation))
+    List Solidity.VarBinding ->
+    Except TypeError (List (Name × Solidity.DataLocation))
   | [] => Except.ok []
   | binding :: rest => do
       let head? ← VarBinding.namedDataLocation? env binding
@@ -8343,22 +8342,22 @@ def VarBindings.namedDataLocations (env : CheckEnv) :
       | none => Except.ok tail
 
 def VarBindings.anyStorageRef (types : TypeContext) :
-    List L00_SourceSolidity.VarBinding -> Bool
+    List Solidity.VarBinding -> Bool
   | [] => false
   | binding :: rest =>
       VarBinding.isStorageRef types binding ||
         VarBindings.anyStorageRef types rest
 
 def VarBindings.anyAnonymousUntyped :
-    List L00_SourceSolidity.VarBinding -> Bool
+    List Solidity.VarBinding -> Bool
   | [] => false
   | binding :: rest =>
       VarBinding.isAnonymousUntyped binding ||
         VarBindings.anyAnonymousUntyped rest
 
 def VarBindings.ensureAnonymousUntypedAllowed
-    (bindings : List L00_SourceSolidity.VarBinding)
-    (init? : Option L00_SourceSolidity.Expr) :
+    (bindings : List Solidity.VarBinding)
+    (init? : Option Solidity.Expr) :
     Except TypeError Unit := do
   if VarBindings.anyAnonymousUntyped bindings then do
     require (bindings.length > 1)
@@ -8371,7 +8370,7 @@ def VarBindings.ensureAnonymousUntypedAllowed
     Except.ok ()
 
 def checkVarBindingsAssignableToTys (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding -> List Ty -> Except TypeError Unit
+    List Solidity.VarBinding -> List Ty -> Except TypeError Unit
   | [], [] => Except.ok ()
   | binding :: bindingRest, actualTy :: actualRest => do
       if VarBinding.isAnonymousUntyped binding then
@@ -8387,8 +8386,8 @@ def checkVarBindingsAssignableToTys (env : CheckEnv) :
         (TypeError.returnArityMismatch expected.length actual.length)
 
 def checkVarBindingsAssignableToTysWithStorageRefs (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding -> List Ty -> List Bool ->
-    List (Option L00_SourceSolidity.DataLocation) ->
+    List Solidity.VarBinding -> List Ty -> List Bool ->
+    List (Option Solidity.DataLocation) ->
     Except TypeError Unit
   | [], [], _, _ => Except.ok ()
   | binding :: bindingRest, actualTy :: actualRest, storageRefs,
@@ -8406,10 +8405,10 @@ def checkVarBindingsAssignableToTysWithStorageRefs (env : CheckEnv) :
             storageRefs.head?.getD false)
           (TypeError.invalidDataLocation expectedTy binding.location)
         if binding.location ==
-            some L00_SourceSolidity.DataLocation.calldata then
+            some Solidity.DataLocation.calldata then
           require
             (locations.head?.join ==
-              some L00_SourceSolidity.DataLocation.calldata)
+              some Solidity.DataLocation.calldata)
             (TypeError.invalidDataLocation expectedTy binding.location)
         else
           Except.ok ()
@@ -8420,10 +8419,10 @@ def checkVarBindingsAssignableToTysWithStorageRefs (env : CheckEnv) :
         (TypeError.returnArityMismatch expected.length actual.length)
 
 def checkVarBindingsAssignableToChecked (env : CheckEnv)
-    (bindings : List L00_SourceSolidity.VarBinding)
+    (bindings : List Solidity.VarBinding)
     (checked : CheckedExpr) : Except TypeError Unit :=
   match checked.ty with
-  | L00_SourceSolidity.Ty.tuple actual =>
+  | Solidity.Ty.tuple actual =>
       checkVarBindingsAssignableToTysWithStorageRefs env bindings actual
         checked.storageRefs checked.dataLocations
   | _ =>
@@ -8431,18 +8430,18 @@ def checkVarBindingsAssignableToChecked (env : CheckEnv)
         (TypeError.returnArityMismatch bindings.length 1)
 
 def checkVarBindingTupleItemsAssignableTo (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding ->
-    List L00_SourceSolidity.TupleItem -> Except TypeError Unit
+    List Solidity.VarBinding ->
+    List Solidity.TupleItem -> Except TypeError Unit
   | [], [] => Except.ok ()
   | binding :: bindingRest,
-      L00_SourceSolidity.TupleItem.value expr :: itemRest => do
+      Solidity.TupleItem.value expr :: itemRest => do
       if VarBinding.isAnonymousUntyped binding then
         checkVarBindingTupleItemsAssignableTo env bindingRest itemRest
       else
         let expectedTy ← VarBinding.checkType env binding
         checkExprAssignableTo env expr expectedTy
         checkVarBindingTupleItemsAssignableTo env bindingRest itemRest
-  | _ :: _, L00_SourceSolidity.TupleItem.hole :: _ =>
+  | _ :: _, Solidity.TupleItem.hole :: _ =>
       Except.error (TypeError.unsupported "tuple hole in value position")
   | expected, actual =>
       Except.error
@@ -8450,21 +8449,21 @@ def checkVarBindingTupleItemsAssignableTo (env : CheckEnv) :
           "tuple expression" expected.length actual.length)
 
 def VarBindings.checkStorageRefTupleInitializers (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding ->
-    List L00_SourceSolidity.TupleItem -> Except TypeError Unit
+    List Solidity.VarBinding ->
+    List Solidity.TupleItem -> Except TypeError Unit
   | [], [] => Except.ok ()
   | binding :: bindingRest,
-      L00_SourceSolidity.TupleItem.value expr :: itemRest => do
+      Solidity.TupleItem.value expr :: itemRest => do
       if VarBinding.isAnonymousUntyped binding then
         Except.ok ()
       else
         let checked ← checkExpr env expr
         VarBinding.checkStorageRefInitializer env binding checked
       VarBindings.checkStorageRefTupleInitializers env bindingRest itemRest
-  | binding :: _, L00_SourceSolidity.TupleItem.hole :: _ => do
+  | binding :: _, Solidity.TupleItem.hole :: _ => do
       if VarBinding.isStorageRef env.types binding then
         Except.error (TypeError.invalidDataLocation
-          (binding.ty.getD (L00_SourceSolidity.Ty.tuple []))
+          (binding.ty.getD (Solidity.Ty.tuple []))
           binding.location)
       else
         Except.error (TypeError.unsupported "tuple hole in value position")
@@ -8474,36 +8473,36 @@ def VarBindings.checkStorageRefTupleInitializers (env : CheckEnv) :
           "tuple expression" expected.length actual.length)
 
 def VarBindings.tys (env : CheckEnv) :
-    List L00_SourceSolidity.VarBinding -> Except TypeError (List Ty)
+    List Solidity.VarBinding -> Except TypeError (List Ty)
   | [] => Except.ok []
   | binding :: rest => do
       let ty ← VarBinding.checkType env binding
       let tail ← VarBindings.tys env rest
       Except.ok (ty :: tail)
 
-def Parameter.isStringMemory (param : L00_SourceSolidity.Parameter) : Bool :=
-  param.ty == L00_SourceSolidity.Ty.string &&
-    param.location == some L00_SourceSolidity.DataLocation.memory
+def Parameter.isStringMemory (param : Solidity.Parameter) : Bool :=
+  param.ty == Solidity.Ty.string &&
+    param.location == some Solidity.DataLocation.memory
 
-def Parameter.isBytesMemory (param : L00_SourceSolidity.Parameter) : Bool :=
-  param.ty == L00_SourceSolidity.Ty.bytes &&
-    param.location == some L00_SourceSolidity.DataLocation.memory
+def Parameter.isBytesMemory (param : Solidity.Parameter) : Bool :=
+  param.ty == Solidity.Ty.bytes &&
+    param.location == some Solidity.DataLocation.memory
 
-def Parameter.isBytesCalldata (param : L00_SourceSolidity.Parameter) : Bool :=
-  param.ty == L00_SourceSolidity.Ty.bytes &&
-    param.location == some L00_SourceSolidity.DataLocation.calldata
+def Parameter.isBytesCalldata (param : Solidity.Parameter) : Bool :=
+  param.ty == Solidity.Ty.bytes &&
+    param.location == some Solidity.DataLocation.calldata
 
-def Parameter.isPanicCode (param : L00_SourceSolidity.Parameter) : Bool :=
-  param.ty == L00_SourceSolidity.Ty.uint 256 && param.location.isNone
+def Parameter.isPanicCode (param : Solidity.Parameter) : Bool :=
+  param.ty == Solidity.Ty.uint 256 && param.location.isNone
 
 def Parameter.checkTryReturnParam (types : TypeContext)
-    (param : L00_SourceSolidity.Parameter) : Except TypeError Unit := do
+    (param : Solidity.Parameter) : Except TypeError Unit := do
   checkTy types param.ty
   require (!Ty.containsLibraryType types 64 param.ty)
     (TypeError.invalidType param.ty)
   if Ty.needsDataLocation types param.ty then
     require (param.location ==
-        some L00_SourceSolidity.DataLocation.memory)
+        some Solidity.DataLocation.memory)
       (TypeError.invalidDataLocation param.ty param.location)
   else
     require param.location.isNone
@@ -8512,14 +8511,14 @@ def Parameter.checkTryReturnParam (types : TypeContext)
     (TypeError.invalidDataLocation param.ty param.location)
 
 def Parameters.checkTryReturnParams (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> Except TypeError Unit
+    List Solidity.Parameter -> Except TypeError Unit
   | [] => Except.ok ()
   | param :: rest => do
       Parameter.checkTryReturnParam types param
       Parameters.checkTryReturnParams types rest
 
 def checkCatchClauseHeader (env : CheckEnv)
-    (name? : Option Name) (params : List L00_SourceSolidity.Parameter) :
+    (name? : Option Name) (params : List Solidity.Parameter) :
     Except TypeError Unit := do
   Parameters.check env.types params
   match name?, params with
@@ -8556,17 +8555,17 @@ def CatchKind.label : CatchKind -> String
   | CatchKind.lowLevel => "low-level"
 
 def catchClauseKind? :
-    L00_SourceSolidity.CatchClause -> Option CatchKind
-  | L00_SourceSolidity.CatchClause.clause (some "Error") _ _ =>
+    Solidity.CatchClause -> Option CatchKind
+  | Solidity.CatchClause.clause (some "Error") _ _ =>
       some CatchKind.error
-  | L00_SourceSolidity.CatchClause.clause (some "Panic") _ _ =>
+  | Solidity.CatchClause.clause (some "Panic") _ _ =>
       some CatchKind.panic
-  | L00_SourceSolidity.CatchClause.clause none _ _ =>
+  | Solidity.CatchClause.clause none _ _ =>
       some CatchKind.lowLevel
   | _ => none
 
 def checkCatchClauseKindsUniqueFrom (seen : List CatchKind) :
-    List L00_SourceSolidity.CatchClause -> Except TypeError Unit
+    List Solidity.CatchClause -> Except TypeError Unit
   | [] => Except.ok ()
   | clause :: rest =>
       match catchClauseKind? clause with
@@ -8578,28 +8577,28 @@ def checkCatchClauseKindsUniqueFrom (seen : List CatchKind) :
       | none => checkCatchClauseKindsUniqueFrom seen rest
 
 def checkCatchClauseKindsUnique :
-    List L00_SourceSolidity.CatchClause -> Except TypeError Unit :=
+    List Solidity.CatchClause -> Except TypeError Unit :=
   checkCatchClauseKindsUniqueFrom []
 
 def requireCatchClausesNonempty
-    (clauses : List L00_SourceSolidity.CatchClause) :
+    (clauses : List Solidity.CatchClause) :
     Except TypeError Unit :=
   require (!clauses.isEmpty)
     (TypeError.invalidTryCatch "try statement requires a catch clause")
 
 structure CheckedStmt where
-  source : L00_SourceSolidity.Stmt
+  source : Solidity.Stmt
   deriving Repr
 
 mutual
 
 def checkStmt (env : CheckEnv) :
-    L00_SourceSolidity.Stmt -> Except TypeError CheckedStmt
-  | stmt@L00_SourceSolidity.Stmt.empty => Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.block body) => do
+    Solidity.Stmt -> Except TypeError CheckedStmt
+  | stmt@Solidity.Stmt.empty => Except.ok { source := stmt }
+  | stmt@(Solidity.Stmt.block body) => do
       let _ ← checkStmtSeq { env with blockScopeNames := [] } body
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.varDecl bindings init?) => do
+  | stmt@(Solidity.Stmt.varDecl bindings init?) => do
       VarBindings.ensureAnonymousUntypedAllowed bindings init?
       let named ← VarBindings.namedTypes env bindings
       ensureUniqueNames "local" (named.map Prod.fst)
@@ -8617,7 +8616,7 @@ def checkStmt (env : CheckEnv) :
                   VarBinding.checkStorageRefInitializer env binding checked
           | _ =>
               match init with
-              | L00_SourceSolidity.Expr.tuple items => do
+              | Solidity.Expr.tuple items => do
                   checkVarBindingTupleItemsAssignableTo env bindings items
                   VarBindings.checkStorageRefTupleInitializers env bindings
                     items
@@ -8625,13 +8624,13 @@ def checkStmt (env : CheckEnv) :
                   let checked ← checkExpr env init
                   checkVarBindingsAssignableToChecked env bindings checked
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.expr
-      (L00_SourceSolidity.Expr.call
-        (L00_SourceSolidity.Expr.ident "require")
-        [ L00_SourceSolidity.Arg.positional cond
-        , L00_SourceSolidity.Arg.positional
-            (L00_SourceSolidity.Expr.call
-              (L00_SourceSolidity.Expr.ident errorName) errorArgs) ])) => do
+  | stmt@(Solidity.Stmt.expr
+      (Solidity.Expr.call
+        (Solidity.Expr.ident "require")
+        [ Solidity.Arg.positional cond
+        , Solidity.Arg.positional
+            (Solidity.Expr.call
+              (Solidity.Expr.ident errorName) errorArgs) ])) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       match checkCustomErrorArgs env errorName errorArgs with
@@ -8641,18 +8640,18 @@ def checkStmt (env : CheckEnv) :
             Except.error err
           else
             let _ ← checkExpr env
-              (L00_SourceSolidity.Expr.call
-                (L00_SourceSolidity.Expr.ident "require")
-                [ L00_SourceSolidity.Arg.positional cond
-                , L00_SourceSolidity.Arg.positional
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.ident errorName)
+              (Solidity.Expr.call
+                (Solidity.Expr.ident "require")
+                [ Solidity.Arg.positional cond
+                , Solidity.Arg.positional
+                    (Solidity.Expr.call
+                      (Solidity.Expr.ident errorName)
                       errorArgs) ])
             Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.expr expr) => do
+  | stmt@(Solidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.ifElse cond thenBranch elseBranch?) => do
+  | stmt@(Solidity.Stmt.ifElse cond thenBranch elseBranch?) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       let _ ← checkStmt env thenBranch
@@ -8660,23 +8659,23 @@ def checkStmt (env : CheckEnv) :
       | some elseBranch => let _ ← checkStmt env elseBranch; Except.ok ()
       | none => Except.ok ()
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.whileLoop cond body) => do
+  | stmt@(Solidity.Stmt.whileLoop cond body) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       let _ ← checkStmt env.enterLoop body
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.doWhile body cond) => do
+  | stmt@(Solidity.Stmt.doWhile body cond) => do
       let _ ← checkStmt env.enterLoop body
       let condChecked ← checkExpr env cond
       condChecked.expectBool
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.forLoop init? cond? post? body) => do
+  | stmt@(Solidity.Stmt.forLoop init? cond? post? body) => do
       let loopEnv ←
         match init? with
         | none => Except.ok env
         | some initStmt =>
             match initStmt with
-            | L00_SourceSolidity.Stmt.varDecl bindings _ => do
+            | Solidity.Stmt.varDecl bindings _ => do
                 let _ ← checkStmt env initStmt
                 let named ← VarBindings.namedTypeStorageRefs env bindings
                 let dataLocations ← VarBindings.namedDataLocations env bindings
@@ -8694,13 +8693,13 @@ def checkStmt (env : CheckEnv) :
       | none => Except.ok ()
       let _ ← checkStmt loopEnv.enterLoop body
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.tryCatch expr clauses) => do
+  | stmt@(Solidity.Stmt.tryCatch expr clauses) => do
       let _ ← checkTryTarget env expr
       requireCatchClausesNonempty clauses
       checkCatchClauseKindsUnique clauses
       let _ ← checkCatchClauses env clauses
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.tryCatchReturns expr returns success clauses) => do
+  | stmt@(Solidity.Stmt.tryCatchReturns expr returns success clauses) => do
       Parameters.checkTryReturnParams env.types returns
       ensureUniqueNames "try return"
         ((Parameters.namedTypes returns).map Prod.fst)
@@ -8715,43 +8714,43 @@ def checkStmt (env : CheckEnv) :
       checkCatchClauseKindsUnique clauses
       let _ ← checkCatchClauses env clauses
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.emitEvent expr) => do
+  | stmt@(Solidity.Stmt.emitEvent expr) => do
       requireLogOrCreateAllowed env
         "event emission in view or pure function"
       checkEventEmission env expr
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.revertCall expr) => do
+  | stmt@(Solidity.Stmt.revertCall expr) => do
       checkRevertCall env expr
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.returnValues expr?) => do
+  | stmt@(Solidity.Stmt.returnValues expr?) => do
       checkReturnExprs env expr?
       Except.ok { source := stmt }
-  | stmt@L00_SourceSolidity.Stmt.break => do
+  | stmt@Solidity.Stmt.break => do
       require (env.loopDepth > 0) TypeError.breakOutsideLoop
       Except.ok { source := stmt }
-  | stmt@L00_SourceSolidity.Stmt.continue => do
+  | stmt@Solidity.Stmt.continue => do
       require (env.loopDepth > 0) TypeError.continueOutsideLoop
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.unchecked body) => do
+  | stmt@(Solidity.Stmt.unchecked body) => do
       require (!env.inUnchecked) (TypeError.unsupported
         "nested unchecked block")
       let _ ← checkStmt env.enterUnchecked body
       Except.ok { source := stmt }
-  | L00_SourceSolidity.Stmt.inlineAssembly _ =>
+  | Solidity.Stmt.inlineAssembly _ =>
       Except.error (TypeError.unsupported "inline assembly")
-  | stmt@L00_SourceSolidity.Stmt.modifierPlaceholder => do
+  | stmt@Solidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
       require (!env.inUnchecked) (TypeError.unsupported
         "modifier placeholder in unchecked block")
       Except.ok { source := stmt }
 
 def checkStmtSeq (env : CheckEnv) :
-    List L00_SourceSolidity.Stmt -> Except TypeError CheckEnv
+    List Solidity.Stmt -> Except TypeError CheckEnv
   | [] => Except.ok env
   | stmt :: rest => do
       let declaredNames ←
         match stmt with
-        | L00_SourceSolidity.Stmt.varDecl bindings _ => do
+        | Solidity.Stmt.varDecl bindings _ => do
             let named ← VarBindings.namedTypes env bindings
             let names := named.map Prod.fst
             ensureNamesDisjointFrom "local" env.blockScopeNames names
@@ -8760,7 +8759,7 @@ def checkStmtSeq (env : CheckEnv) :
       let _ ← checkStmt env stmt
       let nextEnv ←
         match stmt with
-        | L00_SourceSolidity.Stmt.varDecl bindings _ => do
+        | Solidity.Stmt.varDecl bindings _ => do
             let named ← VarBindings.namedTypeStorageRefs env bindings
             let dataLocations ← VarBindings.namedDataLocations env bindings
             Except.ok
@@ -8771,8 +8770,8 @@ def checkStmtSeq (env : CheckEnv) :
       checkStmtSeq nextEnv rest
 
 def checkCatchClause (env : CheckEnv) :
-    L00_SourceSolidity.CatchClause -> Except TypeError Unit
-  | L00_SourceSolidity.CatchClause.clause name? params body => do
+    Solidity.CatchClause -> Except TypeError Unit
+  | Solidity.CatchClause.clause name? params body => do
       checkCatchClauseHeader env name? params
       let clauseEnv :=
         (env.extendVarsWithStorageRefs
@@ -8782,7 +8781,7 @@ def checkCatchClause (env : CheckEnv) :
       Except.ok ()
 
 def checkCatchClauses (env : CheckEnv) :
-    List L00_SourceSolidity.CatchClause -> Except TypeError Unit
+    List Solidity.CatchClause -> Except TypeError Unit
   | [] => Except.ok ()
   | clause :: rest => do
       checkCatchClause env clause
@@ -8791,14 +8790,14 @@ def checkCatchClauses (env : CheckEnv) :
 end
 
 def StateVarDecl.check (env : CheckEnv)
-    (decl : L00_SourceSolidity.StateVarDecl) : Except TypeError Unit := do
+    (decl : Solidity.StateVarDecl) : Except TypeError Unit := do
   let declTy := env.qualifyCurrentLocalUserTypes decl.ty
   checkTy env.types declTy
   require (!Ty.containsLibraryType env.types 64 declTy)
     (TypeError.invalidType declTy)
-  require (!(decl.visibility == some L00_SourceSolidity.Visibility.external_))
+  require (!(decl.visibility == some Solidity.Visibility.external_))
     (TypeError.invalidVariableDecl "state variable is external")
-  if decl.visibility == some L00_SourceSolidity.Visibility.public_ then
+  if decl.visibility == some Solidity.Visibility.public_ then
     env.types.requireNoFixedPointValue declTy
       "public state-variable getter for"
     let getterShape ←
@@ -8819,7 +8818,7 @@ def StateVarDecl.check (env : CheckEnv)
     | none => Except.ok ()
   else
     Except.ok ()
-  if decl.mutability == L00_SourceSolidity.VarMutability.constant then
+  if decl.mutability == Solidity.VarMutability.constant then
     require (env.types.isConstantStateVarTypeShape declTy)
       (TypeError.invalidVariableDecl
         "constant variable has unsupported type")
@@ -8831,11 +8830,11 @@ def StateVarDecl.check (env : CheckEnv)
           (TypeError.invalidVariableDecl
             "constant variable initializer is not compile-time constant")
     | none => Except.ok ()
-  else if decl.mutability == L00_SourceSolidity.VarMutability.immutable then
+  else if decl.mutability == Solidity.VarMutability.immutable then
     require (env.types.isImmutableStateVarTypeShape declTy)
       (TypeError.invalidVariableDecl
         "immutable variable has unsupported type")
-  else if decl.mutability == L00_SourceSolidity.VarMutability.transient then
+  else if decl.mutability == Solidity.VarMutability.transient then
     requireCancunOrLater env "transient storage"
     require (env.types.isValueTypeShape declTy)
       (TypeError.invalidVariableDecl
@@ -8850,8 +8849,8 @@ def StateVarDecl.check (env : CheckEnv)
   | some init => checkExprAssignableTo env init declTy
 
 def StateVarDecl.checkFileLevelConstant (env : CheckEnv)
-    (decl : L00_SourceSolidity.StateVarDecl) : Except TypeError Unit := do
-  require (decl.mutability == L00_SourceSolidity.VarMutability.constant)
+    (decl : Solidity.StateVarDecl) : Except TypeError Unit := do
+  require (decl.mutability == Solidity.VarMutability.constant)
     (TypeError.invalidVariableDecl
       "only constant variables are allowed at file level")
   require decl.visibility.isNone
@@ -8862,44 +8861,44 @@ def StateVarDecl.checkFileLevelConstant (env : CheckEnv)
       "file-level constant has override")
   StateVarDecl.check env decl
 
-def StateVarDecl.namedType (decl : L00_SourceSolidity.StateVarDecl) :
+def StateVarDecl.namedType (decl : Solidity.StateVarDecl) :
     Name × Ty :=
   (decl.name, decl.ty)
 
-def StateVarDecl.namedConstness (decl : L00_SourceSolidity.StateVarDecl) :
+def StateVarDecl.namedConstness (decl : Solidity.StateVarDecl) :
     Name × Bool :=
-  (decl.name, decl.mutability == L00_SourceSolidity.VarMutability.constant)
+  (decl.name, decl.mutability == Solidity.VarMutability.constant)
 
 def StateVarDecl.isRuntimeStateRead
-    (decl : L00_SourceSolidity.StateVarDecl) : Bool :=
-  decl.mutability == L00_SourceSolidity.VarMutability.mutable ||
-    decl.mutability == L00_SourceSolidity.VarMutability.transient
+    (decl : Solidity.StateVarDecl) : Bool :=
+  decl.mutability == Solidity.VarMutability.mutable ||
+    decl.mutability == Solidity.VarMutability.transient
 
-def StateVarDecl.immutableName? (decl : L00_SourceSolidity.StateVarDecl) :
+def StateVarDecl.immutableName? (decl : Solidity.StateVarDecl) :
     Option Name :=
-  if decl.mutability == L00_SourceSolidity.VarMutability.immutable then
+  if decl.mutability == Solidity.VarMutability.immutable then
     some decl.name
   else
     none
 
-def StateVarDecl.runtimeStateName? (decl : L00_SourceSolidity.StateVarDecl) :
+def StateVarDecl.runtimeStateName? (decl : Solidity.StateVarDecl) :
     Option Name :=
   if StateVarDecl.isRuntimeStateRead decl then some decl.name else none
 
 def StateVarDecls.namedTypes :
-    List L00_SourceSolidity.StateVarDecl -> List (Name × Ty)
+    List Solidity.StateVarDecl -> List (Name × Ty)
   | [] => []
   | decl :: rest => StateVarDecl.namedType decl :: StateVarDecls.namedTypes rest
 
 def StateVarDecl.namedTypeQualifiedLocalTypes
     (contractName : Name) (localTypeNames : List Name)
-    (decl : L00_SourceSolidity.StateVarDecl) : Name × Ty :=
+    (decl : Solidity.StateVarDecl) : Name × Ty :=
   (decl.name,
     Ty.qualifyLocalUserTypes contractName localTypeNames decl.ty)
 
 def StateVarDecls.namedTypesQualifiedLocalTypes
     (contractName : Name) (localTypeNames : List Name) :
-    List L00_SourceSolidity.StateVarDecl -> List (Name × Ty)
+    List Solidity.StateVarDecl -> List (Name × Ty)
   | [] => []
   | decl :: rest =>
       StateVarDecl.namedTypeQualifiedLocalTypes
@@ -8908,13 +8907,13 @@ def StateVarDecls.namedTypesQualifiedLocalTypes
           contractName localTypeNames rest
 
 def StateVarDecls.namedConstness :
-    List L00_SourceSolidity.StateVarDecl -> List (Name × Bool)
+    List Solidity.StateVarDecl -> List (Name × Bool)
   | [] => []
   | decl :: rest =>
       StateVarDecl.namedConstness decl :: StateVarDecls.namedConstness rest
 
 def StateVarDecls.runtimeStateNames :
-    List L00_SourceSolidity.StateVarDecl -> List Name
+    List Solidity.StateVarDecl -> List Name
   | [] => []
   | decl :: rest =>
       match StateVarDecl.runtimeStateName? decl with
@@ -8922,7 +8921,7 @@ def StateVarDecls.runtimeStateNames :
       | none => StateVarDecls.runtimeStateNames rest
 
 def StateVarDecls.immutableNames :
-    List L00_SourceSolidity.StateVarDecl -> List Name
+    List Solidity.StateVarDecl -> List Name
   | [] => []
   | decl :: rest =>
       match StateVarDecl.immutableName? decl with
@@ -8930,29 +8929,29 @@ def StateVarDecls.immutableNames :
       | none => StateVarDecls.immutableNames rest
 
 def StateVarDecl.visibleToDerived
-    (decl : L00_SourceSolidity.StateVarDecl) : Bool :=
-  !(decl.visibility == some L00_SourceSolidity.Visibility.private_)
+    (decl : Solidity.StateVarDecl) : Bool :=
+  !(decl.visibility == some Solidity.Visibility.private_)
 
 def ContractItem.visibleStateVarName? :
-    L00_SourceSolidity.ContractItem -> Option Name
-  | L00_SourceSolidity.ContractItem.stateVar decl =>
+    Solidity.ContractItem -> Option Name
+  | Solidity.ContractItem.stateVar decl =>
       if StateVarDecl.visibleToDerived decl then some decl.name else none
   | _ => none
 
 def ContractItem.visibleStateVar? :
-    L00_SourceSolidity.ContractItem ->
-    Option L00_SourceSolidity.StateVarDecl
-  | L00_SourceSolidity.ContractItem.stateVar decl =>
+    Solidity.ContractItem ->
+    Option Solidity.StateVarDecl
+  | Solidity.ContractItem.stateVar decl =>
       if StateVarDecl.visibleToDerived decl then some decl else none
   | _ => none
 
 def ContractDecl.visibleStateVarNames
-    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+    (decl : Solidity.ContractDecl) : List Name :=
   decl.items.filterMap ContractItem.visibleStateVarName?
 
 def ContractDecl.visibleStateVars
-    (decl : L00_SourceSolidity.ContractDecl) :
-    List L00_SourceSolidity.StateVarDecl :=
+    (decl : Solidity.ContractDecl) :
+    List Solidity.StateVarDecl :=
   decl.items.filterMap ContractItem.visibleStateVar?
 
 def ContractDecls.visibleStateVarNames (types : TypeContext) :
@@ -8966,7 +8965,7 @@ def ContractDecls.visibleStateVarNames (types : TypeContext) :
       | none => ContractDecls.visibleStateVarNames types rest
 
 def ContractDecls.visibleStateVars (types : TypeContext) :
-    List Path -> List L00_SourceSolidity.StateVarDecl
+    List Path -> List Solidity.StateVarDecl
   | [] => []
   | path :: rest =>
       match types.lookupContractDecl? path with
@@ -8977,11 +8976,11 @@ def ContractDecls.visibleStateVars (types : TypeContext) :
 
 def StateVarDecls.checkNoInheritedShadowing
     (inheritedNames : List Name) :
-    List L00_SourceSolidity.StateVarDecl -> Except TypeError Unit
+    List Solidity.StateVarDecl -> Except TypeError Unit
   | [] => Except.ok ()
   | decl :: rest => do
       require
-        (!L00_SourceSolidity.Executable.nameIn decl.name inheritedNames)
+        (!Solidity.Executable.nameIn decl.name inheritedNames)
         (TypeError.invalidContractHeader
           "state variable shadows inherited state variable")
       StateVarDecls.checkNoInheritedShadowing inheritedNames rest
@@ -8992,7 +8991,7 @@ def checkNoInheritedStateNameClashes
   | [] => Except.ok ()
   | name :: rest => do
       require
-        (!L00_SourceSolidity.Executable.nameIn name inheritedNames)
+        (!Solidity.Executable.nameIn name inheritedNames)
         (TypeError.invalidContractHeader
           "declaration shadows inherited state variable")
       checkNoInheritedStateNameClashes inheritedNames rest
@@ -9003,24 +9002,24 @@ def checkNoInheritedNamedDeclarationClashes
   | [] => Except.ok ()
   | name :: rest => do
       require
-        (!L00_SourceSolidity.Executable.nameIn name inheritedNames)
+        (!Solidity.Executable.nameIn name inheritedNames)
         (TypeError.invalidContractHeader message)
       checkNoInheritedNamedDeclarationClashes message inheritedNames rest
 
 structure OverrideMember where
   origin : Path
-  originKind : L00_SourceSolidity.ContractKind
+  originKind : Solidity.ContractKind
   fromStateVar : Bool := false
   name : Name
   params : List Ty := []
   paramDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
+    List (Option Solidity.DataLocation) := []
   returns : List Ty := []
   returnDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
-  visibility : Option L00_SourceSolidity.Visibility := none
-  mutability : L00_SourceSolidity.StateMutability :=
-    L00_SourceSolidity.StateMutability.nonpayable
+    List (Option Solidity.DataLocation) := []
+  visibility : Option Solidity.Visibility := none
+  mutability : Solidity.StateMutability :=
+    Solidity.StateMutability.nonpayable
   virtual : Bool := false
   implemented : Bool := true
   deriving Repr
@@ -9036,27 +9035,27 @@ def OverrideMember.matchesKey (member : OverrideMember)
   member.name == name && member.params == params
 
 def overrideVisibilityAllowed
-    (base actual : Option L00_SourceSolidity.Visibility) : Bool :=
+    (base actual : Option Solidity.Visibility) : Bool :=
   if base == actual then
     true
   else
-    base == some L00_SourceSolidity.Visibility.external_ &&
-      actual == some L00_SourceSolidity.Visibility.public_
+    base == some Solidity.Visibility.external_ &&
+      actual == some Solidity.Visibility.public_
 
 def overrideMutabilityAllowed
-    (base actual : L00_SourceSolidity.StateMutability) : Bool :=
+    (base actual : Solidity.StateMutability) : Bool :=
   match base with
-  | L00_SourceSolidity.StateMutability.pure =>
-      actual == L00_SourceSolidity.StateMutability.pure
-  | L00_SourceSolidity.StateMutability.view =>
-      actual == L00_SourceSolidity.StateMutability.view ||
-        actual == L00_SourceSolidity.StateMutability.pure
-  | L00_SourceSolidity.StateMutability.nonpayable =>
-      actual == L00_SourceSolidity.StateMutability.nonpayable ||
-        actual == L00_SourceSolidity.StateMutability.view ||
-        actual == L00_SourceSolidity.StateMutability.pure
-  | L00_SourceSolidity.StateMutability.payable =>
-      actual == L00_SourceSolidity.StateMutability.payable
+  | Solidity.StateMutability.pure =>
+      actual == Solidity.StateMutability.pure
+  | Solidity.StateMutability.view =>
+      actual == Solidity.StateMutability.view ||
+        actual == Solidity.StateMutability.pure
+  | Solidity.StateMutability.nonpayable =>
+      actual == Solidity.StateMutability.nonpayable ||
+        actual == Solidity.StateMutability.view ||
+        actual == Solidity.StateMutability.pure
+  | Solidity.StateMutability.payable =>
+      actual == Solidity.StateMutability.payable
 
 namespace OverrideMembers
 
@@ -9135,7 +9134,7 @@ def checkCompatible (current : OverrideMember) :
   | base :: rest => do
       require (current.returns == base.returns)
         (TypeError.invalidOverride "override return types do not match")
-      if base.visibility == some L00_SourceSolidity.Visibility.external_ then
+      if base.visibility == some Solidity.Visibility.external_ then
         Except.ok ()
       else
         require (current.paramDataLocations == base.paramDataLocations)
@@ -9163,10 +9162,10 @@ def pathSetsEqual (left right : List Path) : Bool :=
 
 def StateVarDecl.publicGetterOverrideMember? (types : TypeContext)
     (contractName : Name) (localTypeNames : List Name)
-    (origin : Path) (originKind : L00_SourceSolidity.ContractKind)
-    (decl : L00_SourceSolidity.StateVarDecl) : Option OverrideMember :=
+    (origin : Path) (originKind : Solidity.ContractKind)
+    (decl : Solidity.StateVarDecl) : Option OverrideMember :=
   match decl.visibility with
-  | some L00_SourceSolidity.Visibility.public_ => do
+  | some Solidity.Visibility.public_ => do
       let declTy :=
         Ty.qualifyLocalUserTypes contractName localTypeNames decl.ty
       let shape ← Ty.publicGetterShape? types 64 declTy
@@ -9177,8 +9176,8 @@ def StateVarDecl.publicGetterOverrideMember? (types : TypeContext)
           name := decl.name
           params := shape.fst
           returns := shape.snd
-          visibility := some L00_SourceSolidity.Visibility.external_
-          mutability := L00_SourceSolidity.StateMutability.view
+          visibility := some Solidity.Visibility.external_
+          mutability := Solidity.StateMutability.view
           virtual := false
           implemented := true }
   | _ => none
@@ -9189,12 +9188,12 @@ def fallbackOverrideName : Name := "#fallback"
 
 def FunctionDecl.overrideMember? (origin : Path)
     (contractName : Name) (localTypeNames : List Name)
-    (originKind : L00_SourceSolidity.ContractKind)
-    (fn : L00_SourceSolidity.FunctionDecl) : Option OverrideMember :=
+    (originKind : Solidity.ContractKind)
+    (fn : Solidity.FunctionDecl) : Option OverrideMember :=
   match fn.kind, fn.name, fn.visibility with
-  | L00_SourceSolidity.FunctionKind.function, some _,
-      some L00_SourceSolidity.Visibility.private_ => none
-  | L00_SourceSolidity.FunctionKind.function, some name, visibility =>
+  | Solidity.FunctionKind.function, some _,
+      some Solidity.Visibility.private_ => none
+  | Solidity.FunctionKind.function, some name, visibility =>
       some
         { origin := origin
           originKind := originKind
@@ -9212,9 +9211,9 @@ def FunctionDecl.overrideMember? (origin : Path)
           mutability := fn.mutability
           virtual :=
             fn.virtual ||
-              originKind == L00_SourceSolidity.ContractKind.interface
+              originKind == Solidity.ContractKind.interface
           implemented := fn.body.isSome }
-  | L00_SourceSolidity.FunctionKind.receive, _, visibility =>
+  | Solidity.FunctionKind.receive, _, visibility =>
       some
         { origin := origin
           originKind := originKind
@@ -9226,9 +9225,9 @@ def FunctionDecl.overrideMember? (origin : Path)
           mutability := fn.mutability
           virtual :=
             fn.virtual ||
-              originKind == L00_SourceSolidity.ContractKind.interface
+              originKind == Solidity.ContractKind.interface
           implemented := fn.body.isSome }
-  | L00_SourceSolidity.FunctionKind.fallback, _, visibility =>
+  | Solidity.FunctionKind.fallback, _, visibility =>
       some
         { origin := origin
           originKind := originKind
@@ -9240,24 +9239,24 @@ def FunctionDecl.overrideMember? (origin : Path)
           mutability := fn.mutability
           virtual :=
             fn.virtual ||
-              originKind == L00_SourceSolidity.ContractKind.interface
+              originKind == Solidity.ContractKind.interface
           implemented := fn.body.isSome }
   | _, _, _ => none
 
 def ContractItem.overrideMember? (types : TypeContext)
     (contractName : Name) (localTypeNames : List Name)
-    (origin : Path) (originKind : L00_SourceSolidity.ContractKind) :
-    L00_SourceSolidity.ContractItem -> Option OverrideMember
-  | L00_SourceSolidity.ContractItem.function fn =>
+    (origin : Path) (originKind : Solidity.ContractKind) :
+    Solidity.ContractItem -> Option OverrideMember
+  | Solidity.ContractItem.function fn =>
       FunctionDecl.overrideMember? origin contractName localTypeNames
         originKind fn
-  | L00_SourceSolidity.ContractItem.stateVar decl =>
+  | Solidity.ContractItem.stateVar decl =>
       StateVarDecl.publicGetterOverrideMember? types
         contractName localTypeNames origin originKind decl
   | _ => none
 
 def ContractDecl.overrideMembers (types : TypeContext)
-    (decl : L00_SourceSolidity.ContractDecl) : List OverrideMember :=
+    (decl : Solidity.ContractDecl) : List OverrideMember :=
   let origin := TypeContext.pathOfName decl.name
   let localTypeNames := ContractDecl.localTypeNames decl
   decl.items.filterMap
@@ -9265,8 +9264,8 @@ def ContractDecl.overrideMembers (types : TypeContext)
       origin decl.kind)
 
 def ContractDecls.lookupPath? (target : Path) :
-    List L00_SourceSolidity.ContractDecl ->
-    Option L00_SourceSolidity.ContractDecl
+    List Solidity.ContractDecl ->
+    Option Solidity.ContractDecl
   | [] => none
   | decl :: rest =>
       if TypeContext.pathMatches target (TypeContext.pathOfName decl.name) then
@@ -9276,7 +9275,7 @@ def ContractDecls.lookupPath? (target : Path) :
 
 def OverrideMembers.collectMostDerivedFrom (types : TypeContext)
     (members : List OverrideMember) :
-    List L00_SourceSolidity.ContractDecl -> List OverrideMember
+    List Solidity.ContractDecl -> List OverrideMember
   | [] => members
   | decl :: rest =>
       OverrideMembers.collectMostDerivedFrom types
@@ -9285,22 +9284,22 @@ def OverrideMembers.collectMostDerivedFrom (types : TypeContext)
         rest
 
 def OverrideMembers.collectMostDerived (types : TypeContext)
-    (order : List L00_SourceSolidity.ContractDecl) :
+    (order : List Solidity.ContractDecl) :
     List OverrideMember :=
   OverrideMembers.collectMostDerivedFrom types [] order
 
 def BaseSpecifier.frontierOverrideMembers? (types : TypeContext)
-    (contracts : List L00_SourceSolidity.ContractDecl)
-    (specifier : L00_SourceSolidity.BaseSpecifier) :
+    (contracts : List Solidity.ContractDecl)
+    (specifier : Solidity.BaseSpecifier) :
     Option (List OverrideMember) := do
   let base ← ContractDecls.lookupPath? specifier.base contracts
   let order ←
-    L00_SourceSolidity.Executable.ContractDecl.dispatchOrder? contracts base
+    Solidity.Executable.ContractDecl.dispatchOrder? contracts base
   some (OverrideMembers.collectMostDerived types order)
 
 def BaseSpecifiers.frontierOverrideMembers? (types : TypeContext)
-    (contracts : List L00_SourceSolidity.ContractDecl) :
-    List L00_SourceSolidity.BaseSpecifier -> Option (List OverrideMember)
+    (contracts : List Solidity.ContractDecl) :
+    List Solidity.BaseSpecifier -> Option (List OverrideMember)
   | [] => some []
   | specifier :: rest => do
       let head ← BaseSpecifier.frontierOverrideMembers? types contracts specifier
@@ -9308,20 +9307,20 @@ def BaseSpecifiers.frontierOverrideMembers? (types : TypeContext)
       some (head ++ tail)
 
 def ContractDecl.inheritedOverrideMembers? (types : TypeContext)
-    (contracts : List L00_SourceSolidity.ContractDecl)
-    (decl : L00_SourceSolidity.ContractDecl) :
+    (contracts : List Solidity.ContractDecl)
+    (decl : Solidity.ContractDecl) :
     Option (List OverrideMember) := do
   let members ← BaseSpecifiers.frontierOverrideMembers? types contracts decl.bases
   some (OverrideMembers.dedupOriginKeys members)
 
-def ContractDecl.ancestorPaths? (contracts : List L00_SourceSolidity.ContractDecl)
-    (decl : L00_SourceSolidity.ContractDecl) : Option (List Path) := do
+def ContractDecl.ancestorPaths? (contracts : List Solidity.ContractDecl)
+    (decl : Solidity.ContractDecl) : Option (List Path) := do
   let order ←
-    L00_SourceSolidity.Executable.ContractDecl.dispatchOrder? contracts decl
+    Solidity.Executable.ContractDecl.dispatchOrder? contracts decl
   some ((List.drop 1 order).map (fun base => TypeContext.pathOfName base.name))
 
 def ContractDecl.originStrictlyInherits
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (descendant ancestor : Path) : Bool :=
   match ContractDecls.lookupPath? descendant contracts with
   | none => false
@@ -9331,12 +9330,12 @@ def ContractDecl.originStrictlyInherits
       | some ancestors => TypeContext.pathIn ancestor ancestors
 
 def singleImplicitInterfaceOverride : List OverrideMember -> Bool
-  | [member] => member.originKind == L00_SourceSolidity.ContractKind.interface
+  | [member] => member.originKind == Solidity.ContractKind.interface
   | _ => false
 
 def checkOverrideSpecifier (ancestorPaths : List Path)
     (baseMatches : List OverrideMember)
-    (specifier : L00_SourceSolidity.OverrideSpecifier) :
+    (specifier : Solidity.OverrideSpecifier) :
     Except TypeError Unit := do
   require (pathAllIn specifier.bases ancestorPaths)
     (TypeError.invalidOverride "override specifier names a non-base contract")
@@ -9350,7 +9349,7 @@ def checkOverrideSpecifier (ancestorPaths : List Path)
       (TypeError.invalidOverride "override base list does not match bases")
 
 def checkOverrideUse (ancestorPaths : List Path)
-    (override? : Option L00_SourceSolidity.OverrideSpecifier)
+    (override? : Option Solidity.OverrideSpecifier)
     (baseMatches : List OverrideMember) : Except TypeError Unit :=
   match override? with
   | none =>
@@ -9361,15 +9360,15 @@ def checkOverrideUse (ancestorPaths : List Path)
 
 def FunctionDecl.checkOverrideRules (currentPath : Path)
     (currentContractName : Name) (localTypeNames : List Name)
-    (currentKind : L00_SourceSolidity.ContractKind)
+    (currentKind : Solidity.ContractKind)
     (ancestorPaths : List Path) (inherited : List OverrideMember)
     (inheritedStateNames : List Name)
-    (fn : L00_SourceSolidity.FunctionDecl) :
+    (fn : Solidity.FunctionDecl) :
     Except TypeError Unit := do
   match fn.kind, fn.name with
-  | L00_SourceSolidity.FunctionKind.function, some name =>
+  | Solidity.FunctionKind.function, some name =>
       require
-        (!L00_SourceSolidity.Executable.nameIn name inheritedStateNames)
+        (!Solidity.Executable.nameIn name inheritedStateNames)
         (TypeError.invalidContractHeader
           "function shadows inherited state variable")
   | _, _ => Except.ok ()
@@ -9396,9 +9395,9 @@ def FunctionDecl.checkOverrideRules (currentPath : Path)
 def StateVarDecl.checkOverrideRules (types : TypeContext)
     (currentPath : Path) (currentContractName : Name)
     (localTypeNames : List Name)
-    (currentKind : L00_SourceSolidity.ContractKind)
+    (currentKind : Solidity.ContractKind)
     (ancestorPaths : List Path) (inherited : List OverrideMember)
-    (decl : L00_SourceSolidity.StateVarDecl) :
+    (decl : Solidity.StateVarDecl) :
     Except TypeError Unit :=
   match StateVarDecl.publicGetterOverrideMember? types
       currentContractName localTypeNames currentPath currentKind decl with
@@ -9421,7 +9420,7 @@ def StateVarDecl.checkOverrideRules (types : TypeContext)
           checkOverrideUse ancestorPaths decl.override? baseMatches
 
 def OverrideMembers.hasConflictFor (target : OverrideMember)
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (members : List OverrideMember) : Bool :=
   let dominated := fun member =>
     !member.implemented &&
@@ -9432,7 +9431,7 @@ def OverrideMembers.hasConflictFor (target : OverrideMember)
   (matchingKey target (members.filter fun member => !dominated member)).length > 1
 
 def OverrideMembers.hasDominatingImplementedFor
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (target : OverrideMember) (members : List OverrideMember) : Bool :=
   members.any (fun member =>
     OverrideMember.sameKey target member && member.implemented &&
@@ -9452,7 +9451,7 @@ def OverrideMembers.hasImplementedCurrentFor (target : OverrideMember)
         hasImplementedCurrentFor target rest
 
 def OverrideMembers.checkInheritedConflicts
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (current : List OverrideMember)
     (members : List OverrideMember) : Except TypeError Unit :=
   match members with
@@ -9467,7 +9466,7 @@ def OverrideMembers.checkInheritedConflicts
         checkInheritedConflicts contracts current rest
 
 def OverrideMembers.checkInheritedAbstractImplementedAux
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (contractIsAbstract : Bool) (current : List OverrideMember)
     (allMembers : List OverrideMember) :
     List OverrideMember -> Except TypeError Unit
@@ -9484,7 +9483,7 @@ def OverrideMembers.checkInheritedAbstractImplementedAux
           current allMembers rest
 
 def OverrideMembers.checkInheritedAbstractImplemented
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (contractIsAbstract : Bool) (current : List OverrideMember)
     (members : List OverrideMember) : Except TypeError Unit :=
   checkInheritedAbstractImplementedAux contracts contractIsAbstract current
@@ -9492,18 +9491,18 @@ def OverrideMembers.checkInheritedAbstractImplemented
 
 structure ModifierOverrideMember where
   origin : Path
-  originKind : L00_SourceSolidity.ContractKind
+  originKind : Solidity.ContractKind
   name : Name
   params : List Ty := []
   paramDataLocations :
-    List (Option L00_SourceSolidity.DataLocation) := []
+    List (Option Solidity.DataLocation) := []
   virtual : Bool := false
   implemented : Bool := true
   deriving Repr
 
 def ModifierDecl.overrideMember (origin : Path)
-    (originKind : L00_SourceSolidity.ContractKind)
-    (modifier : L00_SourceSolidity.ModifierDecl) : ModifierOverrideMember :=
+    (originKind : Solidity.ContractKind)
+    (modifier : Solidity.ModifierDecl) : ModifierOverrideMember :=
   { origin := origin
     originKind := originKind
     name := modifier.name
@@ -9588,30 +9587,30 @@ def checkCompatible (current : ModifierOverrideMember) :
       checkCompatible current rest
 
 def itemMember? (origin : Path)
-    (originKind : L00_SourceSolidity.ContractKind) :
-    L00_SourceSolidity.ContractItem -> Option ModifierOverrideMember
-  | L00_SourceSolidity.ContractItem.modifierDecl modifier =>
+    (originKind : Solidity.ContractKind) :
+    Solidity.ContractItem -> Option ModifierOverrideMember
+  | Solidity.ContractItem.modifierDecl modifier =>
       some (ModifierDecl.overrideMember origin originKind modifier)
   | _ => none
 
-def forContract (decl : L00_SourceSolidity.ContractDecl) :
+def forContract (decl : Solidity.ContractDecl) :
     List ModifierOverrideMember :=
   let origin := TypeContext.pathOfName decl.name
   decl.items.filterMap (itemMember? origin decl.kind)
 
 def collectMostDerivedFrom (members : List ModifierOverrideMember) :
-    List L00_SourceSolidity.ContractDecl -> List ModifierOverrideMember
+    List Solidity.ContractDecl -> List ModifierOverrideMember
   | [] => members
   | decl :: rest =>
       collectMostDerivedFrom
         (addAllIfNewName members (forContract decl)) rest
 
-def collectMostDerived (order : List L00_SourceSolidity.ContractDecl) :
+def collectMostDerived (order : List Solidity.ContractDecl) :
     List ModifierOverrideMember :=
   collectMostDerivedFrom [] order
 
 def hasConflictFor (target : ModifierOverrideMember)
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (members : List ModifierOverrideMember) : Bool :=
   let dominated := fun member =>
     !member.implemented &&
@@ -9634,7 +9633,7 @@ def hasImplementedCurrentFor (target : ModifierOverrideMember)
         hasImplementedCurrentFor target rest
 
 def hasDominatingImplementedFor
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (target : ModifierOverrideMember)
     (members : List ModifierOverrideMember) : Bool :=
   members.any (fun member =>
@@ -9643,7 +9642,7 @@ def hasDominatingImplementedFor
         member.origin target.origin)
 
 def checkInheritedConflicts
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (current : List ModifierOverrideMember)
     (members : List ModifierOverrideMember) : Except TypeError Unit :=
   match members with
@@ -9658,7 +9657,7 @@ def checkInheritedConflicts
         checkInheritedConflicts contracts current rest
 
 def checkInheritedAbstractImplemented
-    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contracts : List Solidity.ContractDecl)
     (contractIsAbstract : Bool) (current : List ModifierOverrideMember)
     (allMembers : List ModifierOverrideMember) :
     List ModifierOverrideMember -> Except TypeError Unit
@@ -9677,17 +9676,17 @@ def checkInheritedAbstractImplemented
 end ModifierOverrideMembers
 
 def BaseSpecifier.frontierModifierMembers?
-    (contracts : List L00_SourceSolidity.ContractDecl)
-    (specifier : L00_SourceSolidity.BaseSpecifier) :
+    (contracts : List Solidity.ContractDecl)
+    (specifier : Solidity.BaseSpecifier) :
     Option (List ModifierOverrideMember) := do
   let base ← ContractDecls.lookupPath? specifier.base contracts
   let order ←
-    L00_SourceSolidity.Executable.ContractDecl.dispatchOrder? contracts base
+    Solidity.Executable.ContractDecl.dispatchOrder? contracts base
   some (ModifierOverrideMembers.collectMostDerived order)
 
 def BaseSpecifiers.frontierModifierMembers?
-    (contracts : List L00_SourceSolidity.ContractDecl) :
-    List L00_SourceSolidity.BaseSpecifier ->
+    (contracts : List Solidity.ContractDecl) :
+    List Solidity.BaseSpecifier ->
     Option (List ModifierOverrideMember)
   | [] => some []
   | specifier :: rest => do
@@ -9696,14 +9695,14 @@ def BaseSpecifiers.frontierModifierMembers?
       some (head ++ tail)
 
 def ContractDecl.inheritedModifierMembers?
-    (contracts : List L00_SourceSolidity.ContractDecl)
-    (decl : L00_SourceSolidity.ContractDecl) :
+    (contracts : List Solidity.ContractDecl)
+    (decl : Solidity.ContractDecl) :
     Option (List ModifierOverrideMember) := do
   let members ← BaseSpecifiers.frontierModifierMembers? contracts decl.bases
   some (ModifierOverrideMembers.dedupOriginNames members)
 
 def checkModifierOverrideUse (ancestorPaths : List Path)
-    (override? : Option L00_SourceSolidity.OverrideSpecifier)
+    (override? : Option Solidity.OverrideSpecifier)
     (baseMatches : List ModifierOverrideMember) : Except TypeError Unit :=
   match override? with
   | none =>
@@ -9725,10 +9724,10 @@ def checkModifierOverrideUse (ancestorPaths : List Path)
             "modifier override base list does not match bases")
 
 def ModifierDecl.checkOverrideRules (currentPath : Path)
-    (currentKind : L00_SourceSolidity.ContractKind)
+    (currentKind : Solidity.ContractKind)
     (ancestorPaths : List Path)
     (inherited : List ModifierOverrideMember)
-    (modifier : L00_SourceSolidity.ModifierDecl) :
+    (modifier : Solidity.ModifierDecl) :
     Except TypeError Unit := do
   let current := ModifierDecl.overrideMember currentPath currentKind modifier
   let baseMatches := ModifierOverrideMembers.matchingName current inherited
@@ -9746,21 +9745,21 @@ def ModifierDecl.checkOverrideRules (currentPath : Path)
       checkModifierOverrideUse ancestorPaths modifier.override? baseMatches
 
 def FunctionDecl.externallyVisible
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
+    (fn : Solidity.FunctionDecl) : Bool :=
   match fn.visibility with
-  | some L00_SourceSolidity.Visibility.public_ => true
-  | some L00_SourceSolidity.Visibility.external_ => true
+  | some Solidity.Visibility.public_ => true
+  | some Solidity.Visibility.external_ => true
   | _ => false
 
 def FunctionDecl.checkHeader (env : CheckEnv)
-    (fn : L00_SourceSolidity.FunctionDecl) : Except TypeError Unit := do
+    (fn : Solidity.FunctionDecl) : Except TypeError Unit := do
   match env.contractKind, fn.kind with
-  | none, L00_SourceSolidity.FunctionKind.function =>
+  | none, Solidity.FunctionKind.function =>
       require fn.name.isSome
         (TypeError.invalidFunctionHeader "free function missing name")
       require fn.visibility.isNone
         (TypeError.invalidFunctionHeader "free function has visibility")
-      require (!(fn.mutability == L00_SourceSolidity.StateMutability.payable))
+      require (!(fn.mutability == Solidity.StateMutability.payable))
         (TypeError.invalidFunctionHeader "free function is payable")
       require (!fn.virtual)
         (TypeError.invalidFunctionHeader "free function is virtual")
@@ -9772,21 +9771,21 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       Except.error
         (TypeError.invalidFunctionHeader
           "free declaration is not an ordinary function")
-  | some _, L00_SourceSolidity.FunctionKind.function =>
+  | some _, Solidity.FunctionKind.function =>
       require fn.name.isSome
         (TypeError.invalidFunctionHeader "function missing name")
       require fn.visibility.isSome
         (TypeError.invalidFunctionHeader "contract function missing visibility")
-  | some _, L00_SourceSolidity.FunctionKind.constructor =>
+  | some _, Solidity.FunctionKind.constructor =>
       require fn.name.isNone
         (TypeError.invalidFunctionHeader "constructor has a name")
       match fn.visibility with
       | none => Except.ok ()
-      | some L00_SourceSolidity.Visibility.public_ =>
+      | some Solidity.Visibility.public_ =>
           require (!env.currentContractAbstract)
             (TypeError.invalidFunctionHeader
               "abstract constructor is public")
-      | some L00_SourceSolidity.Visibility.internal_ =>
+      | some Solidity.Visibility.internal_ =>
           require env.currentContractAbstract
             (TypeError.invalidFunctionHeader
               "non-abstract constructor is internal")
@@ -9802,8 +9801,8 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       require fn.body.isSome
         (TypeError.invalidFunctionHeader "constructor has no implementation")
       require
-        (fn.mutability == L00_SourceSolidity.StateMutability.nonpayable ||
-          fn.mutability == L00_SourceSolidity.StateMutability.payable)
+        (fn.mutability == Solidity.StateMutability.nonpayable ||
+          fn.mutability == Solidity.StateMutability.payable)
         (TypeError.invalidFunctionHeader
           "constructor has invalid mutability")
       require (!Parameters.anyCalldata fn.params)
@@ -9821,7 +9820,7 @@ def FunctionDecl.checkHeader (env : CheckEnv)
         match Parameters.firstAbiCoderV2OnlyTy? env.types fn.params with
         | some ty => Except.error (TypeError.invalidAbiType ty)
         | none => Except.ok ()
-  | some _, L00_SourceSolidity.FunctionKind.receive =>
+  | some _, Solidity.FunctionKind.receive =>
       require fn.name.isNone
         (TypeError.invalidFunctionHeader "receive function has a name")
       require fn.params.isEmpty
@@ -9829,23 +9828,23 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       require fn.returns.isEmpty
         (TypeError.invalidFunctionHeader "receive function has returns")
       require
-        (fn.visibility == some L00_SourceSolidity.Visibility.external_)
+        (fn.visibility == some Solidity.Visibility.external_)
         (TypeError.invalidFunctionHeader
           "receive function is not external")
       require
-        (fn.mutability == L00_SourceSolidity.StateMutability.payable)
+        (fn.mutability == Solidity.StateMutability.payable)
         (TypeError.invalidFunctionHeader
           "receive function is not payable")
-  | some _, L00_SourceSolidity.FunctionKind.fallback =>
+  | some _, Solidity.FunctionKind.fallback =>
       require fn.name.isNone
         (TypeError.invalidFunctionHeader "fallback function has a name")
       require
-        (fn.visibility == some L00_SourceSolidity.Visibility.external_)
+        (fn.visibility == some Solidity.Visibility.external_)
         (TypeError.invalidFunctionHeader
           "fallback function is not external")
       require
-        (fn.mutability == L00_SourceSolidity.StateMutability.nonpayable ||
-          fn.mutability == L00_SourceSolidity.StateMutability.payable)
+        (fn.mutability == Solidity.StateMutability.nonpayable ||
+          fn.mutability == Solidity.StateMutability.payable)
         (TypeError.invalidFunctionHeader
           "fallback function has invalid mutability")
       let untypedFallback := fn.params.isEmpty && fn.returns.isEmpty
@@ -9864,19 +9863,19 @@ def FunctionDecl.checkHeader (env : CheckEnv)
   else
     Except.ok ()
   require
-    (!(fn.visibility == some L00_SourceSolidity.Visibility.private_) ||
+    (!(fn.visibility == some Solidity.Visibility.private_) ||
       !fn.virtual)
     (TypeError.invalidFunctionHeader "private function is virtual")
-  if env.inLibrary && fn.kind == L00_SourceSolidity.FunctionKind.function then
+  if env.inLibrary && fn.kind == Solidity.FunctionKind.function then
     require (!fn.virtual)
       (TypeError.invalidFunctionHeader "library function is virtual")
-    require (!(fn.mutability == L00_SourceSolidity.StateMutability.payable))
+    require (!(fn.mutability == Solidity.StateMutability.payable))
       (TypeError.invalidFunctionHeader "library function is payable")
   else
     Except.ok ()
-  if env.contractKind == some L00_SourceSolidity.ContractKind.interface then
+  if env.contractKind == some Solidity.ContractKind.interface then
     Except.ok ()
-  else if !(fn.kind == L00_SourceSolidity.FunctionKind.constructor) &&
+  else if !(fn.kind == Solidity.FunctionKind.constructor) &&
       fn.body.isNone then
     require fn.virtual
       (TypeError.invalidFunctionHeader
@@ -9924,10 +9923,10 @@ def FunctionDecl.checkHeader (env : CheckEnv)
     Except.ok ()
 
 def ModifierInvocation.targetName
-    (invocation : L00_SourceSolidity.ModifierInvocation) :
+    (invocation : Solidity.ModifierInvocation) :
     Except TypeError Name := do
   let name ←
-    match L00_SourceSolidity.Executable.pathLast? invocation.target with
+    match Solidity.Executable.pathLast? invocation.target with
     | some name => Except.ok name
     | none =>
         Except.error
@@ -9936,9 +9935,9 @@ def ModifierInvocation.targetName
 
 def ModifierInvocation.baseConstructorPath?
     (env : CheckEnv)
-    (invocation : L00_SourceSolidity.ModifierInvocation) :
+    (invocation : Solidity.ModifierInvocation) :
     Option Path := do
-  let name ← L00_SourceSolidity.Executable.pathLast? invocation.target
+  let name ← Solidity.Executable.pathLast? invocation.target
   let path := TypeContext.pathOfName name
   if TypeContext.pathIn path env.ancestorPaths then
     some path
@@ -9947,14 +9946,14 @@ def ModifierInvocation.baseConstructorPath?
 
 def ModifierInvocation.baseConstructorDecl?
     (env : CheckEnv)
-    (invocation : L00_SourceSolidity.ModifierInvocation) :
-    Option L00_SourceSolidity.ContractDecl := do
+    (invocation : Solidity.ModifierInvocation) :
+    Option Solidity.ContractDecl := do
   let path ← ModifierInvocation.baseConstructorPath? env invocation
   env.types.lookupContractDecl? path
 
 def ModifierInvocation.checkBaseConstructor (env : CheckEnv)
-    (invocation : L00_SourceSolidity.ModifierInvocation)
-    (baseDecl : L00_SourceSolidity.ContractDecl) :
+    (invocation : Solidity.ModifierInvocation)
+    (baseDecl : Solidity.ContractDecl) :
     Except TypeError Unit := do
   let sig := ContractDecl.constructorSignature baseDecl
   match checkArgs env invocation.args with
@@ -9982,7 +9981,7 @@ def ModifierInvocation.checkBaseConstructor (env : CheckEnv)
       | Except.error _ => Except.error argErr
 
 def ModifierInvocation.check (env : CheckEnv) (allowBaseConstructors : Bool)
-    (invocation : L00_SourceSolidity.ModifierInvocation) :
+    (invocation : Solidity.ModifierInvocation) :
     Except TypeError Unit := do
   match ModifierInvocation.baseConstructorDecl? env invocation with
   | some baseDecl =>
@@ -9995,12 +9994,12 @@ def ModifierInvocation.check (env : CheckEnv) (allowBaseConstructors : Bool)
       checkModifierArgs env name invocation.args
 
 def modifierBodyFunction? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.FunctionDecl
-  | L00_SourceSolidity.ContractItem.function fn => some fn
+    Solidity.ContractItem -> Option Solidity.FunctionDecl
+  | Solidity.ContractItem.function fn => some fn
   | _ => none
 
 def contractFunctionSigsForModifierBody
-    (entry : Path × L00_SourceSolidity.ContractDecl) :
+    (entry : Path × Solidity.ContractDecl) :
     List FunctionSig :=
   let decl := entry.snd
   (FunctionDecls.signatures (decl.items.filterMap modifierBodyFunction?)).map
@@ -10008,7 +10007,7 @@ def contractFunctionSigsForModifierBody
       (ContractDecl.localTypeNames decl))
 
 def contractEntriesFunctionSigsForModifierBodies :
-    List (Path × L00_SourceSolidity.ContractDecl) -> List FunctionSig
+    List (Path × Solidity.ContractDecl) -> List FunctionSig
   | [] => []
   | entry :: rest =>
       contractFunctionSigsForModifierBody entry ++
@@ -10019,7 +10018,7 @@ def TypeContext.functionSigsForModifierBodies
   contractEntriesFunctionSigsForModifierBodies types.contractDecls
 
 def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
-    (invocation : L00_SourceSolidity.ModifierInvocation) :
+    (invocation : Solidity.ModifierInvocation) :
     Except TypeError Unit := do
   match ModifierInvocation.baseConstructorDecl? env invocation with
   | some _ => Except.ok ()
@@ -10059,7 +10058,7 @@ def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
 
 def ModifierInvocations.checkWithSeen (env : CheckEnv)
     (allowBaseConstructors : Bool) (seenBaseConstructors : List Path) :
-    List L00_SourceSolidity.ModifierInvocation -> Except TypeError Unit
+    List Solidity.ModifierInvocation -> Except TypeError Unit
   | [] => Except.ok ()
   | invocation :: rest => do
       let nextSeen ←
@@ -10076,11 +10075,11 @@ def ModifierInvocations.checkWithSeen (env : CheckEnv)
 
 def ModifierInvocations.check (env : CheckEnv)
     (allowBaseConstructors : Bool) :
-    List L00_SourceSolidity.ModifierInvocation -> Except TypeError Unit :=
+    List Solidity.ModifierInvocation -> Except TypeError Unit :=
   ModifierInvocations.checkWithSeen env allowBaseConstructors []
 
 def ModifierInvocations.checkBodiesForCaller (env : CheckEnv) :
-    List L00_SourceSolidity.ModifierInvocation -> Except TypeError Unit
+    List Solidity.ModifierInvocation -> Except TypeError Unit
   | [] => Except.ok ()
   | invocation :: rest => do
       ModifierInvocation.checkBodyForCaller env invocation
@@ -10111,13 +10110,13 @@ structure PointerReturnRequirements where
   deriving Repr
 
 def Parameter.isUninitializedPointerReturn
-    (types : TypeContext) (param : L00_SourceSolidity.Parameter) : Bool :=
+    (types : TypeContext) (param : Solidity.Parameter) : Bool :=
   Ty.needsDataLocation types param.ty &&
-    (param.location == some L00_SourceSolidity.DataLocation.storage ||
-      param.location == some L00_SourceSolidity.DataLocation.calldata)
+    (param.location == some Solidity.DataLocation.storage ||
+      param.location == some Solidity.DataLocation.calldata)
 
 def Parameters.pointerReturnRequirements (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> PointerReturnRequirements
+    List Solidity.Parameter -> PointerReturnRequirements
   | [] => {}
   | param :: rest =>
       let tail := Parameters.pointerReturnRequirements types rest
@@ -10152,22 +10151,22 @@ mutual
 
 def Expr.pointerReturnFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    L00_SourceSolidity.Expr -> PointerExprFlow
+    Solidity.Expr -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
-  | _ + 1, _, assigned, L00_SourceSolidity.Expr.literal _ =>
+  | _ + 1, _, assigned, Solidity.Expr.literal _ =>
       { assigned := assigned }
   | _ + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.ident name =>
+      Solidity.Expr.ident name =>
       { assigned := assigned
         unsafeRead :=
           requirements.named.contains name && !assigned.contains name }
-  | _ + 1, _, assigned, L00_SourceSolidity.Expr.typeName _ =>
+  | _ + 1, _, assigned, Solidity.Expr.typeName _ =>
       { assigned := assigned }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.member base _ =>
+      Solidity.Expr.member base _ =>
       Expr.pointerReturnFlowFuel fuel requirements assigned base
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.index base index =>
+      Solidity.Expr.index base index =>
       let indexFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned index
       let baseFlow :=
@@ -10175,7 +10174,7 @@ def Expr.pointerReturnFlowFuel :
       { baseFlow with
         unsafeRead := indexFlow.unsafeRead || baseFlow.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.slice base start stop =>
+      Solidity.Expr.slice base start stop =>
       let stopFlow :=
         match stop with
         | some expr =>
@@ -10192,7 +10191,7 @@ def Expr.pointerReturnFlowFuel :
         unsafeRead := stopFlow.unsafeRead || startFlow.unsafeRead ||
           baseFlow.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.call fn args =>
+      Solidity.Expr.call fn args =>
       let argsFlow :=
         Args.pointerReturnFlowFuel fuel requirements assigned args
       let fnFlow :=
@@ -10200,7 +10199,7 @@ def Expr.pointerReturnFlowFuel :
       { fnFlow with
         unsafeRead := argsFlow.unsafeRead || fnFlow.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.callWithOptions fn options args =>
+      Solidity.Expr.callWithOptions fn options args =>
       let argsFlow :=
         Args.pointerReturnFlowFuel fuel requirements assigned args
       let optionsFlow :=
@@ -10212,24 +10211,24 @@ def Expr.pointerReturnFlowFuel :
         unsafeRead := argsFlow.unsafeRead || optionsFlow.unsafeRead ||
           fnFlow.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.newExpr _ args =>
+      Solidity.Expr.newExpr _ args =>
       Args.pointerReturnFlowFuel fuel requirements assigned args
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.tuple items =>
+      Solidity.Expr.tuple items =>
       TupleItems.pointerReturnFlowFuel fuel requirements assigned items
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.array items =>
+      Solidity.Expr.array items =>
       Exprs.pointerReturnFlowFuel fuel requirements assigned items
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.enumFromUInt _ inner =>
+      Solidity.Expr.enumFromUInt _ inner =>
       Expr.pointerReturnFlowFuel fuel requirements assigned inner
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.unary _ inner =>
+      Solidity.Expr.unary _ inner =>
       Expr.pointerReturnFlowFuel fuel requirements assigned inner
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.binary op left right =>
-      if op == L00_SourceSolidity.BinaryOp.boolAnd ||
-          op == L00_SourceSolidity.BinaryOp.boolOr then
+      Solidity.Expr.binary op left right =>
+      if op == Solidity.BinaryOp.boolAnd ||
+          op == Solidity.BinaryOp.boolOr then
         let leftFlow :=
           Expr.pointerReturnFlowFuel fuel requirements assigned left
         let rightFlow :=
@@ -10245,7 +10244,7 @@ def Expr.pointerReturnFlowFuel :
         { leftFlow with
           unsafeRead := rightFlow.unsafeRead || leftFlow.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr =>
+      Solidity.Expr.ternary cond thenExpr elseExpr =>
       let condFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned cond
       let thenFlow :=
@@ -10256,12 +10255,12 @@ def Expr.pointerReturnFlowFuel :
       { branches with
         unsafeRead := condFlow.unsafeRead || branches.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.assign lhs op rhs =>
+      Solidity.Expr.assign lhs op rhs =>
       let rhsFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned rhs
       let lhsFlow :=
         match op with
-        | L00_SourceSolidity.AssignOp.assign =>
+        | Solidity.AssignOp.assign =>
             Expr.pointerReturnLValueFlowFuel fuel requirements rhsFlow.assigned
               lhs
         | _ =>
@@ -10269,28 +10268,28 @@ def Expr.pointerReturnFlowFuel :
       { lhsFlow with
         unsafeRead := rhsFlow.unsafeRead || lhsFlow.unsafeRead }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.payableConversion inner =>
+      Solidity.Expr.payableConversion inner =>
       Expr.pointerReturnFlowFuel fuel requirements assigned inner
 
 def Expr.pointerReturnLValueFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    L00_SourceSolidity.Expr -> PointerExprFlow
+    Solidity.Expr -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
   | _ + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.ident name =>
+      Solidity.Expr.ident name =>
       if requirements.named.contains name then
         { assigned := PointerReturnAssigned.add assigned name }
       else
         { assigned := assigned }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.Expr.tuple items =>
+      Solidity.Expr.tuple items =>
       TupleItems.pointerReturnLValueFlowFuel fuel requirements assigned items
   | fuel + 1, requirements, assigned, other =>
       Expr.pointerReturnFlowFuel fuel requirements assigned other
 
 def Exprs.pointerReturnFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    List L00_SourceSolidity.Expr -> PointerExprFlow
+    List Solidity.Expr -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
   | _ + 1, _, assigned, [] => { assigned := assigned }
   | fuel + 1, requirements, assigned, expr :: rest =>
@@ -10303,7 +10302,7 @@ def Exprs.pointerReturnFlowFuel :
 
 def Args.pointerReturnFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    List L00_SourceSolidity.Arg -> PointerExprFlow
+    List Solidity.Arg -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
   | _ + 1, _, assigned, [] => { assigned := assigned }
   | fuel + 1, requirements, assigned, arg :: rest =>
@@ -10311,8 +10310,8 @@ def Args.pointerReturnFlowFuel :
         Args.pointerReturnFlowFuel fuel requirements assigned rest
       let expr :=
         match arg with
-        | L00_SourceSolidity.Arg.positional expr => expr
-        | L00_SourceSolidity.Arg.named _ expr => expr
+        | Solidity.Arg.positional expr => expr
+        | Solidity.Arg.named _ expr => expr
       let headFlow :=
         Expr.pointerReturnFlowFuel fuel requirements tailFlow.assigned expr
       { headFlow with
@@ -10320,11 +10319,11 @@ def Args.pointerReturnFlowFuel :
 
 def CallOptions.pointerReturnFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    List L00_SourceSolidity.CallOption -> PointerExprFlow
+    List Solidity.CallOption -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
   | _ + 1, _, assigned, [] => { assigned := assigned }
   | fuel + 1, requirements, assigned,
-      L00_SourceSolidity.CallOption.named _ expr :: rest =>
+      Solidity.CallOption.named _ expr :: rest =>
       let tailFlow :=
         CallOptions.pointerReturnFlowFuel fuel requirements assigned rest
       let headFlow :=
@@ -10334,15 +10333,15 @@ def CallOptions.pointerReturnFlowFuel :
 
 def TupleItems.pointerReturnFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    List L00_SourceSolidity.TupleItem -> PointerExprFlow
+    List Solidity.TupleItem -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
   | _ + 1, _, assigned, [] => { assigned := assigned }
   | fuel + 1, requirements, assigned, item :: rest =>
       let tailFlow :=
         TupleItems.pointerReturnFlowFuel fuel requirements assigned rest
       match item with
-      | L00_SourceSolidity.TupleItem.hole => tailFlow
-      | L00_SourceSolidity.TupleItem.value expr =>
+      | Solidity.TupleItem.hole => tailFlow
+      | Solidity.TupleItem.value expr =>
           let headFlow :=
             Expr.pointerReturnFlowFuel fuel requirements tailFlow.assigned expr
           { headFlow with
@@ -10350,15 +10349,15 @@ def TupleItems.pointerReturnFlowFuel :
 
 def TupleItems.pointerReturnLValueFlowFuel :
     Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
-    List L00_SourceSolidity.TupleItem -> PointerExprFlow
+    List Solidity.TupleItem -> PointerExprFlow
   | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
   | _ + 1, _, assigned, [] => { assigned := assigned }
   | fuel + 1, requirements, assigned, item :: rest =>
       let tailFlow :=
         TupleItems.pointerReturnLValueFlowFuel fuel requirements assigned rest
       match item with
-      | L00_SourceSolidity.TupleItem.hole => tailFlow
-      | L00_SourceSolidity.TupleItem.value expr =>
+      | Solidity.TupleItem.hole => tailFlow
+      | Solidity.TupleItem.value expr =>
           let headFlow :=
             Expr.pointerReturnLValueFlowFuel fuel requirements tailFlow.assigned
               expr
@@ -10382,17 +10381,17 @@ def PointerReturnFlow.mergeBranches
     unsafeReturn := left.unsafeReturn || right.unsafeReturn }
 
 structure PointerReturnPlaceholder where
-  modifiers : List L00_SourceSolidity.ModifierInvocation
-  body : L00_SourceSolidity.Stmt
+  modifiers : List Solidity.ModifierInvocation
+  body : Solidity.Stmt
 
 def exprFlowToNormal (flow : PointerExprFlow) : PointerReturnFlow :=
   { normal? := some flow.assigned, unsafeReturn := flow.unsafeRead }
 
-def Expr.isTerminalBuiltinCall : L00_SourceSolidity.Expr -> Bool
-  | L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.ident "selfdestruct") _ => true
-  | L00_SourceSolidity.Expr.call
-      (L00_SourceSolidity.Expr.ident "revert") _ => true
+def Expr.isTerminalBuiltinCall : Solidity.Expr -> Bool
+  | Solidity.Expr.call
+      (Solidity.Expr.ident "selfdestruct") _ => true
+  | Solidity.Expr.call
+      (Solidity.Expr.ident "revert") _ => true
   | _ => false
 
 mutual
@@ -10400,29 +10399,29 @@ mutual
 def Stmt.pointerReturnFlowFuel :
     Nat -> CheckEnv -> PointerReturnRequirements ->
     Option PointerReturnPlaceholder -> PointerReturnAssigned ->
-    L00_SourceSolidity.Stmt -> PointerReturnFlow
+    Solidity.Stmt -> PointerReturnFlow
   | 0, _, _, _, _, _ => { unsafeReturn := true }
-  | _ + 1, _, _, _, assigned, L00_SourceSolidity.Stmt.empty =>
+  | _ + 1, _, _, _, assigned, Solidity.Stmt.empty =>
       { normal? := some assigned }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.block body =>
+      Solidity.Stmt.block body =>
       Stmts.pointerReturnFlowFuel fuel env requirements placeholder assigned body
   | fuel + 1, _, requirements, _, assigned,
-      L00_SourceSolidity.Stmt.varDecl _ init? =>
+      Solidity.Stmt.varDecl _ init? =>
       match init? with
       | some init =>
           exprFlowToNormal
             (Expr.pointerReturnFlowFuel fuel requirements assigned init)
       | none => { normal? := some assigned }
   | fuel + 1, _, requirements, _, assigned,
-      L00_SourceSolidity.Stmt.expr expr =>
+      Solidity.Stmt.expr expr =>
       let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
       if Expr.isTerminalBuiltinCall expr then
         { unsafeReturn := flow.unsafeRead }
       else
         exprFlowToNormal flow
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.ifElse cond thenBranch elseBranch =>
+      Solidity.Stmt.ifElse cond thenBranch elseBranch =>
       let condFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned cond
       let thenFlow :=
@@ -10438,7 +10437,7 @@ def Stmt.pointerReturnFlowFuel :
       { branches with
         unsafeReturn := condFlow.unsafeRead || branches.unsafeReturn }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.whileLoop cond body =>
+      Solidity.Stmt.whileLoop cond body =>
       let condFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned cond
       let bodyFlow :=
@@ -10447,7 +10446,7 @@ def Stmt.pointerReturnFlowFuel :
       { normal? := some condFlow.assigned
         unsafeReturn := condFlow.unsafeRead || bodyFlow.unsafeReturn }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.doWhile body cond =>
+      Solidity.Stmt.doWhile body cond =>
       let bodyFlow :=
         Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
       let reachesCond :=
@@ -10460,7 +10459,7 @@ def Stmt.pointerReturnFlowFuel :
         unsafeReturn := bodyFlow.unsafeReturn ||
           condFlow?.any PointerExprFlow.unsafeRead }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.forLoop init cond post body =>
+      Solidity.Stmt.forLoop init cond post body =>
       let initFlow :=
         match init with
         | some stmt =>
@@ -10491,7 +10490,7 @@ def Stmt.pointerReturnFlowFuel :
             unsafeReturn := initFlow.unsafeReturn || condFlow.unsafeRead ||
               bodyFlow.unsafeReturn || postUnsafe }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.tryCatch expr clauses =>
+      Solidity.Stmt.tryCatch expr clauses =>
       let exprFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned expr
       let catches :=
@@ -10502,7 +10501,7 @@ def Stmt.pointerReturnFlowFuel :
       { merged with
         unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.tryCatchReturns expr _ success clauses =>
+      Solidity.Stmt.tryCatchReturns expr _ success clauses =>
       let exprFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned expr
       let successFlow :=
@@ -10515,32 +10514,32 @@ def Stmt.pointerReturnFlowFuel :
       { merged with
         unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
   | fuel + 1, _, requirements, _, assigned,
-      L00_SourceSolidity.Stmt.emitEvent expr =>
+      Solidity.Stmt.emitEvent expr =>
       exprFlowToNormal
         (Expr.pointerReturnFlowFuel fuel requirements assigned expr)
   | fuel + 1, _, requirements, _, assigned,
-      L00_SourceSolidity.Stmt.revertCall expr =>
+      Solidity.Stmt.revertCall expr =>
       let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
       { unsafeReturn := flow.unsafeRead }
   | fuel + 1, _, requirements, _, assigned,
-      L00_SourceSolidity.Stmt.returnValues expr? =>
+      Solidity.Stmt.returnValues expr? =>
       match expr? with
       | some expr =>
           let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
           { unsafeReturn := flow.unsafeRead }
       | none =>
           { unsafeReturn := !requirements.allAssigned assigned }
-  | _ + 1, _, _, _, assigned, L00_SourceSolidity.Stmt.break =>
+  | _ + 1, _, _, _, assigned, Solidity.Stmt.break =>
       { breaks? := some assigned }
-  | _ + 1, _, _, _, assigned, L00_SourceSolidity.Stmt.continue =>
+  | _ + 1, _, _, _, assigned, Solidity.Stmt.continue =>
       { continues? := some assigned }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.unchecked body =>
+      Solidity.Stmt.unchecked body =>
       Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
-  | _ + 1, _, _, _, _, L00_SourceSolidity.Stmt.inlineAssembly _ =>
+  | _ + 1, _, _, _, _, Solidity.Stmt.inlineAssembly _ =>
       { unsafeReturn := true }
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.Stmt.modifierPlaceholder =>
+      Solidity.Stmt.modifierPlaceholder =>
       match placeholder with
       | some continuation =>
           FunctionDecl.pointerReturnFlowWithModifiersFuel fuel env requirements
@@ -10550,7 +10549,7 @@ def Stmt.pointerReturnFlowFuel :
 def Stmts.pointerReturnFlowFuel :
     Nat -> CheckEnv -> PointerReturnRequirements ->
     Option PointerReturnPlaceholder -> PointerReturnAssigned ->
-    List L00_SourceSolidity.Stmt -> PointerReturnFlow
+    List Solidity.Stmt -> PointerReturnFlow
   | 0, _, _, _, _, _ => { unsafeReturn := true }
   | _ + 1, _, _, _, assigned, [] => { normal? := some assigned }
   | fuel + 1, env, requirements, placeholder, assigned, stmt :: rest =>
@@ -10571,11 +10570,11 @@ def Stmts.pointerReturnFlowFuel :
 def CatchClauses.pointerReturnFlowFuel :
     Nat -> CheckEnv -> PointerReturnRequirements ->
     Option PointerReturnPlaceholder -> PointerReturnAssigned ->
-    List L00_SourceSolidity.CatchClause -> PointerReturnFlow
+    List Solidity.CatchClause -> PointerReturnFlow
   | 0, _, _, _, _, _ => { unsafeReturn := true }
   | _ + 1, _, _, _, _, [] => {}
   | fuel + 1, env, requirements, placeholder, assigned,
-      L00_SourceSolidity.CatchClause.clause _ _ body :: rest =>
+      Solidity.CatchClause.clause _ _ body :: rest =>
       let head :=
         Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
       let tail :=
@@ -10585,7 +10584,7 @@ def CatchClauses.pointerReturnFlowFuel :
 
 def FunctionDecl.pointerReturnFlowWithModifiersFuel :
     Nat -> CheckEnv -> PointerReturnRequirements ->
-    List L00_SourceSolidity.ModifierInvocation -> L00_SourceSolidity.Stmt ->
+    List Solidity.ModifierInvocation -> Solidity.Stmt ->
     PointerReturnAssigned -> PointerReturnFlow
   | 0, _, _, _, _, _ => { unsafeReturn := true }
   | fuel + 1, env, requirements, [], body, assigned =>
@@ -10594,7 +10593,7 @@ def FunctionDecl.pointerReturnFlowWithModifiersFuel :
       let argFlow :=
         Args.pointerReturnFlowFuel fuel requirements assigned invocation.args
       let modifierName? :=
-        (L00_SourceSolidity.Executable.pathInitLast? invocation.target).map
+        (Solidity.Executable.pathInitLast? invocation.target).map
           Prod.snd
       match modifierName?.bind env.lookupModifierDecl? with
       | some modifier =>
@@ -10614,8 +10613,8 @@ end
 def defaultPointerReturnFlowFuel : Nat := 4096
 
 def FunctionDecl.checkPointerReturnDefiniteAssignment
-    (env : CheckEnv) (fn : L00_SourceSolidity.FunctionDecl)
-    (body : L00_SourceSolidity.Stmt) : Except TypeError Unit := do
+    (env : CheckEnv) (fn : Solidity.FunctionDecl)
+    (body : Solidity.Stmt) : Except TypeError Unit := do
   let requirements := Parameters.pointerReturnRequirements env.types fn.returns
   if requirements.isEmpty then
     Except.ok ()
@@ -10634,13 +10633,13 @@ def FunctionDecl.checkPointerReturnDefiniteAssignment
             "storage or calldata return pointer can be returned before assignment")
 
 def VarBinding.isUninitializedLocalPointer
-    (binding : L00_SourceSolidity.VarBinding) : Bool :=
+    (binding : Solidity.VarBinding) : Bool :=
   binding.name.isSome && binding.ty.isSome &&
-    (binding.location == some L00_SourceSolidity.DataLocation.storage ||
-      binding.location == some L00_SourceSolidity.DataLocation.calldata)
+    (binding.location == some Solidity.DataLocation.storage ||
+      binding.location == some Solidity.DataLocation.calldata)
 
 def VarBindings.uninitializedLocalPointerNames :
-    List L00_SourceSolidity.VarBinding -> List Name
+    List Solidity.VarBinding -> List Name
   | [] => []
   | binding :: rest =>
       let tail := VarBindings.uninitializedLocalPointerNames rest
@@ -10652,11 +10651,11 @@ def VarBindings.uninitializedLocalPointerNames :
         tail
 
 def VarBindings.declaresName
-    (bindings : List L00_SourceSolidity.VarBinding) (name : Name) : Bool :=
+    (bindings : List Solidity.VarBinding) (name : Name) : Bool :=
   bindings.any (fun binding => binding.name == some name)
 
 def Parameters.declaresName
-    (params : List L00_SourceSolidity.Parameter) (name : Name) : Bool :=
+    (params : List Solidity.Parameter) (name : Name) : Bool :=
   params.any (fun param => param.name == some name)
 
 def pointerLocalRequirements (name : Name) : PointerReturnRequirements :=
@@ -10666,21 +10665,21 @@ mutual
 
 def Stmt.pointerLocalFlowFuel :
     Nat -> Name -> PointerReturnAssigned ->
-    L00_SourceSolidity.Stmt -> PointerReturnFlow
+    Solidity.Stmt -> PointerReturnFlow
   | 0, _, _, _ => { unsafeReturn := true }
-  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.empty =>
+  | _ + 1, _, assigned, Solidity.Stmt.empty =>
       { normal? := some assigned }
-  | fuel + 1, name, assigned, L00_SourceSolidity.Stmt.block body =>
+  | fuel + 1, name, assigned, Solidity.Stmt.block body =>
       Stmts.pointerLocalFlowFuel fuel name assigned body
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.varDecl _ init? =>
+      Solidity.Stmt.varDecl _ init? =>
       match init? with
       | some init =>
           exprFlowToNormal
             (Expr.pointerReturnFlowFuel fuel
               (pointerLocalRequirements name) assigned init)
       | none => { normal? := some assigned }
-  | fuel + 1, name, assigned, L00_SourceSolidity.Stmt.expr expr =>
+  | fuel + 1, name, assigned, Solidity.Stmt.expr expr =>
       let flow :=
         Expr.pointerReturnFlowFuel fuel
           (pointerLocalRequirements name) assigned expr
@@ -10689,7 +10688,7 @@ def Stmt.pointerLocalFlowFuel :
       else
         exprFlowToNormal flow
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.ifElse cond thenBranch elseBranch =>
+      Solidity.Stmt.ifElse cond thenBranch elseBranch =>
       let requirements := pointerLocalRequirements name
       let condFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned cond
@@ -10704,7 +10703,7 @@ def Stmt.pointerLocalFlowFuel :
       { branches with
         unsafeReturn := condFlow.unsafeRead || branches.unsafeReturn }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.whileLoop cond body =>
+      Solidity.Stmt.whileLoop cond body =>
       let requirements := pointerLocalRequirements name
       let condFlow :=
         Expr.pointerReturnFlowFuel fuel requirements assigned cond
@@ -10713,7 +10712,7 @@ def Stmt.pointerLocalFlowFuel :
       { normal? := some condFlow.assigned
         unsafeReturn := condFlow.unsafeRead || bodyFlow.unsafeReturn }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.doWhile body cond =>
+      Solidity.Stmt.doWhile body cond =>
       let bodyFlow := Stmt.pointerLocalFlowFuel fuel name assigned body
       let reachesCond :=
         mergePointerReturnState bodyFlow.normal? bodyFlow.continues?
@@ -10726,9 +10725,9 @@ def Stmt.pointerLocalFlowFuel :
         unsafeReturn := bodyFlow.unsafeReturn ||
           condFlow?.any PointerExprFlow.unsafeRead }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.forLoop init cond post body =>
+      Solidity.Stmt.forLoop init cond post body =>
       match init with
-      | some (L00_SourceSolidity.Stmt.varDecl bindings initExpr?) =>
+      | some (Solidity.Stmt.varDecl bindings initExpr?) =>
           if VarBindings.declaresName bindings name then
             match initExpr? with
             | some initExpr =>
@@ -10739,7 +10738,7 @@ def Stmt.pointerLocalFlowFuel :
           else
             let initFlow :=
               Stmt.pointerLocalFlowFuel fuel name assigned
-                (L00_SourceSolidity.Stmt.varDecl bindings initExpr?)
+                (Solidity.Stmt.varDecl bindings initExpr?)
             match initFlow.normal? with
             | none => initFlow
             | some afterInit =>
@@ -10797,7 +10796,7 @@ def Stmt.pointerLocalFlowFuel :
                 unsafeReturn := initFlow.unsafeReturn ||
                   condFlow.unsafeRead || bodyFlow.unsafeReturn || postUnsafe }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.tryCatch expr clauses =>
+      Solidity.Stmt.tryCatch expr clauses =>
       let exprFlow :=
         Expr.pointerReturnFlowFuel fuel
           (pointerLocalRequirements name) assigned expr
@@ -10809,7 +10808,7 @@ def Stmt.pointerLocalFlowFuel :
       { merged with
         unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.tryCatchReturns expr returns success clauses =>
+      Solidity.Stmt.tryCatchReturns expr returns success clauses =>
       let exprFlow :=
         Expr.pointerReturnFlowFuel fuel
           (pointerLocalRequirements name) assigned expr
@@ -10824,18 +10823,18 @@ def Stmt.pointerLocalFlowFuel :
       { merged with
         unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.emitEvent expr =>
+      Solidity.Stmt.emitEvent expr =>
       exprFlowToNormal
         (Expr.pointerReturnFlowFuel fuel
           (pointerLocalRequirements name) assigned expr)
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.revertCall expr =>
+      Solidity.Stmt.revertCall expr =>
       let flow :=
         Expr.pointerReturnFlowFuel fuel
           (pointerLocalRequirements name) assigned expr
       { unsafeReturn := flow.unsafeRead }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.returnValues expr? =>
+      Solidity.Stmt.returnValues expr? =>
       match expr? with
       | some expr =>
           let flow :=
@@ -10843,26 +10842,26 @@ def Stmt.pointerLocalFlowFuel :
               (pointerLocalRequirements name) assigned expr
           { unsafeReturn := flow.unsafeRead }
       | none => {}
-  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.break =>
+  | _ + 1, _, assigned, Solidity.Stmt.break =>
       { breaks? := some assigned }
-  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.continue =>
+  | _ + 1, _, assigned, Solidity.Stmt.continue =>
       { continues? := some assigned }
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.Stmt.unchecked body =>
+      Solidity.Stmt.unchecked body =>
       Stmt.pointerLocalFlowFuel fuel name assigned body
-  | _ + 1, _, _, L00_SourceSolidity.Stmt.inlineAssembly _ =>
+  | _ + 1, _, _, Solidity.Stmt.inlineAssembly _ =>
       { unsafeReturn := true }
-  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.modifierPlaceholder =>
+  | _ + 1, _, assigned, Solidity.Stmt.modifierPlaceholder =>
       { normal? := some assigned }
 
 def Stmts.pointerLocalFlowFuel :
     Nat -> Name -> PointerReturnAssigned ->
-    List L00_SourceSolidity.Stmt -> PointerReturnFlow
+    List Solidity.Stmt -> PointerReturnFlow
   | 0, _, _, _ => { unsafeReturn := true }
   | _ + 1, _, assigned, [] => { normal? := some assigned }
   | fuel + 1, name, assigned, stmt :: rest =>
       match stmt with
-      | L00_SourceSolidity.Stmt.varDecl bindings init? =>
+      | Solidity.Stmt.varDecl bindings init? =>
           if VarBindings.declaresName bindings name then
             match init? with
             | some init =>
@@ -10896,11 +10895,11 @@ def Stmts.pointerLocalFlowFuel :
 
 def CatchClauses.pointerLocalFlowFuel :
     Nat -> Name -> PointerReturnAssigned ->
-    List L00_SourceSolidity.CatchClause -> PointerReturnFlow
+    List Solidity.CatchClause -> PointerReturnFlow
   | 0, _, _, _ => { unsafeReturn := true }
   | _ + 1, _, _, [] => {}
   | fuel + 1, name, assigned,
-      L00_SourceSolidity.CatchClause.clause _ params body :: rest =>
+      Solidity.CatchClause.clause _ params body :: rest =>
       let head : PointerReturnFlow :=
         if Parameters.declaresName params name then
           { normal? := some assigned }
@@ -10913,7 +10912,7 @@ def CatchClauses.pointerLocalFlowFuel :
 end
 
 def checkPointerLocalNamesInSuffix
-    (names : List Name) (suffix : List L00_SourceSolidity.Stmt) :
+    (names : List Name) (suffix : List Solidity.Stmt) :
     Except TypeError Unit := do
   match names with
   | [] => Except.ok ()
@@ -10928,46 +10927,46 @@ def checkPointerLocalNamesInSuffix
 mutual
 
 def Stmt.checkLocalPointerDefiniteAssignmentFuel :
-    Nat -> L00_SourceSolidity.Stmt -> Except TypeError Unit
+    Nat -> Solidity.Stmt -> Except TypeError Unit
   | 0, _ =>
       Except.error
         (TypeError.invalidVariableDecl
           "local pointer definite-assignment analysis exhausted")
-  | fuel + 1, L00_SourceSolidity.Stmt.block body =>
+  | fuel + 1, Solidity.Stmt.block body =>
       Stmts.checkLocalPointerDefiniteAssignmentFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.ifElse _ thenBranch elseBranch => do
+  | fuel + 1, Solidity.Stmt.ifElse _ thenBranch elseBranch => do
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel thenBranch
       match elseBranch with
       | some branch =>
           Stmt.checkLocalPointerDefiniteAssignmentFuel fuel branch
       | none => Except.ok ()
-  | fuel + 1, L00_SourceSolidity.Stmt.whileLoop _ body =>
+  | fuel + 1, Solidity.Stmt.whileLoop _ body =>
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.doWhile body _ =>
+  | fuel + 1, Solidity.Stmt.doWhile body _ =>
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.forLoop init cond post body => do
+  | fuel + 1, Solidity.Stmt.forLoop init cond post body => do
       match init with
-      | some (L00_SourceSolidity.Stmt.varDecl bindings none) =>
+      | some (Solidity.Stmt.varDecl bindings none) =>
           let names :=
             VarBindings.uninitializedLocalPointerNames bindings
           checkPointerLocalNamesInSuffix names
-            [L00_SourceSolidity.Stmt.forLoop none cond post body]
+            [Solidity.Stmt.forLoop none cond post body]
       | some initStmt =>
           Stmt.checkLocalPointerDefiniteAssignmentFuel fuel initStmt
       | none => Except.ok ()
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.tryCatch _ clauses =>
+  | fuel + 1, Solidity.Stmt.tryCatch _ clauses =>
       CatchClauses.checkLocalPointerDefiniteAssignmentFuel fuel clauses
   | fuel + 1,
-      L00_SourceSolidity.Stmt.tryCatchReturns _ _ success clauses => do
+      Solidity.Stmt.tryCatchReturns _ _ success clauses => do
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel success
       CatchClauses.checkLocalPointerDefiniteAssignmentFuel fuel clauses
-  | fuel + 1, L00_SourceSolidity.Stmt.unchecked body =>
+  | fuel + 1, Solidity.Stmt.unchecked body =>
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
   | _ + 1, _ => Except.ok ()
 
 def Stmts.checkLocalPointerDefiniteAssignmentFuel :
-    Nat -> List L00_SourceSolidity.Stmt -> Except TypeError Unit
+    Nat -> List Solidity.Stmt -> Except TypeError Unit
   | 0, _ =>
       Except.error
         (TypeError.invalidVariableDecl
@@ -10975,7 +10974,7 @@ def Stmts.checkLocalPointerDefiniteAssignmentFuel :
   | _ + 1, [] => Except.ok ()
   | fuel + 1, stmt :: rest => do
       match stmt with
-      | L00_SourceSolidity.Stmt.varDecl bindings none =>
+      | Solidity.Stmt.varDecl bindings none =>
           checkPointerLocalNamesInSuffix
             (VarBindings.uninitializedLocalPointerNames bindings) rest
       | _ => Except.ok ()
@@ -10983,53 +10982,53 @@ def Stmts.checkLocalPointerDefiniteAssignmentFuel :
       Stmts.checkLocalPointerDefiniteAssignmentFuel fuel rest
 
 def CatchClauses.checkLocalPointerDefiniteAssignmentFuel :
-    Nat -> List L00_SourceSolidity.CatchClause -> Except TypeError Unit
+    Nat -> List Solidity.CatchClause -> Except TypeError Unit
   | 0, _ =>
       Except.error
         (TypeError.invalidVariableDecl
           "local pointer definite-assignment analysis exhausted")
   | _ + 1, [] => Except.ok ()
   | fuel + 1,
-      L00_SourceSolidity.CatchClause.clause _ _ body :: rest => do
+      Solidity.CatchClause.clause _ _ body :: rest => do
       Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
       CatchClauses.checkLocalPointerDefiniteAssignmentFuel fuel rest
 
 end
 
 def Stmt.checkLocalPointerDefiniteAssignment
-    (body : L00_SourceSolidity.Stmt) : Except TypeError Unit :=
+    (body : Solidity.Stmt) : Except TypeError Unit :=
   Stmt.checkLocalPointerDefiniteAssignmentFuel
     defaultPointerReturnFlowFuel body
 
 mutual
 
 def Stmt.containsModifierPlaceholderFuel :
-    Nat -> L00_SourceSolidity.Stmt -> Bool
+    Nat -> Solidity.Stmt -> Bool
   | 0, _ => false
-  | _ + 1, L00_SourceSolidity.Stmt.modifierPlaceholder => true
-  | fuel + 1, L00_SourceSolidity.Stmt.block body =>
+  | _ + 1, Solidity.Stmt.modifierPlaceholder => true
+  | fuel + 1, Solidity.Stmt.block body =>
       Stmts.containsModifierPlaceholderFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.ifElse _ thenBranch elseBranch =>
+  | fuel + 1, Solidity.Stmt.ifElse _ thenBranch elseBranch =>
       Stmt.containsModifierPlaceholderFuel fuel thenBranch ||
         elseBranch.any (Stmt.containsModifierPlaceholderFuel fuel)
-  | fuel + 1, L00_SourceSolidity.Stmt.whileLoop _ body =>
+  | fuel + 1, Solidity.Stmt.whileLoop _ body =>
       Stmt.containsModifierPlaceholderFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.doWhile body _ =>
+  | fuel + 1, Solidity.Stmt.doWhile body _ =>
       Stmt.containsModifierPlaceholderFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.forLoop init _ _ body =>
+  | fuel + 1, Solidity.Stmt.forLoop init _ _ body =>
       init.any (Stmt.containsModifierPlaceholderFuel fuel) ||
         Stmt.containsModifierPlaceholderFuel fuel body
-  | fuel + 1, L00_SourceSolidity.Stmt.tryCatch _ clauses =>
+  | fuel + 1, Solidity.Stmt.tryCatch _ clauses =>
       CatchClauses.containsModifierPlaceholderFuel fuel clauses
-  | fuel + 1, L00_SourceSolidity.Stmt.tryCatchReturns _ _ success clauses =>
+  | fuel + 1, Solidity.Stmt.tryCatchReturns _ _ success clauses =>
       Stmt.containsModifierPlaceholderFuel fuel success ||
         CatchClauses.containsModifierPlaceholderFuel fuel clauses
-  | fuel + 1, L00_SourceSolidity.Stmt.unchecked body =>
+  | fuel + 1, Solidity.Stmt.unchecked body =>
       Stmt.containsModifierPlaceholderFuel fuel body
   | _ + 1, _ => false
 
 def Stmts.containsModifierPlaceholderFuel :
-    Nat -> List L00_SourceSolidity.Stmt -> Bool
+    Nat -> List Solidity.Stmt -> Bool
   | 0, _ => false
   | _ + 1, [] => false
   | fuel + 1, stmt :: rest =>
@@ -11037,21 +11036,21 @@ def Stmts.containsModifierPlaceholderFuel :
         Stmts.containsModifierPlaceholderFuel fuel rest
 
 def CatchClauses.containsModifierPlaceholderFuel :
-    Nat -> List L00_SourceSolidity.CatchClause -> Bool
+    Nat -> List Solidity.CatchClause -> Bool
   | 0, _ => false
   | _ + 1, [] => false
-  | fuel + 1, L00_SourceSolidity.CatchClause.clause _ _ body :: rest =>
+  | fuel + 1, Solidity.CatchClause.clause _ _ body :: rest =>
       Stmt.containsModifierPlaceholderFuel fuel body ||
         CatchClauses.containsModifierPlaceholderFuel fuel rest
 
 end
 
 def Stmt.containsModifierPlaceholder
-    (stmt : L00_SourceSolidity.Stmt) : Bool :=
+    (stmt : Solidity.Stmt) : Bool :=
   Stmt.containsModifierPlaceholderFuel 4096 stmt
 
 def FunctionDecl.check (baseEnv : CheckEnv)
-    (fn : L00_SourceSolidity.FunctionDecl) : Except TypeError Unit := do
+    (fn : Solidity.FunctionDecl) : Except TypeError Unit := do
   FunctionDecl.checkHeader baseEnv fn
   Parameters.check baseEnv.types fn.params
   Parameters.check baseEnv.types fn.returns
@@ -11080,12 +11079,12 @@ def FunctionDecl.check (baseEnv : CheckEnv)
       currentMutability := some fn.mutability
       returnTys :=
         (Parameters.tys fn.returns).map baseEnv.qualifyCurrentLocalUserTypes
-      returnNames := fn.returns.map L00_SourceSolidity.Parameter.name
+      returnNames := fn.returns.map Solidity.Parameter.name
       returnStorageRefs := Parameters.storageLocationFlags fn.returns
       returnDataLocations := Parameters.dataLocations fn.returns
-      inConstructor := fn.kind == L00_SourceSolidity.FunctionKind.constructor }
+      inConstructor := fn.kind == Solidity.FunctionKind.constructor }
   ModifierInvocations.check env
-    (fn.kind == L00_SourceSolidity.FunctionKind.constructor)
+    (fn.kind == Solidity.FunctionKind.constructor)
     fn.modifiers
   match fn.body with
   | none => Except.ok ()
@@ -11097,7 +11096,7 @@ def FunctionDecl.check (baseEnv : CheckEnv)
       Except.ok ()
 
 def ModifierDecl.check (baseEnv : CheckEnv)
-    (modifier : L00_SourceSolidity.ModifierDecl) : Except TypeError Unit := do
+    (modifier : Solidity.ModifierDecl) : Except TypeError Unit := do
   Parameters.check baseEnv.types modifier.params
   ensureUniqueNames "modifier parameter"
     ((Parameters.namedTypes modifier.params).map Prod.fst)
@@ -11136,21 +11135,21 @@ def ModifierDecl.check (baseEnv : CheckEnv)
       Except.ok ()
 
 def EventParam.indexedWeight
-    (param : L00_SourceSolidity.EventParam) : Nat :=
+    (param : Solidity.EventParam) : Nat :=
   if param.indexed then 1 else 0
 
 def EventParams.indexedCount :
-    List L00_SourceSolidity.EventParam -> Nat
+    List Solidity.EventParam -> Nat
   | [] => 0
   | param :: rest =>
       EventParam.indexedWeight param + EventParams.indexedCount rest
 
 def EventDecl.indexedLimit
-    (event : L00_SourceSolidity.EventDecl) : Nat :=
+    (event : Solidity.EventDecl) : Nat :=
   if event.anonymous then 4 else 3
 
 def EventParam.check (env : CheckEnv)
-    (param : L00_SourceSolidity.EventParam) :
+    (param : Solidity.EventParam) :
     Except TypeError Unit := do
   checkTy env.types param.ty
   require (TypeContext.isAbiEncodable env.types param.ty)
@@ -11161,25 +11160,25 @@ def EventParam.check (env : CheckEnv)
     (TypeError.invalidAbiType param.ty)
 
 def EventParams.check (env : CheckEnv) :
-    List L00_SourceSolidity.EventParam -> Except TypeError Unit
+    List Solidity.EventParam -> Except TypeError Unit
   | [] => Except.ok ()
   | param :: rest => do
       EventParam.check env param
       EventParams.check env rest
 
 def EventDecl.check (env : CheckEnv)
-    (event : L00_SourceSolidity.EventDecl) :
+    (event : Solidity.EventDecl) :
     Except TypeError Unit := do
   EventParams.check env event.params
   ensureUniqueNames "event parameter"
-    (event.params.filterMap L00_SourceSolidity.EventParam.name)
+    (event.params.filterMap Solidity.EventParam.name)
   require (EventParams.indexedCount event.params <=
       EventDecl.indexedLimit event)
     (TypeError.invalidEventHeader event.name
       "too many indexed event parameters")
 
 def Parameter.checkErrorParam (types : TypeContext)
-    (param : L00_SourceSolidity.Parameter) : Except TypeError Unit := do
+    (param : Solidity.Parameter) : Except TypeError Unit := do
   checkTy types param.ty
   require param.location.isNone
     (TypeError.invalidDataLocation param.ty param.location)
@@ -11191,20 +11190,20 @@ def Parameter.checkErrorParam (types : TypeContext)
     (TypeError.invalidAbiType param.ty)
 
 def Parameters.checkErrorParams (types : TypeContext) :
-    List L00_SourceSolidity.Parameter -> Except TypeError Unit
+    List Solidity.Parameter -> Except TypeError Unit
   | [] => Except.ok ()
   | param :: rest => do
       Parameter.checkErrorParam types param
       Parameters.checkErrorParams types rest
 
 def ErrorDecl.check (env : CheckEnv)
-    (err : L00_SourceSolidity.ErrorDecl) :
+    (err : Solidity.ErrorDecl) :
     Except TypeError Unit := do
   require (!(err.name == "Error" || err.name == "Panic"))
     (TypeError.invalidErrorHeader err.name
       "built-in error cannot be redefined")
   ensureUniqueNames "error parameter"
-    (err.params.filterMap L00_SourceSolidity.Parameter.name)
+    (err.params.filterMap Solidity.Parameter.name)
   Parameters.checkErrorParams env.types err.params
 
 def pathInList (target : Path) : List Path -> Bool :=
@@ -11215,7 +11214,7 @@ mutual
 def Ty.hasForbiddenStructReferenceCycle (types : TypeContext)
     (targets : List Path) : Nat -> Ty -> Bool
   | 0, _ => false
-  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+  | fuel + 1, Solidity.Ty.user path =>
       if pathInList path targets then
         true
       else
@@ -11224,9 +11223,9 @@ def Ty.hasForbiddenStructReferenceCycle (types : TypeContext)
             StructDecl.hasForbiddenStructReferenceCycle types targets fuel
               decl
         | none => false
-  | fuel + 1, L00_SourceSolidity.Ty.array element (some _) =>
+  | fuel + 1, Solidity.Ty.array element (some _) =>
       Ty.hasForbiddenStructReferenceCycle types targets fuel element
-  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+  | fuel + 1, Solidity.Ty.tuple tys =>
       Tys.hasForbiddenStructReferenceCycle types targets fuel tys
   | _, _ => false
 
@@ -11239,12 +11238,12 @@ def Tys.hasForbiddenStructReferenceCycle (types : TypeContext)
 
 def StructField.hasForbiddenStructReferenceCycle (types : TypeContext)
     (targets : List Path) (fuel : Nat)
-    (field : L00_SourceSolidity.StructField) : Bool :=
+    (field : Solidity.StructField) : Bool :=
   Ty.hasForbiddenStructReferenceCycle types targets fuel field.ty
 
 def StructFields.hasForbiddenStructReferenceCycle (types : TypeContext)
     (targets : List Path) (fuel : Nat) :
-    List L00_SourceSolidity.StructField -> Bool
+    List Solidity.StructField -> Bool
   | [] => false
   | field :: rest =>
       StructField.hasForbiddenStructReferenceCycle types targets fuel field ||
@@ -11252,13 +11251,13 @@ def StructFields.hasForbiddenStructReferenceCycle (types : TypeContext)
 
 def StructDecl.hasForbiddenStructReferenceCycle (types : TypeContext)
     (targets : List Path) (fuel : Nat)
-    (decl : L00_SourceSolidity.StructDecl) : Bool :=
+    (decl : Solidity.StructDecl) : Bool :=
   StructFields.hasForbiddenStructReferenceCycle types targets fuel decl.fields
 
 end
 
 def StructField.check (env : CheckEnv) (selfPaths : List Path)
-    (field : L00_SourceSolidity.StructField) : Except TypeError Unit := do
+    (field : Solidity.StructField) : Except TypeError Unit := do
   checkTy env.types field.ty
   require (!Ty.containsLibraryType env.types 64 field.ty)
     (TypeError.invalidType field.ty)
@@ -11267,24 +11266,24 @@ def StructField.check (env : CheckEnv) (selfPaths : List Path)
     (TypeError.invalidType field.ty)
 
 def StructDecl.check (env : CheckEnv) (selfPaths : List Path)
-    (decl : L00_SourceSolidity.StructDecl) : Except TypeError Unit := do
-  ensureUniqueNames "struct field" (decl.fields.map L00_SourceSolidity.StructField.name)
+    (decl : Solidity.StructDecl) : Except TypeError Unit := do
+  ensureUniqueNames "struct field" (decl.fields.map Solidity.StructField.name)
   let rec checkFields :
-      List L00_SourceSolidity.StructField -> Except TypeError Unit
+      List Solidity.StructField -> Except TypeError Unit
     | [] => Except.ok ()
     | field :: rest => do
         StructField.check env selfPaths field
         checkFields rest
   checkFields decl.fields
 
-def EnumDecl.check (decl : L00_SourceSolidity.EnumDecl) :
+def EnumDecl.check (decl : Solidity.EnumDecl) :
     Except TypeError Unit := do
   require (decl.cases.length > 0 && decl.cases.length <= 256)
     (TypeError.invalidEnum decl.name)
   ensureUniqueNames "enum case" decl.cases
 
 def UserValueTypeDecl.check (env : CheckEnv)
-    (decl : L00_SourceSolidity.UserValueTypeDecl) :
+    (decl : Solidity.UserValueTypeDecl) :
     Except TypeError Unit := do
   checkTy env.types decl.underlying
   require (Ty.isBuiltInValueTypeShape decl.underlying)
@@ -11292,9 +11291,9 @@ def UserValueTypeDecl.check (env : CheckEnv)
 
 def UsingFunction.check (env : CheckEnv)
     (target? : Option Ty) (global : Bool)
-    (binding : L00_SourceSolidity.UsingFunction) : Except TypeError Unit := do
+    (binding : Solidity.UsingFunction) : Except TypeError Unit := do
   let (libraryPath, functionName) ←
-    match L00_SourceSolidity.Executable.pathInitLast? binding.function with
+    match Solidity.Executable.pathInitLast? binding.function with
     | some parts => Except.ok parts
     | none => Except.error (TypeError.unknownFunction "")
   match binding.operator? with
@@ -11313,7 +11312,7 @@ def UsingFunction.check (env : CheckEnv)
               (TypeError.invalidContractHeader
                 "using operator binding requires a target type")
       match targetTy with
-      | L00_SourceSolidity.Ty.user path =>
+      | Solidity.Ty.user path =>
           require (env.types.isUserValueTypePath path)
             (TypeError.invalidContractHeader
               "using operator binding target is not a user value type")
@@ -11341,7 +11340,7 @@ def UsingFunction.check (env : CheckEnv)
             match env.types.lookupContractDecl? libraryPath with
             | some libraryDecl => Except.ok libraryDecl
             | none => Except.error (TypeError.unknownType libraryPath)
-          require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+          require (libraryDecl.kind == Solidity.ContractKind.library)
             (TypeError.invalidContractHeader "using target is not a library")
           Except.ok
             ((FunctionSigs.nonPrivate
@@ -11352,20 +11351,20 @@ def UsingFunction.check (env : CheckEnv)
 
 def UsingFunctions.check (env : CheckEnv)
     (target? : Option Ty) (global : Bool) :
-    List L00_SourceSolidity.UsingFunction -> Except TypeError Unit
+    List Solidity.UsingFunction -> Except TypeError Unit
   | [] => Except.ok ()
   | binding :: rest => do
       UsingFunction.check env target? global binding
       UsingFunctions.check env target? global rest
 
 def UsingDecl.checkCore (env : CheckEnv)
-    (decl : L00_SourceSolidity.UsingDecl) : Except TypeError Unit := do
+    (decl : Solidity.UsingDecl) : Except TypeError Unit := do
   if decl.functions.isEmpty then
     let libraryDecl ←
       match env.types.lookupContractDecl? decl.library with
       | some libraryDecl => Except.ok libraryDecl
       | none => Except.error (TypeError.unknownType decl.library)
-    require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
+    require (libraryDecl.kind == Solidity.ContractKind.library)
       (TypeError.invalidContractHeader "using target is not a library")
   else
     UsingFunctions.check env decl.target decl.global decl.functions
@@ -11377,21 +11376,21 @@ def UsingDecl.checkCore (env : CheckEnv)
   | none => Except.ok ()
 
 def UsingDecl.checkContractLevel (env : CheckEnv)
-    (decl : L00_SourceSolidity.UsingDecl) : Except TypeError Unit := do
+    (decl : Solidity.UsingDecl) : Except TypeError Unit := do
   UsingDecl.checkCore env decl
   require (!decl.global)
     (TypeError.invalidContractHeader
       "global using directive is only allowed at file scope")
 
 def UsingDecl.checkFileLevel (env : CheckEnv)
-    (decl : L00_SourceSolidity.UsingDecl) : Except TypeError Unit := do
+    (decl : Solidity.UsingDecl) : Except TypeError Unit := do
   UsingDecl.checkCore env decl
   require decl.target.isSome
     (TypeError.invalidContractHeader
       "file-level using directive requires an explicit type")
   if decl.global then
     match decl.target with
-    | some (L00_SourceSolidity.Ty.user path) =>
+    | some (Solidity.Ty.user path) =>
         require (env.types.isUserValueTypePath path)
           (TypeError.invalidContractHeader
             "global using directive target is not a user value type")
@@ -11403,74 +11402,74 @@ def UsingDecl.checkFileLevel (env : CheckEnv)
     Except.ok ()
 
 def ContractItem.stateVar? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.StateVarDecl
-  | L00_SourceSolidity.ContractItem.stateVar decl => some decl
+    Solidity.ContractItem -> Option Solidity.StateVarDecl
+  | Solidity.ContractItem.stateVar decl => some decl
   | _ => none
 
 def ContractItem.function? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.FunctionDecl
-  | L00_SourceSolidity.ContractItem.function decl => some decl
+    Solidity.ContractItem -> Option Solidity.FunctionDecl
+  | Solidity.ContractItem.function decl => some decl
   | _ => none
 
 def ContractItem.modifier? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.ModifierDecl
-  | L00_SourceSolidity.ContractItem.modifierDecl decl => some decl
+    Solidity.ContractItem -> Option Solidity.ModifierDecl
+  | Solidity.ContractItem.modifierDecl decl => some decl
   | _ => none
 
 def ContractItem.event? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.EventDecl
-  | L00_SourceSolidity.ContractItem.eventDecl decl => some decl
+    Solidity.ContractItem -> Option Solidity.EventDecl
+  | Solidity.ContractItem.eventDecl decl => some decl
   | _ => none
 
 def ContractItem.error? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.ErrorDecl
-  | L00_SourceSolidity.ContractItem.errorDecl decl => some decl
+    Solidity.ContractItem -> Option Solidity.ErrorDecl
+  | Solidity.ContractItem.errorDecl decl => some decl
   | _ => none
 
 def ContractItem.struct? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.StructDecl
-  | L00_SourceSolidity.ContractItem.structDecl decl => some decl
+    Solidity.ContractItem -> Option Solidity.StructDecl
+  | Solidity.ContractItem.structDecl decl => some decl
   | _ => none
 
 def ContractItem.enum? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.EnumDecl
-  | L00_SourceSolidity.ContractItem.enumDecl decl => some decl
+    Solidity.ContractItem -> Option Solidity.EnumDecl
+  | Solidity.ContractItem.enumDecl decl => some decl
   | _ => none
 
 def ContractItem.userValueType? :
-    L00_SourceSolidity.ContractItem ->
-    Option L00_SourceSolidity.UserValueTypeDecl
-  | L00_SourceSolidity.ContractItem.userValueTypeDecl decl => some decl
+    Solidity.ContractItem ->
+    Option Solidity.UserValueTypeDecl
+  | Solidity.ContractItem.userValueTypeDecl decl => some decl
   | _ => none
 
 def ContractItem.using? :
-    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.UsingDecl
-  | L00_SourceSolidity.ContractItem.usingDecl decl => some decl
+    Solidity.ContractItem -> Option Solidity.UsingDecl
+  | Solidity.ContractItem.usingDecl decl => some decl
   | _ => none
 
 def ContractDecl.eventSigs
-    (decl : L00_SourceSolidity.ContractDecl) : List EventSig :=
+    (decl : Solidity.ContractDecl) : List EventSig :=
   (decl.items.filterMap ContractItem.event?).map EventDecl.signature
 
 def ContractDecl.errorSigs
-    (decl : L00_SourceSolidity.ContractDecl) : List ErrorSig :=
+    (decl : Solidity.ContractDecl) : List ErrorSig :=
   (decl.items.filterMap ContractItem.error?).map ErrorDecl.signature
 
 def ContractDecl.eventNames
-    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+    (decl : Solidity.ContractDecl) : List Name :=
   (decl.items.filterMap ContractItem.event?).map
-    L00_SourceSolidity.EventDecl.name
+    Solidity.EventDecl.name
 
 def ContractDecl.nonEventTypeNames
-    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+    (decl : Solidity.ContractDecl) : List Name :=
   (decl.items.filterMap ContractItem.error?).map
-      L00_SourceSolidity.ErrorDecl.name ++
+      Solidity.ErrorDecl.name ++
     (decl.items.filterMap ContractItem.struct?).map
-      L00_SourceSolidity.StructDecl.name ++
+      Solidity.StructDecl.name ++
     (decl.items.filterMap ContractItem.enum?).map
-      L00_SourceSolidity.EnumDecl.name ++
+      Solidity.EnumDecl.name ++
     (decl.items.filterMap ContractItem.userValueType?).map
-      L00_SourceSolidity.UserValueTypeDecl.name
+      Solidity.UserValueTypeDecl.name
 
 def ContractDecls.eventSigs (types : TypeContext) :
     List Path -> List EventSig
@@ -11510,7 +11509,7 @@ def ContractDecls.nonEventTypeNames (types : TypeContext) :
       | none => ContractDecls.nonEventTypeNames types rest
 
 def ContractDecl.addNestedTypesToContext
-    (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
+    (types : TypeContext) (decl : Solidity.ContractDecl) :
     TypeContext :=
   types.withContractTypes decl.name
     (decl.items.filterMap ContractItem.struct?)
@@ -11518,113 +11517,113 @@ def ContractDecl.addNestedTypesToContext
     (decl.items.filterMap ContractItem.userValueType?)
 
 def ContractDecls.addNestedTypesToContext :
-    TypeContext -> List L00_SourceSolidity.ContractDecl -> TypeContext
+    TypeContext -> List Solidity.ContractDecl -> TypeContext
   | types, [] => types
   | types, decl :: rest =>
       ContractDecl.addNestedTypesToContext
         (ContractDecls.addNestedTypesToContext types rest) decl
 
-def StateVarDecl.isConstant (decl : L00_SourceSolidity.StateVarDecl) : Bool :=
-  decl.mutability == L00_SourceSolidity.VarMutability.constant
+def StateVarDecl.isConstant (decl : Solidity.StateVarDecl) : Bool :=
+  decl.mutability == Solidity.VarMutability.constant
 
-def FunctionDecl.hasBody (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
+def FunctionDecl.hasBody (fn : Solidity.FunctionDecl) : Bool :=
   match fn.body with
   | some _ => true
   | none => false
 
-def FunctionDecl.isOrdinary (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
-  fn.kind == L00_SourceSolidity.FunctionKind.function
+def FunctionDecl.isOrdinary (fn : Solidity.FunctionDecl) : Bool :=
+  fn.kind == Solidity.FunctionKind.function
 
-def FunctionDecl.declaredName? (fn : L00_SourceSolidity.FunctionDecl) :
+def FunctionDecl.declaredName? (fn : Solidity.FunctionDecl) :
     Option Name :=
   match fn.kind, fn.name with
-  | L00_SourceSolidity.FunctionKind.function, some name => some name
+  | Solidity.FunctionKind.function, some name => some name
   | _, _ => none
 
 def FunctionDecl.isInterfaceDeclaration
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
+    (fn : Solidity.FunctionDecl) : Bool :=
   match fn.kind with
-  | L00_SourceSolidity.FunctionKind.function =>
+  | Solidity.FunctionKind.function =>
       !FunctionDecl.hasBody fn &&
-        fn.visibility == some L00_SourceSolidity.Visibility.external_
-  | L00_SourceSolidity.FunctionKind.receive
-  | L00_SourceSolidity.FunctionKind.fallback =>
+        fn.visibility == some Solidity.Visibility.external_
+  | Solidity.FunctionKind.receive
+  | Solidity.FunctionKind.fallback =>
       !FunctionDecl.hasBody fn &&
-        fn.visibility == some L00_SourceSolidity.Visibility.external_
-  | L00_SourceSolidity.FunctionKind.constructor => false
+        fn.visibility == some Solidity.Visibility.external_
+  | Solidity.FunctionKind.constructor => false
 
 def FunctionDecl.isConstructor
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
-  fn.kind == L00_SourceSolidity.FunctionKind.constructor
+    (fn : Solidity.FunctionDecl) : Bool :=
+  fn.kind == Solidity.FunctionKind.constructor
 
 def FunctionDecl.isConstructorLike
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
-  fn.kind == L00_SourceSolidity.FunctionKind.constructor ||
-    fn.kind == L00_SourceSolidity.FunctionKind.receive ||
-    fn.kind == L00_SourceSolidity.FunctionKind.fallback
+    (fn : Solidity.FunctionDecl) : Bool :=
+  fn.kind == Solidity.FunctionKind.constructor ||
+    fn.kind == Solidity.FunctionKind.receive ||
+    fn.kind == Solidity.FunctionKind.fallback
 
 def FunctionDecl.requiresImplementation
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
+    (fn : Solidity.FunctionDecl) : Bool :=
   !FunctionDecl.hasBody fn
 
-def ModifierDecl.hasBody (modifier : L00_SourceSolidity.ModifierDecl) : Bool :=
+def ModifierDecl.hasBody (modifier : Solidity.ModifierDecl) : Bool :=
   match modifier.body with
   | some _ => true
   | none => false
 
 def ModifierDecl.requiresImplementation
-    (modifier : L00_SourceSolidity.ModifierDecl) : Bool :=
+    (modifier : Solidity.ModifierDecl) : Bool :=
   !ModifierDecl.hasBody modifier
 
 def Functions.anyMissingBody :
-    List L00_SourceSolidity.FunctionDecl -> Bool
+    List Solidity.FunctionDecl -> Bool
   | [] => false
   | fn :: rest =>
       FunctionDecl.requiresImplementation fn || Functions.anyMissingBody rest
 
 def Modifiers.anyMissingBody :
-    List L00_SourceSolidity.ModifierDecl -> Bool
+    List Solidity.ModifierDecl -> Bool
   | [] => false
   | modifier :: rest =>
       ModifierDecl.requiresImplementation modifier ||
         Modifiers.anyMissingBody rest
 
 def Functions.anyConstructorLike :
-    List L00_SourceSolidity.FunctionDecl -> Bool
+    List Solidity.FunctionDecl -> Bool
   | [] => false
   | fn :: rest =>
       FunctionDecl.isConstructorLike fn || Functions.anyConstructorLike rest
 
 def Functions.anyConstructor :
-    List L00_SourceSolidity.FunctionDecl -> Bool
+    List Solidity.FunctionDecl -> Bool
   | [] => false
   | fn :: rest =>
       FunctionDecl.isConstructor fn || Functions.anyConstructor rest
 
 def StateVars.allConstant :
-    List L00_SourceSolidity.StateVarDecl -> Bool
+    List Solidity.StateVarDecl -> Bool
   | [] => true
   | decl :: rest =>
       StateVarDecl.isConstant decl && StateVars.allConstant rest
 
 def ContractDecl.hasStorageLayoutBase
-    (decl : L00_SourceSolidity.ContractDecl) : Bool :=
+    (decl : Solidity.ContractDecl) : Bool :=
   decl.layoutBase.isSome
 
 def ContractDecls.anyStorageLayoutBase :
-    List L00_SourceSolidity.ContractDecl -> Bool
+    List Solidity.ContractDecl -> Bool
   | [] => false
   | decl :: rest =>
       ContractDecl.hasStorageLayoutBase decl ||
         ContractDecls.anyStorageLayoutBase rest
 
 def ContractDecl.checkStorageLayoutBase (env : CheckEnv)
-    (contract : L00_SourceSolidity.ContractDecl) :
+    (contract : Solidity.ContractDecl) :
     Except TypeError Unit := do
   match contract.layoutBase with
   | none => Except.ok ()
   | some expr => do
-      require (contract.kind == L00_SourceSolidity.ContractKind.contract)
+      require (contract.kind == Solidity.ContractKind.contract)
         (TypeError.invalidContractHeader
           "storage layout on non-contract")
       require (!contract.abstract)
@@ -11635,11 +11634,11 @@ def ContractDecl.checkStorageLayoutBase (env : CheckEnv)
           "storage layout base is not compile-time constant")
       let checked ← checkExpr env expr
       checked.expectAssignableToIn env.types
-        (L00_SourceSolidity.Ty.uint 256)
+        (Solidity.Ty.uint 256)
 
 def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
-    (contractKind : L00_SourceSolidity.ContractKind) (contractName : Name)
-    (specifier : L00_SourceSolidity.BaseSpecifier) :
+    (contractKind : Solidity.ContractKind) (contractName : Name)
+    (specifier : Solidity.BaseSpecifier) :
     Except TypeError Unit := do
   let baseDecl ←
     match sourceTypes.lookupContractDecl? specifier.base with
@@ -11647,13 +11646,13 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
     | none => Except.error (TypeError.unknownType specifier.base)
   require (!(baseDecl.name == contractName))
     (TypeError.invalidContractHeader "contract inherits itself")
-  if contractKind == L00_SourceSolidity.ContractKind.interface then
-    require (baseDecl.kind == L00_SourceSolidity.ContractKind.interface)
+  if contractKind == Solidity.ContractKind.interface then
+    require (baseDecl.kind == Solidity.ContractKind.interface)
       (TypeError.invalidContractHeader
         "interface inherits non-interface")
   else
     Except.ok ()
-  if baseDecl.kind == L00_SourceSolidity.ContractKind.library then
+  if baseDecl.kind == Solidity.ContractKind.library then
     Except.error
       (TypeError.invalidContractHeader "contract inherits library")
   else
@@ -11687,17 +11686,17 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
         | Except.error _ => Except.error argErr
 
 def BaseSpecifiers.check (env : CheckEnv) (sourceTypes : TypeContext)
-    (contractKind : L00_SourceSolidity.ContractKind) (contractName : Name) :
-    List L00_SourceSolidity.BaseSpecifier -> Except TypeError Unit
+    (contractKind : Solidity.ContractKind) (contractName : Name) :
+    List Solidity.BaseSpecifier -> Except TypeError Unit
   | [] => Except.ok ()
   | specifier :: rest => do
       BaseSpecifier.check env sourceTypes contractKind contractName specifier
       BaseSpecifiers.check env sourceTypes contractKind contractName rest
 
 def ContractDecl.checkBaseConstructorArgsForDeployment
-    (storageOrder : List L00_SourceSolidity.ContractDecl)
-    (target : L00_SourceSolidity.ContractDecl) :
-    List L00_SourceSolidity.ContractDecl -> Except TypeError Unit
+    (storageOrder : List Solidity.ContractDecl)
+    (target : Solidity.ContractDecl) :
+    List Solidity.ContractDecl -> Except TypeError Unit
   | [] => Except.ok ()
   | baseDecl :: rest => do
       if baseDecl.name == target.name then
@@ -11705,7 +11704,7 @@ def ContractDecl.checkBaseConstructorArgsForDeployment
           rest
       else
         let immediateDerived ←
-          match L00_SourceSolidity.Executable.ContractDecl.findImmediateDerivedInOrder?
+          match Solidity.Executable.ContractDecl.findImmediateDerivedInOrder?
               storageOrder baseDecl with
           | some decl => Except.ok decl
           | none =>
@@ -11713,7 +11712,7 @@ def ContractDecl.checkBaseConstructorArgsForDeployment
                 (TypeError.invalidContractHeader
                   "base constructor has no immediate derived contract")
         let args ←
-          match L00_SourceSolidity.Executable.ContractDecl.baseConstructorArgsForDeployment?
+          match Solidity.Executable.ContractDecl.baseConstructorArgsForDeployment?
               target immediateDerived baseDecl with
           | some args => Except.ok args
           | none =>
@@ -11734,7 +11733,7 @@ def ContractDecl.checkBaseConstructorArgsForDeployment
               sig.params.length args.length)
 
 def Functions.checkInterfaceDeclarations :
-    List L00_SourceSolidity.FunctionDecl -> Except TypeError Unit
+    List Solidity.FunctionDecl -> Except TypeError Unit
   | [] => Except.ok ()
   | fn :: rest => do
       require (FunctionDecl.isInterfaceDeclaration fn)
@@ -11743,15 +11742,15 @@ def Functions.checkInterfaceDeclarations :
       Functions.checkInterfaceDeclarations rest
 
 def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
-    (contract : L00_SourceSolidity.ContractDecl)
-    (stateVars : List L00_SourceSolidity.StateVarDecl)
-    (functions : List L00_SourceSolidity.FunctionDecl)
-    (modifiers : List L00_SourceSolidity.ModifierDecl)
-    (usingDecls : List L00_SourceSolidity.UsingDecl) :
+    (contract : Solidity.ContractDecl)
+    (stateVars : List Solidity.StateVarDecl)
+    (functions : List Solidity.FunctionDecl)
+    (modifiers : List Solidity.ModifierDecl)
+    (usingDecls : List Solidity.UsingDecl) :
     Except TypeError Unit := do
   BaseSpecifiers.check env sourceTypes contract.kind contract.name contract.bases
   match contract.kind with
-  | L00_SourceSolidity.ContractKind.interface =>
+  | Solidity.ContractKind.interface =>
       require (!contract.abstract)
         (TypeError.invalidContractHeader "interface is explicitly abstract")
       require stateVars.isEmpty
@@ -11766,7 +11765,7 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
         (TypeError.invalidContractHeader
           "interface declares constructor")
       Functions.checkInterfaceDeclarations functions
-  | L00_SourceSolidity.ContractKind.library =>
+  | Solidity.ContractKind.library =>
       require contract.bases.isEmpty
         (TypeError.invalidContractHeader "library has bases")
       require (!contract.abstract)
@@ -11783,7 +11782,7 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
       require (!Modifiers.anyMissingBody modifiers)
         (TypeError.invalidContractHeader
           "library modifier has no implementation")
-  | L00_SourceSolidity.ContractKind.contract =>
+  | Solidity.ContractKind.contract =>
       if contract.abstract then
         Except.ok ()
       else if Functions.anyMissingBody functions ||
@@ -11796,10 +11795,10 @@ def ContractDecl.checkKindShape (env : CheckEnv) (sourceTypes : TypeContext)
 
 def ContractDecl.check (sourceFunctions : List FunctionSig)
     (sourceErrors : List ErrorSig) (sourceEvents : List EventSig)
-    (sourceConstants : List L00_SourceSolidity.StateVarDecl)
-    (sourceUsingDecls : List L00_SourceSolidity.UsingDecl)
+    (sourceConstants : List Solidity.StateVarDecl)
+    (sourceUsingDecls : List Solidity.UsingDecl)
     (sourceTypes : TypeContext)
-    (contract : L00_SourceSolidity.ContractDecl) : Except TypeError Unit := do
+    (contract : Solidity.ContractDecl) : Except TypeError Unit := do
   let stateVars := contract.items.filterMap ContractItem.stateVar?
   let functions := contract.items.filterMap ContractItem.function?
   let modifiers := contract.items.filterMap ContractItem.modifier?
@@ -11811,18 +11810,18 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let usingDecls := contract.items.filterMap ContractItem.using?
   let functionNames := functions.filterMap FunctionDecl.declaredName?
   let nonFunctionNames :=
-    stateVars.map L00_SourceSolidity.StateVarDecl.name ++
-      modifiers.map L00_SourceSolidity.ModifierDecl.name ++
-      errors.map L00_SourceSolidity.ErrorDecl.name ++
-      structs.map L00_SourceSolidity.StructDecl.name ++
-      enums.map L00_SourceSolidity.EnumDecl.name ++
-      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
+    stateVars.map Solidity.StateVarDecl.name ++
+      modifiers.map Solidity.ModifierDecl.name ++
+      errors.map Solidity.ErrorDecl.name ++
+      structs.map Solidity.StructDecl.name ++
+      enums.map Solidity.EnumDecl.name ++
+      userValueTypes.map Solidity.UserValueTypeDecl.name
   ensureUniqueNames "contract declaration" nonFunctionNames
   ensureNamesDisjointFrom "contract declaration" nonFunctionNames
     functionNames
   ensureNamesDisjointFrom "contract declaration"
     (nonFunctionNames ++ functionNames)
-    (events.map L00_SourceSolidity.EventDecl.name)
+    (events.map Solidity.EventDecl.name)
   let contractTypes :=
     sourceTypes.withContractTypes contract.name structs enums userValueTypes
   let localTypeNames := ContractDecl.localTypeNames contract
@@ -11835,13 +11834,13 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   FunctionSigs.ensureNoDuplicateExternalAbiSelectors contractTypes
     (ContractDecl.directExternalFunctionSigs contractTypes contract)
   require ((functions.filter
-      (fun fn => fn.kind == L00_SourceSolidity.FunctionKind.constructor)).length <= 1)
+      (fun fn => fn.kind == Solidity.FunctionKind.constructor)).length <= 1)
     (TypeError.invalidFunctionHeader "multiple constructors")
   require ((functions.filter
-      (fun fn => fn.kind == L00_SourceSolidity.FunctionKind.receive)).length <= 1)
+      (fun fn => fn.kind == Solidity.FunctionKind.receive)).length <= 1)
     (TypeError.invalidFunctionHeader "multiple receive functions")
   require ((functions.filter
-      (fun fn => fn.kind == L00_SourceSolidity.FunctionKind.fallback)).length <= 1)
+      (fun fn => fn.kind == Solidity.FunctionKind.fallback)).length <= 1)
     (TypeError.invalidFunctionHeader "multiple fallback functions")
   let modifierSigs := modifiers.map ModifierDecl.signature
   let eventSigs := events.map EventDecl.signature
@@ -11888,7 +11887,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   ContractDecl.checkStorageLayoutBase baseEnv contract
   let allContracts := sourceTypes.contractDecls.map Prod.snd
   let dispatchOrder ←
-    match L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
+    match Solidity.Executable.ContractDecl.dispatchOrder?
         allContracts contract with
     | some order => Except.ok order
     | none =>
@@ -11906,7 +11905,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     (TypeError.invalidContractHeader
       "storage layout specified by inherited contract")
   let storageOrder ←
-    match L00_SourceSolidity.Executable.ContractDecl.storageOrder?
+    match Solidity.Executable.ContractDecl.storageOrder?
         allContracts contract with
     | some order => Except.ok order
     | none =>
@@ -11969,22 +11968,22 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     inheritedEventSigs eventSigs
   StateVarDecls.checkNoInheritedShadowing inheritedStateVarNames stateVars
   checkNoInheritedStateNameClashes inheritedStateVarNames
-    (modifiers.map L00_SourceSolidity.ModifierDecl.name ++
-      events.map L00_SourceSolidity.EventDecl.name ++
-      errors.map L00_SourceSolidity.ErrorDecl.name ++
-      structs.map L00_SourceSolidity.StructDecl.name ++
-      enums.map L00_SourceSolidity.EnumDecl.name ++
-      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name)
+    (modifiers.map Solidity.ModifierDecl.name ++
+      events.map Solidity.EventDecl.name ++
+      errors.map Solidity.ErrorDecl.name ++
+      structs.map Solidity.StructDecl.name ++
+      enums.map Solidity.EnumDecl.name ++
+      userValueTypes.map Solidity.UserValueTypeDecl.name)
   let localNamesExceptEvents :=
-    stateVars.map L00_SourceSolidity.StateVarDecl.name ++
+    stateVars.map Solidity.StateVarDecl.name ++
       functionNames ++
-      modifiers.map L00_SourceSolidity.ModifierDecl.name ++
-      errors.map L00_SourceSolidity.ErrorDecl.name ++
-      structs.map L00_SourceSolidity.StructDecl.name ++
-      enums.map L00_SourceSolidity.EnumDecl.name ++
-      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
+      modifiers.map Solidity.ModifierDecl.name ++
+      errors.map Solidity.ErrorDecl.name ++
+      structs.map Solidity.StructDecl.name ++
+      enums.map Solidity.EnumDecl.name ++
+      userValueTypes.map Solidity.UserValueTypeDecl.name
   let allLocalDeclarationNames :=
-    localNamesExceptEvents ++ events.map L00_SourceSolidity.EventDecl.name
+    localNamesExceptEvents ++ events.map Solidity.EventDecl.name
   checkNoInheritedNamedDeclarationClashes
     "declaration shadows inherited event"
     inheritedEventNames localNamesExceptEvents
@@ -12011,26 +12010,26 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let inheritedModifierNames :=
     ModifierOverrideMembers.names inheritedModifierMembers
   let nonFunctionTypeNames :=
-    events.map L00_SourceSolidity.EventDecl.name ++
-      errors.map L00_SourceSolidity.ErrorDecl.name ++
-      structs.map L00_SourceSolidity.StructDecl.name ++
-      enums.map L00_SourceSolidity.EnumDecl.name ++
-      userValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
+    events.map Solidity.EventDecl.name ++
+      errors.map Solidity.ErrorDecl.name ++
+      structs.map Solidity.StructDecl.name ++
+      enums.map Solidity.EnumDecl.name ++
+      userValueTypes.map Solidity.UserValueTypeDecl.name
   checkNoInheritedNamedDeclarationClashes
     "declaration shadows inherited function"
     inheritedFunctionNames
-    (modifiers.map L00_SourceSolidity.ModifierDecl.name ++
+    (modifiers.map Solidity.ModifierDecl.name ++
       nonFunctionTypeNames)
   checkNoInheritedNamedDeclarationClashes
     "declaration shadows inherited modifier"
     inheritedModifierNames
-    (stateVars.map L00_SourceSolidity.StateVarDecl.name ++
+    (stateVars.map Solidity.StateVarDecl.name ++
       functionNames ++ nonFunctionTypeNames)
   let currentMembers := ContractDecl.overrideMembers contractTypes contract
   let currentModifierMembers := ModifierOverrideMembers.forContract contract
   let inheritsUnimplementedAllowed :=
     contract.abstract ||
-      contract.kind == L00_SourceSolidity.ContractKind.interface
+      contract.kind == Solidity.ContractKind.interface
   OverrideMembers.checkInheritedConflicts allContracts currentMembers
     inheritedMembers
   ModifierOverrideMembers.checkInheritedConflicts allContracts
@@ -12041,7 +12040,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     inheritsUnimplementedAllowed currentModifierMembers inheritedModifierMembers
     inheritedModifierMembers
   let rec checkStructs :
-      List L00_SourceSolidity.StructDecl -> Except TypeError Unit
+      List Solidity.StructDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         StructDecl.check baseEnv
@@ -12049,25 +12048,25 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
             TypeContext.qualifiedPath contract.name decl.name ] decl
         checkStructs rest
   let rec checkEnums :
-      List L00_SourceSolidity.EnumDecl -> Except TypeError Unit
+      List Solidity.EnumDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         EnumDecl.check decl
         checkEnums rest
   let rec checkUserValueTypes :
-      List L00_SourceSolidity.UserValueTypeDecl -> Except TypeError Unit
+      List Solidity.UserValueTypeDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         UserValueTypeDecl.check baseEnv decl
         checkUserValueTypes rest
   let rec checkUsingDecls :
-      List L00_SourceSolidity.UsingDecl -> Except TypeError Unit
+      List Solidity.UsingDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         UsingDecl.checkContractLevel baseEnv decl
         checkUsingDecls rest
   let rec checkStateVars :
-      List L00_SourceSolidity.StateVarDecl -> Except TypeError Unit
+      List Solidity.StateVarDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         StateVarDecl.checkOverrideRules contractTypes currentPath
@@ -12076,7 +12075,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         StateVarDecl.check baseEnv decl
         checkStateVars rest
   let rec checkFunctions :
-      List L00_SourceSolidity.FunctionDecl -> Except TypeError Unit
+      List Solidity.FunctionDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | fn :: rest => do
         FunctionDecl.checkOverrideRules currentPath contract.name
@@ -12085,7 +12084,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         FunctionDecl.check baseEnv fn
         checkFunctions rest
   let rec checkModifiers :
-      List L00_SourceSolidity.ModifierDecl -> Except TypeError Unit
+      List Solidity.ModifierDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | modifier :: rest => do
         ModifierDecl.checkOverrideRules currentPath contract.kind
@@ -12093,13 +12092,13 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         ModifierDecl.check baseEnv modifier
         checkModifiers rest
   let rec checkEvents :
-      List L00_SourceSolidity.EventDecl -> Except TypeError Unit
+      List Solidity.EventDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | event :: rest => do
         EventDecl.check baseEnv event
         checkEvents rest
   let rec checkErrors :
-      List L00_SourceSolidity.ErrorDecl -> Except TypeError Unit
+      List Solidity.ErrorDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | err :: rest => do
         ErrorDecl.check baseEnv err
@@ -12115,7 +12114,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   checkErrors errors
 
 structure CheckedSourceUnit where
-  source : L00_SourceSolidity.SourceUnit
+  source : Solidity.SourceUnit
   deriving Repr
 
 structure SolidityVersion where
@@ -12174,7 +12173,7 @@ def parseSolidityVersionPatternPart? (text : String) :
   if isSolidityVersionWildcardPart text then
     some none
   else do
-    let value ← L00_SourceSolidity.Executable.parseDecimalNat? text
+    let value ← Solidity.Executable.parseDecimalNat? text
     some (some value)
 
 def parseSolidityVersionPattern? (text : String) :
@@ -12247,20 +12246,20 @@ def parseSolidityVersionLiteral? (text : String) :
         (fun part => part != "")
   with
   | [majorText] => do
-      let major ← L00_SourceSolidity.Executable.parseDecimalNat? majorText
+      let major ← Solidity.Executable.parseDecimalNat? majorText
       some
         { version := SolidityVersion.withPatchDefault major 0 0
           components := 1 }
   | [majorText, minorText] => do
-      let major ← L00_SourceSolidity.Executable.parseDecimalNat? majorText
-      let minor ← L00_SourceSolidity.Executable.parseDecimalNat? minorText
+      let major ← Solidity.Executable.parseDecimalNat? majorText
+      let minor ← Solidity.Executable.parseDecimalNat? minorText
       some
         { version := SolidityVersion.withPatchDefault major minor 0
           components := 2 }
   | [majorText, minorText, patchText] => do
-      let major ← L00_SourceSolidity.Executable.parseDecimalNat? majorText
-      let minor ← L00_SourceSolidity.Executable.parseDecimalNat? minorText
-      let patch ← L00_SourceSolidity.Executable.parseDecimalNat? patchText
+      let major ← Solidity.Executable.parseDecimalNat? majorText
+      let minor ← Solidity.Executable.parseDecimalNat? minorText
+      let patch ← Solidity.Executable.parseDecimalNat? patchText
       some
         { version := SolidityVersion.withPatchDefault major minor patch
           components := 3 }
@@ -12445,8 +12444,8 @@ def solidityPragmaMatchesCurrentCompiler (expr : String) : Bool :=
       | none => false)
 
 def SourceItem.checkPragma :
-    L00_SourceSolidity.SourceItem -> Except TypeError Unit
-  | L00_SourceSolidity.SourceItem.pragma name value =>
+    Solidity.SourceItem -> Except TypeError Unit
+  | Solidity.SourceItem.pragma name value =>
       if name == "solidity" then
         require (solidityPragmaMatchesCurrentCompiler value)
           (TypeError.unsupported "source solidity pragma version")
@@ -12463,13 +12462,13 @@ def SourceItem.checkPragma :
   | _ => Except.ok ()
 
 def SourceItem.experimentalPragmaFeature? :
-    L00_SourceSolidity.SourceItem -> Option String
-  | L00_SourceSolidity.SourceItem.pragma "experimental" value =>
+    Solidity.SourceItem -> Option String
+  | Solidity.SourceItem.pragma "experimental" value =>
       some (String.trimAscii value).toString
   | _ => none
 
 def SourceItems.checkPragmasFrom (seenExperimental : List String) :
-    List L00_SourceSolidity.SourceItem -> Except TypeError Unit
+    List Solidity.SourceItem -> Except TypeError Unit
   | [] => Except.ok ()
   | item :: rest => do
       SourceItem.checkPragma item
@@ -12482,7 +12481,7 @@ def SourceItems.checkPragmasFrom (seenExperimental : List String) :
           SourceItems.checkPragmasFrom seenExperimental rest
 
 def SourceItems.checkPragmas :
-    List L00_SourceSolidity.SourceItem -> Except TypeError Unit
+    List Solidity.SourceItem -> Except TypeError Unit
   | items => SourceItems.checkPragmasFrom [] items
 
 inductive AbiCoderSelection where
@@ -12496,9 +12495,9 @@ def AbiCoderSelection.isV1 : AbiCoderSelection -> Bool
   | _ => false
 
 def SourceItem.abiCoderSelection? :
-    L00_SourceSolidity.SourceItem ->
+    Solidity.SourceItem ->
     Except TypeError (Option AbiCoderSelection)
-  | L00_SourceSolidity.SourceItem.pragma "abicoder" value =>
+  | Solidity.SourceItem.pragma "abicoder" value =>
       let value := (String.trimAscii value).toString
       if value == "v1" then
         Except.ok (some AbiCoderSelection.explicitV1)
@@ -12506,7 +12505,7 @@ def SourceItem.abiCoderSelection? :
         Except.ok (some AbiCoderSelection.explicitV2)
       else
         Except.error (TypeError.unsupported "source abicoder pragma")
-  | L00_SourceSolidity.SourceItem.pragma "experimental" value =>
+  | Solidity.SourceItem.pragma "experimental" value =>
       let value := (String.trimAscii value).toString
       if value == "ABIEncoderV2" then
         Except.ok (some AbiCoderSelection.experimentalV2)
@@ -12516,7 +12515,7 @@ def SourceItem.abiCoderSelection? :
 
 def SourceItems.abiCoderV1From?
     (selected : Option AbiCoderSelection) :
-    List L00_SourceSolidity.SourceItem -> Except TypeError Bool
+    List Solidity.SourceItem -> Except TypeError Bool
   | [] =>
       Except.ok
         (match selected with
@@ -12541,70 +12540,70 @@ def SourceItems.abiCoderV1From?
                 (TypeError.unsupported
                   "source abicoder pragma already selected")
 
-def SourceItems.abiCoderV1? (items : List L00_SourceSolidity.SourceItem) :
+def SourceItems.abiCoderV1? (items : List Solidity.SourceItem) :
     Except TypeError Bool :=
   SourceItems.abiCoderV1From? none items
 
 def SourceItem.contract? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.ContractDecl
-  | L00_SourceSolidity.SourceItem.contract decl => some decl
+    Solidity.SourceItem -> Option Solidity.ContractDecl
+  | Solidity.SourceItem.contract decl => some decl
   | _ => none
 
 def SourceItem.freeFunction? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.FunctionDecl
-  | L00_SourceSolidity.SourceItem.freeFunction decl => some decl
+    Solidity.SourceItem -> Option Solidity.FunctionDecl
+  | Solidity.SourceItem.freeFunction decl => some decl
   | _ => none
 
 def SourceItem.freeConstant? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.StateVarDecl
-  | L00_SourceSolidity.SourceItem.freeConstant decl => some decl
+    Solidity.SourceItem -> Option Solidity.StateVarDecl
+  | Solidity.SourceItem.freeConstant decl => some decl
   | _ => none
 
 def SourceItem.freeError? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.ErrorDecl
-  | L00_SourceSolidity.SourceItem.freeError decl => some decl
+    Solidity.SourceItem -> Option Solidity.ErrorDecl
+  | Solidity.SourceItem.freeError decl => some decl
   | _ => none
 
 def SourceItem.freeStruct? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.StructDecl
-  | L00_SourceSolidity.SourceItem.freeStruct decl => some decl
+    Solidity.SourceItem -> Option Solidity.StructDecl
+  | Solidity.SourceItem.freeStruct decl => some decl
   | _ => none
 
 def SourceItem.freeEnum? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.EnumDecl
-  | L00_SourceSolidity.SourceItem.freeEnum decl => some decl
+    Solidity.SourceItem -> Option Solidity.EnumDecl
+  | Solidity.SourceItem.freeEnum decl => some decl
   | _ => none
 
 def SourceItem.freeUserValueType? :
-    L00_SourceSolidity.SourceItem ->
-    Option L00_SourceSolidity.UserValueTypeDecl
-  | L00_SourceSolidity.SourceItem.freeUserValueType decl => some decl
+    Solidity.SourceItem ->
+    Option Solidity.UserValueTypeDecl
+  | Solidity.SourceItem.freeUserValueType decl => some decl
   | _ => none
 
 def SourceItem.using? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.UsingDecl
-  | L00_SourceSolidity.SourceItem.usingDecl decl => some decl
+    Solidity.SourceItem -> Option Solidity.UsingDecl
+  | Solidity.SourceItem.usingDecl decl => some decl
   | _ => none
 
 def SourceItem.freeEvent? :
-    L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.EventDecl
-  | L00_SourceSolidity.SourceItem.freeEvent decl => some decl
+    Solidity.SourceItem -> Option Solidity.EventDecl
+  | Solidity.SourceItem.freeEvent decl => some decl
   | _ => none
 
 def SourceItem.isUnresolvedImport :
-    L00_SourceSolidity.SourceItem -> Bool
-  | L00_SourceSolidity.SourceItem.importPath _ _ => true
+    Solidity.SourceItem -> Bool
+  | Solidity.SourceItem.importPath _ _ => true
   | _ => false
 
 def SourceItems.hasUnresolvedImport :
-    List L00_SourceSolidity.SourceItem -> Bool
+    List Solidity.SourceItem -> Bool
   | [] => false
   | item :: rest =>
       SourceItem.isUnresolvedImport item ||
         SourceItems.hasUnresolvedImport rest
 
 def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
-    (source : L00_SourceSolidity.SourceUnit) :
+    (source : Solidity.SourceUnit) :
     Except TypeError CheckedSourceUnit := do
   require (!SourceItems.hasUnresolvedImport source.items)
     (TypeError.unsupported "source import resolution")
@@ -12626,18 +12625,18 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
   let freeEventSigs := freeEvents.map EventDecl.signature
   FunctionSigs.ensureNoDuplicateSignatures freeFunctionSigs
   let topLevelNonEventNames :=
-    contracts.map L00_SourceSolidity.ContractDecl.name ++
-      freeConstants.map L00_SourceSolidity.StateVarDecl.name ++
-      freeErrors.map L00_SourceSolidity.ErrorDecl.name ++
-      freeStructs.map L00_SourceSolidity.StructDecl.name ++
-      freeEnums.map L00_SourceSolidity.EnumDecl.name ++
-      freeUserValueTypes.map L00_SourceSolidity.UserValueTypeDecl.name
+    contracts.map Solidity.ContractDecl.name ++
+      freeConstants.map Solidity.StateVarDecl.name ++
+      freeErrors.map Solidity.ErrorDecl.name ++
+      freeStructs.map Solidity.StructDecl.name ++
+      freeEnums.map Solidity.EnumDecl.name ++
+      freeUserValueTypes.map Solidity.UserValueTypeDecl.name
   ensureUniqueNames "top-level declaration" topLevelNonEventNames
   ensureNamesDisjointFrom "top-level declaration" topLevelNonEventNames
     freeFunctionNames
   ensureNamesDisjointFrom "top-level declaration"
     (topLevelNonEventNames ++ freeFunctionNames)
-    (freeEvents.map L00_SourceSolidity.EventDecl.name)
+    (freeEvents.map Solidity.EventDecl.name)
   let sourceTypes :=
     { TypeContext.empty.withSourceTypes contracts freeStructs freeEnums
         freeUserValueTypes with
@@ -12655,55 +12654,55 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
       returnTys := []
       returnNames := [] }
   let rec checkFreeStructs :
-      List L00_SourceSolidity.StructDecl -> Except TypeError Unit
+      List Solidity.StructDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         StructDecl.check sourceEnv [TypeContext.pathOfName decl.name] decl
         checkFreeStructs rest
   let rec checkFreeEnums :
-      List L00_SourceSolidity.EnumDecl -> Except TypeError Unit
+      List Solidity.EnumDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         EnumDecl.check decl
         checkFreeEnums rest
   let rec checkFreeUserValueTypes :
-      List L00_SourceSolidity.UserValueTypeDecl -> Except TypeError Unit
+      List Solidity.UserValueTypeDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         UserValueTypeDecl.check sourceEnv decl
         checkFreeUserValueTypes rest
   let rec checkFreeConstants :
-      List L00_SourceSolidity.StateVarDecl -> Except TypeError Unit
+      List Solidity.StateVarDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         StateVarDecl.checkFileLevelConstant sourceEnv decl
         checkFreeConstants rest
   let rec checkSourceUsingDecls :
-      List L00_SourceSolidity.UsingDecl -> Except TypeError Unit
+      List Solidity.UsingDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
         UsingDecl.checkFileLevel sourceEnv decl
         checkSourceUsingDecls rest
   let rec checkFreeFunctions :
-      List L00_SourceSolidity.FunctionDecl -> Except TypeError Unit
+      List Solidity.FunctionDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | fn :: rest => do
         FunctionDecl.check sourceEnv fn
         checkFreeFunctions rest
   let rec checkFreeErrors :
-      List L00_SourceSolidity.ErrorDecl -> Except TypeError Unit
+      List Solidity.ErrorDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | err :: rest => do
         ErrorDecl.check sourceEnv err
         checkFreeErrors rest
   let rec checkFreeEvents :
-      List L00_SourceSolidity.EventDecl -> Except TypeError Unit
+      List Solidity.EventDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | event :: rest => do
         EventDecl.check sourceEnv event
         checkFreeEvents rest
   let rec checkContracts :
-      List L00_SourceSolidity.ContractDecl -> Except TypeError Unit
+      List Solidity.ContractDecl -> Except TypeError Unit
   | [] => Except.ok ()
   | contract :: rest => do
       ContractDecl.check freeFunctionSigs freeErrorSigs freeEventSigs
@@ -12720,11 +12719,11 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
   checkContracts contracts
   Except.ok { source := source }
 
-def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
+def SourceUnit.check (source : Solidity.SourceUnit) :
     Except TypeError CheckedSourceUnit :=
   SourceUnit.checkWithEvmVersion EvmVersion.default source
 
-def sourceUnitAccepted? (source : L00_SourceSolidity.SourceUnit) : Bool :=
+def sourceUnitAccepted? (source : Solidity.SourceUnit) : Bool :=
   Result.isOk (SourceUnit.check source)
 
 def checkSourceUnit (source : SourceUnitAst) :
@@ -12737,7 +12736,7 @@ def checkSourceUnit? (source : SourceUnitAst) :
 
 def sourceUnitForContractDecl (decl : SourceContractDecl) :
     SourceUnitAst :=
-  { items := [L00_SourceSolidity.SourceItem.contract decl] }
+  { items := [Solidity.SourceItem.contract decl] }
 
 def SourceUnit.defaultContractName? (source : SourceUnitAst) : Option Name :=
   match source.items.filterMap SourceItem.contract? with
@@ -12828,6 +12827,5 @@ end ContractDecl
 
 
 end TypeCheck
-end L00_SourceSolidity
-end Spine
+end Solidity
 end SolidCore

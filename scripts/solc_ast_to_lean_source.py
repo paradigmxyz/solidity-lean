@@ -3,7 +3,7 @@
 
 This is a harness frontend, not trusted semantics.  It asks pinned solc for the
 analyzed Solidity AST, translates the supported source nodes into
-`L00_SourceSolidity` syntax, and then the normal Lean checker/interpreter must
+`SolidCore.Solidity` syntax, and then the normal Lean checker/interpreter must
 accept and execute the result.
 """
 
@@ -1928,7 +1928,8 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     segments = namespace_segments(namespace)
     lines = []
     if not body_only:
-        lines.append("import SolidCore.Spine.L00_SourceSolidity.Checked")
+        lines.append("import SolidCore.Solidity.Checked")
+        lines.append("import SolidCore.Witness.Checked")
         lines.append("")
     for segment in segments:
         lines.append(f"namespace {segment}")
@@ -1986,7 +1987,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--solc", default="solc")
     parser.add_argument(
         "--namespace",
-        default="SolidCore.Spine.L00_SourceSolidity.SolcAstImport.Generated",
+        default="SolidCore.Solidity.SolcAstImport.Generated",
     )
     parser.add_argument("--body-only", action="store_true")
     parser.add_argument(

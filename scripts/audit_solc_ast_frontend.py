@@ -62,11 +62,11 @@ def case_contract(case: dict[str, Any]) -> str | None:
 def case_namespace(case: dict[str, Any]) -> str:
     solc_import = case.get("solc_import")
     if not isinstance(solc_import, dict):
-        return "SolidCore.Spine.L00_SourceSolidity.SolcAstImport.Generated"
+        return "SolidCore.Solidity.SolcAstImport.Generated"
     namespace = solc_import.get("namespace")
     if isinstance(namespace, str):
         return namespace
-    return "SolidCore.Spine.L00_SourceSolidity.SolcAstImport.Generated"
+    return "SolidCore.Solidity.SolcAstImport.Generated"
 
 
 def audit_manifest(manifest_path: Path, solc: str) -> tuple[dict[str, Any], int]:

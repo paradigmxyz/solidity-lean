@@ -3,21 +3,20 @@ Witness corpus extracted verbatim from Checked.lean (Phase 3, sub-step a).
 
 Hand-written example/witness definitions moved out of the semantics module.
 Declaration names and namespaces are unchanged so the harness manifest's
-`SolidCore.Spine.L00_SourceSolidity.TypeCheck.Examples` eval expressions still resolve; only the manifest `lean.imports` target
+`SolidCore.Solidity.TypeCheck.Examples` eval expressions still resolve; only the manifest `lean.imports` target
 gains this module.
 -/
-import SolidCore.Spine.L00_SourceSolidity.Checked
+import SolidCore.Solidity.Checked
 import SolidCore.Witness.TypeCheck
 
 namespace SolidCore
-namespace Spine
-namespace L00_SourceSolidity
+namespace Solidity
 namespace TypeCheck
 
 namespace Examples
 
 def checkedSourceFunctionCallWithContext (fuel : Nat)
-    (source : L00_SourceSolidity.SourceUnit) (contractName functionName : Name)
+    (source : Solidity.SourceUnit) (contractName functionName : Name)
     (context : SolidCore.Solidity.Source.Context)
     (state : CoreState) (args : List CoreValue) :
     Except TypeError CoreCallResult :=
@@ -37,18 +36,18 @@ def checkedStorageReturnConditionalMatches : Except TypeError Bool := do
       Except.ok (value == 127)
   | _ => Except.ok false
 
-def missingVisibilityExecutableContract : L00_SourceSolidity.ContractDecl :=
+def missingVisibilityExecutableContract : Solidity.ContractDecl :=
   { name := "MissingVisibilityExecutable"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { name := some "run"
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.literal
-                      (L00_SourceSolidity.Literal.number "7")))) } ] }
+                    (Solidity.Expr.literal
+                      (Solidity.Literal.number "7")))) } ] }
 
 def rawMissingVisibilityStillExecutes : Option Bool := do
   let result ←
@@ -71,34 +70,34 @@ def checkedPreValidityBoundarySemanticsMatch : Bool :=
   rawMissingVisibilityStillExecutes == some true &&
     checkedMissingVisibilityRejected
 
-def checkedFallbackReceiveContract : L00_SourceSolidity.ContractDecl :=
+def checkedFallbackReceiveContract : Solidity.ContractDecl :=
   { name := "CheckedFallbackReceive"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { kind := FunctionKind.fallback
             visibility := some Visibility.external_
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.literal
-                      (L00_SourceSolidity.Literal.number "1")))) }
-      , L00_SourceSolidity.ContractItem.function
+                    (Solidity.Expr.literal
+                      (Solidity.Literal.number "1")))) }
+      , Solidity.ContractItem.function
           { kind := FunctionKind.receive
             visibility := some Visibility.external_
             mutability := StateMutability.payable
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.literal
-                      (L00_SourceSolidity.Literal.number "2")))) } ] }
+                    (Solidity.Expr.literal
+                      (Solidity.Literal.number "2")))) } ] }
 
 def checkedFallbackDispatchMatches : Except TypeError Bool := do
   let result ←
@@ -119,23 +118,23 @@ def checkedReceiveDispatchMatches : Except TypeError Bool := do
       result.output == [])
 
 def checkedPayableFallbackValueContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedFallbackValue"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "last", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { kind := FunctionKind.fallback
             visibility := some Visibility.external_
             mutability := StateMutability.payable
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "last")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "last")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.member
-                      (L00_SourceSolidity.Expr.ident "msg") "value"))) } ] }
+                    (Solidity.Expr.member
+                      (Solidity.Expr.ident "msg") "value"))) } ] }
 
 def checkedPayableFallbackValueDispatchMatches :
     Except TypeError Bool := do
@@ -172,22 +171,22 @@ def checkedNonpayableFallbackRejectsValueMatches :
       SolidCore.Solidity.Source.wordEq (result.state.loadSlot 0) 0 &&
       result.output == [])
 
-def checkedMissingFallbackContract : L00_SourceSolidity.ContractDecl :=
+def checkedMissingFallbackContract : Solidity.ContractDecl :=
   { name := "CheckedMissingFallback"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "touch"
             visibility := some Visibility.public_
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.literal
-                      (L00_SourceSolidity.Literal.number "9")))) } ] }
+                    (Solidity.Expr.literal
+                      (Solidity.Literal.number "9")))) } ] }
 
 def checkedMissingFallbackSelectorRejectsMatches :
     Except TypeError Bool := do
@@ -508,7 +507,7 @@ def checkedFallbackReceivePayableSemanticsMatch :
       payableFunctionDispatch && payableFunctionDirect &&
       nonpayableDispatch && nonpayableDirect)
 
-def checkedFunctionCalldata (decl : L00_SourceSolidity.ContractDecl)
+def checkedFunctionCalldata (decl : Solidity.ContractDecl)
     (functionName : Name) (args : List CoreValue) :
     Except TypeError (List Byte) :=
   ContractDecl.checkedFunctionCalldata decl functionName args
@@ -661,7 +660,7 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
   let checked ← CheckedInput.checkedSourceUnit simpleSource
   let decl ←
     optionToExcept "simple contract declaration"
-      (L00_SourceSolidity.Executable.SourceUnit.findContract?
+      (Solidity.Executable.SourceUnit.findContract?
         simpleSource "C")
   let rawChecked ← TypecheckedInput.checkedSourceUnit simpleSource
   let rawCheckedViaNamespace ← SourceUnit.typechecked simpleSource
@@ -747,7 +746,7 @@ def checkedSourceUnitEntryObservationBoundaryMatches :
     Except TypeError Bool := do
   let program ← CheckedInput.program simpleSource
   let observation :=
-    L00_SourceSolidity.Executable.SourceUnit.observeEntry 16 program.source
+    Solidity.Executable.SourceUnit.observeEntry 16 program.source
   let interfaceMatches :=
     match observation.interface? with
     | some interface =>
@@ -864,7 +863,7 @@ def checkedAbiCallUintMatches (fuel : Nat) (source : SourceUnitAst)
   Except.ok
     (result.success && SolidCore.Solidity.Source.wordEq value expected)
 
-def checkedPrimitiveAbiContract : L00_SourceSolidity.ContractDecl :=
+def checkedPrimitiveAbiContract : Solidity.ContractDecl :=
   { name := "CheckedPrimitiveAbi"
     items :=
       [ ContractItem.function
@@ -3301,7 +3300,7 @@ def checkedControlFlowContractsAccepted : Bool :=
       (TypecheckedInput.checkedSourceUnit namedBareReturnSource)
 
 def checkedPrimitiveStatementContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedPrimitiveStatements"
     items :=
       [ ContractItem.function
@@ -7462,14 +7461,14 @@ def checkedMemoryStructWholeAssignArrayFieldAliasMatches :
     SolidCore.Solidity.Source.State.empty [] 88 88
 
 def checkedInvalidExprStatementFunction (functionName : Name)
-    (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+    (expr : Solidity.Expr) : FunctionDecl :=
   { name := some functionName
     visibility := some Visibility.public_
     mutability := StateMutability.pure
     body := some (Stmt.expr expr) }
 
 def checkedInvalidExprStatementContract (contractName : Name)
-    (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+    (expr : Solidity.Expr) : ContractDecl :=
   { name := contractName
     items :=
       [ContractItem.function
@@ -9044,9 +9043,9 @@ def checkedInterfaceObservationMatches :
       Executable.Examples.interfaceObservationContract
   Except.ok
     (Executable.Examples.interfaceObservationMatches &&
-      L00_SourceSolidity.Executable.ContractDecl.observeInterface
+      Solidity.Executable.ContractDecl.observeInterface
         contract.decl ==
-      L00_SourceSolidity.Executable.ContractDecl.observeInterface
+      Solidity.Executable.ContractDecl.observeInterface
         Executable.Examples.interfaceObservationContract)
 
 def checkedSourceUnitObservationMatches :
@@ -9055,11 +9054,11 @@ def checkedSourceUnitObservationMatches :
     CheckedInput.program Executable.Examples.sourceUnitObservationUnit
   let resolvedObservation ←
     optionToExcept "source-unit interface observation"
-      (L00_SourceSolidity.Executable.SourceUnit.observeInterfaceResolved?
+      (Solidity.Executable.SourceUnit.observeInterfaceResolved?
         Executable.Examples.sourceUnitObservationUnit)
   Except.ok
     (Executable.Examples.sourceUnitObservationMatches == some true &&
-      L00_SourceSolidity.Executable.SourceUnit.observeInterface
+      Solidity.Executable.SourceUnit.observeInterface
         program.source == resolvedObservation)
 
 def checkedOverloadedSelectorRejected : Bool :=
@@ -9737,7 +9736,7 @@ def checkedHexStringAbiEncodeMatchesExpected :
     "encodeHexData" SolidCore.Solidity.Source.State.empty [] expected
 
 def checkedInvalidReturnFunction (functionName : Name)
-    (returnTy : Ty) (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+    (returnTy : Ty) (expr : Solidity.Expr) : FunctionDecl :=
   { name := some functionName
     visibility := some Visibility.public_
     mutability := StateMutability.pure
@@ -9745,18 +9744,18 @@ def checkedInvalidReturnFunction (functionName : Name)
     body := some (Stmt.returnValues (some expr)) }
 
 def checkedInvalidReturnContract (contractName : Name)
-    (returnTy : Ty) (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+    (returnTy : Ty) (expr : Solidity.Expr) : ContractDecl :=
   { name := contractName
     items :=
       [ContractItem.function
         (checkedInvalidReturnFunction "bad" returnTy expr)] }
 
 def checkedInvalidUintReturnFunction (functionName : Name)
-    (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
+    (expr : Solidity.Expr) : FunctionDecl :=
   checkedInvalidReturnFunction functionName (Ty.uint 256) expr
 
 def checkedInvalidUintReturnContract (contractName : Name)
-    (expr : L00_SourceSolidity.Expr) : ContractDecl :=
+    (expr : Solidity.Expr) : ContractDecl :=
   checkedInvalidReturnContract contractName (Ty.uint 256) expr
 
 def checkedMalformedNumericLiteralsRejected : Bool :=
@@ -10644,7 +10643,7 @@ def checkedExpressionTargetEffectSemanticsMatch :
       requireCustom && eventArg && revertCustom &&
       dynamicRequire && dynamicRevert)
 
-def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
+def checkedUsingMathLibrary : Solidity.ContractDecl :=
   { name := "CheckedMath"
     kind := ContractKind.library
     items :=
@@ -10656,12 +10655,12 @@ def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.binary BinaryOp.add
-                      (L00_SourceSolidity.Expr.ident "self")
-                      (L00_SourceSolidity.Expr.literal
-                        (L00_SourceSolidity.Literal.number "1"))))) }
+                    (Solidity.Expr.binary BinaryOp.add
+                      (Solidity.Expr.ident "self")
+                      (Solidity.Expr.literal
+                        (Solidity.Literal.number "1"))))) }
       , ContractItem.function
           { name := some "mix"
             visibility := some Visibility.internal_
@@ -10672,30 +10671,30 @@ def checkedUsingMathLibrary : L00_SourceSolidity.ContractDecl :=
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.binary BinaryOp.add
-                      (L00_SourceSolidity.Expr.binary BinaryOp.mul
-                        (L00_SourceSolidity.Expr.ident "self")
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "10")))
-                      (L00_SourceSolidity.Expr.ident "right")))) } ] }
+                    (Solidity.Expr.binary BinaryOp.add
+                      (Solidity.Expr.binary BinaryOp.mul
+                        (Solidity.Expr.ident "self")
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "10")))
+                      (Solidity.Expr.ident "right")))) } ] }
 
-def checkedUsingFreeIncFunction : L00_SourceSolidity.FunctionDecl :=
+def checkedUsingFreeIncFunction : Solidity.FunctionDecl :=
   { name := some "checkedFreeInc"
     params := [{ name := some "self", ty := Ty.uint 256 }]
     returns := [{ name := some "out", ty := Ty.uint 256 }]
     mutability := StateMutability.pure
     body :=
       some
-        (L00_SourceSolidity.Stmt.returnValues
+        (Solidity.Stmt.returnValues
           (some
-            (L00_SourceSolidity.Expr.binary BinaryOp.add
-              (L00_SourceSolidity.Expr.ident "self")
-              (L00_SourceSolidity.Expr.literal
-                (L00_SourceSolidity.Literal.number "1"))))) }
+            (Solidity.Expr.binary BinaryOp.add
+              (Solidity.Expr.ident "self")
+              (Solidity.Expr.literal
+                (Solidity.Literal.number "1"))))) }
 
-def checkedUsingMethodContract : L00_SourceSolidity.ContractDecl :=
+def checkedUsingMethodContract : Solidity.ContractDecl :=
   { name := "CheckedUsingMethod"
     items :=
       [ ContractItem.usingDecl
@@ -10708,14 +10707,14 @@ def checkedUsingMethodContract : L00_SourceSolidity.ContractDecl :=
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x") "inc")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x") "inc")
                       []))) } ] }
 
-def checkedUsingDirectContract : L00_SourceSolidity.ContractDecl :=
+def checkedUsingDirectContract : Solidity.ContractDecl :=
   { name := "CheckedUsingDirect"
     items :=
       [ ContractItem.function
@@ -10725,17 +10724,17 @@ def checkedUsingDirectContract : L00_SourceSolidity.ContractDecl :=
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "CheckedMath")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "CheckedMath")
                         "inc")
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "x")]))) } ] }
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "x")]))) } ] }
 
 def checkedUsingSourceLevelContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedUsingSourceLevel"
     items :=
       [ ContractItem.function
@@ -10745,14 +10744,14 @@ def checkedUsingSourceLevelContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x") "inc")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x") "inc")
                       []))) } ] }
 
-def checkedUsingStorageContract : L00_SourceSolidity.ContractDecl :=
+def checkedUsingStorageContract : Solidity.ContractDecl :=
   { name := "CheckedUsingStorage"
     items :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
@@ -10764,17 +10763,17 @@ def checkedUsingStorageContract : L00_SourceSolidity.ContractDecl :=
             visibility := some Visibility.public_
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x") "inc")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x") "inc")
                       []))) } ] }
 
 def checkedUsingNamedMethodContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedUsingNamedMethod"
     items :=
       [ ContractItem.usingDecl
@@ -10787,17 +10786,17 @@ def checkedUsingNamedMethodContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x") "mix")
-                      [L00_SourceSolidity.Arg.named "right"
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "2"))]))) } ] }
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x") "mix")
+                      [Solidity.Arg.named "right"
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "2"))]))) } ] }
 
 def checkedUsingExplicitFunctionContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedUsingExplicitFunction"
     items :=
       [ ContractItem.usingDecl
@@ -10812,17 +10811,17 @@ def checkedUsingExplicitFunctionContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x") "mix")
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "2"))]))) } ] }
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x") "mix")
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "2"))]))) } ] }
 
 def checkedUsingExplicitFreeFunctionContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedUsingExplicitFreeFunction"
     items :=
       [ ContractItem.usingDecl
@@ -10837,16 +10836,16 @@ def checkedUsingExplicitFreeFunctionContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x")
                         "checkedFreeInc")
                       []))) } ] }
 
 def checkedUsingNamedDirectContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedUsingNamedDirect"
     items :=
       [ ContractItem.function
@@ -10855,46 +10854,46 @@ def checkedUsingNamedDirectContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "CheckedMath")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "CheckedMath")
                         "mix")
-                      [ L00_SourceSolidity.Arg.named "right"
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.number "2"))
-                      , L00_SourceSolidity.Arg.named "self"
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.number "4")) ]))) } ] }
+                      [ Solidity.Arg.named "right"
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.number "2"))
+                      , Solidity.Arg.named "self"
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.number "4")) ]))) } ] }
 
-def checkedUsingLibraryUnit : L00_SourceSolidity.SourceUnit :=
+def checkedUsingLibraryUnit : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
-      , L00_SourceSolidity.SourceItem.freeFunction
+      [ Solidity.SourceItem.contract checkedUsingMathLibrary
+      , Solidity.SourceItem.freeFunction
           checkedUsingFreeIncFunction
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingMethodContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingDirectContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingStorageContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingNamedMethodContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingExplicitFunctionContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingExplicitFreeFunctionContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingNamedDirectContract ] }
 
-def checkedUsingSourceLevelUnit : L00_SourceSolidity.SourceUnit :=
+def checkedUsingSourceLevelUnit : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
-      , L00_SourceSolidity.SourceItem.usingDecl
+      [ Solidity.SourceItem.contract checkedUsingMathLibrary
+      , Solidity.SourceItem.usingDecl
           { library := { segments := ["CheckedMath"] }
             target := some (Ty.uint 256) }
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedUsingSourceLevelContract ] }
 
 def checkedUsingLibraryMethodMatches : Except TypeError Bool :=
@@ -11178,7 +11177,7 @@ def checkedGlobalUsingPriceMatches : Except TypeError Bool :=
     [SolidCore.Solidity.Source.Value.word 41] 42
 
 def checkedGlobalUsingPriceOperatorContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedGlobalUsingPriceOperator"
     items :=
       [ ContractItem.function
@@ -11190,35 +11189,35 @@ def checkedGlobalUsingPriceOperatorContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "a", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.typeName priceTy)
                             "wrap")
-                          [L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.ident "left")]))
-                  , L00_SourceSolidity.Stmt.varDecl
+                          [Solidity.Arg.positional
+                            (Solidity.Expr.ident "left")]))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "b", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.typeName priceTy)
                             "wrap")
-                          [L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.ident "right")]))
-                  , L00_SourceSolidity.Stmt.returnValues
+                          [Solidity.Arg.positional
+                            (Solidity.Expr.ident "right")]))
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.typeName priceTy)
                             "unwrap")
-                          [ L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.binary BinaryOp.add
-                                (L00_SourceSolidity.Expr.ident "a")
-                                (L00_SourceSolidity.Expr.ident "b")) ])) ]) }
+                          [ Solidity.Arg.positional
+                              (Solidity.Expr.binary BinaryOp.add
+                                (Solidity.Expr.ident "a")
+                                (Solidity.Expr.ident "b")) ])) ]) }
       , ContractItem.function
           { name := some "less"
             visibility := some Visibility.public_
@@ -11228,30 +11227,30 @@ def checkedGlobalUsingPriceOperatorContract :
             returns := [{ name := some "out", ty := Ty.bool }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "a", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.typeName priceTy)
                             "wrap")
-                          [L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.ident "left")]))
-                  , L00_SourceSolidity.Stmt.varDecl
+                          [Solidity.Arg.positional
+                            (Solidity.Expr.ident "left")]))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "b", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.typeName priceTy)
                             "wrap")
-                          [L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.ident "right")]))
-                  , L00_SourceSolidity.Stmt.returnValues
+                          [Solidity.Arg.positional
+                            (Solidity.Expr.ident "right")]))
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.binary BinaryOp.lt
-                          (L00_SourceSolidity.Expr.ident "a")
-                          (L00_SourceSolidity.Expr.ident "b"))) ]) }
+                        (Solidity.Expr.binary BinaryOp.lt
+                          (Solidity.Expr.ident "a")
+                          (Solidity.Expr.ident "b"))) ]) }
       , ContractItem.function
           { name := some "unary"
             visibility := some Visibility.public_
@@ -11261,59 +11260,59 @@ def checkedGlobalUsingPriceOperatorContract :
               , { name := some "inverted", ty := Ty.uint 256 } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "a", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.typeName priceTy)
                             "wrap")
-                          [L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.ident "raw")]))
-                  , L00_SourceSolidity.Stmt.varDecl
+                          [Solidity.Arg.positional
+                            (Solidity.Expr.ident "raw")]))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "negated", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.unary UnaryOp.neg
-                          (L00_SourceSolidity.Expr.ident "a")))
-                  , L00_SourceSolidity.Stmt.varDecl
+                        (Solidity.Expr.unary UnaryOp.neg
+                          (Solidity.Expr.ident "a")))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "inverted", ty := some priceTy }]
                       (some
-                        (L00_SourceSolidity.Expr.unary UnaryOp.bitNot
-                          (L00_SourceSolidity.Expr.ident "a")))
-                  , L00_SourceSolidity.Stmt.returnValues
+                        (Solidity.Expr.unary UnaryOp.bitNot
+                          (Solidity.Expr.ident "a")))
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.tuple
-                          [ L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.call
-                                (L00_SourceSolidity.Expr.member
-                                  (L00_SourceSolidity.Expr.typeName priceTy)
+                        (Solidity.Expr.tuple
+                          [ Solidity.TupleItem.value
+                              (Solidity.Expr.call
+                                (Solidity.Expr.member
+                                  (Solidity.Expr.typeName priceTy)
                                   "unwrap")
-                                [L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.ident
+                                [Solidity.Arg.positional
+                                  (Solidity.Expr.ident
                                     "negated")])
-                          , L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.call
-                                (L00_SourceSolidity.Expr.member
-                                  (L00_SourceSolidity.Expr.typeName priceTy)
+                          , Solidity.TupleItem.value
+                              (Solidity.Expr.call
+                                (Solidity.Expr.member
+                                  (Solidity.Expr.typeName priceTy)
                                   "unwrap")
-                                [L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.ident
+                                [Solidity.Arg.positional
+                                  (Solidity.Expr.ident
                                     "inverted")]) ])) ]) } ] }
 
 def checkedGlobalUsingPriceOperatorUnit :
-    L00_SourceSolidity.SourceUnit :=
+    Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.freeUserValueType priceDecl
-      , L00_SourceSolidity.SourceItem.freeFunction
+      [ Solidity.SourceItem.freeUserValueType priceDecl
+      , Solidity.SourceItem.freeFunction
           priceOperatorAddFunction
-      , L00_SourceSolidity.SourceItem.freeFunction
+      , Solidity.SourceItem.freeFunction
           priceOperatorLtFunction
-      , L00_SourceSolidity.SourceItem.freeFunction
+      , Solidity.SourceItem.freeFunction
           priceOperatorNegFunction
-      , L00_SourceSolidity.SourceItem.freeFunction
+      , Solidity.SourceItem.freeFunction
           priceOperatorBitNotFunction
-      , L00_SourceSolidity.SourceItem.usingDecl
+      , Solidity.SourceItem.usingDecl
           { library := { segments := [] }
             functions :=
               [ { function := { segments := ["priceAdd"] }
@@ -11330,7 +11329,7 @@ def checkedGlobalUsingPriceOperatorUnit :
                     (UsingOperator.unary UnaryOp.bitNot) } ]
             target := some priceTy
             global := true }
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedGlobalUsingPriceOperatorContract ] }
 
 def checkedGlobalUsingPriceAddOperatorMatches :
@@ -11367,7 +11366,7 @@ def checkedGlobalUsingPriceUnaryOperatorsMatch :
   | _ => Except.ok false
 
 def checkedExternalLibraryMath :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedExternalMath"
     kind := ContractKind.library
     items :=
@@ -11379,15 +11378,15 @@ def checkedExternalLibraryMath :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.binary BinaryOp.add
-                      (L00_SourceSolidity.Expr.ident "self")
-                      (L00_SourceSolidity.Expr.literal
-                        (L00_SourceSolidity.Literal.number "1"))))) } ] }
+                    (Solidity.Expr.binary BinaryOp.add
+                      (Solidity.Expr.ident "self")
+                      (Solidity.Expr.literal
+                        (Solidity.Literal.number "1"))))) } ] }
 
 def checkedExternalLibraryDirectContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedExternalLibraryDirect"
     items :=
       [ ContractItem.function
@@ -11397,18 +11396,18 @@ def checkedExternalLibraryDirectContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident
                           "CheckedExternalMath")
                         "plusOne")
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "x")]))) } ] }
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "x")]))) } ] }
 
 def checkedExternalLibraryUsingContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedExternalLibraryUsing"
     items :=
       [ ContractItem.usingDecl
@@ -11421,20 +11420,20 @@ def checkedExternalLibraryUsingContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "x") "plusOne")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "x") "plusOne")
                       []))) } ] }
 
-def checkedExternalLibraryUnit : L00_SourceSolidity.SourceUnit :=
+def checkedExternalLibraryUnit : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract
           checkedExternalLibraryMath
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedExternalLibraryDirectContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedExternalLibraryUsingContract ] }
 
 def checkedExternalLibraryDelegateCallMatches
@@ -11468,7 +11467,7 @@ def checkedExternalLibraryUsingDelegateCallMatches :
   checkedExternalLibraryDelegateCallMatches
     "CheckedExternalLibraryUsing" 6 7
 
-def checkedUsingModifierContract : L00_SourceSolidity.ContractDecl :=
+def checkedUsingModifierContract : Solidity.ContractDecl :=
   { name := "CheckedUsingModifier"
     items :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
@@ -11480,17 +11479,17 @@ def checkedUsingModifierContract : L00_SourceSolidity.ContractDecl :=
             params := [{ name := some "start", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.ident "start")
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.ident "start")
                             "inc")
                           []))
-                  , L00_SourceSolidity.Stmt.modifierPlaceholder ]) }
+                  , Solidity.Stmt.modifierPlaceholder ]) }
       , ContractItem.function
           { name := some "run"
             visibility := some Visibility.public_
@@ -11498,18 +11497,18 @@ def checkedUsingModifierContract : L00_SourceSolidity.ContractDecl :=
             modifiers :=
               [ { target := { segments := ["withBump"] }
                   args :=
-                    [ L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.member
-                            (L00_SourceSolidity.Expr.ident "seed")
+                    [ Solidity.Arg.positional
+                        (Solidity.Expr.call
+                          (Solidity.Expr.member
+                            (Solidity.Expr.ident "seed")
                             "inc")
                           []) ] } ]
-            body := some L00_SourceSolidity.Stmt.empty } ] }
+            body := some Solidity.Stmt.empty } ] }
 
-def checkedUsingModifierUnit : L00_SourceSolidity.SourceUnit :=
+def checkedUsingModifierUnit : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
-      , L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract checkedUsingMathLibrary
+      , Solidity.SourceItem.contract
           checkedUsingModifierContract ] }
 
 def checkedUsingModifierLibraryExpansionMatches :
@@ -11619,7 +11618,7 @@ def checkedModifierExternalTargetTy : Ty :=
   Ty.user { segments := ["CheckedModifierTarget"] }
 
 def checkedModifierExternalTargetContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedModifierTarget"
     kind := ContractKind.interface
     items :=
@@ -11635,7 +11634,7 @@ def checkedModifierExternalTargetContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
 
 def checkedTryCatchAroundModifierFunction :
-    L00_SourceSolidity.FunctionDecl :=
+    Solidity.FunctionDecl :=
   { Executable.Examples.tryCatchAroundModifierFunction with
     params :=
       [{ name := some "target", ty := checkedModifierExternalTargetTy }]
@@ -11645,13 +11644,13 @@ def checkedTryCatchAroundModifierFunction :
     visibility := some Visibility.public_ }
 
 def checkedTryCatchAroundModifier :
-    L00_SourceSolidity.ModifierDecl :=
+    Solidity.ModifierDecl :=
   { Executable.Examples.tryCatchAroundModifier with
     params :=
       [{ name := some "target", ty := checkedModifierExternalTargetTy }] }
 
 def checkedTryCatchAroundModifierContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedTryCatchModifier"
     items :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
@@ -11660,11 +11659,11 @@ def checkedTryCatchAroundModifierContract :
       , ContractItem.function checkedTryCatchAroundModifierFunction ] }
 
 def checkedTryCatchAroundModifierUnit :
-    L00_SourceSolidity.SourceUnit :=
+    Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract
           checkedModifierExternalTargetContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedTryCatchAroundModifierContract ] }
 
 def checkedTryCatchAroundModifierSourceAccepted : Bool :=
@@ -11731,20 +11730,20 @@ def checkedTryCatchAroundModifierCatchMatches :
   | _ => Except.ok false
 
 def checkedDirectExternalCallModifier :
-    L00_SourceSolidity.ModifierDecl :=
+    Solidity.ModifierDecl :=
   { Executable.Examples.directExternalCallModifier with
     params :=
       [{ name := some "watched", ty := checkedModifierExternalTargetTy }] }
 
 def checkedDirectExternalCallModifierFunction :
-    L00_SourceSolidity.FunctionDecl :=
+    Solidity.FunctionDecl :=
   { Executable.Examples.directExternalCallModifierFunction with
     params :=
       [{ name := some "target", ty := checkedModifierExternalTargetTy }]
     visibility := some Visibility.public_ }
 
 def checkedDirectExternalCallModifierContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedDirectExternalModifier"
     items :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
@@ -11754,11 +11753,11 @@ def checkedDirectExternalCallModifierContract :
           checkedDirectExternalCallModifierFunction ] }
 
 def checkedDirectExternalCallModifierUnit :
-    L00_SourceSolidity.SourceUnit :=
+    Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract
           checkedModifierExternalTargetContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedDirectExternalCallModifierContract ] }
 
 def checkedDirectExternalCallModifierSourceAccepted : Bool :=
@@ -11798,7 +11797,7 @@ def checkedDirectExternalCallModifierMatches :
   | _ => Except.ok false
 
 def checkedUsingConstructorContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedUsingConstructor"
     items :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
@@ -11810,19 +11809,19 @@ def checkedUsingConstructorContract :
             params := [{ name := some "seed", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "seed") "inc")
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "seed") "inc")
                       []))) } ] }
 
-def checkedUsingConstructorUnit : L00_SourceSolidity.SourceUnit :=
+def checkedUsingConstructorUnit : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract checkedUsingMathLibrary
-      , L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract checkedUsingMathLibrary
+      , Solidity.SourceItem.contract
           checkedUsingConstructorContract ] }
 
 def checkedUsingConstructorMatches : Except TypeError Bool :=
@@ -12033,10 +12032,10 @@ def checkedC3DispatchOrderMatches : Except TypeError Bool := do
       (CheckedProgram.findSourceContract? program "C3Final")
   let order ←
     optionToExcept "C3 dispatch order"
-      (L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
+      (Solidity.Executable.ContractDecl.dispatchOrder?
         (CheckedProgram.contracts program) final)
   Except.ok
-    (order.map L00_SourceSolidity.ContractDecl.name ==
+    (order.map Solidity.ContractDecl.name ==
       ["C3Final", "C3Right", "C3Left", "C3Root"])
 
 def checkedInheritanceDispatchObservationMatches :
@@ -12057,7 +12056,7 @@ def checkedInheritedStateReadMatches : Except TypeError Bool := do
   | _ => Except.ok false
 
 def checkedSuperStorageBaseContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedSuperStorageBase"
     items :=
       [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
@@ -12066,15 +12065,15 @@ def checkedSuperStorageBaseContract :
             visibility := some Visibility.public_
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.literal
-                      (L00_SourceSolidity.Literal.number "5")))) } ] }
+                    (Solidity.Expr.literal
+                      (Solidity.Literal.number "5")))) } ] }
 
 def checkedSuperStorageDerivedContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedSuperStorageDerived"
     bases := [{ base := { segments := ["CheckedSuperStorageBase"] } }]
     items :=
@@ -12083,17 +12082,17 @@ def checkedSuperStorageDerivedContract :
             visibility := some Visibility.public_
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.call
-                    (L00_SourceSolidity.Expr.member
-                      (L00_SourceSolidity.Expr.ident "super") "setX")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.call
+                    (Solidity.Expr.member
+                      (Solidity.Expr.ident "super") "setX")
                     [])) } ] }
 
-def checkedSuperStorageSource : L00_SourceSolidity.SourceUnit :=
+def checkedSuperStorageSource : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract
           checkedSuperStorageBaseContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedSuperStorageDerivedContract ] }
 
 def checkedSuperStorageCallMatches : Except TypeError Bool :=
@@ -12376,22 +12375,22 @@ def checkedPayableConstructorValueMatches :
   | _ => Except.ok false
 
 def checkedNonpayableConstructorValueContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedNonpayableCtor"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { kind := FunctionKind.constructor
             mutability := StateMutability.nonpayable
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.literal
-                      (L00_SourceSolidity.Literal.number "17")))) } ] }
+                    (Solidity.Expr.literal
+                      (Solidity.Literal.number "17")))) } ] }
 
 def checkedNonpayableConstructorRejectsValueMatches :
     Except TypeError Bool := do
@@ -12489,12 +12488,12 @@ def checkedConstructorDeploymentObservationBoundaryMatches :
     Except TypeError Bool := do
   let source : SourceUnitAst :=
     { items :=
-        [ L00_SourceSolidity.SourceItem.contract
+        [ Solidity.SourceItem.contract
             Executable.Examples.constructorContract ] }
   let _program ← SourceUnit.checkedProgram source
   let observation ←
     optionToExcept "constructor deployment observation"
-      (L00_SourceSolidity.Executable.SourceUnit.observeDeploymentAtFrom?
+      (Solidity.Executable.SourceUnit.observeDeploymentAtFrom?
         16 source "Constructed" SolidCore.Solidity.Source.State.empty
         0xabcd 0xcafe 0
         [SolidCore.Solidity.Source.Value.word 42])
@@ -12571,7 +12570,7 @@ def checkedConstructorDeploymentAbiObservationBoundaryMatches :
     Except TypeError Bool := do
   let source : SourceUnitAst :=
     { items :=
-        [ L00_SourceSolidity.SourceItem.contract
+        [ Solidity.SourceItem.contract
             Executable.Examples.constructorContract ] }
   let _program ← SourceUnit.checkedProgram source
   let constructorCalldata ←
@@ -12579,11 +12578,11 @@ def checkedConstructorDeploymentAbiObservationBoundaryMatches :
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 42]
   let observation :=
-    L00_SourceSolidity.Executable.SourceUnit.observeDeploymentAbiAtFrom
+    Solidity.Executable.SourceUnit.observeDeploymentAbiAtFrom
       16 source "Constructed" SolidCore.Solidity.Source.State.empty
       0xabcd 0xcafe 0 constructorCalldata
   let badObservation :=
-    L00_SourceSolidity.Executable.SourceUnit.observeDeploymentAbiAtFrom
+    Solidity.Executable.SourceUnit.observeDeploymentAbiAtFrom
       16 source "Constructed" SolidCore.Solidity.Source.State.empty
       0xabcd 0xcafe 0 [1]
   let paramsMatch :=
@@ -12653,47 +12652,47 @@ def checkedRevertingConstructorRollsBackMatches :
   | _ => Except.ok false
 
 def checkedImmutableConstructorContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedImmutableConstructor"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "SEED"
             ty := Ty.uint 256
             visibility := some Visibility.public_
             mutability := VarMutability.immutable
             init :=
               some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "3")) }
-      , L00_SourceSolidity.ContractItem.stateVar
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "3")) }
+      , Solidity.ContractItem.stateVar
           { name := "x"
             ty := Ty.uint 256
             visibility := some Visibility.public_
             mutability := VarMutability.immutable }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { kind := FunctionKind.constructor
             params := [{ name := some "value", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.binary BinaryOp.add
-                      (L00_SourceSolidity.Expr.ident "value")
-                      (L00_SourceSolidity.Expr.ident "SEED")))) }
-      , L00_SourceSolidity.ContractItem.function
+                    (Solidity.Expr.binary BinaryOp.add
+                      (Solidity.Expr.ident "value")
+                      (Solidity.Expr.ident "SEED")))) }
+      , Solidity.ContractItem.function
           { name := some "sum"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             mutability := StateMutability.view
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.binary BinaryOp.add
-                      (L00_SourceSolidity.Expr.ident "x")
-                      (L00_SourceSolidity.Expr.ident "SEED")))) } ] }
+                    (Solidity.Expr.binary BinaryOp.add
+                      (Solidity.Expr.ident "x")
+                      (Solidity.Expr.ident "SEED")))) } ] }
 
 def checkedImmutableConstructorMatches :
     Except TypeError Bool := do
@@ -12732,59 +12731,59 @@ def checkedImmutablePublicGetterMatches :
   | _ => Except.ok false
 
 def checkedImmutableRuntimeWriteContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { checkedImmutableConstructorContract with
     name := "CheckedImmutableRuntimeWrite"
     items :=
       checkedImmutableConstructorContract.items ++
-        [ L00_SourceSolidity.ContractItem.function
+        [ Solidity.ContractItem.function
             { name := some "mutate"
               visibility := some Visibility.public_
               body :=
                 some
-                  (L00_SourceSolidity.Stmt.expr
-                    (L00_SourceSolidity.Expr.assign
-                      (L00_SourceSolidity.Expr.ident "x")
+                  (Solidity.Stmt.expr
+                    (Solidity.Expr.assign
+                      (Solidity.Expr.ident "x")
                       AssignOp.assign
-                      (L00_SourceSolidity.Expr.literal
-                        (L00_SourceSolidity.Literal.number "1")))) } ] }
+                      (Solidity.Expr.literal
+                        (Solidity.Literal.number "1")))) } ] }
 
 def checkedImmutableRuntimeWriteRejectedByTypechecker : Bool :=
   Result.isError
     (ContractDecl.checkedContract checkedImmutableRuntimeWriteContract)
 
 def checkedConstructorInternalCallContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedCtorInternalCall"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "double"
             visibility := some Visibility.internal_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.binary BinaryOp.mul
-                      (L00_SourceSolidity.Expr.ident "value")
-                      (L00_SourceSolidity.Expr.literal
-                        (L00_SourceSolidity.Literal.number "2"))))) }
-      , L00_SourceSolidity.ContractItem.function
+                    (Solidity.Expr.binary BinaryOp.mul
+                      (Solidity.Expr.ident "value")
+                      (Solidity.Expr.literal
+                        (Solidity.Literal.number "2"))))) }
+      , Solidity.ContractItem.function
           { kind := FunctionKind.constructor
             params := [{ name := some "seed", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.expr
-                  (L00_SourceSolidity.Expr.assign
-                    (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.expr
+                  (Solidity.Expr.assign
+                    (Solidity.Expr.ident "x")
                     AssignOp.assign
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.ident "double")
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "seed")]))) } ] }
+                    (Solidity.Expr.call
+                      (Solidity.Expr.ident "double")
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "seed")]))) } ] }
 
 def checkedConstructorInternalCallMatches :
     Except TypeError Bool := do
@@ -13416,13 +13415,13 @@ def checkedInheritedNamespaceShadowingAccepted : Bool :=
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
         (inheritedEventNameItemSource
-          (L00_SourceSolidity.ContractItem.eventDecl
+          (Solidity.ContractItem.eventDecl
             { name := "announced"
               params := [{ name := none, ty := uint256 }] }))) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
         (inheritedErrorNameItemSource
-          (L00_SourceSolidity.ContractItem.function
+          (Solidity.ContractItem.function
             revertInheritedErrorFunction))) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
@@ -13479,7 +13478,7 @@ def checkedInheritedNamespaceShadowingRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         (inheritedModifierNameItemSource
-          (L00_SourceSolidity.ContractItem.function
+          (Solidity.ContractItem.function
             functionShadowsInheritedModifierFunction))) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
@@ -13490,29 +13489,29 @@ def checkedInheritedNamespaceShadowingRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         (inheritedEventNameItemSource
-          (L00_SourceSolidity.ContractItem.function
+          (Solidity.ContractItem.function
             functionShadowsInheritedEventFunction))) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         (inheritedEventNameItemSource
-          (L00_SourceSolidity.ContractItem.stateVar
+          (Solidity.ContractItem.stateVar
             { name := "announced"
               ty := uint256
               visibility := some Visibility.private_ }))) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         (inheritedEventNameItemSource
-          (L00_SourceSolidity.ContractItem.errorDecl
+          (Solidity.ContractItem.errorDecl
             { name := "announced" }))) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         (inheritedEventNameItemSource
-          (L00_SourceSolidity.ContractItem.eventDecl
+          (Solidity.ContractItem.eventDecl
             { name := "announced" }))) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         (inheritedErrorNameItemSource
-          (L00_SourceSolidity.ContractItem.eventDecl
+          (Solidity.ContractItem.eventDecl
             { name := "Problem"
               params := [{ name := none, ty := uint256 }] }))) &&
     Result.isError
@@ -13527,17 +13526,17 @@ def checkedInheritedNamespaceShadowingRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         ({ items :=
             [ inheritedStructNameBaseSourceItem
-            , L00_SourceSolidity.SourceItem.contract
+            , Solidity.SourceItem.contract
                 { name := "BadFunctionShadowsInheritedType"
                   bases :=
                     [{ base := userPath "InheritedStructNameBase"
                        args := [] }]
                   items :=
-                    [ L00_SourceSolidity.ContractItem.function
+                    [ Solidity.ContractItem.function
                         { simpleReturnFunction with
                           name := some "record"
                           mutability := StateMutability.pure } ] } ] } :
-          L00_SourceSolidity.SourceUnit)) &&
+          Solidity.SourceUnit)) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         freeStructFieldHiddenByInheritedSource) &&
@@ -14720,47 +14719,47 @@ def checkedRequireCustomErrorMatches :
   | _ => Except.ok false
 
 def checkedEventArgumentSideEffectContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedEventArgumentSideEffect"
     items :=
-      [ L00_SourceSolidity.ContractItem.eventDecl
+      [ Solidity.ContractItem.eventDecl
           { name := "Seen"
             params :=
               [{ name := some "value"
                  ty := Ty.uint 256
                  indexed := false }] }
-      , L00_SourceSolidity.ContractItem.stateVar
+      , Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "value"
             visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "7")))
-                  , L00_SourceSolidity.Stmt.returnValues
-                      (some (L00_SourceSolidity.Expr.ident "x")) ]) }
-      , L00_SourceSolidity.ContractItem.function
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "7")))
+                  , Solidity.Stmt.returnValues
+                      (some (Solidity.Expr.ident "x")) ]) }
+      , Solidity.ContractItem.function
           { name := some "run"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.emitEvent
-                      (L00_SourceSolidity.Expr.call
-                        (L00_SourceSolidity.Expr.ident "Seen")
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.call
-                            (L00_SourceSolidity.Expr.ident "value") [])])
-                  , L00_SourceSolidity.Stmt.returnValues
-                      (some (L00_SourceSolidity.Expr.ident "x")) ]) } ] }
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.emitEvent
+                      (Solidity.Expr.call
+                        (Solidity.Expr.ident "Seen")
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.call
+                            (Solidity.Expr.ident "value") [])])
+                  , Solidity.Stmt.returnValues
+                      (some (Solidity.Expr.ident "x")) ]) } ] }
 
 def checkedEventArgumentSideEffectMatches :
     Except TypeError Bool := do
@@ -14785,44 +14784,44 @@ def checkedEventArgumentSideEffectMatches :
   | _ => Except.ok false
 
 def checkedErrorRollbackContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedErrorRollback"
     items :=
-      [ L00_SourceSolidity.ContractItem.errorDecl
+      [ Solidity.ContractItem.errorDecl
           { name := "Bad"
             params := [{ name := some "value", ty := Ty.uint 256 }] }
-      , L00_SourceSolidity.ContractItem.stateVar
+      , Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "value"
             visibility := some Visibility.internal_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "7")))
-                  , L00_SourceSolidity.Stmt.returnValues
-                      (some (L00_SourceSolidity.Expr.ident "x")) ]) }
-      , L00_SourceSolidity.ContractItem.function
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "7")))
+                  , Solidity.Stmt.returnValues
+                      (some (Solidity.Expr.ident "x")) ]) }
+      , Solidity.ContractItem.function
           { name := some "run"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.revertCall
-                      (L00_SourceSolidity.Expr.call
-                        (L00_SourceSolidity.Expr.ident "Bad")
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.call
-                            (L00_SourceSolidity.Expr.ident "value") [])])
-                  , L00_SourceSolidity.Stmt.returnValues
-                      (some (L00_SourceSolidity.Expr.ident "x")) ]) } ] }
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.revertCall
+                      (Solidity.Expr.call
+                        (Solidity.Expr.ident "Bad")
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.call
+                            (Solidity.Expr.ident "value") [])])
+                  , Solidity.Stmt.returnValues
+                      (some (Solidity.Expr.ident "x")) ]) } ] }
 
 def checkedErrorRollbackMatches :
     Except TypeError Bool := do
@@ -14933,10 +14932,10 @@ def checkedEventErrorRollbackSemanticsMatch :
       requireError && eventEffects && errorRollback && inheritedErrorPayload &&
       inheritedEvent)
 
-def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
+def checkedLowLevelCallContract : Solidity.ContractDecl :=
   { name := "CheckedLowLevelCall"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { name := some "probe"
             visibility := some Visibility.public_
             params :=
@@ -14950,14 +14949,14 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                  location := some DataLocation.memory }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.call
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "target") "call")
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "payload")]))) }
-      , L00_SourceSolidity.ContractItem.function
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "target") "call")
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "payload")]))) }
+      , Solidity.ContractItem.function
           { name := some "payWithOptions"
             visibility := some Visibility.public_
             mutability := StateMutability.payable
@@ -14967,23 +14966,23 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                  location := some DataLocation.memory }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.callWithOptions
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.address 0xbeef))
+                    (Solidity.Expr.callWithOptions
+                      (Solidity.Expr.member
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.address 0xbeef))
                         "call")
-                      [ L00_SourceSolidity.CallOption.named "gas"
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.number "1000000"))
-                      , L00_SourceSolidity.CallOption.named "value"
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.number "5")) ]
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.bytes [1, 2]))]))) }
-      , L00_SourceSolidity.ContractItem.function
+                      [ Solidity.CallOption.named "gas"
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.number "1000000"))
+                      , Solidity.CallOption.named "value"
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.number "5")) ]
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.bytes [1, 2]))]))) }
+      , Solidity.ContractItem.function
           { name := some "payWithOptionEffects"
             visibility := some Visibility.public_
             mutability := StateMutability.payable
@@ -14992,52 +14991,52 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
               , { name := some "sent", ty := Ty.uint 256 } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "gasSeen"
                          ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.varDecl
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "sent"
                          ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.callWithOptions
-                        (L00_SourceSolidity.Expr.member
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.address 0xbeef))
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.callWithOptions
+                        (Solidity.Expr.member
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.address 0xbeef))
                           "call")
-                        [ L00_SourceSolidity.CallOption.named "gas"
-                            (L00_SourceSolidity.Expr.assign
-                              (L00_SourceSolidity.Expr.ident
+                        [ Solidity.CallOption.named "gas"
+                            (Solidity.Expr.assign
+                              (Solidity.Expr.ident
                                 "gasSeen")
                               AssignOp.assign
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number
                                   "11")))
-                        , L00_SourceSolidity.CallOption.named "value"
-                            (L00_SourceSolidity.Expr.assign
-                              (L00_SourceSolidity.Expr.ident "sent")
+                        , Solidity.CallOption.named "value"
+                            (Solidity.Expr.assign
+                              (Solidity.Expr.ident "sent")
                               AssignOp.assign
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number
                                   "5"))) ]
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.bytes
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.bytes
                               [1, 2]))])
-                  , L00_SourceSolidity.Stmt.returnValues
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.tuple
-                          [ L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.ident "gasSeen")
-                          , L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.ident "sent") ])) ]) }
-      , L00_SourceSolidity.ContractItem.function
+                        (Solidity.Expr.tuple
+                          [ Solidity.TupleItem.value
+                              (Solidity.Expr.ident "gasSeen")
+                          , Solidity.TupleItem.value
+                              (Solidity.Expr.ident "sent") ])) ]) }
+      , Solidity.ContractItem.function
           { name := some "probeBoth"
             visibility := some Visibility.public_
             params :=
@@ -15054,28 +15053,28 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                   location := some DataLocation.memory } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.tuple
-                      [ L00_SourceSolidity.TupleItem.value
-                          (L00_SourceSolidity.Expr.callWithOptions
-                            (L00_SourceSolidity.Expr.member
-                              (L00_SourceSolidity.Expr.ident "target")
+                    (Solidity.Expr.tuple
+                      [ Solidity.TupleItem.value
+                          (Solidity.Expr.callWithOptions
+                            (Solidity.Expr.member
+                              (Solidity.Expr.ident "target")
                               "staticcall")
-                            [L00_SourceSolidity.CallOption.named "gas"
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number
+                            [Solidity.CallOption.named "gas"
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number
                                   "50000"))]
-                            [L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.ident "payload")])
-                      , L00_SourceSolidity.TupleItem.value
-                          (L00_SourceSolidity.Expr.call
-                            (L00_SourceSolidity.Expr.member
-                              (L00_SourceSolidity.Expr.ident "target")
+                            [Solidity.Arg.positional
+                              (Solidity.Expr.ident "payload")])
+                      , Solidity.TupleItem.value
+                          (Solidity.Expr.call
+                            (Solidity.Expr.member
+                              (Solidity.Expr.ident "target")
                               "delegatecall")
-                            [L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.ident "payload")]) ]))) }
-      , L00_SourceSolidity.ContractItem.function
+                            [Solidity.Arg.positional
+                              (Solidity.Expr.ident "payload")]) ]))) }
+      , Solidity.ContractItem.function
           { name := some "delegateGas"
             visibility := some Visibility.public_
             params :=
@@ -15089,18 +15088,18 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                  location := some DataLocation.memory }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.callWithOptions
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "target")
+                    (Solidity.Expr.callWithOptions
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "target")
                         "delegatecall")
-                      [L00_SourceSolidity.CallOption.named "gas"
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "900"))]
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "payload")]))) }
-      , L00_SourceSolidity.ContractItem.function
+                      [Solidity.CallOption.named "gas"
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "900"))]
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "payload")]))) }
+      , Solidity.ContractItem.function
           { name := some "staticGasExpr"
             visibility := some Visibility.public_
             params :=
@@ -15112,38 +15111,38 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
               [{ name := some "gasSeen", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "gasSeen"
                          ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.callWithOptions
-                        (L00_SourceSolidity.Expr.member
-                          (L00_SourceSolidity.Expr.ident "target")
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.callWithOptions
+                        (Solidity.Expr.member
+                          (Solidity.Expr.ident "target")
                           "staticcall")
-                        [L00_SourceSolidity.CallOption.named "gas"
-                          (L00_SourceSolidity.Expr.assign
-                            (L00_SourceSolidity.Expr.ident
+                        [Solidity.CallOption.named "gas"
+                          (Solidity.Expr.assign
+                            (Solidity.Expr.ident
                               "gasSeen")
                             AssignOp.assign
-                            (L00_SourceSolidity.Expr.literal
-                              (L00_SourceSolidity.Literal.number
+                            (Solidity.Expr.literal
+                              (Solidity.Literal.number
                                 "12")))]
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.ident
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.ident
                             "payload")])
-                  , L00_SourceSolidity.Stmt.returnValues
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.ident "gasSeen")) ]) } ] }
+                        (Solidity.Expr.ident "gasSeen")) ]) } ] }
 
 def checkedLowLevelStaticCallValueOptionContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedBadStaticValue"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { name := some "badStaticValue"
             visibility := some Visibility.public_
             params :=
@@ -15157,23 +15156,23 @@ def checkedLowLevelStaticCallValueOptionContract :
                  location := some DataLocation.memory }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.callWithOptions
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "target")
+                    (Solidity.Expr.callWithOptions
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "target")
                         "staticcall")
-                      [L00_SourceSolidity.CallOption.named "value"
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "1"))]
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "payload")]))) } ] }
+                      [Solidity.CallOption.named "value"
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "1"))]
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "payload")]))) } ] }
 
 def checkedLowLevelDelegateCallValueOptionContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedBadDelegateValue"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { name := some "badDelegateValue"
             visibility := some Visibility.public_
             params :=
@@ -15187,17 +15186,17 @@ def checkedLowLevelDelegateCallValueOptionContract :
                  location := some DataLocation.memory }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.callWithOptions
-                      (L00_SourceSolidity.Expr.member
-                        (L00_SourceSolidity.Expr.ident "target")
+                    (Solidity.Expr.callWithOptions
+                      (Solidity.Expr.member
+                        (Solidity.Expr.ident "target")
                         "delegatecall")
-                      [L00_SourceSolidity.CallOption.named "value"
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "1"))]
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "payload")]))) } ] }
+                      [Solidity.CallOption.named "value"
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "1"))]
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "payload")]))) } ] }
 
 def checkedLowLevelCallMatches : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
@@ -15527,12 +15526,12 @@ def checkedLowLevelTransferSignedAmountRejected : Bool :=
   Result.isError (SourceUnit.checkedProgram
     lowLevelTransferSignedAmountSource)
 
-def checkedTransferValueContract : L00_SourceSolidity.ContractDecl :=
+def checkedTransferValueContract : Solidity.ContractDecl :=
   { name := "CheckedTransferValue"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "pay"
             visibility := some Visibility.public_
             params :=
@@ -15540,26 +15539,26 @@ def checkedTransferValueContract : L00_SourceSolidity.ContractDecl :=
               , { name := some "amount", ty := Ty.uint 256 } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "1")))
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.call
-                        (L00_SourceSolidity.Expr.member
-                          (L00_SourceSolidity.Expr.ident "target")
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "1")))
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.call
+                        (Solidity.Expr.member
+                          (Solidity.Expr.ident "target")
                           "transfer")
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.ident "amount")])
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.ident "amount")])
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "2"))) ]) } ] }
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "2"))) ]) } ] }
 
 def checkedTransferValueSuccessMatches : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedTransferValueContract
@@ -15607,10 +15606,10 @@ def checkedTransferValueFailureReverts : Except TypeError Bool := do
   | _ => Except.ok false
 
 def checkedPrecompileStaticcallContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedPrecompileStaticcall"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { name := some "hashAndProbe"
             visibility := some Visibility.public_
             mutability := StateMutability.view
@@ -15621,27 +15620,27 @@ def checkedPrecompileStaticcallContract :
                   location := some DataLocation.memory } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.tuple
-                      [ L00_SourceSolidity.TupleItem.value
-                          (L00_SourceSolidity.Expr.call
-                            (L00_SourceSolidity.Expr.ident "sha256")
-                            [L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.bytes
+                    (Solidity.Expr.tuple
+                      [ Solidity.TupleItem.value
+                          (Solidity.Expr.call
+                            (Solidity.Expr.ident "sha256")
+                            [Solidity.Arg.positional
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.bytes
                                   [1, 2]))])
-                      , L00_SourceSolidity.TupleItem.value
-                          (L00_SourceSolidity.Expr.call
-                            (L00_SourceSolidity.Expr.member
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.address
+                      , Solidity.TupleItem.value
+                          (Solidity.Expr.call
+                            (Solidity.Expr.member
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.address
                                   (SharedSemantics.Precompile.address
                                     SharedSemantics.Precompile.Kind.sha256)))
                               "staticcall")
-                            [L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.bytes
+                            [Solidity.Arg.positional
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.bytes
                                   [1, 2]))]) ]))) } ] }
 
 def checkedPrecompileStaticcallMatches :
@@ -15699,34 +15698,34 @@ def checkedLowLevelCallSemanticsMatch : Except TypeError Bool := do
 def checkedCreatedChildTy : Ty :=
   Ty.user { segments := ["CheckedCreatedChild"] }
 
-def checkedCreatedChildContract : L00_SourceSolidity.ContractDecl :=
+def checkedCreatedChildContract : Solidity.ContractDecl :=
   { name := "CheckedCreatedChild"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           (seedConstructor StateMutability.nonpayable) ] }
 
 def checkedNamedCreatedChildTy : Ty :=
   Ty.user { segments := ["CheckedNamedCreatedChild"] }
 
 def checkedNamedCreatedChildContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedNamedCreatedChild"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { kind := FunctionKind.constructor
             params :=
               [ { name := some "amount", ty := Ty.uint 256 }
               , { name := some "bonus", ty := Ty.uint 256 } ]
             mutability := StateMutability.payable
-            body := some L00_SourceSolidity.Stmt.empty } ] }
+            body := some Solidity.Stmt.empty } ] }
 
 def checkedContractCreationCaller :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedCreateCaller"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "x", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "make"
             visibility := some Visibility.public_
             params := [{ name := some "seed", ty := Ty.uint 256 }]
@@ -15734,13 +15733,13 @@ def checkedContractCreationCaller :
               [{ name := some "created", ty := checkedCreatedChildTy }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.newExpr
+                    (Solidity.Expr.newExpr
                       checkedCreatedChildTy
-                      [L00_SourceSolidity.Arg.positional
-                        (L00_SourceSolidity.Expr.ident "seed")]))) }
-      , L00_SourceSolidity.ContractItem.function
+                      [Solidity.Arg.positional
+                        (Solidity.Expr.ident "seed")]))) }
+      , Solidity.ContractItem.function
           { name := some "makeNamed"
             visibility := some Visibility.public_
             params :=
@@ -15750,15 +15749,15 @@ def checkedContractCreationCaller :
               [{ name := some "created", ty := checkedNamedCreatedChildTy }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.newExpr
+                    (Solidity.Expr.newExpr
                       checkedNamedCreatedChildTy
-                      [ L00_SourceSolidity.Arg.named "bonus"
-                          (L00_SourceSolidity.Expr.ident "bonus")
-                      , L00_SourceSolidity.Arg.named "amount"
-                          (L00_SourceSolidity.Expr.ident "amount") ]))) }
-      , L00_SourceSolidity.ContractItem.function
+                      [ Solidity.Arg.named "bonus"
+                          (Solidity.Expr.ident "bonus")
+                      , Solidity.Arg.named "amount"
+                          (Solidity.Expr.ident "amount") ]))) }
+      , Solidity.ContractItem.function
           { name := some "makeNamedSalted"
             visibility := some Visibility.public_
             params :=
@@ -15770,72 +15769,72 @@ def checkedContractCreationCaller :
               [{ name := some "created", ty := checkedNamedCreatedChildTy }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.callWithOptions
-                      (L00_SourceSolidity.Expr.newExpr
+                    (Solidity.Expr.callWithOptions
+                      (Solidity.Expr.newExpr
                         checkedNamedCreatedChildTy [])
-                      [ L00_SourceSolidity.CallOption.named "value"
-                          (L00_SourceSolidity.Expr.ident "payment")
-                      , L00_SourceSolidity.CallOption.named "salt"
-                          (L00_SourceSolidity.Expr.ident "salt") ]
-                      [ L00_SourceSolidity.Arg.named "bonus"
-                          (L00_SourceSolidity.Expr.ident "bonus")
-                      , L00_SourceSolidity.Arg.named "amount"
-                          (L00_SourceSolidity.Expr.ident "amount") ]))) }
-      , L00_SourceSolidity.ContractItem.function
+                      [ Solidity.CallOption.named "value"
+                          (Solidity.Expr.ident "payment")
+                      , Solidity.CallOption.named "salt"
+                          (Solidity.Expr.ident "salt") ]
+                      [ Solidity.Arg.named "bonus"
+                          (Solidity.Expr.ident "bonus")
+                      , Solidity.Arg.named "amount"
+                          (Solidity.Expr.ident "amount") ]))) }
+      , Solidity.ContractItem.function
           { name := some "makeFailure"
             visibility := some Visibility.public_
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "1")))
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.newExpr
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "1")))
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.newExpr
                         checkedCreatedChildTy
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.number "7"))])
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "x")
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.number "7"))])
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "x")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "2"))) ]) }
-      , L00_SourceSolidity.ContractItem.function
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "2"))) ]) }
+      , Solidity.ContractItem.function
           { name := some "tryMake"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.tryCatch
-                      (L00_SourceSolidity.Expr.newExpr
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.tryCatch
+                      (Solidity.Expr.newExpr
                         checkedCreatedChildTy
-                        [L00_SourceSolidity.Arg.positional
-                          (L00_SourceSolidity.Expr.literal
-                            (L00_SourceSolidity.Literal.number "7"))])
-                      [ L00_SourceSolidity.CatchClause.clause none []
-                          (L00_SourceSolidity.Stmt.returnValues
+                        [Solidity.Arg.positional
+                          (Solidity.Expr.literal
+                            (Solidity.Literal.number "7"))])
+                      [ Solidity.CatchClause.clause none []
+                          (Solidity.Stmt.returnValues
                             (some
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number
                                   "0")))) ]
-                  , L00_SourceSolidity.Stmt.returnValues
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "1"))) ]) } ] }
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "1"))) ]) } ] }
 
 def checkedDuplicateNamedCreateCaller :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedDuplicateNamedCreateCaller"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           { name := some "badNamed"
             visibility := some Visibility.public_
             params :=
@@ -15845,22 +15844,22 @@ def checkedDuplicateNamedCreateCaller :
               [{ name := some "created", ty := checkedNamedCreatedChildTy }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Stmt.returnValues
                   (some
-                    (L00_SourceSolidity.Expr.newExpr
+                    (Solidity.Expr.newExpr
                       checkedNamedCreatedChildTy
-                      [ L00_SourceSolidity.Arg.named "amount"
-                          (L00_SourceSolidity.Expr.ident "amount")
-                      , L00_SourceSolidity.Arg.named "amount"
-                          (L00_SourceSolidity.Expr.ident "bonus") ]))) } ] }
+                      [ Solidity.Arg.named "amount"
+                          (Solidity.Expr.ident "amount")
+                      , Solidity.Arg.named "amount"
+                          (Solidity.Expr.ident "bonus") ]))) } ] }
 
-def checkedContractCreationSource : L00_SourceSolidity.SourceUnit :=
+def checkedContractCreationSource : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract
           checkedCreatedChildContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedNamedCreatedChildContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedContractCreationCaller ] }
 
 def checkedContractCreationMatches : Except TypeError Bool := do
@@ -15929,60 +15928,60 @@ def checkedContractCreationExpressionObservationMatches :
   let namedObservation :=
     Executable.Expr.observeContractCreationExpression []
       externalCallKindEnv
-      (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy
-        [ L00_SourceSolidity.Arg.named "bonus"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "2"))
-        , L00_SourceSolidity.Arg.named "amount"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "40")) ])
+      (Solidity.Expr.newExpr checkedNamedCreatedChildTy
+        [ Solidity.Arg.named "bonus"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "2"))
+        , Solidity.Arg.named "amount"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "40")) ])
   let saltedObservation :=
     Executable.Expr.observeContractCreationExpression []
       externalCallKindEnv
-      (L00_SourceSolidity.Expr.callWithOptions
-        (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy [])
-        [ L00_SourceSolidity.CallOption.named "value"
-            (L00_SourceSolidity.Expr.ident "payment")
-        , L00_SourceSolidity.CallOption.named "salt"
-            (L00_SourceSolidity.Expr.ident "salt") ]
-        [ L00_SourceSolidity.Arg.named "bonus"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "2"))
-        , L00_SourceSolidity.Arg.named "amount"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "40")) ])
+      (Solidity.Expr.callWithOptions
+        (Solidity.Expr.newExpr checkedNamedCreatedChildTy [])
+        [ Solidity.CallOption.named "value"
+            (Solidity.Expr.ident "payment")
+        , Solidity.CallOption.named "salt"
+            (Solidity.Expr.ident "salt") ]
+        [ Solidity.Arg.named "bonus"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "2"))
+        , Solidity.Arg.named "amount"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "40")) ])
   let duplicateNamedObservation :=
     Executable.Expr.observeContractCreationExpression []
       externalCallKindEnv
-      (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy
-        [ L00_SourceSolidity.Arg.named "amount"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "40"))
-        , L00_SourceSolidity.Arg.named "amount"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "2")) ])
+      (Solidity.Expr.newExpr checkedNamedCreatedChildTy
+        [ Solidity.Arg.named "amount"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "40"))
+        , Solidity.Arg.named "amount"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "2")) ])
   let badOptionObservation :=
     Executable.Expr.observeContractCreationExpression []
       externalCallKindEnv
-      (L00_SourceSolidity.Expr.callWithOptions
-        (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy [])
-        [ L00_SourceSolidity.CallOption.named "gas"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "1")) ]
-        [ L00_SourceSolidity.Arg.named "bonus"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "2"))
-        , L00_SourceSolidity.Arg.named "amount"
-            (L00_SourceSolidity.Expr.literal
-              (L00_SourceSolidity.Literal.number "40")) ])
+      (Solidity.Expr.callWithOptions
+        (Solidity.Expr.newExpr checkedNamedCreatedChildTy [])
+        [ Solidity.CallOption.named "gas"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "1")) ]
+        [ Solidity.Arg.named "bonus"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "2"))
+        , Solidity.Arg.named "amount"
+            (Solidity.Expr.literal
+              (Solidity.Literal.number "40")) ])
   let badTypeObservation :=
     Executable.Expr.observeContractCreationExpression []
       externalCallKindEnv
-      (L00_SourceSolidity.Expr.newExpr (Ty.uint 256) [])
+      (Solidity.Expr.newExpr (Ty.uint 256) [])
   let notCreationObservation :=
     Executable.Expr.observeContractCreationExpression []
       externalCallKindEnv
-      (L00_SourceSolidity.Expr.ident "x")
+      (Solidity.Expr.ident "x")
   Except.ok
     (Executable.Examples.contractCreationExpressionObservationMatches ==
         some true &&
@@ -16094,9 +16093,9 @@ def checkedContractCreationDuplicateNamedArgsRejected : Bool :=
   Result.isError
     (SourceUnit.checkedProgram
       { items :=
-          [ L00_SourceSolidity.SourceItem.contract
+          [ Solidity.SourceItem.contract
               checkedNamedCreatedChildContract
-          , L00_SourceSolidity.SourceItem.contract
+          , Solidity.SourceItem.contract
               checkedDuplicateNamedCreateCaller ] })
 
 def checkedContractCreationFailureReverts :
@@ -16189,7 +16188,7 @@ def checkedTryOperandTargetTy : Ty :=
   Ty.user { segments := ["CheckedTryOperandTarget"] }
 
 def checkedTryOperandTargetContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedTryOperandTarget"
     kind := ContractKind.interface
     items :=
@@ -16201,7 +16200,7 @@ def checkedTryOperandTargetContract :
             returns := [{ name := some "out", ty := Ty.uint 256 }] } ] }
 
 def checkedTryExternalCallOperandEffectsContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedTryExternalCallOperandEffects"
     items :=
       [ ContractItem.function
@@ -16214,110 +16213,110 @@ def checkedTryExternalCallOperandEffectsContract :
               , { name := some "out", ty := Ty.uint 256 } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "target"
                          ty := some checkedTryOperandTargetTy }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.typeName
+                        (Solidity.Expr.call
+                          (Solidity.Expr.typeName
                             checkedTryOperandTargetTy)
-                          [ L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.address 0)) ]))
-                  , L00_SourceSolidity.Stmt.varDecl
+                          [ Solidity.Arg.positional
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.address 0)) ]))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "value", ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.varDecl
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "arg", ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.tryCatchReturns
-                      (L00_SourceSolidity.Expr.callWithOptions
-                        (L00_SourceSolidity.Expr.member
-                          (L00_SourceSolidity.Expr.assign
-                            (L00_SourceSolidity.Expr.ident "target")
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.tryCatchReturns
+                      (Solidity.Expr.callWithOptions
+                        (Solidity.Expr.member
+                          (Solidity.Expr.assign
+                            (Solidity.Expr.ident "target")
                             AssignOp.assign
-                            (L00_SourceSolidity.Expr.call
-                              (L00_SourceSolidity.Expr.typeName
+                            (Solidity.Expr.call
+                              (Solidity.Expr.typeName
                                 checkedTryOperandTargetTy)
-                              [ L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.literal
-                                    (L00_SourceSolidity.Literal.address
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.literal
+                                    (Solidity.Literal.address
                                       51966)) ]))
                           "ping")
-                        [ L00_SourceSolidity.CallOption.named "value"
-                            (L00_SourceSolidity.Expr.assign
-                              (L00_SourceSolidity.Expr.ident "value")
+                        [ Solidity.CallOption.named "value"
+                            (Solidity.Expr.assign
+                              (Solidity.Expr.ident "value")
                               AssignOp.assign
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number "7"))) ]
-                        [ L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.call
-                              (L00_SourceSolidity.Expr.typeName
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number "7"))) ]
+                        [ Solidity.Arg.positional
+                            (Solidity.Expr.call
+                              (Solidity.Expr.typeName
                                 (Ty.uint 256))
-                              [ L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.assign
-                                    (L00_SourceSolidity.Expr.ident "arg")
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.assign
+                                    (Solidity.Expr.ident "arg")
                                     AssignOp.assign
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "3"))) ]) ])
                       [{ name := some "out", ty := Ty.uint 256 }]
-                      (L00_SourceSolidity.Stmt.returnValues
+                      (Solidity.Stmt.returnValues
                         (some
-                          (L00_SourceSolidity.Expr.tuple
-                            [ L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.call
-                                  (L00_SourceSolidity.Expr.typeName
+                          (Solidity.Expr.tuple
+                            [ Solidity.TupleItem.value
+                                (Solidity.Expr.call
+                                  (Solidity.Expr.typeName
                                     (Ty.address false))
-                                  [ L00_SourceSolidity.Arg.positional
-                                      (L00_SourceSolidity.Expr.ident
+                                  [ Solidity.Arg.positional
+                                      (Solidity.Expr.ident
                                         "target") ])
-                            , L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.ident "value")
-                            , L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.ident "arg")
-                            , L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.ident "out") ])))
-                      [ L00_SourceSolidity.CatchClause.clause none []
-                          (L00_SourceSolidity.Stmt.returnValues
+                            , Solidity.TupleItem.value
+                                (Solidity.Expr.ident "value")
+                            , Solidity.TupleItem.value
+                                (Solidity.Expr.ident "arg")
+                            , Solidity.TupleItem.value
+                                (Solidity.Expr.ident "out") ])))
+                      [ Solidity.CatchClause.clause none []
+                          (Solidity.Stmt.returnValues
                             (some
-                              (L00_SourceSolidity.Expr.tuple
-                                [ L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.address
+                              (Solidity.Expr.tuple
+                                [ Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.address
                                         0))
-                                , L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                                , Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "0"))
-                                , L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                                , Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "0"))
-                                , L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                                , Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "0")) ]))) ] ]) } ] }
 
 def checkedTryOperandMadeTy : Ty :=
   Ty.user { segments := ["CheckedTryOperandMade"] }
 
-def checkedTryOperandMadeContract : L00_SourceSolidity.ContractDecl :=
+def checkedTryOperandMadeContract : Solidity.ContractDecl :=
   { name := "CheckedTryOperandMade"
     items :=
       [ ContractItem.function
           { kind := FunctionKind.constructor
             params := [{ name := some "x", ty := Ty.uint 256 }]
             mutability := StateMutability.payable
-            body := some L00_SourceSolidity.Stmt.empty } ] }
+            body := some Solidity.Stmt.empty } ] }
 
 def checkedTryContractCreateOperandEffectsContract :
-    L00_SourceSolidity.ContractDecl :=
+    Solidity.ContractDecl :=
   { name := "CheckedTryContractCreateOperandEffects"
     items :=
       [ ContractItem.function
@@ -16330,111 +16329,111 @@ def checkedTryContractCreateOperandEffectsContract :
               , { name := some "made", ty := Ty.address false } ]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.varDecl
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.varDecl
                       [{ name := some "value", ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.varDecl
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.varDecl
                       [{ name := some "salt", ty := some (Ty.bytesN 32) }]
                       (some
-                        (L00_SourceSolidity.Expr.call
-                          (L00_SourceSolidity.Expr.typeName
+                        (Solidity.Expr.call
+                          (Solidity.Expr.typeName
                             (Ty.bytesN 32))
-                          [ L00_SourceSolidity.Arg.positional
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number
+                          [ Solidity.Arg.positional
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number
                                   "0")) ]))
-                  , L00_SourceSolidity.Stmt.varDecl
+                  , Solidity.Stmt.varDecl
                       [{ name := some "arg", ty := some (Ty.uint 256) }]
                       (some
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "0")))
-                  , L00_SourceSolidity.Stmt.tryCatchReturns
-                      (L00_SourceSolidity.Expr.callWithOptions
-                        (L00_SourceSolidity.Expr.newExpr
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "0")))
+                  , Solidity.Stmt.tryCatchReturns
+                      (Solidity.Expr.callWithOptions
+                        (Solidity.Expr.newExpr
                           checkedTryOperandMadeTy [])
-                        [ L00_SourceSolidity.CallOption.named "value"
-                            (L00_SourceSolidity.Expr.assign
-                              (L00_SourceSolidity.Expr.ident "value")
+                        [ Solidity.CallOption.named "value"
+                            (Solidity.Expr.assign
+                              (Solidity.Expr.ident "value")
                               AssignOp.assign
-                              (L00_SourceSolidity.Expr.literal
-                                (L00_SourceSolidity.Literal.number "7")))
-                        , L00_SourceSolidity.CallOption.named "salt"
-                            (L00_SourceSolidity.Expr.assign
-                              (L00_SourceSolidity.Expr.ident "salt")
+                              (Solidity.Expr.literal
+                                (Solidity.Literal.number "7")))
+                        , Solidity.CallOption.named "salt"
+                            (Solidity.Expr.assign
+                              (Solidity.Expr.ident "salt")
                               AssignOp.assign
-                              (L00_SourceSolidity.Expr.call
-                                (L00_SourceSolidity.Expr.typeName
+                              (Solidity.Expr.call
+                                (Solidity.Expr.typeName
                                   (Ty.bytesN 32))
-                                [ L00_SourceSolidity.Arg.positional
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.hexString
+                                [ Solidity.Arg.positional
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.hexString
                                         "0000000000000000000000000000000000000000000000000000000000000005")) ])) ]
-                        [ L00_SourceSolidity.Arg.positional
-                            (L00_SourceSolidity.Expr.call
-                              (L00_SourceSolidity.Expr.typeName
+                        [ Solidity.Arg.positional
+                            (Solidity.Expr.call
+                              (Solidity.Expr.typeName
                                 (Ty.uint 256))
-                              [ L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.assign
-                                    (L00_SourceSolidity.Expr.ident "arg")
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.assign
+                                    (Solidity.Expr.ident "arg")
                                     AssignOp.assign
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "3"))) ]) ])
                       [{ name := some "made"
                          ty := checkedTryOperandMadeTy }]
-                      (L00_SourceSolidity.Stmt.returnValues
+                      (Solidity.Stmt.returnValues
                         (some
-                          (L00_SourceSolidity.Expr.tuple
-                            [ L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.ident "value")
-                            , L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.ident "salt")
-                            , L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.ident "arg")
-                            , L00_SourceSolidity.TupleItem.value
-                                (L00_SourceSolidity.Expr.call
-                                  (L00_SourceSolidity.Expr.typeName
+                          (Solidity.Expr.tuple
+                            [ Solidity.TupleItem.value
+                                (Solidity.Expr.ident "value")
+                            , Solidity.TupleItem.value
+                                (Solidity.Expr.ident "salt")
+                            , Solidity.TupleItem.value
+                                (Solidity.Expr.ident "arg")
+                            , Solidity.TupleItem.value
+                                (Solidity.Expr.call
+                                  (Solidity.Expr.typeName
                                     (Ty.address false))
-                                  [ L00_SourceSolidity.Arg.positional
-                                      (L00_SourceSolidity.Expr.ident
+                                  [ Solidity.Arg.positional
+                                      (Solidity.Expr.ident
                                         "made") ]) ])))
-                      [ L00_SourceSolidity.CatchClause.clause none []
-                          (L00_SourceSolidity.Stmt.returnValues
+                      [ Solidity.CatchClause.clause none []
+                          (Solidity.Stmt.returnValues
                             (some
-                              (L00_SourceSolidity.Expr.tuple
-                                [ L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                              (Solidity.Expr.tuple
+                                [ Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "0"))
-                                , L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.call
-                                      (L00_SourceSolidity.Expr.typeName
+                                , Solidity.TupleItem.value
+                                    (Solidity.Expr.call
+                                      (Solidity.Expr.typeName
                                         (Ty.bytesN 32))
-                                      [ L00_SourceSolidity.Arg.positional
-                                          (L00_SourceSolidity.Expr.literal
-                                            (L00_SourceSolidity.Literal.number
+                                      [ Solidity.Arg.positional
+                                          (Solidity.Expr.literal
+                                            (Solidity.Literal.number
                                               "0")) ])
-                                , L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
+                                , Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.number
                                         "0"))
-                                , L00_SourceSolidity.TupleItem.value
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.address
+                                , Solidity.TupleItem.value
+                                    (Solidity.Expr.literal
+                                      (Solidity.Literal.address
                                         0)) ]))) ] ]) } ] }
 
-def checkedTryOperandEffectsUnit : L00_SourceSolidity.SourceUnit :=
+def checkedTryOperandEffectsUnit : Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract
           checkedTryOperandTargetContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedTryExternalCallOperandEffectsContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedTryOperandMadeContract
-      , L00_SourceSolidity.SourceItem.contract
+      , Solidity.SourceItem.contract
           checkedTryContractCreateOperandEffectsContract ] }
 
 def checkedTryOperandEffectsUnitAccepted : Bool :=
@@ -16574,66 +16573,66 @@ def checkedContractCreationSemanticsMatch :
       checkedNonpayableConstructorValueRejected &&
       checkedViewCreatesContractRejected)
 
-def checkedTransientStorageContract : L00_SourceSolidity.ContractDecl :=
+def checkedTransientStorageContract : Solidity.ContractDecl :=
   { name := "CheckedTransientStorage"
     items :=
-      [ L00_SourceSolidity.ContractItem.stateVar
+      [ Solidity.ContractItem.stateVar
           { name := "persistent", ty := Ty.uint 256 }
-      , L00_SourceSolidity.ContractItem.stateVar
+      , Solidity.ContractItem.stateVar
           { name := "scratch"
             ty := Ty.uint 256
             visibility := some Visibility.public_
             mutability := VarMutability.transient }
-      , L00_SourceSolidity.ContractItem.function
+      , Solidity.ContractItem.function
           { name := some "setBoth"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "persistent")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "persistent")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "7")))
-                  , L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "scratch")
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "7")))
+                  , Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "scratch")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.literal
-                          (L00_SourceSolidity.Literal.number "9")))
-                  , L00_SourceSolidity.Stmt.returnValues
+                        (Solidity.Expr.literal
+                          (Solidity.Literal.number "9")))
+                  , Solidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.binary BinaryOp.add
-                          (L00_SourceSolidity.Expr.binary BinaryOp.mul
-                            (L00_SourceSolidity.Expr.ident "persistent")
-                            (L00_SourceSolidity.Expr.literal
-                              (L00_SourceSolidity.Literal.number "10")))
-                          (L00_SourceSolidity.Expr.ident "scratch"))) ]) }
-      , L00_SourceSolidity.ContractItem.function
+                        (Solidity.Expr.binary BinaryOp.add
+                          (Solidity.Expr.binary BinaryOp.mul
+                            (Solidity.Expr.ident "persistent")
+                            (Solidity.Expr.literal
+                              (Solidity.Literal.number "10")))
+                          (Solidity.Expr.ident "scratch"))) ]) }
+      , Solidity.ContractItem.function
           { name := some "readScratch"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.returnValues
-                  (some (L00_SourceSolidity.Expr.ident "scratch"))) }
-      , L00_SourceSolidity.ContractItem.function
+                (Solidity.Stmt.returnValues
+                  (some (Solidity.Expr.ident "scratch"))) }
+      , Solidity.ContractItem.function
           { name := some "writeScratchThenRevert"
             visibility := some Visibility.public_
             params := [{ name := some "value", ty := Ty.uint 256 }]
             body :=
               some
-                (L00_SourceSolidity.Stmt.block
-                  [ L00_SourceSolidity.Stmt.expr
-                      (L00_SourceSolidity.Expr.assign
-                        (L00_SourceSolidity.Expr.ident "scratch")
+                (Solidity.Stmt.block
+                  [ Solidity.Stmt.expr
+                      (Solidity.Expr.assign
+                        (Solidity.Expr.ident "scratch")
                         AssignOp.assign
-                        (L00_SourceSolidity.Expr.ident "value"))
-                  , L00_SourceSolidity.Stmt.revertCall
-                      (L00_SourceSolidity.Expr.call
-                        (L00_SourceSolidity.Expr.ident "revert") []) ]) } ] }
+                        (Solidity.Expr.ident "value"))
+                  , Solidity.Stmt.revertCall
+                      (Solidity.Expr.call
+                        (Solidity.Expr.ident "revert") []) ]) } ] }
 
 def checkedTransientStorageContractAccepted : Bool :=
   Result.isOk (CheckedInput.program checkedTransientStorageContract)
@@ -16938,15 +16937,15 @@ def checkedTransientStorageSemanticsMatch :
       dropsRevertedWrite && preservesPrior &&
       packedFields && packedRawSlots && packedGetters)
 
-def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
+def checkedTryCatchTargetContract : Solidity.ContractDecl :=
   { name := "CheckedTryCatchTarget"
     items :=
-      [ L00_SourceSolidity.ContractItem.function
+      [ Solidity.ContractItem.function
           tryMemberTargetFunction ] }
 
 def checkedTryCatchMemberFunction (name : Name)
-    (clauses : List L00_SourceSolidity.CatchClause) :
-    L00_SourceSolidity.FunctionDecl :=
+    (clauses : List Solidity.CatchClause) :
+    Solidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some name
     params :=
@@ -16956,24 +16955,24 @@ def checkedTryCatchMemberFunction (name : Name)
     mutability := StateMutability.view
     body :=
       some
-        (L00_SourceSolidity.Stmt.tryCatchReturns
-          (L00_SourceSolidity.Expr.call
-            (L00_SourceSolidity.Expr.member
-              (L00_SourceSolidity.Expr.ident "feed") "read") [])
+        (Solidity.Stmt.tryCatchReturns
+          (Solidity.Expr.call
+            (Solidity.Expr.member
+              (Solidity.Expr.ident "feed") "read") [])
           [{ name := some "value", ty := Ty.uint 256, location := none }]
-          (L00_SourceSolidity.Stmt.returnValues
-            (some (L00_SourceSolidity.Expr.ident "value")))
+          (Solidity.Stmt.returnValues
+            (some (Solidity.Expr.ident "value")))
           clauses) }
 
 def checkedTryCatchSource (contractName functionName : Name)
-    (clauses : List L00_SourceSolidity.CatchClause) :
-    L00_SourceSolidity.SourceUnit :=
+    (clauses : List Solidity.CatchClause) :
+    Solidity.SourceUnit :=
   { items :=
-      [ L00_SourceSolidity.SourceItem.contract checkedTryCatchTargetContract
-      , L00_SourceSolidity.SourceItem.contract
+      [ Solidity.SourceItem.contract checkedTryCatchTargetContract
+      , Solidity.SourceItem.contract
           { name := contractName
             items :=
-              [ L00_SourceSolidity.ContractItem.function
+              [ Solidity.ContractItem.function
                   (checkedTryCatchMemberFunction functionName clauses) ] } ] }
 
 def checkedTryCatchErrorMatches : Except TypeError Bool := do
@@ -16986,19 +16985,19 @@ def checkedTryCatchErrorMatches : Except TypeError Bool := do
   let result ←
     checkedSourceFunctionCallWithContext 16
       (checkedTryCatchSource "CheckedTryCatchError" "readError"
-        [ L00_SourceSolidity.CatchClause.clause (some "Error")
+        [ Solidity.CatchClause.clause (some "Error")
             [{ name := some "reason"
                ty := Ty.string
                location := some DataLocation.memory }]
-            (L00_SourceSolidity.Stmt.returnValues
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "3"))))
-        , L00_SourceSolidity.CatchClause.clause none []
-            (L00_SourceSolidity.Stmt.returnValues
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "3"))))
+        , Solidity.CatchClause.clause none []
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "999")))) ])
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "999")))) ])
       "CheckedTryCatchError" "readError"
       { SolidCore.Solidity.Source.Context.empty with
         lowLevelCallResults :=
@@ -17025,12 +17024,12 @@ def checkedTryCatchPanicMatches : Except TypeError Bool := do
   let result ←
     checkedSourceFunctionCallWithContext 16
       (checkedTryCatchSource "CheckedTryCatchPanic" "readPanic"
-        [ L00_SourceSolidity.CatchClause.clause (some "Panic")
+        [ Solidity.CatchClause.clause (some "Panic")
             [{ name := some "code"
                ty := Ty.uint 256
                location := none }]
-            (L00_SourceSolidity.Stmt.returnValues
-              (some (L00_SourceSolidity.Expr.ident "code"))) ])
+            (Solidity.Stmt.returnValues
+              (some (Solidity.Expr.ident "code"))) ])
       "CheckedTryCatchPanic" "readPanic"
       { SolidCore.Solidity.Source.Context.empty with
         lowLevelCallResults :=
@@ -17054,14 +17053,14 @@ def checkedTryCatchLowLevelMatches : Except TypeError Bool := do
   let result ←
     checkedSourceFunctionCallWithContext 16
       (checkedTryCatchSource "CheckedTryCatchLowLevel" "readRaw"
-        [ L00_SourceSolidity.CatchClause.clause none
+        [ Solidity.CatchClause.clause none
             [{ name := some "data"
                ty := Ty.bytes
                location := some DataLocation.memory }]
-            (L00_SourceSolidity.Stmt.returnValues
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "3")))) ])
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "3")))) ])
       "CheckedTryCatchLowLevel" "readRaw"
       { SolidCore.Solidity.Source.Context.empty with
         lowLevelCallResults :=
@@ -17082,30 +17081,30 @@ def checkedTryCatchMatchObservationMatches : Except TypeError Bool := do
   let _ ←
     CheckedInput.contract
       (checkedTryCatchSource "CheckedTryCatchObservation" "readObserved"
-        [ L00_SourceSolidity.CatchClause.clause (some "Error")
+        [ Solidity.CatchClause.clause (some "Error")
             [{ name := some "reason"
                ty := Ty.string
                location := some DataLocation.memory }]
-            (L00_SourceSolidity.Stmt.returnValues
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "1"))))
-        , L00_SourceSolidity.CatchClause.clause (some "Panic")
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "1"))))
+        , Solidity.CatchClause.clause (some "Panic")
             [{ name := some "code"
                ty := Ty.uint 256
                location := none }]
-            (L00_SourceSolidity.Stmt.returnValues
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "2"))))
-        , L00_SourceSolidity.CatchClause.clause none
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "2"))))
+        , Solidity.CatchClause.clause none
             [{ name := some "data"
                ty := Ty.bytes
                location := some DataLocation.memory }]
-            (L00_SourceSolidity.Stmt.returnValues
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "3")))) ])
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "3")))) ])
       "CheckedTryCatchObservation"
   optionToExcept "try/catch match observation"
     Executable.Examples.tryCatchMatchObservationMatches
@@ -17116,11 +17115,11 @@ def checkedTryExternalCallEvaluationObservationMatches :
     CheckedInput.contract
       (checkedTryCatchSource "CheckedTryExternalCallEvaluationObservation"
         "readObserved"
-        [ L00_SourceSolidity.CatchClause.clause none []
-            (L00_SourceSolidity.Stmt.returnValues
+        [ Solidity.CatchClause.clause none []
+            (Solidity.Stmt.returnValues
               (some
-                (L00_SourceSolidity.Expr.literal
-                  (L00_SourceSolidity.Literal.number "44")))) ])
+                (Solidity.Expr.literal
+                  (Solidity.Literal.number "44")))) ])
       "CheckedTryExternalCallEvaluationObservation"
   optionToExcept "try external call evaluation observation"
     Executable.Examples.tryExternalCallEvaluationObservationMatches
@@ -17225,6 +17224,5 @@ def checkedSourceSoliditySemanticsMatch :
 end Examples
 
 end TypeCheck
-end L00_SourceSolidity
-end Spine
+end Solidity
 end SolidCore

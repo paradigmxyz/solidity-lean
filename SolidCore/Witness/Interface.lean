@@ -3,14 +3,13 @@ Witness corpus extracted verbatim from Interface.lean (Phase 3, sub-step a).
 
 Hand-written example/witness definitions moved out of the semantics module.
 Declaration names and namespaces are unchanged so the harness manifest's
-`SolidCore.Spine.L00_SourceSolidity.Executable.Examples` eval expressions still resolve; only the manifest `lean.imports` target
+`SolidCore.Solidity.Executable.Examples` eval expressions still resolve; only the manifest `lean.imports` target
 gains this module.
 -/
-import SolidCore.Spine.L00_SourceSolidity.Interface
+import SolidCore.Solidity.Interface
 
 namespace SolidCore
-namespace Spine
-namespace L00_SourceSolidity
+namespace Solidity
 namespace Executable
 
 namespace Examples
@@ -7959,7 +7958,7 @@ def interfaceObservationContract : ContractDecl :=
 
 def interfaceObservationMatches : Bool :=
   let observation : ContractInterfaceObservation :=
-    SolidCore.Spine.L00_SourceSolidity.Executable.ContractDecl.observeInterface
+    SolidCore.Solidity.Executable.ContractDecl.observeInterface
       interfaceObservationContract
   let setSelector :=
     SolidCore.Solidity.Source.ABI.selectorFromSignature "set(uint256)"
@@ -8076,7 +8075,7 @@ def sourceUnitObservationUnit : SourceUnit :=
 
 def sourceUnitObservationMatches : Option Bool := do
   let observation ←
-    SolidCore.Spine.L00_SourceSolidity.Executable.SourceUnit.observeInterfaceResolved?
+    SolidCore.Solidity.Executable.SourceUnit.observeInterfaceResolved?
       sourceUnitObservationUnit
   let functionSelector :=
     SolidCore.Solidity.Source.ABI.selectorFromSignature
@@ -31358,6 +31357,5 @@ def usingExpansionObservationMatches : Option Bool := do
 end Examples
 
 end Executable
-end L00_SourceSolidity
-end Spine
+end Solidity
 end SolidCore

@@ -325,7 +325,7 @@ def run_solc_import(
     contract = solc_import.get("contract")
     namespace = solc_import.get(
         "namespace",
-        "SolidCore.Spine.L00_SourceSolidity.SolcAstImport.Generated",
+        "SolidCore.Solidity.SolcAstImport.Generated",
     )
 
     if not isinstance(source, str) or not isinstance(contract, str):

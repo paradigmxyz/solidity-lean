@@ -1,16 +1,15 @@
-import SolidCore.Spine.L00_SourceSolidity.TypeCheck
+import SolidCore.Solidity.TypeCheck
 
 namespace SolidCore
-namespace Spine
-namespace L00_SourceSolidity
+namespace Solidity
 namespace TypeCheck
 
-abbrev CoreContract := L00_SourceSolidity.Executable.CoreContract
-abbrev CoreValue := L00_SourceSolidity.Executable.CoreValue
-abbrev CoreState := L00_SourceSolidity.Executable.CoreState
-abbrev CoreContext := L00_SourceSolidity.Executable.CoreContext
-abbrev CoreCallResult := L00_SourceSolidity.Executable.CoreCallResult
-abbrev CoreFunctionDef := L00_SourceSolidity.Executable.CoreFunctionDef
+abbrev CoreContract := Solidity.Executable.CoreContract
+abbrev CoreValue := Solidity.Executable.CoreValue
+abbrev CoreState := Solidity.Executable.CoreState
+abbrev CoreContext := Solidity.Executable.CoreContext
+abbrev CoreCallResult := Solidity.Executable.CoreCallResult
+abbrev CoreFunctionDef := Solidity.Executable.CoreFunctionDef
 abbrev CoreAbiCallResult := SolidCore.Solidity.Source.ABI.AbiCallResult
 abbrev CallTarget := SolidCore.Solidity.Source.CallTarget
 
@@ -46,7 +45,7 @@ namespace CheckedProgram
 def fromChecked? (checked : CheckedSourceUnit) :
     Option CheckedProgram := do
   let source ←
-    L00_SourceSolidity.Executable.SourceUnit.resolveSourceTypesContextual?
+    Solidity.Executable.SourceUnit.resolveSourceTypesContextual?
       checked.source
   some { checked := checked, source := source }
 
@@ -67,88 +66,88 @@ def rawSource (program : CheckedProgram) : SourceUnitAst :=
   program.checked.source
 
 def rawUsingDecls (program : CheckedProgram) :
-    List L00_SourceSolidity.UsingDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.usingDecls
+    List Solidity.UsingDecl :=
+  Solidity.Executable.SourceUnit.usingDecls
     (rawSource program)
 
 def rawFreeFunctions (program : CheckedProgram) :
-    List L00_SourceSolidity.FunctionDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeFunctions
+    List Solidity.FunctionDecl :=
+  Solidity.Executable.SourceUnit.freeFunctions
     (rawSource program)
 
 def rawFreeEvents (program : CheckedProgram) :
-    List L00_SourceSolidity.EventDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeEvents
+    List Solidity.EventDecl :=
+  Solidity.Executable.SourceUnit.freeEvents
     (rawSource program)
 
 def rawFreeErrors (program : CheckedProgram) :
-    List L00_SourceSolidity.ErrorDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeErrors
+    List Solidity.ErrorDecl :=
+  Solidity.Executable.SourceUnit.freeErrors
     (rawSource program)
 
 def rawFreeEnums (program : CheckedProgram) :
-    List L00_SourceSolidity.EnumDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeEnums
+    List Solidity.EnumDecl :=
+  Solidity.Executable.SourceUnit.freeEnums
     (rawSource program)
 
 def rawFreeStructs (program : CheckedProgram) :
-    List L00_SourceSolidity.StructDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeStructs
+    List Solidity.StructDecl :=
+  Solidity.Executable.SourceUnit.freeStructs
     (rawSource program)
 
 def rawFreeConstants (program : CheckedProgram) :
-    List L00_SourceSolidity.StateVarDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeConstants
+    List Solidity.StateVarDecl :=
+  Solidity.Executable.SourceUnit.freeConstants
     (rawSource program)
 
 def rawFreeUserValueTypes (program : CheckedProgram) :
-    List L00_SourceSolidity.UserValueTypeDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeUserValueTypes
+    List Solidity.UserValueTypeDecl :=
+  Solidity.Executable.SourceUnit.freeUserValueTypes
     (rawSource program)
 
 def rawContracts (program : CheckedProgram) :
     List SourceContractDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.contracts
+  Solidity.Executable.SourceUnit.contracts
     (rawSource program)
 
 def findRawSourceContract? (program : CheckedProgram) (name : Name) :
     Option SourceContractDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.findContract?
+  Solidity.Executable.SourceUnit.findContract?
     (rawSource program) name
 
 def usingDecls (program : CheckedProgram) :
-    List L00_SourceSolidity.UsingDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.usingDecls program.source
+    List Solidity.UsingDecl :=
+  Solidity.Executable.SourceUnit.usingDecls program.source
 
 def freeFunctions (program : CheckedProgram) :
-    List L00_SourceSolidity.FunctionDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeFunctions program.source
+    List Solidity.FunctionDecl :=
+  Solidity.Executable.SourceUnit.freeFunctions program.source
 
 def freeEvents (program : CheckedProgram) :
-    List L00_SourceSolidity.EventDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeEvents program.source
+    List Solidity.EventDecl :=
+  Solidity.Executable.SourceUnit.freeEvents program.source
 
 def freeErrors (program : CheckedProgram) :
-    List L00_SourceSolidity.ErrorDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeErrors program.source
+    List Solidity.ErrorDecl :=
+  Solidity.Executable.SourceUnit.freeErrors program.source
 
 def freeConstants (program : CheckedProgram) :
-    List L00_SourceSolidity.StateVarDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.freeConstants program.source
+    List Solidity.StateVarDecl :=
+  Solidity.Executable.SourceUnit.freeConstants program.source
 
 def contracts (program : CheckedProgram) :
     List SourceContractDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.contracts program.source
+  Solidity.Executable.SourceUnit.contracts program.source
 
 def findSourceContract? (program : CheckedProgram) (name : Name) :
     Option SourceContractDecl :=
-  L00_SourceSolidity.Executable.SourceUnit.findContract?
+  Solidity.Executable.SourceUnit.findContract?
     program.source name
 
 def toCoreContractFor? (program : CheckedProgram)
     (decl : SourceContractDecl) : Option CoreContract := do
   let decl ← findRawSourceContract? program decl.name
-  L00_SourceSolidity.Executable.ContractDecl.toCoreWithBasesAndUsing?
+  Solidity.Executable.ContractDecl.toCoreWithBasesAndUsing?
     (rawUsingDecls program) (rawFreeFunctions program)
     (rawFreeEvents program) (rawFreeErrors program)
     (rawFreeConstants program) (rawFreeUserValueTypes program)
@@ -167,7 +166,7 @@ def toCoreContract (program : CheckedProgram) (name : Name) :
 
 def toCoreContracts? (program : CheckedProgram) :
     Option (List CoreContract) :=
-  L00_SourceSolidity.Executable.mapOption
+  Solidity.Executable.mapOption
     (fun decl => toCoreContractFor? program decl)
     (contracts program)
 
@@ -178,7 +177,7 @@ def toCoreContracts (program : CheckedProgram) :
 def constructorFunctionFor? (program : CheckedProgram)
     (decl : SourceContractDecl) : Option CoreFunctionDef := do
   let decl ← findRawSourceContract? program decl.name
-  L00_SourceSolidity.Executable.ContractDecl.constructorFunctionWithBasesAndSource?
+  Solidity.Executable.ContractDecl.constructorFunctionWithBasesAndSource?
     (rawUsingDecls program) (rawFreeFunctions program)
     (rawFreeEvents program) (rawFreeErrors program)
     (rawFreeConstants program) (rawFreeUserValueTypes program)
@@ -1887,6 +1886,5 @@ end ContractDecl
 
 
 end TypeCheck
-end L00_SourceSolidity
-end Spine
+end Solidity
 end SolidCore

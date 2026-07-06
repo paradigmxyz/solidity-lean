@@ -126,3 +126,42 @@ sibling package separates cleanly.
   under `SolidCore.Solidity.Shared`. It is reachable from the `SolidCore.lean`
   root (so `lake build` verifies linkage) but not from the corpus build path, so
   Phase 2 is corpus-neutral (full replay green, cases=98, paired_cases_passed=yes).
+
+## 2026-07-06 — Phase 3a: witness extraction is a clean verbatim move
+
+No `open`/`variable`/`section` context existed at the `Examples` block sites, so
+the blocks moved verbatim with only their enclosing namespaces reproduced. Import
+edges are acyclic (Witness.Interface ← Witness.TypeCheck ← Witness.Checked,
+mirroring the base modules). Manifest `lean.imports` gains `SolidCore.Witness.Checked`
+per case (harness reads imports from the manifest, so nothing else changed).
+
+## 2026-07-06 — Phase 3b: rename + AST split
+
+- `SolidCore.Spine.L00_SourceSolidity` → `SolidCore.Solidity` everywhere,
+  three-sided (6 Lean files, manifest's 1775 occurrences, and the 3 scripts'
+  hardcoded namespaces/imports). No collision with the pre-existing
+  `SolidCore.Solidity.Source.*` runtime layer (distinct sub-namespaces). The
+  vestigial `SolidCore/Spine/` directory (and its stale READMEs describing the
+  removed compiler-spine layout) is deleted; base modules moved to
+  `SolidCore/Solidity/{Interface,TypeCheck,Checked}.lean`.
+- The surface AST (the pre-`namespace Executable` section, ~430 lines: Literal,
+  Expr, Stmt, FunctionDecl, SourceUnit, …) is split out into
+  `SolidCore/Solidity/Ast.lean`; `Interface.lean` keeps `namespace Executable`
+  (elaboration + the Phase-4-doomed observation layer) and imports Ast. Zero
+  forward references from the AST section into `Executable`, so the split is at a
+  clean namespace boundary. Verified end-to-end on one case via the harness
+  (generator + manifest + eval), then full replay.
+
+## 2026-07-06 — Phase 3d (evaluator consolidation) reordered after Phase 4
+
+ROADMAP allows Phases 3 and 4 to interleave. Analysis of `Interpreter.lean`
+showed the three older evaluator generations (`Expr.eval`,
+`Expr.evalWithRuntime*`, `Expr.evalWithRuntimeOrderFuel*`) sit in mutual blocks
+**separate** from the kept `evalWithRuntimeByContext`/`...Order` family, but their
+remaining call sites are overwhelmingly inside `observe*` walker functions
+(`observeShortCircuitEvaluation`, `observeTernaryEvaluation`,
+`observeTryExternalCallEvaluation`, …) — which Phase 4 deletes — plus 3 sites in
+`Stmt.eval` and 2 pure constant-eval sites in `Interface.lean`. Deleting the
+observation layer first removes most of the old-evaluator references, making the
+consolidation a small, low-risk port of the residual sites. So the order is:
+3a, 3b, 3c, **Phase 4**, then 3d, then Phase 5.
