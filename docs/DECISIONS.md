@@ -293,4 +293,41 @@ Consolidation executed:
   engine. Build green confirms nothing kept referenced the deleted set.
 - Per the roadmap, a divergence at the ported sites would be a latent bug to pin;
   the full replay is the arbiter (the call-option and erc7201-layout sites are the
-  ones to watch). Result recorded on completion.
+  ones to watch). Result recorded on completion. **Replay green** (cases=98,
+  paired_cases_passed=yes) — the ports are behavior-identical, no divergence.
+
+## 2026-07-06 — Phase 5 scoping finding: storage is already word-addressed
+
+Before starting the Phase 5 rewrite, confirmed the actual external-world shape,
+which **de-risks the roadmap's central "snapshot problem"**:
+
+- `State.storage : WordMap` where `WordMap := List (Word × Word)` — storage is
+  **already word-addressed**, not typed. There is no `TypedStorage`/storage-tree
+  representation anywhere. The `StorageLayout`/`Context.storageSlot?`/packing
+  machinery *computes* which word slot a typed source access lands on during
+  execution, but the stored state is words. So the OpenWorld word-storage
+  snapshot is a near-direct read of `State.storage` (self account), and
+  re-projection of `CallResponse.postWorld` back is trivial (words in, words
+  out) — the roadmap's "layout encoding E has no computable inverse" concern is
+  largely moot as the code stands. The fail-closed re-projection remains the
+  right *policy* (an answered word not attributable to a touched slot is still a
+  distinguished failure), but it is not blocked on inverting a typed encoding.
+- The external-world environment lives in `Context` (Interpreter.lean 1487):
+  `accountBalances`/`accountCodes`/`accountCodehashes : WordMap`/`ByteMap`,
+  `contractAddresses`/`contractCreationCodes`/`contractRuntimeCodes` (named maps),
+  block/tx env, `gasleft`. These become the `OpenWorld`-shaped environment read
+  as state (no query), post-answer replaced by `postWorld`.
+- The oracle-record fields Phase 5 deletes are exactly
+  `Context.lowLevelCallResults : List LowLevelCallResult` and
+  `contractCreationResults : List ContractCreationResult` — the tables that
+  `Context.lowLevelCallResult`/`contractCreationResult` (the Phase-4 choke-point
+  functions) read. Those two functions are precisely where `Query.external` node
+  emission goes.
+- Type bridging needed at the boundary: interpreter `Word` (Nat) ↔ shared
+  `EvmYul.UInt256` (Fin); interpreter `List Byte` calldata/output ↔ shared
+  `ByteArray`. Both are total conversions.
+
+Implication: Phase 5 is still a real monadic rewrite (thread `Interaction`
+through the `Expr`/`Stmt` mutual block so the two choke-point functions emit
+`Query.external` and resume on `Call/CreateResponse`), but the snapshot/
+re-projection machinery is far cheaper than the roadmap's worst case.
