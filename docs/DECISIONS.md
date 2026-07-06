@@ -544,3 +544,50 @@ signature-preserving fold at the boundary (`(SolI.run ctx …).toOption`):
 `SolidCore/Witness/Interface.lean` (`abiEncodeCoreExprResult`,
 `unspecifiedTupleOrderStmtEval`). No fixtures, manifest, ABI.lean, Checked.lean,
 TypeCheck.lean, or Context were touched.
+
+## 2026-07-06 — Phase 5 stage 1b: high-level external-call site emits
+
+`Stmt.tryExternalCall`'s remaining synchronous `context.resolveLowLevelCall`
+became `← emitLowLevelCall context kind target calldata value gas?`, matching the
+two Expr-evaluator sites. The `missingCode` extcodesize guard (a state read, no
+query) stays *before* the emit; `recordExternalInteraction` keeps consuming the
+decoded result. The high-level external-call / try-catch transcript is now real.
+Behavior-preserving (`contextAnswer` answers from the same oracle). Build + smoke
+(28 cases, `forge_interpreter_compare=pass`) green.
+
+Extends R7 (gas-key erasure): the high-level call site now shares the sub-step-1a
+no-gas vs `{gas: gasleft}` transcript ambiguity — a recorded, deferred `gasleft`
+limitation, no new mechanism.
+
+## 2026-07-06 — Phase 5 stage 1c: contract creation emits (name-encoded initCode)
+
+Creates now emit `Query.external default (.create request)`. The source semantics
+creates by contract *name* (pre-compilation; fixtures key the oracle by name and
+do not populate `contractCreationCodes`), so identity is encoded canonically:
+`creationInitCode name args` = 32-byte big-endian UTF-8-name-length ‖ name bytes ‖
+args (injective); `decodeCreationInitCode?` inverts it fail-closed (length
+overrun or non-UTF-8 → `none`).
+
+- `buildCreateRequest`: `kind := .create2` iff a salt is present, else `.create`;
+  `creator := wordToAddress context.self`; `value`; `initCode := creationInitCode`;
+  `salt := salt?.map wordToU256`; `permission := true`.
+- `emitContractCreation : … → SolI ContractCreationResult`. `CreateResponse` has
+  **no `success` field**, so `decodeCreateResponse` sets `success := address ≠ 0`
+  (EVM convention); name/args/value/salt are carried through for oracle keying and
+  `recordExternalInteraction`, mirroring `decodeCallResponse`.
+- `answerCreate` decodes the name from `initCode`, calls `lookupContractCreation?`
+  (no keying reimplementation) else `ContractCreationResult.failedRequest`, and
+  encodes back with `address := if success then address else 0`. The `.create` arm
+  was added to both `contextAnswer` and `SolI.runFromContext`.
+- The 3 sites converted: two `Expr.contractCreate` (salt-less and salted) and
+  `Stmt.tryContractCreate`. Failure branches stay equivalent —
+  `RevertData.fromRawBytes [] = RevertData.empty`, so the Expr sites' old explicit
+  `none → RevertData.empty` branch collapses into `¬success → fromRawBytes output`;
+  `resolveContractCreation`'s `none → failedRequest` matched `answerCreate` exactly
+  at the Stmt site.
+
+Deferred limitation recorded here and in `ROADMAP.md`'s gap registry: the emitted
+`initCode` is source-canonical, not compiled creation bytecode — a transcript-level
+mismatch analogous to `gasleft` erasure, resolved at the future lowering.
+
+Build + smoke green.

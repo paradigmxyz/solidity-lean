@@ -1939,6 +1939,99 @@ def emitLowLevelCall (context : Context) (kind : LowLevelCallKind)
     (fun response =>
       .done (.ok (decodeCallResponse response kind target calldata value gas?)))
 
+/-- Source-canonical initCode for a create: 32-byte big-endian UTF-8-name
+    length ‖ name bytes ‖ constructor args. The source semantics creates by
+    contract *name* (pre-compilation; fixtures key the oracle by name and do
+    not populate `contractCreationCodes`), so this canonical name encoding —
+    not compiled creation bytecode — is the initCode identity. Injective by
+    construction. The residual "initCode is not compiled bytecode" transcript
+    mismatch is a recorded, gas-like deferred limitation (see ROADMAP.md /
+    docs/DECISIONS.md). -/
+def creationInitCode (name : String) (args : List Byte) : ByteArray :=
+  let nameBytes := name.toUTF8.toList.map UInt8.toNat
+  bytesToByteArray (wordToBytesBE 32 nameBytes.length ++ nameBytes ++ args)
+
+/-- Parse `creationInitCode` fail-closed: a length prefix that overruns the
+    remaining bytes, or a non-UTF-8 name, yields `none`. Inverse of
+    `creationInitCode`. -/
+def decodeCreationInitCode? (initCode : ByteArray) :
+    Option (String × List Byte) :=
+  let bytes := byteArrayToBytes initCode
+  match readBytes? bytes 0 32 with
+  | none => none
+  | some lenBytes =>
+      let len := bytesToWordBE lenBytes
+      match readBytes? bytes 32 len with
+      | none => none
+      | some nameBytes =>
+          match String.fromUTF8? (bytesToByteArray nameBytes) with
+          | none => none
+          | some name => some (name, bytes.drop (32 + len))
+
+/-- Build a shared `CreateRequest` from the interpreter's creation params.
+    `kind` is `.create2` iff a salt is present; identity is carried entirely in
+    the name-encoded `initCode`. -/
+def buildCreateRequest (context : Context) (name : String) (args : List Byte)
+    (value : Word) (salt? : Option Word) :
+    EvmCompiler.Simulation.CreateRequest :=
+  { kind := if salt?.isSome then EvmCompiler.Simulation.CreateKind.create2
+            else EvmCompiler.Simulation.CreateKind.create
+    creator := wordToAddress context.self
+    value := wordToU256 value
+    initCode := creationInitCode name args
+    salt := salt?.map wordToU256
+    permission := true }
+
+/-- Decode a shared `CreateResponse` into the interpreter's
+    `ContractCreationResult`. `CreateResponse` has no `success` field, so
+    success is the EVM convention `address ≠ 0`; the request params (name,
+    args, value, salt) are carried through to key the fixture oracle and
+    `recordExternalInteraction`, mirroring `decodeCallResponse`. -/
+def decodeCreateResponse (response : EvmCompiler.Simulation.CreateResponse)
+    (name : String) (args : List Byte) (value : Word) (salt? : Option Word) :
+    ContractCreationResult :=
+  let address := u256ToWord response.address
+  { contractName := name
+    constructorArgs := args
+    value := value
+    salt? := salt?
+    success := address != 0
+    address := address
+    output := byteArrayToBytes response.returnData }
+
+/-- Emit a contract creation as a `Query.external` node and resume on the
+    `CreateResponse`. Checkpoint-1: world snapshot is a placeholder `default`. -/
+def emitContractCreation (context : Context) (name : String) (args : List Byte)
+    (value : Word) (salt? : Option Word) : SolI ContractCreationResult :=
+  let request := buildCreateRequest context name args value salt?
+  .request
+    (EvmCompiler.Simulation.Query.external default
+      (EvmCompiler.Simulation.ExternalRequest.create request))
+    (fun response =>
+      .done (.ok (decodeCreateResponse response name args value salt?)))
+
+/-- Replay-from-Context: answer a create query from the fixture oracle. The
+    name/args/value/salt are recovered from the name-encoded `initCode`
+    (malformed → fail-open `failedRequest`, until stage 2 makes it
+    fail-closed); the oracle is queried via `lookupContractCreation?` — no
+    reimplementation of the keying. `address = 0` encodes failure. -/
+def answerCreate (context : Context)
+    (request : EvmCompiler.Simulation.CreateRequest) :
+    EvmCompiler.Simulation.CreateResponse :=
+  let value := u256ToWord request.value
+  let salt? := request.salt.map u256ToWord
+  let result :=
+    match decodeCreationInitCode? request.initCode with
+    | some (name, args) =>
+        match context.lookupContractCreation? name args value salt? with
+        | some r => r
+        | none => ContractCreationResult.failedRequest name args value salt?
+    | none => ContractCreationResult.failedRequest "" [] value salt?
+  { address := wordToU256 (if result.success then result.address else 0)
+    returnData := bytesToByteArray result.output
+    postWorld := default
+    returnedGas := wordToU256 0 }
+
 /-- Replay-from-Context: answer an external-call query from the fixture oracle.
     Params are reconstructed from the request; gas is matched leniently (the
     deferred gas limitation) — try the oracle without gas, else with the sent
@@ -1977,6 +2070,13 @@ def SolI.runFromContext {α : Type} (fuel : Nat) (context : Context) :
       | 0 => .error .outOfFuel
       | Nat.succ fuel' =>
           SolI.runFromContext fuel' context (k (answerCall context request))
+  | .request
+      (EvmCompiler.Simulation.Query.external _
+        (EvmCompiler.Simulation.ExternalRequest.create request)) k =>
+      match fuel with
+      | 0 => .error .outOfFuel
+      | Nat.succ fuel' =>
+          SolI.runFromContext fuel' context (k (answerCreate context request))
   | .request query k =>
       match fuel with
       | 0 => .error .outOfFuel
@@ -1989,6 +2089,8 @@ def contextAnswer (context : Context) :
     (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q
   | EvmCompiler.Simulation.Query.external _
       (EvmCompiler.Simulation.ExternalRequest.call request) => answerCall context request
+  | EvmCompiler.Simulation.Query.external _
+      (EvmCompiler.Simulation.ExternalRequest.create request) => answerCreate context request
   | q => EvmCompiler.Simulation.Query.defaultAnswer q
 
 /-- Fold a `SolI` interaction tree to its final `Except SolidityFailure` result
@@ -5525,18 +5627,16 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | some bytes => pure bytes
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
-                  match
-                      context.lookupContractCreation?
-                        contractName constructorArgs value none with
-                  | some result =>
-                      if result.success then
-                        pure
-                          ( Value.word result.address
-                          , runtime'.recordExternalInteraction
-                              (ExternalInteraction.contractCreation result) )
-                      else
-                        throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
-                  | none => throw <| SolidityFailure.revert RevertData.empty
+                  let result ←
+                    emitContractCreation context
+                      contractName constructorArgs value none
+                  if result.success then
+                    pure
+                      ( Value.word result.address
+                      , runtime'.recordExternalInteraction
+                          (ExternalInteraction.contractCreation result) )
+                  else
+                    throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
               | [argsValue, valueValue, saltValue] => do
                   let constructorArgs ←
                     match argsValue.asBytes? with
@@ -5544,18 +5644,16 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let salt ← saltValue.expectWord
-                  match
-                      context.lookupContractCreation?
-                        contractName constructorArgs value (some salt) with
-                  | some result =>
-                      if result.success then
-                        pure
-                          ( Value.word result.address
-                          , runtime'.recordExternalInteraction
-                              (ExternalInteraction.contractCreation result) )
-                      else
-                        throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
-                  | none => throw <| SolidityFailure.revert RevertData.empty
+                  let result ←
+                    emitContractCreation context
+                      contractName constructorArgs value (some salt)
+                  if result.success then
+                    pure
+                      ( Value.word result.address
+                      , runtime'.recordExternalInteraction
+                          (ExternalInteraction.contractCreation result) )
+                  else
+                    throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.newBytes lengthExpr => do
               let (lengthValue, runtime') ←
@@ -5942,6 +6040,12 @@ def Context.withUnspecifiedChildEvalOrders
     (context : Context) : List Context :=
   ChildEvalOrder.unspecifiedOrders.map context.withChildEvalOrder
 
+/-- Fold an *expression*-level `SolI` tree back to `Except RevertData`, answering
+    queries from `Context`. `fuel` is safe because the number of queries an
+    expression can emit is bounded by its syntactic external-request node count
+    (`lowLevelCall` **+ contractCreate** nodes) ≤ `Expr.orderFuel` — the whole-
+    call execution path is fuel-free (`SolI.run`); this stays only for
+    constant-expression evaluation and transcript utilities. -/
 def SolI.foldExpr {α : Type} (fuel : Nat) (context : Context) (tree : SolI α) :
     Except RevertData α :=
   match SolI.runFromContext fuel context tree with
@@ -7191,9 +7295,9 @@ def Stmt.eval (fuel : Nat) (context : Context)
                               | none => Except.ok (none, runtime'')
                             match saltResult? with
                             | Except.ok (salt?, runtime''') =>
-                                let createResult :=
-                                  context.resolveContractCreation
-                                    contractName constructorArgs value salt?
+                                emitContractCreation context
+                                    contractName constructorArgs value salt? >>=
+                                  fun createResult =>
                               let runtimeWithInteraction :=
                                 runtime'''.recordExternalInteraction
                                   (ExternalInteraction.contractCreation
