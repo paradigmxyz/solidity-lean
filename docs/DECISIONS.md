@@ -619,3 +619,29 @@ Required before stage 3 (they blocked deleting the field) and for the eventual
 ForwardRel composition (the Yul side emits these precompile staticcalls).
 
 Build + smoke green.
+
+## 2026-07-06 — Precompiles: match evm-compiler exactly (no special Solidity handling)
+
+Directive: precompiles should be treated exactly as evm-compiler's Yul/EVM
+interaction semantics treat them — as ordinary external calls, emit-and-
+environment-answer, with NO precompile-address special-casing in the semantics.
+Confirmed evm-compiler's model: `EvmCompiler/Yul/InteractionSemantics.lean:129`
+turns a CALL into `.request (.external world (.call request))` with zero
+precompile logic anywhere in its Simulation/Yul interaction layer.
+
+Current state after stage 1d (`eb60734`): the *emit* side already matches
+(`ecrecover`/`sha256`/`ripemd160` source builtins emit a staticcall to address
+1/2/3; ecdsa case passes `forge=ok lean=ok`). The residual "special stuff" to
+remove, folded into **Stage 2 (scripted responders)** where the answer path is
+reworked:
+- `Context.lookupLowLevelCall?`'s `builtinStaticcallResult?` fallback (computes
+  identity 0x4 / modexp 0x5 in the semantics) — remove; precompiles answered
+  uniformly from the responder like any external call. No corpus case exercises
+  identity/modexp, so this is corpus-safe.
+- `emitPrecompileWord` — unify into the ordinary external-call emit
+  (`buildCallRequest`/`emitLowLevelCall`); the only legitimately Solidity-specific
+  part is recognizing the builtin *name* (`ecrecover`/`sha256`/`ripemd160`),
+  since Yul has no such builtins.
+- `SolidCore/Solidity/Shared/Precompile.lean` computation — remove from the
+  semantics (the open-world environment owns precompile results). Keep only the
+  address constants needed to build the staticcall target.
