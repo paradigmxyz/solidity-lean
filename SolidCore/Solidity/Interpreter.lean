@@ -7100,16 +7100,16 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                     | Except.error err =>
                                         Except.error (runtime'', err)
                             match valueGasResult? with
-                            | Except.ok (value, gas?, runtime''') =>
+                            | Except.ok (value, gas?, runtime''') => do
                                     let missingCode :=
                                       checkTargetCode &&
                                         !(context.accountHasCode target)
-                                    let callResult :=
+                                    let callResult ←
                                       if missingCode then
-                                        LowLevelCallResult.failedRequest
-                                          kind target calldata value gas?
+                                        pure (LowLevelCallResult.failedRequest
+                                          kind target calldata value gas?)
                                       else
-                                        context.resolveLowLevelCall
+                                        emitLowLevelCall context
                                           kind target calldata value gas?
                                     let runtimeWithInteraction :=
                                       runtime'''.recordExternalInteraction
