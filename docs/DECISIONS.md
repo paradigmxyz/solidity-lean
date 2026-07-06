@@ -331,3 +331,40 @@ Implication: Phase 5 is still a real monadic rewrite (thread `Interaction`
 through the `Expr`/`Stmt` mutual block so the two choke-point functions emit
 `Query.external` and resume on `Call/CreateResponse`), but the snapshot/
 re-projection machinery is far cheaper than the roadmap's worst case.
+
+## 2026-07-06 — Phase 5 prep: corrected choke points; dead cluster removed; rewrite is mechanical
+
+Two corrections/findings while starting the rewrite:
+
+- **The real choke points are NOT the ones Phase 4 refactored.**
+  `SharedPrimitiveRequest`/`SharedPrimitiveResult`/`SharedPrimitiveRequest.eval`
+  (and therefore the Phase-4-extracted `Context.lowLevelCallResult`/
+  `contractCreationResult`) were **dead** — unreferenced anywhere in the repo.
+  The Phase-4 refactor was still behavior-preserving (it faithfully transformed
+  dead code), but the earlier "choke point" identification (mine and the review
+  agent's) was wrong. The **live** external-effect sites are
+  `Context.resolveLowLevelCall` (Interpreter.lean ~1708) and
+  `Context.resolveContractCreation` (~1724), consumed synchronously inside
+  `Expr.evalWithRuntimeOrderFuel` (sites ~5345/5362, ~6929, ~7016). Each reads the
+  oracle table (`context.lowLevelCallResults`/`contractCreationResults`) inline,
+  returns a `LowLevelCallResult`/`ContractCreationResult`, and records the effect
+  via `runtime.recordExternalInteraction` into `state.externalInteractions`.
+  Deleted the entire dead `SharedPrimitiveRequest` cluster (~63 lines); build
+  green (dead code, so corpus-neutral — validation folds into the sub-step-1
+  checkpoint).
+
+- **The rewrite is mechanical, not a from-scratch monad plumb.** The shared
+  `Interaction Error` already has `Monad` and `MonadExceptOf Error` instances
+  (evm-interaction `Interaction.lean` 785/790). The evaluator today is effectively
+  `Interaction` with only `done` leaves (it returns `Except RevertData (Value ×
+  Runtime)`). So the conversion is: change the return type to
+  `Interaction SolidityFailure (Value × Runtime)`; `Except.ok x → pure x`,
+  `Except.error e → throw (…revert e)`; the `fuel = 0 → Except.error` arm →
+  `throw …outOfFuel` (the distinguished fuel-exhaustion failure the roadmap
+  wants); and at the ~4 live sites emit `Query.external world (CallRequest/…)` and
+  resume on `Call/CreateResponse` (sub-step 1: answered from the Context
+  environment so fixtures run unchanged). `do`-notation carries over via the Monad
+  instance. The change is pervasive (every `Except.ok`/`error` and result-match in
+  the mutual block, then propagation through `Stmt.eval`/`Contract.call`/
+  `callTransaction`/ABI entries, with `?`-named Option adapters kept for the
+  manifest through sub-step (2)), but each edit is mechanical.
