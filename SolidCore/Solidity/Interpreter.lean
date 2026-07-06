@@ -2263,6 +2263,45 @@ def SolI.runWith {α : Type} (responder : ScriptedResponder) :
   | .request query k =>
       SolI.runWith responder (k (EvmCompiler.Simulation.Query.defaultAnswer query))
 
+/-- Assemble a responder from plain oracle-row lists (witness/manifest helper). -/
+def responderOfResults (calls : List LowLevelCallResult)
+    (creates : List ContractCreationResult) : ScriptedResponder :=
+  calls.map OracleRow.call ++ creates.map OracleRow.create
+
+/-- Fail-open answerer over a responder: matched external requests answer from
+    the rows (find-first, same keying as `ScriptedResponder.answerCall?`/
+    `answerCreate?`); anything unmatched gets the canonical
+    `Query.defaultAnswer`, whose call/create shapes decode to exactly the
+    retired context oracle's fail-open `failedRequest` (success = false /
+    address = 0, empty output). Witness sentinels fold with this to preserve
+    their recorded truth values — several deliberately exercise the miss path;
+    the corpus replay uses the fail-closed `SolI.runWith`. -/
+def ScriptedResponder.answer (responder : ScriptedResponder) :
+    (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q
+  | EvmCompiler.Simulation.Query.external world
+      (EvmCompiler.Simulation.ExternalRequest.call request) =>
+      match responder.answerCall? request with
+      | some response => response
+      | none =>
+          EvmCompiler.Simulation.Query.defaultAnswer
+            (EvmCompiler.Simulation.Query.external world
+              (EvmCompiler.Simulation.ExternalRequest.call request))
+  | EvmCompiler.Simulation.Query.external world
+      (EvmCompiler.Simulation.ExternalRequest.create request) =>
+      match responder.answerCreate? request with
+      | some response => response
+      | none =>
+          EvmCompiler.Simulation.Query.defaultAnswer
+            (EvmCompiler.Simulation.Query.external world
+              (EvmCompiler.Simulation.ExternalRequest.create request))
+  | q => EvmCompiler.Simulation.Query.defaultAnswer q
+
+/-- Fold a tree under the fail-open responder answerer (structural, no fuel). -/
+def SolI.runFailOpen {α : Type} (responder : ScriptedResponder) :
+    SolI α → Except SolidityFailure α
+  | .done r => r
+  | .request q k => SolI.runFailOpen responder (k (responder.answer q))
+
 /-- Reify a (throw-revert) interaction tree's revert leaf into an
     `Except RevertData` *value*, while re-throwing `outOfFuel` (truncation must
     keep propagating). Statement sites consume Expr trees through this helper.
@@ -7843,6 +7882,17 @@ def FunctionDef.call? (fuel : Nat) (context : Context)
     Option CallResult :=
   (function.call fuel context state args).bind fun tree =>
     match SolI.run context tree with
+    | .ok result => some result
+    | .error _ => none
+
+/-- Witness adapter: fold the call tree under a fail-open responder
+    (`SolI.runFailOpen`) — rows answer matched requests, misses fail-open to
+    the default (failure) answer, mirroring the retired context oracle. -/
+def FunctionDef.callFailOpen? (fuel : Nat) (responder : ScriptedResponder)
+    (context : Context) (function : FunctionDef) (state : State)
+    (args : List Value) : Option CallResult :=
+  (function.call fuel context state args).bind fun tree =>
+    match SolI.runFailOpen responder tree with
     | .ok result => some result
     | .error _ => none
 

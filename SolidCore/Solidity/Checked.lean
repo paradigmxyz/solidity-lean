@@ -39,6 +39,18 @@ def foldResponder {α : Type} (responder : ScriptedResponder) (what : String) :
           Except.error
             (TypeError.unsupported ("unmatched external request in " ++ what))
 
+/-- Witness-facing fail-open fold: rows answer matched external requests,
+    misses take the default (failure) answer — mirrors the retired context
+    oracle exactly (see `SolI.runFailOpen`). The corpus manifest uses the
+    fail-closed `foldResponder` instead. -/
+def foldFailOpen {α : Type} (responder : ScriptedResponder) (what : String) :
+    Option (SolI α) → Except TypeError α
+  | none => Except.error (executableFailure what)
+  | some tree =>
+      match SolidCore.Solidity.Source.SolI.runFailOpen responder tree with
+      | Except.ok a => Except.ok a
+      | Except.error _ => Except.error (executableFailure what)
+
 /-
 The common checked source layer for execution-facing users.
 
@@ -676,6 +688,17 @@ def callFunctionWithContextRespCheck (fuel : Nat)
   callFunctionWithContextResponder fuel contract functionName context state args
     (SolidCore.Solidity.Source.ScriptedResponder.ofContext context)
 
+/-- Witness fail-open twin of `callFunctionWithContext` (responder after fuel;
+    see `foldFailOpen`). -/
+def callFunctionWithContextFailOpen (fuel : Nat)
+    (responder : ScriptedResponder)
+    (contract : CheckedContract) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  foldFailOpen responder ("function call " ++ functionName)
+    (callFunctionWithContextTree fuel contract functionName context state args)
+
 def callTargetWithContextRespCheck (fuel : Nat)
     (contract : CheckedContract) (target : CallTarget)
     (context : SolidCore.Solidity.Source.Context)
@@ -983,6 +1006,17 @@ def callFunctionWithContextResponder (fuel : Nat)
   CheckedContract.callFunctionWithContextResponder
     fuel contract functionName context state args responder
 
+/-- Witness fail-open twin (responder after fuel; see `foldFailOpen`). -/
+def callFunctionWithContextFailOpen (fuel : Nat)
+    (responder : ScriptedResponder)
+    (program : CheckedProgram) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let contract ← contract program name
+  CheckedContract.callFunctionWithContextFailOpen
+    fuel responder contract functionName context state args
+
 /-- Stage 2 equivalence-check twin (see CheckedContract `*RespCheck`). -/
 def constructContractWithContextRespCheck (fuel : Nat) (program : CheckedProgram)
     (name : Name) (context : CoreContext) (state : CoreState)
@@ -1284,6 +1318,17 @@ def callFunctionWithContext {α : Type} [CheckedInput α]
   CheckedProgram.callFunctionWithContext
     fuel checkedProgram name functionName context state args
 
+/-- Witness fail-open twin (responder after fuel; see `foldFailOpen`). -/
+def callFunctionWithContextFailOpen {α : Type} [CheckedInput α]
+    (fuel : Nat) (responder : ScriptedResponder)
+    (input : α) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let checkedProgram ← program input
+  CheckedProgram.callFunctionWithContextFailOpen
+    fuel responder checkedProgram name functionName context state args
+
 def ownCallFunctionWithContext? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (functionName : Name)
     (context : SolidCore.Solidity.Source.Context)
@@ -1301,6 +1346,17 @@ def ownCallFunctionWithContext {α : Type} [CheckedInput α]
   let checkedContract ← ownContract input
   CheckedContract.callFunctionWithContext
     fuel checkedContract functionName context state args
+
+/-- Witness fail-open twin (responder after fuel; see `foldFailOpen`). -/
+def ownCallFunctionWithContextFailOpen {α : Type} [CheckedInput α]
+    (fuel : Nat) (responder : ScriptedResponder)
+    (input : α) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let checkedContract ← ownContract input
+  CheckedContract.callFunctionWithContextFailOpen
+    fuel responder checkedContract functionName context state args
 
 def ownCallFunctionUnspecifiedResults {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (functionName : Name)
@@ -1883,6 +1939,16 @@ def checkedCallFunctionWithContext (fuel : Nat)
   CheckedInput.callFunctionWithContext
     fuel source name functionName context state args
 
+/-- Witness fail-open twin (responder after fuel; see `foldFailOpen`). -/
+def checkedCallFunctionWithContextFailOpen (fuel : Nat)
+    (responder : ScriptedResponder)
+    (source : SourceUnitAst) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  CheckedInput.callFunctionWithContextFailOpen
+    fuel responder source name functionName context state args
+
 def checkedCallCalldataFrom? (fuel : Nat)
     (source : SourceUnitAst) (name : Name)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
@@ -2098,6 +2164,16 @@ def checkedCallFunctionWithContext (fuel : Nat)
     Except TypeError CoreCallResult :=
   CheckedInput.ownCallFunctionWithContext
     fuel decl functionName context state args
+
+/-- Witness fail-open twin (responder after fuel; see `foldFailOpen`). -/
+def checkedCallFunctionWithContextFailOpen (fuel : Nat)
+    (responder : ScriptedResponder)
+    (decl : SourceContractDecl) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  CheckedInput.ownCallFunctionWithContextFailOpen
+    fuel responder decl functionName context state args
 
 def checkedCallCalldataFrom? (fuel : Nat)
     (decl : SourceContractDecl) (state : CoreState)

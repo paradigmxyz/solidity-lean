@@ -19288,6 +19288,38 @@ def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)
       (decl := decl)
   SolidCore.Solidity.Source.FunctionDef.call? fuel context function state args
 
+/-- Witness adapter twin of `Stmt.eval?`: fold under a fail-open responder. -/
+def Stmt.evalFailOpen? (fuel : Nat)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder)
+    (storageNames : List Name)
+    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
+    Option CoreResult := do
+  let coreStmt ← Stmt.toCore? storageNames stmt
+  (SolidCore.Solidity.Source.SolI.runFailOpen responder
+    (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
+
+/-- Witness adapter twin of `FunctionDecl.call?`: fold under a fail-open
+    responder. -/
+def FunctionDecl.callFailOpen? (fuel : Nat)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder)
+    (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (context : CoreContext) (state : CoreState) (decl : FunctionDecl)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let function ←
+    FunctionDecl.toCore?
+      (storageNames := storageNames)
+      (constants := [])
+      (extraEnv := [])
+      (contracts := [])
+      (usingDecls := [])
+      (modifiers := modifiers)
+      (functions := [decl])
+      (freeFunctions := [])
+      (decl := decl)
+  SolidCore.Solidity.Source.FunctionDef.callFailOpen?
+    fuel responder context function state args
+
 def ContractDecl.call? (fuel : Nat) (decl : ContractDecl)
     (target : SolidCore.Solidity.Source.CallTarget) (state : CoreState)
     (args : List CoreValue) : Option CoreCallResult := do
