@@ -20825,11 +20825,14 @@ def unspecifiedBinaryOrderEval
   match core with
   | SolidCore.Solidity.Source.Expr.binary op lhs rhs =>
       match
-        SolidCore.Solidity.Source.Expr.evalBinaryWithRuntimeOrder
-          order unspecifiedBinaryOrderContext
-          (SolidCore.Solidity.Source.Runtime.ofState
-            SolidCore.Solidity.Source.State.empty)
-          op lhs rhs
+        SolidCore.Solidity.Source.SolI.foldExpr
+          (SolidCore.Solidity.Source.Expr.orderFuel core + 1)
+          unspecifiedBinaryOrderContext
+          (SolidCore.Solidity.Source.Expr.evalBinaryWithRuntimeOrder
+            order unspecifiedBinaryOrderContext
+            (SolidCore.Solidity.Source.Runtime.ofState
+              SolidCore.Solidity.Source.State.empty)
+            op lhs rhs)
       with
       | Except.ok (SolidCore.Solidity.Source.Value.word value, runtime) =>
           some (value, runtime.state.loadSlot 0)
@@ -20884,11 +20887,14 @@ def unspecifiedTupleOrderEval
     Option (Word × Word × Word) := do
   let core ← unspecifiedTupleOrderCoreExpr?
   match
-    SolidCore.Solidity.Source.Expr.evalWithRuntimeOrder
-      order unspecifiedBinaryOrderContext
-      (SolidCore.Solidity.Source.Runtime.ofState
-        SolidCore.Solidity.Source.State.empty)
-      core
+    SolidCore.Solidity.Source.SolI.foldExpr
+      (SolidCore.Solidity.Source.Expr.orderFuel core + 1)
+      unspecifiedBinaryOrderContext
+      (SolidCore.Solidity.Source.Expr.evalWithRuntimeOrder
+        order unspecifiedBinaryOrderContext
+        (SolidCore.Solidity.Source.Runtime.ofState
+          SolidCore.Solidity.Source.State.empty)
+        core)
   with
   | Except.ok
       (SolidCore.Solidity.Source.Value.tuple

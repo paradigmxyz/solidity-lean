@@ -84,6 +84,12 @@ fi
 # solc + lean subprocess). Override with SMOKE_JOBS.
 JOBS="${SMOKE_JOBS:-10}"
 
+# Build the whole library first. The per-case witnesses import SolidCore but the
+# harness never builds SolidCore.Witness.* itself, so a library/witness break can
+# otherwise hide behind a green replay (this bit us once in Phase 5 sub-step-1a).
+echo "smoke_replay: building SolidCore …"
+"$LAKE_BIN" build SolidCore
+
 echo "smoke_replay: $(( ${#EXTERNAL_CASES[@]} + ${#SENTINEL_CASES[@]} )) curated cases, jobs=$JOBS, forge=$([[ ${#FORGE_ARGS[@]} -eq 0 ]] && echo on || echo skipped)"
 
 python3 "$ROOT/scripts/run_forge_interpreter_harness.py" \

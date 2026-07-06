@@ -475,3 +475,26 @@ emits all cases in manifest order with the correct pass summary.)
 Dropped `solmate-erc20` from the smoke set (redundant with `openzeppelin-erc20`).
 The `--jobs` flag also speeds the full replay (~20 min → a few min) when opted in;
 the commit gate keeps the default sequential command.
+
+## 2026-07-06 — Phase 5 stage 0: repair library build left red by sub-step-1a
+
+A Fable agent designing the Phase 5 propagation plan (`docs/phase5-propagation-plan.md`)
+found that `lake build SolidCore` was **red at HEAD** (commit a6d3f7d): two
+witnesses in `SolidCore/Witness/Interface.lean` (`unspecifiedBinaryOrderEval`,
+`unspecifiedTupleOrderEval`, ~20834/20893) still matched `Except.ok` against
+`Expr.evalBinaryWithRuntimeOrder`/`evalWithRuntimeOrder`, which sub-step-1a
+changed to return `SolI`. **The replay harness generates per-case witness files
+and never builds `SolidCore.Witness.*`, so sub-step-1a's green replay did not
+catch the library break.** This is a process gap: a green replay ≠ a green
+`lake build`.
+
+Fix (validated): wrap both scrutinees in `SolI.foldExpr (Expr.orderFuel core + 1)
+unspecifiedBinaryOrderContext (…)` exactly as the `…ByContext` adapters do; the
+match arms stay byte-identical. Both witnesses still `#eval` to `some true`
+(constant-eval, empty state — the fold answers no queries, so behavior is
+identical); they are not referenced by the manifest. `lake build SolidCore` green.
+
+Hardening: `scripts/smoke_replay.sh` now runs `lake build SolidCore` first, so a
+library/witness break can never again hide behind a green replay. The Phase 5
+propagation plan (model A refined; 8 buildable stages; build-validated PoC) is
+committed as the roadmap for the remaining work.
