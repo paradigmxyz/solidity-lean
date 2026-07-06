@@ -19,7 +19,8 @@
       ],
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -71,7 +72,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -113,7 +115,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -155,7 +158,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -262,7 +266,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -353,7 +358,8 @@
       "description": "Lean checks explicit Solidity source-layer exclusions: unresolved imports are rejected by checked source-unit entry while raw execution remains separate, and inline assembly/Yul statements are rejected at the checked source boundary because they are intentionally out of scope for this semantics.",
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -385,7 +391,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -437,7 +444,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -469,7 +477,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -531,7 +540,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -573,7 +583,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -649,7 +660,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -696,7 +708,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -749,7 +762,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -806,7 +820,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -855,7 +870,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -924,7 +940,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -994,7 +1011,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1093,7 +1111,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1159,7 +1178,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1206,7 +1226,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1253,7 +1274,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1313,7 +1335,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1350,7 +1373,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1387,7 +1411,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1424,7 +1449,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1456,7 +1482,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1493,7 +1520,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1540,7 +1568,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1597,7 +1626,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1639,7 +1669,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1681,7 +1712,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1728,7 +1760,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1775,7 +1808,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1822,7 +1856,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1869,7 +1904,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1916,7 +1952,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -1958,7 +1995,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2000,7 +2038,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2042,7 +2081,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2084,7 +2124,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2126,7 +2167,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2168,7 +2210,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2210,7 +2253,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2242,7 +2286,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2274,7 +2319,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2306,7 +2352,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2338,7 +2385,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2370,7 +2418,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2402,7 +2451,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2434,7 +2484,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2466,7 +2517,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2498,7 +2550,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2535,7 +2588,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2577,7 +2631,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2614,7 +2669,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2651,7 +2707,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2688,7 +2745,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2725,7 +2783,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2767,7 +2826,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2809,7 +2869,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2856,7 +2917,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2903,7 +2965,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2950,7 +3013,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -2997,7 +3061,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3039,7 +3104,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3081,7 +3147,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3118,7 +3185,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3165,7 +3233,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3212,7 +3281,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3254,7 +3324,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3291,7 +3362,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3338,7 +3410,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3403,7 +3476,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3482,7 +3556,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3514,7 +3589,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3571,7 +3647,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3638,7 +3715,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3683,7 +3761,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3729,7 +3808,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3771,7 +3851,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3830,7 +3911,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3876,7 +3958,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3923,7 +4006,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -3988,7 +4072,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4044,7 +4129,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4088,7 +4174,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4153,7 +4240,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4211,7 +4299,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4254,7 +4343,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4296,7 +4386,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4344,7 +4435,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4394,7 +4486,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4437,7 +4530,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4482,7 +4576,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4530,7 +4625,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4575,7 +4671,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
@@ -4618,7 +4715,8 @@
       },
       "lean": {
         "imports": [
-          "SolidCore.Spine.L00_SourceSolidity.Checked"
+          "SolidCore.Spine.L00_SourceSolidity.Checked",
+          "SolidCore.Witness.Checked"
         ],
         "evals": [
           {
