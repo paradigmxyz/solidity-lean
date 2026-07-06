@@ -63,6 +63,59 @@ def fromSource (source : SourceUnitAst) :
   let checked ← TypecheckedInput.checkedSourceUnit source
   fromChecked checked
 
+def rawSource (program : CheckedProgram) : SourceUnitAst :=
+  program.checked.source
+
+def rawUsingDecls (program : CheckedProgram) :
+    List L00_SourceSolidity.UsingDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.usingDecls
+    (rawSource program)
+
+def rawFreeFunctions (program : CheckedProgram) :
+    List L00_SourceSolidity.FunctionDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeFunctions
+    (rawSource program)
+
+def rawFreeEvents (program : CheckedProgram) :
+    List L00_SourceSolidity.EventDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeEvents
+    (rawSource program)
+
+def rawFreeErrors (program : CheckedProgram) :
+    List L00_SourceSolidity.ErrorDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeErrors
+    (rawSource program)
+
+def rawFreeEnums (program : CheckedProgram) :
+    List L00_SourceSolidity.EnumDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeEnums
+    (rawSource program)
+
+def rawFreeStructs (program : CheckedProgram) :
+    List L00_SourceSolidity.StructDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeStructs
+    (rawSource program)
+
+def rawFreeConstants (program : CheckedProgram) :
+    List L00_SourceSolidity.StateVarDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeConstants
+    (rawSource program)
+
+def rawFreeUserValueTypes (program : CheckedProgram) :
+    List L00_SourceSolidity.UserValueTypeDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.freeUserValueTypes
+    (rawSource program)
+
+def rawContracts (program : CheckedProgram) :
+    List SourceContractDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.contracts
+    (rawSource program)
+
+def findRawSourceContract? (program : CheckedProgram) (name : Name) :
+    Option SourceContractDecl :=
+  L00_SourceSolidity.Executable.SourceUnit.findContract?
+    (rawSource program) name
+
 def usingDecls (program : CheckedProgram) :
     List L00_SourceSolidity.UsingDecl :=
   L00_SourceSolidity.Executable.SourceUnit.usingDecls program.source
@@ -93,11 +146,14 @@ def findSourceContract? (program : CheckedProgram) (name : Name) :
     program.source name
 
 def toCoreContractFor? (program : CheckedProgram)
-    (decl : SourceContractDecl) : Option CoreContract :=
+    (decl : SourceContractDecl) : Option CoreContract := do
+  let decl ← findRawSourceContract? program decl.name
   L00_SourceSolidity.Executable.ContractDecl.toCoreWithBasesAndUsing?
-    (usingDecls program) (freeFunctions program)
-    (freeEvents program) (freeErrors program)
-    (freeConstants program) (contracts program) decl
+    (rawUsingDecls program) (rawFreeFunctions program)
+    (rawFreeEvents program) (rawFreeErrors program)
+    (rawFreeConstants program) (rawFreeUserValueTypes program)
+    (rawFreeEnums program) (rawFreeStructs program)
+    (rawContracts program) decl
 
 def toCoreContract? (program : CheckedProgram) (name : Name) :
     Option CoreContract := do
@@ -120,11 +176,14 @@ def toCoreContracts (program : CheckedProgram) :
   optionToExcept "source-unit translation" (toCoreContracts? program)
 
 def constructorFunctionFor? (program : CheckedProgram)
-    (decl : SourceContractDecl) : Option CoreFunctionDef :=
+    (decl : SourceContractDecl) : Option CoreFunctionDef := do
+  let decl ← findRawSourceContract? program decl.name
   L00_SourceSolidity.Executable.ContractDecl.constructorFunctionWithBasesAndSource?
-    (usingDecls program) (freeFunctions program)
-    (freeEvents program) (freeErrors program)
-    (freeConstants program) (contracts program) decl
+    (rawUsingDecls program) (rawFreeFunctions program)
+    (rawFreeEvents program) (rawFreeErrors program)
+    (rawFreeConstants program) (rawFreeUserValueTypes program)
+    (rawFreeEnums program) (rawFreeStructs program)
+    (rawContracts program) decl
 
 def constructorFunction? (program : CheckedProgram) (name : Name) :
     Option CoreFunctionDef := do
@@ -158,11 +217,30 @@ def constructFrom? (fuel : Nat) (contract : CheckedContract)
       construction := true }
     constructor state args
 
+def constructWithContext? (fuel : Nat) (contract : CheckedContract)
+    (context : CoreContext) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let constructor ←
+    CheckedProgram.constructorFunctionFor? contract.program contract.decl
+  SolidCore.Solidity.Source.FunctionDef.call?
+    fuel
+    { context with
+      sender := sender
+      value := value
+      construction := true }
+    constructor state args
+
 def constructFrom (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (sender value : Word) (args : List CoreValue) :
     Except TypeError CoreCallResult :=
   optionToExcept ("constructor call " ++ contract.decl.name)
     (constructFrom? fuel contract state sender value args)
+
+def constructWithContext (fuel : Nat) (contract : CheckedContract)
+    (context : CoreContext) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Except TypeError CoreCallResult :=
+  optionToExcept ("constructor call with context " ++ contract.decl.name)
+    (constructWithContext? fuel contract context state sender value args)
 
 def construct? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (args : List CoreValue) :
@@ -237,6 +315,36 @@ def callFunctionWithContext (fuel : Nat)
     (callFunctionWithContext?
       fuel contract functionName context state args)
 
+def callTargetWithContext? (fuel : Nat)
+    (contract : CheckedContract) (target : CallTarget)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option CoreCallResult :=
+  match contract.core.resolveCallFunction? target args with
+  | some function =>
+      SolidCore.Solidity.Source.FunctionDef.call?
+        fuel context function state args
+  | none => none
+
+def callTargetWithContext (fuel : Nat)
+    (contract : CheckedContract) (target : CallTarget)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  optionToExcept ("function call target")
+    (callTargetWithContext?
+      fuel contract target context state args)
+
+def callFunctionUnspecifiedResults (fuel : Nat)
+    (contract : CheckedContract) (functionName : Name)
+    (context : CoreContext) (state : CoreState)
+    (args : List CoreValue) : List CoreCallResult :=
+  match coreFunction? contract functionName with
+  | some function =>
+      SolidCore.Solidity.Source.FunctionDef.callUnspecifiedResults
+        fuel context function state args
+  | none => []
+
 def callCalldataFrom? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Option CoreAbiCallResult :=
@@ -261,6 +369,28 @@ def callCalldataAtFrom (fuel : Nat) (contract : CheckedContract)
   optionToExcept ("ABI calldata call " ++ contract.decl.name)
     (callCalldataAtFrom?
       fuel contract state self sender value calldata)
+
+def callCalldataAtFromWithContext? (fuel : Nat)
+    (contract : CheckedContract) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFromWithContext?
+    fuel contract.core context state self sender value calldata
+
+def callCalldataAtFromWithContext (fuel : Nat)
+    (contract : CheckedContract) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
+  optionToExcept ("ABI calldata call with context " ++ contract.decl.name)
+    (callCalldataAtFromWithContext?
+      fuel contract context state self sender value calldata)
+
+def callCalldataAtFromUnspecifiedResults (fuel : Nat)
+    (contract : CheckedContract) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : List CoreAbiCallResult :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFromUnspecifiedResults
+    fuel contract.core context state self sender value calldata
 
 def callCalldataAt? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (self : Word) (calldata : List Byte) :
@@ -349,6 +479,22 @@ def constructContractFrom (fuel : Nat) (program : CheckedProgram)
     (args : List CoreValue) : Except TypeError CoreCallResult := do
   let contract ← contract program name
   CheckedContract.constructFrom fuel contract state sender value args
+
+def constructContractWithContext? (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (context : CoreContext) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let contract ← contract? program name
+  CheckedContract.constructWithContext?
+    fuel contract context state sender value args
+
+def constructContractWithContext (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (context : CoreContext) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let contract ← contract program name
+  CheckedContract.constructWithContext
+    fuel contract context state sender value args
 
 def constructContract? (fuel : Nat) (program : CheckedProgram)
     (name : Name) (state : CoreState) (args : List CoreValue) :
@@ -650,6 +796,22 @@ def constructContractFrom {α : Type} [CheckedInput α]
   CheckedProgram.constructContractFrom
     fuel checkedProgram name state sender value args
 
+def constructContractWithContext? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (context : CoreContext)
+    (state : CoreState) (sender value : Word) (args : List CoreValue) :
+    Option CoreCallResult := do
+  let checkedProgram ← program? input
+  CheckedProgram.constructContractWithContext?
+    fuel checkedProgram name context state sender value args
+
+def constructContractWithContext {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (name : Name) (context : CoreContext)
+    (state : CoreState) (sender value : Word) (args : List CoreValue) :
+    Except TypeError CoreCallResult := do
+  let checkedProgram ← program input
+  CheckedProgram.constructContractWithContext
+    fuel checkedProgram name context state sender value args
+
 def constructContract? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (name : Name) (state : CoreState)
     (args : List CoreValue) : Option CoreCallResult :=
@@ -822,6 +984,16 @@ def ownCallFunctionWithContext {α : Type} [CheckedInput α]
   CheckedContract.callFunctionWithContext
     fuel checkedContract functionName context state args
 
+def ownCallFunctionUnspecifiedResults {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (functionName : Name)
+    (context : CoreContext) (state : CoreState)
+    (args : List CoreValue) : List CoreCallResult :=
+  match ownContract? input with
+  | some checkedContract =>
+      CheckedContract.callFunctionUnspecifiedResults
+        fuel checkedContract functionName context state args
+  | none => []
+
 def callCalldataFrom? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (name : Name) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
@@ -906,6 +1078,33 @@ def ownCallCalldataAtFrom {α : Type} [CheckedInput α]
   let checkedContract ← ownContract input
   CheckedContract.callCalldataAtFrom
     fuel checkedContract state self sender value calldata
+
+def ownCallCalldataAtFromWithContext? {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option CoreAbiCallResult := do
+  let checkedContract ← ownContract? input
+  CheckedContract.callCalldataAtFromWithContext?
+    fuel checkedContract context state self sender value calldata
+
+def ownCallCalldataAtFromWithContext {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Except TypeError CoreAbiCallResult := do
+  let checkedContract ← ownContract input
+  CheckedContract.callCalldataAtFromWithContext
+    fuel checkedContract context state self sender value calldata
+
+def ownCallCalldataAtFromUnspecifiedResults
+    {α : Type} [CheckedInput α]
+    (fuel : Nat) (input : α) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : List CoreAbiCallResult :=
+  match ownContract? input with
+  | some checkedContract =>
+      CheckedContract.callCalldataAtFromUnspecifiedResults
+        fuel checkedContract context state self sender value calldata
+  | none => []
 
 def ownCallCalldataAt? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (state : CoreState)
@@ -1069,6 +1268,20 @@ def constructContractFrom (fuel : Nat) (checked : CheckedSourceUnit)
     (args : List CoreValue) : Except TypeError CoreCallResult :=
   CheckedInput.constructContractFrom
     fuel checked name state sender value args
+
+def constructContractWithContext? (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (context : CoreContext) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Option CoreCallResult :=
+  CheckedInput.constructContractWithContext?
+    fuel checked name context state sender value args
+
+def constructContractWithContext (fuel : Nat) (checked : CheckedSourceUnit)
+    (name : Name) (context : CoreContext) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  CheckedInput.constructContractWithContext
+    fuel checked name context state sender value args
 
 def constructContract? (fuel : Nat) (checked : CheckedSourceUnit)
     (name : Name) (state : CoreState) (args : List CoreValue) :
@@ -2210,6 +2423,60 @@ def checkedCallWordMatches (fuel : Nat) (source : SourceUnitAst)
       Except.ok (SolidCore.Solidity.Source.wordEq value expected)
   | _ => Except.ok false
 
+mutual
+
+def checkedCoreValueEq : CoreValue -> CoreValue -> Bool
+  | SolidCore.Solidity.Source.Value.word left,
+      SolidCore.Solidity.Source.Value.word right =>
+      SolidCore.Solidity.Source.wordEq left right
+  | SolidCore.Solidity.Source.Value.int left,
+      SolidCore.Solidity.Source.Value.int right =>
+      SolidCore.Solidity.Source.wordEq left right
+  | SolidCore.Solidity.Source.Value.bytes left,
+      SolidCore.Solidity.Source.Value.bytes right => left == right
+  | SolidCore.Solidity.Source.Value.externalFunction leftAddress leftSelector,
+      SolidCore.Solidity.Source.Value.externalFunction rightAddress rightSelector =>
+      SolidCore.Solidity.Source.wordEq leftAddress rightAddress &&
+        SolidCore.Solidity.Source.wordEq leftSelector rightSelector
+  | SolidCore.Solidity.Source.Value.fixedArray left,
+      SolidCore.Solidity.Source.Value.fixedArray right =>
+      checkedCoreValuesEq left right
+  | SolidCore.Solidity.Source.Value.dynamicArray left,
+      SolidCore.Solidity.Source.Value.dynamicArray right =>
+      checkedCoreValuesEq left right
+  | SolidCore.Solidity.Source.Value.tuple left,
+      SolidCore.Solidity.Source.Value.tuple right =>
+      checkedCoreValuesEq left right
+  | SolidCore.Solidity.Source.Value.storageRef left,
+      SolidCore.Solidity.Source.Value.storageRef right => left == right
+  | SolidCore.Solidity.Source.Value.storagePathRef leftName leftPath,
+      SolidCore.Solidity.Source.Value.storagePathRef rightName rightPath =>
+      leftName == rightName && checkedCoreValuesEq leftPath rightPath
+  | SolidCore.Solidity.Source.Value.memoryRef left,
+      SolidCore.Solidity.Source.Value.memoryRef right => left == right
+  | _, _ => false
+
+def checkedCoreValuesEq : List CoreValue -> List CoreValue -> Bool
+  | [], [] => true
+  | left :: leftRest, right :: rightRest =>
+      checkedCoreValueEq left right &&
+        checkedCoreValuesEq leftRest rightRest
+  | _, _ => false
+
+end
+
+def checkedCallValuesMatch (fuel : Nat) (source : SourceUnitAst)
+    (contractName functionName : Name) (state : CoreState)
+    (args expected : List CoreValue) : Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract fuel source contractName
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ values =>
+      Except.ok (checkedCoreValuesEq values expected)
+  | _ => Except.ok false
+
 def checkedCallSlotMatches (fuel : Nat) (source : SourceUnitAst)
     (contractName functionName : Name) (state : CoreState)
     (args : List CoreValue) (slot expected : Word) :
@@ -2347,6 +2614,54 @@ def checkedProgramCommonLayerMatches : Except TypeError Bool := do
           checkedSourceDefaultName == "C")
   | _, _, _, _, _, _ => Except.ok false
 
+def checkedSourceUnitEntryObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let program ← CheckedInput.program simpleSource
+  let observation :=
+    L00_SourceSolidity.Executable.SourceUnit.observeEntry 16 program.source
+  let interfaceMatches :=
+    match observation.interface? with
+    | some interface =>
+        interface.contractNames == ["C"] &&
+          (match interface.contracts with
+          | [contract] =>
+              contract.name == "C" &&
+                (match contract.abiFunctions with
+                | [fn] =>
+                    fn.name == some "f" &&
+                      fn.isCoreEntrypoint &&
+                      fn.returns.length == 1
+                | _ => false)
+          | _ => false)
+    | none => false
+  let entryMatches :=
+    match observation.entryNames? with
+    | some (contractName, functionName) =>
+        contractName == "C" && functionName == "f"
+    | none => false
+  let behaviorMatches :=
+    match observation.behavior? with
+    | some (Behavior.returnedWord value) =>
+        SolidCore.Solidity.Source.wordEq value 7
+    | _ => false
+  let callResultMatches :=
+    match observation.callResult? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          (match result.returnValues with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              SolidCore.Solidity.Source.wordEq value 7
+          | _ => false) &&
+          result.state.storage == [] &&
+          result.state.transient == [] &&
+          result.state.effects.logs.isEmpty &&
+          result.state.effects.externalInteractions.isEmpty
+    | none => false
+  Except.ok
+    (observation.fuel == 16 &&
+      interfaceMatches && entryMatches && behaviorMatches &&
+      callResultMatches)
+
 def checkedMultiContractDefaultNameRejected : Bool :=
   Result.isError
       (TypecheckedInput.defaultContractName internalAbiTwinSource) &&
@@ -2368,6 +2683,21 @@ def checkedPragmaMetadataAccepted : Except TypeError Bool :=
   checkedCallWordMatches 16 pragmaSimpleSource
     "PragmaC" "f" SolidCore.Solidity.Source.State.empty [] 7
 
+def checkedPragmaVersionSyntaxAccepted : Bool :=
+  pragmaVersionSyntaxAccepted
+
+def checkedPragmaVersionSyntaxRejected : Bool :=
+  pragmaVersionSyntaxRejected
+
+def checkedPragmaDirectiveSyntaxRejected : Bool :=
+  pragmaDirectiveSyntaxRejected
+
+def checkedPragmaAbiCoderV1Accepted : Bool :=
+  pragmaAbiCoderV1DisciplineAccepted
+
+def checkedPragmaAbiCoderV1Rejected : Bool :=
+  pragmaAbiCoderV1DisciplineRejected
+
 def checkedUnresolvedImportRejected : Bool :=
   Result.isError (TypecheckedInput.checkedSourceUnit unresolvedImportSource)
 
@@ -2377,14 +2707,21 @@ def checkedSourceUnitDirectiveBoundarySemanticsMatch :
   Except.ok
     (rawImportPathStillExecutes == some true &&
       checkedUnresolvedImportRejected &&
+      checkedPragmaVersionSyntaxAccepted &&
+      checkedPragmaVersionSyntaxRejected &&
+      checkedPragmaDirectiveSyntaxRejected &&
+      checkedPragmaAbiCoderV1Accepted &&
+      checkedPragmaAbiCoderV1Rejected &&
       pragma)
 
 def checkedSourceFacadeCommonSemanticsMatch :
     Except TypeError Bool := do
   let common ← checkedProgramCommonLayerMatches
+  let entryObservation ← checkedSourceUnitEntryObservationBoundaryMatches
   let directives ← checkedSourceUnitDirectiveBoundarySemanticsMatch
   Except.ok
-    (common && checkedMultiContractDefaultNameRejected && directives)
+    (common && entryObservation &&
+      checkedMultiContractDefaultNameRejected && directives)
 
 def checkedAbiCallUintMatches (fuel : Nat) (source : SourceUnitAst)
     (contractName functionName : Name) (state : CoreState)
@@ -2451,6 +2788,389 @@ def checkedAddressAbiCalldataMatches : Except TypeError Bool := do
       [SolidCore.Solidity.Source.Value.word 0x1234]
   Except.ok (result.success && result.output == expected)
 
+def checkedOrdinaryFunctionEntryObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let checkedContract ← CheckedInput.ownContract checkedPrimitiveAbiContract
+  let function ← CheckedContract.coreFunction checkedContract "idAddress"
+  let expectedSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "idAddress(address)"
+  let state : CoreState :=
+    { SolidCore.Solidity.Source.State.empty with
+      storage := [(3, 4)] }
+  let context : CoreContext :=
+    { checkedContract.core.context with
+      self := 0xabcd
+      sender := 0xcafe
+      value := 0 }
+  let observation :=
+    function.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      8 context state [SolidCore.Solidity.Source.Value.word 0x1234] 0xabcd
+  let input := observation.input
+  let frameMatches :=
+    match input.initialFrame? with
+    | some frame =>
+        match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+        | some (SolidCore.Solidity.Source.Value.word value) =>
+            SolidCore.Solidity.Source.wordEq value 0x1234
+        | _ => false
+    | none => false
+  let returnMatches :=
+    match observation.result? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.state.storage == [(3, 4)] &&
+          (match result.returnValues with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              SolidCore.Solidity.Source.wordEq value 0x1234
+          | _ => false)
+    | none => false
+  Except.ok
+    (input.kind == SolidCore.Solidity.Source.FunctionEntryKind.ordinary &&
+      input.fuel == 8 &&
+      input.functionName == "idAddress" &&
+      (match input.selector? with
+      | some selector =>
+          SolidCore.Solidity.Source.wordEq selector expectedSelector
+      | none => false) &&
+      !input.payable &&
+      !input.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.value 0 &&
+      input.submittedState.storage == [(3, 4)] &&
+      frameMatches && returnMatches)
+
+def checkedContractCallObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let checkedContract ← CheckedInput.ownContract checkedPrimitiveAbiContract
+  let selector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "idAddress(address)"
+  let target := SolidCore.Solidity.Source.CallTarget.selector selector
+  let args := [SolidCore.Solidity.Source.Value.word 0x1234]
+  let state : CoreState :=
+    { SolidCore.Solidity.Source.State.empty with
+      storage := [(3, 4)]
+      transient := [(9, 10)] }
+  let messageObservation :=
+    checkedContract.core.observeCallEntry
+      SolidCore.Solidity.Source.ContractCallKind.messageCall
+      8 target state args
+  let transactionObservation :=
+    checkedContract.core.observeCallEntry
+      SolidCore.Solidity.Source.ContractCallKind.transaction
+      8 target state args
+  let entryFrameMatches :=
+    fun (entry : SolidCore.Solidity.Source.FunctionEntryObservation) =>
+      match entry.input.initialFrame? with
+      | some frame =>
+          match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+          | some (SolidCore.Solidity.Source.Value.word value) =>
+              SolidCore.Solidity.Source.wordEq value 0x1234
+          | _ => false
+      | none => false
+  let entryResultMatches :=
+    fun (entry : SolidCore.Solidity.Source.FunctionEntryObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match entry.result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+            result.state.storage == [(3, 4)] &&
+            result.state.transient == expectedTransient &&
+            (match result.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value 0x1234
+            | _ => false)
+      | none => false
+  let functionEntryMatches :=
+    fun (observation : SolidCore.Solidity.Source.ContractCallObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match observation.functionEntry? with
+      | some entry =>
+          entry.input.kind ==
+              SolidCore.Solidity.Source.FunctionEntryKind.ordinary &&
+            entry.input.functionName == "idAddress" &&
+            (match entry.input.selector? with
+            | some selected =>
+                SolidCore.Solidity.Source.wordEq selected selector
+            | none => false) &&
+            entryFrameMatches entry &&
+            entryResultMatches entry expectedTransient
+      | none => false
+  let finalResultMatches :=
+    fun (observation : SolidCore.Solidity.Source.ContractCallObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match observation.result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+            result.state.storage == [(3, 4)] &&
+            result.state.transient == expectedTransient &&
+            (match result.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value 0x1234
+            | _ => false)
+      | none => false
+  let messageInput := messageObservation.input
+  let transactionInput := transactionObservation.input
+  let messageMatches :=
+    messageInput.kind ==
+        SolidCore.Solidity.Source.ContractCallKind.messageCall &&
+      messageInput.fuel == 8 &&
+      messageInput.selectedFunctionName? == some "idAddress" &&
+      (match messageInput.selectedSelector? with
+      | some selected => SolidCore.Solidity.Source.wordEq selected selector
+      | none => false) &&
+      messageInput.submittedState.storage == [(3, 4)] &&
+      messageInput.submittedState.transient == [(9, 10)] &&
+      messageInput.executionState.storage == [(3, 4)] &&
+      messageInput.executionState.transient == [(9, 10)] &&
+      functionEntryMatches messageObservation [(9, 10)] &&
+      finalResultMatches messageObservation [(9, 10)]
+  let transactionMatches :=
+    transactionInput.kind ==
+        SolidCore.Solidity.Source.ContractCallKind.transaction &&
+      transactionInput.fuel == 8 &&
+      transactionInput.selectedFunctionName? == some "idAddress" &&
+      (match transactionInput.selectedSelector? with
+      | some selected => SolidCore.Solidity.Source.wordEq selected selector
+      | none => false) &&
+      transactionInput.submittedState.storage == [(3, 4)] &&
+      transactionInput.submittedState.transient == [(9, 10)] &&
+      transactionInput.executionState.storage == [(3, 4)] &&
+      transactionInput.executionState.transient == [] &&
+      functionEntryMatches transactionObservation [] &&
+      finalResultMatches transactionObservation []
+  Except.ok (messageMatches && transactionMatches)
+
+def checkedAddressAbiObservationMatches : Except TypeError Bool := do
+  let calldata ←
+    ContractDecl.checkedFunctionCalldata
+      checkedPrimitiveAbiContract "idAddress"
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let result ←
+    ContractDecl.checkedCallCalldata 8 checkedPrimitiveAbiContract
+      SolidCore.Solidity.Source.State.empty calldata
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let observation := result.observe 0
+  Except.ok
+    (observation.success &&
+      observation.output == expected &&
+      observation.state.storage == [] &&
+      observation.state.transient == [] &&
+      observation.state.logs == [])
+
+def checkedAbiEntryObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let checkedContract ← CheckedInput.ownContract checkedPrimitiveAbiContract
+  let calldata ←
+    CheckedContract.functionCalldata checkedContract "idAddress"
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let expected ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let state : CoreState :=
+    { SolidCore.Solidity.Source.State.empty with
+      storage := [(5, 6)]
+      transient := [(1, 2)] }
+  let base : CoreContext :=
+    { checkedContract.core.context with
+      gasleft := 999
+      accountBalances := [(0xcafe, 42)] }
+  let callObservation :=
+    SolidCore.Solidity.Source.ABI.Contract.observeCalldataCallAtFromWithContext
+      8 checkedContract.core base state 0xabcd 0xcafe 0 calldata
+  let transactionObservation :=
+    SolidCore.Solidity.Source.ABI.Contract.observeCalldataTransactionAtFromWithContext
+      8 checkedContract.core base state 0xabcd 0xcafe 0 calldata
+  let callInput := callObservation.input
+  let callAmbient := callInput.callContext.ambient
+  let dispatchMatches :=
+    fun (input : SolidCore.Solidity.Source.ABI.AbiEntryInputObservation) =>
+      input.dispatch.kind ==
+          SolidCore.Solidity.Source.ABI.AbiDispatchKind.functionSelector &&
+        input.dispatch.selectedFunctionName? == some "idAddress" &&
+        match input.dispatch.selector?,
+            (checkedContract.core.findFunctionByName? "idAddress").bind
+              (fun function => function.selector?),
+            input.dispatch.selectedSelector?, input.dispatch.decodedArgs? with
+        | some submittedSelector, some expectedSelector,
+            some selectedSelector,
+            some [SolidCore.Solidity.Source.Value.word arg] =>
+            SolidCore.Solidity.Source.wordEq
+              submittedSelector expectedSelector &&
+              SolidCore.Solidity.Source.wordEq
+                selectedSelector expectedSelector &&
+              SolidCore.Solidity.Source.wordEq arg 0x1234
+        | _, _, _, _ => false
+  let functionEntryMatches :=
+    fun (observation : SolidCore.Solidity.Source.ABI.AbiEntryObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match observation.functionEntry? with
+      | some entry =>
+          entry.input.kind ==
+              SolidCore.Solidity.Source.FunctionEntryKind.ordinary &&
+            entry.input.functionName == "idAddress" &&
+            (match entry.input.selector?,
+                (checkedContract.core.findFunctionByName? "idAddress").bind
+                  (fun function => function.selector?) with
+            | some selectedSelector, some expectedSelector =>
+                SolidCore.Solidity.Source.wordEq
+                  selectedSelector expectedSelector
+            | _, _ => false) &&
+            entry.input.context.ambient.calldata == calldata &&
+            SolidCore.Solidity.Source.wordEq
+              entry.input.context.ambient.self 0xabcd &&
+            SolidCore.Solidity.Source.wordEq
+              entry.input.context.ambient.sender 0xcafe &&
+            SolidCore.Solidity.Source.wordEq
+              entry.input.context.ambient.value 0 &&
+            entry.input.submittedState.storage == [(5, 6)] &&
+            entry.input.submittedState.transient == expectedTransient &&
+            (match entry.input.args with
+            | [SolidCore.Solidity.Source.Value.word arg] =>
+                SolidCore.Solidity.Source.wordEq arg 0x1234
+            | _ => false) &&
+            (match entry.result? with
+            | some result =>
+                result.mode ==
+                    SolidCore.Solidity.Source.CallExitMode.returned &&
+                  result.state.storage == [(5, 6)] &&
+                  result.state.transient == expectedTransient &&
+                  (match result.returnValues with
+                  | [SolidCore.Solidity.Source.Value.word value] =>
+                      SolidCore.Solidity.Source.wordEq value 0x1234
+                  | _ => false)
+            | none => false)
+      | none => false
+  let callMatches :=
+    let encodingMatches :=
+      match callObservation.resultEncoding? with
+      | some encoding =>
+          encoding.mode ==
+              SolidCore.Solidity.Source.ABI.AbiResultEncodingMode.returned &&
+            encoding.expectedSuccess &&
+            encoding.abiResult.success &&
+            encoding.encodedOutput == expected &&
+            encoding.abiResult.output == expected &&
+            (match encoding.returnTys with
+            | [SolidCore.Solidity.Source.Ty.address] => true
+            | _ => false) &&
+            encoding.sourceResult.mode ==
+              SolidCore.Solidity.Source.CallExitMode.returned &&
+            (match encoding.sourceResult.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value 0x1234
+            | _ => false)
+      | none => false
+    callInput.kind ==
+        SolidCore.Solidity.Source.ABI.AbiEntryKind.messageCall &&
+      callInput.fuel == 8 &&
+      SolidCore.Solidity.Source.wordEq callInput.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq callInput.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq callInput.value 0 &&
+      callInput.calldata == calldata &&
+      callInput.baseContext.ambient.gasleft == 999 &&
+      callInput.baseContext.accounts.accountBalances == [(0xcafe, 42)] &&
+      callAmbient.checked &&
+      !callAmbient.construction &&
+      callAmbient.calldata == calldata &&
+      SolidCore.Solidity.Source.wordEq callAmbient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq callAmbient.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq callAmbient.value 0 &&
+      dispatchMatches callInput &&
+      functionEntryMatches callObservation [(1, 2)] &&
+      encodingMatches &&
+      callInput.submittedState.storage == [(5, 6)] &&
+      callInput.submittedState.transient == [(1, 2)] &&
+      callInput.executionState.storage == [(5, 6)] &&
+      callInput.executionState.transient == [(1, 2)] &&
+      (match callObservation.result? with
+      | some result =>
+          result.success &&
+            result.output == expected &&
+            result.state.storage == [(5, 6)] &&
+            result.state.transient == [(1, 2)]
+      | none => false)
+  let txInput := transactionObservation.input
+  let transactionMatches :=
+      let encodingMatches :=
+        match transactionObservation.resultEncoding? with
+        | some encoding =>
+            encoding.mode ==
+                SolidCore.Solidity.Source.ABI.AbiResultEncodingMode.returned &&
+              encoding.expectedSuccess &&
+              encoding.abiResult.success &&
+              encoding.encodedOutput == expected &&
+              encoding.abiResult.output == expected &&
+              (match encoding.sourceResult.returnValues with
+              | [SolidCore.Solidity.Source.Value.word value] =>
+                  SolidCore.Solidity.Source.wordEq value 0x1234
+              | _ => false)
+        | none => false
+      txInput.kind ==
+        SolidCore.Solidity.Source.ABI.AbiEntryKind.transaction &&
+      dispatchMatches txInput &&
+      functionEntryMatches transactionObservation [] &&
+      encodingMatches &&
+      txInput.submittedState.storage == [(5, 6)] &&
+      txInput.submittedState.transient == [(1, 2)] &&
+      txInput.executionState.storage == [(5, 6)] &&
+      txInput.executionState.transient == [] &&
+      (match transactionObservation.result? with
+      | some result =>
+          result.success &&
+            result.output == expected &&
+            result.state.storage == [(5, 6)] &&
+            result.state.transient == []
+      | none => false)
+  Except.ok (callMatches && transactionMatches)
+
+def checkedAbiResultEncodingRevertBoundaryMatches :
+    Except TypeError Bool := do
+  let checkedContract ←
+    CheckedInput.ownContract Executable.Examples.checkedArithmeticContract
+  let payload ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 300]
+  let calldata :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "echoUint8(uint8)") ++ payload
+  let expectedPayload ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 0x11]
+  let expected :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      SolidCore.Solidity.Source.ABI.panicSelector ++ expectedPayload
+  let observation :=
+    SolidCore.Solidity.Source.ABI.Contract.observeCalldataCallAtFromWithContext
+      16 checkedContract.core checkedContract.core.context
+      SolidCore.Solidity.Source.State.empty 0 0 0 calldata
+  match observation.resultEncoding?, observation.result? with
+  | some encoding, some result =>
+      Except.ok
+        (encoding.mode ==
+            SolidCore.Solidity.Source.ABI.AbiResultEncodingMode.reverted &&
+          !encoding.expectedSuccess &&
+          !encoding.abiResult.success &&
+          !result.success &&
+          encoding.encodedOutput == expected &&
+          encoding.abiResult.output == expected &&
+          result.output == expected &&
+          encoding.sourceResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.reverted &&
+          (match encoding.sourceResult.revertData? with
+          | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+              SolidCore.Solidity.Source.wordEq code 0x11
+          | _ => false))
+  | _, _ => Except.ok false
+
 def checkedAddressAbiRejectsWideEncode : Bool :=
   Result.isError
     (checkedAbiEncodeValues
@@ -2505,10 +3225,21 @@ def checkedPrimitiveAbiSemanticsMatch : Except TypeError Bool := do
   let boolIdentity ← checkedBoolIdentityCallMatches
   let addressIdentity ← checkedAddressIdentityCallMatches
   let addressAbi ← checkedAddressAbiCalldataMatches
+  let ordinaryFunctionEntry ←
+    checkedOrdinaryFunctionEntryObservationBoundaryMatches
+  let contractCallObservation ← checkedContractCallObservationBoundaryMatches
+  let addressObservation ← checkedAddressAbiObservationMatches
+  let abiEntryObservation ← checkedAbiEntryObservationBoundaryMatches
+  let abiResultEncodingRevert ←
+    checkedAbiResultEncodingRevertBoundaryMatches
   let fixedBytesAbi ← checkedFixedBytesAbiCalldataMatches
   Except.ok
     (checkedPrimitiveAbiContractAccepted &&
       boolIdentity && addressIdentity && addressAbi &&
+      ordinaryFunctionEntry &&
+      contractCallObservation &&
+      addressObservation && abiEntryObservation &&
+      abiResultEncodingRevert &&
       checkedAddressAbiRejectsWideEncode &&
       checkedAddressAbiRejectsWideCalldata &&
       fixedBytesAbi &&
@@ -3267,12 +3998,8 @@ def checkedStructStoragePathDirectBlobPushMatches :
     checkedStructStoragePathCallState 80 "directPathBlobPush"
       [checkedStructStoragePathWord 7, checkedStructStoragePathWord 18]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 2)) 18)
+    (Executable.Examples.structStoragePathBlobBytesMatch
+      state [30, 40, 18])
 
 def checkedStructStoragePathDirectBlobPushAssignMatches :
     Except TypeError Bool := do
@@ -3280,12 +4007,8 @@ def checkedStructStoragePathDirectBlobPushAssignMatches :
     checkedStructStoragePathCallState 80 "directPathBlobPushAssign"
       [checkedStructStoragePathWord 7, checkedStructStoragePathWord 19]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 2)) 19)
+    (Executable.Examples.structStoragePathBlobBytesMatch
+      state [30, 40, 19])
 
 def checkedStructStoragePathDirectBlobPopMatches :
     Except TypeError Bool := do
@@ -3293,12 +4016,7 @@ def checkedStructStoragePathDirectBlobPopMatches :
     checkedStructStoragePathCallState 80 "directPathBlobPop"
       [checkedStructStoragePathWord 7]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 1 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 1)) 0)
+    (Executable.Examples.structStoragePathBlobBytesMatch state [30])
 
 def checkedStructStoragePathAliasCountAddMatches :
     Except TypeError Bool := do
@@ -3367,12 +4085,7 @@ def checkedStructStoragePathAliasBlobPushMatches :
     checkedStructStoragePathCallState 80 "aliasBlobPush"
       [checkedStructStoragePathWord 7, checkedStructStoragePathWord 5]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 2)) 5)
+    (Executable.Examples.structStoragePathBlobBytesMatch state [30, 40, 5])
 
 def checkedStructStoragePathAliasBlobPushAssignMatches :
     Except TypeError Bool := do
@@ -3380,12 +4093,8 @@ def checkedStructStoragePathAliasBlobPushAssignMatches :
     checkedStructStoragePathCallState 80 "aliasBlobPushAssign"
       [checkedStructStoragePathWord 7, checkedStructStoragePathWord 20]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 2)) 20)
+    (Executable.Examples.structStoragePathBlobBytesMatch
+      state [30, 40, 20])
 
 def checkedStructStoragePathAliasBlobPopMatches :
     Except TypeError Bool := do
@@ -3393,12 +4102,7 @@ def checkedStructStoragePathAliasBlobPopMatches :
     checkedStructStoragePathCallState 80 "aliasBlobPop"
       [checkedStructStoragePathWord 7]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 1 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 1)) 0)
+    (Executable.Examples.structStoragePathBlobBytesMatch state [30])
 
 def checkedStructStoragePathAliasScoreSetMatches :
     Except TypeError Bool := do
@@ -3431,12 +4135,8 @@ def checkedStructStoragePathInternalBlobPushMatches :
     checkedStructStoragePathCallState 96 "internalPathBlobPush"
       [checkedStructStoragePathWord 7, checkedStructStoragePathWord 13]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 2)) 13)
+    (Executable.Examples.structStoragePathBlobBytesMatch
+      state [30, 40, 13])
 
 def checkedStructStoragePathInternalScoreSetMatches :
     Except TypeError Bool := do
@@ -3469,12 +4169,8 @@ def checkedStructStoragePathModifierBlobPushMatches :
     checkedStructStoragePathCallState 96 "modifierPathBlobPush"
       [checkedStructStoragePathWord 7, checkedStructStoragePathWord 15]
   Except.ok
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot
-        Executable.Examples.structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (Executable.Examples.structStoragePathBlobValueSlot 2)) 15)
+    (Executable.Examples.structStoragePathBlobBytesMatch
+      state [30, 40, 15])
 
 def checkedStructStoragePathModifierScoreSetMatches :
     Except TypeError Bool := do
@@ -3690,15 +4386,15 @@ def checkedNestedBytesStoragePathSetMatches :
       "readByte" state
       [ checkedNestedStoragePathWord 0
       , checkedNestedStoragePathWord 1 ] 90
+  let bytesMatch :=
+    match SolidCore.Solidity.Source.State.loadStorageBytesAt
+        state checkedNestedBytesStoragePathElementSlot with
+    | Except.ok bytes => bytes == [10, 90]
+    | Except.error _ => false
   Except.ok
     (read &&
       SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot checkedNestedBytesStoragePathElementSlot) 2 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-            checkedNestedBytesStoragePathElementSlot 1)) 90)
+      bytesMatch)
 
 def checkedNestedBytesStoragePathClearMatches :
     Except TypeError Bool := do
@@ -3709,18 +4405,438 @@ def checkedNestedBytesStoragePathClearMatches :
       Executable.Examples.nestedBytesStoragePathInitialState
       [ checkedNestedStoragePathWord 0
       , checkedNestedStoragePathWord 1 ]
+  let bytesMatch :=
+    match SolidCore.Solidity.Source.State.loadStorageBytesAt
+        state checkedNestedBytesStoragePathElementSlot with
+    | Except.ok bytes => bytes == [10, 0]
+    | Except.error _ => false
   Except.ok
     (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+      bytesMatch)
+
+def checkedAggregateStorageSlotSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.aggregateStorageSlotSourceUnit)
+
+def checkedAggregateStorageSlotFieldsMatch : Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.aggregateStorageSlotSourceUnit
+      "AggregateStorageSlots"
+  match contract.core.storageFields with
+  | [origin, tail, fixeds, afterFixed] =>
+      Except.ok
+        (origin.name == "origin" &&
+          SolidCore.Solidity.Source.wordEq origin.slot 0 &&
+          tail.name == "tail" &&
+          SolidCore.Solidity.Source.wordEq tail.slot 2 &&
+          fixeds.name == "fixeds" &&
+          SolidCore.Solidity.Source.wordEq fixeds.slot 3 &&
+          afterFixed.name == "afterFixed" &&
+          SolidCore.Solidity.Source.wordEq afterFixed.slot 6)
+  | _ => Except.ok false
+
+def checkedAggregateStorageSlotWriteMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 96
+      Executable.Examples.aggregateStorageSlotSourceUnit
+      "AggregateStorageSlots"
+      (SolidCore.Solidity.Source.CallTarget.name "writeAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq value 5 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 2 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 3 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 5) 4 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 5)
+  | _ => Except.ok false
+
+def checkedPackedTopLevelStorageSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.packedTopLevelStorageSourceUnit)
+
+def checkedPackedTopLevelStorageFieldsMatch :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+  match contract.core.storageFields with
+  | [a, b, c, s, d] =>
+      Except.ok
+        (a.name == "a" &&
+          SolidCore.Solidity.Source.wordEq a.slot 0 &&
+          a.packedOffset == 0 && a.packedBytes == 1 &&
+          b.name == "b" &&
+          SolidCore.Solidity.Source.wordEq b.slot 0 &&
+          b.packedOffset == 1 && b.packedBytes == 2 &&
+          c.name == "c" &&
+          SolidCore.Solidity.Source.wordEq c.slot 0 &&
+          c.packedOffset == 3 && c.packedBytes == 1 &&
+          s.name == "s" &&
+          SolidCore.Solidity.Source.wordEq s.slot 0 &&
+          s.packedOffset == 4 && s.packedBytes == 1 &&
+          s.packedSigned &&
+          d.name == "d" &&
+          SolidCore.Solidity.Source.wordEq d.slot 1 &&
+          d.packedOffset == 0 &&
+          d.packedBytes == SolidCore.Solidity.Source.wordBytes)
+  | _ => Except.ok false
+
+def checkedPackedTopLevelStorageState :
+    Except TypeError SolidCore.Solidity.Source.State := do
+  let result ←
+    CheckedInput.callContract 96
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "setAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      if SolidCore.Solidity.Source.wordEq value 9 then
+        Except.ok state
+      else
+        Except.error (TypeError.unsupported "packed storage setAll")
+  | _ => Except.error (TypeError.unsupported "packed storage setAll")
+
+def checkedPackedTopLevelStorageSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedPackedTopLevelStorageState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot 0) 0xff01345612 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9)
+
+def checkedPackedTopLevelStorageGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedPackedTopLevelStorageState
+  let aResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "a") state []
+  let bResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "b") state []
+  let cResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "c") state []
+  let sResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "s") state []
+  let dResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "d") state []
+  match aResult, bResult, cResult, sResult, dResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word a],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word b],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word c],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int s],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word d] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a 0x12 &&
+          SolidCore.Solidity.Source.wordEq b 0x3456 &&
+          SolidCore.Solidity.Source.wordEq c 1 &&
+          SolidCore.Solidity.Source.wordEq s
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq d 9)
+  | _, _, _, _, _ => Except.ok false
+
+def checkedPackedStructAndArrayStorageSourceUnitAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.packedStructAndArrayStorageSourceUnit)
+
+def checkedPackedStructAndArrayStorageFieldsMatch :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+  match contract.core.storageFields with
+  | [pair, tail, fixeds, afterFixed] =>
+      let pairLayoutMatches :=
+        match pair.layout? with
+        | some (SolidCore.Solidity.Source.StorageLayout.struct
+            [a, b, c, s, d]) =>
+            Executable.Examples.packedUintLayoutMatches 0 1 a &&
+              Executable.Examples.packedUintLayoutMatches 1 2 b &&
+              Executable.Examples.packedBoolLayoutMatches 3 1 c &&
+              Executable.Examples.packedIntLayoutMatches 4 1 s &&
+              match d with
+              | SolidCore.Solidity.Source.StorageLayout.packedScalar
+                  0 32 false SolidCore.Solidity.Source.Ty.uint256 =>
+                  true
+              | _ => false
+        | _ => false
+      let fixedLayoutMatches :=
+        match fixeds.layout? with
+        | some
+            (SolidCore.Solidity.Source.StorageLayout.fixedArray 4
+              elementLayout) =>
+            Executable.Examples.packedUintLayoutMatches 0 1 elementLayout
+        | _ => false
+      Except.ok
+        (pair.name == "pair" &&
+          SolidCore.Solidity.Source.wordEq pair.slot 0 &&
+          pairLayoutMatches &&
+          tail.name == "tail" &&
+          SolidCore.Solidity.Source.wordEq tail.slot 2 &&
+          fixeds.name == "fixeds" &&
+          SolidCore.Solidity.Source.wordEq fixeds.slot 3 &&
+          fixedLayoutMatches &&
+          afterFixed.name == "afterFixed" &&
+          SolidCore.Solidity.Source.wordEq afterFixed.slot 4)
+  | _ => Except.ok false
+
+def checkedPackedStructAndArrayStorageState :
+    Except TypeError SolidCore.Solidity.Source.State := do
+  let result ←
+    CheckedInput.callContract 128
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "setAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      if SolidCore.Solidity.Source.wordEq value 11 then
+        Except.ok state
+      else
+        Except.error
+          (TypeError.unsupported "packed struct/array storage setAll")
+  | _ =>
+      Except.error
+        (TypeError.unsupported "packed struct/array storage setAll")
+
+def checkedPackedStructAndArrayStorageSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedPackedStructAndArrayStorageState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot 0) 0xff01345612 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 10 &&
       SolidCore.Solidity.Source.wordEq
-        (state.loadSlot checkedNestedBytesStoragePathElementSlot) 2 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-            checkedNestedBytesStoragePathElementSlot 0)) 10 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-            checkedNestedBytesStoragePathElementSlot 1)) 0)
+        (state.loadSlot 3) 0xddccbbaa &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 4) 11)
+
+def checkedPackedStructAndArrayStorageReadMatches :
+    Except TypeError Bool := do
+  let state ← checkedPackedStructAndArrayStorageState
+  let aResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readA") state []
+  let bResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readB") state []
+  let cResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readC") state []
+  let sResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readS") state []
+  let fixedResult ←
+    CheckedInput.callContract 32
+      Executable.Examples.packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readFixed2") state []
+  match aResult, bResult, cResult, sResult, fixedResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word a],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word b],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word c],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int s],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word fixed] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a 0x12 &&
+          SolidCore.Solidity.Source.wordEq b 0x3456 &&
+          SolidCore.Solidity.Source.wordEq c 1 &&
+          SolidCore.Solidity.Source.wordEq s
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq fixed 0xcc)
+  | _, _, _, _, _ => Except.ok false
+
+def checkedStorageFieldWordObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+  let state ← checkedPackedTopLevelStorageState
+  match contract.core.storageFields with
+  | [_a, b, _c, _s, _d] =>
+      let bLoad := state.observeStorageFieldWordLoad 0 b
+      let bStore := state.observeStorageFieldWordStore 0 b 0xabcd
+      let bLoadMatches :=
+        bLoad.access ==
+          SolidCore.Solidity.Source.StorageFieldAccessKind.load &&
+        bLoad.field.name == "b" &&
+        bLoad.field.packedOffset == 1 &&
+        bLoad.field.packedBytes == 2 &&
+        SolidCore.Solidity.Source.wordEq
+          bLoad.slotWordBefore 0xff01345612 &&
+        SolidCore.Solidity.Source.wordEq bLoad.fieldWordBefore 0x3456 &&
+        bLoad.outputState?.isNone
+      let bStoreMatches :=
+        match bStore.outputState?, bStore.slotWordAfter?,
+            bStore.fieldWordAfter? with
+        | some output, some slotAfter, some fieldAfter =>
+            bStore.access ==
+              SolidCore.Solidity.Source.StorageFieldAccessKind.store &&
+            bStore.value? == some 0xabcd &&
+            SolidCore.Solidity.Source.wordEq
+              bStore.slotWordBefore 0xff01345612 &&
+            SolidCore.Solidity.Source.wordEq
+              bStore.fieldWordBefore 0x3456 &&
+            SolidCore.Solidity.Source.wordEq slotAfter 0xff01abcd12 &&
+            SolidCore.Solidity.Source.wordEq fieldAfter 0xabcd &&
+            SolidCore.Solidity.Source.WordMap.lookup?
+              output.storage 0 == some 0xff01abcd12
+        | _, _, _ => false
+      Except.ok (bLoadMatches && bStoreMatches)
+  | _ => Except.ok false
+
+def checkedStoragePathResolutionObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.structStoragePathSourceUnit
+      "StructStoragePath"
+  let field ←
+    match contract.core.context.storageField? "entries" with
+    | some field => Except.ok field
+    | none => Except.error (executableFailure "storage path field")
+  let layout ←
+    match field.layout? with
+    | some layout => Except.ok layout
+    | none => Except.error (executableFailure "storage path layout")
+  let valuePath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 1
+    , SolidCore.Solidity.Source.Value.word 1 ]
+  let blobPath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 2
+    , SolidCore.Solidity.Source.Value.word 1 ]
+  let scorePath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 3
+    , SolidCore.Solidity.Source.Value.word 21 ]
+  let outOfBoundsPath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 1
+    , SolidCore.Solidity.Source.Value.word 2 ]
+  let typeMismatchPath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 0
+    , SolidCore.Solidity.Source.Value.word 0 ]
+  let state := Executable.Examples.structStoragePathInitialState
+  let valueObservation :=
+    state.observeStoragePathResolution 0 field.slot layout valuePath
+  let blobObservation :=
+    state.observeStoragePathResolution 0 field.slot layout blobPath
+  let scoreObservation :=
+    state.observeStoragePathResolution 0 field.slot layout scorePath
+  let outOfBoundsObservation :=
+    state.observeStoragePathResolution
+      0 field.slot layout outOfBoundsPath
+  let typeMismatchObservation :=
+    state.observeStoragePathResolution
+      0 field.slot layout typeMismatchPath
+  let pathWordsMatch :=
+    fun indexes expected =>
+      let rec go : List SolidCore.Solidity.Source.Value ->
+          List Word -> Bool
+        | [], [] => true
+        | SolidCore.Solidity.Source.Value.word word :: rest,
+            expected :: expectedRest =>
+            SolidCore.Solidity.Source.wordEq word expected &&
+              go rest expectedRest
+        | _, _ => false
+      go indexes expected
+  let resolvedScalarMatches :=
+    fun observation expectedSlot =>
+      observation.resolvedSlot? == some expectedSlot &&
+        match observation.resolvedLayout? with
+        | some
+            (SolidCore.Solidity.Source.StorageLayoutObservation.scalar
+              SolidCore.Solidity.Source.Ty.uint256 1) => true
+        | some
+            (SolidCore.Solidity.Source.StorageLayoutObservation.packedScalar
+              0 32 false SolidCore.Solidity.Source.Ty.uint256 1) => true
+        | _ => false
+  let valueMatches :=
+    pathWordsMatch valueObservation.indexes [7, 1, 1] &&
+      resolvedScalarMatches valueObservation
+        (Executable.Examples.structStoragePathValueSlot 1) &&
+      valueObservation.error?.isNone
+  let blobMatches :=
+    blobObservation.resolvedSlot? ==
+        some Executable.Examples.structStoragePathBlobSlot &&
+      blobObservation.error?.isNone &&
+      match blobObservation.resolvedLayout? with
+      | some
+          (SolidCore.Solidity.Source.StorageLayoutObservation.packedScalar
+            30 1 false (SolidCore.Solidity.Source.Ty.fixedBytes 1) 1) =>
+          true
+      | _ => false
+  let scoreMatches :=
+    resolvedScalarMatches scoreObservation
+      (Executable.Examples.structStoragePathScoreSlot 21) &&
+      scoreObservation.error?.isNone
+  let outOfBoundsMatches :=
+    outOfBoundsObservation.resolvedSlot?.isNone &&
+      outOfBoundsObservation.resolvedLayout?.isNone &&
+      match outOfBoundsObservation.error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0x32
+      | _ => false
+  let typeMismatchMatches :=
+    typeMismatchObservation.resolvedSlot?.isNone &&
+      typeMismatchObservation.resolvedLayout?.isNone &&
+      match typeMismatchObservation.error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  Except.ok
+    (Executable.Examples.storagePathResolutionObservationMatches ==
+        some true &&
+      valueMatches && blobMatches && scoreMatches &&
+      outOfBoundsMatches && typeMismatchMatches)
 
 def checkedStoragePathSemanticsMatch :
     Except TypeError Bool := do
@@ -3770,9 +4886,27 @@ def checkedStoragePathSemanticsMatch :
     checkedNestedStoragePathCompoundMappingAddMatches
   let nestedBytesSet ← checkedNestedBytesStoragePathSetMatches
   let nestedBytesClear ← checkedNestedBytesStoragePathClearMatches
+  let aggregateFields ← checkedAggregateStorageSlotFieldsMatch
+  let aggregateWrite ← checkedAggregateStorageSlotWriteMatches
+  let packedFields ← checkedPackedTopLevelStorageFieldsMatch
+  let packedSlots ← checkedPackedTopLevelStorageSlotMatches
+  let packedGetters ← checkedPackedTopLevelStorageGetterMatches
+  let fieldWordObservation ←
+    checkedStorageFieldWordObservationBoundaryMatches
+  let pathResolutionObservation ←
+    checkedStoragePathResolutionObservationMatches
+  let packedNestedFields ←
+    checkedPackedStructAndArrayStorageFieldsMatch
+  let packedNestedSlots ←
+    checkedPackedStructAndArrayStorageSlotMatches
+  let packedNestedReads ←
+    checkedPackedStructAndArrayStorageReadMatches
   Except.ok
     (checkedStructStoragePathSourceUnitAccepted &&
       checkedNestedStoragePathContractsAccepted &&
+      checkedAggregateStorageSlotSourceUnitAccepted &&
+      checkedPackedTopLevelStorageSourceUnitAccepted &&
+      checkedPackedStructAndArrayStorageSourceUnitAccepted &&
       countAdd && valueAdd && valueClear &&
       directArrayPush && directArrayPushAssign && directArrayPop &&
       directBlobPush && directBlobPushAssign && directBlobPop &&
@@ -3784,7 +4918,11 @@ def checkedStoragePathSemanticsMatch :
       modifierArrayPush && modifierBlobPush && modifierScoreSet &&
       matrixSet && matrixClear && mappingSet && mappingClear &&
       compoundMatrixAdd && compoundMatrixInc && compoundMappingAdd &&
-      nestedBytesSet && nestedBytesClear)
+      nestedBytesSet && nestedBytesClear &&
+      aggregateFields && aggregateWrite &&
+      packedFields && packedSlots && packedGetters &&
+      fieldWordObservation && pathResolutionObservation &&
+      packedNestedFields && packedNestedSlots && packedNestedReads)
 
 def checkedInternalFunctionPointerContractsAccepted : Bool :=
   Result.isOk
@@ -3902,6 +5040,13 @@ def checkedInternalFunctionPointerParamUninitializedCallPanics :
     [checkedInternalFunctionPointerWord 21]
     internalFunctionPointerPanicCode
 
+def checkedInternalFunctionPointerRewriteObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedInternalFunctionPointerContractsAccepted &&
+      Executable.Examples.internalFunctionPointerRewriteObservationMatches ==
+        some true)
+
 def checkedInternalFunctionPointerSemanticsMatch :
     Except TypeError Bool := do
   let alias ← checkedInternalFunctionPointerAliasMatches
@@ -3918,11 +5063,13 @@ def checkedInternalFunctionPointerSemanticsMatch :
   let paramDirect ← checkedInternalFunctionPointerParamDirectMatches
   let paramUninitialized ←
     checkedInternalFunctionPointerParamUninitializedCallPanics
+  let rewriteObservation ←
+    checkedInternalFunctionPointerRewriteObservationMatches
   Except.ok
     (checkedInternalFunctionPointerContractsAccepted &&
       alias && reassign && assignAfterDecl && deleteThenAssign &&
       uninitialized && deleted && copy &&
-      param && paramDirect && paramUninitialized)
+      param && paramDirect && paramUninitialized && rewriteObservation)
 
 def checkedInternalReturnEvaluationContractsAccepted : Bool :=
   Result.isOk
@@ -4020,7 +5167,9 @@ def checkedControlFlowContractsAccepted : Bool :=
         Executable.Examples.loopBreakContinueContract) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
-        Executable.Examples.namedReturnContract)
+        Executable.Examples.namedReturnContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit namedBareReturnSource)
 
 def checkedPrimitiveStatementContract :
     L00_SourceSolidity.ContractDecl :=
@@ -4271,7 +5420,8 @@ def checkedLoopBreakContinueSourceMatches : Except TypeError Bool := do
 def checkedControlFlowSourceDisciplineRejected : Bool :=
   Result.isError (TypecheckedInput.checkedSourceUnit badIfSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit breakOutsideLoopSource) &&
-    Result.isError (TypecheckedInput.checkedSourceUnit continueOutsideLoopSource)
+    Result.isError (TypecheckedInput.checkedSourceUnit continueOutsideLoopSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit unnamedBareReturnSource)
 
 def checkedNamedReturnMatches : Except TypeError Bool := do
   let stop ←
@@ -4284,23 +5434,324 @@ def checkedNamedReturnMatches : Except TypeError Bool := do
       Executable.Examples.namedReturnContract
       (SolidCore.Solidity.Source.CallTarget.name "runFallthrough")
       SolidCore.Solidity.Source.State.empty []
+  let runBare ←
+    CheckedInput.ownCall 32
+      Executable.Examples.namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBare")
+      SolidCore.Solidity.Source.State.empty []
   let runDefault ←
     CheckedInput.ownCall 32
       Executable.Examples.namedReturnContract
       (SolidCore.Solidity.Source.CallTarget.name "runDefault")
       SolidCore.Solidity.Source.State.empty []
-  match stop, runFallthrough, runDefault with
+  match stop, runFallthrough, runBare, runDefault with
   | SolidCore.Solidity.Source.CallResult.returned stopState [],
     SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word runFallthroughValue],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runBareValue],
     SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word runDefaultValue] =>
       Except.ok
         (SolidCore.Solidity.Source.wordEq
           (stopState.loadSlot 0) 1 &&
           SolidCore.Solidity.Source.wordEq runFallthroughValue 9 &&
+          SolidCore.Solidity.Source.wordEq runBareValue 11 &&
           SolidCore.Solidity.Source.wordEq runDefaultValue 0)
-  | _, _, _ => Except.ok false
+  | _, _, _, _ => Except.ok false
+
+def checkedFunctionExitNormalizationObservationMatches :
+    Except TypeError Bool := do
+  let namedContract ←
+    CheckedInput.ownContract Executable.Examples.namedReturnContract
+  let idContract ← CheckedInput.ownContract checkedPrimitiveAbiContract
+  let runDefault ← CheckedContract.coreFunction namedContract "runDefault"
+  let runBare ← CheckedContract.coreFunction namedContract "runBare"
+  let idAddress ← CheckedContract.coreFunction idContract "idAddress"
+  let defaultObservation :=
+    runDefault.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 namedContract.core.context
+      SolidCore.Solidity.Source.State.empty [] 0
+  let bareObservation :=
+    runBare.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 namedContract.core.context
+      SolidCore.Solidity.Source.State.empty [] 0
+  let explicitObservation :=
+    idAddress.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      8 idContract.core.context
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0x1234] 0
+  let returnsWord :=
+    fun (values : List SolidCore.Solidity.Source.Value)
+        (expected : SolidCore.Solidity.Source.Word) =>
+      match values with
+      | [SolidCore.Solidity.Source.Value.word value] =>
+          SolidCore.Solidity.Source.wordEq value expected
+      | _ => false
+  let exitMatches :=
+    fun (observation : SolidCore.Solidity.Source.FunctionEntryObservation)
+        (expectedKind : SolidCore.Solidity.Source.FunctionExitKind)
+        (expectedBodyMode : SolidCore.Solidity.Source.ResultMode)
+        (expectedValue : SolidCore.Solidity.Source.Word) =>
+      match observation.exit? with
+      | some exit =>
+          exit.kind == expectedKind &&
+            exit.bodyResult.mode == expectedBodyMode &&
+            exit.callResult.mode ==
+              SolidCore.Solidity.Source.CallExitMode.returned &&
+            returnsWord exit.callResult.returnValues expectedValue
+      | none => false
+  let defaultMatches :=
+    exitMatches defaultObservation
+      SolidCore.Solidity.Source.FunctionExitKind.fallthroughNamedReturns
+      SolidCore.Solidity.Source.ResultMode.normal 0
+  let bareMatches :=
+    match bareObservation.exit? with
+    | some exit =>
+        exit.kind ==
+            SolidCore.Solidity.Source.FunctionExitKind.bareReturnCollectsNamedReturns &&
+          exit.bodyResult.mode ==
+            SolidCore.Solidity.Source.ResultMode.returned &&
+          exit.bodyResult.returnValues.isEmpty &&
+          exit.callResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.returned &&
+          returnsWord exit.callResult.returnValues 11
+    | none => false
+  let explicitMatches :=
+    match explicitObservation.exit? with
+    | some exit =>
+        exit.kind ==
+            SolidCore.Solidity.Source.FunctionExitKind.explicitReturnValues &&
+          exit.bodyResult.mode ==
+            SolidCore.Solidity.Source.ResultMode.returned &&
+          returnsWord exit.bodyResult.returnValues 0x1234 &&
+          exit.callResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.returned &&
+          returnsWord exit.callResult.returnValues 0x1234
+    | none => false
+  Except.ok (defaultMatches && bareMatches && explicitMatches)
+
+def checkedFunctionReturnInitializationObservationMatches :
+    Except TypeError Bool := do
+  let namedContract ←
+    CheckedInput.ownContract Executable.Examples.namedReturnContract
+  let runDefault ← CheckedContract.coreFunction namedContract "runDefault"
+  let defaultObservation :=
+    runDefault.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 namedContract.core.context
+      SolidCore.Solidity.Source.State.empty [] 0
+  let rejectedObservation :=
+    runDefault.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 { namedContract.core.context with value := 1 }
+      SolidCore.Solidity.Source.State.empty [] 0
+  let returnDeclMatches :=
+    fun (returns : List SolidCore.Solidity.Source.BindingDecl) =>
+      match returns with
+      | [decl] =>
+          decl.name == "out" &&
+            match decl.ty with
+            | SolidCore.Solidity.Source.Ty.uint256 => true
+            | _ => false
+      | _ => false
+  let bindingMatches :=
+    fun (frame : SolidCore.Solidity.Source.Frame) =>
+      match frame with
+      | [("out", SolidCore.Solidity.Source.Value.word value)] =>
+          SolidCore.Solidity.Source.wordEq value 0
+      | _ => false
+  let returnInitMatches :=
+    match defaultObservation.returnInitialization? with
+    | some init =>
+        returnDeclMatches init.returns &&
+          bindingMatches init.defaultBindings &&
+          (match init.initialFrame? with
+          | some frame => bindingMatches frame
+          | none => false) &&
+          (match init.initialRuntime? with
+          | some runtime =>
+              Executable.Examples.localObservationLookupWordMatches
+                (runtime.locals.lookup? "out") 0
+          | none => false)
+    | none => false
+  let inputFrameMatches :=
+    match defaultObservation.input.initialFrame? with
+    | some frame => bindingMatches frame
+    | none => false
+  let bodyFrameMatches :=
+    match defaultObservation.bodyResult? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+          Executable.Examples.localObservationLookupWordMatches
+            (result.runtime.locals.lookup? "out") 0
+    | none => false
+  let rejectedMatches :=
+    rejectedObservation.input.initialFrame?.isNone &&
+      rejectedObservation.returnInitialization?.isNone &&
+      (match rejectedObservation.bodyResult?,
+          rejectedObservation.result? with
+      | some body, some result =>
+          body.mode == SolidCore.Solidity.Source.ResultMode.reverted &&
+            result.mode == SolidCore.Solidity.Source.CallExitMode.reverted &&
+            (body.runtime.locals.lookup? "out").isNone
+      | _, _ => false)
+  Except.ok
+    (returnInitMatches && inputFrameMatches && bodyFrameMatches &&
+      rejectedMatches)
+
+def checkedNoReturnEffectReturnSourceAccepted : Bool :=
+  Result.isOk
+    (TypecheckedInput.checkedSourceUnit
+      Executable.Examples.noReturnEffectReturnSourceUnit)
+
+def checkedNoReturnEffectReturnMatches : Except TypeError Bool := do
+  let requireTrue ←
+    CheckedInput.callContract 64
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnRequire")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 1]
+  let requireFalse ←
+    CheckedInput.callContract 64
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnRequire")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0]
+  let revertResult ←
+    CheckedInput.callContract 64
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnRevert")
+      SolidCore.Solidity.Source.State.empty []
+  let deleteResult ←
+    CheckedInput.callContract 64
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnDelete")
+      SolidCore.Solidity.Source.State.empty []
+  let popResult ←
+    CheckedInput.callContract 96
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnPop")
+      SolidCore.Solidity.Source.State.empty []
+  let pushResult ←
+    CheckedInput.callContract 96
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnPushValue")
+      SolidCore.Solidity.Source.State.empty []
+  let internalResult ←
+    CheckedInput.callContract 64
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnInternal")
+      SolidCore.Solidity.Source.State.empty []
+  match requireTrue, requireFalse, revertResult, deleteResult,
+      popResult, pushResult, internalResult with
+  | SolidCore.Solidity.Source.CallResult.returned requireState [],
+    SolidCore.Solidity.Source.CallResult.reverted requireFailState
+      (SolidCore.Solidity.Source.RevertData.error "bad"),
+    SolidCore.Solidity.Source.CallResult.reverted revertState
+      (SolidCore.Solidity.Source.RevertData.error "bad"),
+    SolidCore.Solidity.Source.CallResult.returned deleteState [],
+    SolidCore.Solidity.Source.CallResult.returned popState [],
+    SolidCore.Solidity.Source.CallResult.returned pushState [],
+    SolidCore.Solidity.Source.CallResult.returned internalState [] =>
+      let firstSlot :=
+        SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          Executable.Examples.noReturnEffectDynamicArraySlot 0
+      let secondSlot :=
+        SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          Executable.Examples.noReturnEffectDynamicArraySlot 1
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq
+          (requireState.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (requireFailState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (revertState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (deleteState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (popState.loadSlot
+              Executable.Examples.noReturnEffectDynamicArraySlot) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (popState.loadSlot firstSlot) 11 &&
+          SolidCore.Solidity.Source.wordEq
+            (popState.loadSlot secondSlot) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (pushState.loadSlot
+              Executable.Examples.noReturnEffectDynamicArraySlot) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (pushState.loadSlot firstSlot) 13 &&
+          SolidCore.Solidity.Source.wordEq
+            (internalState.loadSlot 0) 9)
+  | _, _, _, _, _, _, _ => Except.ok false
+
+def checkedNoReturnEffectReturnTransferMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+  let function ←
+    optionToExcept "returnTransfer function"
+      (contract.core.findFunctionByName? "returnTransfer")
+  let result ←
+    match
+      SolidCore.Solidity.Source.FunctionDef.call? 64
+        { contract.core.context with
+          lowLevelCallResults :=
+            [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+                target := 0xbeef
+                calldata := []
+                value := 5
+                gas? := some 2300
+                success := true
+                output := [] } ] }
+        function SolidCore.Solidity.Source.State.empty
+        [ SolidCore.Solidity.Source.Value.word 0xbeef
+        , SolidCore.Solidity.Source.Value.word 5 ] with
+    | some result => Except.ok result
+    | none => Except.error (executableFailure "returnTransfer")
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1)
+  | _ => Except.ok false
+
+def checkedEvalObservationFuelBoundaryMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.evalObservationFuelBoundaryMatches
+
+def checkedIfBranchObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.ifBranchObservationMatches
+
+def checkedSwitchBranchObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.switchBranchObservationMatches
+
+def checkedWhileLoopObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.whileLoopObservationMatches
+
+def checkedDoWhileLoopObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.doWhileLoopObservationMatches
+
+def checkedForLoopObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.forLoopObservationMatches
+
+def checkedTerminalEvaluationObservationMatches :
+    Except TypeError Bool := do
+  let _ ← ContractDecl.checkedContract checkedPrimitiveStatementContract
+  let _ ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  optionToExcept "terminal evaluation observation"
+    Executable.Examples.terminalEvaluationObservationMatches
 
 def checkedControlFlowStatementSemanticsMatch :
     Except TypeError Bool := do
@@ -4322,17 +5773,36 @@ def checkedControlFlowStatementSemanticsMatch :
   let loopBreakContinue ← checkedLoopBreakContinueMatches
   let loopBreakContinueSource ← checkedLoopBreakContinueSourceMatches
   let namedReturn ← checkedNamedReturnMatches
+  let functionExitObservation ←
+    checkedFunctionExitNormalizationObservationMatches
+  let functionReturnInitialization ←
+    checkedFunctionReturnInitializationObservationMatches
+  let noReturnEffects ← checkedNoReturnEffectReturnMatches
+  let noReturnTransfer ← checkedNoReturnEffectReturnTransferMatches
+  let evalObservation ← checkedEvalObservationFuelBoundaryMatches
+  let ifBranchObservation ← checkedIfBranchObservationMatches
+  let switchBranchObservation ← checkedSwitchBranchObservationMatches
+  let whileLoopObservation ← checkedWhileLoopObservationMatches
+  let doWhileLoopObservation ← checkedDoWhileLoopObservationMatches
+  let forLoopObservation ← checkedForLoopObservationMatches
+  let terminalEvaluation ← checkedTerminalEvaluationObservationMatches
   Except.ok
     (checkedInternalReturnEvaluationContractsAccepted &&
       checkedControlFlowContractsAccepted &&
       checkedControlFlowSourceDisciplineRejected &&
+      checkedNoReturnEffectReturnSourceAccepted &&
       checkedPrimitiveStatementContractAccepted &&
       internalReturnSubexpr && internalReturnRight &&
       internalReturnShortCircuit &&
       ternarySkip && doWhile && deleteLocal && increment &&
       expressionFailure && assertFailure && requireString && revertString &&
       ternaryBranch && ifCondition && whileCondition && forPost &&
-      loopBreakContinue && loopBreakContinueSource && namedReturn)
+      loopBreakContinue && loopBreakContinueSource && namedReturn &&
+      functionExitObservation && functionReturnInitialization &&
+      noReturnEffects && noReturnTransfer &&
+      evalObservation && ifBranchObservation && switchBranchObservation &&
+      whileLoopObservation && doWhileLoopObservation && forLoopObservation &&
+      terminalEvaluation)
 
 def checkedOwnCallWordAndSlotMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
@@ -4495,7 +5965,22 @@ def checkedSideEffectArgumentContractsAccepted : Bool :=
         Executable.Examples.internalRevertTwoArgumentCallContract) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit
-        Executable.Examples.namedErrorArgumentOrderContract)
+        Executable.Examples.namedErrorArgumentOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.unspecifiedBinaryOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.unspecifiedTupleOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.unspecifiedLValueIndexOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.unspecifiedStatementAssignOrderContract) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.unspecifiedMemoryRefOrderContract)
 
 def checkedInternalRequireConditionCallMatches :
     Except TypeError Bool := do
@@ -4768,6 +6253,384 @@ def checkedNamedErrorArgumentOrderFixtureMatches :
           SolidCore.Solidity.Source.wordEq second 2)
   | _ => Except.ok false
 
+def checkedUnspecifiedBinaryOrderDeterministicRunMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordAndSlotMatches 32
+    Executable.Examples.unspecifiedBinaryOrderContract
+    "run" SolidCore.Solidity.Source.State.empty [] 5 5
+
+def checkedUnspecifiedTupleOrderDeterministicRunMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 32
+      Executable.Examples.unspecifiedTupleOrderContract
+      (SolidCore.Solidity.Source.CallTarget.name "runTuple")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
+  | SolidCore.Solidity.Source.CallResult.returned state [value] =>
+      let (first, second) ← checkedDecodeWordPair value
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
+  | _ => Except.ok false
+
+def checkedUnspecifiedTupleOrderRunWithContextEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Except TypeError (Option (Word × Word × Word)) := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedTupleOrderContract
+  let context :=
+    checkedContract.core.context.withChildEvalOrder order
+  let result ←
+    CheckedContract.callFunctionWithContext 32 checkedContract "runTuple"
+      context SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second ] =>
+      Except.ok (some (first, second, state.loadSlot 0))
+  | SolidCore.Solidity.Source.CallResult.returned state [value] => do
+      let (first, second) ← checkedDecodeWordPair value
+      Except.ok (some (first, second, state.loadSlot 0))
+  | _ => Except.ok none
+
+def checkedUnspecifiedTupleOrderContextLeftToRightMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedTupleOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  match result with
+  | some (first, second, slot) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 5 &&
+          SolidCore.Solidity.Source.wordEq slot 5)
+  | none => Except.ok false
+
+def checkedUnspecifiedTupleOrderContextRightToLeftMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedTupleOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  match result with
+  | some (first, second, slot) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq slot 5)
+  | none => Except.ok false
+
+def checkedUnspecifiedTupleOrderContextEvaluationMatches :
+    Except TypeError Bool := do
+  let left ← checkedUnspecifiedTupleOrderContextLeftToRightMatches
+  let right ← checkedUnspecifiedTupleOrderContextRightToLeftMatches
+  Except.ok (left && right)
+
+def checkedUnspecifiedTupleOrderAbiRunWithContextEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Except TypeError (Option (Word × Word × Word)) := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedTupleOrderContract
+  let calldata ←
+    CheckedContract.functionCalldata checkedContract "runTuple" []
+  let context :=
+    checkedContract.core.context.withChildEvalOrder order
+  let result ←
+    CheckedContract.callCalldataAtFromWithContext 32 checkedContract context
+      SolidCore.Solidity.Source.State.empty 0 0 0 calldata
+  if result.success then
+    let values ←
+      optionToExcept "ABI tuple order decode"
+        (SolidCore.Solidity.Source.abiDecodeValues?
+          [ SolidCore.Solidity.Source.Ty.uint256
+          , SolidCore.Solidity.Source.Ty.uint256 ]
+          result.output)
+    match values with
+    | [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second ] =>
+        Except.ok (some (first, second, result.state.loadSlot 0))
+    | _ => Except.ok none
+  else
+    Except.ok none
+
+def checkedUnspecifiedTupleOrderAbiContextLeftToRightMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedTupleOrderAbiRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  match result with
+  | some (first, second, slot) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 5 &&
+          SolidCore.Solidity.Source.wordEq slot 5)
+  | none => Except.ok false
+
+def checkedUnspecifiedTupleOrderAbiContextRightToLeftMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedTupleOrderAbiRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  match result with
+  | some (first, second, slot) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq slot 5)
+  | none => Except.ok false
+
+def checkedUnspecifiedTupleOrderAbiContextEvaluationMatches :
+    Except TypeError Bool := do
+  let left ← checkedUnspecifiedTupleOrderAbiContextLeftToRightMatches
+  let right ← checkedUnspecifiedTupleOrderAbiContextRightToLeftMatches
+  Except.ok (left && right)
+
+def checkedUnspecifiedTupleOrderFunctionUnspecifiedResultsMatch :
+    Except TypeError Bool := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedTupleOrderContract
+  let results :=
+    CheckedContract.callFunctionUnspecifiedResults 32 checkedContract
+      "runTuple" checkedContract.core.context
+      SolidCore.Solidity.Source.State.empty []
+  match results with
+  | [ SolidCore.Solidity.Source.CallResult.returned state
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ] ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 5 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
+  | _ => Except.ok false
+
+def checkedUnspecifiedTupleOrderAbiUnspecifiedResultsMatch :
+    Except TypeError Bool := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedTupleOrderContract
+  let calldata ←
+    CheckedContract.functionCalldata checkedContract "runTuple" []
+  let results :=
+    CheckedContract.callCalldataAtFromUnspecifiedResults 32 checkedContract
+      checkedContract.core.context SolidCore.Solidity.Source.State.empty
+      0 0 0 calldata
+  match results with
+  | [result] =>
+      if result.success then
+        let values ←
+          optionToExcept "ABI tuple order yul-compatible decode"
+            (SolidCore.Solidity.Source.abiDecodeValues?
+              [ SolidCore.Solidity.Source.Ty.uint256
+              , SolidCore.Solidity.Source.Ty.uint256 ]
+              result.output)
+        match values with
+        | [ SolidCore.Solidity.Source.Value.word first
+          , SolidCore.Solidity.Source.Value.word second ] =>
+            Except.ok
+              (SolidCore.Solidity.Source.wordEq first 5 &&
+                SolidCore.Solidity.Source.wordEq second 0 &&
+                SolidCore.Solidity.Source.wordEq
+                  (result.state.loadSlot 0) 5)
+        | _ => Except.ok false
+      else Except.ok false
+  | _ => Except.ok false
+
+def checkedUnspecifiedTupleOrderUnspecifiedResultsMatch :
+    Except TypeError Bool := do
+  let functionResults ←
+    checkedUnspecifiedTupleOrderFunctionUnspecifiedResultsMatch
+  let abiResults ←
+    checkedUnspecifiedTupleOrderAbiUnspecifiedResultsMatch
+  Except.ok (functionResults && abiResults)
+
+def checkedUnspecifiedLValueIndexOrderRunWithContextEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Except TypeError (Option (Word × Word × Word)) := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedLValueIndexOrderContract
+  let context :=
+    checkedContract.core.context.withChildEvalOrder order
+  let result ←
+    CheckedContract.callFunctionWithContext 64 checkedContract
+      "runLValueIndex" context
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second
+      , SolidCore.Solidity.Source.Value.word seen ] =>
+      Except.ok (some (first, second, seen))
+  | _ => Except.ok none
+
+def checkedUnspecifiedLValueIndexOrderContextLeftToRightMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedLValueIndexOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  match result with
+  | some (first, second, seen) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 0 &&
+          SolidCore.Solidity.Source.wordEq second 9 &&
+          SolidCore.Solidity.Source.wordEq seen 1)
+  | none => Except.ok false
+
+def checkedUnspecifiedLValueIndexOrderContextRightToLeftMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedLValueIndexOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  match result with
+  | some (first, second, seen) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 9 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq seen 1)
+  | none => Except.ok false
+
+def checkedUnspecifiedLValueIndexOrderContextEvaluationMatches :
+    Except TypeError Bool := do
+  let left ← checkedUnspecifiedLValueIndexOrderContextLeftToRightMatches
+  let right ← checkedUnspecifiedLValueIndexOrderContextRightToLeftMatches
+  Except.ok (left && right)
+
+def checkedUnspecifiedStatementAssignOrderRunWithContextEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Except TypeError (Option (Word × Word × Word)) := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedStatementAssignOrderContract
+  let context :=
+    checkedContract.core.context.withChildEvalOrder order
+  let result ←
+    CheckedContract.callFunctionWithContext 64 checkedContract
+      "runStatementAssign" context
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second
+      , SolidCore.Solidity.Source.Value.word seen ] =>
+      Except.ok (some (first, second, seen))
+  | _ => Except.ok none
+
+def checkedUnspecifiedStatementAssignOrderContextLeftToRightMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedStatementAssignOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  match result with
+  | some (first, second, seen) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 1 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq seen 1)
+  | none => Except.ok false
+
+def checkedUnspecifiedStatementAssignOrderContextRightToLeftMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedStatementAssignOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  match result with
+  | some (first, second, seen) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 0 &&
+          SolidCore.Solidity.Source.wordEq second 1 &&
+          SolidCore.Solidity.Source.wordEq seen 1)
+  | none => Except.ok false
+
+def checkedUnspecifiedStatementAssignOrderContextEvaluationMatches :
+    Except TypeError Bool := do
+  let left ← checkedUnspecifiedStatementAssignOrderContextLeftToRightMatches
+  let right ← checkedUnspecifiedStatementAssignOrderContextRightToLeftMatches
+  Except.ok (left && right)
+
+def checkedUnspecifiedMemoryRefOrderRunWithContextEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Except TypeError (Option (Word × Word × Word)) := do
+  let checkedContract ←
+    CheckedInput.ownContract
+      Executable.Examples.unspecifiedMemoryRefOrderContract
+  let context :=
+    checkedContract.core.context.withChildEvalOrder order
+  let result ←
+    CheckedContract.callFunctionWithContext 128 checkedContract
+      "runMemoryRefOrder" context
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second
+      , SolidCore.Solidity.Source.Value.word seen ] =>
+      Except.ok (some (first, second, seen))
+  | _ => Except.ok none
+
+def checkedUnspecifiedMemoryRefOrderContextLeftToRightMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedMemoryRefOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  match result with
+  | some (first, second, seen) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 0 &&
+          SolidCore.Solidity.Source.wordEq second 7 &&
+          SolidCore.Solidity.Source.wordEq seen 1)
+  | none => Except.ok false
+
+def checkedUnspecifiedMemoryRefOrderContextRightToLeftMatches :
+    Except TypeError Bool := do
+  let result ←
+    checkedUnspecifiedMemoryRefOrderRunWithContextEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  match result with
+  | some (first, second, seen) =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq first 7 &&
+          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq seen 1)
+  | none => Except.ok false
+
+def checkedUnspecifiedMemoryRefOrderContextEvaluationMatches :
+    Except TypeError Bool := do
+  let left ← checkedUnspecifiedMemoryRefOrderContextLeftToRightMatches
+  let right ← checkedUnspecifiedMemoryRefOrderContextRightToLeftMatches
+  Except.ok (left && right)
+
+def checkedExpressionListEvaluationObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.expressionListEvaluationObservationMatches
+
+def checkedChildEvaluationPolicyObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.childEvaluationPolicyObservationMatches
+
+def checkedExpressionControlEvaluationObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.expressionControlEvaluationObservationMatches
+
+def checkedRequireCheckObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.expressionTargetEffectsContract
+  optionToExcept "require check observation"
+    (Executable.Examples.requireCheckObservationMatchesWithContext
+      contract.core.context)
+
 def checkedExpressionSideEffectSemanticsMatch :
     Except TypeError Bool := do
   let binary ← checkedInternalBinaryLocalCallMatches
@@ -4777,19 +6640,52 @@ def checkedExpressionSideEffectSemanticsMatch :
   let requireReason ← checkedInternalRequireReasonCallMatches
   let namedRequireError ←
     checkedNamedRequireCustomErrorArgumentOrderMatches
+  let requireCheck ← checkedRequireCheckObservationMatches
   let emitArg ← checkedInternalEmitArgumentCallMatches
   let emitTwoArg ← checkedInternalEmitTwoArgumentCallMatches
   let namedEventArg ← checkedNamedEventArgumentOrderFixtureMatches
   let revertArg ← checkedInternalRevertArgumentCallMatches
   let revertTwoArg ← checkedInternalRevertTwoArgumentCallMatches
   let namedErrorArg ← checkedNamedErrorArgumentOrderFixtureMatches
+  let unspecifiedBinaryOrder ←
+    checkedUnspecifiedBinaryOrderDeterministicRunMatches
+  let unspecifiedTupleOrder ←
+    checkedUnspecifiedTupleOrderDeterministicRunMatches
+  let unspecifiedTupleContextOrder ←
+    checkedUnspecifiedTupleOrderContextEvaluationMatches
+  let unspecifiedTupleAbiContextOrder ←
+    checkedUnspecifiedTupleOrderAbiContextEvaluationMatches
+  let unspecifiedTupleUnspecifiedResults ←
+    checkedUnspecifiedTupleOrderUnspecifiedResultsMatch
+  let unspecifiedLValueIndexContextOrder ←
+    checkedUnspecifiedLValueIndexOrderContextEvaluationMatches
+  let unspecifiedStatementAssignContextOrder ←
+    checkedUnspecifiedStatementAssignOrderContextEvaluationMatches
+  let unspecifiedMemoryRefContextOrder ←
+    checkedUnspecifiedMemoryRefOrderContextEvaluationMatches
+  let expressionListObservation ←
+    checkedExpressionListEvaluationObservationMatches
+  let childEvaluationPolicy ←
+    checkedChildEvaluationPolicyObservationMatches
+  let expressionControlObservation ←
+    checkedExpressionControlEvaluationObservationMatches
   Except.ok
     (checkedExpressionEvaluationContractsAccepted &&
       checkedSideEffectArgumentContractsAccepted &&
       binary && unary && ternary &&
       requireCondition && requireReason && namedRequireError &&
+      requireCheck &&
       emitArg && emitTwoArg && namedEventArg &&
-      revertArg && revertTwoArg && namedErrorArg)
+      revertArg && revertTwoArg && namedErrorArg &&
+      unspecifiedBinaryOrder && unspecifiedTupleOrder &&
+      unspecifiedTupleContextOrder &&
+      unspecifiedTupleAbiContextOrder &&
+      unspecifiedTupleUnspecifiedResults &&
+      unspecifiedLValueIndexContextOrder &&
+      unspecifiedStatementAssignContextOrder &&
+      unspecifiedMemoryRefContextOrder &&
+      expressionListObservation && childEvaluationPolicy &&
+      expressionControlObservation)
 
 def checkedTupleAndFreeFunctionContractsAccepted : Bool :=
   Result.isOk
@@ -4884,6 +6780,20 @@ def checkedInternalNamedArgsMatches :
     Executable.Examples.internalNamedArgsContract
     "run" SolidCore.Solidity.Source.State.empty [] 42
 
+def checkedInternalCallObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        Executable.Examples.internalNamedArgsContract) &&
+      Executable.Examples.internalCallObservationMatches == some true)
+
+def checkedInternalBinaryExpressionElaborationObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (Executable.Examples.internalBinaryExpressionElaborationObservationMatches ==
+      some true)
+
 def checkedTupleVarDeclMatches :
     Except TypeError Bool :=
   checkedOwnCallWordMatches 32
@@ -4939,6 +6849,9 @@ def checkedTupleFreeFunctionSemanticsMatch :
   let tupleRightReturn ← checkedInternalTupleRightReturnCallMatches
   let tupleBothReturn ← checkedInternalTupleBothReturnCallMatches
   let internalNamedArgs ← checkedInternalNamedArgsMatches
+  let internalCallObservation ← checkedInternalCallObservationMatches
+  let internalBinaryExpressionObservation ←
+    checkedInternalBinaryExpressionElaborationObservationMatches
   let tupleVarDecl ← checkedTupleVarDeclMatches
   let tupleVarDeclHole ← checkedTupleVarDeclHoleMatches
   let tupleSwap ← checkedTupleAssignmentSwapMatches
@@ -4951,7 +6864,8 @@ def checkedTupleFreeFunctionSemanticsMatch :
     (checkedTupleAndFreeFunctionContractsAccepted &&
       checkedFreeFunctionStorageIsolationRejected &&
       tupleReturn && tupleRightReturn && tupleBothReturn &&
-      internalNamedArgs &&
+      internalNamedArgs && internalCallObservation &&
+      internalBinaryExpressionObservation &&
       tupleVarDecl && tupleVarDeclHole && tupleSwap && tupleHole &&
       internalVarDecl && internalMultiVarDecl &&
       freeFunction && freeNamedArgs)
@@ -6269,11 +8183,6 @@ def checkedStorageArrayDeleteCopyContractsAccepted : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.storageArrayCopyContract)
 
-def checkedStorageDeleteWholeMappingAccepted : Bool :=
-  Result.isOk
-    (TypecheckedInput.checkedSourceUnit
-      Executable.Examples.storageDeleteContract)
-
 def checkedDynamicStorageArrayPushPopState :
     Except TypeError CoreState :=
   checkedOwnCallState 32
@@ -6346,20 +8255,6 @@ def checkedStorageDeleteFixedClearsElement :
   checkedOwnCallWordMatches 16
     Executable.Examples.storageDeleteContract
     "readFixed" state [] 0
-
-def checkedStorageDeleteMappingState :
-    Except TypeError CoreState := do
-  let state ← checkedStorageDeleteWrittenState
-  checkedOwnCallState 24
-    Executable.Examples.storageDeleteContract
-    "deleteMapping" state []
-
-def checkedStorageDeleteMappingKeepsEntry :
-    Except TypeError Bool := do
-  let state ← checkedStorageDeleteMappingState
-  checkedOwnCallWordMatches 16
-    Executable.Examples.storageDeleteContract
-    "readMap" state [] 9
 
 def checkedStorageDeleteMappingKeyState :
     Except TypeError CoreState := do
@@ -6466,7 +8361,6 @@ def checkedStorageArrayMutationSemanticsMatch :
   let deleteDynamicLength ← checkedStorageDeleteDynamicLengthZero
   let deleteDynamicIndex ← checkedStorageDeleteDynamicIndexReverts
   let deleteFixed ← checkedStorageDeleteFixedClearsElement
-  let deleteMappingNoop ← checkedStorageDeleteMappingKeepsEntry
   let deleteMappingKey ← checkedStorageDeleteMappingKeyClearsEntry
   let copyLength ← checkedStorageArrayCopyLengthMatches
   let copyDynamic ← checkedStorageArrayCopyDynamicElementMatches
@@ -6475,7 +8369,6 @@ def checkedStorageArrayMutationSemanticsMatch :
     (checkedStructArrayStorageContractsAccepted &&
       checkedIndexedDynamicArrayStorageContractsAccepted &&
       checkedStorageArrayDeleteCopyContractsAccepted &&
-      checkedStorageDeleteWholeMappingAccepted &&
       checkedStorageArrayCopyRejectsWrongFixedSize &&
       fixedStructAssign && dynamicStructAssign &&
       fixedStructIndexAssign && dynamicStructIndexAssign &&
@@ -6489,7 +8382,7 @@ def checkedStorageArrayMutationSemanticsMatch :
       dynamicArrayLength && dynamicArrayGetter &&
       dynamicArrayPopEmpty && dynamicArrayPushAssign &&
       deleteDynamicLength && deleteDynamicIndex &&
-      deleteFixed && deleteMappingNoop && deleteMappingKey &&
+      deleteFixed && deleteMappingKey &&
       copyLength && copyDynamic && copyFixed)
 
 def checkedStorageReferenceContractsAccepted : Bool :=
@@ -6802,6 +8695,164 @@ def checkedStandaloneStorageBytesClearIndexReverts :
     "at" state [SolidCore.Solidity.Source.Value.word 0]
     0x32
 
+def checkedStandaloneStorageBytesShortRawSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesSetState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [10, 20]))
+
+def checkedStandaloneStorageBytesShortWriteRawSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesWriteState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [10, 9]))
+
+def checkedStandaloneStorageBytesShortPushRawSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesPushFourState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [10, 20, 4]))
+
+def checkedStandaloneStorageBytesLongSetState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 32
+    Executable.Examples.storageBytesContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.bytes
+        Executable.Examples.storageBytesLongBytes ]
+
+def checkedStandaloneStorageBytesLongRawSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesLongSetState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 33) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (Executable.Examples.storageBytesLongChunkWord
+          (Executable.Examples.storageBytesLongBytes.take 32)) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        (Executable.Examples.storageBytesLongChunkWord [33]))
+
+def checkedStandaloneStorageBytesLongReadMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesLongSetState
+  let length ←
+    checkedOwnCallWordMatches 16
+      Executable.Examples.storageBytesContract
+      "length" state [] 33
+  let value ← checkedStandaloneStorageBytesAtMatches state 32 33
+  Except.ok (length && value)
+
+def checkedStandaloneStorageBytesShortToLongPushState :
+    Except TypeError CoreState := do
+  let state ←
+    checkedOwnCallState 32
+      Executable.Examples.storageBytesContract
+      "set" SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.bytes
+          Executable.Examples.storageBytesThirtyOneBytes ]
+  checkedStandaloneStorageBytesCallState 16 "pushFour" state
+
+def checkedStandaloneStorageBytesShortToLongPushRawSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesShortToLongPushState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 32) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (Executable.Examples.storageBytesLongChunkWord
+          (Executable.Examples.storageBytesThirtyOneBytes ++ [4])))
+
+def checkedStandaloneStorageBytesLongToShortSetState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesLongSetState
+  checkedOwnCallState 32
+    Executable.Examples.storageBytesContract
+    "set" state
+    [SolidCore.Solidity.Source.Value.bytes [7, 8]]
+
+def checkedStandaloneStorageBytesLongToShortCleanupMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesLongToShortSetState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [7, 8]) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        0)
+
+def checkedStandaloneStorageBytesLongPopToThirtyTwoState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesLongSetState
+  checkedStandaloneStorageBytesCallState 16 "popOne" state
+
+def checkedStandaloneStorageBytesLongPopClearsTailMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesLongPopToThirtyTwoState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 32) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (Executable.Examples.storageBytesLongChunkWord
+          (Executable.Examples.storageBytesLongBytes.take 32)) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        0)
+
+def checkedStandaloneStorageBytesSixtyFiveSetState :
+    Except TypeError CoreState :=
+  checkedOwnCallState 64
+    Executable.Examples.storageBytesContract
+    "set" SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.bytes
+        Executable.Examples.storageBytesSixtyFiveBytes ]
+
+def checkedStandaloneStorageBytesLongShrinkSetState :
+    Except TypeError CoreState := do
+  let state ← checkedStandaloneStorageBytesSixtyFiveSetState
+  checkedOwnCallState 64
+    Executable.Examples.storageBytesContract
+    "set" state
+    [ SolidCore.Solidity.Source.Value.bytes
+        Executable.Examples.storageBytesLongBytes ]
+
+def checkedStandaloneStorageBytesLongShrinkCleanupMatches :
+    Except TypeError Bool := do
+  let state ← checkedStandaloneStorageBytesLongShrinkSetState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 33) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (Executable.Examples.storageBytesLongChunkWord
+          (Executable.Examples.storageBytesLongBytes.take 32)) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        (Executable.Examples.storageBytesLongChunkWord [33]) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 2))
+        0)
+
 def checkedStorageReferenceBytesSemanticsMatch :
     Except TypeError Bool := do
   let aliasWrite ← checkedStorageReferenceAliasWriteMatches
@@ -6845,6 +8896,21 @@ def checkedStorageReferenceBytesSemanticsMatch :
     checkedStandaloneStorageBytesInternalParamPopMatches
   let bytesClearLength ← checkedStandaloneStorageBytesClearLengthZero
   let bytesClearIndex ← checkedStandaloneStorageBytesClearIndexReverts
+  let bytesShortRaw ← checkedStandaloneStorageBytesShortRawSlotMatches
+  let bytesShortWriteRaw ←
+    checkedStandaloneStorageBytesShortWriteRawSlotMatches
+  let bytesShortPushRaw ←
+    checkedStandaloneStorageBytesShortPushRawSlotMatches
+  let bytesLongRaw ← checkedStandaloneStorageBytesLongRawSlotMatches
+  let bytesLongRead ← checkedStandaloneStorageBytesLongReadMatches
+  let bytesShortToLongRaw ←
+    checkedStandaloneStorageBytesShortToLongPushRawSlotMatches
+  let bytesLongToShortCleanup ←
+    checkedStandaloneStorageBytesLongToShortCleanupMatches
+  let bytesLongPopCleanup ←
+    checkedStandaloneStorageBytesLongPopClearsTailMatches
+  let bytesLongShrinkCleanup ←
+    checkedStandaloneStorageBytesLongShrinkCleanupMatches
   Except.ok
     (checkedStorageReferenceContractsAccepted &&
       checkedStorageReferenceDeleteAliasRejected &&
@@ -6860,7 +8926,11 @@ def checkedStorageReferenceBytesSemanticsMatch :
       bytesPushFour && bytesPushZero && bytesPop &&
       bytesAliasWrite && bytesAliasPush && bytesAliasPop &&
       bytesInternalWrite && bytesInternalAliasPush && bytesInternalPop &&
-      bytesClearLength && bytesClearIndex)
+      bytesClearLength && bytesClearIndex &&
+      bytesShortRaw && bytesShortWriteRaw && bytesShortPushRaw &&
+      bytesLongRaw && bytesLongRead && bytesShortToLongRaw &&
+      bytesLongToShortCleanup && bytesLongPopCleanup &&
+      bytesLongShrinkCleanup)
 
 def checkedOverloadedDispatchContractsAccepted : Bool :=
   Result.isOk
@@ -6939,23 +9009,23 @@ def checkedInheritedNestedEnumUdvtUnitsAccepted : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.inheritedEnumUdvtUnit)
 
-def checkedInheritedNestedTypeShadowsUnrelatedLowering :
+def checkedInheritedNestedTypeShadowsUnrelatedSourceElaboration :
     Except TypeError Bool := do
   let contract ←
     CheckedInput.toCoreContract
       Executable.Examples.inheritedNestedTypeUnit
       "NestedTypeDerived"
-  optionToExcept "inherited nested type lowering"
+  optionToExcept "inherited nested type source elaboration"
     (Executable.Examples.inheritedNestedTypeFunctionReturnsFirstField?
       "readInheritedX" contract)
 
-def checkedQualifiedInheritedNestedTypeLowering :
+def checkedQualifiedInheritedNestedTypeSourceElaboration :
     Except TypeError Bool := do
   let contract ←
     CheckedInput.toCoreContract
       Executable.Examples.inheritedNestedTypeUnit
       "NestedTypeDerived"
-  optionToExcept "qualified inherited nested type lowering"
+  optionToExcept "qualified inherited nested type source elaboration"
     (Executable.Examples.inheritedNestedTypeFunctionReturnsFirstField?
       "readQualifiedInheritedX" contract)
 
@@ -7010,8 +9080,10 @@ def checkedOverloadInheritedLookupSemanticsMatch :
   let overloadAbiUint ← checkedOverloadedAbiUintCallMatches
   let overloadAbiBytes ← checkedOverloadedAbiBytesCallMatches
   let internalOverload ← checkedInternalOverloadedDispatchMatchesExpected
-  let inheritedNested ← checkedInheritedNestedTypeShadowsUnrelatedLowering
-  let qualifiedInheritedNested ← checkedQualifiedInheritedNestedTypeLowering
+  let inheritedNested ←
+    checkedInheritedNestedTypeShadowsUnrelatedSourceElaboration
+  let qualifiedInheritedNested ←
+    checkedQualifiedInheritedNestedTypeSourceElaboration
   let inheritedEnum ← checkedInheritedEnumMaxMatches
   let qualifiedInheritedEnum ← checkedQualifiedInheritedEnumMaxMatches
   let inheritedUdvt ← checkedInheritedUdvtAbiEchoUsesInheritedUnderlying
@@ -7071,6 +9143,26 @@ def checkedMemoryArrayAllocationOutOfBoundsPanics :
     "allocate" SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 1] 0x32
 
+def checkedMemoryAllocationTooLargePanicMatches
+    (functionName : Name) : Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedMemoryAndCalldataContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract functionName
+      { contract.core.context with memoryAllocationLimit? := some 3 }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 4]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq code 0x41)
+  | _ => Except.ok false
+
+def checkedMemoryArrayAllocationTooLargePanics :
+    Except TypeError Bool :=
+  checkedMemoryAllocationTooLargePanicMatches "allocate"
+
 def checkedMemoryBytesAllocationMatches :
     Except TypeError Bool :=
   checkedOwnCallBytesAndWordQuadMatches 16
@@ -7086,6 +9178,10 @@ def checkedMemoryBytesAllocationOutOfBoundsPanics :
     "allocateBytes" SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 1] 0x32
 
+def checkedMemoryBytesAllocationTooLargePanics :
+    Except TypeError Bool :=
+  checkedMemoryAllocationTooLargePanicMatches "allocateBytes"
+
 def checkedMemoryStringAllocationMatches :
     Except TypeError Bool :=
   checkedOwnCallBytesMatches 16
@@ -7093,6 +9189,148 @@ def checkedMemoryStringAllocationMatches :
     "allocateString" SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 3]
     [0, 0, 0]
+
+def checkedMemoryStringAllocationTooLargePanics :
+    Except TypeError Bool :=
+  checkedMemoryAllocationTooLargePanicMatches "allocateString"
+
+def checkedMemoryAllocationFootprintRuns :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 32
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "memoryFootprint" SolidCore.Solidity.Source.State.empty [] 1
+
+def checkedMemoryAllocationObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedMemoryAndCalldataContract
+  let function ←
+    optionToExcept "checked memoryFootprint core function"
+      (SolidCore.Solidity.Source.Contract.findFunctionByName?
+        contract.core "memoryFootprint")
+  let result ←
+    optionToExcept "checked memoryFootprint statement evaluation"
+      (SolidCore.Solidity.Source.Stmt.eval 32 contract.core.context
+        (SolidCore.Solidity.Source.Runtime.ofState
+          SolidCore.Solidity.Source.State.empty)
+        function.body)
+  match result with
+  | SolidCore.Solidity.Source.Result.returned runtime
+      [SolidCore.Solidity.Source.Value.word ok] => do
+      let observation := runtime.observe 0
+      let memory := observation.memory
+      let xs ←
+        optionToExcept "memoryFootprint xs object"
+          (SolidCore.Solidity.Source.MemoryMap.lookup?
+            memory.objects 0)
+      let buf ←
+        optionToExcept "memoryFootprint bytes object"
+          (SolidCore.Solidity.Source.MemoryMap.lookup?
+            memory.objects 1)
+      let text ←
+        optionToExcept "memoryFootprint string object"
+          (SolidCore.Solidity.Source.MemoryMap.lookup?
+            memory.objects 2)
+      let xsLen ← optionToExcept "memoryFootprint xs length" xs.length?
+      let bufLen ← optionToExcept "memoryFootprint bytes length" buf.length?
+      let textLen ←
+        optionToExcept "memoryFootprint string length" text.length?
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq ok 1 &&
+          observation.locals.frames.length == 1 &&
+          memory.nextObject == 3 &&
+          memory.allocationSizes == [128, 64, 64] &&
+          memory.allocatedBytes ==
+            Executable.Examples.memoryAllocationFootprintExpected &&
+          xsLen == 3 &&
+          bufLen == 5 &&
+          textLen == 2)
+  | _ => Except.ok false
+
+def checkedLocalObservationShadowingMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.localObservationShadowingMatches
+
+def checkedLocalDeclarationObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.localDeclarationObservationMatches
+
+def checkedLocalAssignmentObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.localAssignmentObservationMatches
+
+def checkedBlockScopeObservationMatches : Except TypeError Bool :=
+  Except.ok Executable.Examples.blockScopeObservationMatches
+
+def checkedMemoryArrayAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "memoryArrayAlias" SolidCore.Solidity.Source.State.empty [] 7 7
+
+def checkedMemoryBytesAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "memoryBytesAlias" SolidCore.Solidity.Source.State.empty [] 0xab 0xab
+
+def checkedCalldataCopyThenMemoryAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 32
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "calldataCopyThenMemoryAlias"
+    SolidCore.Solidity.Source.State.empty
+    [ SolidCore.Solidity.Source.Value.dynamicArray
+        [ SolidCore.Solidity.Source.Value.word 4
+        , SolidCore.Solidity.Source.Value.word 5 ] ]
+    4 9
+
+def checkedNestedMemoryArrayAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 48
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "nestedMemoryArrayAlias"
+    SolidCore.Solidity.Source.State.empty [] 42 42
+
+def checkedNestedMemoryArrayPathAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 48
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "nestedMemoryArrayPathAlias"
+    SolidCore.Solidity.Source.State.empty [] 42 42
+
+def checkedNestedMemoryArrayCompoundAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 64
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "nestedMemoryArrayCompoundAlias"
+    SolidCore.Solidity.Source.State.empty [] 42 42
+
+def checkedNestedMemoryArrayDeleteAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 64
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "nestedMemoryArrayDeleteAlias"
+    SolidCore.Solidity.Source.State.empty [] 0 0
+
+def checkedNestedMemoryArrayIncAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 64
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "nestedMemoryArrayIncAlias"
+    SolidCore.Solidity.Source.State.empty [] 7 7
+
+def checkedMemoryStructArrayFieldAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 48
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "memoryStructArrayFieldAlias"
+    SolidCore.Solidity.Source.State.empty [] 77 77
+
+def checkedMemoryStructWholeAssignArrayFieldAliasMatches :
+    Except TypeError Bool :=
+  checkedOwnCallWordPairMatches 64
+    Executable.Examples.checkedMemoryAndCalldataContract
+    "memoryStructWholeAssignArrayFieldAlias"
+    SolidCore.Solidity.Source.State.empty [] 88 88
 
 def checkedInvalidExprStatementFunction (functionName : Name)
     (expr : L00_SourceSolidity.Expr) : FunctionDecl :=
@@ -7292,9 +9530,34 @@ def checkedMemoryCalldataAbiSemanticsMatch :
     checkedArrayLiteralFixedBytesWidenMatches
   let memoryArray ← checkedMemoryArrayAllocationMatches
   let memoryArrayOob ← checkedMemoryArrayAllocationOutOfBoundsPanics
+  let memoryArrayTooLarge ← checkedMemoryArrayAllocationTooLargePanics
   let memoryBytes ← checkedMemoryBytesAllocationMatches
   let memoryBytesOob ← checkedMemoryBytesAllocationOutOfBoundsPanics
+  let memoryBytesTooLarge ← checkedMemoryBytesAllocationTooLargePanics
   let memoryString ← checkedMemoryStringAllocationMatches
+  let memoryStringTooLarge ← checkedMemoryStringAllocationTooLargePanics
+  let memoryFootprint ← checkedMemoryAllocationFootprintRuns
+  let memoryObservation ← checkedMemoryAllocationObservationMatches
+  let localObservation ← checkedLocalObservationShadowingMatches
+  let localDeclarationObservation ←
+    checkedLocalDeclarationObservationMatches
+  let localAssignmentObservation ← checkedLocalAssignmentObservationMatches
+  let blockScopeObservation ← checkedBlockScopeObservationMatches
+  let memoryArrayAlias ← checkedMemoryArrayAliasMatches
+  let memoryBytesAlias ← checkedMemoryBytesAliasMatches
+  let calldataCopyAlias ← checkedCalldataCopyThenMemoryAliasMatches
+  let nestedMemoryAlias ← checkedNestedMemoryArrayAliasMatches
+  let nestedMemoryPathAlias ←
+    checkedNestedMemoryArrayPathAliasMatches
+  let nestedMemoryCompoundAlias ←
+    checkedNestedMemoryArrayCompoundAliasMatches
+  let nestedMemoryDeleteAlias ←
+    checkedNestedMemoryArrayDeleteAliasMatches
+  let nestedMemoryIncAlias ←
+    checkedNestedMemoryArrayIncAliasMatches
+  let memoryStructAlias ← checkedMemoryStructArrayFieldAliasMatches
+  let memoryStructWholeAssignAlias ←
+    checkedMemoryStructWholeAssignArrayFieldAliasMatches
   let stringDirect ← checkedStringEchoDirectCallMatches
   let stringCalldata ← checkedStringEchoCalldataMatches
   let calldataSlice ← checkedCalldataArraySliceMatches
@@ -7317,7 +9580,17 @@ def checkedMemoryCalldataAbiSemanticsMatch :
       checkedAbiArrayContractAccepted &&
       arrayLiteralLocal && arrayLiteralAbi && arrayLiteralFixedBytes &&
       memoryArray && memoryArrayOob &&
-      memoryBytes && memoryBytesOob && memoryString &&
+      memoryArrayTooLarge &&
+      memoryBytes && memoryBytesOob && memoryBytesTooLarge &&
+      memoryString && memoryStringTooLarge &&
+      memoryFootprint && memoryObservation && localObservation &&
+      localDeclarationObservation && localAssignmentObservation &&
+      blockScopeObservation &&
+      memoryArrayAlias && memoryBytesAlias && calldataCopyAlias &&
+      nestedMemoryAlias && nestedMemoryPathAlias && memoryStructAlias &&
+      nestedMemoryCompoundAlias && nestedMemoryDeleteAlias &&
+      nestedMemoryIncAlias &&
+      memoryStructWholeAssignAlias &&
       stringDirect && stringCalldata &&
       calldataSlice && calldataSliceAbi && calldataSliceOob &&
       fixedArrayAbi && fixedArrayThenBytesAbi && dynamicFixedArrayAbi &&
@@ -7456,10 +9729,13 @@ def checkedAbiDecodeMalformedSourceReverts :
     "badDecode" SolidCore.Solidity.Source.State.empty [] 0
 
 def checkedAbiBuiltinSourceDisciplineAccepted : Bool :=
-  Result.isOk
+    Result.isOk
       (TypecheckedInput.checkedSourceUnit
         abiEncodeExternalFunctionPointerSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit abiDecodeSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abiEncodePackedStaticElementArraySource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit bytesConcatSource)
 
 def checkedAbiBuiltinSourceDisciplineRejected : Bool :=
@@ -7467,6 +9743,12 @@ def checkedAbiBuiltinSourceDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         abiEncodeInternalFunctionPointerSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit badAbiDecodeSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badAbiEncodePackedStructSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badAbiEncodePackedNestedArraySource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit badBytesConcatSource)
 
 def checkedAbiEncodeExternalFunctionPointerMatches :
@@ -7578,6 +9860,28 @@ def checkedExternalFunctionMembersMatch :
     [SolidCore.Solidity.Source.Value.externalFunction
       0xbeef Executable.Examples.selectorEncodingSelector]
     Executable.Examples.selectorEncodingSelector 0xbeef
+
+def checkedExternalFunctionPointerEqualityMatches :
+    Except TypeError Bool := do
+  let pointer :=
+    SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef Executable.Examples.selectorEncodingSelector
+  let other :=
+    SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef Executable.Examples.externalFunctionPointerOtherSelector
+  let same ←
+    checkedOwnCallWordPairMatches 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "externalFunctionEquality"
+      SolidCore.Solidity.Source.State.empty
+      [pointer, pointer] 1 0
+  let different ←
+    checkedOwnCallWordPairMatches 16
+      Executable.Examples.checkedExternalFunctionPointerContract
+      "externalFunctionEquality"
+      SolidCore.Solidity.Source.State.empty
+      [pointer, other] 0 1
+  Except.ok (same && different)
 
 def checkedExternalFunctionAbiCleanDecodeMatches : Bool :=
   match Executable.Examples.externalFunctionAbiCleanDecodeMatches with
@@ -7691,6 +9995,13 @@ def checkedExternalFunctionPointerTryCatchCatchMatches :
       [SolidCore.Solidity.Source.Value.word value] =>
       Except.ok (SolidCore.Solidity.Source.wordEq value 7)
   | _ => Except.ok false
+
+def checkedExternalFunctionValueCallObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedExternalFunctionPointerContractAccepted &&
+      Executable.Examples.externalFunctionValueCallObservationMatches ==
+        some true)
 
 def checkedHighLevelExternalSourceAccepted : Bool :=
   Result.isOk
@@ -7999,18 +10310,27 @@ def checkedHighLevelExternalInvalidSourcesRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.checkedHighLevelExternalNonpayableValueSource)
 
+def checkedHighLevelExternalCallObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedHighLevelExternalSourceAccepted &&
+      Executable.Examples.highLevelExternalCallObservationMatches == some true)
+
 def checkedExternalFunctionAndCallSemanticsMatch :
     Except TypeError Bool := do
   let encodeCall ← checkedAbiEncodeCallSourceMatchesExpected
   let encodeCallPointer ←
     checkedAbiEncodeCallExternalPointerMatchesExpected
   let members ← checkedExternalFunctionMembersMatch
+  let equality ← checkedExternalFunctionPointerEqualityMatches
   let pointerCall ← checkedExternalFunctionPointerCallMatches
   let payablePointer ← checkedExternalFunctionPointerPayableCallMatches
   let nonpayableGas ← checkedExternalFunctionPointerNonpayableGasMatches
   let pointerTrySuccess ←
     checkedExternalFunctionPointerTryCatchSuccessMatches
   let pointerTryCatch ← checkedExternalFunctionPointerTryCatchCatchMatches
+  let pointerObservation ←
+    checkedExternalFunctionValueCallObservationMatches
   let highLevelReturn ← checkedHighLevelExternalReturnMatches
   let highLevelNamed ← checkedHighLevelExternalNamedArgsReorderedMatches
   let highLevelVarDecl ← checkedHighLevelExternalVarDeclMatches
@@ -8029,6 +10349,7 @@ def checkedExternalFunctionAndCallSemanticsMatch :
   let getterStatic ← checkedHighLevelExternalGetterStaticcallMatches
   let thisView ← checkedHighLevelThisViewStaticcallMatches
   let thisGetter ← checkedHighLevelThisGetterStaticcallMatches
+  let highLevelObservation ← checkedHighLevelExternalCallObservationMatches
   Except.ok
     (checkedAbiEncodeCallSourceUnitAccepted &&
       checkedExternalFunctionPointerContractAccepted &&
@@ -8037,14 +10358,14 @@ def checkedExternalFunctionAndCallSemanticsMatch :
       checkedExternalFunctionPointerNonpayableValueRejected &&
       checkedHighLevelExternalSourceAccepted &&
       checkedHighLevelExternalInvalidSourcesRejected &&
-      encodeCall && encodeCallPointer && members &&
+      encodeCall && encodeCallPointer && members && equality &&
       pointerCall && payablePointer && nonpayableGas &&
-      pointerTrySuccess && pointerTryCatch &&
+      pointerTrySuccess && pointerTryCatch && pointerObservation &&
       highLevelReturn && highLevelNamed && highLevelVarDecl &&
       highLevelMultiVar && highLevelPayable && highLevelNonpayableGas &&
       highLevelAssign && highLevelDiscard && missingCode && codePresent &&
       noCodeReturn && failureRaw && viewStatic && pureGasStatic &&
-      getterStatic && thisView && thisGetter)
+      getterStatic && thisView && thisGetter && highLevelObservation)
 
 def checkedCallContextContractAccepted : Bool :=
   Result.isOk
@@ -8176,8 +10497,53 @@ def checkedEnvironmentGlobalsMatch : Except TypeError Bool := do
           SolidCore.Solidity.Source.wordEq gaslimit 30000000 &&
           SolidCore.Solidity.Source.wordEq origin 0xabc &&
           SolidCore.Solidity.Source.wordEq gasprice 50 &&
+            SolidCore.Solidity.Source.wordEq remaining 999)
+  | _ => Except.ok false
+
+def checkedEnvironmentGlobalsWithContextMatch
+    (context : SolidCore.Solidity.Source.Context)
+    (expectedBasefee expectedBlobbasefee expectedChainid :
+      SolidCore.Solidity.Source.Word) : Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedEnvironmentContract "env"
+      context
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word timestamp
+      , SolidCore.Solidity.Source.Value.word number
+      , SolidCore.Solidity.Source.Value.word basefee
+      , SolidCore.Solidity.Source.Value.word blobbasefee
+      , SolidCore.Solidity.Source.Value.word chainid
+      , SolidCore.Solidity.Source.Value.word coinbase
+      , SolidCore.Solidity.Source.Value.word gaslimit
+      , SolidCore.Solidity.Source.Value.word origin
+      , SolidCore.Solidity.Source.Value.word gasprice
+      , SolidCore.Solidity.Source.Value.word remaining ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq timestamp 100 &&
+          SolidCore.Solidity.Source.wordEq number 7 &&
+          SolidCore.Solidity.Source.wordEq basefee expectedBasefee &&
+          SolidCore.Solidity.Source.wordEq blobbasefee
+            expectedBlobbasefee &&
+          SolidCore.Solidity.Source.wordEq chainid expectedChainid &&
+          SolidCore.Solidity.Source.wordEq coinbase 0xcb &&
+          SolidCore.Solidity.Source.wordEq gaslimit 30000000 &&
+          SolidCore.Solidity.Source.wordEq origin 0xabc &&
+          SolidCore.Solidity.Source.wordEq gasprice 50 &&
           SolidCore.Solidity.Source.wordEq remaining 999)
   | _ => Except.ok false
+
+def checkedEnvironmentPreLondonBasefeeMatches :
+    Except TypeError Bool :=
+  checkedEnvironmentGlobalsWithContextMatch
+    Executable.Examples.environmentGlobalsPreLondonContext 0 0 1
+
+def checkedEnvironmentPreIstanbulChainidMatches :
+    Except TypeError Bool :=
+  checkedEnvironmentGlobalsWithContextMatch
+    Executable.Examples.environmentGlobalsPreIstanbulContext 0 0 0
 
 def checkedEnvironmentRandaoAliasMatches :
     Except TypeError Bool :=
@@ -8187,12 +10553,28 @@ def checkedEnvironmentRandaoAliasMatches :
     Executable.Examples.environmentRandaoAliasContext
     SolidCore.Solidity.Source.State.empty [] 0x2222 0x2222
 
+def checkedEnvironmentPreParisRandaoAliasMatches :
+    Except TypeError Bool :=
+  checkedCallFunctionWithContextWordPairMatches 16
+    Executable.Examples.checkedEnvironmentContract
+    "randaoAlias"
+    Executable.Examples.environmentRandaoPreParisContext
+    SolidCore.Solidity.Source.State.empty [] 0x1111 0x1111
+
 def checkedEnvironmentHashMatches : Except TypeError Bool :=
   checkedCallFunctionWithContextWordTripleMatches 16
     Executable.Examples.checkedEnvironmentContract
     "hashes"
     Executable.Examples.environmentHashContext
     SolidCore.Solidity.Source.State.empty [] 0x1234 0x5678 0
+
+def checkedEnvironmentHashPreCancunMatches :
+    Except TypeError Bool :=
+  checkedCallFunctionWithContextWordTripleMatches 16
+    Executable.Examples.checkedEnvironmentContract
+    "hashes"
+    Executable.Examples.environmentHashPreCancunContext
+    SolidCore.Solidity.Source.State.empty [] 0x1234 0 0
 
 def checkedEnvironmentHashOutOfRangeMatches :
     Except TypeError Bool :=
@@ -8226,12 +10608,40 @@ def checkedMulmodVariableZeroModulusPanics :
     "mulmodZero" SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 0] 0x12
 
+def checkedAddmodLiteralZeroModulusPanics :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 16 addmodZeroLiteralSource
+      "AddmodZeroLiteral"
+      (SolidCore.Solidity.Source.CallTarget.name "addmodLiteralZero")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq code 0x12)
+  | _ => Except.ok false
+
+def checkedMulmodLiteralZeroModulusPanics :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.callContract 16 mulmodZeroLiteralSource
+      "MulmodZeroLiteral"
+      (SolidCore.Solidity.Source.CallTarget.name "mulmodLiteralZero")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      Except.ok (SolidCore.Solidity.Source.wordEq code 0x12)
+  | _ => Except.ok false
+
+def checkedModularArithmeticZeroLiteralSourcesAccepted : Bool :=
+  Result.isOk
+      (TypecheckedInput.checkedSourceUnit addmodZeroLiteralSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit mulmodZeroLiteralSource)
+
 def checkedModularArithmeticInvalidSourcesRejected : Bool :=
   Result.isError
-      (TypecheckedInput.checkedSourceUnit addmodZeroLiteralSource) &&
-    Result.isError
-      (TypecheckedInput.checkedSourceUnit mulmodZeroLiteralSource) &&
-    Result.isError
       (TypecheckedInput.checkedSourceUnit addmodSignedArgumentSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit mulmodSignedModulusSource)
@@ -8321,6 +10731,43 @@ def checkedPrecompileBuiltinsStaticcallSharedResultsMatches :
           SolidCore.Solidity.Source.wordEq recovered 0xcafe &&
           SolidCore.Solidity.Source.wordEq recoverSuccess 1 &&
           recoverOutput == recoverExpected)
+  | _ => Except.ok false
+
+def checkedIdentityPrecompileStaticcallMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedHashBuiltinContract
+      "identityPrecompile"
+      SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [probe] => do
+      let (success, output) ← checkedDecodeLowLevelReturn probe
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == Executable.Examples.identityPrecompilePayload)
+  | _ => Except.ok false
+
+def checkedModexpPrecompileStaticcallMatches :
+    Except TypeError Bool := do
+  let result ←
+    ContractDecl.checkedCallFunctionWithContext 16
+      Executable.Examples.checkedHashBuiltinContract
+      "modexpPrecompile"
+      SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [probe, zeroProbe] => do
+      let (success, output) ← checkedDecodeLowLevelReturn probe
+      let (zeroSuccess, zeroOutput) ←
+        checkedDecodeLowLevelReturn zeroProbe
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [6] &&
+          SolidCore.Solidity.Source.wordEq zeroSuccess 1 &&
+          zeroOutput == [0])
   | _ => Except.ok false
 
 def checkedTypeMetadataSourceUnitAccepted : Bool :=
@@ -8461,6 +10908,31 @@ def checkedSelectorInfoMatches : Except TypeError Bool :=
       "stored()")
     0 0xbeef
 
+def checkedInterfaceObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.interfaceObservationContract
+  Except.ok
+    (Executable.Examples.interfaceObservationMatches &&
+      L00_SourceSolidity.Executable.ContractDecl.observeInterface
+        contract.decl ==
+      L00_SourceSolidity.Executable.ContractDecl.observeInterface
+        Executable.Examples.interfaceObservationContract)
+
+def checkedSourceUnitObservationMatches :
+    Except TypeError Bool := do
+  let program ←
+    CheckedInput.program Executable.Examples.sourceUnitObservationUnit
+  let resolvedObservation ←
+    optionToExcept "source-unit interface observation"
+      (L00_SourceSolidity.Executable.SourceUnit.observeInterfaceResolved?
+        Executable.Examples.sourceUnitObservationUnit)
+  Except.ok
+    (Executable.Examples.sourceUnitObservationMatches == some true &&
+      L00_SourceSolidity.Executable.SourceUnit.observeInterface
+        program.source == resolvedObservation)
+
 def checkedOverloadedSelectorRejected : Bool :=
   Result.isError
     (TypecheckedInput.checkedSourceUnit
@@ -8495,6 +10967,32 @@ def checkedAddressMembersMatch : Except TypeError Bool := do
           SolidCore.Solidity.Source.wordEq otherCodehash 0x123456)
   | _ => Except.ok false
 
+def checkedAddressMembersPreConstantinopleCodehashMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "accountInfo"
+      { contract.core.context with
+        evmVersion := SolidCore.Solidity.Source.EvmVersion.byzantium
+        self := 0xcafe
+        accountBalances := [(0xcafe, 1000), (0xbeef, 77)]
+        accountCodehashes := [(0xbeef, 0x123456)] }
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word selfAddress
+      , SolidCore.Solidity.Source.Value.word selfBalance
+      , SolidCore.Solidity.Source.Value.word otherBalance
+      , SolidCore.Solidity.Source.Value.word otherCodehash ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq selfAddress 0xcafe &&
+          SolidCore.Solidity.Source.wordEq selfBalance 1000 &&
+          SolidCore.Solidity.Source.wordEq otherBalance 77 &&
+          SolidCore.Solidity.Source.wordEq otherCodehash 0)
+  | _ => Except.ok false
+
 def checkedAddressCodeMemberMatch : Except TypeError Bool := do
   let contract ←
     ContractDecl.checkedContract
@@ -8527,12 +11025,111 @@ def checkedSelfdestructRecordsAndStopsMatches :
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
   | SolidCore.Solidity.Source.CallResult.returned state [] =>
-      match state.selfdestructs with
-      | [(fromAddress, recipient)] =>
+      let observation := state.observe 0xcafe
+      let recordMatches :=
+        fun (record : SharedSemantics.Account.SelfdestructRecord) =>
+          SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+            SolidCore.Solidity.Source.wordEq
+              record.recipient 0xbeef &&
+            record.deletesAccount == false
+      match state.selfdestructs, observation.effects.selfdestructs,
+          state.selfdestructEffects, observation.effects.selfdestructEffects with
+      | [(fromAddress, recipient)], [(effectFrom, effectRecipient)],
+          [record], [effectRecord] =>
           Except.ok
             (SolidCore.Solidity.Source.wordEq fromAddress 0xcafe &&
               SolidCore.Solidity.Source.wordEq recipient 0xbeef &&
-              SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
+              SolidCore.Solidity.Source.wordEq effectFrom 0xcafe &&
+              SolidCore.Solidity.Source.wordEq effectRecipient 0xbeef &&
+              SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0 &&
+              recordMatches record &&
+              recordMatches effectRecord)
+      | _, _, _, _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedSelfdestructFunctionEntryBodyObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let function ← CheckedContract.coreFunction contract "destroy"
+  let context : CoreContext :=
+    { contract.core.context with self := 0xcafe }
+  let observation :=
+    function.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      16 context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef] 0xcafe
+  let effectMatches :=
+    fun (state : SolidCore.Solidity.Source.StateObservation) =>
+      match state.effects.selfdestructs with
+      | [(fromAddress, recipient)] =>
+          SolidCore.Solidity.Source.wordEq fromAddress 0xcafe &&
+            SolidCore.Solidity.Source.wordEq recipient 0xbeef
+      | _ => false
+  match observation.bodyResult?, observation.exit?, observation.result? with
+  | some body, some exit, some result =>
+      Except.ok
+        (body.mode ==
+            SolidCore.Solidity.Source.ResultMode.selfdestructed &&
+          effectMatches body.runtime.state &&
+          exit.kind ==
+            SolidCore.Solidity.Source.FunctionExitKind.selfdestructReturnsEmpty &&
+          exit.bodyResult.mode ==
+            SolidCore.Solidity.Source.ResultMode.selfdestructed &&
+          exit.callResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.returned &&
+          exit.callResult.returnValues.isEmpty &&
+          effectMatches exit.callResult.state &&
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.returnValues.isEmpty &&
+          effectMatches result.state &&
+          result.state.storage == [])
+  | _, _, _ => Except.ok false
+
+def checkedSelfdestructPreCancunDeletesMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "destroy"
+      { contract.core.context with
+        self := 0xcafe
+        evmVersion := SolidCore.Solidity.Source.EvmVersion.shanghai }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.selfdestructEffects with
+      | [record] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+              SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+              record.deletesAccount == true)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedSelfdestructCancunCreatedAccountDeletesMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.checkedAddressEnvironmentContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "destroy"
+      { contract.core.context with
+        self := 0xcafe
+        createdInTransactionAccounts := [0xcafe] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.selfdestructEffects with
+      | [record] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+              SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+              record.deletesAccount == true)
       | _ => Except.ok false
   | _ => Except.ok false
 
@@ -8605,7 +11202,8 @@ def checkedAmbientBuiltinDisciplineAccepted : Bool :=
   Result.isOk (TypecheckedInput.checkedSourceUnit pureMsgSigSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit viewBlockTimestampSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit viewAmbientBuiltinsSource) &&
-    Result.isOk (TypecheckedInput.checkedSourceUnit viewAddressEnvMembersSource)
+    Result.isOk (TypecheckedInput.checkedSourceUnit viewAddressEnvMembersSource) &&
+    evmVersionBuiltinDisciplineAccepted
 
 def checkedAmbientBuiltinDisciplineRejected : Bool :=
   Result.isError (TypecheckedInput.checkedSourceUnit pureMsgValueSource) &&
@@ -8615,16 +11213,41 @@ def checkedAmbientBuiltinDisciplineRejected : Bool :=
     Result.isError (TypecheckedInput.checkedSourceUnit badBlockhashArgSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit signedBlockhashArgSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit signedBlobhashArgSource) &&
-    Result.isError (TypecheckedInput.checkedSourceUnit pureAddressEnvMembersSource)
+    Result.isError (TypecheckedInput.checkedSourceUnit pureAddressEnvMembersSource) &&
+    evmVersionBuiltinDisciplineRejected
+
+def checkedContextObservationSourceBoundaryMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.contextObservationSourceBoundaryMatches
+
+def checkedSharedPrimitiveObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.sharedPrimitiveObservationMatches
+
+def checkedExternalResolutionObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.externalResolutionObservationMatches
+
+def checkedStateEffectsObservationBoundaryMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.stateEffectsObservationBoundaryMatches
 
 def checkedBuiltinMetadataSemanticsMatch :
     Except TypeError Bool := do
+  let contextObservation ← checkedContextObservationSourceBoundaryMatches
+  let sharedPrimitiveObservation ← checkedSharedPrimitiveObservationMatches
+  let externalResolution ← checkedExternalResolutionObservationMatches
+  let stateEffectsObservation ← checkedStateEffectsObservationBoundaryMatches
   let msgSig ← checkedMsgSigCalldataMatches
   let msgContext ← checkedMsgContextCalldataMatches
   let selfAddress ← checkedAbiSelfAddressAtMatches
   let envGlobals ← checkedEnvironmentGlobalsMatch
+  let preLondonBasefee ← checkedEnvironmentPreLondonBasefeeMatches
+  let preIstanbulChainid ← checkedEnvironmentPreIstanbulChainidMatches
   let randaoAlias ← checkedEnvironmentRandaoAliasMatches
+  let preParisRandao ← checkedEnvironmentPreParisRandaoAliasMatches
   let envHash ← checkedEnvironmentHashMatches
+  let preCancunHash ← checkedEnvironmentHashPreCancunMatches
   let envHashOob ← checkedEnvironmentHashOutOfRangeMatches
   let keccak ← checkedKeccakBuiltinMatchesExpected
   let erc7201 ← checkedErc7201BuiltinMatchesEipExample
@@ -8633,6 +11256,8 @@ def checkedBuiltinMetadataSemanticsMatch :
   let ecrecover ← checkedEcrecoverBuiltinMatches
   let precompileShared ←
     checkedPrecompileBuiltinsStaticcallSharedResultsMatches
+  let identityPrecompile ← checkedIdentityPrecompileStaticcallMatches
+  let modexpPrecompile ← checkedModexpPrecompileStaticcallMatches
   let typeLimits ← checkedTypeInfoLimitsMatch
   let signedTypeLimits ← checkedSignedTypeInfoLimitsMatch
   let contractName ← checkedContractTypeNameMatches
@@ -8640,9 +11265,19 @@ def checkedBuiltinMetadataSemanticsMatch :
   let runtimeCodeAbi ← checkedContractTypeRuntimeCodeAbiMatches
   let interfaceId ← checkedInterfaceIdMatchesExpected
   let selectorInfo ← checkedSelectorInfoMatches
+  let interfaceObservation ← checkedInterfaceObservationMatches
+  let sourceUnitObservation ← checkedSourceUnitObservationMatches
   let addressMembers ← checkedAddressMembersMatch
+  let addressCodehashPreConstantinople ←
+    checkedAddressMembersPreConstantinopleCodehashMatches
   let addressCode ← checkedAddressCodeMemberMatch
   let selfdestruct ← checkedSelfdestructRecordsAndStopsMatches
+  let selfdestructEntry ←
+    checkedSelfdestructFunctionEntryBodyObservationMatches
+  let selfdestructPreCancun ←
+    checkedSelfdestructPreCancunDeletesMatches
+  let selfdestructCreated ←
+    checkedSelfdestructCancunCreatedAccountDeletesMatches
   let concat ← checkedConcatBuiltinsMatch
   let bytesConcat ← checkedBytesConcatFixedMatchesExpected
   let stringConcat ← checkedStringConcatUnicodeMatchesExpected
@@ -8657,15 +11292,27 @@ def checkedBuiltinMetadataSemanticsMatch :
       checkedMetadataInvalidSourcesRejected &&
       checkedConcatBuiltinsContractAccepted &&
       checkedConcatInvalidSourcesRejected &&
+      Executable.Examples.canonicalPrecompileAddressesMatch &&
       checkedAmbientBuiltinDisciplineAccepted &&
-      checkedAmbientBuiltinDisciplineRejected &&
-      msgSig && msgContext && selfAddress &&
-      envGlobals && randaoAlias && envHash && envHashOob &&
+        checkedAmbientBuiltinDisciplineRejected &&
+        contextObservation &&
+        sharedPrimitiveObservation &&
+        externalResolution &&
+        stateEffectsObservation &&
+        msgSig && msgContext && selfAddress &&
+        envGlobals && preLondonBasefee && preIstanbulChainid &&
+        randaoAlias && preParisRandao &&
+        envHash && preCancunHash && envHashOob &&
       keccak && erc7201 && externalHashes && missingHash &&
       ecrecover && precompileShared &&
+        identityPrecompile && modexpPrecompile &&
       typeLimits && signedTypeLimits && contractName &&
       codeInfo && runtimeCodeAbi && interfaceId && selectorInfo &&
-      addressMembers && addressCode && selfdestruct &&
+        interfaceObservation &&
+        sourceUnitObservation &&
+        addressMembers && addressCodehashPreConstantinople &&
+        addressCode && selfdestruct &&
+      selfdestructEntry && selfdestructPreCancun && selfdestructCreated &&
       concat && bytesConcat && stringConcat)
 
 def checkedLiteralConversionContractAccepted : Bool :=
@@ -9227,6 +11874,10 @@ def checkedLiteralInvalidSourcesRejected : Bool :=
   Result.isError
       (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
     Result.isError
+      (TypecheckedInput.checkedSourceUnit stringIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit stringLengthMemberSource) &&
+    Result.isError
       (TypecheckedInput.checkedSourceUnit calldataSliceSignedIndexSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit calldataSliceMemberSource) &&
@@ -9279,6 +11930,12 @@ def checkedArithmeticContractAccepted : Bool :=
   Result.isOk
     (TypecheckedInput.checkedSourceUnit
       Executable.Examples.checkedArithmeticContract)
+
+def checkedBinaryArithmeticObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedArithmeticContractAccepted &&
+      Executable.Examples.binaryArithmeticObservationMatches)
 
 def checkedOwnCallIntMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
@@ -9495,6 +12152,103 @@ def checkedNarrowLiteralArgumentMatches :
     "CallUint8Literal" "callSmall"
     SolidCore.Solidity.Source.State.empty [] 1
 
+def checkedNarrowDirtyParamPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "echoUint8" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 300] 0x11
+
+def checkedNarrowDirtyCalldataParamPanics :
+    Except TypeError Bool := do
+  let payload ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 300]
+  let calldata :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "echoUint8(uint8)") ++ payload
+  let result ←
+    CheckedInput.ownCallCalldata 16
+      Executable.Examples.checkedArithmeticContract
+      SolidCore.Solidity.Source.State.empty calldata
+  let expectedPayload ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 0x11]
+  let expected :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      SolidCore.Solidity.Source.ABI.panicSelector ++ expectedPayload
+  Except.ok (!result.success && result.output == expected)
+
+def checkedNarrowReturnOverflowPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowReturnOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0x11
+
+def checkedNarrowUncheckedReturnWraps :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowUncheckedReturnWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0
+
+def checkedNarrowLocalOverflowPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowLocalOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0x11
+
+def checkedNarrowUncheckedLocalWraps :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowUncheckedLocalWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0
+
+def checkedNarrowPreIncrementOverflowPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowPreIncrementOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0x11
+
+def checkedNarrowUncheckedPreIncrementWraps :
+    Except TypeError Bool :=
+  checkedOwnCallWordMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowUncheckedPreIncrementWrap" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0
+
+def checkedNarrowPostIncrementOverflowPanics :
+    Except TypeError Bool :=
+  checkedOwnCallPanicMatches 16
+    Executable.Examples.checkedArithmeticContract
+    "narrowPostIncrementOverflow" SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 255] 0x11
+
+def checkedNarrowUncheckedPostIncrementWraps :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 16
+      Executable.Examples.checkedArithmeticContract
+      (SolidCore.Solidity.Source.CallTarget.name
+        "narrowUncheckedPostIncrement")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 255]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word old
+      , SolidCore.Solidity.Source.Value.word next ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq old 255 &&
+          SolidCore.Solidity.Source.wordEq next 0)
+  | _ => Except.ok false
+
 def checkedShiftWideCountMatches :
     Except TypeError Bool :=
   checkedCallWordMatches 16 shiftWideCountSource
@@ -9514,13 +12268,8 @@ def checkedCompoundShiftMatches :
     "CompoundShift" "compoundShift"
     SolidCore.Solidity.Source.State.empty [] 4
 
-def checkedEmptyInlineAssemblySourceAccepted : Bool :=
-  Result.isOk (CheckedInput.program emptyInlineAssemblySource)
-
-def checkedEmptyInlineAssemblySkips : Except TypeError Bool :=
-  checkedCallWordMatches 16 emptyInlineAssemblySource
-    "EmptyInlineAssembly" "emptyAssembly"
-    SolidCore.Solidity.Source.State.empty [] 1
+def checkedEmptyInlineAssemblyRejected : Bool :=
+  Result.isError (CheckedInput.program emptyInlineAssemblySource)
 
 def checkedNonemptyInlineAssemblyRejected : Bool :=
   Result.isError (CheckedInput.program nonemptyInlineAssemblySource)
@@ -9530,6 +12279,8 @@ def checkedModularCheckedArithmeticSemanticsMatch :
   let modular ← checkedModularArithmeticMatches
   let addmodZero ← checkedAddmodVariableZeroModulusPanics
   let mulmodZero ← checkedMulmodVariableZeroModulusPanics
+  let addmodLiteralZero ← checkedAddmodLiteralZeroModulusPanics
+  let mulmodLiteralZero ← checkedMulmodLiteralZeroModulusPanics
   let signedOps ← checkedSignedIntArithmeticMatches
   let signedAbi ← checkedSignedIntAbiOutputMatchesExpected
   let signedSar ← checkedSignedSarMatches
@@ -9554,17 +12305,30 @@ def checkedModularCheckedArithmeticSemanticsMatch :
     checkedUncheckedInternalCallCalleeOverflowReverts
   let uncheckedInternalArg ← checkedUncheckedInternalCallArgumentWraps
   let narrowLiteral ← checkedNarrowLiteralArgumentMatches
+  let narrowDirtyParam ← checkedNarrowDirtyParamPanics
+  let narrowDirtyCalldataParam ← checkedNarrowDirtyCalldataParamPanics
+  let narrowReturnOverflow ← checkedNarrowReturnOverflowPanics
+  let narrowUncheckedReturn ← checkedNarrowUncheckedReturnWraps
+  let narrowLocalOverflow ← checkedNarrowLocalOverflowPanics
+  let narrowUncheckedLocal ← checkedNarrowUncheckedLocalWraps
+  let narrowPreIncOverflow ← checkedNarrowPreIncrementOverflowPanics
+  let narrowUncheckedPreInc ← checkedNarrowUncheckedPreIncrementWraps
+  let narrowPostIncOverflow ← checkedNarrowPostIncrementOverflowPanics
+  let narrowUncheckedPostInc ← checkedNarrowUncheckedPostIncrementWraps
   let shiftWideCount ← checkedShiftWideCountMatches
   let bytesBitwise ← checkedBytesBitwiseMatches
   let compoundShift ← checkedCompoundShiftMatches
+  let arithmeticObservation ← checkedBinaryArithmeticObservationMatches
   Except.ok
     (checkedModularArithmeticContractAccepted &&
+      checkedModularArithmeticZeroLiteralSourcesAccepted &&
       checkedModularArithmeticInvalidSourcesRejected &&
       checkedArithmeticContractAccepted &&
       checkedUncheckedArithmeticInvalidSourcesRejected &&
       checkedArithmeticSourceDisciplineAccepted &&
       checkedArithmeticSourceDisciplineRejected &&
       modular && addmodZero && mulmodZero &&
+      addmodLiteralZero && mulmodLiteralZero &&
       signedOps && signedAbi && signedSar && signedSarAssign &&
       addOverflow && uncheckedAdd && subUnderflow && uncheckedSub &&
       mulOverflow && uncheckedMul && signedNeg && uncheckedSignedNeg &&
@@ -9572,14 +12336,18 @@ def checkedModularCheckedArithmeticSemanticsMatch :
       divZero && uncheckedDivZero && uncheckedModZero &&
       signedDivOverflow && uncheckedSignedDiv &&
       uncheckedInternalOverflow && uncheckedInternalArg &&
-      narrowLiteral && shiftWideCount && bytesBitwise && compoundShift)
+      narrowLiteral && narrowDirtyParam && narrowDirtyCalldataParam &&
+      narrowReturnOverflow && narrowUncheckedReturn &&
+      narrowLocalOverflow && narrowUncheckedLocal &&
+      narrowPreIncOverflow && narrowUncheckedPreInc &&
+      narrowPostIncOverflow && narrowUncheckedPostInc &&
+      shiftWideCount && bytesBitwise && compoundShift &&
+      arithmeticObservation)
 
 def checkedInlineAssemblyBoundarySemanticsMatch :
-    Except TypeError Bool := do
-  let emptyAssembly ← checkedEmptyInlineAssemblySkips
+    Except TypeError Bool :=
   Except.ok
-    (checkedEmptyInlineAssemblySourceAccepted &&
-      emptyAssembly && checkedNonemptyInlineAssemblyRejected)
+    (checkedEmptyInlineAssemblyRejected && checkedNonemptyInlineAssemblyRejected)
 
 def checkedIncrementExpressionVarDeclMatches :
     Except TypeError Bool :=
@@ -9615,7 +12383,7 @@ def checkedAssignmentExpressionReturnMatches :
     Except TypeError Bool :=
   checkedOwnCallWordPairMatches 32
     Executable.Examples.expressionTargetEffectsContract
-    "assignmentReturn" SolidCore.Solidity.Source.State.empty [] 9 9
+    "assignmentReturn" SolidCore.Solidity.Source.State.empty [] 9 1
 
 def checkedIndexedAssignmentTargetEffectsMatches :
     Except TypeError Bool :=
@@ -10204,6 +12972,14 @@ def checkedCanonicalExternalLibraryUsingFixturesAccepted : Bool :=
       (TypecheckedInput.checkedSourceUnit
         Executable.Examples.usingConstructorUnit)
 
+def checkedUsingExpansionObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedCanonicalUsingLibraryUnitsAccepted &&
+      checkedCanonicalGlobalUsingPriceOperatorUnitAccepted &&
+      checkedCanonicalExternalLibraryUsingFixturesAccepted &&
+      Executable.Examples.usingExpansionObservationMatches == some true)
+
 def checkedCanonicalExternalLibraryDelegateCallMatches
     (contractName : Name) (input output : Word) :
     Except TypeError Bool := do
@@ -10628,6 +13404,12 @@ def checkedCanonicalModifierContractsAccepted : Bool :=
     (TypecheckedInput.checkedSourceUnit
       Executable.Examples.returnsThroughModifierContract)
 
+def checkedModifierApplicationObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedCanonicalModifierContractsAccepted &&
+      Executable.Examples.modifierApplicationObservationMatches == some true)
+
 def checkedModifierSourceDisciplineAccepted : Bool :=
   Result.isOk (TypecheckedInput.checkedSourceUnit modifierInvocationSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit returnThroughModifierSource)
@@ -10921,6 +13703,8 @@ def checkedUsingConstructorMatches : Except TypeError Bool :=
     [SolidCore.Solidity.Source.Value.word 41] 0 42
 
 def checkedModifierSemanticsMatch : Except TypeError Bool := do
+  let modifierApplicationObservation ←
+    checkedModifierApplicationObservationMatches
   let modifierInvocation ← checkedModifierInvocationFixtureMatches
   let returnThroughFixture ← checkedReturnThroughModifierFixtureMatches
   let canonical ← checkedCanonicalModifierCallMatches
@@ -10938,6 +13722,7 @@ def checkedModifierSemanticsMatch : Except TypeError Bool := do
       checkedModifierSourceDisciplineRejected &&
       checkedTryCatchAroundModifierSourceAccepted &&
       checkedDirectExternalCallModifierSourceAccepted &&
+      modifierApplicationObservation &&
       modifierInvocation && returnThroughFixture &&
       canonical && multiplePlaceholders && namedArgs && returnsThrough &&
       trySuccess && tryCatch && directExternal && usingModifier &&
@@ -10971,6 +13756,8 @@ def checkedGlobalUsingNonUserValueRejected : Bool :=
   Result.isError (CheckedInput.program globalUsingNonUserValueSource)
 
 def checkedLibraryUsingSemanticsMatch : Except TypeError Bool := do
+  let usingExpansionObservation ←
+    checkedUsingExpansionObservationMatches
   let method ← checkedUsingLibraryMethodMatches
   let direct ← checkedUsingLibraryDirectCallMatches
   let sourceLevel ← checkedUsingSourceLevelMatches
@@ -11017,6 +13804,7 @@ def checkedLibraryUsingSemanticsMatch : Except TypeError Bool := do
     (checkedCanonicalUsingLibraryUnitsAccepted &&
       checkedCanonicalGlobalUsingPriceOperatorUnitAccepted &&
       checkedCanonicalExternalLibraryUsingFixturesAccepted &&
+      usingExpansionObservation &&
       method && direct && sourceLevel && storageReceiver &&
       namedMethod && explicitFunction && explicitFreeFunction &&
       namedDirect && canonicalMethod && canonicalDirect &&
@@ -11122,6 +13910,13 @@ def checkedC3DispatchOrderMatches : Except TypeError Bool := do
     (order.map L00_SourceSolidity.ContractDecl.name ==
       ["C3Final", "C3Right", "C3Left", "C3Root"])
 
+def checkedInheritanceDispatchObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedCanonicalSuperBaseSourceUnitsAccepted &&
+      checkedC3DispatchSourceUnitAccepted &&
+      Executable.Examples.inheritanceDispatchObservationMatches == some true)
+
 def checkedInheritedStateReadMatches : Except TypeError Bool := do
   let deployed ←
     CheckedInput.constructContract 32 inheritedStateReadSource
@@ -11189,6 +13984,35 @@ def checkedStorageLayoutFieldsMatch : Except TypeError Bool := do
           y.name == "y" &&
           SolidCore.Solidity.Source.wordEq y.slot 6 &&
           !y.transient)
+  | _ => Except.ok false
+
+def checkedStorageLayoutObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract storageLayoutAcceptedSource "StorageLayoutTop"
+  match contract.core.context.observe.declarations.storageFieldObservations with
+  | [x, y] =>
+      let xLayoutMatches :=
+        match x.layout? with
+        | some
+            (SolidCore.Solidity.Source.StorageLayoutObservation.scalar
+              SolidCore.Solidity.Source.Ty.uint256 1) => true
+        | _ => false
+      let yLayoutMatches :=
+        match y.layout? with
+        | some
+            (SolidCore.Solidity.Source.StorageLayoutObservation.scalar
+              SolidCore.Solidity.Source.Ty.uint256 1) => true
+        | _ => false
+      Except.ok
+        (x.name == "x" &&
+          SolidCore.Solidity.Source.wordEq x.slot 5 &&
+          !x.transient &&
+          xLayoutMatches &&
+          y.name == "y" &&
+          SolidCore.Solidity.Source.wordEq y.slot 6 &&
+          !y.transient &&
+          yLayoutMatches)
   | _ => Except.ok false
 
 def checkedStorageLayoutInitMatches : Except TypeError Bool := do
@@ -11323,6 +14147,13 @@ def checkedConstantImmutableTypecheckerRejects : Bool :=
     Result.isError (CheckedInput.program immutableAssignedInFunctionSource) &&
     Result.isError (CheckedInput.program immutableRuntimePureReadSource)
 
+def checkedConstantImmutableObservationMatches :
+    Except TypeError Bool :=
+  Except.ok
+    (checkedConstantImmutableTypecheckerAccepts &&
+      checkedConstantImmutableTypecheckerRejects &&
+      Executable.Examples.constantImmutableObservationMatches == some true)
+
 def checkedErc7201StorageLayoutMatches : Except TypeError Bool := do
   let result ←
     CheckedInput.constructContract 32 erc7201StorageLayoutSource
@@ -11330,6 +14161,23 @@ def checkedErc7201StorageLayoutMatches : Except TypeError Bool := do
   let slot :=
     SolidCore.Solidity.Source.erc7201Slot
       (Executable.stringUtf8Bytes "example.main")
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq (state.loadSlot slot) 1)
+  | _ => Except.ok false
+
+def checkedErc7201MinusOneStorageLayoutMatches :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.constructContract 32 erc7201MinusOneStorageLayoutSource
+      "Erc7201MinusOneStorageLayout"
+      SolidCore.Solidity.Source.State.empty []
+  let slot :=
+    SharedSemantics.subWord
+      (SolidCore.Solidity.Source.erc7201Slot
+        (Executable.stringUtf8Bytes "example.main"))
+      1
   match result with
   | SolidCore.Solidity.Source.CallResult.returned state _ =>
       Except.ok
@@ -11363,13 +14211,18 @@ def checkedInheritedStorageLayoutRejected : Bool :=
 def checkedBadErc7201StorageLayoutRejected : Bool :=
   Result.isError (CheckedInput.program badErc7201StorageLayoutSource)
 
+def checkedBadErc7201ConcatStorageLayoutRejected : Bool :=
+  Result.isError
+    (CheckedInput.program badErc7201ConcatStorageLayoutSource)
+
 def checkedBadKeccakStorageLayoutRejected : Bool :=
   Result.isError (CheckedInput.program badKeccakStorageLayoutSource)
 
 def checkedStorageLayoutSourceDisciplineAccepted : Bool :=
   Result.isOk (CheckedInput.program storageLayoutAcceptedSource) &&
     Result.isOk (CheckedInput.program constantStorageLayoutSource) &&
-    Result.isOk (CheckedInput.program erc7201StorageLayoutSource)
+    Result.isOk (CheckedInput.program erc7201StorageLayoutSource) &&
+    Result.isOk (CheckedInput.program erc7201MinusOneStorageLayoutSource)
 
 def checkedStorageLayoutSourceDisciplineRejected : Bool :=
   Result.isError (CheckedInput.program unknownConstantStorageLayoutSource) &&
@@ -11377,6 +14230,7 @@ def checkedStorageLayoutSourceDisciplineRejected : Bool :=
     Result.isError (CheckedInput.program mutableStorageLayoutBaseSource) &&
     checkedInheritedStorageLayoutRejected &&
     checkedBadErc7201StorageLayoutRejected &&
+    checkedBadErc7201ConcatStorageLayoutRejected &&
     checkedBadKeccakStorageLayoutRejected
 
 def checkedPayableConstructorValueMatches :
@@ -11424,6 +14278,13 @@ def checkedNonpayableConstructorRejectsValueMatches :
         (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0)
   | _ => Except.ok false
 
+def checkedPublicConstructorVisibilityRuns :
+    Except TypeError Bool :=
+  checkedConstructSlotMatches 32 publicConstructorVisibilitySource
+    "PublicConstructorVisibility"
+    SolidCore.Solidity.Source.State.empty
+    [SolidCore.Solidity.Source.Value.word 44] 0 44
+
 def checkedConstructorInitializesStateMatches :
     Except TypeError Bool := do
   let result ←
@@ -11437,6 +14298,217 @@ def checkedConstructorInitializesStateMatches :
         (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
           SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 42)
   | _ => Except.ok false
+
+def checkedConstructorEntryObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let checkedContract ←
+    CheckedInput.ownContract Executable.Examples.constructorContract
+  let constructor ←
+    optionToExcept "constructor entry observation function"
+      (CheckedProgram.constructorFunctionFor?
+        checkedContract.program checkedContract.decl)
+  let context : CoreContext :=
+    { checkedContract.core.context with
+      sender := 0xcafe
+      value := 0
+      self := 0xabcd
+      construction := true }
+  let observation :=
+    constructor.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.construction
+      16 context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 42] 0xabcd
+  let input := observation.input
+  let frameMatches :=
+    match input.initialFrame? with
+    | some frame =>
+        match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+        | some (SolidCore.Solidity.Source.Value.word value) =>
+            SolidCore.Solidity.Source.wordEq value 42
+        | _ => false
+    | none => false
+  let resultMatches :=
+    match observation.result? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.returnValues.isEmpty &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 1 ==
+            some 42
+    | none => false
+  let argsMatch :=
+    match input.args with
+    | [SolidCore.Solidity.Source.Value.word value] =>
+        SolidCore.Solidity.Source.wordEq value 42
+    | _ => false
+  Except.ok
+    (input.kind ==
+        SolidCore.Solidity.Source.FunctionEntryKind.construction &&
+      input.fuel == 16 &&
+      input.functionName == constructor.name &&
+      input.selector?.isNone &&
+      input.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.value 0 &&
+      input.submittedState.storage == [] &&
+      argsMatch &&
+      frameMatches && resultMatches)
+
+def checkedConstructorDeploymentObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let source : SourceUnitAst :=
+    { items :=
+        [ L00_SourceSolidity.SourceItem.contract
+            Executable.Examples.constructorContract ] }
+  let _program ← SourceUnit.checkedProgram source
+  let observation ←
+    optionToExcept "constructor deployment observation"
+      (L00_SourceSolidity.Executable.SourceUnit.observeDeploymentAtFrom?
+        16 source "Constructed" SolidCore.Solidity.Source.State.empty
+        0xabcd 0xcafe 0
+        [SolidCore.Solidity.Source.Value.word 42])
+  let interfaceMatches :=
+    match observation.interface? with
+    | some interface =>
+        interface.contractNames == ["Constructed"] &&
+          match interface.contracts with
+          | [contract] =>
+              contract.name == "Constructed" &&
+                match contract.constructors with
+                | [ctor] =>
+                    ctor.kind == FunctionKind.constructor &&
+                      ctor.params.length == 1 &&
+                      ctor.selector?.isNone
+                | _ => false
+          | _ => false
+    | none => false
+  let entry := observation.constructorEntry
+  let input := entry.input
+  let frameMatches :=
+    match input.initialFrame? with
+    | some frame =>
+        match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+        | some (SolidCore.Solidity.Source.Value.word value) =>
+            SolidCore.Solidity.Source.wordEq value 42
+        | _ => false
+    | none => false
+  let resultMatches :=
+    match observation.result?, entry.result? with
+    | some result, some entryResult =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          entryResult.mode == result.mode &&
+          result.returnValues.isEmpty &&
+          entryResult.returnValues.isEmpty &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 1 ==
+            some 42 &&
+          SolidCore.Solidity.Source.WordMap.lookup? entryResult.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? entryResult.state.storage 1 ==
+            some 42
+    | _, _ => false
+  let argsMatch :=
+    match observation.args, input.args with
+    | [SolidCore.Solidity.Source.Value.word observed],
+        [SolidCore.Solidity.Source.Value.word entryArg] =>
+        SolidCore.Solidity.Source.wordEq observed 42 &&
+          SolidCore.Solidity.Source.wordEq entryArg 42
+    | _, _ => false
+  Except.ok
+    (observation.fuel == 16 &&
+      observation.contractName == "Constructed" &&
+      SolidCore.Solidity.Source.wordEq observation.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq observation.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq observation.value 0 &&
+      observation.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq observation.context.ambient.self
+        0xabcd &&
+      SolidCore.Solidity.Source.wordEq observation.context.ambient.sender
+        0xcafe &&
+      input.kind ==
+        SolidCore.Solidity.Source.FunctionEntryKind.construction &&
+      input.functionName == "__constructor" &&
+      input.selector?.isNone &&
+      input.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.self 0xabcd &&
+      observation.submittedState.storage == [] &&
+      input.submittedState.storage == [] &&
+      interfaceMatches && argsMatch && frameMatches && resultMatches)
+
+def checkedConstructorDeploymentAbiObservationBoundaryMatches :
+    Except TypeError Bool := do
+  let source : SourceUnitAst :=
+    { items :=
+        [ L00_SourceSolidity.SourceItem.contract
+            Executable.Examples.constructorContract ] }
+  let _program ← SourceUnit.checkedProgram source
+  let constructorCalldata ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 42]
+  let observation :=
+    L00_SourceSolidity.Executable.SourceUnit.observeDeploymentAbiAtFrom
+      16 source "Constructed" SolidCore.Solidity.Source.State.empty
+      0xabcd 0xcafe 0 constructorCalldata
+  let badObservation :=
+    L00_SourceSolidity.Executable.SourceUnit.observeDeploymentAbiAtFrom
+      16 source "Constructed" SolidCore.Solidity.Source.State.empty
+      0xabcd 0xcafe 0 [1]
+  let paramsMatch :=
+    match observation.constructorParamTys? with
+    | some [SolidCore.Solidity.Source.Ty.uint256] => true
+    | _ => false
+  let decodedMatches :=
+    match observation.decodedArgs? with
+    | some [SolidCore.Solidity.Source.Value.word value] =>
+        SolidCore.Solidity.Source.wordEq value 42
+    | _ => false
+  let deploymentMatches :=
+    match observation.deployment?, observation.result? with
+    | some deployment, some result =>
+        let deploymentArgsMatch :=
+          match deployment.args with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              SolidCore.Solidity.Source.wordEq value 42
+          | _ => false
+        deployment.contractName == "Constructed" &&
+          SolidCore.Solidity.Source.wordEq deployment.self 0xabcd &&
+          deploymentArgsMatch &&
+          deployment.constructorEntry.input.kind ==
+            SolidCore.Solidity.Source.FunctionEntryKind.construction &&
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.returnValues.isEmpty &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 1 ==
+            some 42
+    | _, _ => false
+  let badDecodeMatches :=
+    (match badObservation.constructorParamTys? with
+    | some [SolidCore.Solidity.Source.Ty.uint256] => true
+    | _ => false) &&
+      badObservation.decodedArgs?.isNone &&
+      badObservation.deployment?.isNone &&
+      (match badObservation.result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.CallExitMode.reverted &&
+            match result.revertData? with
+            | some SolidCore.Solidity.Source.RevertData.empty => true
+            | _ => false
+      | none => false)
+  Except.ok
+    (observation.fuel == 16 &&
+      observation.contractName == "Constructed" &&
+      observation.constructorCalldata ==
+        SolidCore.Solidity.Source.ABI.normalizeBytes constructorCalldata &&
+      SolidCore.Solidity.Source.wordEq observation.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq observation.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq observation.value 0 &&
+      paramsMatch && decodedMatches && deploymentMatches &&
+      badDecodeMatches)
 
 def checkedRevertingConstructorRollsBackMatches :
     Except TypeError Bool := do
@@ -11716,9 +14788,11 @@ def checkedInheritanceConstructorSemanticsMatch :
   let explicitVirtual ← checkedExplicitBaseVirtualDispatchMatches
   let superChain ← checkedSuperChainValueMatches
   let c3Order ← checkedC3DispatchOrderMatches
+  let dispatchObservation ← checkedInheritanceDispatchObservationMatches
   let inheritedState ← checkedInheritedStateReadMatches
   let superStorage ← checkedSuperStorageCallMatches
   let layoutFields ← checkedStorageLayoutFieldsMatch
+  let layoutObservation ← checkedStorageLayoutObservationBoundaryMatches
   let layoutInit ← checkedStorageLayoutInitMatches
   let constantLayout ← checkedConstantStorageLayoutMatches
   let fileConstantContract ← checkedFileConstantContractMatches
@@ -11730,10 +14804,19 @@ def checkedInheritanceConstructorSemanticsMatch :
     checkedConstantStorageFieldsSkipConstantsAndImmutables
   let constantInit ← checkedConstantInitializerMatches
   let immutablePure ← checkedImmutableInlineConstantPureReadMatches
+  let constantImmutableObservation ←
+    checkedConstantImmutableObservationMatches
   let erc7201 ← checkedErc7201StorageLayoutMatches
+  let erc7201MinusOne ← checkedErc7201MinusOneStorageLayoutMatches
   let payableCtor ← checkedPayableConstructorValueMatches
   let nonpayableCtor ← checkedNonpayableConstructorRejectsValueMatches
+  let publicCtorVisibility ← checkedPublicConstructorVisibilityRuns
   let constructorInit ← checkedConstructorInitializesStateMatches
+  let constructorEntry ← checkedConstructorEntryObservationBoundaryMatches
+  let constructorDeployment ←
+    checkedConstructorDeploymentObservationBoundaryMatches
+  let constructorDeploymentAbi ←
+    checkedConstructorDeploymentAbiObservationBoundaryMatches
   let constructorRollback ← checkedRevertingConstructorRollsBackMatches
   let immutableCtor ← checkedImmutableConstructorMatches
   let immutableGetter ← checkedImmutablePublicGetterMatches
@@ -11761,13 +14844,17 @@ def checkedInheritanceConstructorSemanticsMatch :
       inheritedBase && virtualOverride && superValue && explicitBase &&
       canonicalSuperValue && canonicalSuperStorage && explicitLeft &&
       explicitRight && explicitVirtual && superChain && c3Order &&
-      inheritedState && superStorage && layoutFields && layoutInit &&
+      dispatchObservation && inheritedState && superStorage &&
+      layoutFields && layoutObservation && layoutInit &&
       constantLayout && fileConstantContract && fileConstantFree &&
       fileConstantConstructor && constantRead && constantGetter &&
       constantStorageFields && constantInit && immutablePure &&
-      erc7201 && payableCtor && nonpayableCtor && constructorInit &&
-      constructorRollback && immutableCtor && immutableGetter &&
-      constructorInternal && constructorFree && baseNamed &&
+      constantImmutableObservation &&
+      erc7201 && erc7201MinusOne && payableCtor && nonpayableCtor &&
+      publicCtorVisibility && constructorInit && constructorRollback &&
+      constructorEntry && constructorDeployment && constructorDeploymentAbi &&
+      immutableCtor && immutableGetter && constructorInternal &&
+      constructorFree && baseNamed &&
       basePositional && baseModifier && baseDeferred)
 
 def checkedEventErrorAbiRollbackContractsAccepted : Bool :=
@@ -11840,6 +14927,114 @@ def checkedEventAbiDataBytesMatchExpected :
               Executable.Examples.eventAbiExpectedDataBytes)
       | _ => Except.ok false
   | _ => Except.ok false
+
+def checkedEventAbiLogEntryObservationMatchesExpected :
+    Except TypeError Bool := do
+  let expectedTopics ←
+    optionToExcept "event ABI observed log topics"
+      Executable.Examples.eventAbiExpectedTopics
+  let result ←
+    CheckedInput.ownCall 16 Executable.Examples.eventAbiContract
+      (SolidCore.Solidity.Source.CallTarget.name "emitIt")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] =>
+      let observation :=
+        SolidCore.Solidity.Source.CallResult.observe 0 result
+      let entryMatches :=
+        fun (entry : SharedSemantics.Log.Entry) =>
+          entry.topics == expectedTopics &&
+            entry.data ==
+              Executable.Examples.eventAbiExpectedDataBytes &&
+            SolidCore.Solidity.Source.wordEq entry.address 0
+      match observation.state.logs, observation.state.effects.logs with
+      | [entry], [effectEntry] =>
+          Except.ok
+            (observation.mode ==
+                SolidCore.Solidity.Source.CallExitMode.returned &&
+              entryMatches entry &&
+              entryMatches effectEntry &&
+              observation.returnValues.isEmpty)
+      | _, _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedEventEmissionObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract Executable.Examples.eventAbiContract
+  let expectedTopics ←
+    optionToExcept "event emission observed log topics"
+      Executable.Examples.eventAbiExpectedTopics
+  let context : CoreContext := { contract.core.context with self := 0xabc }
+  let runtime :=
+    SolidCore.Solidity.Source.Runtime.ofState
+      SolidCore.Solidity.Source.State.empty
+  let values :=
+    [ SolidCore.Solidity.Source.Value.word 4
+    , SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-2)) ]
+  let observation :=
+    runtime.observeEventEmission context "Set" values
+  let missingObservation :=
+    runtime.observeEventEmission context "Missing" values
+  let arityObservation :=
+    runtime.observeEventEmission context "Set"
+      [SolidCore.Solidity.Source.Value.word 4]
+  let logEntryMatches :=
+    fun (entry : SharedSemantics.Log.Entry) =>
+      entry.topics == expectedTopics &&
+        entry.data ==
+          Executable.Examples.eventAbiExpectedDataBytes &&
+        SolidCore.Solidity.Source.wordEq entry.address 0xabc
+  let emittedEventMatches :=
+    match observation.event? with
+    | some event =>
+        event.name == "Set" &&
+          event.topics == expectedTopics &&
+          event.dataBytes ==
+            Executable.Examples.eventAbiExpectedDataBytes &&
+          (match event.indexed, event.data with
+          | [SolidCore.Solidity.Source.Value.word key],
+              [SolidCore.Solidity.Source.Value.int value] =>
+              SolidCore.Solidity.Source.wordEq key 4 &&
+                SolidCore.Solidity.Source.wordEq value
+                  (SharedSemantics.signedToWord (-2))
+          | _, _ => false)
+    | none => false
+  let outputLogsMatch :=
+    match observation.outputRuntime? with
+    | some output =>
+        match output.state.logs, output.state.effects.logs with
+        | [entry], [effectEntry] =>
+            logEntryMatches entry && logEntryMatches effectEntry
+        | _, _ => false
+    | none => false
+  let typeMismatchMatches :=
+    fun (error? : Option SolidCore.Solidity.Source.RevertData) =>
+      match error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  Except.ok
+    (observation.name == "Set" &&
+      observation.values.length == 2 &&
+      SolidCore.Solidity.Source.wordEq
+        observation.context.ambient.self 0xabc &&
+      observation.inputRuntime.state.logs.isEmpty &&
+      emittedEventMatches &&
+      (match observation.logEntry? with
+      | some entry => logEntryMatches entry
+      | none => false) &&
+      outputLogsMatch &&
+      observation.error?.isNone &&
+      missingObservation.event?.isNone &&
+      missingObservation.logEntry?.isNone &&
+      missingObservation.outputRuntime?.isNone &&
+      typeMismatchMatches missingObservation.error? &&
+      arityObservation.event?.isNone &&
+      arityObservation.logEntry?.isNone &&
+      arityObservation.outputRuntime?.isNone &&
+      typeMismatchMatches arityObservation.error?)
 
 def checkedAnonymousEventAbiTopicsMatchExpected :
     Except TypeError Bool := do
@@ -12001,8 +15196,11 @@ def checkedFreeEventErrorShadowUnitsAccepted : Bool :=
         Executable.Examples.inheritedEventErrorShadowUnit)
 
 def checkedEventErrorDeclarationDisciplineAccepted : Bool :=
-  Result.isOk (TypecheckedInput.checkedSourceUnit emitPingSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit emitPingSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit freeEventEmitSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit eventSelectorSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit freeEventSelectorSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit overloadedEventSource) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit freeAndContractSameEventSource) &&
@@ -12046,6 +15244,10 @@ def checkedEventErrorDeclarationDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit internalFunctionEventParamSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit fourIndexedEventSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit overloadedEventSelectorSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit anonymousEventSelectorSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit unknownEventSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
@@ -12280,12 +15482,39 @@ def checkedContractFormDisciplineAccepted : Bool :=
 
 def checkedCallableFormDisciplineAccepted : Bool :=
   Result.isOk (TypecheckedInput.checkedSourceUnit typedFallbackSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit untypedFallbackSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit payableFallbackSource) &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit receiveSource) &&
     Result.isOk (TypecheckedInput.checkedSourceUnit fallbackOverrideSource) &&
-    Result.isOk (TypecheckedInput.checkedSourceUnit receiveOverrideSource)
+    Result.isOk (TypecheckedInput.checkedSourceUnit receiveOverrideSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit publicConstructorVisibilitySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abstractInternalConstructorVisibilitySource)
 
 def checkedCallableFormDisciplineRejected : Bool :=
   Result.isError (TypecheckedInput.checkedSourceUnit badFallbackViewSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badFallbackPublicSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit badFallbackParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badTypedFallbackMemoryParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        badTypedFallbackCalldataReturnSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badTypedFallbackNoReturnSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit badReceiveNonpayableSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badReceivePublicSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badReceiveParamSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit badReceiveReturnSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit multipleReceiveSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit multipleFallbackSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit libraryFallbackSource) &&
+    Result.isError (TypecheckedInput.checkedSourceUnit libraryReceiveSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit missingFallbackOverrideSource) &&
     Result.isError
@@ -12293,6 +15522,16 @@ def checkedCallableFormDisciplineRejected : Bool :=
     Result.isError (TypecheckedInput.checkedSourceUnit constructorVirtualSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit freeVirtualSource) &&
     Result.isError (TypecheckedInput.checkedSourceUnit freePayableSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        concreteInternalConstructorVisibilitySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        abstractPublicConstructorVisibilitySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit privateConstructorVisibilitySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit externalConstructorVisibilitySource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit abstractFallbackWithoutVirtualSource)
 
@@ -12713,9 +15952,45 @@ def checkedDataLocationDisciplineAccepted : Bool :=
     Result.isOk
       (TypecheckedInput.checkedSourceUnit calldataBytesSliceSource) &&
     Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataStringSliceSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataBytesSliceIndexSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataBytesSliceLocalSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        calldataBytesSliceMemoryLocalSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        calldataBytesSliceMemoryLocalMutationSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataStringSliceLocalSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        calldataStringSliceMemoryLocalSource) &&
+    Result.isOk
       (TypecheckedInput.checkedSourceUnit calldataArraySliceSource) &&
     Result.isOk
-      (TypecheckedInput.checkedSourceUnit structSource)
+      (TypecheckedInput.checkedSourceUnit
+        calldataArraySliceMemoryLocalSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        calldataArraySliceMemoryLocalMutationSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataArraySliceIndexSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit calldataArraySliceLocalSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit structSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        abstractStorageConstructorParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit modifierStorageParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit modifierMemoryParamSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit modifierCalldataParamSource)
 
 def checkedDataLocationDisciplineRejected : Bool :=
   Result.isError
@@ -12759,11 +16034,47 @@ def checkedDataLocationDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit memoryBytesSliceSource) &&
     Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryStringSliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit memoryArraySliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit storageBytesSliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit storageStringSliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit storageArraySliceSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit stringIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit stringLengthMemberSource) &&
+    Result.isError
       (TypecheckedInput.checkedSourceUnit calldataSliceSignedIndexSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit calldataSliceMemberSource) &&
     Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataStringSliceMemberSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataStringSliceIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataArraySliceMemberSource) &&
+    Result.isError
       (TypecheckedInput.checkedSourceUnit missingStructLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        missingStructReturnLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        concreteStorageConstructorParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit calldataConstructorParamSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit missingConstructorLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit valueTypeMemoryConstructorSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit modifierMissingLocationSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit modifierValueMemoryParamSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit stringErrorWithLocationSource) &&
     Result.isError
@@ -12805,20 +16116,42 @@ def checkedTupleLocalBindingDisciplineRejected : Bool :=
       (TypecheckedInput.checkedSourceUnit badTupleAssignmentTargetSource)
 
 def checkedMappingDisciplineAccepted : Bool :=
-  Result.isOk
+    Result.isOk
       (TypecheckedInput.checkedSourceUnit mappingReadSource) &&
     Result.isOk
       (TypecheckedInput.checkedSourceUnit deleteMappingValueSource) &&
     Result.isOk
-      (TypecheckedInput.checkedSourceUnit deleteMappingVariableSource) &&
-    Result.isOk
       (TypecheckedInput.checkedSourceUnit userValueMappingKeySource) &&
     Result.isOk
-      (TypecheckedInput.checkedSourceUnit signedMappingKeySource)
+      (TypecheckedInput.checkedSourceUnit signedMappingKeySource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        mappingStructStorageRebindSource) &&
+    Result.isOk
+      (TypecheckedInput.checkedSourceUnit
+        mappingStructInternalStorageParamSource)
 
 def checkedMappingDisciplineRejected : Bool :=
   Result.isError
-      (TypecheckedInput.checkedSourceUnit badMappingIndexSource)
+      (TypecheckedInput.checkedSourceUnit badMappingIndexSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit deleteMappingVariableSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        mappingStructStorageCopySource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        mappingStructMemoryLocalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        mappingStructCalldataParamSource)
+
+def checkedFixedPointTypeDisciplineAccepted : Bool :=
+  fixedPointSourceDisciplineAccepted &&
+    Result.isOk (TypecheckedInput.checkedSourceUnit fixedPointSource)
+
+def checkedFixedPointTypeDisciplineRejected : Bool :=
+  fixedPointSourceDisciplineRejected
 
 def checkedCallOptionDisciplineRejected : Bool :=
   Result.isError
@@ -12830,7 +16163,11 @@ def checkedCallOptionDisciplineRejected : Bool :=
     Result.isError
       (TypecheckedInput.checkedSourceUnit unknownCallOptionExternalSource) &&
     Result.isError
+      (TypecheckedInput.checkedSourceUnit saltCallOptionExternalSource) &&
+    Result.isError
       (TypecheckedInput.checkedSourceUnit duplicateCallOptionExternalSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit duplicateValueOptionExternalSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit
         internalIdentifierCallOptionsSource) &&
@@ -12839,6 +16176,17 @@ def checkedCallOptionDisciplineRejected : Bool :=
         internalFunctionPointerCallOptionsSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit lowLevelNamedArgumentSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit lowLevelSaltOptionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        lowLevelStaticValueOptionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        lowLevelDelegateValueOptionSource) &&
+    Result.isError
+      (TypecheckedInput.checkedSourceUnit
+        lowLevelStaticSignedGasOptionSource) &&
     Result.isError
       (TypecheckedInput.checkedSourceUnit arrayMemberCallOptionsSource)
 
@@ -12883,6 +16231,8 @@ def checkedStaticSourceDisciplineSemanticsMatch : Bool :=
     checkedTupleLocalBindingDisciplineRejected &&
     checkedMappingDisciplineAccepted &&
     checkedMappingDisciplineRejected &&
+    checkedFixedPointTypeDisciplineAccepted &&
+    checkedFixedPointTypeDisciplineRejected &&
     checkedCallOptionDisciplineRejected &&
     checkedDeclarationNamespaceDisciplineAccepted &&
     checkedDeclarationNamespaceDisciplineRejected
@@ -13020,6 +16370,37 @@ def checkedFreeEventEmitMatches :
       | _ => Except.ok false
   | _ => Except.ok false
 
+def checkedEventSelectorMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 eventSelectorSource "EventSelector"
+      (SolidCore.Solidity.Source.CallTarget.name "selector")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word selector] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq selector
+          (SolidCore.Solidity.Source.Keccak.digestWord
+            "Ping(uint256)"))
+  | _ => Except.ok false
+
+def checkedFreeEventSelectorMatches :
+    Except TypeError Bool := do
+  let result ←
+    SourceUnit.checkedCallContract 32 freeEventSelectorSource
+      "FreeEventSelector"
+      (SolidCore.Solidity.Source.CallTarget.name "selector")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word selector] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq selector
+          (SolidCore.Solidity.Source.Keccak.digestWord
+            "Ping(uint256)"))
+  | _ => Except.ok false
+
 def checkedFreeErrorRevertMatches :
     Except TypeError Bool := do
   let result ←
@@ -13073,6 +16454,124 @@ def checkedNamedErrorArgumentOrderMatches :
         (SolidCore.Solidity.Source.wordEq first 40 &&
           SolidCore.Solidity.Source.wordEq second 2)
   | _ => Except.ok false
+
+def checkedRevertPayloadObservationMatches :
+    Except TypeError Bool := do
+  let contract ←
+    ContractDecl.checkedContract
+      Executable.Examples.namedErrorArgumentOrderContract
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let customObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.core.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.customError
+        "Bad"
+        [ SolidCore.Solidity.Source.Expr.assignExpr
+            (SolidCore.Solidity.Source.Expr.var "x")
+            (SolidCore.Solidity.Source.Expr.word 5)
+        , SolidCore.Solidity.Source.Expr.var "x" ])
+      0
+  let emptyObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.core.context runtime
+      SolidCore.Solidity.Source.RevertPayloadSource.empty 0
+  let stringObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.core.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.errorString "bad")
+      0
+  let expectedDynamic ←
+    optionToExcept "dynamic revert payload"
+      (SolidCore.Solidity.Source.errorStringBytesRevert?
+        (SolidCore.Solidity.Source.Value.bytes [65]))
+  let dynamicObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.core.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.errorBytesExpression
+        (SolidCore.Solidity.Source.Expr.byteArray [65]))
+      0
+  let mismatchObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.core.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.errorBytesExpression
+        (SolidCore.Solidity.Source.Expr.word 1))
+      0
+  let customDataMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData) =>
+      match data? with
+      | some (SolidCore.Solidity.Source.RevertData.custom "Bad" values) =>
+          Executable.Examples.sourceWordValuesMatch values [5, 0]
+      | _ => false
+  let rawDataMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData)
+        (expected : SolidCore.Solidity.Source.RevertData) =>
+      match data?, expected with
+      | some (SolidCore.Solidity.Source.RevertData.raw bytes),
+          SolidCore.Solidity.Source.RevertData.raw expectedBytes =>
+          bytes == expectedBytes
+      | _, _ => false
+  let typeMismatchMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData) =>
+      match data? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  let resultRevertDataMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (dataMatches : Option SolidCore.Solidity.Source.RevertData -> Bool) =>
+      match result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.ResultMode.reverted &&
+            dataMatches result.revertData?
+      | none => false
+  Except.ok
+    (customObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.customError &&
+      customObservation.name? == some "Bad" &&
+      customObservation.expressionCount == 2 &&
+      (match customObservation.values? with
+      | some values =>
+          Executable.Examples.sourceWordValuesMatch values [5, 0]
+      | none => false) &&
+      (match customObservation.expressionRuntime? with
+      | some observed =>
+          Executable.Examples.localObservationLookupWordMatches
+            (observed.locals.lookup? "x") 5
+      | none => false) &&
+      customDataMatches customObservation.revertData? &&
+      resultRevertDataMatches customObservation.result? customDataMatches &&
+      emptyObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.empty &&
+      (match emptyObservation.revertData? with
+      | some SolidCore.Solidity.Source.RevertData.empty => true
+      | _ => false) &&
+      resultRevertDataMatches emptyObservation.result?
+        (fun data? =>
+          match data? with
+          | some SolidCore.Solidity.Source.RevertData.empty => true
+          | _ => false) &&
+      stringObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.errorString &&
+      (match stringObservation.revertData? with
+      | some (SolidCore.Solidity.Source.RevertData.error "bad") => true
+      | _ => false) &&
+      rawDataMatches dynamicObservation.revertData? expectedDynamic &&
+      resultRevertDataMatches dynamicObservation.result?
+        (fun data? => rawDataMatches data? expectedDynamic) &&
+      dynamicObservation.expressionCount == 1 &&
+      (match dynamicObservation.values? with
+      | some [SolidCore.Solidity.Source.Value.bytes [65]] => true
+      | _ => false) &&
+      mismatchObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.errorBytesExpression &&
+      mismatchObservation.expressionCount == 1 &&
+      typeMismatchMatches mismatchObservation.error? &&
+      typeMismatchMatches mismatchObservation.revertData? &&
+      resultRevertDataMatches mismatchObservation.result?
+        typeMismatchMatches)
 
 def checkedRequireCustomErrorMatches :
     Except TypeError Bool := do
@@ -13260,6 +16759,8 @@ def checkedEventErrorRollbackSemanticsMatch :
   let requireAbi ← checkedRequireCustomErrorAbiMatches
   let eventTopics ← checkedEventAbiTopicsMatchExpected
   let eventData ← checkedEventAbiDataBytesMatchExpected
+  let eventObservation ← checkedEventAbiLogEntryObservationMatchesExpected
+  let eventEmissionObservation ← checkedEventEmissionObservationMatches
   let anonymousTopics ← checkedAnonymousEventAbiTopicsMatchExpected
   let anonymousData ← checkedAnonymousEventAbiDataBytesEmpty
   let eventRollbackDrop ← checkedRevertedEventRollbackDropsLog
@@ -13275,9 +16776,12 @@ def checkedEventErrorRollbackSemanticsMatch :
   let inheritedErrorShadow ← checkedInheritedErrorShadowsFreeAbiMatches
   let inheritedEventShadow ← checkedInheritedEventShadowsFreeAbiMatches
   let freeEvent ← checkedFreeEventEmitMatches
+  let eventSelector ← checkedEventSelectorMatches
+  let freeEventSelector ← checkedFreeEventSelectorMatches
   let freeError ← checkedFreeErrorRevertMatches
   let namedEvent ← checkedNamedEventArgumentOrderMatches
   let namedError ← checkedNamedErrorArgumentOrderMatches
+  let revertPayload ← checkedRevertPayloadObservationMatches
   let requireError ← checkedRequireCustomErrorMatches
   let eventEffects ← checkedEventArgumentSideEffectMatches
   let errorRollback ← checkedErrorRollbackMatches
@@ -13288,14 +16792,17 @@ def checkedEventErrorRollbackSemanticsMatch :
       checkedFreeEventErrorShadowUnitsAccepted &&
       checkedEventErrorDeclarationDisciplineAccepted &&
       checkedEventErrorDeclarationDisciplineRejected &&
-      requireAbi && eventTopics && eventData && anonymousTopics &&
+      requireAbi && eventTopics && eventData && eventObservation &&
+      eventEmissionObservation &&
+      anonymousTopics &&
       anonymousData && eventRollbackDrop && eventRollbackPreserve &&
       storageRollbackDrop && storageRollbackPreserve &&
       dynamicTopics && dynamicData && freeErrorAbi && localErrorShadow &&
       canonicalFreeEvent && localEventShadow && inheritedErrorShadow &&
       inheritedEventShadow && freeEvent && freeError && namedEvent &&
-      namedError && requireError && eventEffects && errorRollback &&
-      inheritedErrorPayload && inheritedEvent)
+      eventSelector && freeEventSelector && namedError && revertPayload &&
+      requireError && eventEffects && errorRollback && inheritedErrorPayload &&
+      inheritedEvent)
 
 def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedLowLevelCall"
@@ -13352,10 +16859,7 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
             visibility := some Visibility.public_
             mutability := StateMutability.payable
             returns :=
-              [ { name := some "out"
-                  ty := lowLevelCallReturnTy
-                  location := some DataLocation.memory }
-              , { name := some "gasSeen", ty := Ty.uint 256 }
+              [ { name := some "gasSeen", ty := Ty.uint 256 }
               , { name := some "sent", ty := Ty.uint 256 } ]
             body :=
               some
@@ -13372,36 +16876,35 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                       (some
                         (L00_SourceSolidity.Expr.literal
                           (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.callWithOptions
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.address 0xbeef))
+                          "call")
+                        [ L00_SourceSolidity.CallOption.named "gas"
+                            (L00_SourceSolidity.Expr.assign
+                              (L00_SourceSolidity.Expr.ident
+                                "gasSeen")
+                              AssignOp.assign
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number
+                                  "11")))
+                        , L00_SourceSolidity.CallOption.named "value"
+                            (L00_SourceSolidity.Expr.assign
+                              (L00_SourceSolidity.Expr.ident "sent")
+                              AssignOp.assign
+                              (L00_SourceSolidity.Expr.literal
+                                (L00_SourceSolidity.Literal.number
+                                  "5"))) ]
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.literal
+                            (L00_SourceSolidity.Literal.bytes
+                              [1, 2]))])
                   , L00_SourceSolidity.Stmt.returnValues
                       (some
                         (L00_SourceSolidity.Expr.tuple
                           [ L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.callWithOptions
-                                (L00_SourceSolidity.Expr.member
-                                  (L00_SourceSolidity.Expr.literal
-                                    (L00_SourceSolidity.Literal.address
-                                      0xbeef))
-                                  "call")
-                                [ L00_SourceSolidity.CallOption.named "gas"
-                                    (L00_SourceSolidity.Expr.assign
-                                      (L00_SourceSolidity.Expr.ident
-                                        "gasSeen")
-                                      AssignOp.assign
-                                      (L00_SourceSolidity.Expr.literal
-                                        (L00_SourceSolidity.Literal.number
-                                          "11")))
-                                , L00_SourceSolidity.CallOption.named "value"
-                                    (L00_SourceSolidity.Expr.assign
-                                      (L00_SourceSolidity.Expr.ident "sent")
-                                      AssignOp.assign
-                                      (L00_SourceSolidity.Expr.literal
-                                        (L00_SourceSolidity.Literal.number
-                                          "5"))) ]
-                                [L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.literal
-                                    (L00_SourceSolidity.Literal.bytes
-                                      [1, 2]))])
-                          , L00_SourceSolidity.TupleItem.value
                               (L00_SourceSolidity.Expr.ident "gasSeen")
                           , L00_SourceSolidity.TupleItem.value
                               (L00_SourceSolidity.Expr.ident "sent") ])) ]) }
@@ -13477,10 +16980,7 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                   ty := Ty.bytes
                   location := some DataLocation.memory } ]
             returns :=
-              [ { name := some "out"
-                  ty := lowLevelCallReturnTy
-                  location := some DataLocation.memory }
-              , { name := some "gasSeen", ty := Ty.uint 256 } ]
+              [{ name := some "gasSeen", ty := Ty.uint 256 }]
             body :=
               some
                 (L00_SourceSolidity.Stmt.block
@@ -13490,27 +16990,25 @@ def checkedLowLevelCallContract : L00_SourceSolidity.ContractDecl :=
                       (some
                         (L00_SourceSolidity.Expr.literal
                           (L00_SourceSolidity.Literal.number "0")))
+                  , L00_SourceSolidity.Stmt.expr
+                      (L00_SourceSolidity.Expr.callWithOptions
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.ident "target")
+                          "staticcall")
+                        [L00_SourceSolidity.CallOption.named "gas"
+                          (L00_SourceSolidity.Expr.assign
+                            (L00_SourceSolidity.Expr.ident
+                              "gasSeen")
+                            AssignOp.assign
+                            (L00_SourceSolidity.Expr.literal
+                              (L00_SourceSolidity.Literal.number
+                                "12")))]
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.ident
+                            "payload")])
                   , L00_SourceSolidity.Stmt.returnValues
                       (some
-                        (L00_SourceSolidity.Expr.tuple
-                          [ L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.callWithOptions
-                                (L00_SourceSolidity.Expr.member
-                                  (L00_SourceSolidity.Expr.ident "target")
-                                  "staticcall")
-                                [L00_SourceSolidity.CallOption.named "gas"
-                                  (L00_SourceSolidity.Expr.assign
-                                    (L00_SourceSolidity.Expr.ident
-                                      "gasSeen")
-                                    AssignOp.assign
-                                    (L00_SourceSolidity.Expr.literal
-                                      (L00_SourceSolidity.Literal.number
-                                        "12")))]
-                                [L00_SourceSolidity.Arg.positional
-                                  (L00_SourceSolidity.Expr.ident
-                                    "payload")])
-                          , L00_SourceSolidity.TupleItem.value
-                              (L00_SourceSolidity.Expr.ident "gasSeen") ])) ]) } ] }
+                        (L00_SourceSolidity.Expr.ident "gasSeen")) ]) } ] }
 
 def checkedLowLevelStaticCallValueOptionContract :
     L00_SourceSolidity.ContractDecl :=
@@ -13594,6 +17092,49 @@ def checkedLowLevelCallMatches : Except TypeError Bool := do
           output == [9, 8])
   | _ => Except.ok false
 
+def checkedLowLevelCallObservationMatches : Except TypeError Bool := do
+  let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "probe"
+      { contract.core.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := [1, 2, 3]
+              success := true
+              output := [9, 8] } ] }
+      SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.bytes [1, 2, 3] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← checkedDecodeLowLevelReturn value
+      let observation :=
+        SolidCore.Solidity.Source.CallResult.observe 0 result
+      let callMatches :=
+        fun (call : SolidCore.Solidity.Source.LowLevelCallResult) =>
+          SolidCore.Solidity.Source.LowLevelCallResult.matches call
+            SolidCore.Solidity.Source.LowLevelCallKind.call
+            0xbeef [1, 2, 3] 0 none &&
+            call.success &&
+            call.output == [9, 8]
+      match observation.state.externalInteractions,
+          observation.state.effects.externalInteractions with
+      | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call],
+          [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall
+            effectCall] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq success 1 &&
+              output == [9, 8] &&
+              callMatches call &&
+              callMatches effectCall)
+      | _, _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedLowLevelCallEvaluationObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.lowLevelCallEvaluationObservationMatches
+
 def checkedLowLevelCallValueMatches : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
@@ -13655,13 +17196,19 @@ def checkedLowLevelCallOptionEffectsMatches :
               output := [4, 5, 6] } ] }
       SolidCore.Solidity.Source.State.empty []
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [value, SolidCore.Solidity.Source.Value.word gasSeen,
-        SolidCore.Solidity.Source.Value.word sent] => do
-      let (success, output) ← checkedDecodeLowLevelReturn value
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [ SolidCore.Solidity.Source.Value.word gasSeen
+      , SolidCore.Solidity.Source.Value.word sent] =>
+      let observed :=
+        match state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches call
+              SolidCore.Solidity.Source.LowLevelCallKind.call
+              0xbeef [1, 2] 5 (some 11) &&
+              call.success && call.output == [4, 5, 6]
+        | _ => false
       Except.ok
-        (SolidCore.Solidity.Source.wordEq success 1 &&
-          output == [4, 5, 6] &&
+        (observed &&
           SolidCore.Solidity.Source.wordEq gasSeen 11 &&
           SolidCore.Solidity.Source.wordEq sent 5)
   | _ => Except.ok false
@@ -13742,12 +17289,18 @@ def checkedLowLevelStaticCallOptionGasEffectsMatches :
       [ SolidCore.Solidity.Source.Value.word 0xcafe
       , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [value, SolidCore.Solidity.Source.Value.word gasSeen] => do
-      let (success, output) ← checkedDecodeLowLevelReturn value
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word gasSeen] =>
+      let observed :=
+        match state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches call
+              SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              0xcafe [7, 7] 0 (some 12) &&
+              call.success && call.output == [1]
+        | _ => false
       Except.ok
-        (SolidCore.Solidity.Source.wordEq success 1 &&
-          output == [1] &&
+        (observed &&
           SolidCore.Solidity.Source.wordEq gasSeen 12)
   | _ => Except.ok false
 
@@ -13988,6 +17541,8 @@ def checkedPrecompileStaticcallMatches :
 
 def checkedLowLevelCallSemanticsMatch : Except TypeError Bool := do
   let plain ← checkedLowLevelCallMatches
+  let observed ← checkedLowLevelCallObservationMatches
+  let evaluationObserved ← checkedLowLevelCallEvaluationObservationMatches
   let value ← checkedLowLevelCallValueMatches
   let gasMismatch ← checkedLowLevelCallGasMismatchReturnsFalse
   let optionEffects ← checkedLowLevelCallOptionEffectsMatches
@@ -14002,8 +17557,8 @@ def checkedLowLevelCallSemanticsMatch : Except TypeError Bool := do
   let transferFailure ← checkedTransferValueFailureReverts
   let precompile ← checkedPrecompileStaticcallMatches
   Except.ok
-    (plain && value && gasMismatch && optionEffects &&
-      staticDelegate && delegateGas && staticGas &&
+    (plain && observed && evaluationObserved && value && gasMismatch &&
+      optionEffects && staticDelegate && delegateGas && staticGas &&
       checkedLowLevelStaticCallValueOptionRejected &&
       checkedLowLevelDelegateCallValueOptionRejected &&
       missing && abiTy && sendOk && sendFailure &&
@@ -14201,6 +17756,141 @@ def checkedContractCreationMatches : Except TypeError Bool := do
       [SolidCore.Solidity.Source.Value.word address] =>
       Except.ok (SolidCore.Solidity.Source.wordEq address 0xc0de)
   | _ => Except.ok false
+
+def checkedContractCreationObservationMatches : Except TypeError Bool := do
+  let constructorArgs ←
+    checkedAbiEncodeValues
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let contract ← CheckedProgram.contract program "CheckedCreateCaller"
+  let result ←
+    CheckedContract.callFunctionWithContext 16 contract "make"
+      { contract.core.context with
+        contractCreationResults :=
+          [ { contractName := "CheckedCreatedChild"
+              constructorArgs := constructorArgs
+              success := true
+              address := 0xc0de } ] }
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 7]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      let observation :=
+        SolidCore.Solidity.Source.CallResult.observe 0 result
+      match observation.state.externalInteractions with
+      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>
+          Except.ok
+            (SolidCore.Solidity.Source.wordEq address 0xc0de &&
+              SolidCore.Solidity.Source.ContractCreationResult.matches
+                create "CheckedCreatedChild" constructorArgs 0 none &&
+              create.success &&
+              SolidCore.Solidity.Source.wordEq create.address 0xc0de)
+      | _ => Except.ok false
+  | _ => Except.ok false
+
+def checkedContractCreationExpressionObservationMatches :
+    Except TypeError Bool := do
+  let _program ← SourceUnit.checkedProgram checkedContractCreationSource
+  let externalCallKindEnv ←
+    optionToExcept "contract creation expression observation kind env"
+      (Executable.ExternalCallKindEnv.fromContracts?
+        (Executable.SourceUnit.contracts checkedContractCreationSource))
+  let namedObservation :=
+    Executable.Expr.observeContractCreationExpression []
+      externalCallKindEnv
+      (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy
+        [ L00_SourceSolidity.Arg.named "bonus"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "2"))
+        , L00_SourceSolidity.Arg.named "amount"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "40")) ])
+  let saltedObservation :=
+    Executable.Expr.observeContractCreationExpression []
+      externalCallKindEnv
+      (L00_SourceSolidity.Expr.callWithOptions
+        (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy [])
+        [ L00_SourceSolidity.CallOption.named "value"
+            (L00_SourceSolidity.Expr.ident "payment")
+        , L00_SourceSolidity.CallOption.named "salt"
+            (L00_SourceSolidity.Expr.ident "salt") ]
+        [ L00_SourceSolidity.Arg.named "bonus"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "2"))
+        , L00_SourceSolidity.Arg.named "amount"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "40")) ])
+  let duplicateNamedObservation :=
+    Executable.Expr.observeContractCreationExpression []
+      externalCallKindEnv
+      (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy
+        [ L00_SourceSolidity.Arg.named "amount"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "40"))
+        , L00_SourceSolidity.Arg.named "amount"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "2")) ])
+  let badOptionObservation :=
+    Executable.Expr.observeContractCreationExpression []
+      externalCallKindEnv
+      (L00_SourceSolidity.Expr.callWithOptions
+        (L00_SourceSolidity.Expr.newExpr checkedNamedCreatedChildTy [])
+        [ L00_SourceSolidity.CallOption.named "gas"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "1")) ]
+        [ L00_SourceSolidity.Arg.named "bonus"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "2"))
+        , L00_SourceSolidity.Arg.named "amount"
+            (L00_SourceSolidity.Expr.literal
+              (L00_SourceSolidity.Literal.number "40")) ])
+  let badTypeObservation :=
+    Executable.Expr.observeContractCreationExpression []
+      externalCallKindEnv
+      (L00_SourceSolidity.Expr.newExpr (Ty.uint 256) [])
+  let notCreationObservation :=
+    Executable.Expr.observeContractCreationExpression []
+      externalCallKindEnv
+      (L00_SourceSolidity.Expr.ident "x")
+  Except.ok
+    (Executable.Examples.contractCreationExpressionObservationMatches ==
+        some true &&
+      namedObservation.status ==
+        Executable.ContractCreationExpressionObservationStatus.resolved &&
+      namedObservation.contractName? ==
+        some "CheckedNamedCreatedChild" &&
+      namedObservation.argumentCount == 2 &&
+      namedObservation.optionNames == [] &&
+      namedObservation.constructorParamTys? ==
+        some [Ty.uint 256, Ty.uint 256] &&
+      namedObservation.constructorArgsCore?.isSome &&
+      namedObservation.valueCore?.isSome &&
+      namedObservation.saltCore?.isNone &&
+      Executable.Examples.contractCreationExpressionCoreMatches
+        "CheckedNamedCreatedChild" false namedObservation &&
+      saltedObservation.status ==
+        Executable.ContractCreationExpressionObservationStatus.resolved &&
+      saltedObservation.contractName? ==
+        some "CheckedNamedCreatedChild" &&
+      saltedObservation.optionNames == ["value", "salt"] &&
+      saltedObservation.valueCore?.isSome &&
+      saltedObservation.saltCore?.isSome &&
+      Executable.Examples.contractCreationExpressionCoreMatches
+        "CheckedNamedCreatedChild" true saltedObservation &&
+      duplicateNamedObservation.status ==
+        Executable.ContractCreationExpressionObservationStatus.abiFailure &&
+      badOptionObservation.status ==
+        Executable.ContractCreationExpressionObservationStatus.optionFailure &&
+      badTypeObservation.status ==
+        Executable.ContractCreationExpressionObservationStatus.typeFailure &&
+      notCreationObservation.status ==
+        Executable.ContractCreationExpressionObservationStatus.notContractCreation)
+
+def checkedContractCreationEvaluationObservationMatches :
+    Except TypeError Bool :=
+  Except.ok Executable.Examples.contractCreationEvaluationObservationMatches
 
 def checkedContractCreationSuccessMatches : Except TypeError Bool :=
   checkedContractCreationMatches
@@ -14642,13 +18332,22 @@ def checkedTryExternalCallOperandEffectsMatches :
               output := output } ] }
       SolidCore.Solidity.Source.State.empty []
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
+  | SolidCore.Solidity.Source.CallResult.returned state
       [ SolidCore.Solidity.Source.Value.word target
       , SolidCore.Solidity.Source.Value.word value
       , SolidCore.Solidity.Source.Value.word arg
       , SolidCore.Solidity.Source.Value.word out ] =>
+      let observed :=
+        match state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches call
+              SolidCore.Solidity.Source.LowLevelCallKind.call
+              51966 callData 7 none &&
+              call.success && call.output == output
+        | _ => false
       Except.ok
-        (SolidCore.Solidity.Source.wordEq target 51966 &&
+        (observed &&
+          SolidCore.Solidity.Source.wordEq target 51966 &&
           SolidCore.Solidity.Source.wordEq value 7 &&
           SolidCore.Solidity.Source.wordEq arg 3 &&
           SolidCore.Solidity.Source.wordEq out 99)
@@ -14674,13 +18373,22 @@ def checkedTryContractCreateOperandEffectsMatches :
               output := [] } ] }
       SolidCore.Solidity.Source.State.empty []
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
+  | SolidCore.Solidity.Source.CallResult.returned state
       [ SolidCore.Solidity.Source.Value.word value
       , SolidCore.Solidity.Source.Value.word salt
       , SolidCore.Solidity.Source.Value.word arg
       , SolidCore.Solidity.Source.Value.word made ] =>
+      let observed :=
+        match state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>
+            SolidCore.Solidity.Source.ContractCreationResult.matches
+              create "CheckedTryOperandMade" constructorArgs 7 (some 5) &&
+              create.success &&
+              SolidCore.Solidity.Source.wordEq create.address 51966
+        | _ => false
       Except.ok
-        (SolidCore.Solidity.Source.wordEq value 7 &&
+        (observed &&
+          SolidCore.Solidity.Source.wordEq value 7 &&
           SolidCore.Solidity.Source.wordEq salt 5 &&
           SolidCore.Solidity.Source.wordEq arg 3 &&
           SolidCore.Solidity.Source.wordEq made 51966)
@@ -14707,6 +18415,11 @@ def checkedViewCreatesContractRejected : Bool :=
 def checkedContractCreationSemanticsMatch :
     Except TypeError Bool := do
   let success ← checkedContractCreationSuccessMatches
+  let observed ← checkedContractCreationObservationMatches
+  let expressionObservation ←
+    checkedContractCreationExpressionObservationMatches
+  let evaluationObservation ←
+    checkedContractCreationEvaluationObservationMatches
   let named ← checkedContractCreationNamedArgsMatches
   let namedReordered ← checkedContractCreationNamedArgsReorderedMatches
   let valueSalt ← checkedContractCreationValueSaltMatches
@@ -14718,13 +18431,15 @@ def checkedContractCreationSemanticsMatch :
   let externalOperand ← checkedTryExternalCallOperandEffectsMatches
   let creationOperand ← checkedTryContractCreateOperandEffectsMatches
   Except.ok
-    (success && named && namedReordered && valueSalt &&
+    (success && observed && expressionObservation &&
+      evaluationObservation && named && namedReordered && valueSalt &&
       namedOptions && checkedContractCreationDuplicateNamedArgsRejected &&
       failure && missing && trySuccess && tryFailure &&
       checkedTryOperandEffectsUnitAccepted &&
       externalOperand && creationOperand &&
       checkedBadConstructorTypeRejected &&
       checkedMissingConstructorArgRejected &&
+      contractCreationCallOptionDisciplineMatches &&
       checkedUintSaltConstructorCreateRejected &&
       checkedLiteralSaltConstructorCreateRejected &&
       checkedNonpayableConstructorValueRejected &&
@@ -14960,6 +18675,119 @@ def checkedRevertedTransientWritePreservesPriorValue :
       | _ => Except.ok false
   | _ => Except.ok false
 
+def checkedPackedTransientStorageContractAccepted : Bool :=
+  Result.isOk
+    (CheckedInput.program
+      Executable.Examples.packedTransientStorageContract)
+
+def checkedPackedTransientStorageFieldsMatch :
+    Except TypeError Bool := do
+  let contract ←
+    CheckedInput.contract
+      Executable.Examples.packedTransientStorageContract
+      "PackedTransientStorage"
+  match contract.core.storageFields with
+  | [persistent, a, b, c, s, d] =>
+      Except.ok
+        (persistent.name == "persistent" &&
+          SolidCore.Solidity.Source.wordEq persistent.slot 0 &&
+          !persistent.transient &&
+          a.name == "a" &&
+          SolidCore.Solidity.Source.wordEq a.slot 0 &&
+          a.transient &&
+          a.packedOffset == 0 && a.packedBytes == 1 &&
+          b.name == "b" &&
+          SolidCore.Solidity.Source.wordEq b.slot 0 &&
+          b.transient &&
+          b.packedOffset == 1 && b.packedBytes == 2 &&
+          c.name == "c" &&
+          SolidCore.Solidity.Source.wordEq c.slot 0 &&
+          c.transient &&
+          c.packedOffset == 3 && c.packedBytes == 1 &&
+          s.name == "s" &&
+          SolidCore.Solidity.Source.wordEq s.slot 0 &&
+          s.transient &&
+          s.packedOffset == 4 && s.packedBytes == 1 &&
+          s.packedSigned &&
+          d.name == "d" &&
+          SolidCore.Solidity.Source.wordEq d.slot 1 &&
+          d.transient &&
+          d.packedOffset == 0 &&
+          d.packedBytes == SolidCore.Solidity.Source.wordBytes)
+  | _ => Except.ok false
+
+def checkedPackedTransientStorageState :
+    Except TypeError CoreState := do
+  let result ←
+    ContractDecl.checkedCall 64
+      Executable.Examples.packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "setAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      if SolidCore.Solidity.Source.wordEq value 9 then
+        Except.ok state
+      else
+        Except.error
+          (executableFailure "packed transient setAll result")
+  | _ =>
+      Except.error
+        (executableFailure "packed transient setAll result")
+
+def checkedPackedTransientStorageRawSlotMatches :
+    Except TypeError Bool := do
+  let state ← checkedPackedTransientStorageState
+  Except.ok
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadTransientSlot 0) 0xff01345612 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadTransientSlot 1) 9)
+
+def checkedPackedTransientStorageGetterMatches :
+    Except TypeError Bool := do
+  let state ← checkedPackedTransientStorageState
+  let aResult ←
+    ContractDecl.checkedCall 16
+      Executable.Examples.packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "a") state []
+  let bResult ←
+    ContractDecl.checkedCall 16
+      Executable.Examples.packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "b") state []
+  let cResult ←
+    ContractDecl.checkedCall 16
+      Executable.Examples.packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "c") state []
+  let sResult ←
+    ContractDecl.checkedCall 16
+      Executable.Examples.packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "s") state []
+  let dResult ←
+    ContractDecl.checkedCall 16
+      Executable.Examples.packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "d") state []
+  match aResult, bResult, cResult, sResult, dResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word a],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word b],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word c],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int s],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word d] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a 0x12 &&
+          SolidCore.Solidity.Source.wordEq b 0x3456 &&
+          SolidCore.Solidity.Source.wordEq c 1 &&
+          SolidCore.Solidity.Source.wordEq s
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq d 9)
+  | _, _, _, _, _ => Except.ok false
+
 def checkedTransientStorageSemanticsMatch :
     Except TypeError Bool := do
   let sourceField ← checkedTransientUintSourceFieldMarkedTransient
@@ -14970,11 +18798,16 @@ def checkedTransientStorageSemanticsMatch :
     checkedTransientClearedAtAbiTransactionBoundaryMatches
   let dropsRevertedWrite ← checkedRevertedTransientWriteDropsWrite
   let preservesPrior ← checkedRevertedTransientWritePreservesPriorValue
+  let packedFields ← checkedPackedTransientStorageFieldsMatch
+  let packedRawSlots ← checkedPackedTransientStorageRawSlotMatches
+  let packedGetters ← checkedPackedTransientStorageGetterMatches
   Except.ok
     (checkedTransientStorageSourceDisciplineAccepted &&
       checkedTransientStorageSourceDisciplineRejected &&
+      checkedPackedTransientStorageContractAccepted &&
       sourceField && independent && getter && rawFrame && transaction &&
-      dropsRevertedWrite && preservesPrior)
+      dropsRevertedWrite && preservesPrior &&
+      packedFields && packedRawSlots && packedGetters)
 
 def checkedTryCatchTargetContract : L00_SourceSolidity.ContractDecl :=
   { name := "CheckedTryCatchTarget"
@@ -15116,10 +18949,70 @@ def checkedTryCatchLowLevelMatches : Except TypeError Bool := do
       Except.ok (value == 3)
   | _ => Except.ok false
 
+def checkedTryCatchMatchObservationMatches : Except TypeError Bool := do
+  let _ ←
+    CheckedInput.contract
+      (checkedTryCatchSource "CheckedTryCatchObservation" "readObserved"
+        [ L00_SourceSolidity.CatchClause.clause (some "Error")
+            [{ name := some "reason"
+               ty := Ty.string
+               location := some DataLocation.memory }]
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "1"))))
+        , L00_SourceSolidity.CatchClause.clause (some "Panic")
+            [{ name := some "code"
+               ty := Ty.uint 256
+               location := none }]
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "2"))))
+        , L00_SourceSolidity.CatchClause.clause none
+            [{ name := some "data"
+               ty := Ty.bytes
+               location := some DataLocation.memory }]
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "3")))) ])
+      "CheckedTryCatchObservation"
+  optionToExcept "try/catch match observation"
+    Executable.Examples.tryCatchMatchObservationMatches
+
+def checkedTryExternalCallEvaluationObservationMatches :
+    Except TypeError Bool := do
+  let _ ←
+    CheckedInput.contract
+      (checkedTryCatchSource "CheckedTryExternalCallEvaluationObservation"
+        "readObserved"
+        [ L00_SourceSolidity.CatchClause.clause none []
+            (L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.number "44")))) ])
+      "CheckedTryExternalCallEvaluationObservation"
+  optionToExcept "try external call evaluation observation"
+    Executable.Examples.tryExternalCallEvaluationObservationMatches
+
+def checkedTryContractCreateEvaluationObservationMatches :
+    Except TypeError Bool := do
+  let _ ←
+    CheckedInput.contract checkedTryOperandEffectsUnit
+      "CheckedTryContractCreateOperandEffects"
+  optionToExcept "try contract creation evaluation observation"
+    Executable.Examples.tryContractCreateEvaluationObservationMatches
+
 def checkedTryCatchSemanticsMatch : Except TypeError Bool := do
   let error ← checkedTryCatchErrorMatches
   let panic ← checkedTryCatchPanicMatches
   let lowLevel ← checkedTryCatchLowLevelMatches
+  let matchObservation ← checkedTryCatchMatchObservationMatches
+  let externalEvaluation ←
+    checkedTryExternalCallEvaluationObservationMatches
+  let creationEvaluation ←
+    checkedTryContractCreateEvaluationObservationMatches
   let createSuccess ← checkedTryCatchContractCreationSuccessMatches
   let createFailure ← checkedTryCatchContractCreationFailureMatches
   let externalOperand ← checkedTryExternalCallOperandEffectsMatches
@@ -15131,7 +19024,9 @@ def checkedTryCatchSemanticsMatch : Except TypeError Bool := do
       checkedTryCatchDisciplineRejected &&
       checkedTryOperandEffectsUnitAccepted &&
       checkedTryCatchAroundModifierSourceAccepted &&
-      error && panic && lowLevel && createSuccess && createFailure &&
+      error && panic && lowLevel && matchObservation &&
+      externalEvaluation && creationEvaluation &&
+      createSuccess && createFailure &&
       externalOperand && creationOperand && modifierSuccess &&
       modifierCatch)
 

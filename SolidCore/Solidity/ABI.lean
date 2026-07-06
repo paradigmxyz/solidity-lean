@@ -436,6 +436,22 @@ def decodeArgs? (tys : List Ty) (argData : Bytes) :
     Option (List Value) :=
   decodeArgsAux? argData tys 0
 
+def decodeFunctionArgs? (function : FunctionDef)
+    (argData : Bytes) : Option (List Value) := do
+  let values ← decodeArgs? (function.params.map BindingDecl.ty) argData
+  if function.paramAbiCleanups.isEmpty then
+    some values
+  else
+    AbiCleanups.lazyParamValues function.paramAbiCleanups values
+
+def decodeFunctionArgsStrict? (function : FunctionDef)
+    (argData : Bytes) : Option (List Value) := do
+  let values ← decodeArgs? (function.params.map BindingDecl.ty) argData
+  if AbiCleanups.acceptOrUnspecified function.paramAbiCleanups values then
+    some values
+  else
+    none
+
 def encodeArgs? (tys : List Ty) (values : List Value) : Option Bytes :=
   encodeValues? tys values
 
@@ -480,6 +496,112 @@ structure AbiCallResult where
   state : State
   deriving Repr
 
+structure AbiCallObservation where
+  success : Bool
+  output : Bytes
+  state : StateObservation
+  deriving Repr
+
+inductive AbiResultEncodingMode where
+  | returned
+  | reverted
+  deriving Repr, BEq
+
+inductive AbiEntryKind where
+  | messageCall
+  | transaction
+  deriving Repr, BEq
+
+inductive AbiDispatchKind where
+  | functionSelector
+  | receive
+  | fallback
+  | missing
+  deriving Repr, BEq
+
+structure AbiDispatchObservation where
+  kind : AbiDispatchKind
+  selector? : Option Word
+  selectedFunctionName? : Option String
+  selectedSelector? : Option Word
+  decodedArgs? : Option (List Value)
+  deriving Repr
+
+structure AbiResultEncodingObservation where
+  mode : AbiResultEncodingMode
+  sourceResult : CallObservation
+  returnTys : List Ty
+  expectedSuccess : Bool
+  encodedOutput : Bytes
+  abiResult : AbiCallObservation
+  deriving Repr
+
+structure AbiEntryInputObservation where
+  kind : AbiEntryKind
+  fuel : Nat
+  self : Word
+  sender : Word
+  value : Word
+  calldata : Bytes
+  dispatch : AbiDispatchObservation
+  baseContext : ContextObservation
+  callContext : ContextObservation
+  submittedState : StateObservation
+  executionState : StateObservation
+  deriving Repr
+
+structure AbiEntryObservation where
+  input : AbiEntryInputObservation
+  functionEntry? : Option FunctionEntryObservation := none
+  result? : Option AbiCallObservation := none
+  resultEncoding? : Option AbiResultEncodingObservation := none
+  deriving Repr
+
+def AbiCallResult.observe (result : AbiCallResult) (self : Word) :
+    AbiCallObservation :=
+  { success := result.success
+    output := normalizeBytes result.output
+    state := result.state.observe self }
+
+def encodeReturnOutputForDispatch? (dispatchKind : AbiDispatchKind)
+    (returns : List BindingDecl) (values : List Value) :
+    Option Bytes :=
+  match dispatchKind, returns, values with
+  | AbiDispatchKind.fallback, [], [] => some []
+  | AbiDispatchKind.fallback,
+      [{ ty := Ty.bytesCalldata, name := _ }], [Value.bytes bytes] =>
+      some (normalizeBytes bytes)
+  | _, _, _ => encodeValues? (returns.map BindingDecl.ty) values
+
+def AbiResultEncodingObservation.fromFunctionEntry?
+    (contract : Contract) (dispatchKind : AbiDispatchKind)
+    (entry : FunctionEntryObservation)
+    (abiResult : AbiCallObservation) :
+    Option AbiResultEncodingObservation := do
+  let sourceResult ← entry.result?
+  match sourceResult.mode with
+  | CallExitMode.returned => do
+      let encoded ←
+        encodeReturnOutputForDispatch?
+          dispatchKind entry.input.returns sourceResult.returnValues
+      some
+        { mode := AbiResultEncodingMode.returned
+          sourceResult := sourceResult
+          returnTys := entry.input.returns.map BindingDecl.ty
+          expectedSuccess := true
+          encodedOutput := encoded
+          abiResult := abiResult }
+  | CallExitMode.reverted => do
+      let revert ← sourceResult.revertData?
+      let encoded ← Contract.encodeRevertData? contract revert
+      some
+        { mode := AbiResultEncodingMode.reverted
+          sourceResult := sourceResult
+          returnTys := entry.input.returns.map BindingDecl.ty
+          expectedSuccess := false
+          encodedOutput := encoded
+          abiResult := abiResult }
+
 def AbiCallResult.clearTransient (result : AbiCallResult) : AbiCallResult :=
   { result with state := result.state.clearTransient }
 
@@ -520,25 +642,83 @@ def FunctionDef.encodeFallbackOutput? (function : FunctionDef)
       some (normalizeBytes bytes)
   | _, _ => encodeValues? (function.returns.map BindingDecl.ty) values
 
-def Contract.callContextAt (contract : Contract)
-    (self sender value : Word) (calldata : Bytes) : Context :=
-  { contract.context with
+def Contract.observeFallbackDispatch (contract : Contract)
+    (selector? : Option Word) (calldata : Bytes) :
+    AbiDispatchObservation :=
+  match Contract.findFallback? contract with
+  | some function =>
+      { kind := AbiDispatchKind.fallback
+        selector? := selector?
+        selectedFunctionName? := some function.name
+        selectedSelector? := function.selector?
+        decodedArgs? := FunctionDef.fallbackArgs? function calldata }
+  | none =>
+      { kind := AbiDispatchKind.missing
+        selector? := selector?
+        selectedFunctionName? := none
+        selectedSelector? := none
+        decodedArgs? := none }
+
+def Contract.observeCalldataDispatch
+    (contract : Contract) (calldata : Bytes) : AbiDispatchObservation :=
+  let selector? := readSelector? calldata
+  match selector? with
+  | some selector =>
+      match contract.findFunctionBySelector? selector with
+      | some function =>
+          { kind := AbiDispatchKind.functionSelector
+            selector? := some selector
+            selectedFunctionName? := some function.name
+            selectedSelector? := function.selector?
+            decodedArgs? :=
+              decodeFunctionArgs? function (calldata.drop selectorBytes) }
+      | none =>
+          Contract.observeFallbackDispatch contract (some selector) calldata
+  | none =>
+      if calldata.isEmpty then
+        match Contract.findReceive? contract with
+        | some function =>
+            { kind := AbiDispatchKind.receive
+              selector? := none
+              selectedFunctionName? := some function.name
+              selectedSelector? := function.selector?
+              decodedArgs? := some [] }
+        | none =>
+            Contract.observeFallbackDispatch contract none calldata
+      else
+        Contract.observeFallbackDispatch contract none calldata
+
+def Contract.callContextAtWithBase (contract : Contract)
+    (base : Context) (self sender value : Word) (calldata : Bytes) :
+    Context :=
+  { base with
+    storageFields := contract.storageFields
+    immutableFields := contract.immutableFields
+    eventDecls := contract.eventDecls
+    checked := true
+    construction := false
     calldata := normalizeBytes calldata
     self := SharedSemantics.norm self
     sender := SharedSemantics.norm sender
     value := SharedSemantics.norm value }
 
+def Contract.callContextAt (contract : Contract)
+    (self sender value : Word) (calldata : Bytes) : Context :=
+  Contract.callContextAtWithBase contract contract.context self sender value
+    calldata
+
 def Contract.callContext (contract : Contract)
     (sender value : Word) (calldata : Bytes) : Context :=
   Contract.callContextAt contract 0 sender value calldata
 
-def Contract.callFallbackAtFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (self sender value : Word) (calldata : Bytes) :
-    Option AbiCallResult :=
+def Contract.callFallbackAtFromWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) : Option AbiCallResult :=
   match Contract.findFallback? contract with
   | some function => do
       let args ← FunctionDef.fallbackArgs? function calldata
-      let context := Contract.callContextAt contract self sender value calldata
+      let context :=
+        Contract.callContextAtWithBase contract base self sender value calldata
       if function.acceptsValue value then
         match FunctionDef.call? fuel context function state args with
         | some (CallResult.returned state' values) => do
@@ -553,6 +733,12 @@ def Contract.callFallbackAtFrom? (fuel : Nat) (contract : Contract)
   | none =>
       Contract.missingFallbackCall? contract state
 
+def Contract.callFallbackAtFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callFallbackAtFromWithContext?
+    fuel contract contract.context state self sender value calldata
+
 def Contract.callFallbackFrom? (fuel : Nat) (contract : Contract)
     (state : State) (sender value : Word) (calldata : Bytes) :
     Option AbiCallResult :=
@@ -562,13 +748,14 @@ def Contract.callFallback? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callFallbackFrom? fuel contract state 0 0 calldata
 
-def Contract.callReceiveOrFallbackAtFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (self sender value : Word) (calldata : Bytes) :
-    Option AbiCallResult :=
+def Contract.callReceiveOrFallbackAtFromWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) : Option AbiCallResult :=
   if calldata.isEmpty then
     match Contract.findReceive? contract with
     | some function =>
-        let context := Contract.callContextAt contract self sender value []
+        let context :=
+          Contract.callContextAtWithBase contract base self sender value []
         if function.acceptsValue value then
           match FunctionDef.call? fuel context function state [] with
           | some (CallResult.returned state' values) => do
@@ -581,10 +768,18 @@ def Contract.callReceiveOrFallbackAtFrom? (fuel : Nat) (contract : Contract)
           | none => none
         else
           Contract.rejectedValueCall? contract state
-    | none => Contract.callFallbackAtFrom? fuel contract state
-        self sender value calldata
+    | none =>
+        Contract.callFallbackAtFromWithContext? fuel contract base state
+          self sender value calldata
   else
-    Contract.callFallbackAtFrom? fuel contract state self sender value calldata
+    Contract.callFallbackAtFromWithContext? fuel contract base state
+      self sender value calldata
+
+def Contract.callReceiveOrFallbackAtFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callReceiveOrFallbackAtFromWithContext?
+    fuel contract contract.context state self sender value calldata
 
 def Contract.callReceiveOrFallbackFrom? (fuel : Nat) (contract : Contract)
     (state : State) (sender value : Word) (calldata : Bytes) :
@@ -596,59 +791,124 @@ def Contract.callReceiveOrFallback? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callReceiveOrFallbackFrom? fuel contract state 0 0 calldata
 
-def Contract.callCalldataAtFrom? (fuel : Nat) (contract : Contract)
-    (state : State) (self sender value : Word) (calldata : Bytes) :
-    Option AbiCallResult := do
+def Contract.callCalldataAtFromWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) : Option AbiCallResult := do
   match readSelector? calldata with
   | some selector =>
       match contract.findFunctionBySelector? selector with
-      | some function => do
-          let args ←
-            decodeArgs? (function.params.map BindingDecl.ty)
-              (calldata.drop selectorBytes)
-          let context :=
-            Contract.callContextAt contract self sender value calldata
-          if function.acceptsValue value then
-            match function.call? fuel context state args with
-            | some (CallResult.returned state' values) => do
-                let output ← encodeValues?
-                  (function.returns.map BindingDecl.ty) values
-                some { success := true, output, state := state' }
-            | some (CallResult.reverted state' revert) => do
-                let output ← Contract.encodeRevertData? contract revert
-                some { success := false, output, state := state' }
-            | none => none
-          else
-            Contract.rejectedValueCall? contract state
+      | some function =>
+          match
+            decodeFunctionArgs? function (calldata.drop selectorBytes)
+          with
+          | some args =>
+              let context :=
+                Contract.callContextAtWithBase contract base self sender value
+                  calldata
+              if function.acceptsValue value then
+                match function.call? fuel context state args with
+                | some (CallResult.returned state' values) => do
+                    let output ← encodeValues?
+                      (function.returns.map BindingDecl.ty) values
+                    some { success := true, output, state := state' }
+                | some (CallResult.reverted state' revert) => do
+                    let output ← Contract.encodeRevertData? contract revert
+                    some { success := false, output, state := state' }
+                | none => none
+              else
+                Contract.rejectedValueCall? contract state
+          | none => Contract.revertedEmptyCall? contract state
       | none =>
-          Contract.callFallbackAtFrom? fuel contract state
+          Contract.callFallbackAtFromWithContext? fuel contract base state
             self sender value calldata
   | none =>
-      Contract.callReceiveOrFallbackAtFrom? fuel contract state
+      Contract.callReceiveOrFallbackAtFromWithContext? fuel contract base state
         self sender value calldata
+
+def Contract.callCalldataAtFromUnspecifiedResults (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) : List AbiCallResult :=
+  base.withUnspecifiedChildEvalOrders.filterMap
+    (fun orderedContext =>
+      Contract.callCalldataAtFromWithContext?
+        fuel contract orderedContext state self sender value calldata)
+
+def Contract.CalldataCallUnspecified (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes)
+    (result : AbiCallResult) : Prop :=
+  Contract.callCalldataAtFromWithContext?
+      fuel contract
+        (base.withChildEvalOrder ChildEvalOrder.yulCompatible)
+        state self sender value calldata =
+    some result
+
+def Contract.callCalldataAtFrom? (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataAtFromWithContext?
+    fuel contract contract.context state self sender value calldata
+
+def Contract.callCalldataFromWithContext? (fuel : Nat) (contract : Contract)
+    (base : Context) (state : State) (sender value : Word)
+    (calldata : Bytes) : Option AbiCallResult :=
+  Contract.callCalldataAtFromWithContext?
+    fuel contract base state 0 sender value calldata
 
 def Contract.callCalldataFrom? (fuel : Nat) (contract : Contract)
     (state : State) (sender value : Word) (calldata : Bytes) :
     Option AbiCallResult :=
   Contract.callCalldataAtFrom? fuel contract state 0 sender value calldata
 
+def Contract.callCalldataAtWithContext? (fuel : Nat) (contract : Contract)
+    (base : Context) (state : State) (self : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataAtFromWithContext?
+    fuel contract base state self 0 0 calldata
+
 def Contract.callCalldataAt? (fuel : Nat) (contract : Contract)
     (state : State) (self : Word) (calldata : Bytes) :
     Option AbiCallResult :=
   Contract.callCalldataAtFrom? fuel contract state self 0 0 calldata
 
+def Contract.callCalldataWithContext? (fuel : Nat) (contract : Contract)
+    (base : Context) (state : State) (calldata : Bytes) :
+    Option AbiCallResult :=
+  Contract.callCalldataFromWithContext? fuel contract base state 0 0 calldata
+
 def Contract.callCalldata? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callCalldataFrom? fuel contract state 0 0 calldata
+
+def Contract.callCalldataTransactionAtFromWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult := do
+  let result ←
+    Contract.callCalldataAtFromWithContext?
+      fuel contract base state.clearTransient self sender value calldata
+  some result.clearTransient
+
+def Contract.callCalldataTransactionAtFromUnspecifiedResults (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) : List AbiCallResult :=
+  base.withUnspecifiedChildEvalOrders.filterMap
+    (fun orderedContext =>
+      Contract.callCalldataTransactionAtFromWithContext?
+        fuel contract orderedContext state self sender value calldata)
 
 def Contract.callCalldataTransactionAtFrom? (fuel : Nat)
     (contract : Contract) (state : State) (self sender value : Word)
     (calldata : Bytes) :
     Option AbiCallResult := do
-  let result ←
-    Contract.callCalldataAtFrom?
-      fuel contract state.clearTransient self sender value calldata
-  some result.clearTransient
+  Contract.callCalldataTransactionAtFromWithContext?
+    fuel contract contract.context state self sender value calldata
+
+def Contract.callCalldataTransactionFromWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (sender value : Word) (calldata : Bytes) : Option AbiCallResult :=
+  Contract.callCalldataTransactionAtFromWithContext?
+    fuel contract base state 0 sender value calldata
 
 def Contract.callCalldataTransactionFrom? (fuel : Nat) (contract : Contract)
     (state : State) (sender value : Word) (calldata : Bytes) :
@@ -656,15 +916,144 @@ def Contract.callCalldataTransactionFrom? (fuel : Nat) (contract : Contract)
   Contract.callCalldataTransactionAtFrom? fuel contract state 0 sender value
     calldata
 
+def Contract.callCalldataTransactionAtWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self : Word) (calldata : Bytes) : Option AbiCallResult :=
+  Contract.callCalldataTransactionAtFromWithContext?
+    fuel contract base state self 0 0 calldata
+
 def Contract.callCalldataTransactionAt? (fuel : Nat) (contract : Contract)
     (state : State) (self : Word) (calldata : Bytes) :
     Option AbiCallResult :=
   Contract.callCalldataTransactionAtFrom? fuel contract state self 0 0
     calldata
 
+def Contract.callCalldataTransactionWithContext? (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (calldata : Bytes) : Option AbiCallResult :=
+  Contract.callCalldataTransactionFromWithContext?
+    fuel contract base state 0 0 calldata
+
 def Contract.callCalldataTransaction? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callCalldataTransactionFrom? fuel contract state 0 0 calldata
+
+def AbiEntryKind.executionState (kind : AbiEntryKind) (state : State) :
+    State :=
+  match kind with
+  | AbiEntryKind.messageCall => state
+  | AbiEntryKind.transaction => state.clearTransient
+
+def Contract.observeCalldataFunctionEntry? (kind : AbiEntryKind)
+    (fuel : Nat) (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option FunctionEntryObservation :=
+  let executionState := kind.executionState state
+  let context :=
+    Contract.callContextAtWithBase contract base self sender value calldata
+  let observeFunction :=
+    fun (function : FunctionDef) (args : List Value) =>
+      FunctionDef.observeCallEntry function FunctionEntryKind.ordinary
+        fuel context executionState args self
+  match readSelector? calldata with
+  | some selector =>
+      match contract.findFunctionBySelector? selector with
+      | some function => do
+          let args ←
+            decodeFunctionArgs? function (calldata.drop selectorBytes)
+          some (observeFunction function args)
+      | none =>
+          match Contract.findFallback? contract with
+          | some function => do
+              let args ← FunctionDef.fallbackArgs? function calldata
+              some (observeFunction function args)
+          | none => none
+  | none =>
+      if calldata.isEmpty then
+        match Contract.findReceive? contract with
+        | some function => some (observeFunction function [])
+        | none =>
+            match Contract.findFallback? contract with
+            | some function => do
+                let args ← FunctionDef.fallbackArgs? function calldata
+                some (observeFunction function args)
+            | none => none
+      else
+        match Contract.findFallback? contract with
+        | some function => do
+            let args ← FunctionDef.fallbackArgs? function calldata
+            some (observeFunction function args)
+        | none => none
+
+def Contract.observeCalldataEntryInput (kind : AbiEntryKind) (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    AbiEntryInputObservation :=
+  let submittedState := state.observe self
+  let executionState := (kind.executionState state).observe self
+  { kind := kind
+    fuel := fuel
+    self := SharedSemantics.norm self
+    sender := SharedSemantics.norm sender
+    value := SharedSemantics.norm value
+    calldata := normalizeBytes calldata
+    dispatch := Contract.observeCalldataDispatch contract calldata
+    baseContext := base.observe
+    callContext :=
+      (Contract.callContextAtWithBase contract base self sender value calldata).observe
+    submittedState := submittedState
+    executionState := executionState }
+
+def Contract.callCalldataEntryAtFromWithContext? (kind : AbiEntryKind)
+    (fuel : Nat) (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option AbiCallResult :=
+  match kind with
+  | AbiEntryKind.messageCall =>
+      Contract.callCalldataAtFromWithContext?
+        fuel contract base state self sender value calldata
+  | AbiEntryKind.transaction =>
+      Contract.callCalldataTransactionAtFromWithContext?
+        fuel contract base state self sender value calldata
+
+def Contract.observeCalldataEntryAtFromWithContext (kind : AbiEntryKind)
+    (fuel : Nat) (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    AbiEntryObservation :=
+  let input :=
+    Contract.observeCalldataEntryInput
+      kind fuel contract base state self sender value calldata
+  let functionEntry? :=
+    Contract.observeCalldataFunctionEntry?
+      kind fuel contract base state self sender value calldata
+  let result? :=
+    (Contract.callCalldataEntryAtFromWithContext?
+      kind fuel contract base state self sender value calldata).map
+      (fun result => result.observe self)
+  { input := input
+    functionEntry? := functionEntry?
+    result? := result?
+    resultEncoding? := do
+      let entry ← functionEntry?
+      let result ← result?
+      AbiResultEncodingObservation.fromFunctionEntry?
+        contract input.dispatch.kind entry result }
+
+def Contract.observeCalldataCallAtFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    AbiEntryObservation :=
+  Contract.observeCalldataEntryAtFromWithContext
+    AbiEntryKind.messageCall fuel contract base state self sender value
+    calldata
+
+def Contract.observeCalldataTransactionAtFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    AbiEntryObservation :=
+  Contract.observeCalldataEntryAtFromWithContext
+    AbiEntryKind.transaction fuel contract base state self sender value
+    calldata
 
 end ABI
 end Source

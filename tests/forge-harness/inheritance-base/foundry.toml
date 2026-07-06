@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/inheritance-base/out"
+cache_path = "../../.foundry-suites/inheritance-base/cache"
+evm_version = "cancun"

@@ -10,3 +10,6 @@ tests/.foundry-suites/
 *.o
 *.so
 *.dylib
+__pycache__/
+tests/forge-harness/*/out/
+tests/forge-harness/*/cache/

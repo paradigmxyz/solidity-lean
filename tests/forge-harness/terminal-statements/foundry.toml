@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/terminal-statements/out"
+cache_path = "../../.foundry-suites/terminal-statements/cache"
+evm_version = "cancun"

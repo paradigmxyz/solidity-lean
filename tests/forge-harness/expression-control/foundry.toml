@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/expression-control/out"
+cache_path = "../../.foundry-suites/expression-control/cache"
+evm_version = "cancun"

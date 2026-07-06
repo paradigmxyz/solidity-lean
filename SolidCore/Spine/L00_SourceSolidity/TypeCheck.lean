@@ -11,6 +11,56 @@ abbrev Path := L00_SourceSolidity.Path
 abbrev TypeEnv := L00_SourceSolidity.Executable.TypeEnv
 abbrev SourceUnitAst := L00_SourceSolidity.SourceUnit
 abbrev SourceContractDecl := L00_SourceSolidity.ContractDecl
+abbrev EvmVersion := SolidCore.Solidity.Source.EvmVersion
+
+namespace EvmVersion
+
+abbrev homestead : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.homestead
+
+abbrev tangerineWhistle : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.tangerineWhistle
+
+abbrev spuriousDragon : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.spuriousDragon
+
+abbrev byzantium : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.byzantium
+
+abbrev constantinople : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.constantinople
+
+abbrev petersburg : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.petersburg
+
+abbrev istanbul : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.istanbul
+
+abbrev berlin : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.berlin
+
+abbrev london : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.london
+
+abbrev paris : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.paris
+
+abbrev shanghai : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.shanghai
+
+abbrev cancun : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.cancun
+
+abbrev prague : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.prague
+
+abbrev osaka : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.osaka
+
+def default : EvmVersion :=
+  SolidCore.Solidity.Source.EvmVersion.default
+
+end EvmVersion
 
 structure TypeContext where
   contracts : List Path := []
@@ -18,6 +68,8 @@ structure TypeContext where
   structs : List (Path × L00_SourceSolidity.StructDecl) := []
   enums : List (Path × L00_SourceSolidity.EnumDecl) := []
   userValueTypes : List (Path × Ty) := []
+  abiCoderV1 : Bool := false
+  evmVersion : EvmVersion := EvmVersion.default
   deriving Repr
 
 namespace TypeContext
@@ -65,10 +117,36 @@ def lookupUserValueType? (ctx : TypeContext) (path : Path) :
     Option Ty :=
   lookupPath? path ctx.userValueTypes
 
+def pathIsAdjacentAliasIn {α : Type} (short qualified : Path) :
+    List (Path × α) -> Bool
+  | [] => false
+  | [_] => false
+  | (candidate, _) :: tail =>
+      match tail with
+      | (alias, _) :: _ =>
+          (candidate == short && alias == qualified) ||
+            pathIsAdjacentAliasIn short qualified tail
+      | [] => false
+
+def pathsAreLocalAliasIn {α : Type} (entries : List (Path × α))
+    (left right : Path) : Bool :=
+  match left.segments, right.segments with
+  | [_], _ => pathIsAdjacentAliasIn left right entries
+  | _, [_] => pathIsAdjacentAliasIn right left entries
+  | _, _ => false
+
 def isContractPath (ctx : TypeContext) (path : Path) : Bool :=
   match lookupContract? ctx path with
   | some _ => true
   | none => false
+
+def isLibraryPath (ctx : TypeContext) (path : Path) : Bool :=
+  match lookupContractDecl? ctx path with
+  | some decl => decl.kind == L00_SourceSolidity.ContractKind.library
+  | none => false
+
+def isContractValuePath (ctx : TypeContext) (path : Path) : Bool :=
+  isContractPath ctx path && !isLibraryPath ctx path
 
 def isStructPath (ctx : TypeContext) (path : Path) : Bool :=
   match lookupStruct? ctx path with
@@ -89,6 +167,68 @@ def isKnownPath (ctx : TypeContext) (path : Path) : Bool :=
   isContractPath ctx path || isStructPath ctx path ||
     isEnumPath ctx path || isUserValueTypePath ctx path
 
+def contractQualifiedStructEntries (contractName : Name) :
+    List L00_SourceSolidity.StructDecl ->
+    List (Path × L00_SourceSolidity.StructDecl)
+  | [] => []
+  | decl :: rest =>
+      (qualifiedPath contractName decl.name, decl) ::
+        contractQualifiedStructEntries contractName rest
+
+def contractQualifiedEnumEntries (contractName : Name) :
+    List L00_SourceSolidity.EnumDecl ->
+    List (Path × L00_SourceSolidity.EnumDecl)
+  | [] => []
+  | decl :: rest =>
+      (qualifiedPath contractName decl.name, decl) ::
+        contractQualifiedEnumEntries contractName rest
+
+def contractQualifiedUserValueTypeEntries (contractName : Name) :
+    List L00_SourceSolidity.UserValueTypeDecl -> List (Path × Ty)
+  | [] => []
+  | decl :: rest =>
+      (qualifiedPath contractName decl.name, decl.underlying) ::
+        contractQualifiedUserValueTypeEntries contractName rest
+
+def contractSourceStructEntries :
+    List L00_SourceSolidity.ContractDecl ->
+    List (Path × L00_SourceSolidity.StructDecl)
+  | [] => []
+  | contract :: rest =>
+      contractQualifiedStructEntries contract.name
+        (contract.items.filterMap
+          (fun item =>
+            match item with
+            | L00_SourceSolidity.ContractItem.structDecl decl => some decl
+            | _ => none)) ++
+        contractSourceStructEntries rest
+
+def contractSourceEnumEntries :
+    List L00_SourceSolidity.ContractDecl ->
+    List (Path × L00_SourceSolidity.EnumDecl)
+  | [] => []
+  | contract :: rest =>
+      contractQualifiedEnumEntries contract.name
+        (contract.items.filterMap
+          (fun item =>
+            match item with
+            | L00_SourceSolidity.ContractItem.enumDecl decl => some decl
+            | _ => none)) ++
+        contractSourceEnumEntries rest
+
+def contractSourceUserValueTypeEntries :
+    List L00_SourceSolidity.ContractDecl -> List (Path × Ty)
+  | [] => []
+  | contract :: rest =>
+      contractQualifiedUserValueTypeEntries contract.name
+        (contract.items.filterMap
+          (fun item =>
+            match item with
+            | L00_SourceSolidity.ContractItem.userValueTypeDecl decl =>
+                some decl
+            | _ => none)) ++
+        contractSourceUserValueTypeEntries rest
+
 def withSourceTypes (ctx : TypeContext)
     (contracts : List L00_SourceSolidity.ContractDecl)
     (structs : List L00_SourceSolidity.StructDecl)
@@ -102,11 +242,15 @@ def withSourceTypes (ctx : TypeContext)
       contracts.map (fun decl => (pathOfName decl.name, decl)) ++
         ctx.contractDecls
     structs :=
-      structs.map (fun decl => (pathOfName decl.name, decl)) ++ ctx.structs
-    enums := enums.map (fun decl => (pathOfName decl.name, decl)) ++ ctx.enums
+      structs.map (fun decl => (pathOfName decl.name, decl)) ++
+        contractSourceStructEntries contracts ++ ctx.structs
+    enums :=
+      enums.map (fun decl => (pathOfName decl.name, decl)) ++
+        contractSourceEnumEntries contracts ++ ctx.enums
     userValueTypes :=
       userValueTypes.map
         (fun decl => (pathOfName decl.name, decl.underlying)) ++
+        contractSourceUserValueTypeEntries contracts ++
         ctx.userValueTypes }
 
 def contractStructEntries (contractName : Name) :
@@ -228,9 +372,21 @@ def Ty.isSignedInteger : Ty -> Bool
 def Ty.isInteger (ty : Ty) : Bool :=
   Ty.isUnsignedInteger ty || Ty.isSignedInteger ty
 
+def Ty.isFixedPoint : Ty -> Bool
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
+  | _ => false
+
+def Ty.isSignedArithmeticOperand : Ty -> Bool
+  | L00_SourceSolidity.Ty.int _ => true
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | _ => false
+
 def Ty.isNumeric : Ty -> Bool
   | L00_SourceSolidity.Ty.uint _ => true
   | L00_SourceSolidity.Ty.int _ => true
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
   | L00_SourceSolidity.Ty.bytesN _ => true
   | L00_SourceSolidity.Ty.fixedBytes _ => true
   | _ => false
@@ -238,6 +394,8 @@ def Ty.isNumeric : Ty -> Bool
 def Ty.isArithmeticOperand : Ty -> Bool
   | L00_SourceSolidity.Ty.uint _ => true
   | L00_SourceSolidity.Ty.int _ => true
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
   | _ => false
 
 def Ty.isFixedBytesOperand : Ty -> Bool
@@ -246,13 +404,15 @@ def Ty.isFixedBytesOperand : Ty -> Bool
   | _ => false
 
 def Ty.isBitwiseOperand (ty : Ty) : Bool :=
-  Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
+  Ty.isInteger ty || Ty.isFixedBytesOperand ty
 
 def Ty.isRelationalOperand (ty : Ty) : Bool :=
-  Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
+  match ty with
+  | L00_SourceSolidity.Ty.address _ => true
+  | _ => Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
 
 def Ty.isShiftLeftOperand (ty : Ty) : Bool :=
-  Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
+  Ty.isInteger ty || Ty.isFixedBytesOperand ty
 
 def Ty.integerBits? : Ty -> Option Nat
   | L00_SourceSolidity.Ty.uint bits => some bits
@@ -264,6 +424,8 @@ def Ty.isBuiltInValueTypeShape : Ty -> Bool
   | L00_SourceSolidity.Ty.address _ => true
   | L00_SourceSolidity.Ty.uint _ => true
   | L00_SourceSolidity.Ty.int _ => true
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
   | L00_SourceSolidity.Ty.bytesN _ => true
   | L00_SourceSolidity.Ty.fixedBytes _ => true
   | _ => false
@@ -273,12 +435,14 @@ def TypeContext.isValueTypeShape (types : TypeContext) : Ty -> Bool
   | L00_SourceSolidity.Ty.address _ => true
   | L00_SourceSolidity.Ty.uint _ => true
   | L00_SourceSolidity.Ty.int _ => true
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
   | L00_SourceSolidity.Ty.bytesN _ => true
   | L00_SourceSolidity.Ty.fixedBytes _ => true
   | L00_SourceSolidity.Ty.user path =>
-      types.isContractPath path || types.isEnumPath path ||
+      types.isContractValuePath path || types.isEnumPath path ||
         types.isUserValueTypePath path
-  | L00_SourceSolidity.Ty.function _ _ _ _ => true
+  | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ _ => true
   | _ => false
 
 def TypeContext.isConstantStateVarTypeShape
@@ -289,7 +453,7 @@ def TypeContext.isConstantStateVarTypeShape
 
 def TypeContext.isImmutableStateVarTypeShape
     (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.function _ _ _
+  | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
       L00_SourceSolidity.Visibility.external_ => false
   | ty => TypeContext.isValueTypeShape types ty
 
@@ -298,12 +462,14 @@ def Ty.isMappingKeyShape (types : TypeContext) : Ty -> Bool
   | L00_SourceSolidity.Ty.address _ => true
   | L00_SourceSolidity.Ty.uint _ => true
   | L00_SourceSolidity.Ty.int _ => true
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
   | L00_SourceSolidity.Ty.bytesN _ => true
   | L00_SourceSolidity.Ty.fixedBytes _ => true
   | L00_SourceSolidity.Ty.bytes => true
   | L00_SourceSolidity.Ty.string => true
   | L00_SourceSolidity.Ty.user path =>
-      types.isContractPath path || types.isEnumPath path ||
+      types.isContractValuePath path || types.isEnumPath path ||
         types.isUserValueTypePath path
   | _ => false
 
@@ -330,6 +496,100 @@ end
 
 mutual
 
+def Ty.containsLibraryType (types : TypeContext) : Nat -> Ty -> Bool
+  | 0, _ => false
+  | _ + 1, L00_SourceSolidity.Ty.user path => types.isLibraryPath path
+  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+      Ty.containsLibraryType types fuel element
+  | fuel + 1, L00_SourceSolidity.Ty.mapping key value =>
+      Ty.containsLibraryType types fuel key ||
+        Ty.containsLibraryType types fuel value
+  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+      Tys.containsLibraryType types fuel tys
+  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+      _ _ =>
+      Tys.containsLibraryType types fuel params ||
+        Tys.containsLibraryType types fuel returns
+  | _ + 1, _ => false
+
+def Tys.containsLibraryType (types : TypeContext) (fuel : Nat) :
+    List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      Ty.containsLibraryType types fuel ty ||
+        Tys.containsLibraryType types fuel rest
+
+end
+
+mutual
+
+def TypeContext.tyContainsFixedPointFuel (types : TypeContext)
+    (fuel : Nat) : Ty -> Bool
+  | L00_SourceSolidity.Ty.fixed _ _ => true
+  | L00_SourceSolidity.Ty.ufixed _ _ => true
+  | L00_SourceSolidity.Ty.array element _ =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => TypeContext.tyContainsFixedPointFuel types fuel element
+  | L00_SourceSolidity.Ty.mapping key value =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          TypeContext.tyContainsFixedPointFuel types fuel key ||
+            TypeContext.tyContainsFixedPointFuel types fuel value
+  | L00_SourceSolidity.Ty.tuple tys =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => Tys.containsFixedPointFuel types fuel tys
+  | L00_SourceSolidity.Ty.user path =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          match types.lookupUserValueType? path with
+          | some underlying =>
+              TypeContext.tyContainsFixedPointFuel types fuel underlying
+          | none =>
+              match types.lookupStruct? path with
+              | some decl =>
+                  StructFields.containsFixedPointFuel types fuel decl.fields
+              | none => false
+  | _ => false
+
+def Tys.containsFixedPointFuel (types : TypeContext) (fuel : Nat) :
+    List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      TypeContext.tyContainsFixedPointFuel types fuel ty ||
+        Tys.containsFixedPointFuel types fuel rest
+
+def StructFields.containsFixedPointFuel
+    (types : TypeContext) (fuel : Nat) :
+    List L00_SourceSolidity.StructField -> Bool
+  | [] => false
+  | field :: rest =>
+      TypeContext.tyContainsFixedPointFuel types fuel field.ty ||
+        StructFields.containsFixedPointFuel types fuel rest
+
+end
+
+def TypeContext.tyContainsFixedPoint (types : TypeContext) (ty : Ty) :
+    Bool :=
+  TypeContext.tyContainsFixedPointFuel types 64 ty
+
+def TypeContext.requireNoFixedPointValue
+    (types : TypeContext) (ty : Ty) (what : String) :
+    Except TypeError Unit :=
+  require (!types.tyContainsFixedPoint ty)
+    (TypeError.unsupported (what ++ " fixed point value"))
+
+def TypeContext.requireNoFixedPointAssignment
+    (types : TypeContext) (actual expected : Ty) :
+    Except TypeError Unit := do
+  types.requireNoFixedPointValue actual "assignment from"
+  types.requireNoFixedPointValue expected "assignment to"
+
+mutual
+
 def Ty.isExternalFunctionAbiTypeShape (types : TypeContext) :
     Nat -> Ty -> Bool
   | 0, _ => false
@@ -337,6 +597,8 @@ def Ty.isExternalFunctionAbiTypeShape (types : TypeContext) :
   | _ + 1, L00_SourceSolidity.Ty.address _ => true
   | _ + 1, L00_SourceSolidity.Ty.uint _ => true
   | _ + 1, L00_SourceSolidity.Ty.int _ => true
+  | _ + 1, L00_SourceSolidity.Ty.fixed _ _ => true
+  | _ + 1, L00_SourceSolidity.Ty.ufixed _ _ => true
   | _ + 1, L00_SourceSolidity.Ty.bytesN _ => true
   | _ + 1, L00_SourceSolidity.Ty.fixedBytes _ => true
   | _ + 1, L00_SourceSolidity.Ty.bytes => true
@@ -346,7 +608,7 @@ def Ty.isExternalFunctionAbiTypeShape (types : TypeContext) :
   | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
       Tys.allExternalFunctionAbiTypeShape types fuel tys
   | fuel + 1, L00_SourceSolidity.Ty.user path =>
-      if types.isContractPath path || types.isEnumPath path then
+      if types.isContractValuePath path || types.isEnumPath path then
         true
       else
         match types.lookupUserValueType? path with
@@ -358,7 +620,8 @@ def Ty.isExternalFunctionAbiTypeShape (types : TypeContext) :
                 StructFields.allExternalFunctionAbiTypeShape types fuel
                   decl.fields
             | none => false
-  | fuel + 1, L00_SourceSolidity.Ty.function params returns _ visibility =>
+  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+      _ visibility =>
       visibility == L00_SourceSolidity.Visibility.external_ &&
         Tys.allExternalFunctionAbiTypeShape types fuel params &&
           Tys.allExternalFunctionAbiTypeShape types fuel returns
@@ -382,39 +645,6 @@ end
 
 mutual
 
-def Ty.isValid (types : TypeContext) : Ty -> Bool
-  | L00_SourceSolidity.Ty.uint bits =>
-      bits > 0 && bits <= 256 && bits % 8 == 0
-  | L00_SourceSolidity.Ty.int bits =>
-      bits > 0 && bits <= 256 && bits % 8 == 0
-  | L00_SourceSolidity.Ty.bytesN size => size > 0 && size <= 32
-  | L00_SourceSolidity.Ty.fixedBytes size => size > 0 && size <= 32
-  | L00_SourceSolidity.Ty.array element none => Ty.isValid types element
-  | L00_SourceSolidity.Ty.array element (some size) =>
-      size > 0 && Ty.isValid types element
-  | L00_SourceSolidity.Ty.mapping key value =>
-      Ty.isValid types key && Ty.isValid types value &&
-        Ty.isMappingKeyShape types key
-  | L00_SourceSolidity.Ty.tuple tys => Tys.allValid types tys
-  | L00_SourceSolidity.Ty.user path => types.isKnownPath path
-  | L00_SourceSolidity.Ty.function params returns mutability visibility =>
-      Tys.allValid types params && Tys.allValid types returns &&
-        (mutability != L00_SourceSolidity.StateMutability.payable ||
-          visibility == L00_SourceSolidity.Visibility.external_) &&
-        (visibility == L00_SourceSolidity.Visibility.internal_ ||
-          (visibility == L00_SourceSolidity.Visibility.external_ &&
-            Tys.allExternalFunctionAbiTypeShape types 64 params &&
-              Tys.allExternalFunctionAbiTypeShape types 64 returns))
-  | _ => true
-
-def Tys.allValid (types : TypeContext) : List Ty -> Bool
-  | [] => true
-  | ty :: rest => Ty.isValid types ty && Tys.allValid types rest
-
-end
-
-mutual
-
 def Ty.containsMapping (types : TypeContext) : Nat -> Ty -> Bool
   | 0, _ => false
   | _ + 1, L00_SourceSolidity.Ty.mapping _ _ => true
@@ -426,7 +656,8 @@ def Ty.containsMapping (types : TypeContext) : Nat -> Ty -> Bool
       match types.lookupStruct? path with
       | some structDecl => StructFields.containsMapping types fuel structDecl.fields
       | none => false
-  | fuel + 1, L00_SourceSolidity.Ty.function params returns _ _ =>
+  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+      _ _ =>
       Tys.containsMapping types fuel params ||
         Tys.containsMapping types fuel returns
   | _, _ => false
@@ -445,6 +676,166 @@ def StructFields.containsMapping (types : TypeContext) (fuel : Nat) :
         StructFields.containsMapping types fuel rest
 
 end
+
+def Ty.functionDataLocationValid (types : TypeContext) (ty : Ty)
+    (location : Option L00_SourceSolidity.DataLocation) : Bool :=
+  if Ty.needsDataLocation types ty then
+    location.isSome &&
+      (!Ty.containsMapping types 64 ty ||
+        location == some L00_SourceSolidity.DataLocation.storage)
+  else
+    location.isNone
+
+def Tys.functionDataLocationsValid (types : TypeContext) :
+    List Ty -> List (Option L00_SourceSolidity.DataLocation) -> Bool
+  | [], [] => true
+  | ty :: tyRest, location :: locationRest =>
+      Ty.functionDataLocationValid types ty location &&
+        Tys.functionDataLocationsValid types tyRest locationRest
+  | _, _ => false
+
+def Tys.externalFunctionDataLocationsValid (types : TypeContext) :
+    List Ty -> List (Option L00_SourceSolidity.DataLocation) -> Bool
+  | [], [] => true
+  | ty :: tyRest, location :: locationRest =>
+      Ty.functionDataLocationValid types ty location &&
+        location != some L00_SourceSolidity.DataLocation.storage &&
+        Tys.externalFunctionDataLocationsValid types tyRest locationRest
+  | _, _ => false
+
+mutual
+
+def Ty.isValid (types : TypeContext) : Ty -> Bool
+  | L00_SourceSolidity.Ty.uint bits =>
+      bits > 0 && bits <= 256 && bits % 8 == 0
+  | L00_SourceSolidity.Ty.int bits =>
+      bits > 0 && bits <= 256 && bits % 8 == 0
+  | L00_SourceSolidity.Ty.fixed bits decimals =>
+      L00_SourceSolidity.Ty.validFixedPointShape bits decimals
+  | L00_SourceSolidity.Ty.ufixed bits decimals =>
+      L00_SourceSolidity.Ty.validFixedPointShape bits decimals
+  | L00_SourceSolidity.Ty.bytesN size => size > 0 && size <= 32
+  | L00_SourceSolidity.Ty.fixedBytes size => size > 0 && size <= 32
+  | L00_SourceSolidity.Ty.array element none => Ty.isValid types element
+  | L00_SourceSolidity.Ty.array element (some size) =>
+      size > 0 && Ty.isValid types element
+  | L00_SourceSolidity.Ty.mapping key value =>
+      Ty.isValid types key && Ty.isValid types value &&
+        Ty.isMappingKeyShape types key
+  | L00_SourceSolidity.Ty.tuple tys => Tys.allValid types tys
+  | L00_SourceSolidity.Ty.user path => types.isKnownPath path
+  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+      returnLocations mutability visibility =>
+      Tys.allValid types params && Tys.allValid types returns &&
+        Tys.functionDataLocationsValid types params paramLocations &&
+        Tys.functionDataLocationsValid types returns returnLocations &&
+        (mutability != L00_SourceSolidity.StateMutability.payable ||
+          visibility == L00_SourceSolidity.Visibility.external_) &&
+        (visibility == L00_SourceSolidity.Visibility.internal_ ||
+          (visibility == L00_SourceSolidity.Visibility.external_ &&
+            Tys.externalFunctionDataLocationsValid types params
+              paramLocations &&
+            Tys.externalFunctionDataLocationsValid types returns
+              returnLocations &&
+            Tys.allExternalFunctionAbiTypeShape types 64 params &&
+              Tys.allExternalFunctionAbiTypeShape types 64 returns))
+  | _ => true
+
+def Tys.allValid (types : TypeContext) : List Ty -> Bool
+  | [] => true
+  | ty :: rest => Ty.isValid types ty && Tys.allValid types rest
+
+end
+
+mutual
+
+def Ty.abiEncodedDynamic? (types : TypeContext) :
+    Nat -> Ty -> Bool
+  | 0, _ => true
+  | _ + 1, L00_SourceSolidity.Ty.bytes => true
+  | _ + 1, L00_SourceSolidity.Ty.string => true
+  | _ + 1, L00_SourceSolidity.Ty.array _ none => true
+  | fuel + 1, L00_SourceSolidity.Ty.array element (some _) =>
+      Ty.abiEncodedDynamic? types fuel element
+  | fuel + 1, L00_SourceSolidity.Ty.tuple tys =>
+      Tys.anyAbiEncodedDynamic? types fuel tys
+  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+      match types.lookupUserValueType? path with
+      | some underlying => Ty.abiEncodedDynamic? types fuel underlying
+      | none =>
+          match types.lookupStruct? path with
+          | some decl => StructFields.anyAbiEncodedDynamic? types fuel decl.fields
+          | none => false
+  | _ + 1, _ => false
+
+def Tys.anyAbiEncodedDynamic? (types : TypeContext) (fuel : Nat) :
+    List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      Ty.abiEncodedDynamic? types fuel ty ||
+        Tys.anyAbiEncodedDynamic? types fuel rest
+
+def StructFields.anyAbiEncodedDynamic? (types : TypeContext) (fuel : Nat) :
+    List L00_SourceSolidity.StructField -> Bool
+  | [] => false
+  | field :: rest =>
+      Ty.abiEncodedDynamic? types fuel field.ty ||
+        StructFields.anyAbiEncodedDynamic? types fuel rest
+
+end
+
+mutual
+
+def Ty.requiresAbiCoderV2? (types : TypeContext) :
+    Nat -> Ty -> Bool
+  | 0, _ => true
+  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+      Ty.requiresAbiCoderV2? types fuel element ||
+        Ty.abiEncodedDynamic? types fuel element
+  | _ + 1, L00_SourceSolidity.Ty.tuple _ => true
+  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+      match types.lookupStruct? path with
+      | some _ => true
+      | none =>
+          match types.lookupUserValueType? path with
+          | some underlying => Ty.requiresAbiCoderV2? types fuel underlying
+          | none => false
+  | fuel + 1, L00_SourceSolidity.Ty.functionWithLocations params _ returns _
+      _ _ =>
+      Tys.anyRequiresAbiCoderV2? types fuel params ||
+        Tys.anyRequiresAbiCoderV2? types fuel returns
+  | _ + 1, _ => false
+
+def Tys.anyRequiresAbiCoderV2? (types : TypeContext) (fuel : Nat) :
+    List Ty -> Bool
+  | [] => false
+  | ty :: rest =>
+      Ty.requiresAbiCoderV2? types fuel ty ||
+        Tys.anyRequiresAbiCoderV2? types fuel rest
+
+end
+
+def TypeContext.abiCoderSupports (types : TypeContext) (ty : Ty) :
+    Bool :=
+  !types.abiCoderV1 || !Ty.requiresAbiCoderV2? types 64 ty
+
+def Tys.firstAbiCoderV2Only? (types : TypeContext) :
+    List Ty -> Option Ty
+  | [] => none
+  | ty :: rest =>
+      if TypeContext.abiCoderSupports types ty then
+        Tys.firstAbiCoderV2Only? types rest
+      else
+        some ty
+
+def Parameters.firstAbiCoderV2OnlyTy? (types : TypeContext) :
+    List L00_SourceSolidity.Parameter -> Option Ty
+  | [] => none
+  | param :: rest =>
+      if TypeContext.abiCoderSupports types param.ty then
+        Parameters.firstAbiCoderV2OnlyTy? types rest
+      else
+        some param.ty
 
 mutual
 
@@ -536,6 +927,16 @@ def TypeContext.abiCanonicalFuel? (types : TypeContext) :
         some ("int" ++ toString bits)
       else
         none
+  | _ + 1, L00_SourceSolidity.Ty.fixed bits decimals =>
+      if L00_SourceSolidity.Ty.validFixedPointShape bits decimals then
+        some ("fixed" ++ toString bits ++ "x" ++ toString decimals)
+      else
+        none
+  | _ + 1, L00_SourceSolidity.Ty.ufixed bits decimals =>
+      if L00_SourceSolidity.Ty.validFixedPointShape bits decimals then
+        some ("ufixed" ++ toString bits ++ "x" ++ toString decimals)
+      else
+        none
   | _ + 1, L00_SourceSolidity.Ty.bytesN size =>
       if 0 < size && size <= 32 then
         some ("bytes" ++ toString size)
@@ -560,7 +961,11 @@ def TypeContext.abiCanonicalFuel? (types : TypeContext) :
         L00_SourceSolidity.Executable.joinStringsWith "," elements ++ ")")
   | fuel + 1, L00_SourceSolidity.Ty.user path =>
       match types.lookupContractDecl? path with
-      | some _ => some "address"
+      | some decl =>
+          if decl.kind == L00_SourceSolidity.ContractKind.library then
+            none
+          else
+            some "address"
       | none =>
           match types.lookupEnum? path with
           | some _ => some "uint8"
@@ -573,7 +978,7 @@ def TypeContext.abiCanonicalFuel? (types : TypeContext) :
                   | some decl =>
                       StructDecl.abiCanonicalFuel? types fuel decl
                   | none => none
-  | _ + 1, L00_SourceSolidity.Ty.function _ _ _ visibility =>
+  | _ + 1, L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
       if visibility == L00_SourceSolidity.Visibility.external_ then
         some "function"
       else
@@ -655,6 +1060,18 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
       L00_SourceSolidity.Ty.int expectedBits => actualBits <= expectedBits
     | L00_SourceSolidity.Ty.uint actualBits,
       L00_SourceSolidity.Ty.int expectedBits => actualBits < expectedBits
+    | L00_SourceSolidity.Ty.fixed actualBits actualDecimals,
+      L00_SourceSolidity.Ty.fixed expectedBits expectedDecimals =>
+        L00_SourceSolidity.Ty.fixedPointImplicitlyConvertible
+          true actualBits actualDecimals true expectedBits expectedDecimals
+    | L00_SourceSolidity.Ty.ufixed actualBits actualDecimals,
+      L00_SourceSolidity.Ty.ufixed expectedBits expectedDecimals =>
+        L00_SourceSolidity.Ty.fixedPointImplicitlyConvertible
+          false actualBits actualDecimals false expectedBits expectedDecimals
+    | L00_SourceSolidity.Ty.ufixed actualBits actualDecimals,
+      L00_SourceSolidity.Ty.fixed expectedBits expectedDecimals =>
+        L00_SourceSolidity.Ty.fixedPointImplicitlyConvertible
+          false actualBits actualDecimals true expectedBits expectedDecimals
     | L00_SourceSolidity.Ty.bytesN actualSize,
       L00_SourceSolidity.Ty.bytesN expectedSize => actualSize <= expectedSize
     | L00_SourceSolidity.Ty.fixedBytes actualSize,
@@ -666,12 +1083,16 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
     | L00_SourceSolidity.Ty.fixedBytes actualSize,
       L00_SourceSolidity.Ty.bytesN expectedSize =>
         actualSize <= expectedSize
-    | L00_SourceSolidity.Ty.function actualParams actualReturns
+    | L00_SourceSolidity.Ty.functionWithLocations actualParams
+        actualParamLocations actualReturns actualReturnLocations
         actualMutability actualVisibility,
-      L00_SourceSolidity.Ty.function expectedParams expectedReturns
+      L00_SourceSolidity.Ty.functionWithLocations expectedParams
+        expectedParamLocations expectedReturns expectedReturnLocations
         expectedMutability expectedVisibility =>
         actualParams == expectedParams &&
+          actualParamLocations == expectedParamLocations &&
           actualReturns == expectedReturns &&
+          actualReturnLocations == expectedReturnLocations &&
           actualVisibility == expectedVisibility &&
           StateMutability.canImplicitlyConvertFunction
             actualMutability expectedMutability
@@ -752,6 +1173,35 @@ def TypeContext.contractsRelated (types : TypeContext)
   TypeContext.contractHasAncestorPathFuel types 64 left right ||
     TypeContext.contractHasAncestorPathFuel types 64 right left
 
+def FunctionDecl.canReceiveEther
+    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
+  (fn.kind == L00_SourceSolidity.FunctionKind.receive &&
+      fn.mutability == L00_SourceSolidity.StateMutability.payable) ||
+    (fn.kind == L00_SourceSolidity.FunctionKind.fallback &&
+      fn.mutability == L00_SourceSolidity.StateMutability.payable)
+
+def ContractItems.canReceiveEther :
+    List L00_SourceSolidity.ContractItem -> Bool
+  | [] => false
+  | L00_SourceSolidity.ContractItem.function fn :: rest =>
+      FunctionDecl.canReceiveEther fn || ContractItems.canReceiveEther rest
+  | _ :: rest => ContractItems.canReceiveEther rest
+
+def TypeContext.contractCanReceiveEtherFuel
+    (types : TypeContext) : Nat -> Path -> Bool
+  | 0, _ => false
+  | fuel + 1, path =>
+      match types.lookupContractDecl? path with
+      | none => false
+      | some decl =>
+          ContractItems.canReceiveEther decl.items ||
+            decl.bases.any (fun base =>
+              TypeContext.contractCanReceiveEtherFuel types fuel base.base)
+
+def TypeContext.contractCanReceiveEther (types : TypeContext)
+    (path : Path) : Bool :=
+  TypeContext.contractCanReceiveEtherFuel types 64 path
+
 def TypeContext.canImplicitlyConvert (types : TypeContext)
     (actual expected : Ty) : Bool :=
   if Ty.canImplicitlyConvert actual expected then
@@ -760,11 +1210,56 @@ def TypeContext.canImplicitlyConvert (types : TypeContext)
     match actual, expected with
     | L00_SourceSolidity.Ty.user actualPath,
       L00_SourceSolidity.Ty.user expectedPath =>
-        types.isContractPath actualPath &&
-          types.isContractPath expectedPath &&
-          TypeContext.contractHasAncestorPathFuel types 64
-            actualPath expectedPath
+        TypeContext.pathsAreLocalAliasIn
+          types.structs actualPath expectedPath ||
+        TypeContext.pathsAreLocalAliasIn
+          types.enums actualPath expectedPath ||
+        TypeContext.pathsAreLocalAliasIn
+          types.userValueTypes actualPath expectedPath ||
+        (types.isContractPath actualPath &&
+            types.isContractPath expectedPath &&
+            TypeContext.contractHasAncestorPathFuel types 64
+              actualPath expectedPath)
     | _, _ => false
+
+def fixedPointLiteralRaw? (decimals : Nat)
+    (expr : L00_SourceSolidity.Expr) : Option Nat := do
+  let value ← L00_SourceSolidity.Executable.Expr.numberLiteralRat? expr
+  let scaled := value.num * 10 ^ decimals
+  if scaled % value.den == 0 then
+    some (scaled / value.den)
+  else
+    none
+
+def negatedFixedPointLiteralRaw? (decimals : Nat) :
+    L00_SourceSolidity.Expr -> Option Nat
+  | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
+      fixedPointLiteralRaw? decimals inner
+  | L00_SourceSolidity.Expr.call
+      (L00_SourceSolidity.Expr.typeName _) [L00_SourceSolidity.Arg.positional expr] =>
+      negatedFixedPointLiteralRaw? decimals expr
+  | _ => none
+
+def fixedPointLiteralFits (target : Ty)
+    (expr : L00_SourceSolidity.Expr) : Bool :=
+  match target with
+  | L00_SourceSolidity.Ty.fixed bits decimals =>
+      L00_SourceSolidity.Ty.validFixedPointShape bits decimals &&
+        match negatedFixedPointLiteralRaw? decimals expr with
+        | some magnitude => magnitude <= 2 ^ (bits - 1)
+        | none =>
+            match fixedPointLiteralRaw? decimals expr with
+            | some value => value < 2 ^ (bits - 1)
+            | none => false
+  | L00_SourceSolidity.Ty.ufixed bits decimals =>
+      L00_SourceSolidity.Ty.validFixedPointShape bits decimals &&
+        match negatedFixedPointLiteralRaw? decimals expr with
+        | some magnitude => magnitude == 0
+        | none =>
+            match fixedPointLiteralRaw? decimals expr with
+            | some value => value < 2 ^ bits
+            | none => false
+  | _ => false
 
 def typeConversionLiteralFits (target : Ty)
     (expr : L00_SourceSolidity.Expr) : Bool :=
@@ -775,13 +1270,14 @@ def typeConversionLiteralFits (target : Ty)
           target expr with
       | some _ => true
       | none =>
-          match target with
-          | L00_SourceSolidity.Ty.address false =>
-              match L00_SourceSolidity.Executable.Expr.toCoreAddressLiteral?
-                  expr with
-              | some _ => true
-              | none => false
-          | _ => false
+          fixedPointLiteralFits target expr ||
+            match target with
+            | L00_SourceSolidity.Ty.address false =>
+                match L00_SourceSolidity.Executable.Expr.toCoreAddressLiteral?
+                    expr with
+                | some _ => true
+                | none => false
+            | _ => false
 
 def implicitLiteralFits (target : Ty)
     (expr : L00_SourceSolidity.Expr) : Bool :=
@@ -791,7 +1287,15 @@ def implicitLiteralFits (target : Ty)
       match L00_SourceSolidity.Executable.Expr.toCoreFixedBytesLiteralAs?
           target expr with
       | some _ => true
-      | none => false
+      | none =>
+          (target == L00_SourceSolidity.Ty.bytes &&
+            match expr with
+            | L00_SourceSolidity.Expr.literal
+                (L00_SourceSolidity.Literal.string _) => true
+            | L00_SourceSolidity.Expr.literal
+                (L00_SourceSolidity.Literal.unicodeString _) => true
+            | _ => false) ||
+            fixedPointLiteralFits target expr
 
 def exprIsUint256ZeroLiteral (expr : L00_SourceSolidity.Expr) : Bool :=
   match
@@ -846,6 +1350,8 @@ def Ty.canExplicitlyConvert (types : TypeContext)
         typeConversionLiteralFits target sourceExpr
     | L00_SourceSolidity.Ty.uint _
     | L00_SourceSolidity.Ty.int _
+    | L00_SourceSolidity.Ty.fixed _ _
+    | L00_SourceSolidity.Ty.ufixed _ _
     | L00_SourceSolidity.Ty.bytesN _
     | L00_SourceSolidity.Ty.fixedBytes _ =>
         typeConversionLiteralFits target sourceExpr
@@ -867,20 +1373,28 @@ def Ty.canExplicitlyConvert (types : TypeContext)
         types.isContractPath path
     | _, L00_SourceSolidity.Ty.address false =>
         typeConversionLiteralFits target sourceExpr
+    | L00_SourceSolidity.Ty.string, L00_SourceSolidity.Ty.bytes => true
+    | L00_SourceSolidity.Ty.bytes, L00_SourceSolidity.Ty.string => true
     | _, L00_SourceSolidity.Ty.uint _ =>
         (match actual with
         | L00_SourceSolidity.Ty.user path => types.isEnumPath path
         | _ => false) ||
+          actual.isFixedPoint ||
           Ty.integerExplicitConversionAllowed actual target ||
           Ty.fixedBytesIntegerSameSize actual target ||
           (match actual with
-          | L00_SourceSolidity.Ty.address _ =>
+          | L00_SourceSolidity.Ty.address false =>
               target == L00_SourceSolidity.Ty.uint 160
           | _ => false) ||
           typeConversionLiteralFits target sourceExpr
     | _, L00_SourceSolidity.Ty.int _ =>
         Ty.integerExplicitConversionAllowed actual target ||
+          actual.isFixedPoint ||
           Ty.fixedBytesIntegerSameSize actual target ||
+          typeConversionLiteralFits target sourceExpr
+    | _, L00_SourceSolidity.Ty.fixed _ _
+    | _, L00_SourceSolidity.Ty.ufixed _ _ =>
+        actual.isFixedPoint ||
           typeConversionLiteralFits target sourceExpr
     | _, L00_SourceSolidity.Ty.bytesN _ =>
         if L00_SourceSolidity.Executable.Expr.isFixedBytesLiteralCandidate
@@ -888,6 +1402,8 @@ def Ty.canExplicitlyConvert (types : TypeContext)
           typeConversionLiteralFits target sourceExpr
         else
           (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
+            (actual == L00_SourceSolidity.Ty.address false &&
+              target == L00_SourceSolidity.Ty.bytesN 20) ||
             Ty.fixedBytesIntegerSameSize target actual) ||
             typeConversionLiteralFits target sourceExpr
     | _, L00_SourceSolidity.Ty.fixedBytes _ =>
@@ -896,10 +1412,14 @@ def Ty.canExplicitlyConvert (types : TypeContext)
           typeConversionLiteralFits target sourceExpr
         else
           (actual.isFixedBytes || actual == L00_SourceSolidity.Ty.bytes ||
+            (actual == L00_SourceSolidity.Ty.address false &&
+              target == L00_SourceSolidity.Ty.fixedBytes 20) ||
             Ty.fixedBytesIntegerSameSize target actual) ||
             typeConversionLiteralFits target sourceExpr
-    | L00_SourceSolidity.Ty.address _, L00_SourceSolidity.Ty.user path =>
-        types.isContractPath path
+    | L00_SourceSolidity.Ty.address sourcePayable,
+      L00_SourceSolidity.Ty.user path =>
+        types.isContractPath path &&
+          (sourcePayable || !types.contractCanReceiveEther path)
     | L00_SourceSolidity.Ty.user actualPath, L00_SourceSolidity.Ty.user targetPath =>
         if types.isContractPath actualPath && types.isContractPath targetPath then
           types.contractsRelated actualPath targetPath
@@ -923,6 +1443,8 @@ def checkLocationForTy (types : TypeContext) (ty : Ty)
     (location : Option L00_SourceSolidity.DataLocation) :
     Except TypeError Unit := do
   checkTy types ty
+  require (!Ty.containsLibraryType types 64 ty)
+    (TypeError.invalidType ty)
   if !Ty.needsDataLocation types ty && location.isSome &&
       !(match ty with
         | L00_SourceSolidity.Ty.tuple _ => true
@@ -942,8 +1464,12 @@ structure FunctionSig where
   params : List Ty := []
   paramNames : List (Option Name) := []
   paramStorageRefs : List Bool := []
+  paramDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   returns : List Ty := []
   returnStorageRefs : List Bool := []
+  returnDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   visibility : Option L00_SourceSolidity.Visibility := none
   mutability : L00_SourceSolidity.StateMutability :=
     L00_SourceSolidity.StateMutability.nonpayable
@@ -955,6 +1481,8 @@ structure ModifierSig where
   params : List Ty := []
   paramNames : List (Option Name) := []
   paramStorageRefs : List Bool := []
+  paramDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   deriving Repr
 
 structure ErrorSig where
@@ -967,6 +1495,7 @@ structure EventSig where
   name : Name
   params : List Ty := []
   paramNames : List (Option Name) := []
+  anonymous : Bool := false
   deriving Repr
 
 structure CheckEnv where
@@ -987,11 +1516,15 @@ structure CheckEnv where
   errors : List ErrorSig := []
   events : List EventSig := []
   contractKind : Option L00_SourceSolidity.ContractKind := none
+  currentContractAbstract : Bool := false
   currentContract : Option Path := none
   ancestorPaths : List Path := []
   currentMutability : Option L00_SourceSolidity.StateMutability := none
   returnTys : List Ty := []
+  returnNames : List (Option Name) := []
   returnStorageRefs : List Bool := []
+  returnDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   loopDepth : Nat := 0
   inModifier : Bool := false
   inUnchecked : Bool := false
@@ -1009,6 +1542,19 @@ def CheckEnv.isLocalName (env : CheckEnv) (name : Name) : Bool :=
 
 def CheckEnv.isLocalStorageRef (env : CheckEnv) (name : Name) : Bool :=
   L00_SourceSolidity.Executable.nameIn name env.localStorageRefs
+
+def CheckEnv.isPointerReturnName (env : CheckEnv) (name : Name) : Bool :=
+  let rec go :
+      List (Option Name) ->
+      List (Option L00_SourceSolidity.DataLocation) -> Bool
+    | some candidate :: nameRest, location :: locationRest =>
+        (candidate == name &&
+          (location == some L00_SourceSolidity.DataLocation.storage ||
+            location == some L00_SourceSolidity.DataLocation.calldata)) ||
+          go nameRest locationRest
+    | _ :: nameRest, _ :: locationRest => go nameRest locationRest
+    | _, _ => false
+  go env.returnNames env.returnDataLocations
 
 def CheckEnv.lookupLocalDataLocation? (env : CheckEnv)
     (name : Name) : Option L00_SourceSolidity.DataLocation :=
@@ -1182,6 +1728,26 @@ def requireBuiltinIdentCallAllowed (env : CheckEnv) (name : Name) :
   | some mutability => requireCallMutabilityAllowed env mutability
   | none => Except.ok ()
 
+def requireCancunOrLater (env : CheckEnv) (what : String) :
+    Except TypeError Unit :=
+  require env.types.evmVersion.cancunOrLater
+    (TypeError.unsupported (what ++ " requires Cancun EVM"))
+
+def requireConstantinopleOrLater (env : CheckEnv) (what : String) :
+    Except TypeError Unit :=
+  require env.types.evmVersion.constantinopleOrLater
+    (TypeError.unsupported (what ++ " requires Constantinople EVM"))
+
+def requireIstanbulOrLater (env : CheckEnv) (what : String) :
+    Except TypeError Unit :=
+  require env.types.evmVersion.istanbulOrLater
+    (TypeError.unsupported (what ++ " requires Istanbul EVM"))
+
+def requireLondonOrLater (env : CheckEnv) (what : String) :
+    Except TypeError Unit :=
+  require env.types.evmVersion.londonOrLater
+    (TypeError.unsupported (what ++ " requires London EVM"))
+
 def namesUniqueFrom (seen : List Name) : List Name -> Bool
   | [] => true
   | name :: rest =>
@@ -1279,6 +1845,12 @@ def Parameters.storageLocationFlags :
       Parameter.hasStorageLocation param ::
         Parameters.storageLocationFlags rest
 
+def Parameters.dataLocations :
+    List L00_SourceSolidity.Parameter ->
+    List (Option L00_SourceSolidity.DataLocation)
+  | [] => []
+  | param :: rest => param.location :: Parameters.dataLocations rest
+
 def Parameters.anyStorageRef (types : TypeContext) :
     List L00_SourceSolidity.Parameter -> Bool
   | [] => false
@@ -1319,8 +1891,10 @@ def FunctionDecl.signature? (fn : L00_SourceSolidity.FunctionDecl) :
           params := Parameters.tys fn.params
           paramNames := fn.params.map L00_SourceSolidity.Parameter.name
           paramStorageRefs := Parameters.storageLocationFlags fn.params
+          paramDataLocations := Parameters.dataLocations fn.params
           returns := Parameters.tys fn.returns
           returnStorageRefs := Parameters.storageLocationFlags fn.returns
+          returnDataLocations := Parameters.dataLocations fn.returns
           visibility := fn.visibility
           mutability := fn.mutability }
   | _, _ => none
@@ -1341,8 +1915,10 @@ def FunctionDecl.constructorSignature? (fn : L00_SourceSolidity.FunctionDecl) :
         params := Parameters.tys fn.params
         paramNames := fn.params.map L00_SourceSolidity.Parameter.name
         paramStorageRefs := Parameters.storageLocationFlags fn.params
+        paramDataLocations := Parameters.dataLocations fn.params
         returns := []
         returnStorageRefs := []
+        returnDataLocations := []
         visibility := none
         mutability := fn.mutability }
   else
@@ -1377,12 +1953,14 @@ def ModifierDecl.signature (modifier : L00_SourceSolidity.ModifierDecl) :
   { name := modifier.name
     params := Parameters.tys modifier.params
     paramNames := modifier.params.map L00_SourceSolidity.Parameter.name
-    paramStorageRefs := Parameters.storageLocationFlags modifier.params }
+    paramStorageRefs := Parameters.storageLocationFlags modifier.params
+    paramDataLocations := Parameters.dataLocations modifier.params }
 
 def EventDecl.signature (event : L00_SourceSolidity.EventDecl) : EventSig :=
   { name := event.name
     params := event.params.map (fun param => param.ty)
-    paramNames := event.params.map L00_SourceSolidity.EventParam.name }
+    paramNames := event.params.map L00_SourceSolidity.EventParam.name
+    anonymous := event.anonymous }
 
 def ErrorDecl.signature (err : L00_SourceSolidity.ErrorDecl) : ErrorSig :=
   { name := err.name
@@ -1483,6 +2061,17 @@ def returnStorageRefsSingle : List Ty -> List Bool -> Bool
   | [_], [true] => true
   | _, _ => false
 
+def returnDataLocationSingle? :
+    List Ty -> List (Option L00_SourceSolidity.DataLocation) ->
+    Option L00_SourceSolidity.DataLocation
+  | [_], [location] => location
+  | _, _ => none
+
+def returnNamesAllNamed : List (Option Name) -> Bool
+  | [] => true
+  | some _ :: rest => returnNamesAllNamed rest
+  | none :: _ => false
+
 def FunctionSig.singleStorageRefReturn (sig : FunctionSig) : Bool :=
   returnStorageRefsSingle sig.returns sig.returnStorageRefs
 
@@ -1508,13 +2097,63 @@ def FunctionSig.withLibraryOrigin
     (library : Path) (sig : FunctionSig) : FunctionSig :=
   { sig with origin := some { segments := library.segments ++ [sig.name] } }
 
+def FunctionSig.atAbiBoundary (types : TypeContext)
+    (sig : FunctionSig) : FunctionSig :=
+  { sig with
+    paramStorageRefs := List.replicate sig.params.length false
+    paramDataLocations := List.replicate sig.params.length none
+    returnStorageRefs := List.replicate sig.returns.length false
+    returnDataLocations :=
+      sig.returns.map (fun ty =>
+        if Ty.needsDataLocation types ty then
+          some L00_SourceSolidity.DataLocation.memory
+        else
+          none) }
+
+def libraryAbiParamDataLocations :
+    List Bool -> List (Option L00_SourceSolidity.DataLocation) ->
+    List (Option L00_SourceSolidity.DataLocation)
+  | [], _ => []
+  | needsStorage :: storageRest, locations =>
+      let location :=
+        if needsStorage then
+          some L00_SourceSolidity.DataLocation.storage
+        else
+          none
+      location ::
+        libraryAbiParamDataLocations storageRest locations.tail
+
 def FunctionSig.externallyCallable (sig : FunctionSig) : Bool :=
   sig.visibility == some L00_SourceSolidity.Visibility.public_ ||
     sig.visibility == some L00_SourceSolidity.Visibility.external_
 
+def FunctionSig.atLibraryCallBoundary (types : TypeContext)
+    (sig : FunctionSig) : FunctionSig :=
+  if sig.externallyCallable then
+    let abiSig := sig.atAbiBoundary types
+    { abiSig with
+      paramStorageRefs := sig.paramStorageRefs
+      paramDataLocations :=
+        libraryAbiParamDataLocations sig.paramStorageRefs
+          sig.paramDataLocations }
+  else
+    sig
+
 def FunctionSig.abiParamTypes? (types : TypeContext)
     (sig : FunctionSig) : Option (List String) :=
   TypeContext.abiCanonicalList? types sig.params
+
+def FunctionSig.abiSignature? (types : TypeContext)
+    (sig : FunctionSig) : Option String := do
+  let params ← sig.abiParamTypes? types
+  some
+    (sig.name ++ "(" ++
+      L00_SourceSolidity.Executable.joinStringsWith "," params ++ ")")
+
+def FunctionSig.abiSelector? (types : TypeContext)
+    (sig : FunctionSig) : Option SharedSemantics.Word := do
+  let signature ← sig.abiSignature? types
+  some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
 
 def FunctionSig.sameExternalAbiSignature
     (types : TypeContext) (a b : FunctionSig) : Bool :=
@@ -1524,6 +2163,23 @@ def FunctionSig.sameExternalAbiSignature
     | _, _ => false
   else
     false
+
+def FunctionSig.sameExternalAbiSelector
+    (types : TypeContext) (a b : FunctionSig) : Bool :=
+  if a.externallyCallable && b.externallyCallable then
+    match a.abiSelector? types, b.abiSelector? types with
+    | some aSelector, some bSelector => aSelector == bSelector
+    | _, _ => false
+  else
+    false
+
+def FunctionSig.externalAbiSelectorEntry? (types : TypeContext)
+    (sig : FunctionSig) : Option (SharedSemantics.Word × Name) :=
+  if sig.externallyCallable then do
+    let selector ← sig.abiSelector? types
+    some (selector, sig.name)
+  else
+    none
 
 def FunctionSigs.ensureNoDuplicateSignatures :
     List FunctionSig -> Except TypeError Unit
@@ -1543,6 +2199,25 @@ def FunctionSigs.ensureNoDuplicateExternalAbiSignatures
         Except.error (TypeError.duplicateSignature sig.name)
       else
         FunctionSigs.ensureNoDuplicateExternalAbiSignatures types rest
+
+def FunctionSigs.externalAbiSelectorEntries
+    (types : TypeContext) (sigs : List FunctionSig) :
+    List (SharedSemantics.Word × Name) :=
+  sigs.filterMap (FunctionSig.externalAbiSelectorEntry? types)
+
+def FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries :
+    List (SharedSemantics.Word × Name) -> Except TypeError Unit
+  | [] => Except.ok ()
+  | (selector, name) :: rest => do
+      if rest.any (fun other => other.fst == selector) then
+        Except.error (TypeError.duplicateSignature name)
+      else
+        FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries rest
+
+def FunctionSigs.ensureNoDuplicateExternalAbiSelectors
+    (types : TypeContext) (sigs : List FunctionSig) : Except TypeError Unit :=
+  FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries
+    (FunctionSigs.externalAbiSelectorEntries types sigs)
 
 def FunctionSigs.resolveLoop (target : Name) (args : List ArgInfo) :
     Option FunctionSig -> List FunctionSig ->
@@ -1575,16 +2250,29 @@ def FunctionSig.internalFunctionValueTy? (sig : FunctionSig) :
     Option Ty :=
   if sig.internallyCallable then
     some
-      (L00_SourceSolidity.Ty.function sig.params sig.returns
+      (L00_SourceSolidity.Ty.functionWithLocations sig.params
+        sig.paramDataLocations sig.returns sig.returnDataLocations
         sig.mutability L00_SourceSolidity.Visibility.internal_)
   else
     none
+
+def canonicalExternalFunctionDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) ->
+    List (Option L00_SourceSolidity.DataLocation) :=
+  List.map (fun location =>
+    if location.isSome then
+      some L00_SourceSolidity.DataLocation.memory
+    else
+      none)
 
 def FunctionSig.externalFunctionValueTy? (sig : FunctionSig) :
     Option Ty :=
   if sig.externallyCallable then
     some
-      (L00_SourceSolidity.Ty.function sig.params sig.returns
+      (L00_SourceSolidity.Ty.functionWithLocations sig.params
+        (canonicalExternalFunctionDataLocations sig.paramDataLocations)
+        sig.returns
+        (canonicalExternalFunctionDataLocations sig.returnDataLocations)
         sig.mutability L00_SourceSolidity.Visibility.external_)
   else
     none
@@ -1710,6 +2398,19 @@ def withLibraryOrigin
       FunctionSig.withLibraryOrigin library sig ::
         withLibraryOrigin library rest
 
+def atAbiBoundary (types : TypeContext) :
+    List FunctionSig -> List FunctionSig
+  | [] => []
+  | sig :: rest =>
+      sig.atAbiBoundary types :: atAbiBoundary types rest
+
+def atLibraryCallBoundary (types : TypeContext) :
+    List FunctionSig -> List FunctionSig
+  | [] => []
+  | sig :: rest =>
+      sig.atLibraryCallBoundary types ::
+        atLibraryCallBoundary types rest
+
 end FunctionSigs
 
 def ContractDecl.directFunctionSigs
@@ -1720,6 +2421,161 @@ def ContractDecl.directFunctionSigs
       | L00_SourceSolidity.ContractItem.function fn =>
           FunctionDecl.signature? fn
       | _ => none)
+
+def ContractItem.localTypeName? :
+    L00_SourceSolidity.ContractItem -> Option Name
+  | L00_SourceSolidity.ContractItem.structDecl decl => some decl.name
+  | L00_SourceSolidity.ContractItem.enumDecl decl => some decl.name
+  | L00_SourceSolidity.ContractItem.userValueTypeDecl decl => some decl.name
+  | _ => none
+
+def localTypePathQualified (contractName : Name)
+    (localTypeNames : List Name) (path : Path) : Path :=
+  match path.segments with
+  | [name] =>
+      if localTypeNames.contains name then
+        TypeContext.qualifiedPath contractName name
+      else
+        path
+  | _ => path
+
+mutual
+
+def Ty.qualifyLocalUserTypes (contractName : Name)
+    (localTypeNames : List Name) : Ty -> Ty
+  | L00_SourceSolidity.Ty.array element size =>
+      L00_SourceSolidity.Ty.array
+        (Ty.qualifyLocalUserTypes contractName localTypeNames element) size
+  | L00_SourceSolidity.Ty.mapping key value =>
+      L00_SourceSolidity.Ty.mapping
+        (Ty.qualifyLocalUserTypes contractName localTypeNames key)
+        (Ty.qualifyLocalUserTypes contractName localTypeNames value)
+  | L00_SourceSolidity.Ty.tuple tys =>
+      L00_SourceSolidity.Ty.tuple
+        (Tys.qualifyLocalUserTypes contractName localTypeNames tys)
+  | L00_SourceSolidity.Ty.user path =>
+      L00_SourceSolidity.Ty.user
+        (localTypePathQualified contractName localTypeNames path)
+  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+      returnLocations mutability visibility =>
+      L00_SourceSolidity.Ty.functionWithLocations
+        (Tys.qualifyLocalUserTypes contractName localTypeNames params)
+        paramLocations
+        (Tys.qualifyLocalUserTypes contractName localTypeNames returns)
+        returnLocations mutability visibility
+  | ty => ty
+
+def Tys.qualifyLocalUserTypes (contractName : Name)
+    (localTypeNames : List Name) : List Ty -> List Ty
+  | [] => []
+  | ty :: rest =>
+      Ty.qualifyLocalUserTypes contractName localTypeNames ty ::
+        Tys.qualifyLocalUserTypes contractName localTypeNames rest
+
+end
+
+def FunctionSig.qualifyLocalUserTypes (contractName : Name)
+    (localTypeNames : List Name) (sig : FunctionSig) : FunctionSig :=
+  { sig with
+    params := Tys.qualifyLocalUserTypes contractName localTypeNames sig.params
+    returns :=
+      Tys.qualifyLocalUserTypes contractName localTypeNames sig.returns }
+
+def ContractDecl.localTypeNames
+    (decl : L00_SourceSolidity.ContractDecl) : List Name :=
+  decl.items.filterMap ContractItem.localTypeName?
+
+def ContractDecl.directFunctionSigsQualifiedLocalTypes
+    (decl : L00_SourceSolidity.ContractDecl) : List FunctionSig :=
+  let localTypeNames := ContractDecl.localTypeNames decl
+  (ContractDecl.directFunctionSigs decl).map
+    (FunctionSig.qualifyLocalUserTypes decl.name localTypeNames)
+
+def CheckEnv.localTypeQualifierContract? (env : CheckEnv)
+    (structPath : Path) : Option Name :=
+  match structPath.segments with
+  | contractName :: _ =>
+      match env.types.lookupContractDecl? (TypeContext.pathOfName contractName) with
+      | some _ => some contractName
+      | none =>
+          match env.currentContract, structPath.segments with
+          | some current, [_] =>
+              match current.segments with
+              | [currentName] => some currentName
+              | _ => none
+          | _, _ => none
+  | [] => none
+
+def CheckEnv.qualifyStructFieldTy (env : CheckEnv)
+    (structPath : Path) (ty : Ty) : Ty :=
+  match env.localTypeQualifierContract? structPath with
+  | some contractName =>
+      match env.types.lookupContractDecl? (TypeContext.pathOfName contractName) with
+      | some contract =>
+          Ty.qualifyLocalUserTypes contractName
+            (ContractDecl.localTypeNames contract) ty
+      | none => ty
+  | none => ty
+
+def TypeContext.firstKnownQualifiedUserPath? (types : TypeContext)
+    (name : Name) : List Path -> Option Path
+  | [] => none
+  | { segments := [contractName] } :: rest =>
+      let candidate := TypeContext.qualifiedPath contractName name
+      if types.isKnownPath candidate then
+        some candidate
+      else
+        TypeContext.firstKnownQualifiedUserPath? types name rest
+  | _ :: rest => TypeContext.firstKnownQualifiedUserPath? types name rest
+
+def CheckEnv.qualifyVisibleLocalUserPath (env : CheckEnv)
+    (path : Path) : Path :=
+  match path.segments with
+  | [name] =>
+      let candidateContracts :=
+        match env.currentContract with
+        | some current => current :: env.ancestorPaths
+        | none => env.ancestorPaths
+      match env.types.firstKnownQualifiedUserPath? name candidateContracts with
+      | some qualified => qualified
+      | none => path
+  | _ => path
+
+mutual
+
+def Ty.qualifyVisibleLocalUserTypes (env : CheckEnv) : Ty -> Ty
+  | L00_SourceSolidity.Ty.array element size =>
+      L00_SourceSolidity.Ty.array
+        (Ty.qualifyVisibleLocalUserTypes env element) size
+  | L00_SourceSolidity.Ty.mapping key value =>
+      L00_SourceSolidity.Ty.mapping
+        (Ty.qualifyVisibleLocalUserTypes env key)
+        (Ty.qualifyVisibleLocalUserTypes env value)
+  | L00_SourceSolidity.Ty.tuple tys =>
+      L00_SourceSolidity.Ty.tuple
+        (Tys.qualifyVisibleLocalUserTypes env tys)
+  | L00_SourceSolidity.Ty.user path =>
+      L00_SourceSolidity.Ty.user
+        (env.qualifyVisibleLocalUserPath path)
+  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+      returnLocations mutability visibility =>
+      L00_SourceSolidity.Ty.functionWithLocations
+        (Tys.qualifyVisibleLocalUserTypes env params)
+        paramLocations
+        (Tys.qualifyVisibleLocalUserTypes env returns)
+        returnLocations mutability visibility
+  | ty => ty
+
+def Tys.qualifyVisibleLocalUserTypes (env : CheckEnv) : List Ty -> List Ty
+  | [] => []
+  | ty :: rest =>
+      Ty.qualifyVisibleLocalUserTypes env ty ::
+        Tys.qualifyVisibleLocalUserTypes env rest
+
+end
+
+def CheckEnv.qualifyCurrentLocalUserTypes (env : CheckEnv) (ty : Ty) : Ty :=
+  Ty.qualifyVisibleLocalUserTypes env ty
 
 def StateVarDecl.publicGetterFunctionSig?
     (types : TypeContext) (decl : L00_SourceSolidity.StateVarDecl) :
@@ -1741,17 +2597,23 @@ def StateVarDecl.publicGetterFunctionSig?
 def ContractDecl.directPublicGetterSigs
     (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
     List FunctionSig :=
+  let localTypeNames := ContractDecl.localTypeNames decl
   decl.items.filterMap
     (fun item =>
       match item with
       | L00_SourceSolidity.ContractItem.stateVar stateVar =>
-          StateVarDecl.publicGetterFunctionSig? types stateVar
+          match StateVarDecl.publicGetterFunctionSig? types stateVar with
+          | some sig =>
+              some
+                (FunctionSig.qualifyLocalUserTypes
+                  decl.name localTypeNames sig)
+          | none => none
       | _ => none)
 
 def ContractDecl.directExternalFunctionSigs
     (types : TypeContext) (decl : L00_SourceSolidity.ContractDecl) :
     List FunctionSig :=
-  ContractDecl.directFunctionSigs decl ++
+  ContractDecl.directFunctionSigsQualifiedLocalTypes decl ++
     ContractDecl.directPublicGetterSigs types decl
 
 def ContractDecl.directModifierDecls
@@ -1830,7 +2692,7 @@ def ContractDecl.nonPrivateFunctionSigsFromOrderFrom
   | decl :: rest =>
       ContractDecl.nonPrivateFunctionSigsFromOrderFrom
         (FunctionSigs.addNonPrivateAllIfNewSignature sigs
-          (ContractDecl.directFunctionSigs decl))
+          (ContractDecl.directFunctionSigsQualifiedLocalTypes decl))
         rest
 
 def ContractDecl.nonPrivateFunctionSigsFromOrder
@@ -1843,7 +2705,9 @@ def TypeContext.lookupContractExternalFunctionSigs?
   let order ←
     L00_SourceSolidity.Executable.ContractDecl.dispatchOrder?
       (types.contractDecls.map Prod.snd) decl
-  some (ContractDecl.externalFunctionSigsFromOrder types order)
+  some
+    (FunctionSigs.atAbiBoundary types
+      (ContractDecl.externalFunctionSigsFromOrder types order))
 
 def TypeContext.resolveContractMemberFunction
     (types : TypeContext) (path : Path) (member : Name)
@@ -1951,6 +2815,22 @@ def EventSigs.resolve (events : List EventSig)
     (target : Name) (args : List ArgInfo) : Except TypeError EventSig :=
   EventSigs.resolveLoop target args none events
 
+def EventSigs.resolveByNameLoop (target : Name) :
+    Option EventSig -> List EventSig -> Except TypeError EventSig
+  | none, [] => Except.error (TypeError.unknownEvent target)
+  | some found, [] => Except.ok found
+  | found?, sig :: rest =>
+      if sig.name == target then
+        match found? with
+        | none => EventSigs.resolveByNameLoop target (some sig) rest
+        | some _ => Except.error (TypeError.ambiguousFunction target)
+      else
+        EventSigs.resolveByNameLoop target found? rest
+
+def EventSigs.resolveByName (events : List EventSig) (target : Name) :
+    Except TypeError EventSig :=
+  EventSigs.resolveByNameLoop target none events
+
 def ErrorSig.matchesArgs (sig : ErrorSig) (args : List ArgInfo) : Bool :=
   match ArgInfos.orderedTys? sig.paramNames args with
   | some argTys => FunctionSig.paramsAccept argTys sig.params
@@ -2007,6 +2887,7 @@ structure CheckedExpr where
   lvalue : Bool := false
   stateLValue : Bool := false
   storageRefs : List Bool := []
+  dataLocations : List (Option L00_SourceSolidity.DataLocation) := []
   dataLocation? : Option L00_SourceSolidity.DataLocation := none
   arraySlice : Bool := false
   deriving Repr
@@ -2014,19 +2895,39 @@ structure CheckedExpr where
 def FunctionSig.checkedResult (sig : FunctionSig)
     (source : L00_SourceSolidity.Expr) : CheckedExpr :=
   let storageRef := sig.singleStorageRefReturn
+  let location :=
+    match returnDataLocationSingle? sig.returns sig.returnDataLocations with
+    | some location => some location
+    | none =>
+        if storageRef then
+          some L00_SourceSolidity.DataLocation.storage
+        else
+          none
   { source := source
     ty := resultTyFromReturns sig.returns
     lvalue := false
     stateLValue := storageRef
     storageRefs := sig.returnStorageRefs
-    dataLocation? :=
-      if storageRef then
-        some L00_SourceSolidity.DataLocation.storage
-      else
-        none }
+    dataLocations := sig.returnDataLocations
+    dataLocation? := location }
 
 def CheckedExpr.locationIsCalldata (expr : CheckedExpr) : Bool :=
   expr.dataLocation? == some L00_SourceSolidity.DataLocation.calldata
+
+def CheckedExpr.locationAssignableTo
+    (expr : CheckedExpr)
+    (expected : Option L00_SourceSolidity.DataLocation) : Bool :=
+  match expected with
+  | some L00_SourceSolidity.DataLocation.storage => expr.stateLValue
+  | some L00_SourceSolidity.DataLocation.calldata => expr.locationIsCalldata
+  | _ => true
+
+def CheckedExpr.expectLocationAssignableTo
+    (expr : CheckedExpr) (expectedTy : Ty)
+    (expected : Option L00_SourceSolidity.DataLocation) :
+    Except TypeError Unit :=
+  require (expr.locationAssignableTo expected)
+    (TypeError.invalidDataLocation expectedTy expected)
 
 def CheckedExpr.expectWritableLocation (expr : CheckedExpr)
     (target : L00_SourceSolidity.Expr) : Except TypeError Unit :=
@@ -2041,6 +2942,26 @@ def CheckedExpr.expectStorageMutationTarget (expr : CheckedExpr)
   require
     (expr.dataLocation? == some L00_SourceSolidity.DataLocation.storage)
     (TypeError.invalidDataLocation expr.ty expr.dataLocation?)
+
+def CheckEnv.assignmentRebindsStoragePointer
+    (env : CheckEnv) (target : L00_SourceSolidity.Expr)
+    (actualStorageRef : Bool) : Bool :=
+  match Expr.directIdentName? target with
+  | some name =>
+      actualStorageRef &&
+        (env.isPointerReturnName name || env.isLocalStorageRef name)
+  | none => false
+
+def CheckEnv.requireNoMappingStorageCopy
+    (env : CheckEnv) (target : L00_SourceSolidity.Expr)
+    (targetChecked : CheckedExpr) (actualStorageRef : Bool) :
+    Except TypeError Unit :=
+  require
+    (!(targetChecked.stateLValue &&
+        !env.assignmentRebindsStoragePointer target actualStorageRef &&
+        Ty.containsMapping env.types 64 targetChecked.ty))
+    (TypeError.unsupported
+      "assignment to storage value containing mapping")
 
 def CheckedExpr.expectBool (expr : CheckedExpr) : Except TypeError Unit :=
   require expr.ty.isBool (TypeError.expectedBool expr.ty)
@@ -2087,7 +3008,8 @@ def CheckedExpr.expectAssignableTo (expr : CheckedExpr) (expected : Ty) :
 
 def CheckedExpr.expectAssignableToIn (types : TypeContext)
     (expr : CheckedExpr) (expected : Ty) :
-    Except TypeError Unit :=
+    Except TypeError Unit := do
+  types.requireNoFixedPointAssignment expr.ty expected
   require (expr.canAssignToIn types expected)
     (TypeError.expectedType expected expr.ty)
 
@@ -2097,7 +3019,8 @@ def CheckedExpr.expectImplicitlyAssignableTo (expr : CheckedExpr)
     (TypeError.expectedType expected expr.ty)
 
 def CheckedExpr.expectImplicitlyAssignableToIn (types : TypeContext)
-    (expr : CheckedExpr) (expected : Ty) : Except TypeError Unit :=
+    (expr : CheckedExpr) (expected : Ty) : Except TypeError Unit := do
+  types.requireNoFixedPointAssignment expr.ty expected
   require (expr.canImplicitlyAssignToIn types expected)
     (TypeError.expectedType expected expr.ty)
 
@@ -2105,35 +3028,50 @@ abbrev TupleAssignmentTarget :=
   Option (L00_SourceSolidity.Expr × CheckedExpr)
 
 def checkTupleAssignmentTargetAgainstTy (env : CheckEnv)
-    (rhsChecked : CheckedExpr) (target : L00_SourceSolidity.Expr)
+    (actualStorageRef : Bool)
+    (actualLocation : Option L00_SourceSolidity.DataLocation)
+    (target : L00_SourceSolidity.Expr)
     (targetChecked : CheckedExpr) (rhsTy : Ty) :
     Except TypeError Ty := do
+  env.requireNoMappingStorageCopy target targetChecked actualStorageRef
   match Expr.directIdentName? target with
   | some name =>
-      require (!env.isLocalStorageRef name || rhsChecked.stateLValue)
+      require (!env.isLocalStorageRef name || actualStorageRef)
         (TypeError.invalidDataLocation targetChecked.ty
           (some L00_SourceSolidity.DataLocation.storage))
   | none => Except.ok ()
+  if targetChecked.locationIsCalldata then
+    require
+      (actualLocation == some L00_SourceSolidity.DataLocation.calldata)
+      (TypeError.invalidDataLocation targetChecked.ty
+        targetChecked.dataLocation?)
+  else
+    Except.ok ()
   require
     (TypeContext.canImplicitlyConvert env.types rhsTy targetChecked.ty)
     (TypeError.expectedType targetChecked.ty rhsTy)
+  env.types.requireNoFixedPointAssignment rhsTy targetChecked.ty
   Except.ok targetChecked.ty
 
 def checkTupleAssignmentTargetsWithTys (env : CheckEnv)
-    (rhsChecked : CheckedExpr) :
-    List TupleAssignmentTarget -> List Ty -> Except TypeError (List Ty)
-  | [], [] => Except.ok []
-  | none :: targetRest, _ :: tyRest =>
-      checkTupleAssignmentTargetsWithTys env rhsChecked targetRest tyRest
+    : List TupleAssignmentTarget -> List Ty -> List Bool ->
+    List (Option L00_SourceSolidity.DataLocation) ->
+    Except TypeError (List Ty)
+  | [], [], _, _ => Except.ok []
+  | none :: targetRest, _ :: tyRest, storageRefs, locations =>
+      checkTupleAssignmentTargetsWithTys env targetRest tyRest
+        storageRefs.tail locations.tail
   | some (target, targetChecked) :: targetRest,
-      rhsTy :: tyRest => do
+      rhsTy :: tyRest, storageRefs, locations => do
       let ty ←
-        checkTupleAssignmentTargetAgainstTy env rhsChecked target
-          targetChecked rhsTy
+        checkTupleAssignmentTargetAgainstTy env
+          (storageRefs.head?.getD false) (locations.head?.join)
+          target targetChecked rhsTy
       let tail ←
-        checkTupleAssignmentTargetsWithTys env rhsChecked targetRest tyRest
+        checkTupleAssignmentTargetsWithTys env targetRest tyRest
+          storageRefs.tail locations.tail
       Except.ok (ty :: tail)
-  | targets, tys =>
+  | targets, tys, _, _ =>
       Except.error
         (TypeError.arityMismatch
           "tuple assignment" targets.length tys.length)
@@ -2246,6 +3184,22 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
     | L00_SourceSolidity.Ty.int leftBits,
       L00_SourceSolidity.Ty.int rightBits =>
         some (L00_SourceSolidity.Ty.int (max leftBits rightBits))
+    | L00_SourceSolidity.Ty.fixed leftBits leftDecimals,
+      L00_SourceSolidity.Ty.fixed rightBits rightDecimals =>
+        L00_SourceSolidity.Ty.commonFixedPoint?
+          true leftBits leftDecimals true rightBits rightDecimals
+    | L00_SourceSolidity.Ty.ufixed leftBits leftDecimals,
+      L00_SourceSolidity.Ty.ufixed rightBits rightDecimals =>
+        L00_SourceSolidity.Ty.commonFixedPoint?
+          false leftBits leftDecimals false rightBits rightDecimals
+    | L00_SourceSolidity.Ty.fixed leftBits leftDecimals,
+      L00_SourceSolidity.Ty.ufixed rightBits rightDecimals =>
+        L00_SourceSolidity.Ty.commonFixedPoint?
+          true leftBits leftDecimals false rightBits rightDecimals
+    | L00_SourceSolidity.Ty.ufixed leftBits leftDecimals,
+      L00_SourceSolidity.Ty.fixed rightBits rightDecimals =>
+        L00_SourceSolidity.Ty.commonFixedPoint?
+          false leftBits leftDecimals true rightBits rightDecimals
     | L00_SourceSolidity.Ty.bytesN leftSize,
       L00_SourceSolidity.Ty.bytesN rightSize =>
         some (L00_SourceSolidity.Ty.bytesN (max leftSize rightSize))
@@ -2368,13 +3322,23 @@ def checkedExprParamsAcceptStorageRefs (types : TypeContext) :
   | actual, expected, [] => checkedExprParamsAccept types actual expected
   | _, _, _ => false
 
+def checkedExprDataLocationsAccept :
+    List CheckedExpr ->
+    List (Option L00_SourceSolidity.DataLocation) -> Bool
+  | _, [] => true
+  | actual :: actualRest, expected :: expectedRest =>
+      actual.locationAssignableTo expected &&
+        checkedExprDataLocationsAccept actualRest expectedRest
+  | _, _ => false
+
 def FunctionSig.matchesCheckedArgs
     (types : TypeContext) (sig : FunctionSig)
     (args : List CheckedArgInfo) : Bool :=
   match CheckedArgInfos.ordered? sig.paramNames args with
   | some ordered =>
       checkedExprParamsAcceptStorageRefs types ordered sig.params
-        sig.paramStorageRefs
+        sig.paramStorageRefs &&
+      checkedExprDataLocationsAccept ordered sig.paramDataLocations
   | none => false
 
 namespace FunctionSigs
@@ -2417,7 +3381,8 @@ def ModifierSig.matchesCheckedArgs
   match CheckedArgInfos.ordered? sig.paramNames args with
   | some ordered =>
       checkedExprParamsAcceptStorageRefs types ordered sig.params
-        sig.paramStorageRefs
+        sig.paramStorageRefs &&
+      checkedExprDataLocationsAccept ordered sig.paramDataLocations
   | none => false
 
 namespace ModifierSigs
@@ -2506,9 +3471,27 @@ def FunctionSig.usingMemberCandidate?
     (sig : FunctionSig) :
     Option FunctionSig :=
   if sig.name == member && sig.nonPrivate then
-    match sig.params, sig.paramNames, sig.paramStorageRefs with
+    match sig.params, sig.paramNames, sig.paramStorageRefs,
+        sig.paramDataLocations with
     | selfTy :: params, _ :: paramNames,
-        selfNeedsStorage :: paramStorageRefs =>
+        selfNeedsStorage :: paramStorageRefs,
+        selfLocation :: paramDataLocations =>
+        if TypeContext.canImplicitlyConvert types receiver.ty selfTy ||
+            implicitLiteralFits selfTy receiver.source then
+          if (!selfNeedsStorage || receiver.stateLValue) &&
+              receiver.locationAssignableTo selfLocation then
+            some
+              { sig with
+                params := params
+                paramNames := paramNames
+                paramStorageRefs := paramStorageRefs
+                paramDataLocations := paramDataLocations }
+          else
+            none
+        else
+          none
+    | selfTy :: params, _ :: paramNames,
+        selfNeedsStorage :: paramStorageRefs, [] =>
         if TypeContext.canImplicitlyConvert types receiver.ty selfTy ||
             implicitLiteralFits selfTy receiver.source then
           if !selfNeedsStorage || receiver.stateLValue then
@@ -2521,13 +3504,13 @@ def FunctionSig.usingMemberCandidate?
             none
         else
           none
-    | selfTy :: params, _ :: paramNames, [] =>
+    | selfTy :: params, _ :: paramNames, [], [] =>
         if TypeContext.canImplicitlyConvert types receiver.ty selfTy ||
             implicitLiteralFits selfTy receiver.source then
           some { sig with params := params, paramNames := paramNames }
         else
           none
-    | _, _, _ => none
+    | _, _, _, _ => none
   else
     none
 
@@ -2574,7 +3557,9 @@ def UsingFunction.memberCandidates (env : CheckEnv)
             (FunctionSigs.usingMemberCandidates env.types receiver member
               (FunctionSigs.withOrigin binding.function
                 ((FunctionSigs.nonPrivate
-                  (ContractDecl.directFunctionSigs libraryDecl)).filter
+                  (FunctionSigs.atLibraryCallBoundary env.types
+                    (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                      libraryDecl))).filter
                     (fun sig => sig.name == functionName))))
       else
         Except.ok []
@@ -2865,7 +3850,9 @@ def UsingDecl.memberCandidates (env : CheckEnv)
         (FunctionSigs.usingMemberCandidates env.types receiver member
           (FunctionSigs.withLibraryOrigin decl.library
             (FunctionSigs.nonPrivate
-              (ContractDecl.directFunctionSigs libraryDecl))))
+              (FunctionSigs.atLibraryCallBoundary env.types
+                (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                  libraryDecl)))))
     else
       UsingFunctions.memberCandidates env receiver member decl.functions
   else
@@ -2918,7 +3905,9 @@ def TypeContext.resolveLibraryFunctionChecked (types : TypeContext)
   require (libraryDecl.kind == L00_SourceSolidity.ContractKind.library)
     (TypeError.invalidContractHeader "library call target is not a library")
   FunctionSigs.resolveChecked types
-    (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs libraryDecl))
+    (FunctionSigs.nonPrivate
+      (FunctionSigs.atLibraryCallBoundary types
+        (ContractDecl.directFunctionSigsQualifiedLocalTypes libraryDecl)))
     member args
 
 def CheckEnv.resolveExplicitBaseMemberFunctionChecked
@@ -2933,7 +3922,8 @@ def CheckEnv.resolveExplicitBaseMemberFunctionChecked
     | some decl => Except.ok decl
     | none => Except.error (TypeError.unknownType path)
   FunctionSigs.resolveChecked env.types
-    (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs baseDecl))
+    (FunctionSigs.nonPrivate
+      (ContractDecl.directFunctionSigsQualifiedLocalTypes baseDecl))
     member args
 
 def literalTy? : L00_SourceSolidity.Literal -> Option Ty
@@ -2960,6 +3950,11 @@ def CallOptions.hasGas : List L00_SourceSolidity.CallOption -> Bool
   | L00_SourceSolidity.CallOption.named name _ :: rest =>
       name == "gas" || CallOptions.hasGas rest
 
+def CallOptions.hasSalt : List L00_SourceSolidity.CallOption -> Bool
+  | [] => false
+  | L00_SourceSolidity.CallOption.named name _ :: rest =>
+      name == "salt" || CallOptions.hasSalt rest
+
 def CallOptions.nameAllowed (allowed : List Name) (name : Name) : Bool :=
   L00_SourceSolidity.Executable.nameIn name allowed
 
@@ -2979,6 +3974,10 @@ def requireCallOptionsAllowedNames (allowed : List Name)
 def Ty.isAddressLike (types : TypeContext) : Ty -> Bool
   | L00_SourceSolidity.Ty.address _ => true
   | L00_SourceSolidity.Ty.user path => types.isContractPath path
+  | _ => false
+
+def Ty.isAddressBuiltinReceiver : Ty -> Bool
+  | L00_SourceSolidity.Ty.address _ => true
   | _ => false
 
 def Ty.isPayableAddress : Ty -> Bool
@@ -3039,10 +4038,11 @@ def checkCallTargetExpr (env : CheckEnv)
                 env.lookupLocalDataLocation? name
             else
               none
-          if isState || isStorageRef then
+          if isState then
             requireStateReadAllowed env
           else
             Except.ok ()
+          env.types.requireNoFixedPointValue ty "read"
           Except.ok
             { source := expr
               ty := ty
@@ -3077,8 +4077,71 @@ def requireNoNamedArgs (what : String)
 
 def CheckedExpr.expectAbiEncodable (types : TypeContext)
     (expr : CheckedExpr) :
-    Except TypeError Unit :=
+    Except TypeError Unit := do
   require (TypeContext.isAbiEncodable types expr.ty)
+    (TypeError.invalidAbiType expr.ty)
+  require (TypeContext.abiCoderSupports types expr.ty)
+    (TypeError.invalidAbiType expr.ty)
+
+mutual
+
+def Ty.isAbiEncodePackedArgShape (types : TypeContext) :
+    Nat -> Ty -> Bool
+  | 0, _ => false
+  | _ + 1, L00_SourceSolidity.Ty.bool => true
+  | _ + 1, L00_SourceSolidity.Ty.address _ => true
+  | _ + 1, L00_SourceSolidity.Ty.uint _ => true
+  | _ + 1, L00_SourceSolidity.Ty.int _ => true
+  | _ + 1, L00_SourceSolidity.Ty.fixed _ _ => true
+  | _ + 1, L00_SourceSolidity.Ty.ufixed _ _ => true
+  | _ + 1, L00_SourceSolidity.Ty.bytesN _ => true
+  | _ + 1, L00_SourceSolidity.Ty.fixedBytes _ => true
+  | _ + 1, L00_SourceSolidity.Ty.bytes => true
+  | _ + 1, L00_SourceSolidity.Ty.string => true
+  | fuel + 1, L00_SourceSolidity.Ty.array element _ =>
+      Ty.isAbiEncodePackedArrayElementShape types fuel element
+  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+      if types.isContractPath path || types.isEnumPath path then
+        true
+      else
+        match types.lookupUserValueType? path with
+        | some underlying =>
+            Ty.isAbiEncodePackedArgShape types fuel underlying
+        | none => false
+  | _ + 1, L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
+      visibility == L00_SourceSolidity.Visibility.external_
+  | _ + 1, _ => false
+
+def Ty.isAbiEncodePackedArrayElementShape (types : TypeContext) :
+    Nat -> Ty -> Bool
+  | 0, _ => false
+  | _ + 1, L00_SourceSolidity.Ty.bool => true
+  | _ + 1, L00_SourceSolidity.Ty.address _ => true
+  | _ + 1, L00_SourceSolidity.Ty.uint _ => true
+  | _ + 1, L00_SourceSolidity.Ty.int _ => true
+  | _ + 1, L00_SourceSolidity.Ty.fixed _ _ => true
+  | _ + 1, L00_SourceSolidity.Ty.ufixed _ _ => true
+  | _ + 1, L00_SourceSolidity.Ty.bytesN _ => true
+  | _ + 1, L00_SourceSolidity.Ty.fixedBytes _ => true
+  | fuel + 1, L00_SourceSolidity.Ty.user path =>
+      if types.isContractPath path || types.isEnumPath path then
+        true
+      else
+        match types.lookupUserValueType? path with
+        | some underlying =>
+            Ty.isAbiEncodePackedArrayElementShape types fuel underlying
+        | none => false
+  | _ + 1, L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
+      visibility == L00_SourceSolidity.Visibility.external_
+  | _ + 1, _ => false
+
+end
+
+def CheckedExpr.expectAbiEncodePackedEncodable (types : TypeContext)
+    (expr : CheckedExpr) :
+    Except TypeError Unit := do
+  expr.expectAbiEncodable types
+  require (Ty.isAbiEncodePackedArgShape types 64 expr.ty)
     (TypeError.invalidAbiType expr.ty)
 
 def CheckedExpr.expectBytesLike (expr : CheckedExpr) :
@@ -3095,6 +4158,13 @@ def checkAbiEncodableArgs (types : TypeContext) :
   | expr :: rest => do
       expr.expectAbiEncodable types
       checkAbiEncodableArgs types rest
+
+def checkAbiEncodePackedArgs (types : TypeContext) :
+    List CheckedExpr -> Except TypeError Unit
+  | [] => Except.ok ()
+  | expr :: rest => do
+      expr.expectAbiEncodePackedEncodable types
+      checkAbiEncodePackedArgs types rest
 
 def checkBytesConcatArgs : List CheckedExpr -> Except TypeError Unit
   | [] => Except.ok ()
@@ -3118,6 +4188,8 @@ def checkAbiDecodeTupleItems (types : TypeContext) :
       checkTy types ty
       require (TypeContext.isAbiEncodable types ty)
         (TypeError.invalidAbiType ty)
+      require (TypeContext.abiCoderSupports types ty)
+        (TypeError.invalidAbiType ty)
       let tail ← checkAbiDecodeTupleItems types rest
       Except.ok (ty :: tail)
   | _ :: _ =>
@@ -3129,6 +4201,8 @@ def checkAbiDecodeTypesExpr (types : TypeContext) :
   | L00_SourceSolidity.Expr.typeName ty => do
       checkTy types ty
       require (TypeContext.isAbiEncodable types ty)
+        (TypeError.invalidAbiType ty)
+      require (TypeContext.abiCoderSupports types ty)
         (TypeError.invalidAbiType ty)
       Except.ok [ty]
   | L00_SourceSolidity.Expr.tuple items =>
@@ -3149,6 +4223,10 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
   else if name == "blockhash" || name == "blobhash" then do
     requireNoNamedArgs name argInfos
     requireCallMutabilityAllowed env L00_SourceSolidity.StateMutability.view
+    if name == "blobhash" then
+      requireCancunOrLater env "blobhash"
+    else
+      Except.ok ()
     match checkedArgs with
     | [number] => do
         number.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
@@ -3161,8 +4239,6 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         lhs.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
         rhs.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
         modulus.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
-        require (!exprIsUint256ZeroLiteral modulus.source)
-          (TypeError.unsupported (name ++ " zero modulus"))
         Except.ok (some (L00_SourceSolidity.Ty.uint 256))
     | _ => Except.error (TypeError.arityMismatch name 3 checkedArgs.length)
   else if name == "keccak256" || name == "sha256" then do
@@ -3272,6 +4348,25 @@ def checkCheckedExprsStorageRefsFor (what : String) :
       Except.error
         (TypeError.arityMismatch what expected.length actual.length)
 
+def checkCheckedExprsDataLocationsFor (what : String) :
+    List CheckedExpr ->
+    List (Option L00_SourceSolidity.DataLocation) ->
+    Except TypeError Unit
+  | _, [] => Except.ok ()
+  | expr :: exprRest, expected :: expectedRest => do
+      expr.expectLocationAssignableTo expr.ty expected
+      checkCheckedExprsDataLocationsFor what exprRest expectedRest
+  | actual, expected =>
+      Except.error
+        (TypeError.arityMismatch what expected.length actual.length)
+
+def checkCheckedExprsReferenceLocationsFor (what : String)
+    (actual : List CheckedExpr) (storageRefs : List Bool)
+    (locations : List (Option L00_SourceSolidity.DataLocation)) :
+    Except TypeError Unit := do
+  checkCheckedExprsStorageRefsFor what actual storageRefs
+  checkCheckedExprsDataLocationsFor what actual locations
+
 def checkCheckedArgsAssignableToSignature
     (types : TypeContext) (what : String)
     (paramNames : List (Option Name)) (params : List Ty)
@@ -3293,7 +4388,8 @@ def checkCheckedArgsAssignableToFunctionSig
       (checkedArgInfosFull args checkedArgs) with
   | some ordered => do
       checkCheckedExprsAssignableToFor types what ordered sig.params
-      checkCheckedExprsStorageRefsFor what ordered sig.paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor what ordered
+        sig.paramStorageRefs sig.paramDataLocations
   | none =>
       Except.error
         (TypeError.arityMismatch what sig.params.length checkedArgs.length)
@@ -3371,17 +4467,33 @@ def checkStructConstructorArgs
         (StructDecl.fieldTys decl)
   | none => Except.error (TypeError.invalidStructConstructor decl.name)
 
+def functionPointerSig (name : Name) (params : List Ty)
+    (paramLocations : List (Option L00_SourceSolidity.DataLocation))
+    (returns : List Ty)
+    (returnLocations : List (Option L00_SourceSolidity.DataLocation))
+    (mutability : L00_SourceSolidity.StateMutability)
+    (visibility : L00_SourceSolidity.Visibility) : FunctionSig :=
+  { name := name
+    params := params
+    paramNames := List.replicate params.length none
+    paramStorageRefs :=
+      paramLocations.map (fun location =>
+        location == some L00_SourceSolidity.DataLocation.storage)
+    paramDataLocations := paramLocations
+    returns := returns
+    returnStorageRefs :=
+      returnLocations.map (fun location =>
+        location == some L00_SourceSolidity.DataLocation.storage)
+    returnDataLocations := returnLocations
+    visibility := some visibility
+    mutability := mutability }
+
 def functionPointerSig? (name : Name) : Ty -> Option FunctionSig
-  | L00_SourceSolidity.Ty.function params returns mutability visibility =>
+  | L00_SourceSolidity.Ty.functionWithLocations params paramLocations returns
+      returnLocations mutability visibility =>
       some
-        { name := name
-          params := params
-          paramNames := List.replicate params.length none
-          paramStorageRefs := List.replicate params.length false
-          returns := returns
-          returnStorageRefs := List.replicate returns.length false
-          visibility := some visibility
-          mutability := mutability }
+        (functionPointerSig name params paramLocations returns returnLocations
+          mutability visibility)
   | _ => none
 
 def requireExternalEncodeCallPointer
@@ -3399,6 +4511,9 @@ def resolveEncodeCallFunction (env : CheckEnv)
   | L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.user path))
       member => do
+      require (env.types.isContractValuePath path)
+        (TypeError.invalidAbiCall
+          "abi.encodeCall cannot use a library function")
       let sig ←
         env.types.resolveContractMemberFunctionChecked path member argInfos
       require sig.externallyCallable
@@ -3409,6 +4524,9 @@ def resolveEncodeCallFunction (env : CheckEnv)
       let targetChecked ← checkCallTargetExpr env target
       match targetChecked.ty with
       | L00_SourceSolidity.Ty.user path => do
+          require (env.types.isContractValuePath path)
+            (TypeError.invalidAbiCall
+              "abi.encodeCall expects a contract function value")
           let sig ←
             env.types.resolveContractMemberFunctionChecked path member
               argInfos
@@ -3424,8 +4542,7 @@ def resolveEncodeCallFunction (env : CheckEnv)
       match env.lookupVar? name with
       | some ty => do
           let isState := env.isStateName name && !env.isLocalName name
-          let isStorageRef := env.isLocalStorageRef name
-          if isState || isStorageRef then
+          if isState then
             requireStateReadAllowed env
           else
             Except.ok ()
@@ -3444,26 +4561,6 @@ def resolveEncodeCallFunction (env : CheckEnv)
         (TypeError.invalidAbiCall
           "abi.encodeCall expects a function pointer")
 
-def FunctionDecl.canReceiveEther
-    (fn : L00_SourceSolidity.FunctionDecl) : Bool :=
-  (fn.kind == L00_SourceSolidity.FunctionKind.receive &&
-      fn.mutability == L00_SourceSolidity.StateMutability.payable) ||
-    (fn.kind == L00_SourceSolidity.FunctionKind.fallback &&
-      fn.mutability == L00_SourceSolidity.StateMutability.payable)
-
-def ContractItems.canReceiveEther :
-    List L00_SourceSolidity.ContractItem -> Bool
-  | [] => false
-  | L00_SourceSolidity.ContractItem.function fn :: rest =>
-      FunctionDecl.canReceiveEther fn || ContractItems.canReceiveEther rest
-  | _ :: rest => ContractItems.canReceiveEther rest
-
-def TypeContext.contractCanReceiveEther (types : TypeContext)
-    (path : Path) : Bool :=
-  match types.lookupContractDecl? path with
-  | some decl => ContractItems.canReceiveEther decl.items
-  | none => false
-
 def requireCreatableContractDecl
     (decl : L00_SourceSolidity.ContractDecl) : Except TypeError Unit := do
   require (decl.kind == L00_SourceSolidity.ContractKind.contract)
@@ -3478,7 +4575,8 @@ def checkInternalFunctionValueAssignable?
     Option (Except TypeError Unit) :=
   match expr, expected with
   | L00_SourceSolidity.Expr.ident name,
-    L00_SourceSolidity.Ty.function _ _ _ L00_SourceSolidity.Visibility.internal_ =>
+    L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
+      L00_SourceSolidity.Visibility.internal_ =>
       match env.lookupVar? name with
       | some _ => none
       | none =>
@@ -3489,6 +4587,103 @@ def checkInternalFunctionValueAssignable?
                   env.types env.functions name expected
               Except.ok ())
   | _, _ => none
+
+def exprContextualTyFuel? (env : CheckEnv) :
+    Nat -> L00_SourceSolidity.Expr -> Option Ty
+  | 0, _ => none
+  | fuel + 1, expr =>
+      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+      | some ty => some (env.qualifyCurrentLocalUserTypes ty)
+      | none =>
+          match expr with
+          | L00_SourceSolidity.Expr.unary
+              L00_SourceSolidity.UnaryOp.bitNot inner
+          | L00_SourceSolidity.Expr.unary
+              L00_SourceSolidity.UnaryOp.neg inner
+          | L00_SourceSolidity.Expr.unary
+              L00_SourceSolidity.UnaryOp.preIncrement inner
+          | L00_SourceSolidity.Expr.unary
+              L00_SourceSolidity.UnaryOp.preDecrement inner
+          | L00_SourceSolidity.Expr.unary
+              L00_SourceSolidity.UnaryOp.postIncrement inner
+          | L00_SourceSolidity.Expr.unary
+              L00_SourceSolidity.UnaryOp.postDecrement inner =>
+              exprContextualTyFuel? env fuel inner
+          | L00_SourceSolidity.Expr.assign lhs _ _ =>
+              exprContextualTyFuel? env fuel lhs
+          | L00_SourceSolidity.Expr.binary op lhs _ =>
+              match op with
+              | L00_SourceSolidity.BinaryOp.lt
+              | L00_SourceSolidity.BinaryOp.gt
+              | L00_SourceSolidity.BinaryOp.le
+              | L00_SourceSolidity.BinaryOp.ge
+              | L00_SourceSolidity.BinaryOp.eq
+              | L00_SourceSolidity.BinaryOp.ne
+              | L00_SourceSolidity.BinaryOp.boolAnd
+              | L00_SourceSolidity.BinaryOp.boolOr =>
+                  some L00_SourceSolidity.Ty.bool
+              | _ => exprContextualTyFuel? env fuel lhs
+          | L00_SourceSolidity.Expr.ternary _ thenExpr _ =>
+              exprContextualTyFuel? env fuel thenExpr
+          | L00_SourceSolidity.Expr.member base "balance" =>
+              match exprContextualTyFuel? env fuel base with
+              | some _ => some (L00_SourceSolidity.Ty.uint 256)
+              | none => none
+          | L00_SourceSolidity.Expr.member base "code" =>
+              match exprContextualTyFuel? env fuel base with
+              | some _ => some L00_SourceSolidity.Ty.bytes
+              | none => none
+          | L00_SourceSolidity.Expr.member base "codehash" =>
+              match exprContextualTyFuel? env fuel base with
+              | some _ => some (L00_SourceSolidity.Ty.bytesN 32)
+              | none => none
+          | L00_SourceSolidity.Expr.member base "length" =>
+              match exprContextualTyFuel? env fuel base with
+              | some _ => some (L00_SourceSolidity.Ty.uint 256)
+              | none => none
+          | L00_SourceSolidity.Expr.member base member => do
+              let baseTy ← exprContextualTyFuel? env fuel base
+              match baseTy with
+              | L00_SourceSolidity.Ty.user path =>
+                  let structDecl ← env.types.lookupStruct? path
+                  let field ←
+                    structDecl.fields.find?
+                      (fun field => field.name == member)
+                  some (env.qualifyStructFieldTy path field.ty)
+              | _ => none
+          | L00_SourceSolidity.Expr.index base indexExpr => do
+              let baseTy ← exprContextualTyFuel? env fuel base
+              match Ty.fixedBytesSize? baseTy with
+              | some _ => some (L00_SourceSolidity.Ty.bytesN 1)
+              | none =>
+                  match baseTy with
+                  | L00_SourceSolidity.Ty.bytes =>
+                      some (L00_SourceSolidity.Ty.bytesN 1)
+                  | L00_SourceSolidity.Ty.array elementTy _ =>
+                      some elementTy
+                  | L00_SourceSolidity.Ty.mapping _ valueTy =>
+                      some valueTy
+                  | L00_SourceSolidity.Ty.tuple elements => do
+                      let index ←
+                        L00_SourceSolidity.Executable.Expr.numberLiteralNat?
+                          indexExpr
+                      L00_SourceSolidity.Executable.listGet? elements index
+                  | _ => none
+          | L00_SourceSolidity.Expr.slice base _ _ => do
+              let baseTy ← exprContextualTyFuel? env fuel base
+              match baseTy with
+              | L00_SourceSolidity.Ty.bytes =>
+                  some L00_SourceSolidity.Ty.bytes
+              | L00_SourceSolidity.Ty.string =>
+                  some L00_SourceSolidity.Ty.string
+              | L00_SourceSolidity.Ty.array elementTy _ =>
+                  some (L00_SourceSolidity.Ty.array elementTy none)
+              | _ => none
+          | _ => none
+
+def exprContextualTy? (env : CheckEnv)
+    (expr : L00_SourceSolidity.Expr) : Option Ty :=
+  exprContextualTyFuel? env 128 expr
 
 def exprContextuallyAssignableToFuel
     (env : CheckEnv) :
@@ -3511,9 +4706,10 @@ def exprContextuallyAssignableToFuel
       match checkInternalFunctionValueAssignable? env expr expected with
       | some (Except.ok _) => true
       | _ =>
-          match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars
-              expr with
+          match exprContextualTy? env expr with
           | some actual =>
+              let actual := env.qualifyCurrentLocalUserTypes actual
+              let expected := env.qualifyCurrentLocalUserTypes expected
               actual == expected ||
                 (exprIsUntypedImplicitLiteralExpression expr &&
                   implicitLiteralFits expected expr)
@@ -3536,15 +4732,22 @@ def exprIsContextualFixedArrayExpr
       exprContextuallyAssignableTo env expr expected
   | _, _ => false
 
+def exprHasStorageRefRoot (env : CheckEnv) :
+    L00_SourceSolidity.Expr -> Bool
+  | L00_SourceSolidity.Expr.ident name =>
+      (env.isStateName name && !env.isLocalName name) ||
+        env.isLocalStorageRef name
+  | L00_SourceSolidity.Expr.member base _ =>
+      exprHasStorageRefRoot env base
+  | L00_SourceSolidity.Expr.index base _ =>
+      exprHasStorageRefRoot env base
+  | _ => false
+
 def exprContextuallyStorageOk
     (env : CheckEnv) (expr : L00_SourceSolidity.Expr)
     (needsStorage : Bool) : Bool :=
   if needsStorage then
-    match expr with
-    | L00_SourceSolidity.Expr.ident name =>
-        (env.isStateName name && !env.isLocalName name) ||
-          env.isLocalStorageRef name
-    | _ => false
+    exprHasStorageRefRoot env expr
   else
     true
 
@@ -3660,6 +4863,9 @@ def resolveEncodeCallFunctionContextual (env : CheckEnv)
   | L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.typeName (L00_SourceSolidity.Ty.user path))
       member => do
+      require (env.types.isContractValuePath path)
+        (TypeError.invalidAbiCall
+          "abi.encodeCall cannot use a library function")
       let sig ←
         TypeContext.resolveContractMemberFunctionContextual env path member
           args
@@ -3671,6 +4877,9 @@ def resolveEncodeCallFunctionContextual (env : CheckEnv)
       let targetChecked ← checkCallTargetExpr env target
       match targetChecked.ty with
       | L00_SourceSolidity.Ty.user path => do
+          require (env.types.isContractValuePath path)
+            (TypeError.invalidAbiCall
+              "abi.encodeCall expects a contract function value")
           let sig ←
             TypeContext.resolveContractMemberFunctionContextual env path member
               args
@@ -3686,8 +4895,7 @@ def resolveEncodeCallFunctionContextual (env : CheckEnv)
       match env.lookupVar? name with
       | some ty => do
           let isState := env.isStateName name && !env.isLocalName name
-          let isStorageRef := env.isLocalStorageRef name
-          if isState || isStorageRef then
+          if isState then
             requireStateReadAllowed env
           else
             Except.ok ()
@@ -3805,10 +5013,11 @@ def checkExpr (env : CheckEnv) :
                 env.lookupLocalDataLocation? name
             else
               none
-          if isState || isStorageRef then
+          if isState then
             requireStateReadAllowed env
           else
             Except.ok ()
+          env.types.requireNoFixedPointValue ty "read"
           Except.ok
             { source := expr
               ty := ty
@@ -3841,22 +5050,39 @@ def checkExpr (env : CheckEnv) :
               lvalue := false
               stateLValue := false }
       | Except.error _ => do
-          let baseChecked ← checkExpr env (L00_SourceSolidity.Expr.ident name)
-          match baseChecked.ty with
-          | L00_SourceSolidity.Ty.function _ _ _
-              L00_SourceSolidity.Visibility.external_ =>
+          match EventSigs.resolveByName env.events name with
+          | Except.ok sig =>
+              require (!sig.anonymous)
+                (TypeError.unsupported "anonymous event selector")
               Except.ok
                 { source := expr
-                  ty := L00_SourceSolidity.Ty.bytesN 4
+                  ty := L00_SourceSolidity.Ty.bytesN 32
                   lvalue := false
                   stateLValue := false }
-          | _ => Except.error (TypeError.unsupported "member selector")
+          | Except.error _ => do
+              let baseChecked ←
+                checkExpr env (L00_SourceSolidity.Expr.ident name)
+              match baseChecked.ty with
+              | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
+                  L00_SourceSolidity.Visibility.external_ =>
+                  Except.ok
+                    { source := expr
+                      ty := L00_SourceSolidity.Ty.bytesN 4
+                      lvalue := false
+                      stateLValue := false }
+              | _ => Except.error (TypeError.unsupported "member selector")
   | expr@(L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.member base member) "selector") => do
       let baseChecked ← checkExpr env base
       match baseChecked.ty with
       | L00_SourceSolidity.Ty.user path =>
-          if env.types.isContractPath path then do
+          let receiverAllowed :=
+            match base with
+            | L00_SourceSolidity.Expr.typeName
+                (L00_SourceSolidity.Ty.user _) =>
+                env.types.isContractPath path
+            | _ => env.types.isContractValuePath path
+          if receiverAllowed then do
             let sig ←
               env.types.resolveContractExternalFunctionValue path member
             match FunctionSig.externalFunctionValueTy? sig with
@@ -3871,7 +5097,7 @@ def checkExpr (env : CheckEnv) :
             let fnChecked ←
               checkExpr env (L00_SourceSolidity.Expr.member base member)
             match fnChecked.ty with
-            | L00_SourceSolidity.Ty.function _ _ _
+            | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
                 L00_SourceSolidity.Visibility.external_ =>
                 Except.ok
                   { source := expr
@@ -3883,7 +5109,7 @@ def checkExpr (env : CheckEnv) :
           let fnChecked ←
             checkExpr env (L00_SourceSolidity.Expr.member base member)
           match fnChecked.ty with
-          | L00_SourceSolidity.Ty.function _ _ _
+          | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
               L00_SourceSolidity.Visibility.external_ =>
               Except.ok
                 { source := expr
@@ -3896,7 +5122,11 @@ def checkExpr (env : CheckEnv) :
       let baseChecked ← checkExpr env base
       match baseChecked.ty with
       | L00_SourceSolidity.Ty.user path =>
-          if env.types.isContractPath path then do
+          let receiverAllowed :=
+            match base with
+            | L00_SourceSolidity.Expr.typeName _ => false
+            | _ => env.types.isContractValuePath path
+          if receiverAllowed then do
             let sig ←
               env.types.resolveContractExternalFunctionValue path member
             match FunctionSig.externalFunctionValueTy? sig with
@@ -3911,7 +5141,7 @@ def checkExpr (env : CheckEnv) :
             let fnChecked ←
               checkExpr env (L00_SourceSolidity.Expr.member base member)
             match fnChecked.ty with
-            | L00_SourceSolidity.Ty.function _ _ _
+            | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
                 L00_SourceSolidity.Visibility.external_ =>
                 Except.ok
                   { source := expr
@@ -3923,7 +5153,7 @@ def checkExpr (env : CheckEnv) :
           let fnChecked ←
             checkExpr env (L00_SourceSolidity.Expr.member base member)
           match fnChecked.ty with
-          | L00_SourceSolidity.Ty.function _ _ _
+          | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
               L00_SourceSolidity.Visibility.external_ =>
               Except.ok
                 { source := expr
@@ -3943,11 +5173,24 @@ def checkExpr (env : CheckEnv) :
             { source := expr
               ty := ty
               lvalue := false
-              stateLValue := false }
+              stateLValue := false
+              dataLocation? :=
+                if member == "data" then
+                  some L00_SourceSolidity.DataLocation.calldata
+                else
+                  none }
       | none => Except.error (TypeError.unsupported ("member " ++ member))
   | expr@(L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.ident "block") member) => do
       requireStateReadAllowed env
+      if member == "basefee" then
+        requireLondonOrLater env "block.basefee"
+      else if member == "blobbasefee" then
+        requireCancunOrLater env "block.blobbasefee"
+      else if member == "chainid" then
+        requireIstanbulOrLater env "block.chainid"
+      else
+        Except.ok ()
       match L00_SourceSolidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty =>
           Except.ok
@@ -3970,6 +5213,7 @@ def checkExpr (env : CheckEnv) :
   | expr@(L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.typeName ty) member) => do
       checkTy env.types ty
+      let ty := env.qualifyCurrentLocalUserTypes ty
       match ty with
       | L00_SourceSolidity.Ty.uint _
       | L00_SourceSolidity.Ty.int _ =>
@@ -4009,6 +5253,11 @@ def checkExpr (env : CheckEnv) :
                         stateLValue := false }
                   else if member == "creationCode" ||
                       member == "runtimeCode" then
+                    require
+                      (contractDecl.kind !=
+                          L00_SourceSolidity.ContractKind.interface &&
+                        !contractDecl.abstract)
+                      (TypeError.unsupported ("member " ++ member))
                     require (!env.isCurrentOrAncestorContract path)
                       (TypeError.unsupported ("member " ++ member))
                     Except.ok
@@ -4034,12 +5283,31 @@ def checkExpr (env : CheckEnv) :
       | _ => Except.error (TypeError.unsupported ("member " ++ member))
   | expr@(L00_SourceSolidity.Expr.member base member) => do
       let baseChecked ← checkExpr env base
+      if baseChecked.stateLValue then
+        requireStateReadAllowed env
+      else
+        Except.ok ()
       require (!baseChecked.arraySlice)
         (TypeError.unsupported "member on array slice")
+      let checkBoundExternalFunctionMember
+          (path : L00_SourceSolidity.Path) :
+          Except TypeError CheckedExpr := do
+        require (env.types.isContractValuePath path)
+          (TypeError.unsupported ("member " ++ member))
+        let sig ←
+          env.types.resolveContractExternalFunctionValue path member
+        match FunctionSig.externalFunctionValueTy? sig with
+        | some ty =>
+            Except.ok
+              { source := expr
+                ty := ty
+                lvalue := false
+                stateLValue := false }
+        | none => Except.error (TypeError.unsupported ("member " ++ member))
       let checkNonStructMember : Except TypeError CheckedExpr := do
         if member == "balance" then
           requireStateReadAllowed env
-          require (baseChecked.ty.isAddressLike env.types)
+          require baseChecked.ty.isAddressBuiltinReceiver
             (TypeError.expectedType
               (L00_SourceSolidity.Ty.address false) baseChecked.ty)
           Except.ok
@@ -4049,7 +5317,7 @@ def checkExpr (env : CheckEnv) :
               stateLValue := false }
         else if member == "code" then
           requireStateReadAllowed env
-          require (baseChecked.ty.isAddressLike env.types)
+          require baseChecked.ty.isAddressBuiltinReceiver
             (TypeError.expectedType
               (L00_SourceSolidity.Ty.address false) baseChecked.ty)
           Except.ok
@@ -4059,7 +5327,8 @@ def checkExpr (env : CheckEnv) :
               stateLValue := false }
         else if member == "codehash" then
           requireStateReadAllowed env
-          require (baseChecked.ty.isAddressLike env.types)
+          requireConstantinopleOrLater env "address.codehash"
+          require baseChecked.ty.isAddressBuiltinReceiver
             (TypeError.expectedType
               (L00_SourceSolidity.Ty.address false) baseChecked.ty)
           Except.ok
@@ -4095,16 +5364,23 @@ def checkExpr (env : CheckEnv) :
               | some field =>
                   Except.ok
                     { source := expr
-                      ty := field.ty
+                      ty := env.qualifyStructFieldTy path field.ty
                       lvalue := baseChecked.lvalue || baseChecked.stateLValue
                       stateLValue := baseChecked.stateLValue
                       dataLocation? := baseChecked.dataLocation? }
               | none =>
                   Except.error (TypeError.unsupported ("member " ++ member))
-          | none => checkNonStructMember
+          | none =>
+              match checkBoundExternalFunctionMember path with
+              | Except.ok checked => Except.ok checked
+              | Except.error _ => checkNonStructMember
       | _ => checkNonStructMember
   | expr@(L00_SourceSolidity.Expr.index base index) => do
       let baseChecked ← checkExpr env base
+      if baseChecked.stateLValue then
+        requireStateReadAllowed env
+      else
+        Except.ok ()
       let indexChecked ← checkExpr env index
       match baseChecked.ty with
       | L00_SourceSolidity.Ty.bytes =>
@@ -4123,36 +5399,17 @@ def checkExpr (env : CheckEnv) :
           indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
           Except.ok
             { source := expr
-              ty := element
+              ty := env.qualifyCurrentLocalUserTypes element
               lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | L00_SourceSolidity.Ty.tuple tys => do
-          indexChecked.expectAssignableTo (L00_SourceSolidity.Ty.uint 256)
-          let indexValue ←
-            match Expr.literalNat? index with
-            | some value => Except.ok value
-            | none =>
-                Except.error
-                  (TypeError.unsupported "non-literal tuple index")
-          let elementTy ←
-            match (tys.drop indexValue).head? with
-            | some ty => Except.ok ty
-            | none =>
-                Except.error
-                  (TypeError.arityMismatch "tuple index" tys.length
-                    (indexValue + 1))
-          Except.ok
-            { source := expr
-              ty := elementTy
-              lvalue := baseChecked.lvalue || baseChecked.stateLValue
-              stateLValue := baseChecked.stateLValue
-              dataLocation? := baseChecked.dataLocation? }
+          Except.error (TypeError.unsupported "tuple index")
       | L00_SourceSolidity.Ty.mapping key value => do
           indexChecked.expectAssignableToIn env.types key
           Except.ok
             { source := expr
-              ty := value
+              ty := env.qualifyCurrentLocalUserTypes value
               lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
@@ -4163,6 +5420,7 @@ def checkExpr (env : CheckEnv) :
       let sliceTy ←
         match baseChecked.ty with
         | L00_SourceSolidity.Ty.bytes => Except.ok baseChecked.ty
+        | L00_SourceSolidity.Ty.string => Except.ok baseChecked.ty
         | L00_SourceSolidity.Ty.array element _ =>
             Except.ok (L00_SourceSolidity.Ty.array element none)
         | other =>
@@ -4196,6 +5454,7 @@ def checkExpr (env : CheckEnv) :
       (L00_SourceSolidity.Expr.typeName targetTy) args) => do
       checkTy env.types targetTy
       let checkTypeConversion : Except TypeError CheckedExpr := do
+        env.types.requireNoFixedPointValue targetTy "conversion to"
         let checkedArgs ← checkArgs env args
         let argInfos := checkedArgInfos args checkedArgs
         requireNoNamedArgs "type conversion" argInfos
@@ -4203,11 +5462,15 @@ def checkExpr (env : CheckEnv) :
           (TypeError.arityMismatch "type conversion" 1 checkedArgs.length)
         match checkedArgs with
         | [arg] =>
+            env.types.requireNoFixedPointValue arg.ty "conversion from"
             require
               (Ty.canExplicitlyConvert env.types arg.source arg.ty targetTy)
               (TypeError.invalidConversion arg.ty targetTy)
         | _ => Except.ok ()
-        Except.ok { source := expr, ty := targetTy, lvalue := false }
+        Except.ok
+          { source := expr
+            ty := env.qualifyCurrentLocalUserTypes targetTy
+            lvalue := false }
       match targetTy with
       | L00_SourceSolidity.Ty.user path =>
           match env.types.lookupStruct? path with
@@ -4254,7 +5517,10 @@ def checkExpr (env : CheckEnv) :
                           contextualCheckedArgs) with
                   | Except.ok _ => Except.ok ()
                   | Except.error _ => Except.error argErr
-              Except.ok { source := expr, ty := targetTy, lvalue := false }
+              Except.ok
+                { source := expr
+                  ty := env.qualifyCurrentLocalUserTypes targetTy
+                  lvalue := false }
           | none => checkTypeConversion
       | _ => checkTypeConversion
   | expr@(L00_SourceSolidity.Expr.call
@@ -4264,7 +5530,11 @@ def checkExpr (env : CheckEnv) :
           let argInfos := checkedArgInfos args checkedArgs
           let checkedInfos := checkedArgInfosFull args checkedArgs
           match env.lookupVar? name with
-          | some (L00_SourceSolidity.Ty.function params returns mutability _) => do
+          | some (L00_SourceSolidity.Ty.functionWithLocations params
+              paramLocations returns returnLocations mutability visibility) => do
+              let sig :=
+                functionPointerSig name params paramLocations returns
+                  returnLocations mutability visibility
               require (!ArgInfos.anyNamed argInfos)
                 (TypeError.unsupported
                   "named arguments for function-typed expression")
@@ -4280,10 +5550,10 @@ def checkExpr (env : CheckEnv) :
                     | Except.ok contextualCheckedArgs =>
                         Except.ok contextualCheckedArgs
                     | Except.error _ => Except.error checkedErr
+              checkCheckedExprsReferenceLocationsFor "function call"
+                checkedArgs sig.paramStorageRefs sig.paramDataLocations
               requireCallMutabilityAllowed env mutability
-              Except.ok
-                { source := expr, ty := resultTyFromReturns returns,
-                  lvalue := false }
+              Except.ok (sig.checkedResult expr)
           | _ =>
               match FunctionSigs.resolveChecked env.types env.functions name
                   checkedInfos with
@@ -4311,8 +5581,9 @@ def checkExpr (env : CheckEnv) :
                           (checkedArgInfosFull args
                             contextualCheckedArgs) with
                       | some ordered =>
-                          checkCheckedExprsStorageRefsFor "function call"
-                            ordered sig.paramStorageRefs
+                          checkCheckedExprsReferenceLocationsFor
+                            "function call" ordered sig.paramStorageRefs
+                            sig.paramDataLocations
                       | none =>
                           Except.error
                             (TypeError.arityMismatch
@@ -4344,16 +5615,20 @@ def checkExpr (env : CheckEnv) :
             Except.error argErr
           else
             match env.lookupVar? name with
-            | some (L00_SourceSolidity.Ty.function params returns mutability _) =>
+            | some (L00_SourceSolidity.Ty.functionWithLocations params
+                paramLocations returns returnLocations mutability visibility) =>
+                let sig :=
+                  functionPointerSig name params paramLocations returns
+                    returnLocations mutability visibility
                 match
                     checkPositionalArgsAssignableToParamsFor
                       env "function call" args params with
-                | Except.ok _ => do
+                | Except.ok contextualCheckedArgs => do
+                    checkCheckedExprsReferenceLocationsFor "function call"
+                      contextualCheckedArgs sig.paramStorageRefs
+                        sig.paramDataLocations
                     requireCallMutabilityAllowed env mutability
-                    Except.ok
-                      { source := expr
-                        ty := resultTyFromReturns returns
-                        lvalue := false }
+                    Except.ok (sig.checkedResult expr)
                 | Except.error _ => Except.error argErr
             | _ =>
                 match
@@ -4370,8 +5645,9 @@ def checkExpr (env : CheckEnv) :
                     match CheckedArgInfos.ordered? sig.paramNames
                         (checkedArgInfosFull args contextualCheckedArgs) with
                     | some ordered =>
-                        checkCheckedExprsStorageRefsFor "function call"
-                          ordered sig.paramStorageRefs
+                        checkCheckedExprsReferenceLocationsFor
+                          "function call" ordered sig.paramStorageRefs
+                          sig.paramDataLocations
                     | none =>
                         Except.error
                           (TypeError.arityMismatch
@@ -4388,14 +5664,21 @@ def checkExpr (env : CheckEnv) :
         (L00_SourceSolidity.Expr.ident "abi") "encodeCall") args) => do
       match args with
       | [ L00_SourceSolidity.Arg.positional functionPointer
-        , L00_SourceSolidity.Arg.positional
-            (L00_SourceSolidity.Expr.tuple items) ] => do
-          let tupleArgs ← tupleItemsAsPositionalArgs items
+        , L00_SourceSolidity.Arg.positional argumentExpr ] => do
+          let tupleArgs ←
+            match argumentExpr with
+            | L00_SourceSolidity.Expr.tuple items =>
+                tupleItemsAsPositionalArgs items
+            | scalar =>
+                Except.ok [L00_SourceSolidity.Arg.positional scalar]
           let sig ←
             match functionPointer with
             | L00_SourceSolidity.Expr.member
                 (L00_SourceSolidity.Expr.typeName
                   (L00_SourceSolidity.Ty.user path)) member => do
+                require (env.types.isContractValuePath path)
+                  (TypeError.invalidAbiCall
+                    "abi.encodeCall cannot use a library function")
                 let sig ←
                   TypeContext.resolveContractMemberFunctionContextual
                     env path member tupleArgs
@@ -4407,6 +5690,9 @@ def checkExpr (env : CheckEnv) :
                 let targetChecked ← checkExpr env target
                 match targetChecked.ty with
                 | L00_SourceSolidity.Ty.user path => do
+                    require (env.types.isContractValuePath path)
+                      (TypeError.invalidAbiCall
+                        "abi.encodeCall expects a contract function value")
                     let sig ←
                       TypeContext.resolveContractMemberFunctionContextual
                         env path member tupleArgs
@@ -4434,8 +5720,22 @@ def checkExpr (env : CheckEnv) :
                     Except.error
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects a function pointer")
-          let _ ←
-            checkEncodeCallTupleItemsAssignableTo env items sig.params
+          match argumentExpr with
+          | L00_SourceSolidity.Expr.tuple items =>
+              let _ ←
+                checkEncodeCallTupleItemsAssignableTo env items sig.params
+              Except.ok ()
+          | scalar =>
+              match sig.params with
+              | [ty] =>
+                  let _ ←
+                    checkArgAssignableToParam env ty
+                      (L00_SourceSolidity.Arg.positional scalar)
+                  Except.ok ()
+              | expected =>
+                  Except.error
+                    (TypeError.arityMismatch
+                      "abi.encodeCall" expected.length 1)
           Except.ok
             { source := expr
               ty := L00_SourceSolidity.Ty.bytes
@@ -4443,11 +5743,12 @@ def checkExpr (env : CheckEnv) :
       | _ =>
           Except.error
             (TypeError.invalidAbiCall
-              "abi.encodeCall expects function pointer and tuple arguments")
+              "abi.encodeCall expects a function pointer and arguments")
   | expr@(L00_SourceSolidity.Expr.call
       (L00_SourceSolidity.Expr.member
         (L00_SourceSolidity.Expr.typeName targetTy) member) args) => do
       checkTy env.types targetTy
+      let targetTy := env.qualifyCurrentLocalUserTypes targetTy
       match targetTy with
       | L00_SourceSolidity.Ty.user path =>
           match env.types.lookupUserValueType? path with
@@ -4482,8 +5783,122 @@ def checkExpr (env : CheckEnv) :
               else
                 Except.error (TypeError.unsupported ("member call " ++ member))
           | none =>
-              Except.error (TypeError.unsupported ("member call " ++ member))
+              match env.types.lookupContractDecl? path with
+              | some libraryDecl =>
+                  if libraryDecl.kind ==
+                      L00_SourceSolidity.ContractKind.library then
+                    let checkedArgs ← checkArgs env args
+                    let sig ←
+                      match
+                          FunctionSigs.resolveChecked env.types
+                            (FunctionSigs.nonPrivate
+                              (FunctionSigs.atLibraryCallBoundary env.types
+                                (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                                  libraryDecl)))
+                            member (checkedArgInfosFull args checkedArgs) with
+                      | Except.ok sig => Except.ok sig
+                      | Except.error checkedErr =>
+                          match
+                              FunctionSigs.resolveContextual env
+                                (FunctionSigs.nonPrivate
+                                    (FunctionSigs.atLibraryCallBoundary env.types
+                                      (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                                        libraryDecl)))
+                                member args with
+                          | Except.ok sig => do
+                              let checkedArgs ←
+                                if Args.anyNamed args then
+                                  checkNamedArgsAssignableToParamsFor
+                                    env "member call" sig.paramNames
+                                    sig.params args
+                                else
+                                  checkPositionalArgsAssignableToParamsFor
+                                    env "member call" args sig.params
+                              match CheckedArgInfos.ordered? sig.paramNames
+                                  (checkedArgInfosFull args checkedArgs) with
+                              | some ordered =>
+                                  checkCheckedExprsReferenceLocationsFor
+                                    "member call" ordered sig.paramStorageRefs
+                                    sig.paramDataLocations
+                              | none =>
+                                  Except.error
+                                    (TypeError.arityMismatch "member call"
+                                      sig.params.length checkedArgs.length)
+                              Except.ok sig
+                          | Except.error _ => Except.error checkedErr
+                    requireCallMutabilityAllowed env sig.mutability
+                    Except.ok (sig.checkedResult expr)
+                  else
+                    Except.error
+                      (TypeError.unsupported ("member call " ++ member))
+              | none =>
+                  Except.error (TypeError.unsupported ("member call " ++ member))
+      | L00_SourceSolidity.Ty.bytes =>
+          require (member == "concat")
+            (TypeError.unsupported ("member call " ++ member))
+          let checkedArgs ← checkArgs env args
+          let argInfos := checkedArgInfos args checkedArgs
+          requireNoNamedArgs "bytes.concat" argInfos
+          checkBytesConcatArgs checkedArgs
+          Except.ok
+            { source := expr
+              ty := L00_SourceSolidity.Ty.bytes
+              lvalue := false }
+      | L00_SourceSolidity.Ty.string =>
+          require (member == "concat")
+            (TypeError.unsupported ("member call " ++ member))
+          let checkedArgs ← checkArgs env args
+          let argInfos := checkedArgInfos args checkedArgs
+          requireNoNamedArgs "string.concat" argInfos
+          checkStringConcatArgs checkedArgs
+          Except.ok
+            { source := expr
+              ty := L00_SourceSolidity.Ty.string
+              lvalue := false }
       | _ =>
+          Except.error (TypeError.unsupported ("member call " ++ member))
+  | expr@(L00_SourceSolidity.Expr.call
+      (L00_SourceSolidity.Expr.member
+        (L00_SourceSolidity.Expr.member
+          (L00_SourceSolidity.Expr.typeName
+            (L00_SourceSolidity.Ty.user parentPath)) typeName) member)
+      args) => do
+      let targetPath : Path :=
+        { segments := parentPath.segments ++ [typeName] }
+      let targetTy := L00_SourceSolidity.Ty.user targetPath
+      checkTy env.types targetTy
+      match env.types.lookupUserValueType? targetPath with
+      | some underlying =>
+          let checkedArgs ← checkArgs env args
+          let argInfos := checkedArgInfos args checkedArgs
+          requireNoNamedArgs ("user-value-type " ++ member) argInfos
+          if member == "wrap" then
+            match checkedArgs with
+            | [arg] => do
+                arg.expectAssignableToIn env.types underlying
+                Except.ok
+                  { source := expr
+                    ty := targetTy
+                    lvalue := false }
+            | _ =>
+                Except.error
+                  (TypeError.arityMismatch
+                    "user value type wrap" 1 checkedArgs.length)
+          else if member == "unwrap" then
+            match checkedArgs with
+            | [arg] => do
+                arg.expectAssignableToIn env.types targetTy
+                Except.ok
+                  { source := expr
+                    ty := underlying
+                    lvalue := false }
+            | _ =>
+                Except.error
+                  (TypeError.arityMismatch
+                    "user value type unwrap" 1 checkedArgs.length)
+          else
+            Except.error (TypeError.unsupported ("member call " ++ member))
+      | none =>
           Except.error (TypeError.unsupported ("member call " ++ member))
   | L00_SourceSolidity.Expr.call
       (L00_SourceSolidity.Expr.member target member) args => do
@@ -4499,8 +5914,8 @@ def checkExpr (env : CheckEnv) :
             | Except.error _ => Except.error argErr
       let argInfos := checkedArgInfos args checkedArgs
       let checkedInfos := checkedArgInfosFull args checkedArgs
-      if lowLevelCallMember member then
-        let targetChecked ← checkExpr env target
+      let checkLowLevelCallWithTarget
+          (targetChecked : CheckedExpr) : Except TypeError CheckedExpr := do
         require (!ArgInfos.anyNamed argInfos)
           (TypeError.unsupported "named arguments for low-level call")
         require (targetChecked.ty.isAddressLike env.types)
@@ -4547,12 +5962,17 @@ def checkExpr (env : CheckEnv) :
           | _ =>
               Except.error
                 (TypeError.arityMismatch "transfer" 1 checkedArgs.length)
-      else
-        match target with
+      match target with
         | L00_SourceSolidity.Expr.ident "abi" =>
             requireNoNamedArgs ("abi." ++ member) argInfos
-            if member == "encode" || member == "encodePacked" then
+            if member == "encode" then
               checkAbiEncodableArgs env.types checkedArgs
+              Except.ok
+                { source := expr
+                  ty := L00_SourceSolidity.Ty.bytes
+                  lvalue := false }
+            else if member == "encodePacked" then
+              checkAbiEncodePackedArgs env.types checkedArgs
               Except.ok
                 { source := expr
                   ty := L00_SourceSolidity.Ty.bytes
@@ -4640,59 +6060,113 @@ def checkExpr (env : CheckEnv) :
               let targetChecked ← checkExpr env targetExpr
               require (!targetChecked.arraySlice)
                 (TypeError.unsupported "member call on array slice")
-              let mutation? ←
-                checkArrayMutationCall? env expr targetExpr member
-                  argInfos checkedArgs targetChecked
-              match mutation? with
-              | some checked => Except.ok checked
-              | none =>
-                  let checkUsingCall : Except TypeError CheckedExpr := do
-                    let sig ←
-                      match
-                          env.resolveUsingMemberFunctionChecked targetChecked
-                            member checkedInfos with
-                      | Except.ok sig => Except.ok sig
-                      | Except.error checkedErr =>
-                          match
-                              checkMemberCallArgsContextual env targetExpr
-                                member args with
-                          | Except.ok contextualCheckedArgs =>
-                              env.resolveUsingMemberFunctionChecked
-                                targetChecked member
-                                  (checkedArgInfosFull args
-                                    contextualCheckedArgs)
-                          | Except.error _ => Except.error checkedErr
-                    requireCallMutabilityAllowed env sig.mutability
-                    Except.ok
-                      (sig.checkedResult expr)
-                  match targetChecked.ty with
-                  | L00_SourceSolidity.Ty.user path =>
-                      if env.types.isContractPath path then
-                        match env.types.resolveContractMemberFunctionChecked path
-                            member checkedInfos with
-                        | Except.ok sig => do
-                            requireCallMutabilityAllowed env sig.mutability
-                            Except.ok
-                              (sig.checkedResult expr)
-                        | Except.error _ =>
+              if lowLevelCallMember member &&
+                  targetChecked.ty.isAddressBuiltinReceiver then
+                checkLowLevelCallWithTarget targetChecked
+              else
+                let mutation? ←
+                  checkArrayMutationCall? env expr targetExpr member
+                    argInfos checkedArgs targetChecked
+                match mutation? with
+                | some checked => Except.ok checked
+                | none =>
+                    let checkUsingCall : Except TypeError CheckedExpr := do
+                      let sig ←
+                        match
+                            env.resolveUsingMemberFunctionChecked targetChecked
+                              member checkedInfos with
+                        | Except.ok sig => Except.ok sig
+                        | Except.error checkedErr =>
                             match
-                                checkContractMemberCallArgsContextualForPath
-                                  env path member args with
-                            | Except.ok (sig, _) => do
-                                requireCallMutabilityAllowed env sig.mutability
-                                Except.ok
-                                  (sig.checkedResult expr)
-                            | Except.error _ => checkUsingCall
-                      else
-                        checkUsingCall
-                  | _ =>
-                      match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
-                          env.vars expr with
-                      | some ty =>
-                          Except.ok
-                            { source := expr, ty := ty, lvalue := false }
-                      | none => checkUsingCall
+                                checkMemberCallArgsContextual env targetExpr
+                                  member args with
+                            | Except.ok contextualCheckedArgs =>
+                                env.resolveUsingMemberFunctionChecked
+                                  targetChecked member
+                                    (checkedArgInfosFull args
+                                      contextualCheckedArgs)
+                            | Except.error _ => Except.error checkedErr
+                      requireCallMutabilityAllowed env sig.mutability
+                      Except.ok
+                        (sig.checkedResult expr)
+                    match targetChecked.ty with
+                    | L00_SourceSolidity.Ty.user path =>
+                        if env.types.isContractValuePath path then
+                          match env.types.resolveContractMemberFunctionChecked path
+                              member checkedInfos with
+                          | Except.ok sig => do
+                              requireCallMutabilityAllowed env sig.mutability
+                              Except.ok
+                                (sig.checkedResult expr)
+                          | Except.error _ =>
+                              match
+                                  checkContractMemberCallArgsContextualForPath
+                                    env path member args with
+                              | Except.ok (sig, _) => do
+                                  requireCallMutabilityAllowed env sig.mutability
+                                  Except.ok
+                                    (sig.checkedResult expr)
+                              | Except.error _ => checkUsingCall
+                        else
+                          checkUsingCall
+                    | _ =>
+                        match L00_SourceSolidity.Executable.Expr.abiTyWithEnv?
+                            env.vars expr with
+                        | some ty =>
+                            Except.ok
+                              { source := expr, ty := ty, lvalue := false }
+                        | none => checkUsingCall
             match targetExpr with
+            | L00_SourceSolidity.Expr.typeName
+                (L00_SourceSolidity.Ty.user libraryPath) =>
+                match env.types.lookupContractDecl? libraryPath with
+                | some libraryDecl =>
+                    if libraryDecl.kind ==
+                        L00_SourceSolidity.ContractKind.library then
+                      let sig ←
+                        match
+                            FunctionSigs.resolveChecked env.types
+                              (FunctionSigs.nonPrivate
+                                (FunctionSigs.atLibraryCallBoundary env.types
+                                  (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                                    libraryDecl)))
+                              member checkedInfos with
+                        | Except.ok sig => Except.ok sig
+                        | Except.error checkedErr =>
+                            match
+                                FunctionSigs.resolveContextual env
+                                  (FunctionSigs.nonPrivate
+                                    (FunctionSigs.atLibraryCallBoundary env.types
+                                      (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                                        libraryDecl)))
+                                  member args with
+                            | Except.ok sig => do
+                                let checkedArgs ←
+                                  if Args.anyNamed args then
+                                    checkNamedArgsAssignableToParamsFor
+                                      env "member call" sig.paramNames
+                                      sig.params args
+                                  else
+                                    checkPositionalArgsAssignableToParamsFor
+                                      env "member call" args sig.params
+                                match CheckedArgInfos.ordered? sig.paramNames
+                                    (checkedArgInfosFull args checkedArgs) with
+                                | some ordered =>
+                                    checkCheckedExprsReferenceLocationsFor
+                                      "member call" ordered
+                                      sig.paramStorageRefs
+                                      sig.paramDataLocations
+                                | none =>
+                                    Except.error
+                                      (TypeError.arityMismatch "member call"
+                                        sig.params.length checkedArgs.length)
+                                Except.ok sig
+                            | Except.error _ => Except.error checkedErr
+                      requireCallMutabilityAllowed env sig.mutability
+                      Except.ok (sig.checkedResult expr)
+                    else
+                      checkUsingOrFallback
+                | none => checkUsingOrFallback
             | L00_SourceSolidity.Expr.ident libraryName =>
                 if (env.lookupVar? libraryName).isNone &&
                     TypeContext.pathIn
@@ -4740,7 +6214,11 @@ def checkExpr (env : CheckEnv) :
   | expr@(L00_SourceSolidity.Expr.call fn args) => do
       let fnChecked ← checkExpr env fn
       match fnChecked.ty with
-      | L00_SourceSolidity.Ty.function params returns mutability _ => do
+      | L00_SourceSolidity.Ty.functionWithLocations params paramLocations
+          returns returnLocations mutability visibility => do
+          let sig :=
+            functionPointerSig "<expression>" params paramLocations returns
+              returnLocations mutability visibility
           let checkedArgs ←
             match checkArgs env args with
             | Except.ok checkedArgs =>
@@ -4769,10 +6247,10 @@ def checkExpr (env : CheckEnv) :
                   | Except.ok contextualCheckedArgs =>
                       Except.ok contextualCheckedArgs
                   | Except.error _ => Except.error argErr
+          checkCheckedExprsReferenceLocationsFor "function call" checkedArgs
+            sig.paramStorageRefs sig.paramDataLocations
           requireCallMutabilityAllowed env mutability
-          Except.ok
-            { source := expr, ty := resultTyFromReturns returns,
-              lvalue := false }
+          Except.ok (sig.checkedResult expr)
       | _ =>
           let checkedArgs ← checkArgs env args
           requireCallExprMutabilityAllowed env fn
@@ -4788,6 +6266,10 @@ def checkExpr (env : CheckEnv) :
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       requireCallOptionsAllowedNames ["value", "salt"] options
+      if CallOptions.hasSalt options then
+        requireConstantinopleOrLater env "contract creation salt"
+      else
+        Except.ok ()
       match ty with
       | L00_SourceSolidity.Ty.user path =>
           let contractDecl ←
@@ -4823,9 +6305,10 @@ def checkExpr (env : CheckEnv) :
                             (checkedArgInfosFull args
                               contextualCheckedArgs) with
                         | some ordered =>
-                            checkCheckedExprsStorageRefsFor
+                            checkCheckedExprsReferenceLocationsFor
                               ("constructor " ++ contractDecl.name)
                               ordered constructorSig.paramStorageRefs
+                              constructorSig.paramDataLocations
                         | none =>
                             Except.error
                               (TypeError.arityMismatch
@@ -4850,9 +6333,10 @@ def checkExpr (env : CheckEnv) :
                         constructorSig.paramNames
                         (checkedArgInfosFull args contextualCheckedArgs) with
                     | some ordered =>
-                        checkCheckedExprsStorageRefsFor
+                        checkCheckedExprsReferenceLocationsFor
                           ("constructor " ++ contractDecl.name) ordered
                           constructorSig.paramStorageRefs
+                          constructorSig.paramDataLocations
                     | none =>
                         Except.error
                           (TypeError.arityMismatch
@@ -4869,9 +6353,12 @@ def checkExpr (env : CheckEnv) :
       ensureUniqueNames "call option" (CallOptions.names options)
       checkCallOptionsLoop env options
       match env.lookupVar? name with
-      | some (L00_SourceSolidity.Ty.function params returns mutability
-          visibility) => do
-          let _ ←
+      | some (L00_SourceSolidity.Ty.functionWithLocations params
+          paramLocations returns returnLocations mutability visibility) => do
+          let sig :=
+            functionPointerSig name params paramLocations returns
+              returnLocations mutability visibility
+          let checkedArgs ←
             match checkArgs env args with
             | Except.ok checkedArgs =>
                 let argInfos := checkedArgInfos args checkedArgs
@@ -4899,6 +6386,8 @@ def checkExpr (env : CheckEnv) :
                   | Except.ok contextualCheckedArgs =>
                       Except.ok contextualCheckedArgs
                   | Except.error _ => Except.error argErr
+          checkCheckedExprsReferenceLocationsFor "function call" checkedArgs
+            sig.paramStorageRefs sig.paramDataLocations
           if options.isEmpty then
             Except.ok ()
           else
@@ -4908,9 +6397,7 @@ def checkExpr (env : CheckEnv) :
           requireCallOptionsAllowedNames ["gas", "value"] options
           requireCallMutabilityAllowed env mutability
           requireValueOptionAllowed mutability options
-          Except.ok
-            { source := expr, ty := resultTyFromReturns returns,
-              lvalue := false }
+          Except.ok (sig.checkedResult expr)
       | _ => do
           let checkedArgs ← checkArgs env args
           let checkedInfos := checkedArgInfosFull args checkedArgs
@@ -4962,8 +6449,9 @@ def checkExpr (env : CheckEnv) :
       let checkedArgs ← checkArgs env args
       let argInfos := checkedArgInfos args checkedArgs
       let checkedInfos := checkedArgInfosFull args checkedArgs
-      if lowLevelCallMember member then
-        let targetChecked ← checkExpr env target
+      let targetChecked ← checkExpr env target
+      if lowLevelCallMember member &&
+          targetChecked.ty.isAddressBuiltinReceiver then
         require (!ArgInfos.anyNamed argInfos)
           (TypeError.unsupported "named arguments for low-level call")
         require (targetChecked.ty.isAddressLike env.types)
@@ -5017,7 +6505,6 @@ def checkExpr (env : CheckEnv) :
               Except.error
                 (TypeError.arityMismatch "transfer" 1 checkedArgs.length)
       else
-        let targetChecked ← checkExpr env target
         require (!targetChecked.arraySlice)
           (TypeError.unsupported "member call on array slice")
         let mutation? ←
@@ -5032,6 +6519,9 @@ def checkExpr (env : CheckEnv) :
             requireCallOptionsAllowedNames ["gas", "value"] options
             match targetChecked.ty with
             | L00_SourceSolidity.Ty.user path => do
+                require (env.types.isContractValuePath path)
+                  (TypeError.unsupported
+                    "member call on a transient library value")
                 let sig ←
                   match env.types.resolveContractMemberFunctionChecked path
                       member checkedInfos with
@@ -5059,9 +6549,12 @@ def checkExpr (env : CheckEnv) :
       checkCallOptionsLoop env options
       let fnChecked ← checkExpr env fn
       match fnChecked.ty with
-      | L00_SourceSolidity.Ty.function params returns mutability
-          visibility => do
-          let _ ←
+      | L00_SourceSolidity.Ty.functionWithLocations params paramLocations
+          returns returnLocations mutability visibility => do
+          let sig :=
+            functionPointerSig "<expression>" params paramLocations returns
+              returnLocations mutability visibility
+          let checkedArgs ←
             match checkArgs env args with
             | Except.ok checkedArgs =>
                 let argInfos := checkedArgInfos args checkedArgs
@@ -5089,6 +6582,8 @@ def checkExpr (env : CheckEnv) :
                   | Except.ok contextualCheckedArgs =>
                       Except.ok contextualCheckedArgs
                   | Except.error _ => Except.error argErr
+          checkCheckedExprsReferenceLocationsFor "function call" checkedArgs
+            sig.paramStorageRefs sig.paramDataLocations
           if options.isEmpty then
             Except.ok ()
           else
@@ -5098,9 +6593,7 @@ def checkExpr (env : CheckEnv) :
           requireCallOptionsAllowedNames ["gas", "value"] options
           requireCallMutabilityAllowed env mutability
           requireValueOptionAllowed mutability options
-          Except.ok
-            { source := expr, ty := resultTyFromReturns returns,
-              lvalue := false }
+          Except.ok (sig.checkedResult expr)
       | _ =>
           let checkedArgs ← checkArgs env args
           requireCallExprMutabilityAllowed env fn
@@ -5181,9 +6674,10 @@ def checkExpr (env : CheckEnv) :
                             (checkedArgInfosFull args
                               contextualCheckedArgs) with
                         | some ordered =>
-                            checkCheckedExprsStorageRefsFor
+                            checkCheckedExprsReferenceLocationsFor
                               ("constructor " ++ contractDecl.name)
                               ordered constructorSig.paramStorageRefs
+                              constructorSig.paramDataLocations
                         | none =>
                             Except.error
                               (TypeError.arityMismatch
@@ -5208,9 +6702,10 @@ def checkExpr (env : CheckEnv) :
                         constructorSig.paramNames
                         (checkedArgInfosFull args contextualCheckedArgs) with
                     | some ordered =>
-                        checkCheckedExprsStorageRefsFor
+                        checkCheckedExprsReferenceLocationsFor
                           ("constructor " ++ contractDecl.name) ordered
                           constructorSig.paramStorageRefs
+                          constructorSig.paramDataLocations
                     | none =>
                         Except.error
                           (TypeError.arityMismatch
@@ -5275,11 +6770,20 @@ def checkExpr (env : CheckEnv) :
                 { source := expr
                   ty := L00_SourceSolidity.Ty.int 256 }
           | none => do
-              checked.expectSignedInteger
+              require checked.ty.isSignedArithmeticOperand
+                (TypeError.expectedInteger checked.ty)
               Except.ok { source := expr, ty := checked.ty }
       | L00_SourceSolidity.UnaryOp.delete =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner
+          require (!checked.locationIsCalldata)
+            (TypeError.invalidDataLocation checked.ty
+              (some L00_SourceSolidity.DataLocation.calldata))
+          match checked.ty with
+          | L00_SourceSolidity.Ty.mapping _ _ =>
+              Except.error
+                (TypeError.unsupported "delete on mapping lvalue")
+          | _ => Except.ok ()
           match Expr.directIdentName? inner with
           | some name =>
               require (!env.isLocalStorageRef name)
@@ -5378,7 +6882,15 @@ def checkExpr (env : CheckEnv) :
           thenChecked.ty
         else
           elseChecked.ty
-      Except.ok { source := expr, ty := resultTy }
+      let resultLocation :=
+        if thenChecked.dataLocation? == elseChecked.dataLocation? then
+          thenChecked.dataLocation?
+        else
+          none
+      Except.ok
+        { source := expr
+          ty := resultTy
+          dataLocation? := resultLocation }
   | expr@(L00_SourceSolidity.Expr.assign lhs _ rhs) => do
       match lhs with
       | L00_SourceSolidity.Expr.tuple lhsItems =>
@@ -5395,8 +6907,8 @@ def checkExpr (env : CheckEnv) :
                     let rhsChecked ← checkExpr env rhs
                     match rhsChecked.ty with
                     | L00_SourceSolidity.Ty.tuple tys =>
-                        checkTupleAssignmentTargetsWithTys env rhsChecked
-                          targets tys
+                        checkTupleAssignmentTargetsWithTys env targets tys
+                          rhsChecked.storageRefs rhsChecked.dataLocations
                     | _ =>
                         Except.error
                           (TypeError.arityMismatch
@@ -5410,7 +6922,13 @@ def checkExpr (env : CheckEnv) :
           let lhsChecked ← checkExpr env lhs
           require lhsChecked.lvalue (TypeError.expectedLValue lhs)
           lhsChecked.expectWritableLocation lhs
-          if lhsChecked.stateLValue then
+          let rebindsStoragePointer :=
+            match expr, Expr.directIdentName? lhs with
+            | L00_SourceSolidity.Expr.assign _
+                L00_SourceSolidity.AssignOp.assign _, some name =>
+                env.isPointerReturnName name || env.isLocalStorageRef name
+            | _, _ => false
+          if lhsChecked.stateLValue && !rebindsStoragePointer then
             requireStateWriteAllowed env
           else
             Except.ok ()
@@ -5422,10 +6940,17 @@ def checkExpr (env : CheckEnv) :
                   (TypeError.invalidDataLocation lhsChecked.ty
                     (some L00_SourceSolidity.DataLocation.storage))
             | none => Except.ok ()
+            if lhsChecked.locationIsCalldata then
+              rhsChecked.expectLocationAssignableTo lhsChecked.ty
+                lhsChecked.dataLocation?
+            else
+              Except.ok ()
             let opResultTy ←
               match expr with
               | L00_SourceSolidity.Expr.assign _
                   L00_SourceSolidity.AssignOp.assign _ => do
+                  env.requireNoMappingStorageCopy lhs lhsChecked
+                    rhsChecked.stateLValue
                   rhsChecked.expectAssignableToIn env.types lhsChecked.ty
                   Except.ok lhsChecked.ty
               | L00_SourceSolidity.Expr.assign _
@@ -5484,7 +7009,12 @@ def checkExpr (env : CheckEnv) :
                         require (!env.isLocalStorageRef name)
                           (TypeError.invalidDataLocation lhsChecked.ty
                             (some L00_SourceSolidity.DataLocation.storage))
-                        let _ ← checkExpr env rhs
+                        let rhsChecked ← checkExpr env rhs
+                        if lhsChecked.locationIsCalldata then
+                          rhsChecked.expectLocationAssignableTo lhsChecked.ty
+                            lhsChecked.dataLocation?
+                        else
+                          Except.ok ()
                         Except.ok
                           { source := expr
                             ty := lhsChecked.ty
@@ -5569,6 +7099,7 @@ def checkArgAssignableToParam (env : CheckEnv) (expected : Ty) :
     L00_SourceSolidity.Arg -> Except TypeError CheckedExpr
   | L00_SourceSolidity.Arg.positional expr
   | L00_SourceSolidity.Arg.named _ expr =>
+      let expected := env.qualifyCurrentLocalUserTypes expected
       match checkInternalFunctionValueAssignable? env expr expected with
       | some (Except.ok _) =>
           Except.ok
@@ -5658,8 +7189,8 @@ def checkContractMemberCallArgsContextualForPath
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered =>
-      checkCheckedExprsStorageRefsFor "member call" ordered
-        sig.paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor "member call" ordered
+        sig.paramStorageRefs sig.paramDataLocations
   | none =>
       Except.error
         (TypeError.arityMismatch "member call" sig.params.length
@@ -5684,7 +7215,9 @@ def checkLibraryMemberCallArgsContextual
     (TypeError.invalidContractHeader "library call target is not a library")
   let sig ←
     FunctionSigs.resolveContextual env
-      (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs libraryDecl))
+      (FunctionSigs.nonPrivate
+        (FunctionSigs.atLibraryCallBoundary env.types
+          (ContractDecl.directFunctionSigsQualifiedLocalTypes libraryDecl)))
       member args
   let checkedArgs ←
     if Args.anyNamed args then
@@ -5696,8 +7229,8 @@ def checkLibraryMemberCallArgsContextual
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered =>
-      checkCheckedExprsStorageRefsFor "member call" ordered
-        sig.paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor "member call" ordered
+        sig.paramStorageRefs sig.paramDataLocations
   | none =>
       Except.error
         (TypeError.arityMismatch "member call" sig.params.length
@@ -5723,7 +7256,8 @@ def checkExplicitBaseMemberCallArgsContextual
     | none => Except.error (TypeError.unknownType path)
   let sig ←
     FunctionSigs.resolveContextual env
-      (FunctionSigs.nonPrivate (ContractDecl.directFunctionSigs baseDecl))
+      (FunctionSigs.nonPrivate
+        (ContractDecl.directFunctionSigsQualifiedLocalTypes baseDecl))
       member args
   let checkedArgs ←
     if Args.anyNamed args then
@@ -5735,8 +7269,8 @@ def checkExplicitBaseMemberCallArgsContextual
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered =>
-      checkCheckedExprsStorageRefsFor "member call" ordered
-        sig.paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor "member call" ordered
+        sig.paramStorageRefs sig.paramDataLocations
   | none =>
       Except.error
         (TypeError.arityMismatch "member call" sig.params.length
@@ -5764,8 +7298,8 @@ def checkSuperMemberCallArgsContextual
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered =>
-      checkCheckedExprsStorageRefsFor "super call" ordered
-        sig.paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor "super call" ordered
+        sig.paramStorageRefs sig.paramDataLocations
   | none =>
       Except.error
         (TypeError.arityMismatch "super call" sig.params.length
@@ -5781,9 +7315,14 @@ def checkMemberCallArgsContextual
     (env : CheckEnv) (target : L00_SourceSolidity.Expr)
     (member : Name) (args : List L00_SourceSolidity.Arg) :
     Except TypeError (List CheckedExpr) := do
-  require (!lowLevelCallMember member)
-    (TypeError.unsupported "contextual low-level member call")
   let targetChecked ← checkExpr env target
+  if lowLevelCallMember member then
+    match targetChecked.ty with
+    | L00_SourceSolidity.Ty.user path =>
+        require (env.types.isContractPath path)
+          (TypeError.unsupported "contextual low-level member call")
+    | _ =>
+        Except.error (TypeError.unsupported "contextual low-level member call")
   require (!targetChecked.arraySlice)
     (TypeError.unsupported "member call on array slice")
   let candidates ←
@@ -5802,7 +7341,7 @@ def checkMemberCallArgsContextual
                     (TypeContext.pathOfName libraryName))
           Except.ok
             (FunctionSigs.nonPrivate
-              (ContractDecl.directFunctionSigs baseDecl))
+              (ContractDecl.directFunctionSigsQualifiedLocalTypes baseDecl))
         else
           match env.lookupVar? libraryName,
               env.types.lookupContractDecl?
@@ -5812,7 +7351,9 @@ def checkMemberCallArgsContextual
                   L00_SourceSolidity.ContractKind.library then
                 Except.ok
                   (FunctionSigs.nonPrivate
-                    (ContractDecl.directFunctionSigs libraryDecl))
+                    (FunctionSigs.atLibraryCallBoundary env.types
+                      (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                        libraryDecl)))
               else
                 UsingDecls.memberCandidates env targetChecked member
                   env.usingDecls
@@ -5833,8 +7374,8 @@ def checkMemberCallArgsContextual
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered =>
-      checkCheckedExprsStorageRefsFor "member call" ordered
-        sig.paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor "member call" ordered
+        sig.paramStorageRefs sig.paramDataLocations
   | none =>
       Except.error
         (TypeError.arityMismatch "member call" sig.params.length
@@ -5939,6 +7480,13 @@ def checkTupleAssignmentTargetsWithTupleExprAssignableTo (env : CheckEnv) :
             (TypeError.invalidDataLocation targetChecked.ty
               (some L00_SourceSolidity.DataLocation.storage))
       | none => Except.ok ()
+      env.requireNoMappingStorageCopy target targetChecked
+        checked.stateLValue
+      if targetChecked.locationIsCalldata then
+        checked.expectLocationAssignableTo targetChecked.ty
+          targetChecked.dataLocation?
+      else
+        Except.ok ()
       let tail ←
         checkTupleAssignmentTargetsWithTupleExprAssignableTo env targetRest
           (L00_SourceSolidity.Expr.tuple itemRest)
@@ -6057,6 +7605,8 @@ def checkContextualArgsAssignableToParamsWithStorageRefsFor
     (env : CheckEnv) (what : String)
     (paramNames : List (Option Name)) (params : List Ty)
     (paramStorageRefs : List Bool)
+    (paramDataLocations :
+      List (Option L00_SourceSolidity.DataLocation))
     (args : List L00_SourceSolidity.Arg) :
     Except TypeError (List CheckedExpr) := do
   let checkedArgs ←
@@ -6064,7 +7614,8 @@ def checkContextualArgsAssignableToParamsWithStorageRefsFor
   match CheckedArgInfos.ordered? paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered => do
-      checkCheckedExprsStorageRefsFor what ordered paramStorageRefs
+      checkCheckedExprsReferenceLocationsFor what ordered paramStorageRefs
+        paramDataLocations
       Except.ok checkedArgs
   | none =>
       Except.error
@@ -6084,7 +7635,7 @@ def checkModifierArgs (env : CheckEnv)
               let _ ←
                 checkContextualArgsAssignableToParamsWithStorageRefsFor
                   env "modifier invocation" sig.paramNames sig.params
-                  sig.paramStorageRefs args
+                  sig.paramStorageRefs sig.paramDataLocations args
               Except.ok ()
           | Except.error _ => Except.error checkedErr
   | Except.error argErr =>
@@ -6093,7 +7644,7 @@ def checkModifierArgs (env : CheckEnv)
           let _ ←
             checkContextualArgsAssignableToParamsWithStorageRefsFor
               env "modifier invocation" sig.paramNames sig.params
-              sig.paramStorageRefs args
+              sig.paramStorageRefs sig.paramDataLocations args
           Except.ok ()
       | Except.error _ => Except.error argErr
 
@@ -6196,35 +7747,51 @@ def checkTupleItemValuesContextuallyAssignableTo (env : CheckEnv) :
         (TypeError.arityMismatch
           "tuple expression" expected.length actual.length)
 
-def checkExprAssignableToStorageRefFlag (env : CheckEnv)
+def checkExprAssignableToReferenceLocation (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) (expected : Ty)
-    (needsStorageRef : Bool) : Except TypeError Unit := do
+    (needsStorageRef : Bool)
+    (expectedLocation : Option L00_SourceSolidity.DataLocation) :
+    Except TypeError Unit := do
   checkExprAssignableTo env expr expected
+  let checked ← checkExpr env expr
   if needsStorageRef then
-    let checked ← checkExpr env expr
     require checked.stateLValue
       (TypeError.invalidDataLocation expected
         (some L00_SourceSolidity.DataLocation.storage))
   else
     Except.ok ()
+  checked.expectLocationAssignableTo expected expectedLocation
 
 def checkTupleItemValuesContextuallyAssignableToWithStorageRefs
     (env : CheckEnv) :
     List L00_SourceSolidity.TupleItem -> List Ty -> List Bool ->
+    List (Option L00_SourceSolidity.DataLocation) ->
     Except TypeError Unit
-  | [], [], _ => Except.ok ()
+  | [], [], _, _ => Except.ok ()
   | L00_SourceSolidity.TupleItem.value expr :: rest,
-      ty :: tyRest, storageRef :: storageRest => do
-      checkExprAssignableToStorageRefFlag env expr ty storageRef
+      ty :: tyRest, storageRef :: storageRest,
+      location :: locationRest => do
+      checkExprAssignableToReferenceLocation env expr ty storageRef location
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
-        tyRest storageRest
-  | L00_SourceSolidity.TupleItem.value expr :: rest, ty :: tyRest, [] => do
-      checkExprAssignableToStorageRefFlag env expr ty false
+        tyRest storageRest locationRest
+  | L00_SourceSolidity.TupleItem.value expr :: rest,
+      ty :: tyRest, storageRef :: storageRest, [] => do
+      checkExprAssignableToReferenceLocation env expr ty storageRef none
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
-        tyRest []
-  | L00_SourceSolidity.TupleItem.hole :: _, _, _ =>
+        tyRest storageRest []
+  | L00_SourceSolidity.TupleItem.value expr :: rest,
+      ty :: tyRest, [], location :: locationRest => do
+      checkExprAssignableToReferenceLocation env expr ty false location
+      checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
+        tyRest [] locationRest
+  | L00_SourceSolidity.TupleItem.value expr :: rest,
+      ty :: tyRest, [], [] => do
+      checkExprAssignableToReferenceLocation env expr ty false none
+      checkTupleItemValuesContextuallyAssignableToWithStorageRefs env rest
+        tyRest [] []
+  | L00_SourceSolidity.TupleItem.hole :: _, _, _, _ =>
       Except.error (TypeError.unsupported "tuple hole in value position")
-  | actual, expected, _ =>
+  | actual, expected, _, _ =>
       Except.error
         (TypeError.arityMismatch
           "tuple expression" expected.length actual.length)
@@ -6252,6 +7819,12 @@ def exprIsCompileTimeConstantCallTarget
       (L00_SourceSolidity.Expr.ident "bytes") "concat" => true
   | L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.ident "string") "concat" => true
+  | L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.typeName L00_SourceSolidity.Ty.bytes)
+      "concat" => true
+  | L00_SourceSolidity.Expr.member
+      (L00_SourceSolidity.Expr.typeName L00_SourceSolidity.Ty.string)
+      "concat" => true
   | L00_SourceSolidity.Expr.member
       (L00_SourceSolidity.Expr.typeName _) member =>
       member == "wrap" || member == "unwrap"
@@ -6355,6 +7928,15 @@ def Expr.isCompileTimeConstant (env : CheckEnv)
     (expr : L00_SourceSolidity.Expr) : Bool :=
   exprIsCompileTimeConstant env expr
 
+def exprIsStorageLayoutBaseErc7201Id (env : CheckEnv) :
+    L00_SourceSolidity.Expr -> Bool
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.string _) => true
+  | L00_SourceSolidity.Expr.literal
+      (L00_SourceSolidity.Literal.unicodeString _) => true
+  | L00_SourceSolidity.Expr.ident name => env.isConstantName name
+  | _ => false
+
 def exprIsStorageLayoutBaseComptime (env : CheckEnv) :
     L00_SourceSolidity.Expr -> Bool
   | L00_SourceSolidity.Expr.literal (L00_SourceSolidity.Literal.number _) =>
@@ -6364,11 +7946,12 @@ def exprIsStorageLayoutBaseComptime (env : CheckEnv) :
   | L00_SourceSolidity.Expr.ident name => env.isConstantName name
   | L00_SourceSolidity.Expr.call (L00_SourceSolidity.Expr.ident "erc7201")
       [L00_SourceSolidity.Arg.positional id] =>
-      exprIsCompileTimeConstant env id
+      exprIsStorageLayoutBaseErc7201Id env id
   | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.neg inner =>
       exprIsStorageLayoutBaseComptime env inner
-  | L00_SourceSolidity.Expr.binary _ lhs rhs =>
-      exprIsStorageLayoutBaseComptime env lhs &&
+  | L00_SourceSolidity.Expr.binary op lhs rhs =>
+      L00_SourceSolidity.Executable.BinaryOp.storageLayoutBaseEvalAllowed op &&
+        exprIsStorageLayoutBaseComptime env lhs &&
         exprIsStorageLayoutBaseComptime env rhs
   | _ => false
 
@@ -6411,69 +7994,111 @@ def StateVarDecls.runtimeStateNamesWith
           name :: StateVarDecls.runtimeStateNamesWith constantBindings rest
       | none => StateVarDecls.runtimeStateNamesWith constantBindings rest
 
+def checkTysAssignableWithReferenceLocations (types : TypeContext) :
+    List Ty -> List Bool ->
+    List (Option L00_SourceSolidity.DataLocation) ->
+    List Ty -> List Bool ->
+    List (Option L00_SourceSolidity.DataLocation) ->
+    Except TypeError Unit
+  | [], _, _, [], _, _ => Except.ok ()
+  | actualTy :: actualRest, actualStorageRefs, actualLocations,
+      expectedTy :: expectedRest, expectedStorageRefs,
+      expectedLocations => do
+      types.requireNoFixedPointAssignment actualTy expectedTy
+      require (TypeContext.canImplicitlyConvert types actualTy expectedTy)
+        (TypeError.expectedType expectedTy actualTy)
+      let actualStorage := actualStorageRefs.head?.getD false
+      let expectedStorage := expectedStorageRefs.head?.getD false
+      let actualLocation := actualLocations.head?.join
+      let expectedLocation := expectedLocations.head?.join
+      require (!expectedStorage || actualStorage)
+        (TypeError.invalidDataLocation expectedTy
+          (some L00_SourceSolidity.DataLocation.storage))
+      match expectedLocation with
+      | some L00_SourceSolidity.DataLocation.calldata =>
+          require
+            (actualLocation ==
+              some L00_SourceSolidity.DataLocation.calldata)
+            (TypeError.invalidDataLocation expectedTy expectedLocation)
+      | _ => Except.ok ()
+      checkTysAssignableWithReferenceLocations types actualRest
+        actualStorageRefs.tail actualLocations.tail expectedRest
+        expectedStorageRefs.tail expectedLocations.tail
+  | actual, _, _, expected, _, _ =>
+      Except.error
+        (TypeError.returnArityMismatch expected.length actual.length)
+
 def checkReturnExprs (env : CheckEnv)
     (expr? : Option L00_SourceSolidity.Expr) : Except TypeError Unit :=
   match expr?, env.returnTys with
   | none, [] => Except.ok ()
   | none, expected =>
-      Except.error (TypeError.returnArityMismatch expected.length 0)
-  | some expr, [expected] =>
-      checkExprAssignableToStorageRefFlag env expr expected
+      require (returnNamesAllNamed env.returnNames &&
+          env.returnNames.length == expected.length)
+        (TypeError.returnArityMismatch expected.length 0)
+  | some expr, [] =>
+      match expr with
+      | L00_SourceSolidity.Expr.call
+          (L00_SourceSolidity.Expr.ident "require")
+          [ L00_SourceSolidity.Arg.positional cond
+          , L00_SourceSolidity.Arg.positional
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident errorName) errorArgs) ] => do
+          let condChecked ← checkExpr env cond
+          condChecked.expectBool
+          match checkCustomErrorArgs env errorName errorArgs with
+          | Except.ok _ => Except.ok ()
+          | Except.error err =>
+              if env.errors.any (fun sig => sig.name == errorName) then
+                Except.error err
+              else do
+                let checked ← checkExpr env expr
+                requireEqTy (L00_SourceSolidity.Ty.tuple []) checked.ty
+      | L00_SourceSolidity.Expr.unary L00_SourceSolidity.UnaryOp.delete _ => do
+          let _ ← checkExpr env expr
+          Except.ok ()
+      | _ => do
+          let checked ← checkExpr env expr
+          requireEqTy (L00_SourceSolidity.Ty.tuple []) checked.ty
+  | some expr@(L00_SourceSolidity.Expr.ternary _ _ _), [expected] =>
+      checkExprAssignableToReferenceLocation env expr expected
         (returnStorageRefsSingle [expected] env.returnStorageRefs)
+        (returnDataLocationSingle? [expected] env.returnDataLocations)
+  | some (L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr), _ => do
+      let condChecked ← checkExpr env cond
+      condChecked.expectBool
+      checkReturnExprs env (some thenExpr)
+      checkReturnExprs env (some elseExpr)
+  | some expr, [expected] =>
+      checkExprAssignableToReferenceLocation env expr expected
+        (returnStorageRefsSingle [expected] env.returnStorageRefs)
+        (returnDataLocationSingle? [expected] env.returnDataLocations)
   | some (L00_SourceSolidity.Expr.tuple items), expected =>
       checkTupleItemValuesContextuallyAssignableToWithStorageRefs env items
-        expected env.returnStorageRefs
+        expected env.returnStorageRefs env.returnDataLocations
   | some expr, expected => do
       let checked ← checkExpr env expr
       match checked.ty with
       | L00_SourceSolidity.Ty.tuple actual =>
           require (sameLength actual expected)
             (TypeError.returnArityMismatch expected.length actual.length)
-          let rec checkTuple :
-              List Ty -> List Bool -> List Ty -> List Bool ->
-              Except TypeError Unit
-            | [], _, [], _ => Except.ok ()
-            | actualTy :: actualRest, actualStorage :: actualStorageRest,
-                expectedTy :: expectedRest,
-                expectedStorage :: expectedStorageRest => do
-                require
-                  (TypeContext.canImplicitlyConvert env.types actualTy
-                    expectedTy)
-                  (TypeError.expectedType expectedTy actualTy)
-                require (!expectedStorage || actualStorage)
-                  (TypeError.invalidDataLocation expectedTy
-                    (some L00_SourceSolidity.DataLocation.storage))
-                checkTuple actualRest actualStorageRest expectedRest
-                  expectedStorageRest
-            | actualTy :: actualRest, [], expectedTy :: expectedRest,
-                expectedStorage :: expectedStorageRest => do
-                require
-                  (TypeContext.canImplicitlyConvert env.types actualTy
-                    expectedTy)
-                  (TypeError.expectedType expectedTy actualTy)
-                require (!expectedStorage)
-                  (TypeError.invalidDataLocation expectedTy
-                    (some L00_SourceSolidity.DataLocation.storage))
-                checkTuple actualRest [] expectedRest expectedStorageRest
-            | actualTy :: actualRest, _ :: actualStorageRest,
-                expectedTy :: expectedRest, [] => do
-                require
-                  (TypeContext.canImplicitlyConvert env.types actualTy
-                    expectedTy)
-                  (TypeError.expectedType expectedTy actualTy)
-                checkTuple actualRest actualStorageRest expectedRest []
-            | actualRest, _, expectedRest, _ =>
-                Except.error
-                  (TypeError.returnArityMismatch
-                    expectedRest.length actualRest.length)
-          checkTuple actual checked.storageRefs expected env.returnStorageRefs
+          checkTysAssignableWithReferenceLocations env.types actual
+            checked.storageRefs checked.dataLocations expected
+            env.returnStorageRefs env.returnDataLocations
       | _ =>
           Except.error (TypeError.returnArityMismatch expected.length 1)
+termination_by sizeOf expr?
+decreasing_by
+  all_goals
+    simp_wf
+    unfold wfParam
+    omega
 
 def checkTysAssignableTo (types : TypeContext) :
     List Ty -> List Ty -> Except TypeError Unit
   | [], [] => Except.ok ()
   | actualTy :: actualRest, expectedTy :: expectedRest => do
+      types.requireNoFixedPointAssignment actualTy expectedTy
       require (TypeContext.canImplicitlyConvert types actualTy expectedTy)
         (TypeError.expectedType expectedTy actualTy)
       checkTysAssignableTo types actualRest expectedRest
@@ -6494,7 +8119,7 @@ def CheckedExpr.expectAssignableToTys (types : TypeContext)
       | _ => Except.error (TypeError.returnArityMismatch tys.length 1)
 
 def Ty.isExternalFunction : Ty -> Bool
-  | L00_SourceSolidity.Ty.function _ _ _
+  | L00_SourceSolidity.Ty.functionWithLocations _ _ _ _ _
       L00_SourceSolidity.Visibility.external_ => true
   | _ => false
 
@@ -6515,6 +8140,9 @@ def checkTryExternalMemberCallTarget (env : CheckEnv)
   let targetChecked ← checkExpr env target
   match targetChecked.ty with
   | L00_SourceSolidity.Ty.user path =>
+      require (env.types.isContractValuePath path)
+        (TypeError.invalidTryCatch
+          "try target is not a contract function value")
       let sig ←
         match checkArgs env args with
         | Except.ok checkedArgs =>
@@ -6612,7 +8240,7 @@ def VarBinding.checkType (env : CheckEnv)
   match binding.ty, binding.name with
   | some ty, _ => do
       checkLocationForTy env.types ty binding.location
-      Except.ok ty
+      Except.ok (env.qualifyCurrentLocalUserTypes ty)
   | none, some name => Except.error (TypeError.missingTypeAnnotation name)
   | none, none => Except.error (TypeError.unsupported "anonymous untyped binding")
 
@@ -6675,6 +8303,9 @@ def VarBinding.checkStorageRefInitializer (env : CheckEnv)
     checked.expectAssignableToIn env.types ty
     require checked.stateLValue
       (TypeError.invalidDataLocation ty binding.location)
+  else if binding.location ==
+      some L00_SourceSolidity.DataLocation.calldata then
+    checked.expectLocationAssignableTo ty binding.location
   else
     Except.ok ()
 
@@ -6747,6 +8378,7 @@ def checkVarBindingsAssignableToTys (env : CheckEnv) :
         checkVarBindingsAssignableToTys env bindingRest actualRest
       else
         let expectedTy ← VarBinding.checkType env binding
+        env.types.requireNoFixedPointAssignment actualTy expectedTy
         require (TypeContext.canImplicitlyConvert env.types actualTy expectedTy)
           (TypeError.expectedType expectedTy actualTy)
         checkVarBindingsAssignableToTys env bindingRest actualRest
@@ -6756,35 +8388,34 @@ def checkVarBindingsAssignableToTys (env : CheckEnv) :
 
 def checkVarBindingsAssignableToTysWithStorageRefs (env : CheckEnv) :
     List L00_SourceSolidity.VarBinding -> List Ty -> List Bool ->
+    List (Option L00_SourceSolidity.DataLocation) ->
     Except TypeError Unit
-  | [], [], _ => Except.ok ()
-  | binding :: bindingRest, actualTy :: actualRest,
-      actualStorageRef :: storageRest => do
+  | [], [], _, _ => Except.ok ()
+  | binding :: bindingRest, actualTy :: actualRest, storageRefs,
+      locations => do
       if VarBinding.isAnonymousUntyped binding then
         checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
-          actualRest storageRest
+          actualRest storageRefs.tail locations.tail
       else
         let expectedTy ← VarBinding.checkType env binding
+        env.types.requireNoFixedPointAssignment actualTy expectedTy
         require (TypeContext.canImplicitlyConvert env.types actualTy expectedTy)
           (TypeError.expectedType expectedTy actualTy)
         require
-          (!VarBinding.isStorageRef env.types binding || actualStorageRef)
+          (!VarBinding.isStorageRef env.types binding ||
+            storageRefs.head?.getD false)
           (TypeError.invalidDataLocation expectedTy binding.location)
+        if binding.location ==
+            some L00_SourceSolidity.DataLocation.calldata then
+          require
+            (locations.head?.join ==
+              some L00_SourceSolidity.DataLocation.calldata)
+            (TypeError.invalidDataLocation expectedTy binding.location)
+        else
+          Except.ok ()
         checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
-          actualRest storageRest
-  | binding :: bindingRest, actualTy :: actualRest, [] => do
-      if VarBinding.isAnonymousUntyped binding then
-        checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
-          actualRest []
-      else
-        let expectedTy ← VarBinding.checkType env binding
-        require (TypeContext.canImplicitlyConvert env.types actualTy expectedTy)
-          (TypeError.expectedType expectedTy actualTy)
-        require (!VarBinding.isStorageRef env.types binding)
-          (TypeError.invalidDataLocation expectedTy binding.location)
-        checkVarBindingsAssignableToTysWithStorageRefs env bindingRest
-          actualRest []
-  | expected, actual, _ =>
+          actualRest storageRefs.tail locations.tail
+  | expected, actual, _, _ =>
       Except.error
         (TypeError.returnArityMismatch expected.length actual.length)
 
@@ -6794,7 +8425,7 @@ def checkVarBindingsAssignableToChecked (env : CheckEnv)
   match checked.ty with
   | L00_SourceSolidity.Ty.tuple actual =>
       checkVarBindingsAssignableToTysWithStorageRefs env bindings actual
-        checked.storageRefs
+        checked.storageRefs checked.dataLocations
   | _ =>
       Except.error
         (TypeError.returnArityMismatch bindings.length 1)
@@ -6868,6 +8499,8 @@ def Parameter.isPanicCode (param : L00_SourceSolidity.Parameter) : Bool :=
 def Parameter.checkTryReturnParam (types : TypeContext)
     (param : L00_SourceSolidity.Parameter) : Except TypeError Unit := do
   checkTy types param.ty
+  require (!Ty.containsLibraryType types 64 param.ty)
+    (TypeError.invalidType param.ty)
   if Ty.needsDataLocation types param.ty then
     require (param.location ==
         some L00_SourceSolidity.DataLocation.memory)
@@ -6971,10 +8604,7 @@ def checkStmt (env : CheckEnv) :
       let named ← VarBindings.namedTypes env bindings
       ensureUniqueNames "local" (named.map Prod.fst)
       match init? with
-      | none =>
-          require (!VarBindings.anyStorageRef env.types bindings)
-            (TypeError.unsupported
-              "storage reference local requires an initializer")
+      | none => Except.ok ()
       | some init =>
           match bindings with
           | [binding] =>
@@ -7107,10 +8737,8 @@ def checkStmt (env : CheckEnv) :
         "nested unchecked block")
       let _ ← checkStmt env.enterUnchecked body
       Except.ok { source := stmt }
-  | stmt@(L00_SourceSolidity.Stmt.inlineAssembly code) => do
-      require code.isEmpty
-        (TypeError.unsupported "inline assembly")
-      Except.ok { source := stmt }
+  | L00_SourceSolidity.Stmt.inlineAssembly _ =>
+      Except.error (TypeError.unsupported "inline assembly")
   | stmt@L00_SourceSolidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
       require (!env.inUnchecked) (TypeError.unsupported
@@ -7164,24 +8792,35 @@ end
 
 def StateVarDecl.check (env : CheckEnv)
     (decl : L00_SourceSolidity.StateVarDecl) : Except TypeError Unit := do
-  checkTy env.types decl.ty
+  let declTy := env.qualifyCurrentLocalUserTypes decl.ty
+  checkTy env.types declTy
+  require (!Ty.containsLibraryType env.types 64 declTy)
+    (TypeError.invalidType declTy)
   require (!(decl.visibility == some L00_SourceSolidity.Visibility.external_))
     (TypeError.invalidVariableDecl "state variable is external")
   if decl.visibility == some L00_SourceSolidity.Visibility.public_ then
+    env.types.requireNoFixedPointValue declTy
+      "public state-variable getter for"
     let getterShape ←
-      match Ty.publicGetterShape? env.types 64 decl.ty with
+      match Ty.publicGetterShape? env.types 64 declTy with
       | some shape => Except.ok shape
-      | none => Except.error (TypeError.invalidType decl.ty)
+      | none => Except.error (TypeError.invalidType declTy)
     match Tys.firstNonAbiEncodable? env.types getterShape.fst with
     | some ty => Except.error (TypeError.invalidAbiType ty)
     | none => Except.ok ()
     match Tys.firstNonAbiEncodable? env.types getterShape.snd with
     | some ty => Except.error (TypeError.invalidAbiType ty)
     | none => Except.ok ()
+    match Tys.firstAbiCoderV2Only? env.types getterShape.fst with
+    | some ty => Except.error (TypeError.invalidAbiType ty)
+    | none => Except.ok ()
+    match Tys.firstAbiCoderV2Only? env.types getterShape.snd with
+    | some ty => Except.error (TypeError.invalidAbiType ty)
+    | none => Except.ok ()
   else
     Except.ok ()
   if decl.mutability == L00_SourceSolidity.VarMutability.constant then
-    require (env.types.isConstantStateVarTypeShape decl.ty)
+    require (env.types.isConstantStateVarTypeShape declTy)
       (TypeError.invalidVariableDecl
         "constant variable has unsupported type")
     require decl.init.isSome
@@ -7193,11 +8832,12 @@ def StateVarDecl.check (env : CheckEnv)
             "constant variable initializer is not compile-time constant")
     | none => Except.ok ()
   else if decl.mutability == L00_SourceSolidity.VarMutability.immutable then
-    require (env.types.isImmutableStateVarTypeShape decl.ty)
+    require (env.types.isImmutableStateVarTypeShape declTy)
       (TypeError.invalidVariableDecl
         "immutable variable has unsupported type")
   else if decl.mutability == L00_SourceSolidity.VarMutability.transient then
-    require (env.types.isValueTypeShape decl.ty)
+    requireCancunOrLater env "transient storage"
+    require (env.types.isValueTypeShape declTy)
       (TypeError.invalidVariableDecl
         "transient variable has unsupported type")
     require decl.init.isNone
@@ -7207,7 +8847,7 @@ def StateVarDecl.check (env : CheckEnv)
     Except.ok ()
   match decl.init with
   | none => Except.ok ()
-  | some init => checkExprAssignableTo env init decl.ty
+  | some init => checkExprAssignableTo env init declTy
 
 def StateVarDecl.checkFileLevelConstant (env : CheckEnv)
     (decl : L00_SourceSolidity.StateVarDecl) : Except TypeError Unit := do
@@ -7250,6 +8890,22 @@ def StateVarDecls.namedTypes :
     List L00_SourceSolidity.StateVarDecl -> List (Name × Ty)
   | [] => []
   | decl :: rest => StateVarDecl.namedType decl :: StateVarDecls.namedTypes rest
+
+def StateVarDecl.namedTypeQualifiedLocalTypes
+    (contractName : Name) (localTypeNames : List Name)
+    (decl : L00_SourceSolidity.StateVarDecl) : Name × Ty :=
+  (decl.name,
+    Ty.qualifyLocalUserTypes contractName localTypeNames decl.ty)
+
+def StateVarDecls.namedTypesQualifiedLocalTypes
+    (contractName : Name) (localTypeNames : List Name) :
+    List L00_SourceSolidity.StateVarDecl -> List (Name × Ty)
+  | [] => []
+  | decl :: rest =>
+      StateVarDecl.namedTypeQualifiedLocalTypes
+        contractName localTypeNames decl ::
+        StateVarDecls.namedTypesQualifiedLocalTypes
+          contractName localTypeNames rest
 
 def StateVarDecls.namedConstness :
     List L00_SourceSolidity.StateVarDecl -> List (Name × Bool)
@@ -7357,7 +9013,11 @@ structure OverrideMember where
   fromStateVar : Bool := false
   name : Name
   params : List Ty := []
+  paramDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   returns : List Ty := []
+  returnDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   visibility : Option L00_SourceSolidity.Visibility := none
   mutability : L00_SourceSolidity.StateMutability :=
     L00_SourceSolidity.StateMutability.nonpayable
@@ -7475,6 +9135,15 @@ def checkCompatible (current : OverrideMember) :
   | base :: rest => do
       require (current.returns == base.returns)
         (TypeError.invalidOverride "override return types do not match")
+      if base.visibility == some L00_SourceSolidity.Visibility.external_ then
+        Except.ok ()
+      else
+        require (current.paramDataLocations == base.paramDataLocations)
+          (TypeError.invalidOverride
+            "override parameter data locations do not match")
+        require (current.returnDataLocations == base.returnDataLocations)
+          (TypeError.invalidOverride
+            "override return data locations do not match")
       require (overrideVisibilityAllowed base.visibility current.visibility)
         (TypeError.invalidOverride "override visibility is incompatible")
       require (overrideMutabilityAllowed base.mutability current.mutability)
@@ -7493,11 +9162,14 @@ def pathSetsEqual (left right : List Path) : Bool :=
   pathAllIn left right && pathAllIn right left
 
 def StateVarDecl.publicGetterOverrideMember? (types : TypeContext)
+    (contractName : Name) (localTypeNames : List Name)
     (origin : Path) (originKind : L00_SourceSolidity.ContractKind)
     (decl : L00_SourceSolidity.StateVarDecl) : Option OverrideMember :=
   match decl.visibility with
   | some L00_SourceSolidity.Visibility.public_ => do
-      let shape ← Ty.publicGetterShape? types 64 decl.ty
+      let declTy :=
+        Ty.qualifyLocalUserTypes contractName localTypeNames decl.ty
+      let shape ← Ty.publicGetterShape? types 64 declTy
       some
         { origin := origin
           originKind := originKind
@@ -7516,6 +9188,7 @@ def receiveOverrideName : Name := "#receive"
 def fallbackOverrideName : Name := "#fallback"
 
 def FunctionDecl.overrideMember? (origin : Path)
+    (contractName : Name) (localTypeNames : List Name)
     (originKind : L00_SourceSolidity.ContractKind)
     (fn : L00_SourceSolidity.FunctionDecl) : Option OverrideMember :=
   match fn.kind, fn.name, fn.visibility with
@@ -7527,8 +9200,14 @@ def FunctionDecl.overrideMember? (origin : Path)
           originKind := originKind
           fromStateVar := false
           name := name
-          params := Parameters.tys fn.params
-          returns := Parameters.tys fn.returns
+          params :=
+            Tys.qualifyLocalUserTypes contractName localTypeNames
+              (Parameters.tys fn.params)
+          paramDataLocations := Parameters.dataLocations fn.params
+          returns :=
+            Tys.qualifyLocalUserTypes contractName localTypeNames
+              (Parameters.tys fn.returns)
+          returnDataLocations := Parameters.dataLocations fn.returns
           visibility := visibility
           mutability := fn.mutability
           virtual :=
@@ -7566,18 +9245,24 @@ def FunctionDecl.overrideMember? (origin : Path)
   | _, _, _ => none
 
 def ContractItem.overrideMember? (types : TypeContext)
+    (contractName : Name) (localTypeNames : List Name)
     (origin : Path) (originKind : L00_SourceSolidity.ContractKind) :
     L00_SourceSolidity.ContractItem -> Option OverrideMember
   | L00_SourceSolidity.ContractItem.function fn =>
-      FunctionDecl.overrideMember? origin originKind fn
+      FunctionDecl.overrideMember? origin contractName localTypeNames
+        originKind fn
   | L00_SourceSolidity.ContractItem.stateVar decl =>
-      StateVarDecl.publicGetterOverrideMember? types origin originKind decl
+      StateVarDecl.publicGetterOverrideMember? types
+        contractName localTypeNames origin originKind decl
   | _ => none
 
 def ContractDecl.overrideMembers (types : TypeContext)
     (decl : L00_SourceSolidity.ContractDecl) : List OverrideMember :=
   let origin := TypeContext.pathOfName decl.name
-  decl.items.filterMap (ContractItem.overrideMember? types origin decl.kind)
+  let localTypeNames := ContractDecl.localTypeNames decl
+  decl.items.filterMap
+    (ContractItem.overrideMember? types decl.name localTypeNames
+      origin decl.kind)
 
 def ContractDecls.lookupPath? (target : Path) :
     List L00_SourceSolidity.ContractDecl ->
@@ -7635,6 +9320,16 @@ def ContractDecl.ancestorPaths? (contracts : List L00_SourceSolidity.ContractDec
     L00_SourceSolidity.Executable.ContractDecl.dispatchOrder? contracts decl
   some ((List.drop 1 order).map (fun base => TypeContext.pathOfName base.name))
 
+def ContractDecl.originStrictlyInherits
+    (contracts : List L00_SourceSolidity.ContractDecl)
+    (descendant ancestor : Path) : Bool :=
+  match ContractDecls.lookupPath? descendant contracts with
+  | none => false
+  | some decl =>
+      match ContractDecl.ancestorPaths? contracts decl with
+      | none => false
+      | some ancestors => TypeContext.pathIn ancestor ancestors
+
 def singleImplicitInterfaceOverride : List OverrideMember -> Bool
   | [member] => member.originKind == L00_SourceSolidity.ContractKind.interface
   | _ => false
@@ -7665,6 +9360,7 @@ def checkOverrideUse (ancestorPaths : List Path)
       checkOverrideSpecifier ancestorPaths baseMatches specifier
 
 def FunctionDecl.checkOverrideRules (currentPath : Path)
+    (currentContractName : Name) (localTypeNames : List Name)
     (currentKind : L00_SourceSolidity.ContractKind)
     (ancestorPaths : List Path) (inherited : List OverrideMember)
     (inheritedStateNames : List Name)
@@ -7677,7 +9373,8 @@ def FunctionDecl.checkOverrideRules (currentPath : Path)
         (TypeError.invalidContractHeader
           "function shadows inherited state variable")
   | _, _ => Except.ok ()
-  match FunctionDecl.overrideMember? currentPath currentKind fn with
+  match FunctionDecl.overrideMember? currentPath currentContractName
+      localTypeNames currentKind fn with
   | none =>
       require fn.override?.isNone
         (TypeError.invalidOverride "override on non-overridable function")
@@ -7690,15 +9387,21 @@ def FunctionDecl.checkOverrideRules (currentPath : Path)
       | _ =>
           OverrideMembers.checkOverridable baseMatches
           OverrideMembers.checkCompatible current baseMatches
+          if !current.implemented then
+            require (!baseMatches.any fun base => base.implemented)
+              (TypeError.invalidOverride
+                "implemented function cannot be overridden without a body")
           checkOverrideUse ancestorPaths fn.override? baseMatches
 
 def StateVarDecl.checkOverrideRules (types : TypeContext)
-    (currentPath : Path) (currentKind : L00_SourceSolidity.ContractKind)
+    (currentPath : Path) (currentContractName : Name)
+    (localTypeNames : List Name)
+    (currentKind : L00_SourceSolidity.ContractKind)
     (ancestorPaths : List Path) (inherited : List OverrideMember)
     (decl : L00_SourceSolidity.StateVarDecl) :
     Except TypeError Unit :=
-  match StateVarDecl.publicGetterOverrideMember? types currentPath
-      currentKind decl with
+  match StateVarDecl.publicGetterOverrideMember? types
+      currentContractName localTypeNames currentPath currentKind decl with
   | none => do
       require decl.override?.isNone
         (TypeError.invalidOverride "override on non-public state variable")
@@ -7718,8 +9421,23 @@ def StateVarDecl.checkOverrideRules (types : TypeContext)
           checkOverrideUse ancestorPaths decl.override? baseMatches
 
 def OverrideMembers.hasConflictFor (target : OverrideMember)
+    (contracts : List L00_SourceSolidity.ContractDecl)
     (members : List OverrideMember) : Bool :=
-  (matchingKey target members).length > 1
+  let dominated := fun member =>
+    !member.implemented &&
+      members.any (fun candidate =>
+        OverrideMember.sameKey member candidate &&
+          ContractDecl.originStrictlyInherits contracts
+            candidate.origin member.origin)
+  (matchingKey target (members.filter fun member => !dominated member)).length > 1
+
+def OverrideMembers.hasDominatingImplementedFor
+    (contracts : List L00_SourceSolidity.ContractDecl)
+    (target : OverrideMember) (members : List OverrideMember) : Bool :=
+  members.any (fun member =>
+    OverrideMember.sameKey target member && member.implemented &&
+      ContractDecl.originStrictlyInherits contracts
+        member.origin target.origin)
 
 def OverrideMembers.hasCurrentOverrideFor (target : OverrideMember)
     (current : List OverrideMember) : Bool :=
@@ -7734,38 +9452,51 @@ def OverrideMembers.hasImplementedCurrentFor (target : OverrideMember)
         hasImplementedCurrentFor target rest
 
 def OverrideMembers.checkInheritedConflicts
+    (contracts : List L00_SourceSolidity.ContractDecl)
     (current : List OverrideMember)
     (members : List OverrideMember) : Except TypeError Unit :=
   match members with
   | [] => Except.ok ()
   | member :: rest => do
-      if hasConflictFor member members &&
+      if hasConflictFor member contracts members &&
           !hasCurrentOverrideFor member current then
         Except.error
           (TypeError.invalidOverride
             "multiple inherited base members require an override")
       else
-        checkInheritedConflicts current rest
+        checkInheritedConflicts contracts current rest
 
-def OverrideMembers.checkInheritedAbstractImplemented
+def OverrideMembers.checkInheritedAbstractImplementedAux
+    (contracts : List L00_SourceSolidity.ContractDecl)
     (contractIsAbstract : Bool) (current : List OverrideMember)
-    (members : List OverrideMember) : Except TypeError Unit :=
-  match members with
+    (allMembers : List OverrideMember) :
+    List OverrideMember -> Except TypeError Unit
   | [] => Except.ok ()
   | member :: rest => do
       if !contractIsAbstract && !member.implemented &&
-          !hasImplementedCurrentFor member current then
+          !hasImplementedCurrentFor member current &&
+          !hasDominatingImplementedFor contracts member allMembers then
         Except.error
           (TypeError.invalidContractHeader
             "non-abstract contract inherits unimplemented function")
       else
-        checkInheritedAbstractImplemented contractIsAbstract current rest
+        checkInheritedAbstractImplementedAux contracts contractIsAbstract
+          current allMembers rest
+
+def OverrideMembers.checkInheritedAbstractImplemented
+    (contracts : List L00_SourceSolidity.ContractDecl)
+    (contractIsAbstract : Bool) (current : List OverrideMember)
+    (members : List OverrideMember) : Except TypeError Unit :=
+  checkInheritedAbstractImplementedAux contracts contractIsAbstract current
+    members members
 
 structure ModifierOverrideMember where
   origin : Path
   originKind : L00_SourceSolidity.ContractKind
   name : Name
   params : List Ty := []
+  paramDataLocations :
+    List (Option L00_SourceSolidity.DataLocation) := []
   virtual : Bool := false
   implemented : Bool := true
   deriving Repr
@@ -7777,6 +9508,7 @@ def ModifierDecl.overrideMember (origin : Path)
     originKind := originKind
     name := modifier.name
     params := Parameters.tys modifier.params
+    paramDataLocations := Parameters.dataLocations modifier.params
     virtual := modifier.virtual
     implemented := modifier.body.isSome }
 
@@ -7850,6 +9582,9 @@ def checkCompatible (current : ModifierOverrideMember) :
   | base :: rest => do
       require (current.params == base.params)
         (TypeError.invalidOverride "override modifier parameters do not match")
+      require (current.paramDataLocations == base.paramDataLocations)
+        (TypeError.invalidOverride
+          "override modifier parameter data locations do not match")
       checkCompatible current rest
 
 def itemMember? (origin : Path)
@@ -7876,8 +9611,15 @@ def collectMostDerived (order : List L00_SourceSolidity.ContractDecl) :
   collectMostDerivedFrom [] order
 
 def hasConflictFor (target : ModifierOverrideMember)
+    (contracts : List L00_SourceSolidity.ContractDecl)
     (members : List ModifierOverrideMember) : Bool :=
-  (matchingName target members).length > 1
+  let dominated := fun member =>
+    !member.implemented &&
+      members.any (fun candidate =>
+        sameName member candidate &&
+          ContractDecl.originStrictlyInherits contracts
+            candidate.origin member.origin)
+  (matchingName target (members.filter fun member => !dominated member)).length > 1
 
 def hasCurrentOverrideFor (target : ModifierOverrideMember)
     (current : List ModifierOverrideMember) : Bool :=
@@ -7891,32 +9633,46 @@ def hasImplementedCurrentFor (target : ModifierOverrideMember)
       (sameName target member && member.implemented) ||
         hasImplementedCurrentFor target rest
 
-def checkInheritedConflicts (current : List ModifierOverrideMember)
+def hasDominatingImplementedFor
+    (contracts : List L00_SourceSolidity.ContractDecl)
+    (target : ModifierOverrideMember)
+    (members : List ModifierOverrideMember) : Bool :=
+  members.any (fun member =>
+    sameName target member && member.implemented &&
+      ContractDecl.originStrictlyInherits contracts
+        member.origin target.origin)
+
+def checkInheritedConflicts
+    (contracts : List L00_SourceSolidity.ContractDecl)
+    (current : List ModifierOverrideMember)
     (members : List ModifierOverrideMember) : Except TypeError Unit :=
   match members with
   | [] => Except.ok ()
   | member :: rest => do
-      if hasConflictFor member members &&
+      if hasConflictFor member contracts members &&
           !hasCurrentOverrideFor member current then
         Except.error
           (TypeError.invalidOverride
             "multiple inherited modifiers require an override")
       else
-        checkInheritedConflicts current rest
+        checkInheritedConflicts contracts current rest
 
 def checkInheritedAbstractImplemented
+    (contracts : List L00_SourceSolidity.ContractDecl)
     (contractIsAbstract : Bool) (current : List ModifierOverrideMember)
-    (members : List ModifierOverrideMember) : Except TypeError Unit :=
-  match members with
+    (allMembers : List ModifierOverrideMember) :
+    List ModifierOverrideMember -> Except TypeError Unit
   | [] => Except.ok ()
   | member :: rest => do
       if !contractIsAbstract && !member.implemented &&
-          !hasImplementedCurrentFor member current then
+          !hasImplementedCurrentFor member current &&
+          !hasDominatingImplementedFor contracts member allMembers then
         Except.error
           (TypeError.invalidContractHeader
             "non-abstract contract inherits unimplemented modifier")
       else
-        checkInheritedAbstractImplemented contractIsAbstract current rest
+        checkInheritedAbstractImplemented contracts contractIsAbstract current
+          allMembers rest
 
 end ModifierOverrideMembers
 
@@ -7983,6 +9739,10 @@ def ModifierDecl.checkOverrideRules (currentPath : Path)
   | _ =>
       ModifierOverrideMembers.checkOverridable baseMatches
       ModifierOverrideMembers.checkCompatible current baseMatches
+      if !current.implemented then
+        require (!baseMatches.any fun base => base.implemented)
+          (TypeError.invalidOverride
+            "implemented modifier cannot be overridden without a body")
       checkModifierOverrideUse ancestorPaths modifier.override? baseMatches
 
 def FunctionDecl.externallyVisible
@@ -8020,8 +9780,19 @@ def FunctionDecl.checkHeader (env : CheckEnv)
   | some _, L00_SourceSolidity.FunctionKind.constructor =>
       require fn.name.isNone
         (TypeError.invalidFunctionHeader "constructor has a name")
-      require fn.visibility.isNone
-        (TypeError.invalidFunctionHeader "constructor has visibility")
+      match fn.visibility with
+      | none => Except.ok ()
+      | some L00_SourceSolidity.Visibility.public_ =>
+          require (!env.currentContractAbstract)
+            (TypeError.invalidFunctionHeader
+              "abstract constructor is public")
+      | some L00_SourceSolidity.Visibility.internal_ =>
+          require env.currentContractAbstract
+            (TypeError.invalidFunctionHeader
+              "non-abstract constructor is internal")
+      | some _ =>
+          Except.error
+            (TypeError.invalidFunctionHeader "constructor has visibility")
       require (!fn.virtual)
         (TypeError.invalidFunctionHeader "constructor is virtual")
       require fn.override?.isNone
@@ -8038,9 +9809,18 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       require (!Parameters.anyCalldata fn.params)
         (TypeError.invalidFunctionHeader
           "constructor parameter uses calldata")
-      require (!Parameters.anyStorageRef env.types fn.params)
-        (TypeError.invalidFunctionHeader
-          "constructor parameter uses storage")
+      if env.currentContractAbstract then
+        Except.ok ()
+      else
+        require (!Parameters.anyStorageRef env.types fn.params)
+          (TypeError.invalidFunctionHeader
+            "constructor parameter uses storage")
+      if env.currentContractAbstract then
+        Except.ok ()
+      else
+        match Parameters.firstAbiCoderV2OnlyTy? env.types fn.params with
+        | some ty => Except.error (TypeError.invalidAbiType ty)
+        | none => Except.ok ()
   | some _, L00_SourceSolidity.FunctionKind.receive =>
       require fn.name.isNone
         (TypeError.invalidFunctionHeader "receive function has a name")
@@ -8125,10 +9905,19 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       match Parameters.firstNonAbiEncodableTy? env.types fn.params with
       | some ty => Except.error (TypeError.invalidAbiType ty)
       | none => Except.ok ()
+    if env.inLibrary then
+      Except.ok ()
+    else
+      match Parameters.firstAbiCoderV2OnlyTy? env.types fn.params with
+      | some ty => Except.error (TypeError.invalidAbiType ty)
+      | none => Except.ok ()
     match Parameters.firstMappingContainingTy? env.types fn.returns with
     | some ty => Except.error (TypeError.invalidAbiType ty)
     | none => Except.ok ()
     match Parameters.firstNonAbiEncodableTy? env.types fn.returns with
+    | some ty => Except.error (TypeError.invalidAbiType ty)
+    | none => Except.ok ()
+    match Parameters.firstAbiCoderV2OnlyTy? env.types fn.returns with
     | some ty => Except.error (TypeError.invalidAbiType ty)
     | none => Except.ok ()
   else
@@ -8180,7 +9969,7 @@ def ModifierInvocation.checkBaseConstructor (env : CheckEnv)
               checkContextualArgsAssignableToParamsWithStorageRefsFor
                 env ("base constructor " ++ baseDecl.name)
                 sig.paramNames sig.params sig.paramStorageRefs
-                invocation.args with
+                sig.paramDataLocations invocation.args with
           | Except.ok _ => Except.ok ()
           | Except.error _ => Except.error checkedErr
   | Except.error argErr =>
@@ -8188,7 +9977,7 @@ def ModifierInvocation.checkBaseConstructor (env : CheckEnv)
           checkContextualArgsAssignableToParamsWithStorageRefsFor
             env ("base constructor " ++ baseDecl.name)
             sig.paramNames sig.params sig.paramStorageRefs
-            invocation.args with
+            sig.paramDataLocations invocation.args with
       | Except.ok _ => Except.ok ()
       | Except.error _ => Except.error argErr
 
@@ -8205,37 +9994,68 @@ def ModifierInvocation.check (env : CheckEnv) (allowBaseConstructors : Bool)
       let name ← ModifierInvocation.targetName invocation
       checkModifierArgs env name invocation.args
 
+def modifierBodyFunction? :
+    L00_SourceSolidity.ContractItem -> Option L00_SourceSolidity.FunctionDecl
+  | L00_SourceSolidity.ContractItem.function fn => some fn
+  | _ => none
+
+def contractFunctionSigsForModifierBody
+    (entry : Path × L00_SourceSolidity.ContractDecl) :
+    List FunctionSig :=
+  let decl := entry.snd
+  (FunctionDecls.signatures (decl.items.filterMap modifierBodyFunction?)).map
+    (FunctionSig.qualifyLocalUserTypes decl.name
+      (ContractDecl.localTypeNames decl))
+
+def contractEntriesFunctionSigsForModifierBodies :
+    List (Path × L00_SourceSolidity.ContractDecl) -> List FunctionSig
+  | [] => []
+  | entry :: rest =>
+      contractFunctionSigsForModifierBody entry ++
+        contractEntriesFunctionSigsForModifierBodies rest
+
+def TypeContext.functionSigsForModifierBodies
+    (types : TypeContext) : List FunctionSig :=
+  contractEntriesFunctionSigsForModifierBodies types.contractDecls
+
 def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
     (invocation : L00_SourceSolidity.ModifierInvocation) :
     Except TypeError Unit := do
   match ModifierInvocation.baseConstructorDecl? env invocation with
   | some _ => Except.ok ()
-  | none => do
+  | none =>
       let name ← ModifierInvocation.targetName invocation
-      let modifier ←
-        match env.lookupModifierDecl? name with
-        | some modifier => Except.ok modifier
-        | none => Except.error (TypeError.unknownFunction name)
-      match modifier.body with
-      | none => Except.ok ()
-      | some body =>
-          let locals := Parameters.namedTypeStorageRefs env.types modifier.params
-          let dataLocations :=
-            Parameters.namedDataLocations env.types modifier.params
-          let modifierEnv :=
-            { env.enterModifier with
-              vars := locals.map (fun entry => (entry.1, entry.2.1)) ++ env.vars
-              localNames := locals.map Prod.fst ++ env.localNames
-              localStorageRefs :=
-                (locals.filterMap
-                  (fun entry =>
-                    if entry.2.2 then some entry.1 else none)) ++
-                  env.localStorageRefs
-              localDataLocations := dataLocations ++ env.localDataLocations
-              returnTys := []
-              returnStorageRefs := [] }
-          let _ ← checkStmt modifierEnv body
-          Except.ok ()
+      match env.lookupModifierDecl? name with
+      | none =>
+          Except.error
+            (TypeError.unknownIdentifier name)
+      | some modifier =>
+          match modifier.body with
+          | none => Except.ok ()
+          | some body =>
+              let locals :=
+                Parameters.namedTypeStorageRefs env.types modifier.params
+              let dataLocations :=
+                Parameters.namedDataLocations env.types modifier.params
+              let modifierEnv :=
+                { env.enterModifier with
+                  functions :=
+                    env.types.functionSigsForModifierBodies ++
+                      env.functions
+                  vars := locals.map (fun entry => (entry.1, entry.2.1)) ++
+                    env.vars
+                  localNames := locals.map Prod.fst ++ env.localNames
+                  localStorageRefs :=
+                    (locals.filterMap
+                      (fun entry =>
+                        if entry.2.2 then some entry.1 else none)) ++
+                      env.localStorageRefs
+                  localDataLocations :=
+                    dataLocations ++ env.localDataLocations
+                  returnTys := []
+                  returnNames := [] }
+              let _ ← checkStmt modifierEnv body
+              Except.ok ()
 
 def ModifierInvocations.checkWithSeen (env : CheckEnv)
     (allowBaseConstructors : Bool) (seenBaseConstructors : List Path) :
@@ -8266,6 +10086,970 @@ def ModifierInvocations.checkBodiesForCaller (env : CheckEnv) :
       ModifierInvocation.checkBodyForCaller env invocation
       ModifierInvocations.checkBodiesForCaller env rest
 
+abbrev PointerReturnAssigned := List Name
+
+def PointerReturnAssigned.add
+    (assigned : PointerReturnAssigned) (name : Name) :
+    PointerReturnAssigned :=
+  if assigned.contains name then assigned else name :: assigned
+
+def PointerReturnAssigned.intersection
+    (left right : PointerReturnAssigned) : PointerReturnAssigned :=
+  left.filter (fun name => right.contains name)
+
+def mergePointerReturnState :
+    Option PointerReturnAssigned -> Option PointerReturnAssigned ->
+    Option PointerReturnAssigned
+  | none, right => right
+  | left, none => left
+  | some left, some right =>
+      some (PointerReturnAssigned.intersection left right)
+
+structure PointerReturnRequirements where
+  named : List Name := []
+  hasUnnamed : Bool := false
+  deriving Repr
+
+def Parameter.isUninitializedPointerReturn
+    (types : TypeContext) (param : L00_SourceSolidity.Parameter) : Bool :=
+  Ty.needsDataLocation types param.ty &&
+    (param.location == some L00_SourceSolidity.DataLocation.storage ||
+      param.location == some L00_SourceSolidity.DataLocation.calldata)
+
+def Parameters.pointerReturnRequirements (types : TypeContext) :
+    List L00_SourceSolidity.Parameter -> PointerReturnRequirements
+  | [] => {}
+  | param :: rest =>
+      let tail := Parameters.pointerReturnRequirements types rest
+      if Parameter.isUninitializedPointerReturn types param then
+        match param.name with
+        | some name => { tail with named := name :: tail.named }
+        | none => { tail with hasUnnamed := true }
+      else
+        tail
+
+def PointerReturnRequirements.isEmpty
+    (requirements : PointerReturnRequirements) : Bool :=
+  requirements.named.isEmpty && !requirements.hasUnnamed
+
+def PointerReturnRequirements.allAssigned
+    (requirements : PointerReturnRequirements)
+    (assigned : PointerReturnAssigned) : Bool :=
+  !requirements.hasUnnamed &&
+    requirements.named.all (fun name => assigned.contains name)
+
+structure PointerExprFlow where
+  assigned : PointerReturnAssigned
+  unsafeRead : Bool := false
+  deriving Repr
+
+def mergePointerExprBranches
+    (left right : PointerExprFlow) : PointerExprFlow :=
+  { assigned := PointerReturnAssigned.intersection left.assigned right.assigned
+    unsafeRead := left.unsafeRead || right.unsafeRead }
+
+mutual
+
+def Expr.pointerReturnFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    L00_SourceSolidity.Expr -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, _, assigned, L00_SourceSolidity.Expr.literal _ =>
+      { assigned := assigned }
+  | _ + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.ident name =>
+      { assigned := assigned
+        unsafeRead :=
+          requirements.named.contains name && !assigned.contains name }
+  | _ + 1, _, assigned, L00_SourceSolidity.Expr.typeName _ =>
+      { assigned := assigned }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.member base _ =>
+      Expr.pointerReturnFlowFuel fuel requirements assigned base
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.index base index =>
+      let indexFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned index
+      let baseFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements indexFlow.assigned base
+      { baseFlow with
+        unsafeRead := indexFlow.unsafeRead || baseFlow.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.slice base start stop =>
+      let stopFlow :=
+        match stop with
+        | some expr =>
+            Expr.pointerReturnFlowFuel fuel requirements assigned expr
+        | none => { assigned := assigned }
+      let startFlow :=
+        match start with
+        | some expr =>
+            Expr.pointerReturnFlowFuel fuel requirements stopFlow.assigned expr
+        | none => { assigned := stopFlow.assigned }
+      let baseFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements startFlow.assigned base
+      { baseFlow with
+        unsafeRead := stopFlow.unsafeRead || startFlow.unsafeRead ||
+          baseFlow.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.call fn args =>
+      let argsFlow :=
+        Args.pointerReturnFlowFuel fuel requirements assigned args
+      let fnFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements argsFlow.assigned fn
+      { fnFlow with
+        unsafeRead := argsFlow.unsafeRead || fnFlow.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.callWithOptions fn options args =>
+      let argsFlow :=
+        Args.pointerReturnFlowFuel fuel requirements assigned args
+      let optionsFlow :=
+        CallOptions.pointerReturnFlowFuel fuel requirements argsFlow.assigned
+          options
+      let fnFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements optionsFlow.assigned fn
+      { fnFlow with
+        unsafeRead := argsFlow.unsafeRead || optionsFlow.unsafeRead ||
+          fnFlow.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.newExpr _ args =>
+      Args.pointerReturnFlowFuel fuel requirements assigned args
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.tuple items =>
+      TupleItems.pointerReturnFlowFuel fuel requirements assigned items
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.array items =>
+      Exprs.pointerReturnFlowFuel fuel requirements assigned items
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.enumFromUInt _ inner =>
+      Expr.pointerReturnFlowFuel fuel requirements assigned inner
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.unary _ inner =>
+      Expr.pointerReturnFlowFuel fuel requirements assigned inner
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.binary op left right =>
+      if op == L00_SourceSolidity.BinaryOp.boolAnd ||
+          op == L00_SourceSolidity.BinaryOp.boolOr then
+        let leftFlow :=
+          Expr.pointerReturnFlowFuel fuel requirements assigned left
+        let rightFlow :=
+          Expr.pointerReturnFlowFuel fuel requirements leftFlow.assigned right
+        mergePointerExprBranches leftFlow
+          { rightFlow with
+            unsafeRead := leftFlow.unsafeRead || rightFlow.unsafeRead }
+      else
+        let rightFlow :=
+          Expr.pointerReturnFlowFuel fuel requirements assigned right
+        let leftFlow :=
+          Expr.pointerReturnFlowFuel fuel requirements rightFlow.assigned left
+        { leftFlow with
+          unsafeRead := rightFlow.unsafeRead || leftFlow.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.ternary cond thenExpr elseExpr =>
+      let condFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned cond
+      let thenFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements condFlow.assigned thenExpr
+      let elseFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements condFlow.assigned elseExpr
+      let branches := mergePointerExprBranches thenFlow elseFlow
+      { branches with
+        unsafeRead := condFlow.unsafeRead || branches.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.assign lhs op rhs =>
+      let rhsFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned rhs
+      let lhsFlow :=
+        match op with
+        | L00_SourceSolidity.AssignOp.assign =>
+            Expr.pointerReturnLValueFlowFuel fuel requirements rhsFlow.assigned
+              lhs
+        | _ =>
+            Expr.pointerReturnFlowFuel fuel requirements rhsFlow.assigned lhs
+      { lhsFlow with
+        unsafeRead := rhsFlow.unsafeRead || lhsFlow.unsafeRead }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.payableConversion inner =>
+      Expr.pointerReturnFlowFuel fuel requirements assigned inner
+
+def Expr.pointerReturnLValueFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    L00_SourceSolidity.Expr -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.ident name =>
+      if requirements.named.contains name then
+        { assigned := PointerReturnAssigned.add assigned name }
+      else
+        { assigned := assigned }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.Expr.tuple items =>
+      TupleItems.pointerReturnLValueFlowFuel fuel requirements assigned items
+  | fuel + 1, requirements, assigned, other =>
+      Expr.pointerReturnFlowFuel fuel requirements assigned other
+
+def Exprs.pointerReturnFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    List L00_SourceSolidity.Expr -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, _, assigned, [] => { assigned := assigned }
+  | fuel + 1, requirements, assigned, expr :: rest =>
+      let tailFlow :=
+        Exprs.pointerReturnFlowFuel fuel requirements assigned rest
+      let headFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements tailFlow.assigned expr
+      { headFlow with
+        unsafeRead := tailFlow.unsafeRead || headFlow.unsafeRead }
+
+def Args.pointerReturnFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    List L00_SourceSolidity.Arg -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, _, assigned, [] => { assigned := assigned }
+  | fuel + 1, requirements, assigned, arg :: rest =>
+      let tailFlow :=
+        Args.pointerReturnFlowFuel fuel requirements assigned rest
+      let expr :=
+        match arg with
+        | L00_SourceSolidity.Arg.positional expr => expr
+        | L00_SourceSolidity.Arg.named _ expr => expr
+      let headFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements tailFlow.assigned expr
+      { headFlow with
+        unsafeRead := tailFlow.unsafeRead || headFlow.unsafeRead }
+
+def CallOptions.pointerReturnFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    List L00_SourceSolidity.CallOption -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, _, assigned, [] => { assigned := assigned }
+  | fuel + 1, requirements, assigned,
+      L00_SourceSolidity.CallOption.named _ expr :: rest =>
+      let tailFlow :=
+        CallOptions.pointerReturnFlowFuel fuel requirements assigned rest
+      let headFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements tailFlow.assigned expr
+      { headFlow with
+        unsafeRead := tailFlow.unsafeRead || headFlow.unsafeRead }
+
+def TupleItems.pointerReturnFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    List L00_SourceSolidity.TupleItem -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, _, assigned, [] => { assigned := assigned }
+  | fuel + 1, requirements, assigned, item :: rest =>
+      let tailFlow :=
+        TupleItems.pointerReturnFlowFuel fuel requirements assigned rest
+      match item with
+      | L00_SourceSolidity.TupleItem.hole => tailFlow
+      | L00_SourceSolidity.TupleItem.value expr =>
+          let headFlow :=
+            Expr.pointerReturnFlowFuel fuel requirements tailFlow.assigned expr
+          { headFlow with
+            unsafeRead := tailFlow.unsafeRead || headFlow.unsafeRead }
+
+def TupleItems.pointerReturnLValueFlowFuel :
+    Nat -> PointerReturnRequirements -> PointerReturnAssigned ->
+    List L00_SourceSolidity.TupleItem -> PointerExprFlow
+  | 0, _, assigned, _ => { assigned := assigned, unsafeRead := true }
+  | _ + 1, _, assigned, [] => { assigned := assigned }
+  | fuel + 1, requirements, assigned, item :: rest =>
+      let tailFlow :=
+        TupleItems.pointerReturnLValueFlowFuel fuel requirements assigned rest
+      match item with
+      | L00_SourceSolidity.TupleItem.hole => tailFlow
+      | L00_SourceSolidity.TupleItem.value expr =>
+          let headFlow :=
+            Expr.pointerReturnLValueFlowFuel fuel requirements tailFlow.assigned
+              expr
+          { headFlow with
+            unsafeRead := tailFlow.unsafeRead || headFlow.unsafeRead }
+
+end
+
+structure PointerReturnFlow where
+  normal? : Option PointerReturnAssigned := none
+  breaks? : Option PointerReturnAssigned := none
+  continues? : Option PointerReturnAssigned := none
+  unsafeReturn : Bool := false
+  deriving Repr
+
+def PointerReturnFlow.mergeBranches
+    (left right : PointerReturnFlow) : PointerReturnFlow :=
+  { normal? := mergePointerReturnState left.normal? right.normal?
+    breaks? := mergePointerReturnState left.breaks? right.breaks?
+    continues? := mergePointerReturnState left.continues? right.continues?
+    unsafeReturn := left.unsafeReturn || right.unsafeReturn }
+
+structure PointerReturnPlaceholder where
+  modifiers : List L00_SourceSolidity.ModifierInvocation
+  body : L00_SourceSolidity.Stmt
+
+def exprFlowToNormal (flow : PointerExprFlow) : PointerReturnFlow :=
+  { normal? := some flow.assigned, unsafeReturn := flow.unsafeRead }
+
+def Expr.isTerminalBuiltinCall : L00_SourceSolidity.Expr -> Bool
+  | L00_SourceSolidity.Expr.call
+      (L00_SourceSolidity.Expr.ident "selfdestruct") _ => true
+  | L00_SourceSolidity.Expr.call
+      (L00_SourceSolidity.Expr.ident "revert") _ => true
+  | _ => false
+
+mutual
+
+def Stmt.pointerReturnFlowFuel :
+    Nat -> CheckEnv -> PointerReturnRequirements ->
+    Option PointerReturnPlaceholder -> PointerReturnAssigned ->
+    L00_SourceSolidity.Stmt -> PointerReturnFlow
+  | 0, _, _, _, _, _ => { unsafeReturn := true }
+  | _ + 1, _, _, _, assigned, L00_SourceSolidity.Stmt.empty =>
+      { normal? := some assigned }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.block body =>
+      Stmts.pointerReturnFlowFuel fuel env requirements placeholder assigned body
+  | fuel + 1, _, requirements, _, assigned,
+      L00_SourceSolidity.Stmt.varDecl _ init? =>
+      match init? with
+      | some init =>
+          exprFlowToNormal
+            (Expr.pointerReturnFlowFuel fuel requirements assigned init)
+      | none => { normal? := some assigned }
+  | fuel + 1, _, requirements, _, assigned,
+      L00_SourceSolidity.Stmt.expr expr =>
+      let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
+      if Expr.isTerminalBuiltinCall expr then
+        { unsafeReturn := flow.unsafeRead }
+      else
+        exprFlowToNormal flow
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.ifElse cond thenBranch elseBranch =>
+      let condFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned cond
+      let thenFlow :=
+        Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+          condFlow.assigned thenBranch
+      let elseFlow :=
+        match elseBranch with
+        | some branch =>
+            Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+              condFlow.assigned branch
+        | none => { normal? := some condFlow.assigned }
+      let branches := thenFlow.mergeBranches elseFlow
+      { branches with
+        unsafeReturn := condFlow.unsafeRead || branches.unsafeReturn }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.whileLoop cond body =>
+      let condFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned cond
+      let bodyFlow :=
+        Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+          condFlow.assigned body
+      { normal? := some condFlow.assigned
+        unsafeReturn := condFlow.unsafeRead || bodyFlow.unsafeReturn }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.doWhile body cond =>
+      let bodyFlow :=
+        Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
+      let reachesCond :=
+        mergePointerReturnState bodyFlow.normal? bodyFlow.continues?
+      let condFlow? :=
+        reachesCond.map (fun state =>
+          Expr.pointerReturnFlowFuel fuel requirements state cond)
+      let normalFromCond := condFlow?.map PointerExprFlow.assigned
+      { normal? := mergePointerReturnState bodyFlow.breaks? normalFromCond
+        unsafeReturn := bodyFlow.unsafeReturn ||
+          condFlow?.any PointerExprFlow.unsafeRead }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.forLoop init cond post body =>
+      let initFlow :=
+        match init with
+        | some stmt =>
+            Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+              assigned stmt
+        | none => { normal? := some assigned }
+      match initFlow.normal? with
+      | none => initFlow
+      | some afterInit =>
+          let condFlow :=
+            match cond with
+            | some expr =>
+                Expr.pointerReturnFlowFuel fuel requirements afterInit expr
+            | none => { assigned := afterInit }
+          let bodyFlow :=
+            Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+              condFlow.assigned body
+          let postInput :=
+            mergePointerReturnState bodyFlow.normal? bodyFlow.continues?
+          let postUnsafe :=
+            match postInput, post with
+            | some state, some expr =>
+                (Expr.pointerReturnFlowFuel fuel requirements state expr).unsafeRead
+            | _, _ => false
+          { normal? := some condFlow.assigned
+            breaks? := initFlow.breaks?
+            continues? := initFlow.continues?
+            unsafeReturn := initFlow.unsafeReturn || condFlow.unsafeRead ||
+              bodyFlow.unsafeReturn || postUnsafe }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.tryCatch expr clauses =>
+      let exprFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned expr
+      let catches :=
+        CatchClauses.pointerReturnFlowFuel fuel env requirements placeholder
+          exprFlow.assigned clauses
+      let success : PointerReturnFlow := { normal? := some exprFlow.assigned }
+      let merged := success.mergeBranches catches
+      { merged with
+        unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.tryCatchReturns expr _ success clauses =>
+      let exprFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned expr
+      let successFlow :=
+        Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+          exprFlow.assigned success
+      let catches :=
+        CatchClauses.pointerReturnFlowFuel fuel env requirements placeholder
+          exprFlow.assigned clauses
+      let merged := successFlow.mergeBranches catches
+      { merged with
+        unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
+  | fuel + 1, _, requirements, _, assigned,
+      L00_SourceSolidity.Stmt.emitEvent expr =>
+      exprFlowToNormal
+        (Expr.pointerReturnFlowFuel fuel requirements assigned expr)
+  | fuel + 1, _, requirements, _, assigned,
+      L00_SourceSolidity.Stmt.revertCall expr =>
+      let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
+      { unsafeReturn := flow.unsafeRead }
+  | fuel + 1, _, requirements, _, assigned,
+      L00_SourceSolidity.Stmt.returnValues expr? =>
+      match expr? with
+      | some expr =>
+          let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
+          { unsafeReturn := flow.unsafeRead }
+      | none =>
+          { unsafeReturn := !requirements.allAssigned assigned }
+  | _ + 1, _, _, _, assigned, L00_SourceSolidity.Stmt.break =>
+      { breaks? := some assigned }
+  | _ + 1, _, _, _, assigned, L00_SourceSolidity.Stmt.continue =>
+      { continues? := some assigned }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.unchecked body =>
+      Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
+  | _ + 1, _, _, _, _, L00_SourceSolidity.Stmt.inlineAssembly _ =>
+      { unsafeReturn := true }
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.Stmt.modifierPlaceholder =>
+      match placeholder with
+      | some continuation =>
+          FunctionDecl.pointerReturnFlowWithModifiersFuel fuel env requirements
+            continuation.modifiers continuation.body assigned
+      | none => { unsafeReturn := true }
+
+def Stmts.pointerReturnFlowFuel :
+    Nat -> CheckEnv -> PointerReturnRequirements ->
+    Option PointerReturnPlaceholder -> PointerReturnAssigned ->
+    List L00_SourceSolidity.Stmt -> PointerReturnFlow
+  | 0, _, _, _, _, _ => { unsafeReturn := true }
+  | _ + 1, _, _, _, assigned, [] => { normal? := some assigned }
+  | fuel + 1, env, requirements, placeholder, assigned, stmt :: rest =>
+      let head :=
+        Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned stmt
+      let tail :=
+        match head.normal? with
+        | some state =>
+            Stmts.pointerReturnFlowFuel fuel env requirements placeholder state
+              rest
+        | none => {}
+      { normal? := tail.normal?
+        breaks? := mergePointerReturnState head.breaks? tail.breaks?
+        continues? :=
+          mergePointerReturnState head.continues? tail.continues?
+        unsafeReturn := head.unsafeReturn || tail.unsafeReturn }
+
+def CatchClauses.pointerReturnFlowFuel :
+    Nat -> CheckEnv -> PointerReturnRequirements ->
+    Option PointerReturnPlaceholder -> PointerReturnAssigned ->
+    List L00_SourceSolidity.CatchClause -> PointerReturnFlow
+  | 0, _, _, _, _, _ => { unsafeReturn := true }
+  | _ + 1, _, _, _, _, [] => {}
+  | fuel + 1, env, requirements, placeholder, assigned,
+      L00_SourceSolidity.CatchClause.clause _ _ body :: rest =>
+      let head :=
+        Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
+      let tail :=
+        CatchClauses.pointerReturnFlowFuel fuel env requirements placeholder
+          assigned rest
+      head.mergeBranches tail
+
+def FunctionDecl.pointerReturnFlowWithModifiersFuel :
+    Nat -> CheckEnv -> PointerReturnRequirements ->
+    List L00_SourceSolidity.ModifierInvocation -> L00_SourceSolidity.Stmt ->
+    PointerReturnAssigned -> PointerReturnFlow
+  | 0, _, _, _, _, _ => { unsafeReturn := true }
+  | fuel + 1, env, requirements, [], body, assigned =>
+      Stmt.pointerReturnFlowFuel fuel env requirements none assigned body
+  | fuel + 1, env, requirements, invocation :: rest, body, assigned =>
+      let argFlow :=
+        Args.pointerReturnFlowFuel fuel requirements assigned invocation.args
+      let modifierName? :=
+        (L00_SourceSolidity.Executable.pathInitLast? invocation.target).map
+          Prod.snd
+      match modifierName?.bind env.lookupModifierDecl? with
+      | some modifier =>
+          match modifier.body with
+          | some modifierBody =>
+              let placeholder := some { modifiers := rest, body := body }
+              let flow :=
+                Stmt.pointerReturnFlowFuel fuel env requirements placeholder
+                  argFlow.assigned modifierBody
+              { flow with
+                unsafeReturn := argFlow.unsafeRead || flow.unsafeReturn }
+          | none => { unsafeReturn := true }
+      | none => { unsafeReturn := true }
+
+end
+
+def defaultPointerReturnFlowFuel : Nat := 4096
+
+def FunctionDecl.checkPointerReturnDefiniteAssignment
+    (env : CheckEnv) (fn : L00_SourceSolidity.FunctionDecl)
+    (body : L00_SourceSolidity.Stmt) : Except TypeError Unit := do
+  let requirements := Parameters.pointerReturnRequirements env.types fn.returns
+  if requirements.isEmpty then
+    Except.ok ()
+  else
+    let flow :=
+      FunctionDecl.pointerReturnFlowWithModifiersFuel
+        defaultPointerReturnFlowFuel env requirements fn.modifiers body []
+    require (!flow.unsafeReturn)
+      (TypeError.invalidVariableDecl
+        "storage or calldata return pointer can be accessed before assignment")
+    match flow.normal? with
+    | none => Except.ok ()
+    | some assigned =>
+        require (requirements.allAssigned assigned)
+          (TypeError.invalidVariableDecl
+            "storage or calldata return pointer can be returned before assignment")
+
+def VarBinding.isUninitializedLocalPointer
+    (binding : L00_SourceSolidity.VarBinding) : Bool :=
+  binding.name.isSome && binding.ty.isSome &&
+    (binding.location == some L00_SourceSolidity.DataLocation.storage ||
+      binding.location == some L00_SourceSolidity.DataLocation.calldata)
+
+def VarBindings.uninitializedLocalPointerNames :
+    List L00_SourceSolidity.VarBinding -> List Name
+  | [] => []
+  | binding :: rest =>
+      let tail := VarBindings.uninitializedLocalPointerNames rest
+      if VarBinding.isUninitializedLocalPointer binding then
+        match binding.name with
+        | some name => name :: tail
+        | none => tail
+      else
+        tail
+
+def VarBindings.declaresName
+    (bindings : List L00_SourceSolidity.VarBinding) (name : Name) : Bool :=
+  bindings.any (fun binding => binding.name == some name)
+
+def Parameters.declaresName
+    (params : List L00_SourceSolidity.Parameter) (name : Name) : Bool :=
+  params.any (fun param => param.name == some name)
+
+def pointerLocalRequirements (name : Name) : PointerReturnRequirements :=
+  { named := [name] }
+
+mutual
+
+def Stmt.pointerLocalFlowFuel :
+    Nat -> Name -> PointerReturnAssigned ->
+    L00_SourceSolidity.Stmt -> PointerReturnFlow
+  | 0, _, _, _ => { unsafeReturn := true }
+  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.empty =>
+      { normal? := some assigned }
+  | fuel + 1, name, assigned, L00_SourceSolidity.Stmt.block body =>
+      Stmts.pointerLocalFlowFuel fuel name assigned body
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.varDecl _ init? =>
+      match init? with
+      | some init =>
+          exprFlowToNormal
+            (Expr.pointerReturnFlowFuel fuel
+              (pointerLocalRequirements name) assigned init)
+      | none => { normal? := some assigned }
+  | fuel + 1, name, assigned, L00_SourceSolidity.Stmt.expr expr =>
+      let flow :=
+        Expr.pointerReturnFlowFuel fuel
+          (pointerLocalRequirements name) assigned expr
+      if Expr.isTerminalBuiltinCall expr then
+        { unsafeReturn := flow.unsafeRead }
+      else
+        exprFlowToNormal flow
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.ifElse cond thenBranch elseBranch =>
+      let requirements := pointerLocalRequirements name
+      let condFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned cond
+      let thenFlow :=
+        Stmt.pointerLocalFlowFuel fuel name condFlow.assigned thenBranch
+      let elseFlow :=
+        match elseBranch with
+        | some branch =>
+            Stmt.pointerLocalFlowFuel fuel name condFlow.assigned branch
+        | none => { normal? := some condFlow.assigned }
+      let branches := thenFlow.mergeBranches elseFlow
+      { branches with
+        unsafeReturn := condFlow.unsafeRead || branches.unsafeReturn }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.whileLoop cond body =>
+      let requirements := pointerLocalRequirements name
+      let condFlow :=
+        Expr.pointerReturnFlowFuel fuel requirements assigned cond
+      let bodyFlow :=
+        Stmt.pointerLocalFlowFuel fuel name condFlow.assigned body
+      { normal? := some condFlow.assigned
+        unsafeReturn := condFlow.unsafeRead || bodyFlow.unsafeReturn }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.doWhile body cond =>
+      let bodyFlow := Stmt.pointerLocalFlowFuel fuel name assigned body
+      let reachesCond :=
+        mergePointerReturnState bodyFlow.normal? bodyFlow.continues?
+      let condFlow? :=
+        reachesCond.map (fun state =>
+          Expr.pointerReturnFlowFuel fuel
+            (pointerLocalRequirements name) state cond)
+      let normalFromCond := condFlow?.map PointerExprFlow.assigned
+      { normal? := mergePointerReturnState bodyFlow.breaks? normalFromCond
+        unsafeReturn := bodyFlow.unsafeReturn ||
+          condFlow?.any PointerExprFlow.unsafeRead }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.forLoop init cond post body =>
+      match init with
+      | some (L00_SourceSolidity.Stmt.varDecl bindings initExpr?) =>
+          if VarBindings.declaresName bindings name then
+            match initExpr? with
+            | some initExpr =>
+                exprFlowToNormal
+                  (Expr.pointerReturnFlowFuel fuel
+                    (pointerLocalRequirements name) assigned initExpr)
+            | none => { normal? := some assigned }
+          else
+            let initFlow :=
+              Stmt.pointerLocalFlowFuel fuel name assigned
+                (L00_SourceSolidity.Stmt.varDecl bindings initExpr?)
+            match initFlow.normal? with
+            | none => initFlow
+            | some afterInit =>
+                let condFlow :=
+                  match cond with
+                  | some expr =>
+                      Expr.pointerReturnFlowFuel fuel
+                        (pointerLocalRequirements name) afterInit expr
+                  | none => { assigned := afterInit }
+                let bodyFlow :=
+                  Stmt.pointerLocalFlowFuel fuel name condFlow.assigned body
+                let postInput :=
+                  mergePointerReturnState bodyFlow.normal?
+                    bodyFlow.continues?
+                let postUnsafe :=
+                  match postInput, post with
+                  | some state, some expr =>
+                      (Expr.pointerReturnFlowFuel fuel
+                        (pointerLocalRequirements name) state expr).unsafeRead
+                  | _, _ => false
+                { normal? := some condFlow.assigned
+                  breaks? := initFlow.breaks?
+                  continues? := initFlow.continues?
+                  unsafeReturn := initFlow.unsafeReturn ||
+                    condFlow.unsafeRead || bodyFlow.unsafeReturn || postUnsafe }
+      | initStmt? =>
+          let initFlow :=
+            match initStmt? with
+            | some initStmt =>
+                Stmt.pointerLocalFlowFuel fuel name assigned initStmt
+            | none => { normal? := some assigned }
+          match initFlow.normal? with
+          | none => initFlow
+          | some afterInit =>
+              let condFlow :=
+                match cond with
+                | some expr =>
+                    Expr.pointerReturnFlowFuel fuel
+                      (pointerLocalRequirements name) afterInit expr
+                | none => { assigned := afterInit }
+              let bodyFlow :=
+                Stmt.pointerLocalFlowFuel fuel name condFlow.assigned body
+              let postInput :=
+                mergePointerReturnState bodyFlow.normal?
+                  bodyFlow.continues?
+              let postUnsafe :=
+                match postInput, post with
+                | some state, some expr =>
+                    (Expr.pointerReturnFlowFuel fuel
+                      (pointerLocalRequirements name) state expr).unsafeRead
+                | _, _ => false
+              { normal? := some condFlow.assigned
+                breaks? := initFlow.breaks?
+                continues? := initFlow.continues?
+                unsafeReturn := initFlow.unsafeReturn ||
+                  condFlow.unsafeRead || bodyFlow.unsafeReturn || postUnsafe }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.tryCatch expr clauses =>
+      let exprFlow :=
+        Expr.pointerReturnFlowFuel fuel
+          (pointerLocalRequirements name) assigned expr
+      let catches :=
+        CatchClauses.pointerLocalFlowFuel fuel name exprFlow.assigned clauses
+      let success : PointerReturnFlow :=
+        { normal? := some exprFlow.assigned }
+      let merged := success.mergeBranches catches
+      { merged with
+        unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.tryCatchReturns expr returns success clauses =>
+      let exprFlow :=
+        Expr.pointerReturnFlowFuel fuel
+          (pointerLocalRequirements name) assigned expr
+      let successFlow : PointerReturnFlow :=
+        if Parameters.declaresName returns name then
+          { normal? := some exprFlow.assigned }
+        else
+          Stmt.pointerLocalFlowFuel fuel name exprFlow.assigned success
+      let catches :=
+        CatchClauses.pointerLocalFlowFuel fuel name exprFlow.assigned clauses
+      let merged := successFlow.mergeBranches catches
+      { merged with
+        unsafeReturn := exprFlow.unsafeRead || merged.unsafeReturn }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.emitEvent expr =>
+      exprFlowToNormal
+        (Expr.pointerReturnFlowFuel fuel
+          (pointerLocalRequirements name) assigned expr)
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.revertCall expr =>
+      let flow :=
+        Expr.pointerReturnFlowFuel fuel
+          (pointerLocalRequirements name) assigned expr
+      { unsafeReturn := flow.unsafeRead }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.returnValues expr? =>
+      match expr? with
+      | some expr =>
+          let flow :=
+            Expr.pointerReturnFlowFuel fuel
+              (pointerLocalRequirements name) assigned expr
+          { unsafeReturn := flow.unsafeRead }
+      | none => {}
+  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.break =>
+      { breaks? := some assigned }
+  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.continue =>
+      { continues? := some assigned }
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.Stmt.unchecked body =>
+      Stmt.pointerLocalFlowFuel fuel name assigned body
+  | _ + 1, _, _, L00_SourceSolidity.Stmt.inlineAssembly _ =>
+      { unsafeReturn := true }
+  | _ + 1, _, assigned, L00_SourceSolidity.Stmt.modifierPlaceholder =>
+      { normal? := some assigned }
+
+def Stmts.pointerLocalFlowFuel :
+    Nat -> Name -> PointerReturnAssigned ->
+    List L00_SourceSolidity.Stmt -> PointerReturnFlow
+  | 0, _, _, _ => { unsafeReturn := true }
+  | _ + 1, _, assigned, [] => { normal? := some assigned }
+  | fuel + 1, name, assigned, stmt :: rest =>
+      match stmt with
+      | L00_SourceSolidity.Stmt.varDecl bindings init? =>
+          if VarBindings.declaresName bindings name then
+            match init? with
+            | some init =>
+                exprFlowToNormal
+                  (Expr.pointerReturnFlowFuel fuel
+                    (pointerLocalRequirements name) assigned init)
+            | none => { normal? := some assigned }
+          else
+            let head := Stmt.pointerLocalFlowFuel fuel name assigned stmt
+            let tail :=
+              match head.normal? with
+              | some state =>
+                  Stmts.pointerLocalFlowFuel fuel name state rest
+              | none => {}
+            { normal? := tail.normal?
+              breaks? := mergePointerReturnState head.breaks? tail.breaks?
+              continues? :=
+                mergePointerReturnState head.continues? tail.continues?
+              unsafeReturn := head.unsafeReturn || tail.unsafeReturn }
+      | _ =>
+          let head := Stmt.pointerLocalFlowFuel fuel name assigned stmt
+          let tail :=
+            match head.normal? with
+            | some state => Stmts.pointerLocalFlowFuel fuel name state rest
+            | none => {}
+          { normal? := tail.normal?
+            breaks? := mergePointerReturnState head.breaks? tail.breaks?
+            continues? :=
+              mergePointerReturnState head.continues? tail.continues?
+            unsafeReturn := head.unsafeReturn || tail.unsafeReturn }
+
+def CatchClauses.pointerLocalFlowFuel :
+    Nat -> Name -> PointerReturnAssigned ->
+    List L00_SourceSolidity.CatchClause -> PointerReturnFlow
+  | 0, _, _, _ => { unsafeReturn := true }
+  | _ + 1, _, _, [] => {}
+  | fuel + 1, name, assigned,
+      L00_SourceSolidity.CatchClause.clause _ params body :: rest =>
+      let head : PointerReturnFlow :=
+        if Parameters.declaresName params name then
+          { normal? := some assigned }
+        else
+          Stmt.pointerLocalFlowFuel fuel name assigned body
+      let tail :=
+        CatchClauses.pointerLocalFlowFuel fuel name assigned rest
+      head.mergeBranches tail
+
+end
+
+def checkPointerLocalNamesInSuffix
+    (names : List Name) (suffix : List L00_SourceSolidity.Stmt) :
+    Except TypeError Unit := do
+  match names with
+  | [] => Except.ok ()
+  | name :: rest =>
+      let flow :=
+        Stmts.pointerLocalFlowFuel defaultPointerReturnFlowFuel name [] suffix
+      require (!flow.unsafeReturn)
+        (TypeError.invalidVariableDecl
+          "storage or calldata local pointer can be accessed before assignment")
+      checkPointerLocalNamesInSuffix rest suffix
+
+mutual
+
+def Stmt.checkLocalPointerDefiniteAssignmentFuel :
+    Nat -> L00_SourceSolidity.Stmt -> Except TypeError Unit
+  | 0, _ =>
+      Except.error
+        (TypeError.invalidVariableDecl
+          "local pointer definite-assignment analysis exhausted")
+  | fuel + 1, L00_SourceSolidity.Stmt.block body =>
+      Stmts.checkLocalPointerDefiniteAssignmentFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.ifElse _ thenBranch elseBranch => do
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel thenBranch
+      match elseBranch with
+      | some branch =>
+          Stmt.checkLocalPointerDefiniteAssignmentFuel fuel branch
+      | none => Except.ok ()
+  | fuel + 1, L00_SourceSolidity.Stmt.whileLoop _ body =>
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.doWhile body _ =>
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.forLoop init cond post body => do
+      match init with
+      | some (L00_SourceSolidity.Stmt.varDecl bindings none) =>
+          let names :=
+            VarBindings.uninitializedLocalPointerNames bindings
+          checkPointerLocalNamesInSuffix names
+            [L00_SourceSolidity.Stmt.forLoop none cond post body]
+      | some initStmt =>
+          Stmt.checkLocalPointerDefiniteAssignmentFuel fuel initStmt
+      | none => Except.ok ()
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.tryCatch _ clauses =>
+      CatchClauses.checkLocalPointerDefiniteAssignmentFuel fuel clauses
+  | fuel + 1,
+      L00_SourceSolidity.Stmt.tryCatchReturns _ _ success clauses => do
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel success
+      CatchClauses.checkLocalPointerDefiniteAssignmentFuel fuel clauses
+  | fuel + 1, L00_SourceSolidity.Stmt.unchecked body =>
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
+  | _ + 1, _ => Except.ok ()
+
+def Stmts.checkLocalPointerDefiniteAssignmentFuel :
+    Nat -> List L00_SourceSolidity.Stmt -> Except TypeError Unit
+  | 0, _ =>
+      Except.error
+        (TypeError.invalidVariableDecl
+          "local pointer definite-assignment analysis exhausted")
+  | _ + 1, [] => Except.ok ()
+  | fuel + 1, stmt :: rest => do
+      match stmt with
+      | L00_SourceSolidity.Stmt.varDecl bindings none =>
+          checkPointerLocalNamesInSuffix
+            (VarBindings.uninitializedLocalPointerNames bindings) rest
+      | _ => Except.ok ()
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel stmt
+      Stmts.checkLocalPointerDefiniteAssignmentFuel fuel rest
+
+def CatchClauses.checkLocalPointerDefiniteAssignmentFuel :
+    Nat -> List L00_SourceSolidity.CatchClause -> Except TypeError Unit
+  | 0, _ =>
+      Except.error
+        (TypeError.invalidVariableDecl
+          "local pointer definite-assignment analysis exhausted")
+  | _ + 1, [] => Except.ok ()
+  | fuel + 1,
+      L00_SourceSolidity.CatchClause.clause _ _ body :: rest => do
+      Stmt.checkLocalPointerDefiniteAssignmentFuel fuel body
+      CatchClauses.checkLocalPointerDefiniteAssignmentFuel fuel rest
+
+end
+
+def Stmt.checkLocalPointerDefiniteAssignment
+    (body : L00_SourceSolidity.Stmt) : Except TypeError Unit :=
+  Stmt.checkLocalPointerDefiniteAssignmentFuel
+    defaultPointerReturnFlowFuel body
+
+mutual
+
+def Stmt.containsModifierPlaceholderFuel :
+    Nat -> L00_SourceSolidity.Stmt -> Bool
+  | 0, _ => false
+  | _ + 1, L00_SourceSolidity.Stmt.modifierPlaceholder => true
+  | fuel + 1, L00_SourceSolidity.Stmt.block body =>
+      Stmts.containsModifierPlaceholderFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.ifElse _ thenBranch elseBranch =>
+      Stmt.containsModifierPlaceholderFuel fuel thenBranch ||
+        elseBranch.any (Stmt.containsModifierPlaceholderFuel fuel)
+  | fuel + 1, L00_SourceSolidity.Stmt.whileLoop _ body =>
+      Stmt.containsModifierPlaceholderFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.doWhile body _ =>
+      Stmt.containsModifierPlaceholderFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.forLoop init _ _ body =>
+      init.any (Stmt.containsModifierPlaceholderFuel fuel) ||
+        Stmt.containsModifierPlaceholderFuel fuel body
+  | fuel + 1, L00_SourceSolidity.Stmt.tryCatch _ clauses =>
+      CatchClauses.containsModifierPlaceholderFuel fuel clauses
+  | fuel + 1, L00_SourceSolidity.Stmt.tryCatchReturns _ _ success clauses =>
+      Stmt.containsModifierPlaceholderFuel fuel success ||
+        CatchClauses.containsModifierPlaceholderFuel fuel clauses
+  | fuel + 1, L00_SourceSolidity.Stmt.unchecked body =>
+      Stmt.containsModifierPlaceholderFuel fuel body
+  | _ + 1, _ => false
+
+def Stmts.containsModifierPlaceholderFuel :
+    Nat -> List L00_SourceSolidity.Stmt -> Bool
+  | 0, _ => false
+  | _ + 1, [] => false
+  | fuel + 1, stmt :: rest =>
+      Stmt.containsModifierPlaceholderFuel fuel stmt ||
+        Stmts.containsModifierPlaceholderFuel fuel rest
+
+def CatchClauses.containsModifierPlaceholderFuel :
+    Nat -> List L00_SourceSolidity.CatchClause -> Bool
+  | 0, _ => false
+  | _ + 1, [] => false
+  | fuel + 1, L00_SourceSolidity.CatchClause.clause _ _ body :: rest =>
+      Stmt.containsModifierPlaceholderFuel fuel body ||
+        CatchClauses.containsModifierPlaceholderFuel fuel rest
+
+end
+
+def Stmt.containsModifierPlaceholder
+    (stmt : L00_SourceSolidity.Stmt) : Bool :=
+  Stmt.containsModifierPlaceholderFuel 4096 stmt
+
 def FunctionDecl.check (baseEnv : CheckEnv)
     (fn : L00_SourceSolidity.FunctionDecl) : Except TypeError Unit := do
   FunctionDecl.checkHeader baseEnv fn
@@ -8274,8 +11058,12 @@ def FunctionDecl.check (baseEnv : CheckEnv)
   let localNames := (Parameters.namedTypes fn.params).map Prod.fst ++
     (Parameters.namedTypes fn.returns).map Prod.fst
   ensureUniqueNames "function local" localNames
-  let locals := Parameters.namedTypeStorageRefs baseEnv.types fn.returns ++
-    Parameters.namedTypeStorageRefs baseEnv.types fn.params
+  let qualifyLocalEntry (entry : Name × Ty × Bool) : Name × Ty × Bool :=
+    (entry.1, baseEnv.qualifyCurrentLocalUserTypes entry.2.1, entry.2.2)
+  let locals :=
+    (Parameters.namedTypeStorageRefs baseEnv.types fn.returns ++
+      Parameters.namedTypeStorageRefs baseEnv.types fn.params).map
+        qualifyLocalEntry
   let dataLocations :=
     Parameters.namedDataLocations baseEnv.types fn.returns ++
       Parameters.namedDataLocations baseEnv.types fn.params
@@ -8290,8 +11078,11 @@ def FunctionDecl.check (baseEnv : CheckEnv)
           baseEnv.localStorageRefs
       localDataLocations := dataLocations ++ baseEnv.localDataLocations
       currentMutability := some fn.mutability
-      returnTys := Parameters.tys fn.returns
+      returnTys :=
+        (Parameters.tys fn.returns).map baseEnv.qualifyCurrentLocalUserTypes
+      returnNames := fn.returns.map L00_SourceSolidity.Parameter.name
       returnStorageRefs := Parameters.storageLocationFlags fn.returns
+      returnDataLocations := Parameters.dataLocations fn.returns
       inConstructor := fn.kind == L00_SourceSolidity.FunctionKind.constructor }
   ModifierInvocations.check env
     (fn.kind == L00_SourceSolidity.FunctionKind.constructor)
@@ -8301,6 +11092,8 @@ def FunctionDecl.check (baseEnv : CheckEnv)
   | some body =>
       ModifierInvocations.checkBodiesForCaller env fn.modifiers
       let _ ← checkStmt env body
+      Stmt.checkLocalPointerDefiniteAssignment body
+      FunctionDecl.checkPointerReturnDefiniteAssignment env fn body
       Except.ok ()
 
 def ModifierDecl.check (baseEnv : CheckEnv)
@@ -8319,6 +11112,9 @@ def ModifierDecl.check (baseEnv : CheckEnv)
         (TypeError.invalidFunctionHeader
           "modifier without implementation is not virtual")
   | some body =>
+      require (Stmt.containsModifierPlaceholder body)
+        (TypeError.invalidFunctionHeader
+          "modifier body does not contain a placeholder")
       let locals := Parameters.namedTypeStorageRefs baseEnv.types modifier.params
       let dataLocations :=
         Parameters.namedDataLocations baseEnv.types modifier.params
@@ -8333,8 +11129,10 @@ def ModifierDecl.check (baseEnv : CheckEnv)
                 if entry.2.2 then some entry.1 else none)) ++
               baseEnv.localStorageRefs
           localDataLocations := dataLocations ++ baseEnv.localDataLocations
-          returnTys := [] }
+          returnTys := []
+          returnNames := [] }
       let _ ← checkStmt env body
+      Stmt.checkLocalPointerDefiniteAssignment body
       Except.ok ()
 
 def EventParam.indexedWeight
@@ -8356,6 +11154,8 @@ def EventParam.check (env : CheckEnv)
     Except TypeError Unit := do
   checkTy env.types param.ty
   require (TypeContext.isAbiEncodable env.types param.ty)
+    (TypeError.invalidAbiType param.ty)
+  require (TypeContext.abiCoderSupports env.types param.ty)
     (TypeError.invalidAbiType param.ty)
   require (!Ty.containsMapping env.types 64 param.ty)
     (TypeError.invalidAbiType param.ty)
@@ -8384,6 +11184,8 @@ def Parameter.checkErrorParam (types : TypeContext)
   require param.location.isNone
     (TypeError.invalidDataLocation param.ty param.location)
   require (TypeContext.isAbiEncodable types param.ty)
+    (TypeError.invalidAbiType param.ty)
+  require (TypeContext.abiCoderSupports types param.ty)
     (TypeError.invalidAbiType param.ty)
   require (!Ty.containsMapping types 64 param.ty)
     (TypeError.invalidAbiType param.ty)
@@ -8458,6 +11260,8 @@ end
 def StructField.check (env : CheckEnv) (selfPaths : List Path)
     (field : L00_SourceSolidity.StructField) : Except TypeError Unit := do
   checkTy env.types field.ty
+  require (!Ty.containsLibraryType env.types 64 field.ty)
+    (TypeError.invalidType field.ty)
   require
     (!Ty.hasForbiddenStructReferenceCycle env.types selfPaths 64 field.ty)
     (TypeError.invalidType field.ty)
@@ -8541,7 +11345,8 @@ def UsingFunction.check (env : CheckEnv)
             (TypeError.invalidContractHeader "using target is not a library")
           Except.ok
             ((FunctionSigs.nonPrivate
-              (ContractDecl.directFunctionSigs libraryDecl)).filter
+              (ContractDecl.directFunctionSigsQualifiedLocalTypes
+                libraryDecl)).filter
                 (fun sig => sig.name == functionName))
       require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
 
@@ -8565,7 +11370,10 @@ def UsingDecl.checkCore (env : CheckEnv)
   else
     UsingFunctions.check env decl.target decl.global decl.functions
   match decl.target with
-  | some ty => checkTy env.types ty
+  | some ty => do
+      checkTy env.types ty
+      require (!Ty.containsLibraryType env.types 64 ty)
+        (TypeError.invalidType ty)
   | none => Except.ok ()
 
 def UsingDecl.checkContractLevel (env : CheckEnv)
@@ -8853,9 +11661,6 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
   if specifier.args.isEmpty then
     Except.ok ()
   else
-    require (argsAllCompileTimeConstant env specifier.args)
-      (TypeError.invalidContractHeader
-        "base constructor argument is not compile-time constant")
     let sig := ContractDecl.constructorSignature baseDecl
     match checkArgs env specifier.args with
     | Except.ok checkedArgs =>
@@ -8869,7 +11674,7 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
                 checkContextualArgsAssignableToParamsWithStorageRefsFor
                   env ("base constructor " ++ baseDecl.name)
                   sig.paramNames sig.params sig.paramStorageRefs
-                  specifier.args with
+                  sig.paramDataLocations specifier.args with
             | Except.ok _ => Except.ok ()
             | Except.error _ => Except.error checkedErr
     | Except.error argErr =>
@@ -8877,7 +11682,7 @@ def BaseSpecifier.check (env : CheckEnv) (sourceTypes : TypeContext)
             checkContextualArgsAssignableToParamsWithStorageRefsFor
               env ("base constructor " ++ baseDecl.name)
               sig.paramNames sig.params sig.paramStorageRefs
-              specifier.args with
+              sig.paramDataLocations specifier.args with
         | Except.ok _ => Except.ok ()
         | Except.error _ => Except.error argErr
 
@@ -9020,10 +11825,15 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     (events.map L00_SourceSolidity.EventDecl.name)
   let contractTypes :=
     sourceTypes.withContractTypes contract.name structs enums userValueTypes
-  let functionSigs := FunctionDecls.signatures functions
+  let localTypeNames := ContractDecl.localTypeNames contract
+  let functionSigs :=
+    (FunctionDecls.signatures functions).map
+      (FunctionSig.qualifyLocalUserTypes contract.name localTypeNames)
   FunctionSigs.ensureNoDuplicateSignatures functionSigs
   FunctionSigs.ensureNoDuplicateExternalAbiSignatures contractTypes
     functionSigs
+  FunctionSigs.ensureNoDuplicateExternalAbiSelectors contractTypes
+    (ContractDecl.directExternalFunctionSigs contractTypes contract)
   require ((functions.filter
       (fun fn => fn.kind == L00_SourceSolidity.FunctionKind.constructor)).length <= 1)
     (TypeError.invalidFunctionHeader "multiple constructors")
@@ -9040,13 +11850,16 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let visibleSourceErrors := ErrorSigs.withoutNamesOf errorSigs sourceErrors
   let visibleSourceEvents := EventSigs.withoutNamesOf eventSigs sourceEvents
   let currentPath := TypeContext.pathOfName contract.name
+  let currentStateVarTypes :=
+    StateVarDecls.namedTypesQualifiedLocalTypes
+      contract.name localTypeNames stateVars
   let sourceConstantVars := StateVarDecls.namedTypes sourceConstants
   let sourceConstantBindings := StateVarDecls.namedConstness sourceConstants
   let currentConstantBindings :=
     StateVarDecls.namedConstness stateVars ++ sourceConstantBindings
   let baseEnv : CheckEnv :=
     { types := contractTypes
-      vars := StateVarDecls.namedTypes stateVars ++ sourceConstantVars
+      vars := currentStateVarTypes ++ sourceConstantVars
       stateNames :=
         StateVarDecls.runtimeStateNamesWith currentConstantBindings stateVars
       constantBindings := currentConstantBindings
@@ -9058,15 +11871,18 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       errors := errorSigs ++ visibleSourceErrors
       events := eventSigs ++ visibleSourceEvents
       contractKind := some contract.kind
+      currentContractAbstract := contract.abstract
       currentContract := some currentPath
-      returnTys := [] }
+      returnTys := []
+      returnNames := [] }
   let baseSpecifierEnv :=
     { baseEnv with
       vars := sourceConstantVars
       stateNames := []
       constantBindings := sourceConstantBindings
       immutableNames := []
-      functions := [] }
+      functions := sourceFunctions
+      usingDecls := UsingDecls.dedup (usingDecls ++ sourceUsingDecls) }
   ContractDecl.checkKindShape baseSpecifierEnv sourceTypes contract stateVars
     functions modifiers usingDecls
   ContractDecl.checkStorageLayoutBase baseEnv contract
@@ -9119,23 +11935,30 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let visibleSourceEvents :=
     EventSigs.withoutNamesOf (eventSigs ++ inheritedEventSigs)
       sourceEvents
+  let inheritedFunctionSigs :=
+    ContractDecl.nonPrivateFunctionSigsFromOrder inheritedContracts
+  let visibleFunctionSigs :=
+    FunctionSigs.addNonPrivateAllIfNewSignature
+      functionSigs inheritedFunctionSigs
+  FunctionSigs.ensureNoDuplicateExternalAbiSelectors contractTypes
+    (ContractDecl.externalFunctionSigsFromOrder contractTypes dispatchOrder)
   let visibleStateVars := stateVars ++ inheritedStateVars
+  let visibleStateVarTypes :=
+    currentStateVarTypes ++ StateVarDecls.namedTypes inheritedStateVars
   let visibleConstantBindings :=
     StateVarDecls.namedConstness visibleStateVars ++ sourceConstantBindings
   let baseEnv :=
     { baseEnv with
       types := contractTypes
       ancestorPaths := ancestorPaths
-      vars := StateVarDecls.namedTypes visibleStateVars ++
-        sourceConstantVars
+      vars := visibleStateVarTypes ++ sourceConstantVars
       stateNames :=
         StateVarDecls.runtimeStateNamesWith visibleConstantBindings
           visibleStateVars
       constantBindings := visibleConstantBindings
       immutableNames := StateVarDecls.immutableNames visibleStateVars
-      superFunctions :=
-        ContractDecl.nonPrivateFunctionSigsFromOrder
-          inheritedContracts
+      functions := visibleFunctionSigs ++ sourceFunctions
+      superFunctions := inheritedFunctionSigs
       modifiers := ModifierDecls.signatures allModifierDecls
       modifierDecls := allModifierDecls
       errors := errorSigs ++ inheritedErrorSigs ++ visibleSourceErrors
@@ -9205,13 +12028,18 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       functionNames ++ nonFunctionTypeNames)
   let currentMembers := ContractDecl.overrideMembers contractTypes contract
   let currentModifierMembers := ModifierOverrideMembers.forContract contract
-  OverrideMembers.checkInheritedConflicts currentMembers inheritedMembers
-  ModifierOverrideMembers.checkInheritedConflicts currentModifierMembers
-    inheritedModifierMembers
-  OverrideMembers.checkInheritedAbstractImplemented contract.abstract
-    currentMembers inheritedMembers
-  ModifierOverrideMembers.checkInheritedAbstractImplemented contract.abstract
+  let inheritsUnimplementedAllowed :=
+    contract.abstract ||
+      contract.kind == L00_SourceSolidity.ContractKind.interface
+  OverrideMembers.checkInheritedConflicts allContracts currentMembers
+    inheritedMembers
+  ModifierOverrideMembers.checkInheritedConflicts allContracts
     currentModifierMembers inheritedModifierMembers
+  OverrideMembers.checkInheritedAbstractImplemented allContracts
+    inheritsUnimplementedAllowed currentMembers inheritedMembers
+  ModifierOverrideMembers.checkInheritedAbstractImplemented allContracts
+    inheritsUnimplementedAllowed currentModifierMembers inheritedModifierMembers
+    inheritedModifierMembers
   let rec checkStructs :
       List L00_SourceSolidity.StructDecl -> Except TypeError Unit
     | [] => Except.ok ()
@@ -9243,15 +12071,17 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     | [] => Except.ok ()
     | decl :: rest => do
         StateVarDecl.checkOverrideRules contractTypes currentPath
-          contract.kind ancestorPaths inheritedMembers decl
+          contract.name localTypeNames contract.kind ancestorPaths
+          inheritedMembers decl
         StateVarDecl.check baseEnv decl
         checkStateVars rest
   let rec checkFunctions :
       List L00_SourceSolidity.FunctionDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | fn :: rest => do
-        FunctionDecl.checkOverrideRules currentPath contract.kind ancestorPaths
-          inheritedMembers inheritedStateVarNames fn
+        FunctionDecl.checkOverrideRules currentPath contract.name
+          localTypeNames contract.kind ancestorPaths inheritedMembers
+          inheritedStateVarNames fn
         FunctionDecl.check baseEnv fn
         checkFunctions rest
   let rec checkModifiers :
@@ -9287,6 +12117,433 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
 structure CheckedSourceUnit where
   source : L00_SourceSolidity.SourceUnit
   deriving Repr
+
+structure SolidityVersion where
+  major : Nat
+  minor : Nat
+  patch : Nat
+  deriving Repr, BEq
+
+structure SolidityVersionLiteral where
+  version : SolidityVersion
+  components : Nat
+  deriving Repr, BEq
+
+inductive SolidityVersionConstraint where
+  | any : SolidityVersionConstraint
+  | never : SolidityVersionConstraint
+  | exact : SolidityVersionLiteral -> SolidityVersionConstraint
+  | ge : SolidityVersionLiteral -> SolidityVersionConstraint
+  | gt : SolidityVersionLiteral -> SolidityVersionConstraint
+  | le : SolidityVersionLiteral -> SolidityVersionConstraint
+  | lt : SolidityVersionLiteral -> SolidityVersionConstraint
+  | caret : SolidityVersionLiteral -> SolidityVersionConstraint
+  | tilde : SolidityVersionLiteral -> SolidityVersionConstraint
+  | range : SolidityVersion -> Option SolidityVersion ->
+      SolidityVersionConstraint
+  deriving Repr, BEq
+
+structure SolidityVersionPattern where
+  major : Option Nat
+  minor : Option Nat
+  patch : Option Nat
+  components : Nat
+  deriving Repr, BEq
+
+def solidityCompilerVersion : SolidityVersion :=
+  { major := 0, minor := 8, patch := 35 }
+
+def SolidityVersion.lt (left right : SolidityVersion) : Bool :=
+  left.major < right.major ||
+    (left.major == right.major &&
+      (left.minor < right.minor ||
+        (left.minor == right.minor && left.patch < right.patch)))
+
+def SolidityVersion.le (left right : SolidityVersion) : Bool :=
+  left == right || left.lt right
+
+def SolidityVersion.withPatchDefault
+    (major minor patch : Nat) : SolidityVersion :=
+  { major := major, minor := minor, patch := patch }
+
+def isSolidityVersionWildcardPart (text : String) : Bool :=
+  text == "x" || text == "X" || text == "*"
+
+def parseSolidityVersionPatternPart? (text : String) :
+    Option (Option Nat) :=
+  if isSolidityVersionWildcardPart text then
+    some none
+  else do
+    let value ← L00_SourceSolidity.Executable.parseDecimalNat? text
+    some (some value)
+
+def parseSolidityVersionPattern? (text : String) :
+    Option SolidityVersionPattern :=
+  match
+      ((String.trimAscii text).toString.splitOn ".").filter
+        (fun part => part != "")
+  with
+  | [majorText] => do
+      let major ← parseSolidityVersionPatternPart? majorText
+      some
+        { major := major
+          minor := some 0
+          patch := some 0
+          components := 1 }
+  | [majorText, minorText] => do
+      let major ← parseSolidityVersionPatternPart? majorText
+      let minor ← parseSolidityVersionPatternPart? minorText
+      some
+        { major := major
+          minor := minor
+          patch := some 0
+          components := 2 }
+  | [majorText, minorText, patchText] => do
+      let major ← parseSolidityVersionPatternPart? majorText
+      let minor ← parseSolidityVersionPatternPart? minorText
+      let patch ← parseSolidityVersionPatternPart? patchText
+      some
+        { major := major
+          minor := minor
+          patch := patch
+          components := 3 }
+  | _ => none
+
+def SolidityVersionPattern.hasWildcard
+    (pattern : SolidityVersionPattern) : Bool :=
+  pattern.major.isNone ||
+    (pattern.components >= 2 && pattern.minor.isNone) ||
+    (pattern.components >= 3 && pattern.patch.isNone)
+
+def SolidityVersionPattern.lowerBound
+    (pattern : SolidityVersionPattern) : SolidityVersion :=
+  { major := pattern.major.getD 0
+    minor := pattern.minor.getD 0
+    patch := pattern.patch.getD 0 }
+
+def SolidityVersionPattern.upperBound?
+    (pattern : SolidityVersionPattern) : Option SolidityVersion :=
+  match pattern.major, pattern.minor, pattern.patch with
+  | none, _, _ => none
+  | some major, none, _ =>
+      some { major := major + 1, minor := 0, patch := 0 }
+  | some major, some minor, none =>
+      some { major := major, minor := minor + 1, patch := 0 }
+  | some major, some minor, some patch =>
+      some { major := major, minor := minor, patch := patch + 1 }
+
+def parseSolidityWildcardRange? (text : String) :
+    Option (SolidityVersion × Option SolidityVersion) := do
+  let pattern ← parseSolidityVersionPattern? text
+  if pattern.hasWildcard then
+    some (pattern.lowerBound, pattern.upperBound?)
+  else
+    none
+
+def parseSolidityVersionLiteral? (text : String) :
+    Option SolidityVersionLiteral :=
+  match
+      ((String.trimAscii text).toString.splitOn ".").filter
+        (fun part => part != "")
+  with
+  | [majorText] => do
+      let major ← L00_SourceSolidity.Executable.parseDecimalNat? majorText
+      some
+        { version := SolidityVersion.withPatchDefault major 0 0
+          components := 1 }
+  | [majorText, minorText] => do
+      let major ← L00_SourceSolidity.Executable.parseDecimalNat? majorText
+      let minor ← L00_SourceSolidity.Executable.parseDecimalNat? minorText
+      some
+        { version := SolidityVersion.withPatchDefault major minor 0
+          components := 2 }
+  | [majorText, minorText, patchText] => do
+      let major ← L00_SourceSolidity.Executable.parseDecimalNat? majorText
+      let minor ← L00_SourceSolidity.Executable.parseDecimalNat? minorText
+      let patch ← L00_SourceSolidity.Executable.parseDecimalNat? patchText
+      some
+        { version := SolidityVersion.withPatchDefault major minor patch
+          components := 3 }
+  | _ => none
+
+def SolidityVersionLiteral.matchesExactCurrent
+    (literal : SolidityVersionLiteral) : Bool :=
+  match literal.components with
+  | 1 => solidityCompilerVersion.major == literal.version.major
+  | 2 =>
+      solidityCompilerVersion.major == literal.version.major &&
+        solidityCompilerVersion.minor == literal.version.minor
+  | _ => solidityCompilerVersion == literal.version
+
+def SolidityVersionLiteral.caretUpperBound
+    (literal : SolidityVersionLiteral) : SolidityVersion :=
+  let version := literal.version
+  if version.major > 0 then
+    { major := version.major + 1, minor := 0, patch := 0 }
+  else if version.minor > 0 then
+    { major := 0, minor := version.minor + 1, patch := 0 }
+  else
+    { major := 0, minor := 0, patch := version.patch + 1 }
+
+def SolidityVersionLiteral.tildeUpperBound
+    (literal : SolidityVersionLiteral) : SolidityVersion :=
+  let version := literal.version
+  match literal.components with
+  | 1 => { major := version.major + 1, minor := 0, patch := 0 }
+  | _ => { major := version.major, minor := version.minor + 1, patch := 0 }
+
+def SolidityVersionConstraint.matchesCurrent :
+    SolidityVersionConstraint -> Bool
+  | SolidityVersionConstraint.any => true
+  | SolidityVersionConstraint.never => false
+  | SolidityVersionConstraint.exact literal =>
+      literal.matchesExactCurrent
+  | SolidityVersionConstraint.ge literal =>
+      literal.version.le solidityCompilerVersion
+  | SolidityVersionConstraint.gt literal =>
+      literal.version.lt solidityCompilerVersion
+  | SolidityVersionConstraint.le literal =>
+      solidityCompilerVersion.le literal.version
+  | SolidityVersionConstraint.lt literal =>
+      solidityCompilerVersion.lt literal.version
+  | SolidityVersionConstraint.caret literal =>
+      literal.version.le solidityCompilerVersion &&
+        solidityCompilerVersion.lt literal.caretUpperBound
+  | SolidityVersionConstraint.tilde literal =>
+      literal.version.le solidityCompilerVersion &&
+        solidityCompilerVersion.lt literal.tildeUpperBound
+  | SolidityVersionConstraint.range lower upper? =>
+      lower.le solidityCompilerVersion &&
+        match upper? with
+        | some upper => solidityCompilerVersion.lt upper
+        | none => true
+
+def parseSolidityConstraintWithOperator? (op version : String) :
+    Option SolidityVersionConstraint :=
+  match parseSolidityWildcardRange? version with
+  | some (lower, upper?) =>
+      let lowerLiteral : SolidityVersionLiteral :=
+        { version := lower, components := 3 }
+      if op == ">=" then some (SolidityVersionConstraint.ge lowerLiteral)
+      else if op == ">" then
+        match upper? with
+        | some upper =>
+            some
+              (SolidityVersionConstraint.ge
+                { version := upper, components := 3 })
+        | none => some SolidityVersionConstraint.never
+      else if op == "<=" then
+        match upper? with
+        | some upper =>
+            some
+              (SolidityVersionConstraint.lt
+                { version := upper, components := 3 })
+        | none => some SolidityVersionConstraint.any
+      else if op == "<" then some (SolidityVersionConstraint.lt lowerLiteral)
+      else if op == "=" || op == "==" || op == "^" || op == "~" then
+        some (SolidityVersionConstraint.range lower upper?)
+      else none
+  | none => do
+      let literal ← parseSolidityVersionLiteral? version
+      if op == ">=" then some (SolidityVersionConstraint.ge literal)
+      else if op == ">" then some (SolidityVersionConstraint.gt literal)
+      else if op == "<=" then some (SolidityVersionConstraint.le literal)
+      else if op == "<" then some (SolidityVersionConstraint.lt literal)
+      else if op == "=" || op == "==" then
+        some (SolidityVersionConstraint.exact literal)
+      else if op == "^" then some (SolidityVersionConstraint.caret literal)
+      else if op == "~" then some (SolidityVersionConstraint.tilde literal)
+      else none
+
+def parseSolidityConstraintToken? (token : String) :
+    Option SolidityVersionConstraint :=
+  if String.isPrefixOf ">=" token then
+    parseSolidityConstraintWithOperator? ">=" (token.drop 2).toString
+  else if String.isPrefixOf "<=" token then
+    parseSolidityConstraintWithOperator? "<=" (token.drop 2).toString
+  else if String.isPrefixOf "==" token then
+    parseSolidityConstraintWithOperator? "==" (token.drop 2).toString
+  else if String.isPrefixOf ">" token then
+    parseSolidityConstraintWithOperator? ">" (token.drop 1).toString
+  else if String.isPrefixOf "<" token then
+    parseSolidityConstraintWithOperator? "<" (token.drop 1).toString
+  else if String.isPrefixOf "=" token then
+    parseSolidityConstraintWithOperator? "=" (token.drop 1).toString
+  else if String.isPrefixOf "^" token then
+    parseSolidityConstraintWithOperator? "^" (token.drop 1).toString
+  else if String.isPrefixOf "~" token then
+    parseSolidityConstraintWithOperator? "~" (token.drop 1).toString
+  else
+    match parseSolidityWildcardRange? token with
+    | some (lower, upper?) =>
+        some (SolidityVersionConstraint.range lower upper?)
+    | none => do
+        let literal ← parseSolidityVersionLiteral? token
+        some (SolidityVersionConstraint.exact literal)
+
+def isSolidityConstraintOperator (token : String) : Bool :=
+  token == ">=" || token == ">" || token == "<=" || token == "<" ||
+    token == "=" || token == "==" || token == "^" || token == "~"
+
+def splitPragmaWhitespace (text : String) : List String :=
+  (text.split
+    (fun ch =>
+      ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r')).toList.map
+      (fun slice => slice.toString)
+
+def parseSolidityConstraints? :
+    List String -> Option (List SolidityVersionConstraint)
+  | [] => some []
+  | op :: version :: rest =>
+      if isSolidityConstraintOperator op then do
+        let head ← parseSolidityConstraintWithOperator? op version
+        let tail ← parseSolidityConstraints? rest
+        some (head :: tail)
+      else do
+        let head ← parseSolidityConstraintToken? op
+        let tail ← parseSolidityConstraints? (version :: rest)
+        some (head :: tail)
+  | [token] => do
+      let head ← parseSolidityConstraintToken? token
+      some [head]
+
+def parseSolidityHyphenRange? (text : String) :
+    Option (List SolidityVersionConstraint) :=
+  match text.splitOn "-" with
+  | [lowerText, upperText] => do
+      let lowerPattern ← parseSolidityVersionPattern? lowerText
+      let upperPattern ← parseSolidityVersionPattern? upperText
+      some
+        [ SolidityVersionConstraint.range lowerPattern.lowerBound
+            upperPattern.upperBound? ]
+  | _ => none
+
+def parseSolidityConstraintGroup? (text : String) :
+    Option (List SolidityVersionConstraint) :=
+  match parseSolidityHyphenRange? text with
+  | some constraints => some constraints
+  | none =>
+      parseSolidityConstraints?
+        ((splitPragmaWhitespace text).filter (fun token => token != ""))
+
+def SolidityVersionConstraints.allMatchCurrent :
+    List SolidityVersionConstraint -> Bool
+  | [] => false
+  | constraint :: rest =>
+      constraint.matchesCurrent &&
+        match rest with
+        | [] => true
+        | _ => SolidityVersionConstraints.allMatchCurrent rest
+
+def solidityPragmaMatchesCurrentCompiler (expr : String) : Bool :=
+  let groups :=
+    (expr.splitOn "||").map (fun group => (String.trimAscii group).toString)
+  groups.any
+    (fun group =>
+      match parseSolidityConstraintGroup? group with
+      | some constraints => SolidityVersionConstraints.allMatchCurrent constraints
+      | none => false)
+
+def SourceItem.checkPragma :
+    L00_SourceSolidity.SourceItem -> Except TypeError Unit
+  | L00_SourceSolidity.SourceItem.pragma name value =>
+      if name == "solidity" then
+        require (solidityPragmaMatchesCurrentCompiler value)
+          (TypeError.unsupported "source solidity pragma version")
+      else if name == "abicoder" then
+        let value := (String.trimAscii value).toString
+        require (value == "v1" || value == "v2")
+          (TypeError.unsupported "source abicoder pragma")
+      else if name == "experimental" then
+        let value := (String.trimAscii value).toString
+        require (value == "ABIEncoderV2" || value == "SMTChecker")
+          (TypeError.unsupported "source experimental pragma")
+      else
+        Except.error (TypeError.unsupported ("unknown pragma " ++ name))
+  | _ => Except.ok ()
+
+def SourceItem.experimentalPragmaFeature? :
+    L00_SourceSolidity.SourceItem -> Option String
+  | L00_SourceSolidity.SourceItem.pragma "experimental" value =>
+      some (String.trimAscii value).toString
+  | _ => none
+
+def SourceItems.checkPragmasFrom (seenExperimental : List String) :
+    List L00_SourceSolidity.SourceItem -> Except TypeError Unit
+  | [] => Except.ok ()
+  | item :: rest => do
+      SourceItem.checkPragma item
+      match SourceItem.experimentalPragmaFeature? item with
+      | some feature =>
+          require (!seenExperimental.contains feature)
+            (TypeError.unsupported "duplicate experimental pragma")
+          SourceItems.checkPragmasFrom (feature :: seenExperimental) rest
+      | none =>
+          SourceItems.checkPragmasFrom seenExperimental rest
+
+def SourceItems.checkPragmas :
+    List L00_SourceSolidity.SourceItem -> Except TypeError Unit
+  | items => SourceItems.checkPragmasFrom [] items
+
+inductive AbiCoderSelection where
+  | explicitV1 : AbiCoderSelection
+  | explicitV2 : AbiCoderSelection
+  | experimentalV2 : AbiCoderSelection
+  deriving Repr, BEq
+
+def AbiCoderSelection.isV1 : AbiCoderSelection -> Bool
+  | AbiCoderSelection.explicitV1 => true
+  | _ => false
+
+def SourceItem.abiCoderSelection? :
+    L00_SourceSolidity.SourceItem ->
+    Except TypeError (Option AbiCoderSelection)
+  | L00_SourceSolidity.SourceItem.pragma "abicoder" value =>
+      let value := (String.trimAscii value).toString
+      if value == "v1" then
+        Except.ok (some AbiCoderSelection.explicitV1)
+      else if value == "v2" then
+        Except.ok (some AbiCoderSelection.explicitV2)
+      else
+        Except.error (TypeError.unsupported "source abicoder pragma")
+  | L00_SourceSolidity.SourceItem.pragma "experimental" value =>
+      let value := (String.trimAscii value).toString
+      if value == "ABIEncoderV2" then
+        Except.ok (some AbiCoderSelection.experimentalV2)
+      else
+        Except.ok none
+  | _ => Except.ok none
+
+def SourceItems.abiCoderV1From?
+    (selected : Option AbiCoderSelection) :
+    List L00_SourceSolidity.SourceItem -> Except TypeError Bool
+  | [] =>
+      Except.ok
+        (match selected with
+        | some selection => selection.isV1
+        | none => false)
+  | item :: rest => do
+      match (← SourceItem.abiCoderSelection? item) with
+      | none => SourceItems.abiCoderV1From? selected rest
+      | some selection =>
+          match selected with
+          | none => SourceItems.abiCoderV1From? (some selection) rest
+          | some AbiCoderSelection.explicitV2 =>
+              match selection with
+              | AbiCoderSelection.experimentalV2 =>
+                  SourceItems.abiCoderV1From? selected rest
+              | _ =>
+                  Except.error
+                    (TypeError.unsupported
+                      "source abicoder pragma already selected")
+          | some _ =>
+              Except.error
+                (TypeError.unsupported
+                  "source abicoder pragma already selected")
+
+def SourceItems.abiCoderV1? (items : List L00_SourceSolidity.SourceItem) :
+    Except TypeError Bool :=
+  SourceItems.abiCoderV1From? none items
 
 def SourceItem.contract? :
     L00_SourceSolidity.SourceItem -> Option L00_SourceSolidity.ContractDecl
@@ -9346,10 +12603,13 @@ def SourceItems.hasUnresolvedImport :
       SourceItem.isUnresolvedImport item ||
         SourceItems.hasUnresolvedImport rest
 
-def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
+def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
+    (source : L00_SourceSolidity.SourceUnit) :
     Except TypeError CheckedSourceUnit := do
   require (!SourceItems.hasUnresolvedImport source.items)
     (TypeError.unsupported "source import resolution")
+  SourceItems.checkPragmas source.items
+  let abiCoderV1 ← SourceItems.abiCoderV1? source.items
   let contracts := source.items.filterMap SourceItem.contract?
   let freeFunctions := source.items.filterMap SourceItem.freeFunction?
   let freeConstants := source.items.filterMap SourceItem.freeConstant?
@@ -9379,8 +12639,10 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
     (topLevelNonEventNames ++ freeFunctionNames)
     (freeEvents.map L00_SourceSolidity.EventDecl.name)
   let sourceTypes :=
-    TypeContext.empty.withSourceTypes contracts freeStructs freeEnums
-      freeUserValueTypes
+    { TypeContext.empty.withSourceTypes contracts freeStructs freeEnums
+        freeUserValueTypes with
+      abiCoderV1 := abiCoderV1
+      evmVersion := evmVersion }
   EventSigs.ensureNoDuplicateAbiSignatures sourceTypes freeEventSigs
   let sourceEnv : CheckEnv :=
     { types := sourceTypes
@@ -9390,7 +12652,8 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
       usingDecls := sourceUsingDecls
       errors := freeErrorSigs
       events := freeEventSigs
-      returnTys := [] }
+      returnTys := []
+      returnNames := [] }
   let rec checkFreeStructs :
       List L00_SourceSolidity.StructDecl -> Except TypeError Unit
     | [] => Except.ok ()
@@ -9456,6 +12719,10 @@ def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
   checkFreeErrors freeErrors
   checkContracts contracts
   Except.ok { source := source }
+
+def SourceUnit.check (source : L00_SourceSolidity.SourceUnit) :
+    Except TypeError CheckedSourceUnit :=
+  SourceUnit.checkWithEvmVersion EvmVersion.default source
 
 def sourceUnitAccepted? (source : L00_SourceSolidity.SourceUnit) : Bool :=
   Result.isOk (SourceUnit.check source)
@@ -9611,6 +12878,112 @@ def pragmaSimpleSource : L00_SourceSolidity.SourceUnit :=
 
 def pragmaSimpleSourceAccepted : Bool :=
   sourceUnitAccepted? pragmaSimpleSource
+
+def pragmaSourceWithVersion
+    (version contractName : String) : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "solidity" version
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaWildcardSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "0.8.x" "PragmaWildcard"
+
+def pragmaWildcardSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaWildcardSource
+
+def pragmaStarSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "*" "PragmaStar"
+
+def pragmaStarSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaStarSource
+
+def pragmaWildcardComparatorSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion ">=0.8.x" "PragmaWildcardComparator"
+
+def pragmaWildcardComparatorSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaWildcardComparatorSource
+
+def pragmaHyphenSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "0.8.34 - 0.8.36" "PragmaHyphen"
+
+def pragmaHyphenSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaHyphenSource
+
+def pragmaCompactHyphenSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "0.8.34-0.8.36" "PragmaCompactHyphen"
+
+def pragmaCompactHyphenSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaCompactHyphenSource
+
+def pragmaHyphenWildcardSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "0.8.34 - 0.8.x" "PragmaHyphenWildcard"
+
+def pragmaHyphenWildcardSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaHyphenWildcardSource
+
+def pragmaVersionSyntaxAccepted : Bool :=
+  pragmaSimpleSourceAccepted &&
+    pragmaWildcardSourceAccepted &&
+    pragmaStarSourceAccepted &&
+    pragmaWildcardComparatorSourceAccepted &&
+    pragmaHyphenSourceAccepted &&
+    pragmaCompactHyphenSourceAccepted &&
+    pragmaHyphenWildcardSourceAccepted
+
+def pragmaBadHyphenSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "0.8.36 - 0.8.40" "PragmaBadHyphen"
+
+def pragmaBadWildcardRangeSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "^0.9.x" "PragmaBadWildcardRange"
+
+def pragmaBadGreaterSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion ">0.8.35" "PragmaBadGreater"
+
+def pragmaBadLessWildcardSource : L00_SourceSolidity.SourceUnit :=
+  pragmaSourceWithVersion "<0.8.x" "PragmaBadLessWildcard"
+
+def pragmaVersionSyntaxRejected : Bool :=
+  Result.isError (SourceUnit.check pragmaBadHyphenSource) &&
+    Result.isError (SourceUnit.check pragmaBadWildcardRangeSource) &&
+    Result.isError (SourceUnit.check pragmaBadGreaterSource) &&
+    Result.isError (SourceUnit.check pragmaBadLessWildcardSource)
+
+def unknownPragmaSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "unknown" "feature"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UnknownPragma"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def badExperimentalPragmaSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "experimental" "UnknownFeature"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadExperimentalPragma"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def duplicateExperimentalPragmaSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "experimental" "SMTChecker"
+      , L00_SourceSolidity.SourceItem.pragma "experimental" "SMTChecker"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateExperimentalPragma"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaDirectiveSyntaxRejected : Bool :=
+  Result.isError (SourceUnit.check unknownPragmaSource) &&
+    Result.isError (SourceUnit.check badExperimentalPragmaSource) &&
+    Result.isError (SourceUnit.check duplicateExperimentalPragmaSource)
 
 def unresolvedImportSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -10338,6 +13711,630 @@ def calldataArrayCopySource : L00_SourceSolidity.SourceUnit :=
 def calldataArrayCopyAccepted : Bool :=
   sourceUnitAccepted? calldataArrayCopySource
 
+def memoryToCalldataLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badMemoryToCalldataLocal"
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some (L00_SourceSolidity.Expr.ident "input"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def memoryToCalldataReturnFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badMemoryToCalldataReturn"
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "input"))) }
+
+def calldataInternalHelperFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "calldataHelper"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ] }
+
+def memoryToCalldataInternalCallFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badMemoryToCalldataCall"
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "calldataHelper")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "input") ]))) }
+
+def storageToCalldataLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badStorageToCalldataLocal"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some (L00_SourceSolidity.Expr.ident "stored"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def storageToCalldataReturnFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badStorageToCalldataReturn"
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "stored"))) }
+
+def storageToCalldataInternalCallFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badStorageToCalldataCall"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.ident "calldataHelper")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "stored") ]))) }
+
+def calldataToCalldataLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { memoryToCalldataLocalFunction with
+    name := some "calldataToCalldataLocal"
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ] }
+
+def calldataToCalldataReturnFunction : L00_SourceSolidity.FunctionDecl :=
+  { memoryToCalldataReturnFunction with
+    name := some "calldataToCalldataReturn"
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ] }
+
+def calldataToCalldataInternalCallFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { memoryToCalldataInternalCallFunction with
+    name := some "calldataToCalldataCall"
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ] }
+
+def calldataAliasReassignmentFunction
+    (name rhs : Name) : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params :=
+      [ { name := some "memoryInput"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory }
+      , { name := some "calldataInput"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some (L00_SourceSolidity.Expr.ident "calldataInput"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.ident "local")
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.ident rhs))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def storageToCalldataReassignmentFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badStorageToCalldataReassignment"
+    params :=
+      [ { name := some "calldataInput"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some (L00_SourceSolidity.Expr.ident "calldataInput"))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.ident "local")
+                L00_SourceSolidity.AssignOp.assign
+                (L00_SourceSolidity.Expr.ident "stored"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def referencePairFunction (name : Name)
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    params :=
+      [ { name := some "left"
+          ty := uintArrayTy
+          location := some location }
+      , { name := some "right"
+          ty := uintArrayTy
+          location := some location } ]
+    returns :=
+      [ { name := none, ty := uintArrayTy, location := some location }
+      , { name := none, ty := uintArrayTy, location := some location } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.tuple
+              [ L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.ident "left")
+              , L00_SourceSolidity.TupleItem.value
+                  (L00_SourceSolidity.Expr.ident "right") ]))) }
+
+def referencePairBindingFunction (name helper : Name)
+    (paramLocation : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params :=
+      [ { name := some "left"
+          ty := uintArrayTy
+          location := some paramLocation }
+      , { name := some "right"
+          ty := uintArrayTy
+          location := some paramLocation } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "leftAlias"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata }
+              , { name := some "rightAlias"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident helper)
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "left")
+                  , L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "right") ]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def storagePairBindingFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badStorageToCalldataTuple"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "leftAlias"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata }
+              , { name := some "rightAlias"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "storagePair")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "stored")
+                  , L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.ident "other") ]))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def calldataOriginSource
+    (contractName : Name) (functions : List L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items := functions.map L00_SourceSolidity.ContractItem.function } ] }
+
+def calldataOriginStorageSource
+    (contractName : Name) (functions : List L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "other", ty := uintArrayTy } ] ++
+                functions.map L00_SourceSolidity.ContractItem.function } ] }
+
+def calldataOriginDisciplineAccepted : Bool :=
+  sourceUnitAccepted?
+      (calldataOriginSource "CalldataAliasAccepted"
+        [ calldataToCalldataLocalFunction
+        , calldataToCalldataReturnFunction
+        , calldataInternalHelperFunction
+        , calldataToCalldataInternalCallFunction
+        , calldataAliasReassignmentFunction
+            "calldataToCalldataReassignment" "calldataInput"
+        , referencePairFunction "calldataPair"
+            L00_SourceSolidity.DataLocation.calldata
+        , referencePairBindingFunction "calldataPairBinding"
+            "calldataPair" L00_SourceSolidity.DataLocation.calldata ])
+
+def calldataOriginDisciplineRejected : Bool :=
+  Result.isError
+      (SourceUnit.check
+        (calldataOriginSource "BadMemoryToCalldataLocal"
+          [memoryToCalldataLocalFunction])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginSource "BadMemoryToCalldataReturn"
+          [memoryToCalldataReturnFunction])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginSource "BadMemoryToCalldataCall"
+          [ calldataInternalHelperFunction
+          , memoryToCalldataInternalCallFunction ])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginSource "BadMemoryToCalldataReassignment"
+          [ calldataAliasReassignmentFunction
+              "memoryToCalldataReassignment" "memoryInput" ])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginSource "BadMemoryToCalldataTuple"
+          [ referencePairFunction "memoryPair"
+              L00_SourceSolidity.DataLocation.memory
+          , referencePairBindingFunction "memoryPairBinding"
+              "memoryPair" L00_SourceSolidity.DataLocation.memory ])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginStorageSource "BadStorageToCalldataLocal"
+          [storageToCalldataLocalFunction])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginStorageSource "BadStorageToCalldataReturn"
+          [storageToCalldataReturnFunction])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginStorageSource "BadStorageToCalldataCall"
+          [ calldataInternalHelperFunction
+          , storageToCalldataInternalCallFunction ])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginStorageSource "BadStorageToCalldataReassignment"
+          [storageToCalldataReassignmentFunction])) &&
+    Result.isError
+      (SourceUnit.check
+        (calldataOriginStorageSource "BadStorageToCalldataTuple"
+          [ referencePairFunction "storagePair"
+              L00_SourceSolidity.DataLocation.storage
+          , storagePairBindingFunction ]))
+
+def calldataOriginDisciplineMatches : Bool :=
+  calldataOriginDisciplineAccepted && calldataOriginDisciplineRejected
+
+def referenceDeleteFunction (name : Name)
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params :=
+      [ { name := some "input"
+          ty := uintArrayTy
+          location := some location } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.unary
+                L00_SourceSolidity.UnaryOp.delete
+                (L00_SourceSolidity.Expr.ident "input"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "0")) ]) }
+
+def referenceDeleteSource (contractName : Name)
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.SourceUnit :=
+  calldataOriginSource contractName
+    [referenceDeleteFunction "deleteInput" location]
+
+def memoryReferenceDeleteAccepted : Bool :=
+  sourceUnitAccepted?
+    (referenceDeleteSource "MemoryReferenceDelete"
+      L00_SourceSolidity.DataLocation.memory)
+
+def calldataReferenceDeleteRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (referenceDeleteSource "CalldataReferenceDelete"
+        L00_SourceSolidity.DataLocation.calldata))
+
+def storageReferenceDeleteSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "StorageReferenceDelete"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "values", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "deleteStorageReference"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "aliasValue"
+                                  ty := some uintArrayTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some
+                                (L00_SourceSolidity.Expr.ident "values"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.unary
+                                L00_SourceSolidity.UnaryOp.delete
+                                (L00_SourceSolidity.Expr.ident "aliasValue"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "0")) ]) } ] } ] }
+
+def storageReferenceDeleteRejected : Bool :=
+  Result.isError (SourceUnit.check storageReferenceDeleteSource)
+
+def referenceDeleteDisciplineMatches : Bool :=
+  memoryReferenceDeleteAccepted && calldataReferenceDeleteRejected &&
+    storageReferenceDeleteRejected
+
+def pointerReturnParam (name : Option Name)
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.Parameter :=
+  { name := name, ty := uintArrayTy, location := some location }
+
+def pointerReturnAssignment (target : Name) : L00_SourceSolidity.Stmt :=
+  L00_SourceSolidity.Stmt.expr
+    (L00_SourceSolidity.Expr.assign
+      (L00_SourceSolidity.Expr.ident "result")
+      L00_SourceSolidity.AssignOp.assign
+      (L00_SourceSolidity.Expr.ident target))
+
+def pointerReturnBranchFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "branch"
+    params := [{ name := some "pick", ty := L00_SourceSolidity.Ty.bool }]
+    returns :=
+      [pointerReturnParam (some "result")
+        L00_SourceSolidity.DataLocation.storage]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.ifElse
+          (L00_SourceSolidity.Expr.ident "pick")
+          (pointerReturnAssignment "first")
+          (some (pointerReturnAssignment "second"))) }
+
+def pointerReturnGateModifier : L00_SourceSolidity.ModifierDecl :=
+  { name := "gate"
+    params := [{ name := some "pass", ty := L00_SourceSolidity.Ty.bool }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.ifElse
+          (L00_SourceSolidity.Expr.ident "pass")
+          L00_SourceSolidity.Stmt.modifierPlaceholder
+          (some
+            (L00_SourceSolidity.Stmt.revertCall
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.ident "revert") [])))) }
+
+def pointerReturnModifiedFunction : L00_SourceSolidity.FunctionDecl :=
+  { name := some "modified"
+    returns :=
+      [pointerReturnParam (some "result")
+        L00_SourceSolidity.DataLocation.storage]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    modifiers :=
+      [{ target := userPath "gate"
+         args := [L00_SourceSolidity.Arg.positional (boolExpr true)] }]
+    body := some (pointerReturnAssignment "first") }
+
+def pointerReturnValidSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PointerReturnValid"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "first", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "second", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.modifierDecl
+                  pointerReturnGateModifier
+              , L00_SourceSolidity.ContractItem.function
+                  pointerReturnBranchFunction
+              , L00_SourceSolidity.ContractItem.function
+                  pointerReturnModifiedFunction ] } ] }
+
+def unassignedStoragePointerReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UnassignedStoragePointerReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    returns :=
+                      [pointerReturnParam (some "result")
+                        L00_SourceSolidity.DataLocation.storage]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    body := some (L00_SourceSolidity.Stmt.block []) } ] } ] }
+
+def unassignedCalldataPointerReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UnassignedCalldataPointerReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    returns :=
+                      [pointerReturnParam (some "result")
+                        L00_SourceSolidity.DataLocation.calldata]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body := some (L00_SourceSolidity.Stmt.block []) } ] } ] }
+
+def missingBranchPointerReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MissingBranchPointerReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { pointerReturnBranchFunction with
+                    name := some "bad"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.ifElse
+                          (L00_SourceSolidity.Expr.ident "pick")
+                          (pointerReturnAssignment "stored") none) } ] } ] }
+
+def maybeLoopPointerReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MaybeLoopPointerReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { pointerReturnBranchFunction with
+                    name := some "bad"
+                    params :=
+                      [{ name := some "run", ty := L00_SourceSolidity.Ty.bool }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.whileLoop
+                          (L00_SourceSolidity.Expr.ident "run")
+                          (L00_SourceSolidity.Stmt.block
+                            [ pointerReturnAssignment "stored"
+                            , L00_SourceSolidity.Stmt.break ])) } ] } ] }
+
+def explicitUnassignedPointerReturnSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ExplicitUnassignedPointerReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    returns :=
+                      [pointerReturnParam (some "result")
+                        L00_SourceSolidity.DataLocation.calldata]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (L00_SourceSolidity.Expr.ident "result"))) } ] } ] }
+
+def skippedModifierPointerReturnSource : L00_SourceSolidity.SourceUnit :=
+  let maybeModifier : L00_SourceSolidity.ModifierDecl :=
+    { name := "maybe"
+      params := [{ name := some "run", ty := L00_SourceSolidity.Ty.bool }]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.ifElse
+            (L00_SourceSolidity.Expr.ident "run")
+            L00_SourceSolidity.Stmt.modifierPlaceholder none) }
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SkippedModifierPointerReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.modifierDecl maybeModifier
+              , L00_SourceSolidity.ContractItem.function
+                  { pointerReturnModifiedFunction with
+                    name := some "bad"
+                    modifiers :=
+                      [{ target := userPath "maybe"
+                         args :=
+                           [L00_SourceSolidity.Arg.positional
+                              (boolExpr false)] }]
+                    body := some (pointerReturnAssignment "stored") } ] } ] }
+
+def modifierWithoutPlaceholderSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ModifierWithoutPlaceholder"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "bad", body := some L00_SourceSolidity.Stmt.empty }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    modifiers := [{ target := userPath "bad" }] } ] } ] }
+
+def pointerReturnDefiniteAssignmentMatches : Bool :=
+  sourceUnitAccepted? pointerReturnValidSource &&
+    Result.isError (SourceUnit.check unassignedStoragePointerReturnSource) &&
+    Result.isError (SourceUnit.check unassignedCalldataPointerReturnSource) &&
+    Result.isError (SourceUnit.check missingBranchPointerReturnSource) &&
+    Result.isError (SourceUnit.check maybeLoopPointerReturnSource) &&
+    Result.isError (SourceUnit.check explicitUnassignedPointerReturnSource) &&
+    Result.isError (SourceUnit.check skippedModifierPointerReturnSource) &&
+    Result.isError (SourceUnit.check modifierWithoutPlaceholderSource)
+
 def signedArrayIndexSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -10682,6 +14679,347 @@ def calldataBytesPopSource : L00_SourceSolidity.SourceUnit :=
 def calldataBytesPopRejected : Bool :=
   Result.isError (SourceUnit.check calldataBytesPopSource)
 
+def calldataArrayMutationSource (contractName functionName member : Name)
+    (args : List L00_SourceSolidity.Arg) : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some functionName
+                    params :=
+                      [ { name := some "input"
+                          ty := uintArrayTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.calldata } ]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.external_
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (memberCallExpr
+                                (L00_SourceSolidity.Expr.ident "input")
+                                member args)
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def calldataArrayPushRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (calldataArrayMutationSource "CalldataArrayPush"
+        "badCalldataArrayPush" "push"
+        [L00_SourceSolidity.Arg.positional (numberExpr "1")]))
+
+def calldataArrayPopRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (calldataArrayMutationSource "CalldataArrayPop"
+        "badCalldataArrayPop" "pop" []))
+
+def memoryBytesMutationSource (contractName functionName member : Name)
+    (args : List L00_SourceSolidity.Arg) : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some functionName
+                    params :=
+                      [ { name := some "data"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (memberCallExpr
+                                (L00_SourceSolidity.Expr.ident "data")
+                                member args)
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def memoryBytesPushRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (memoryBytesMutationSource "MemoryBytesPush"
+        "badMemoryBytesPush" "push"
+        [L00_SourceSolidity.Arg.positional bytes1SevenExpr]))
+
+def memoryBytesPopRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (memoryBytesMutationSource "MemoryBytesPop"
+        "badMemoryBytesPop" "pop" []))
+
+def fixedArrayPopSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "FixedArrayPop"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "arr", ty := fixedUintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { storageArrayPushPopFunction with
+                    name := some "badFixedPop"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (arrayPopExpr
+                                (L00_SourceSolidity.Expr.ident "arr"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def fixedArrayPopRejected : Bool :=
+  Result.isError (SourceUnit.check fixedArrayPopSource)
+
+def stringMutationSource (contractName functionName member : Name) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "text", ty := L00_SourceSolidity.Ty.string }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some functionName
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (memberCallExpr
+                                (L00_SourceSolidity.Expr.ident "text")
+                                member [])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def stringPushRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (stringMutationSource "StringPush" "badStringPush" "push"))
+
+def stringPopRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (stringMutationSource "StringPop" "badStringPop" "pop"))
+
+def namedArrayPushSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NamedArrayPush"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "arr", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { storageArrayPushPopFunction with
+                    name := some "badNamedPush"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (arrayPushExpr
+                                (L00_SourceSolidity.Expr.ident "arr")
+                                [ L00_SourceSolidity.Arg.named "value"
+                                    (numberExpr "1") ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def namedArrayPushRejected : Bool :=
+  Result.isError (SourceUnit.check namedArrayPushSource)
+
+def bytes2SevenExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.bytesN 2))
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.literal
+        (L00_SourceSolidity.Literal.bytes [7, 8]))]
+
+def bytesPushWrongTypeSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BytesPushWrongType"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "data", ty := L00_SourceSolidity.Ty.bytes }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badBytesPushWrongType"
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (arrayPushExpr
+                                (L00_SourceSolidity.Expr.ident "data")
+                                [ L00_SourceSolidity.Arg.positional
+                                    bytes2SevenExpr ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def bytesPushWrongTypeRejected : Bool :=
+  Result.isError (SourceUnit.check bytesPushWrongTypeSource)
+
+def arrayPopArgumentSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ArrayPopArgument"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "arr", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { storageArrayPushPopFunction with
+                    name := some "badPopArgument"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (memberCallExpr
+                                (L00_SourceSolidity.Expr.ident "arr")
+                                "pop"
+                                [ L00_SourceSolidity.Arg.positional
+                                    (numberExpr "1") ])
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def arrayPopArgumentRejected : Bool :=
+  Result.isError (SourceUnit.check arrayPopArgumentSource)
+
+def arrayMutationMemberDisciplineMatches : Bool :=
+  storageArrayPushPopAccepted &&
+    storageBytesPushPopAccepted &&
+    viewArrayPushRejected &&
+    memoryArrayPushRejected &&
+    calldataArrayPushRejected &&
+    calldataArrayPopRejected &&
+    fixedArrayPushRejected &&
+    fixedArrayPopRejected &&
+    memoryBytesPushRejected &&
+    memoryBytesPopRejected &&
+    calldataBytesPopRejected &&
+    stringPushRejected &&
+    stringPopRejected &&
+    namedArrayPushRejected &&
+    bytesPushWrongTypeRejected &&
+    arrayPopArgumentRejected
+
+def lengthMemberExpr (base : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.member base "length"
+
+def lengthAssignmentStmt (base : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.Stmt :=
+  L00_SourceSolidity.Stmt.expr
+    (L00_SourceSolidity.Expr.assign
+      (lengthMemberExpr base)
+      L00_SourceSolidity.AssignOp.assign
+      (numberExpr "1"))
+
+def lengthUpdateStmt (op : L00_SourceSolidity.UnaryOp)
+    (base : L00_SourceSolidity.Expr) : L00_SourceSolidity.Stmt :=
+  L00_SourceSolidity.Stmt.expr
+    (L00_SourceSolidity.Expr.unary op (lengthMemberExpr base))
+
+def storageLengthMutationSource (contractName functionName fieldName : Name)
+    (fieldTy : Ty) (stmt : L00_SourceSolidity.Stmt) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := fieldName, ty := fieldTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some functionName
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ stmt
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def storageArrayLengthAssignRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (storageLengthMutationSource "StorageArrayLengthAssign"
+        "badStorageArrayLengthAssign" "arr" uintArrayTy
+        (lengthAssignmentStmt (L00_SourceSolidity.Expr.ident "arr"))))
+
+def storageBytesLengthAssignRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (storageLengthMutationSource "StorageBytesLengthAssign"
+        "badStorageBytesLengthAssign" "data"
+        L00_SourceSolidity.Ty.bytes
+        (lengthAssignmentStmt (L00_SourceSolidity.Expr.ident "data"))))
+
+def fixedArrayLengthAssignRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (storageLengthMutationSource "FixedArrayLengthAssign"
+        "badFixedArrayLengthAssign" "arr" fixedUintArrayTy
+        (lengthAssignmentStmt (L00_SourceSolidity.Expr.ident "arr"))))
+
+def storageArrayLengthIncrementRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (storageLengthMutationSource "StorageArrayLengthIncrement"
+        "badStorageArrayLengthIncrement" "arr" uintArrayTy
+        (lengthUpdateStmt L00_SourceSolidity.UnaryOp.preIncrement
+          (L00_SourceSolidity.Expr.ident "arr"))))
+
+def storageBytesLengthDecrementRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (storageLengthMutationSource "StorageBytesLengthDecrement"
+        "badStorageBytesLengthDecrement" "data"
+        L00_SourceSolidity.Ty.bytes
+        (lengthUpdateStmt L00_SourceSolidity.UnaryOp.postDecrement
+          (L00_SourceSolidity.Expr.ident "data"))))
+
+def memoryArrayLengthAssignSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MemoryArrayLengthAssign"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badMemoryArrayLengthAssign"
+                    params :=
+                      [ { name := some "input"
+                          ty := uintArrayTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ lengthAssignmentStmt
+                              (L00_SourceSolidity.Expr.ident "input")
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def memoryArrayLengthAssignRejected : Bool :=
+  Result.isError (SourceUnit.check memoryArrayLengthAssignSource)
+
+def lengthMemberLValueDisciplineMatches : Bool :=
+  storageArrayLengthAssignRejected &&
+    storageBytesLengthAssignRejected &&
+    fixedArrayLengthAssignRejected &&
+    storageArrayLengthIncrementRejected &&
+    storageBytesLengthDecrementRejected &&
+    memoryArrayLengthAssignRejected
+
 def signedBytesIndexSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -10857,6 +15195,251 @@ def calldataBytesSliceSource : L00_SourceSolidity.SourceUnit :=
 def calldataBytesSliceAccepted : Bool :=
   sourceUnitAccepted? calldataBytesSliceSource
 
+def calldataStringSliceFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataBytesSliceFunction with
+    name := some "sliceString"
+    params :=
+      [ { name := some "payload"
+          ty := L00_SourceSolidity.Ty.string
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some L00_SourceSolidity.Ty.string
+                  location :=
+                    some L00_SourceSolidity.DataLocation.memory } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                  (some (numberExpr "0")) (some (numberExpr "4"))))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def calldataStringSliceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataStringSlice"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataStringSliceFunction] } ] }
+
+def calldataStringSliceAccepted : Bool :=
+  sourceUnitAccepted? calldataStringSliceSource
+
+def calldataBytesSliceIndexFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataBytesSliceFunction with
+    name := some "sliceByte"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.bytesN 1
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                (some (numberExpr "1")) (some (numberExpr "3")))
+              (numberExpr "0")))) }
+
+def calldataBytesSliceIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataBytesSliceIndex"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataBytesSliceIndexFunction] } ] }
+
+def calldataBytesSliceIndexAccepted : Bool :=
+  sourceUnitAccepted? calldataBytesSliceIndexSource
+
+def calldataBytesSliceLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataBytesSliceFunction with
+    name := some "sliceBytesLocal"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.uint 256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some L00_SourceSolidity.Ty.bytes
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "local") "length")) ]) }
+
+def calldataBytesSliceLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataBytesSliceLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataBytesSliceLocalFunction] } ] }
+
+def calldataBytesSliceLocalAccepted : Bool :=
+  sourceUnitAccepted? calldataBytesSliceLocalSource
+
+def calldataBytesSliceMemoryLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataBytesSliceLocalFunction with
+    name := some "sliceBytesMemoryLocal"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some L00_SourceSolidity.Ty.bytes
+                  location :=
+                    some L00_SourceSolidity.DataLocation.memory } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "local") "length")) ]) }
+
+def calldataBytesSliceMemoryLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataBytesSliceMemoryLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataBytesSliceMemoryLocalFunction] } ] }
+
+def calldataBytesSliceMemoryLocalAccepted : Bool :=
+  sourceUnitAccepted? calldataBytesSliceMemoryLocalSource
+
+def bytes1MaxExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.bytesN 1))
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.literal
+        (L00_SourceSolidity.Literal.bytes [255]))]
+
+def calldataBytesSliceMemoryLocalMutationFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { calldataBytesSliceFunction with
+    name := some "sliceBytesMemoryLocalMutation"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.bytesN 1
+          location := none }
+      , { name := none
+          ty := L00_SourceSolidity.Ty.bytesN 1
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some L00_SourceSolidity.Ty.bytes
+                  location :=
+                    some L00_SourceSolidity.DataLocation.memory } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.index
+                  (L00_SourceSolidity.Expr.ident "local")
+                  (numberExpr "0"))
+                L00_SourceSolidity.AssignOp.assign
+                bytes1MaxExpr)
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.index
+                        (L00_SourceSolidity.Expr.ident "local")
+                        (numberExpr "0"))
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.index
+                        (L00_SourceSolidity.Expr.ident "payload")
+                        (numberExpr "1")) ])) ]) }
+
+def calldataBytesSliceMemoryLocalMutationSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataBytesSliceMemoryLocalMutation"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataBytesSliceMemoryLocalMutationFunction] } ] }
+
+def calldataBytesSliceMemoryLocalMutationAccepted : Bool :=
+  sourceUnitAccepted? calldataBytesSliceMemoryLocalMutationSource
+
+def calldataStringSliceLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataStringSliceFunction with
+    name := some "sliceStringLocal"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.string
+          location :=
+            some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some L00_SourceSolidity.Ty.string
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "local")) ]) }
+
+def calldataStringSliceLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataStringSliceLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataStringSliceLocalFunction] } ] }
+
+def calldataStringSliceLocalAccepted : Bool :=
+  sourceUnitAccepted? calldataStringSliceLocalSource
+
+def calldataStringSliceMemoryLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataStringSliceLocalFunction with
+    name := some "sliceStringMemoryLocal"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some L00_SourceSolidity.Ty.string
+                  location :=
+                    some L00_SourceSolidity.DataLocation.memory } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "payload")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (L00_SourceSolidity.Expr.ident "local")) ]) }
+
+def calldataStringSliceMemoryLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataStringSliceMemoryLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataStringSliceMemoryLocalFunction] } ] }
+
+def calldataStringSliceMemoryLocalAccepted : Bool :=
+  sourceUnitAccepted? calldataStringSliceMemoryLocalSource
+
 def memoryBytesSliceSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -10874,6 +15457,78 @@ def memoryBytesSliceSource : L00_SourceSolidity.SourceUnit :=
 
 def memoryBytesSliceRejected : Bool :=
   Result.isError (SourceUnit.check memoryBytesSliceSource)
+
+def memoryStringSliceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MemoryStringSlice"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataStringSliceFunction with
+                    name := some "badMemoryStringSlice"
+                    params :=
+                      [ { name := some "payload"
+                          ty := L00_SourceSolidity.Ty.string
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ] } ] } ] }
+
+def memoryStringSliceRejected : Bool :=
+  Result.isError (SourceUnit.check memoryStringSliceSource)
+
+def stringIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadStringIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataBytesSliceFunction with
+                    name := some "badStringIndex"
+                    params :=
+                      [ { name := some "payload"
+                          ty := L00_SourceSolidity.Ty.string
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.calldata } ]
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.ident "payload")
+                              (numberExpr "0")))) } ] } ] }
+
+def stringIndexRejected : Bool :=
+  Result.isError (SourceUnit.check stringIndexSource)
+
+def stringLengthMemberSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadStringLength"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataBytesSliceFunction with
+                    name := some "badStringLength"
+                    params :=
+                      [ { name := some "payload"
+                          ty := L00_SourceSolidity.Ty.string
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.calldata } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "payload")
+                              "length"))) } ] } ] }
+
+def stringLengthMemberRejected : Bool :=
+  Result.isError (SourceUnit.check stringLengthMemberSource)
 
 def calldataArraySliceFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -10911,6 +15566,240 @@ def calldataArraySliceSource : L00_SourceSolidity.SourceUnit :=
 
 def calldataArraySliceAccepted : Bool :=
   sourceUnitAccepted? calldataArraySliceSource
+
+def calldataArraySliceMemoryLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataArraySliceFunction with
+    name := some "sliceArrayMemoryLocal" }
+
+def calldataArraySliceMemoryLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataArraySliceMemoryLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataArraySliceMemoryLocalFunction] } ] }
+
+def calldataArraySliceMemoryLocalAccepted : Bool :=
+  sourceUnitAccepted? calldataArraySliceMemoryLocalSource
+
+def calldataArraySliceMemoryLocalMutationFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { calldataArraySliceFunction with
+    name := some "sliceArrayMemoryLocalMutation"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.uint 256
+          location := none }
+      , { name := none
+          ty := L00_SourceSolidity.Ty.uint 256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.memory } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "input")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.assign
+                (L00_SourceSolidity.Expr.index
+                  (L00_SourceSolidity.Expr.ident "local")
+                  (numberExpr "0"))
+                L00_SourceSolidity.AssignOp.assign
+                (numberExpr "99"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.tuple
+                  [ L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.index
+                        (L00_SourceSolidity.Expr.ident "local")
+                        (numberExpr "0"))
+                  , L00_SourceSolidity.TupleItem.value
+                      (L00_SourceSolidity.Expr.index
+                        (L00_SourceSolidity.Expr.ident "input")
+                        (numberExpr "1")) ])) ]) }
+
+def calldataArraySliceMemoryLocalMutationSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataArraySliceMemoryLocalMutation"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataArraySliceMemoryLocalMutationFunction] } ] }
+
+def calldataArraySliceMemoryLocalMutationAccepted : Bool :=
+  sourceUnitAccepted? calldataArraySliceMemoryLocalMutationSource
+
+def calldataArraySliceIndexFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataArraySliceFunction with
+    name := some "sliceArrayFirst"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.uint 256
+          location := none } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.index
+              (sliceExpr (L00_SourceSolidity.Expr.ident "input")
+                (some (numberExpr "1")) (some (numberExpr "3")))
+              (numberExpr "0")))) }
+
+def calldataArraySliceIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataArraySliceIndex"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataArraySliceIndexFunction] } ] }
+
+def calldataArraySliceIndexAccepted : Bool :=
+  sourceUnitAccepted? calldataArraySliceIndexSource
+
+def calldataArraySliceLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { calldataArraySliceFunction with
+    name := some "sliceArrayLocal"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "local"
+                  ty := some uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+              (some
+                (sliceExpr (L00_SourceSolidity.Expr.ident "input")
+                  (some (numberExpr "1")) (some (numberExpr "3"))))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.index
+                  (L00_SourceSolidity.Expr.ident "local")
+                  (numberExpr "0"))) ]) }
+
+def calldataArraySliceLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataArraySliceLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                calldataArraySliceLocalFunction] } ] }
+
+def calldataArraySliceLocalAccepted : Bool :=
+  sourceUnitAccepted? calldataArraySliceLocalSource
+
+def memoryArraySliceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MemoryArraySlice"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataArraySliceFunction with
+                    name := some "badMemoryArraySlice"
+                    params :=
+                      [ { name := some "input"
+                          ty := uintArrayTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ] } ] } ] }
+
+def memoryArraySliceRejected : Bool :=
+  Result.isError (SourceUnit.check memoryArraySliceSource)
+
+def storageBytesSliceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "StorageBytesSlice"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := L00_SourceSolidity.Ty.bytes }
+              , L00_SourceSolidity.ContractItem.function
+                  { calldataBytesSliceFunction with
+                    name := some "badStorageBytesSlice"
+                    params := []
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (sliceExpr
+                              (L00_SourceSolidity.Expr.ident "stored")
+                              (some (numberExpr "0"))
+                              (some (numberExpr "2"))))) } ] } ] }
+
+def storageBytesSliceRejected : Bool :=
+  Result.isError (SourceUnit.check storageBytesSliceSource)
+
+def storageStringSliceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "StorageStringSlice"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := L00_SourceSolidity.Ty.string }
+              , L00_SourceSolidity.ContractItem.function
+                  { calldataStringSliceFunction with
+                    name := some "badStorageStringSlice"
+                    params := []
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.string
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (sliceExpr
+                              (L00_SourceSolidity.Expr.ident "stored")
+                              (some (numberExpr "0"))
+                              (some (numberExpr "2"))))) } ] } ] }
+
+def storageStringSliceRejected : Bool :=
+  Result.isError (SourceUnit.check storageStringSliceSource)
+
+def storageArraySliceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "StorageArraySlice"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "stored", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { calldataArraySliceFunction with
+                    name := some "badStorageArraySlice"
+                    params := []
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    returns :=
+                      [ { name := none
+                          ty := uintArrayTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (sliceExpr
+                              (L00_SourceSolidity.Expr.ident "stored")
+                              (some (numberExpr "0"))
+                              (some (numberExpr "2"))))) } ] } ] }
+
+def storageArraySliceRejected : Bool :=
+  Result.isError (SourceUnit.check storageArraySliceSource)
 
 def calldataSliceSignedIndexSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -10950,6 +15839,85 @@ def calldataSliceSignedIndexSource : L00_SourceSolidity.SourceUnit :=
 def calldataSliceSignedIndexRejected : Bool :=
   Result.isError (SourceUnit.check calldataSliceSignedIndexSource)
 
+def calldataStringSliceSignedIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadCalldataStringSliceSignedIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataStringSliceFunction with
+                    name := some "badSignedStringIndex"
+                    params :=
+                      [ { name := some "payload"
+                          ty := L00_SourceSolidity.Ty.string
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.calldata }
+                      , { name := some "offset"
+                          ty := int256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "local"
+                                  ty := some L00_SourceSolidity.Ty.string
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.memory } ]
+                              (some
+                                (sliceExpr
+                                  (L00_SourceSolidity.Expr.ident "payload")
+                                  (some
+                                    (L00_SourceSolidity.Expr.ident "offset"))
+                                  (some (numberExpr "4"))))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def calldataStringSliceSignedIndexRejected : Bool :=
+  Result.isError (SourceUnit.check calldataStringSliceSignedIndexSource)
+
+def calldataArraySliceSignedIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadCalldataArraySliceSignedIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataArraySliceFunction with
+                    name := some "badSignedArrayIndex"
+                    params :=
+                      [ { name := some "input"
+                          ty := uintArrayTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.calldata }
+                      , { name := some "offset"
+                          ty := int256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "local"
+                                  ty := some uintArrayTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.memory } ]
+                              (some
+                                (sliceExpr
+                                  (L00_SourceSolidity.Expr.ident "input")
+                                  (some
+                                    (L00_SourceSolidity.Expr.ident "offset"))
+                                  (some (numberExpr "2"))))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.index
+                                  (L00_SourceSolidity.Expr.ident "local")
+                                  (numberExpr "0"))) ]) } ] } ] }
+
+def calldataArraySliceSignedIndexRejected : Bool :=
+  Result.isError (SourceUnit.check calldataArraySliceSignedIndexSource)
+
 def calldataSliceMemberSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -10970,6 +15938,138 @@ def calldataSliceMemberSource : L00_SourceSolidity.SourceUnit :=
 
 def calldataSliceMemberRejected : Bool :=
   Result.isError (SourceUnit.check calldataSliceMemberSource)
+
+def calldataStringSliceMemberSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadCalldataStringSliceMember"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataStringSliceFunction with
+                    name := some "badStringSliceMember"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (sliceExpr
+                                (L00_SourceSolidity.Expr.ident "payload")
+                                none (some (numberExpr "4")))
+                              "length"))) } ] } ] }
+
+def calldataStringSliceMemberRejected : Bool :=
+  Result.isError (SourceUnit.check calldataStringSliceMemberSource)
+
+def calldataStringSliceIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadCalldataStringSliceIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataStringSliceFunction with
+                    name := some "badStringSliceIndex"
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.bytesN 1
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (sliceExpr
+                                (L00_SourceSolidity.Expr.ident "payload")
+                                (some (numberExpr "1"))
+                                (some (numberExpr "3")))
+                              (numberExpr "0")))) } ] } ] }
+
+def calldataStringSliceIndexRejected : Bool :=
+  Result.isError (SourceUnit.check calldataStringSliceIndexSource)
+
+def calldataArraySliceMemberSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadCalldataArraySliceMember"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { calldataArraySliceFunction with
+                    name := some "badArraySliceMember"
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.uint 256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (sliceExpr
+                                (L00_SourceSolidity.Expr.ident "input")
+                                none (some (numberExpr "2")))
+                              "length"))) } ] } ] }
+
+def calldataArraySliceMemberRejected : Bool :=
+  Result.isError (SourceUnit.check calldataArraySliceMemberSource)
+
+def calldataArraySliceUsingLibrary : L00_SourceSolidity.ContractDecl :=
+  { kind := L00_SourceSolidity.ContractKind.library
+    name := "SliceMemberLib"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { simpleReturnFunction with
+            name := some "first"
+            params :=
+              [ { name := some "input"
+                  ty := uintArrayTy
+                  location :=
+                    some L00_SourceSolidity.DataLocation.calldata } ]
+            returns :=
+              [ { name := none
+                  ty := L00_SourceSolidity.Ty.uint 256
+                  location := none } ]
+            visibility := some L00_SourceSolidity.Visibility.internal_
+            mutability := L00_SourceSolidity.StateMutability.pure
+            body :=
+              some
+                (L00_SourceSolidity.Stmt.returnValues
+                  (some
+                    (L00_SourceSolidity.Expr.index
+                      (L00_SourceSolidity.Expr.ident "input")
+                      (numberExpr "0")))) } ] }
+
+def calldataArraySliceUsingMemberCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          calldataArraySliceUsingLibrary
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadCalldataArraySliceUsingMemberCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.usingDecl
+                  { library := userPath "SliceMemberLib"
+                    target := some uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { calldataArraySliceFunction with
+                    name := some "badArraySliceUsingMemberCall"
+                    returns :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.uint 256
+                          location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (sliceExpr
+                                  (L00_SourceSolidity.Expr.ident "input")
+                                  (some (numberExpr "1"))
+                                  (some (numberExpr "3")))
+                                "first")
+                              []))) } ] } ] }
+
+def calldataArraySliceUsingMemberCallRejected : Bool :=
+  Result.isError (SourceUnit.check
+    calldataArraySliceUsingMemberCallSource)
 
 def structParamFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -10996,6 +16096,193 @@ def structSource : L00_SourceSolidity.SourceUnit :=
 def structSourceAccepted : Bool :=
   sourceUnitAccepted? structSource
 
+def pragmaAbiCoderV1SimpleSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v1"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV1Simple"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaAbiCoderV1SimpleAccepted : Bool :=
+  sourceUnitAccepted? pragmaAbiCoderV1SimpleSource
+
+def dynamicArrayParamFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "useArray"
+    params :=
+      [ { name := some "values"
+          ty := L00_SourceSolidity.Ty.array uint256 none
+          location := some L00_SourceSolidity.DataLocation.memory } ] }
+
+def pragmaAbiCoderV1DynamicArrayParamSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v1"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV1DynamicArray"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                dynamicArrayParamFunction] } ] }
+
+def pragmaAbiCoderV1DynamicArrayParamAccepted : Bool :=
+  sourceUnitAccepted? pragmaAbiCoderV1DynamicArrayParamSource
+
+def pragmaAbiCoderV2StructParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v2"
+      , L00_SourceSolidity.SourceItem.freeStruct pointStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV2StructParam"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                structParamFunction] } ] }
+
+def pragmaAbiCoderV2StructParamAccepted : Bool :=
+  sourceUnitAccepted? pragmaAbiCoderV2StructParamSource
+
+def pragmaAbiCoderV1StructParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v1"
+      , L00_SourceSolidity.SourceItem.freeStruct pointStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV1StructParam"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                structParamFunction] } ] }
+
+def pragmaAbiCoderV1StructParamRejected : Bool :=
+  Result.isError (SourceUnit.check pragmaAbiCoderV1StructParamSource)
+
+def nestedDynamicArrayParamFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "useNestedArray"
+    params :=
+      [ { name := some "values"
+          ty :=
+            L00_SourceSolidity.Ty.array
+              (L00_SourceSolidity.Ty.array uint256 none) none
+          location := some L00_SourceSolidity.DataLocation.memory } ] }
+
+def pragmaAbiCoderV1NestedDynamicArrayParamSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v1"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV1NestedDynamicArray"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                nestedDynamicArrayParamFunction] } ] }
+
+def pragmaAbiCoderV1NestedDynamicArrayParamRejected : Bool :=
+  Result.isError
+    (SourceUnit.check pragmaAbiCoderV1NestedDynamicArrayParamSource)
+
+def abiEncodePointFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "encodePoint"
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.bytes
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.ident "abi") "encode")
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.typeName pointTy)
+                    [L00_SourceSolidity.Arg.positional
+                      (numberExpr "1")]) ]))) }
+
+def pragmaAbiCoderV1AbiEncodeStructSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v1"
+      , L00_SourceSolidity.SourceItem.freeStruct pointStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV1EncodeStruct"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                abiEncodePointFunction] } ] }
+
+def pragmaAbiCoderV1AbiEncodeStructRejected : Bool :=
+  Result.isError (SourceUnit.check pragmaAbiCoderV1AbiEncodeStructSource)
+
+def pragmaAbiCoderDuplicateSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v1"
+      , L00_SourceSolidity.SourceItem.pragma "abicoder" "v2"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderDuplicate"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaAbiCoderDuplicateRejected : Bool :=
+  Result.isError (SourceUnit.check pragmaAbiCoderDuplicateSource)
+
+def pragmaAbiCoderBadValueSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v3"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderBadValue"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaAbiCoderBadValueRejected : Bool :=
+  Result.isError (SourceUnit.check pragmaAbiCoderBadValueSource)
+
+def pragmaAbiCoderV2ThenExperimentalSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma "abicoder" "v2"
+      , L00_SourceSolidity.SourceItem.pragma
+          "experimental" "ABIEncoderV2"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderV2ThenExperimental"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaAbiCoderV2ThenExperimentalAccepted : Bool :=
+  sourceUnitAccepted? pragmaAbiCoderV2ThenExperimentalSource
+
+def pragmaAbiCoderExperimentalThenV2Source :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.pragma
+          "experimental" "ABIEncoderV2"
+      , L00_SourceSolidity.SourceItem.pragma "abicoder" "v2"
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbiCoderExperimentalThenV2"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                simpleReturnFunction] } ] }
+
+def pragmaAbiCoderExperimentalThenV2Rejected : Bool :=
+  Result.isError (SourceUnit.check pragmaAbiCoderExperimentalThenV2Source)
+
+def pragmaAbiCoderV1DisciplineAccepted : Bool :=
+  pragmaAbiCoderV1SimpleAccepted &&
+    pragmaAbiCoderV1DynamicArrayParamAccepted &&
+    pragmaAbiCoderV2StructParamAccepted &&
+    pragmaAbiCoderV2ThenExperimentalAccepted
+
+def pragmaAbiCoderV1DisciplineRejected : Bool :=
+  pragmaAbiCoderV1StructParamRejected &&
+    pragmaAbiCoderV1NestedDynamicArrayParamRejected &&
+    pragmaAbiCoderV1AbiEncodeStructRejected &&
+    pragmaAbiCoderDuplicateRejected &&
+    pragmaAbiCoderBadValueRejected &&
+    pragmaAbiCoderExperimentalThenV2Rejected
+
 def missingStructLocationFunction : L00_SourceSolidity.FunctionDecl :=
   { structParamFunction with
     params := [{ name := some "point", ty := pointTy, location := none }] }
@@ -11010,6 +16297,30 @@ def missingStructLocationSource : L00_SourceSolidity.SourceUnit :=
 
 def missingStructLocationRejected : Bool :=
   Result.isError (SourceUnit.check missingStructLocationSource)
+
+def missingStructReturnLocationFunction : L00_SourceSolidity.FunctionDecl :=
+  { structParamFunction with
+    name := some "badReturnLocation"
+    params := []
+    returns := [{ name := none, ty := pointTy, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.typeName pointTy)
+              [L00_SourceSolidity.Arg.positional (numberExpr "1")]))) }
+
+def missingStructReturnLocationSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct pointStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadStructReturnLocation"
+            items := [L00_SourceSolidity.ContractItem.function
+              missingStructReturnLocationFunction] } ] }
+
+def missingStructReturnLocationRejected : Bool :=
+  Result.isError (SourceUnit.check missingStructReturnLocationSource)
 
 def tupleReturnFunction : L00_SourceSolidity.FunctionDecl :=
   { kind := L00_SourceSolidity.FunctionKind.function
@@ -11153,6 +16464,29 @@ def tupleVarDeclOmittedReturnSource :
 def tupleVarDeclOmittedReturnAccepted : Bool :=
   sourceUnitAccepted? tupleVarDeclOmittedReturnSource
 
+def tupleHoleReturnValueSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleHoleReturnValue"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleReturnFunction with
+                    name := some "badReturnHole"
+                    returns :=
+                      [ { name := none, ty := uint256, location := none }
+                      , { name := none, ty := uint256, location := none } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.tuple
+                              [ L00_SourceSolidity.TupleItem.hole
+                              , L00_SourceSolidity.TupleItem.value
+                                  (numberExpr "1") ]))) } ] } ] }
+
+def tupleHoleReturnValueRejected : Bool :=
+  Result.isError (SourceUnit.check tupleHoleReturnValueSource)
+
 def tupleVarDeclOmittedNoInitSource :
     L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -11178,6 +16512,35 @@ def tupleVarDeclOmittedNoInitSource :
 
 def tupleVarDeclOmittedNoInitRejected : Bool :=
   Result.isError (SourceUnit.check tupleVarDeclOmittedNoInitSource)
+
+def tupleHoleVarDeclInitSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleHoleVarDeclInit"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleVarDeclFunction with
+                    name := some "badVarDeclInitHole"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "a"
+                                  ty := some uint256
+                                  location := none }
+                              , { name := some "b"
+                                  ty := some uint256
+                                  location := none } ]
+                              (some
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.hole
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "1") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def tupleHoleVarDeclInitRejected : Bool :=
+  Result.isError (SourceUnit.check tupleHoleVarDeclInitSource)
 
 def badTupleVarDeclFunction : L00_SourceSolidity.FunctionDecl :=
   { tupleVarDeclFunction with
@@ -11264,6 +16627,9 @@ def nestedBlockLocalShadowSource : L00_SourceSolidity.SourceUnit :=
 
 def nestedBlockLocalShadowAccepted : Bool :=
   sourceUnitAccepted? nestedBlockLocalShadowSource
+
+def localBindingScopeDisciplineMatches : Bool :=
+  duplicateBlockLocalRejected && nestedBlockLocalShadowAccepted
 
 def tupleAssignmentFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -11397,6 +16763,74 @@ def tupleAssignmentFromReturnSource : L00_SourceSolidity.SourceUnit :=
 def tupleAssignmentFromReturnAccepted : Bool :=
   sourceUnitAccepted? tupleAssignmentFromReturnSource
 
+def tupleIndexSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleIndex"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "badLiteralTupleIndex"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.index
+                              (L00_SourceSolidity.Expr.tuple
+                                [ L00_SourceSolidity.TupleItem.value
+                                    (numberExpr "1")
+                                , L00_SourceSolidity.TupleItem.value
+                                    (numberExpr "2") ])
+                              (numberExpr "0")))) } ] } ] }
+
+def tupleIndexRejected : Bool :=
+  Result.isError (SourceUnit.check tupleIndexSource)
+
+def tupleHoleAssignmentRhsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "TupleHoleAssignRhs"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { tupleAssignmentFunction with
+                    name := some "badAssignRhsHole"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "a"
+                                  ty := some uint256
+                                  location := none } ]
+                              (some (numberExpr "0"))
+                          , L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "b"
+                                  ty := some uint256
+                                  location := none } ]
+                              (some (numberExpr "0"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "a")
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (L00_SourceSolidity.Expr.ident "b") ])
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.tuple
+                                  [ L00_SourceSolidity.TupleItem.hole
+                                  , L00_SourceSolidity.TupleItem.value
+                                      (numberExpr "1") ]))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some
+                                (L00_SourceSolidity.Expr.ident "b")) ]) } ] } ] }
+
+def tupleHoleAssignmentRhsRejected : Bool :=
+  Result.isError (SourceUnit.check tupleHoleAssignmentRhsSource)
+
+def tupleHoleValuePositionDisciplineMatches : Bool :=
+  tupleHoleReturnValueRejected &&
+    tupleHoleVarDeclInitRejected &&
+    tupleHoleAssignmentRhsRejected
+
 def badTupleAssignmentAritySource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -11510,6 +16944,14 @@ def badTupleAssignmentTargetSource : L00_SourceSolidity.SourceUnit :=
 def badTupleAssignmentTargetRejected : Bool :=
   Result.isError (SourceUnit.check badTupleAssignmentTargetSource)
 
+def tupleDestructuringStaticRejectionDisciplineMatches : Bool :=
+  tupleVarDeclOmittedNoInitRejected &&
+    badTupleVarDeclRejected &&
+    badTupleAssignmentArityRejected &&
+    badTupleAssignmentTypeRejected &&
+    badTupleAssignmentTargetRejected &&
+    tupleIndexRejected
+
 def valueTypeMemoryParamSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -11565,6 +17007,20 @@ def bytesConstantSource : L00_SourceSolidity.SourceUnit :=
 
 def bytesConstantAccepted : Bool :=
   sourceUnitAccepted? bytesConstantSource
+
+def stringLiteralBytesConstantSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeConstant
+          { name := "STRING_BLOB"
+            ty := L00_SourceSolidity.Ty.bytes
+            mutability := L00_SourceSolidity.VarMutability.constant
+            init :=
+              some
+                (L00_SourceSolidity.Expr.literal
+                  (L00_SourceSolidity.Literal.string "hi")) } ] }
+
+def stringLiteralBytesConstantAccepted : Bool :=
+  sourceUnitAccepted? stringLiteralBytesConstantSource
 
 def badArrayConstantSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -11673,11 +17129,11 @@ def addmodSignedArgumentRejected : Bool :=
 def addmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
-          { name := "BadAddmodZeroLiteral"
+          { name := "AddmodZeroLiteral"
             items :=
               [ L00_SourceSolidity.ContractItem.function
                   { simpleReturnFunction with
-                    name := some "badAddmod"
+                    name := some "addmodLiteralZero"
                     body :=
                       some
                         (L00_SourceSolidity.Stmt.returnValues
@@ -11691,17 +17147,17 @@ def addmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
                               , L00_SourceSolidity.Arg.positional
                                   (numberExpr "0") ]))) } ] } ] }
 
-def addmodZeroLiteralRejected : Bool :=
-  Result.isError (SourceUnit.check addmodZeroLiteralSource)
+def addmodZeroLiteralAccepted : Bool :=
+  sourceUnitAccepted? addmodZeroLiteralSource
 
 def mulmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
-          { name := "BadMulmodZeroLiteral"
+          { name := "MulmodZeroLiteral"
             items :=
               [ L00_SourceSolidity.ContractItem.function
                   { simpleReturnFunction with
-                    name := some "badMulmod"
+                    name := some "mulmodLiteralZero"
                     body :=
                       some
                         (L00_SourceSolidity.Stmt.returnValues
@@ -11715,8 +17171,8 @@ def mulmodZeroLiteralSource : L00_SourceSolidity.SourceUnit :=
                               , L00_SourceSolidity.Arg.positional
                                   (numberExpr "0") ]))) } ] } ] }
 
-def mulmodZeroLiteralRejected : Bool :=
-  Result.isError (SourceUnit.check mulmodZeroLiteralSource)
+def mulmodZeroLiteralAccepted : Bool :=
+  sourceUnitAccepted? mulmodZeroLiteralSource
 
 def mulmodSignedModulusSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -11745,6 +17201,66 @@ def mulmodSignedModulusSource : L00_SourceSolidity.SourceUnit :=
 
 def mulmodSignedModulusRejected : Bool :=
   Result.isError (SourceUnit.check mulmodSignedModulusSource)
+
+def keccakBytesSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "KeccakBytes"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "hash"
+                    returns :=
+                      [{ name := none
+                         ty := L00_SourceSolidity.Ty.bytesN 32
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "keccak256")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2, 3])) ]))) } ] } ] }
+
+def keccakBytesAccepted : Bool :=
+  sourceUnitAccepted? keccakBytesSource
+
+def badKeccakUintSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadKeccakUint"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "hash"
+                    returns :=
+                      [{ name := none
+                         ty := L00_SourceSolidity.Ty.bytesN 32
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident "keccak256")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "1") ]))) } ] } ] }
+
+def badKeccakUintRejected : Bool :=
+  Result.isError (SourceUnit.check badKeccakUintSource)
+
+def globalPrimitiveBuiltinDisciplineMatches : Bool :=
+  addmodConstantAccepted &&
+    addmodVariableModulusAccepted &&
+    addmodZeroLiteralAccepted &&
+    mulmodZeroLiteralAccepted &&
+    keccakBytesAccepted &&
+    addmodSignedArgumentRejected &&
+    mulmodSignedModulusRejected &&
+    badKeccakUintRejected
 
 def constantFromStateSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -12401,6 +17917,59 @@ def typeCreationCodeOtherSource : L00_SourceSolidity.SourceUnit :=
 def typeCreationCodeOtherAccepted : Bool :=
   sourceUnitAccepted? typeCreationCodeOtherSource
 
+def typeCodeMemberSource (target : L00_SourceSolidity.ContractDecl)
+    (readerName member : Name) : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract target
+      , L00_SourceSolidity.SourceItem.contract
+          { name := readerName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (contractCodeReturnFunction target.name member) ] } ] }
+
+def typeLibraryCreationCodeSource : L00_SourceSolidity.SourceUnit :=
+  typeCodeMemberSource
+    { kind := L00_SourceSolidity.ContractKind.library
+      name := "CodeLibrary" }
+    "LibraryCreationCodeReader" "creationCode"
+
+def typeLibraryRuntimeCodeSource : L00_SourceSolidity.SourceUnit :=
+  typeCodeMemberSource
+    { kind := L00_SourceSolidity.ContractKind.library
+      name := "RuntimeLibrary" }
+    "LibraryRuntimeCodeReader" "runtimeCode"
+
+def typeInterfaceCreationCodeSource : L00_SourceSolidity.SourceUnit :=
+  typeCodeMemberSource
+    { kind := L00_SourceSolidity.ContractKind.interface
+      name := "CodeInterface" }
+    "InterfaceCreationCodeReader" "creationCode"
+
+def typeInterfaceRuntimeCodeSource : L00_SourceSolidity.SourceUnit :=
+  typeCodeMemberSource
+    { kind := L00_SourceSolidity.ContractKind.interface
+      name := "RuntimeInterface" }
+    "InterfaceRuntimeCodeReader" "runtimeCode"
+
+def typeAbstractCreationCodeSource : L00_SourceSolidity.SourceUnit :=
+  typeCodeMemberSource
+    { name := "CodeAbstract", abstract := true }
+    "AbstractCreationCodeReader" "creationCode"
+
+def typeAbstractRuntimeCodeSource : L00_SourceSolidity.SourceUnit :=
+  typeCodeMemberSource
+    { name := "RuntimeAbstract", abstract := true }
+    "AbstractRuntimeCodeReader" "runtimeCode"
+
+def typeCodeMemberKindDisciplineMatches : Bool :=
+  sourceUnitAccepted? typeCreationCodeOtherSource &&
+    sourceUnitAccepted? typeLibraryCreationCodeSource &&
+    sourceUnitAccepted? typeLibraryRuntimeCodeSource &&
+    Result.isError (SourceUnit.check typeInterfaceCreationCodeSource) &&
+    Result.isError (SourceUnit.check typeInterfaceRuntimeCodeSource) &&
+    Result.isError (SourceUnit.check typeAbstractCreationCodeSource) &&
+    Result.isError (SourceUnit.check typeAbstractRuntimeCodeSource)
+
 def typeCreationCodeSelfSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -12558,8 +18127,198 @@ def deleteMappingVariableSource : L00_SourceSolidity.SourceUnit :=
               , L00_SourceSolidity.ContractItem.function
                   deleteMappingVariableFunction ] } ] }
 
-def deleteMappingVariableAccepted : Bool :=
-  sourceUnitAccepted? deleteMappingVariableSource
+def deleteMappingVariableRejected : Bool :=
+  Result.isError (SourceUnit.check deleteMappingVariableSource)
+
+def mappingStructWithMappingDecl : L00_SourceSolidity.StructDecl :=
+  { name := "Ledger"
+    fields :=
+      [ { name := "total", ty := uint256 }
+      , { name := "credits"
+          ty := L00_SourceSolidity.Ty.mapping uint256 uint256 } ] }
+
+def mappingStructWithMappingTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "Ledger")
+
+def mappingStructFirstStateVar : L00_SourceSolidity.StateVarDecl :=
+  { name := "first", ty := mappingStructWithMappingTy }
+
+def mappingStructSecondStateVar : L00_SourceSolidity.StateVarDecl :=
+  { name := "second", ty := mappingStructWithMappingTy }
+
+def mappingStructStorageCopySource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          mappingStructWithMappingDecl
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "MappingStructStorageCopy"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  mappingStructFirstStateVar
+              , L00_SourceSolidity.ContractItem.stateVar
+                  mappingStructSecondStateVar
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "first")
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ident
+                                  "second"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def mappingStructStorageCopyRejected : Bool :=
+  Result.isError (SourceUnit.check mappingStructStorageCopySource)
+
+def mappingStructStorageRebindSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          mappingStructWithMappingDecl
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "MappingStructStorageRebind"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  mappingStructFirstStateVar
+              , L00_SourceSolidity.ContractItem.stateVar
+                  mappingStructSecondStateVar
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "local"
+                                  ty := some mappingStructWithMappingTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some (L00_SourceSolidity.Expr.ident
+                                "first"))
+                          , L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "other"
+                                  ty := some mappingStructWithMappingTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.storage } ]
+                              (some (L00_SourceSolidity.Expr.ident
+                                "second"))
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "local")
+                                L00_SourceSolidity.AssignOp.assign
+                                (L00_SourceSolidity.Expr.ident "other"))
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def mappingStructStorageRebindAccepted : Bool :=
+  sourceUnitAccepted? mappingStructStorageRebindSource
+
+def mappingStructMemoryLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          mappingStructWithMappingDecl
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "MappingStructMemoryLocal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.varDecl
+                              [ { name := some "local"
+                                  ty := some mappingStructWithMappingTy
+                                  location :=
+                                    some
+                                      L00_SourceSolidity.DataLocation.memory } ]
+                              none
+                          , L00_SourceSolidity.Stmt.returnValues
+                              (some (numberExpr "1")) ]) } ] } ] }
+
+def mappingStructMemoryLocalRejected : Bool :=
+  Result.isError (SourceUnit.check mappingStructMemoryLocalSource)
+
+def mappingStructCalldataParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          mappingStructWithMappingDecl
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "MappingStructCalldataParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    params :=
+                      [ { name := some "input"
+                          ty := mappingStructWithMappingTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.calldata } ] } ] } ] }
+
+def mappingStructCalldataParamRejected : Bool :=
+  Result.isError (SourceUnit.check mappingStructCalldataParamSource)
+
+def mappingStructInternalStorageParamSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct
+          mappingStructWithMappingDecl
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "MappingStructInternalStorageParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  mappingStructFirstStateVar
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "readTotal"
+                    params :=
+                      [ { name := some "input"
+                          ty := mappingStructWithMappingTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage } ]
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.internal_
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "input")
+                              "total"))) }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.ident
+                                "readTotal")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident
+                                    "first") ]))) } ] } ] }
+
+def mappingStructInternalStorageParamAccepted : Bool :=
+  sourceUnitAccepted? mappingStructInternalStorageParamSource
+
+def mappingStructContainingMappingDisciplineMatches : Bool :=
+  mappingStructStorageCopyRejected &&
+    mappingStructStorageRebindAccepted &&
+    mappingStructMemoryLocalRejected &&
+    mappingStructCalldataParamRejected &&
+    mappingStructInternalStorageParamAccepted
 
 def badMappingIndexFunction : L00_SourceSolidity.FunctionDecl :=
   { mappingReadFunction with
@@ -12776,6 +18535,27 @@ def freeErrorOverloadSource : L00_SourceSolidity.SourceUnit :=
 
 def freeErrorOverloadRejected : Bool :=
   Result.isError (SourceUnit.check freeErrorOverloadSource)
+
+def contractErrorOverloadSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ContractErrorOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.errorDecl
+                  { name := "LocalBad"
+                    params :=
+                      [{ name := none
+                         ty := uint256
+                         location := none }] }
+              , L00_SourceSolidity.ContractItem.errorDecl
+                  { name := "LocalBad"
+                    params :=
+                      [ { name := none
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ] } ] } ] }
+
+def contractErrorOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check contractErrorOverloadSource)
 
 def abiClashContractTy : Ty :=
   L00_SourceSolidity.Ty.user (userPath "B")
@@ -14311,6 +20091,11 @@ def continueOutsideLoopSource : L00_SourceSolidity.SourceUnit :=
 def continueOutsideLoopRejected : Bool :=
   Result.isError (SourceUnit.check continueOutsideLoopSource)
 
+def loopControlPlacementDisciplineMatches : Bool :=
+  loopBreakContinueAccepted &&
+    breakOutsideLoopRejected &&
+    continueOutsideLoopRejected
+
 def namedReturnSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -14353,6 +20138,28 @@ def namedReturnSource : L00_SourceSolidity.SourceUnit :=
                             L00_SourceSolidity.AssignOp.assign
                             (numberExpr "9"))) }
               , L00_SourceSolidity.ContractItem.function
+                  { name := some "runBare"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := some "out"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "out")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "11"))
+                          , L00_SourceSolidity.Stmt.returnValues none
+                          , L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "out")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "99")) ]) }
+              , L00_SourceSolidity.ContractItem.function
                   { name := some "runDefault"
                     visibility :=
                       some L00_SourceSolidity.Visibility.public_
@@ -14380,10 +20187,36 @@ def namedBareReturnSource : L00_SourceSolidity.SourceUnit :=
                          location := none }]
                     body :=
                       some
+                        (L00_SourceSolidity.Stmt.block
+                          [ L00_SourceSolidity.Stmt.expr
+                              (L00_SourceSolidity.Expr.assign
+                                (L00_SourceSolidity.Expr.ident "out")
+                                L00_SourceSolidity.AssignOp.assign
+                                (numberExpr "12"))
+                          , L00_SourceSolidity.Stmt.returnValues none ]) } ] } ] }
+
+def namedBareReturnAccepted : Bool :=
+  sourceUnitAccepted? namedBareReturnSource
+
+def unnamedBareReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UnnamedBareReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_
+                    returns :=
+                      [{ name := none
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some
                         (L00_SourceSolidity.Stmt.returnValues none) } ] } ] }
 
-def namedBareReturnRejected : Bool :=
-  Result.isError (SourceUnit.check namedBareReturnSource)
+def unnamedBareReturnRejected : Bool :=
+  Result.isError (SourceUnit.check unnamedBareReturnSource)
 
 def internalRequireConditionCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -15164,6 +20997,63 @@ def internalRevertTwoArgumentCallSource : L00_SourceSolidity.SourceUnit :=
 def internalRevertTwoArgumentCallAccepted : Bool :=
   sourceUnitAccepted? internalRevertTwoArgumentCallSource
 
+def assertBoolConditionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AssertBoolCondition"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "ok"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.external_
+                    returns := []
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "assert")
+                            [ L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.literal
+                                  (L00_SourceSolidity.Literal.bool true)) ])) } ] } ] }
+
+def assertBoolConditionAccepted : Bool :=
+  sourceUnitAccepted? assertBoolConditionSource
+
+def assertUintConditionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAssertUintCondition"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { name := some "bad"
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.external_
+                    returns := []
+                    mutability := L00_SourceSolidity.StateMutability.pure
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.expr
+                          (L00_SourceSolidity.Expr.call
+                            (L00_SourceSolidity.Expr.ident "assert")
+                            [ L00_SourceSolidity.Arg.positional
+                                (numberExpr "1") ])) } ] } ] }
+
+def assertUintConditionRejected : Bool :=
+  Result.isError (SourceUnit.check assertUintConditionSource)
+
+def assertBuiltinDisciplineMatches : Bool :=
+  assertBoolConditionAccepted &&
+    assertUintConditionRejected
+
+def requireRevertBuiltinDisciplineMatches : Bool :=
+  internalRequireConditionCallAccepted &&
+    internalRequireReasonCallAccepted &&
+    requireUintReasonRejected &&
+    revertUintReasonRejected &&
+    internalRevertArgumentCallAccepted &&
+    internalRevertTwoArgumentCallAccepted
+
 def internalTupleReturnCallSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -15384,6 +21274,11 @@ def uncheckedPlaceholderSource : L00_SourceSolidity.SourceUnit :=
 def uncheckedPlaceholderRejected : Bool :=
   Result.isError (SourceUnit.check uncheckedPlaceholderSource)
 
+def uncheckedPlacementDisciplineMatches : Bool :=
+  uncheckedArithmeticAccepted &&
+    nestedUncheckedRejected &&
+    uncheckedPlaceholderRejected
+
 def emptyInlineAssemblyFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "emptyAssembly"
@@ -15402,8 +21297,8 @@ def emptyInlineAssemblySource : L00_SourceSolidity.SourceUnit :=
             items := [L00_SourceSolidity.ContractItem.function
               emptyInlineAssemblyFunction] } ] }
 
-def emptyInlineAssemblyAccepted : Bool :=
-  sourceUnitAccepted? emptyInlineAssemblySource
+def emptyInlineAssemblyRejected : Bool :=
+  Result.isError (SourceUnit.check emptyInlineAssemblySource)
 
 def nonemptyInlineAssemblySource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -15452,6 +21347,31 @@ def duplicateModifierParamNameSource : L00_SourceSolidity.SourceUnit :=
 def duplicateModifierParamNameRejected : Bool :=
   Result.isError (SourceUnit.check duplicateModifierParamNameSource)
 
+def modifierOverloadSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ModifierOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "guarded"
+                    params :=
+                      [{ name := some "value"
+                         ty := uint256
+                         location := none }]
+                    body :=
+                      some L00_SourceSolidity.Stmt.modifierPlaceholder }
+              , L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "guarded"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    body :=
+                      some L00_SourceSolidity.Stmt.modifierPlaceholder } ] } ] }
+
+def modifierOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check modifierOverloadSource)
+
 def valueOption (amount : String) : L00_SourceSolidity.CallOption :=
   L00_SourceSolidity.CallOption.named "value"
     (L00_SourceSolidity.Expr.literal
@@ -15466,6 +21386,12 @@ def saltOption (expr : L00_SourceSolidity.Expr) :
     L00_SourceSolidity.CallOption :=
   L00_SourceSolidity.CallOption.named "salt" expr
 
+def bytes32ZeroExpr : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName
+      (L00_SourceSolidity.Ty.bytesN 32))
+    [L00_SourceSolidity.Arg.positional (numberExpr "0")]
+
 def seedConstructor
     (mutability : L00_SourceSolidity.StateMutability) :
     L00_SourceSolidity.FunctionDecl :=
@@ -15479,6 +21405,184 @@ def seedConstructor
     visibility := none
     mutability := mutability
     body := some L00_SourceSolidity.Stmt.empty }
+
+def assigningSeedConstructorWithVisibility
+    (visibility? : Option L00_SourceSolidity.Visibility) :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.constructor
+    name := none
+    params :=
+      [ { name := some "seed"
+          ty := uint256
+          location := none } ]
+    returns := []
+    visibility := visibility?
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.expr
+          (L00_SourceSolidity.Expr.assign
+            (L00_SourceSolidity.Expr.ident "x")
+            L00_SourceSolidity.AssignOp.assign
+            (L00_SourceSolidity.Expr.ident "seed"))) }
+
+def constructorVisibilitySource
+    (contractName : Name) (abstract : Bool)
+    (visibility? : Option L00_SourceSolidity.Visibility) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            abstract := abstract
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x", ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  (assigningSeedConstructorWithVisibility visibility?) ] } ] }
+
+def publicConstructorVisibilitySource : L00_SourceSolidity.SourceUnit :=
+  constructorVisibilitySource "PublicConstructorVisibility" false
+    (some L00_SourceSolidity.Visibility.public_)
+
+def publicConstructorVisibilityAccepted : Bool :=
+  sourceUnitAccepted? publicConstructorVisibilitySource
+
+def abstractInternalConstructorVisibilitySource :
+    L00_SourceSolidity.SourceUnit :=
+  constructorVisibilitySource "AbstractInternalConstructorVisibility" true
+    (some L00_SourceSolidity.Visibility.internal_)
+
+def abstractInternalConstructorVisibilityAccepted : Bool :=
+  sourceUnitAccepted? abstractInternalConstructorVisibilitySource
+
+def concreteInternalConstructorVisibilitySource :
+    L00_SourceSolidity.SourceUnit :=
+  constructorVisibilitySource "ConcreteInternalConstructorVisibility" false
+    (some L00_SourceSolidity.Visibility.internal_)
+
+def concreteInternalConstructorVisibilityRejected : Bool :=
+  Result.isError (SourceUnit.check concreteInternalConstructorVisibilitySource)
+
+def abstractPublicConstructorVisibilitySource :
+    L00_SourceSolidity.SourceUnit :=
+  constructorVisibilitySource "AbstractPublicConstructorVisibility" true
+    (some L00_SourceSolidity.Visibility.public_)
+
+def abstractPublicConstructorVisibilityRejected : Bool :=
+  Result.isError (SourceUnit.check abstractPublicConstructorVisibilitySource)
+
+def privateConstructorVisibilitySource : L00_SourceSolidity.SourceUnit :=
+  constructorVisibilitySource "PrivateConstructorVisibility" false
+    (some L00_SourceSolidity.Visibility.private_)
+
+def privateConstructorVisibilityRejected : Bool :=
+  Result.isError (SourceUnit.check privateConstructorVisibilitySource)
+
+def externalConstructorVisibilitySource : L00_SourceSolidity.SourceUnit :=
+  constructorVisibilitySource "ExternalConstructorVisibility" false
+    (some L00_SourceSolidity.Visibility.external_)
+
+def externalConstructorVisibilityRejected : Bool :=
+  Result.isError (SourceUnit.check externalConstructorVisibilitySource)
+
+def constructorVisibilityDisciplineAccepted : Bool :=
+  publicConstructorVisibilityAccepted &&
+    abstractInternalConstructorVisibilityAccepted
+
+def constructorVisibilityDisciplineRejected : Bool :=
+  concreteInternalConstructorVisibilityRejected &&
+    abstractPublicConstructorVisibilityRejected &&
+    privateConstructorVisibilityRejected &&
+    externalConstructorVisibilityRejected
+
+def constructorVisibilityDisciplineMatches : Bool :=
+  constructorVisibilityDisciplineAccepted &&
+    constructorVisibilityDisciplineRejected
+
+def pointStorageConstructor
+    (location : Option L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.constructor
+    name := none
+    params :=
+      [ { name := some "point"
+          ty := pointTy
+          location := location } ]
+    returns := []
+    visibility := none
+    mutability := L00_SourceSolidity.StateMutability.nonpayable
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.expr
+          (L00_SourceSolidity.Expr.assign
+            (L00_SourceSolidity.Expr.ident "x")
+            L00_SourceSolidity.AssignOp.assign
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "point") "x"))) }
+
+def constructorDataLocationSource
+    (contractName : Name) (abstract : Bool)
+    (constructor : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct pointStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            abstract := abstract
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x", ty := uint256 }
+              , L00_SourceSolidity.ContractItem.function
+                  constructor ] } ] }
+
+def abstractStorageConstructorParamSource : L00_SourceSolidity.SourceUnit :=
+  constructorDataLocationSource "AbstractStorageConstructorParam" true
+    (pointStorageConstructor
+      (some L00_SourceSolidity.DataLocation.storage))
+
+def abstractStorageConstructorParamAccepted : Bool :=
+  sourceUnitAccepted? abstractStorageConstructorParamSource
+
+def concreteStorageConstructorParamSource : L00_SourceSolidity.SourceUnit :=
+  constructorDataLocationSource "ConcreteStorageConstructorParam" false
+    (pointStorageConstructor
+      (some L00_SourceSolidity.DataLocation.storage))
+
+def concreteStorageConstructorParamRejected : Bool :=
+  Result.isError (SourceUnit.check concreteStorageConstructorParamSource)
+
+def calldataConstructorParamSource : L00_SourceSolidity.SourceUnit :=
+  constructorDataLocationSource "CalldataConstructorParam" true
+    (pointStorageConstructor
+      (some L00_SourceSolidity.DataLocation.calldata))
+
+def calldataConstructorParamRejected : Bool :=
+  Result.isError (SourceUnit.check calldataConstructorParamSource)
+
+def missingConstructorLocationSource : L00_SourceSolidity.SourceUnit :=
+  constructorDataLocationSource "MissingConstructorLocation" false
+    (pointStorageConstructor none)
+
+def missingConstructorLocationRejected : Bool :=
+  Result.isError (SourceUnit.check missingConstructorLocationSource)
+
+def valueTypeMemoryConstructorSource : L00_SourceSolidity.SourceUnit :=
+  constructorDataLocationSource "ValueTypeMemoryConstructor" false
+    { seedConstructor L00_SourceSolidity.StateMutability.nonpayable with
+      params :=
+        [ { name := some "seed"
+            ty := uint256
+            location := some L00_SourceSolidity.DataLocation.memory } ] }
+
+def valueTypeMemoryConstructorRejected : Bool :=
+  Result.isError (SourceUnit.check valueTypeMemoryConstructorSource)
+
+def constructorDataLocationDisciplineMatches : Bool :=
+  abstractStorageConstructorParamAccepted &&
+    concreteStorageConstructorParamRejected &&
+    calldataConstructorParamRejected &&
+    missingConstructorLocationRejected &&
+    valueTypeMemoryConstructorRejected
 
 def constructorTargetTy : Ty :=
   L00_SourceSolidity.Ty.user (userPath "CtorTarget")
@@ -15699,6 +21803,68 @@ def literalSaltConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
 
 def literalSaltConstructorCreateRejected : Bool :=
   Result.isError (SourceUnit.check literalSaltConstructorCreateSource)
+
+def gasConstructorCreateFunction : L00_SourceSolidity.FunctionDecl :=
+  { constructorCreateFunction with
+    name := some "makeGasCreate"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.callWithOptions
+                (L00_SourceSolidity.Expr.newExpr constructorTargetTy [])
+                [gasOption "1"]
+                [L00_SourceSolidity.Arg.named "seed" (numberExpr "7")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def gasConstructorCreateSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract constructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadGasCtorMaker"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                gasConstructorCreateFunction] } ] }
+
+def gasConstructorCreateRejected : Bool :=
+  Result.isError (SourceUnit.check gasConstructorCreateSource)
+
+def duplicateSaltConstructorCreateFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { saltedConstructorCreateFunction with
+    name := some "makeDuplicateSalted"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.expr
+              (L00_SourceSolidity.Expr.callWithOptions
+                (L00_SourceSolidity.Expr.newExpr constructorTargetTy [])
+                [ saltOption (L00_SourceSolidity.Expr.ident "salt")
+                , saltOption (L00_SourceSolidity.Expr.ident "salt") ]
+                [L00_SourceSolidity.Arg.named "seed" (numberExpr "7")])
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def duplicateSaltConstructorCreateSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract constructorTargetContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BadDuplicateSaltCtorMaker"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                duplicateSaltConstructorCreateFunction] } ] }
+
+def duplicateSaltConstructorCreateRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateSaltConstructorCreateSource)
+
+def contractCreationCallOptionDisciplineMatches : Bool :=
+  saltedConstructorCreateAccepted &&
+    uintSaltConstructorCreateRejected &&
+    literalSaltConstructorCreateRejected &&
+    gasConstructorCreateRejected &&
+    duplicateSaltConstructorCreateRejected
 
 def nonpayableConstructorValueFunction :
     L00_SourceSolidity.FunctionDecl :=
@@ -16167,6 +22333,46 @@ def freeEventEmitSource : L00_SourceSolidity.SourceUnit :=
 def freeEventEmitAccepted : Bool :=
   sourceUnitAccepted? freeEventEmitSource
 
+def eventSelectorFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "selector"
+    returns :=
+      [{ name := some "out"
+         ty := L00_SourceSolidity.Ty.bytesN 32
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "Ping")
+              "selector"))) }
+
+def eventSelectorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EventSelector"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl pingEvent
+              , L00_SourceSolidity.ContractItem.function
+                  eventSelectorFunction ] } ] }
+
+def eventSelectorAccepted : Bool :=
+  sourceUnitAccepted? eventSelectorSource
+
+def freeEventSelectorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeEvent pingEvent
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "FreeEventSelector"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                eventSelectorFunction] } ] }
+
+def freeEventSelectorAccepted : Bool :=
+  sourceUnitAccepted? freeEventSelectorSource
+
 def overloadedAddressPingEvent : L00_SourceSolidity.EventDecl :=
   { name := "Ping"
     params :=
@@ -16185,6 +22391,20 @@ def overloadedEventSource : L00_SourceSolidity.SourceUnit :=
 
 def overloadedEventAccepted : Bool :=
   sourceUnitAccepted? overloadedEventSource
+
+def overloadedEventSelectorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "OverloadedEventSelector"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl pingEvent
+              , L00_SourceSolidity.ContractItem.eventDecl
+                  overloadedAddressPingEvent
+              , L00_SourceSolidity.ContractItem.function
+                  eventSelectorFunction ] } ] }
+
+def overloadedEventSelectorRejected : Bool :=
+  Result.isError (SourceUnit.check overloadedEventSelectorSource)
 
 def duplicateCanonicalPingEvent : L00_SourceSolidity.EventDecl :=
   { name := "Ping"
@@ -16298,6 +22518,35 @@ def duplicateEventParamNameSource : L00_SourceSolidity.SourceUnit :=
 
 def duplicateEventParamNameRejected : Bool :=
   Result.isError (SourceUnit.check duplicateEventParamNameSource)
+
+def indexedPingEvent : L00_SourceSolidity.EventDecl :=
+  { name := "Ping"
+    params :=
+      [{ name := some "value"
+         ty := uint256
+         indexed := true }] }
+
+def eventIndexedOnlyDuplicateSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EventIndexedOnlyDuplicate"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl pingEvent
+              , L00_SourceSolidity.ContractItem.eventDecl
+                  indexedPingEvent ] } ] }
+
+def eventIndexedOnlyDuplicateRejected : Bool :=
+  Result.isError (SourceUnit.check eventIndexedOnlyDuplicateSource)
+
+def declarationSignatureIdentityDisciplineMatches : Bool :=
+  overloadedEventAccepted &&
+    duplicateEventRejected &&
+    duplicateFreeEventRejected &&
+    duplicateEventParamNameRejected &&
+    eventIndexedOnlyDuplicateRejected &&
+    freeErrorOverloadRejected &&
+    contractErrorOverloadRejected &&
+    modifierOverloadRejected
 
 def mappingEventParamSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -16419,6 +22668,19 @@ def anonymousFourIndexedEventSource : L00_SourceSolidity.SourceUnit :=
 def anonymousFourIndexedEventAccepted : Bool :=
   sourceUnitAccepted? anonymousFourIndexedEventSource
 
+def anonymousEventSelectorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AnonymousEventSelector"
+            items :=
+              [ L00_SourceSolidity.ContractItem.eventDecl
+                  { pingEvent with anonymous := true }
+              , L00_SourceSolidity.ContractItem.function
+                  eventSelectorFunction ] } ] }
+
+def anonymousEventSelectorRejected : Bool :=
+  Result.isError (SourceUnit.check anonymousEventSelectorSource)
+
 def unknownEventSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -16428,6 +22690,17 @@ def unknownEventSource : L00_SourceSolidity.SourceUnit :=
 
 def unknownEventRejected : Bool :=
   Result.isError (SourceUnit.check unknownEventSource)
+
+def eventStaticDisciplineMatches : Bool :=
+  mappingEventParamRejected &&
+    freeMappingEventParamRejected &&
+    internalFunctionEventParamRejected &&
+    externalFunctionEventParamAccepted &&
+    threeIndexedEventAccepted &&
+    fourIndexedEventRejected &&
+    anonymousFourIndexedEventAccepted &&
+    anonymousEventSelectorRejected &&
+    unknownEventRejected
 
 def revertBoomFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -16668,6 +22941,167 @@ def stringErrorWithLocationSource : L00_SourceSolidity.SourceUnit :=
 
 def stringErrorWithLocationRejected : Bool :=
   Result.isError (SourceUnit.check stringErrorWithLocationSource)
+
+def customErrorStaticDisciplineMatches : Bool :=
+  revertBoomAccepted &&
+    freeAndContractSameErrorAccepted &&
+    freeAndContractErrorNameShadowAccepted &&
+    freeAndContractErrorNameShadowRejectsFreeMatch &&
+    unknownErrorRejected &&
+    revertStringErrorAccepted &&
+    revertPairNamedAccepted &&
+    requirePairNamedAccepted &&
+    stringErrorWithLocationRejected &&
+    reservedErrorRejected &&
+    reservedPanicRejected &&
+    duplicateErrorParamNameRejected &&
+    freeErrorOverloadRejected &&
+    contractErrorOverloadRejected
+
+def pointModifier
+    (location : Option L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.ModifierDecl :=
+  { name := "withPoint"
+    params :=
+      [ { name := some "point"
+          ty := pointTy
+          location := location } ]
+    body := some L00_SourceSolidity.Stmt.modifierPlaceholder }
+
+def modifierLocationSource
+    (contractName : Name)
+    (modifier : L00_SourceSolidity.ModifierDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeStruct pointStruct
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items := [L00_SourceSolidity.ContractItem.modifierDecl
+              modifier] } ] }
+
+def modifierStorageParamSource : L00_SourceSolidity.SourceUnit :=
+  modifierLocationSource "ModifierStorageParam"
+    (pointModifier (some L00_SourceSolidity.DataLocation.storage))
+
+def modifierStorageParamAccepted : Bool :=
+  sourceUnitAccepted? modifierStorageParamSource
+
+def modifierMemoryParamSource : L00_SourceSolidity.SourceUnit :=
+  modifierLocationSource "ModifierMemoryParam"
+    (pointModifier (some L00_SourceSolidity.DataLocation.memory))
+
+def modifierMemoryParamAccepted : Bool :=
+  sourceUnitAccepted? modifierMemoryParamSource
+
+def modifierCalldataParamSource : L00_SourceSolidity.SourceUnit :=
+  modifierLocationSource "ModifierCalldataParam"
+    (pointModifier (some L00_SourceSolidity.DataLocation.calldata))
+
+def modifierCalldataParamAccepted : Bool :=
+  sourceUnitAccepted? modifierCalldataParamSource
+
+def modifierMissingLocationSource : L00_SourceSolidity.SourceUnit :=
+  modifierLocationSource "ModifierMissingLocation" (pointModifier none)
+
+def modifierMissingLocationRejected : Bool :=
+  Result.isError (SourceUnit.check modifierMissingLocationSource)
+
+def modifierValueMemoryParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ModifierValueMemoryParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { name := "withValue"
+                    params :=
+                      [ { name := some "value"
+                          ty := uint256
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        L00_SourceSolidity.Stmt.modifierPlaceholder } ] } ] }
+
+def modifierValueMemoryParamRejected : Bool :=
+  Result.isError (SourceUnit.check modifierValueMemoryParamSource)
+
+def modifierDataLocationDisciplineMatches : Bool :=
+  modifierStorageParamAccepted &&
+    modifierMemoryParamAccepted &&
+    modifierCalldataParamAccepted &&
+    modifierMissingLocationRejected &&
+    modifierValueMemoryParamRejected
+
+def externallyVisibleStorageParamSource
+    (contractName : Name) (visibility : L00_SourceSolidity.Visibility) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "bad"
+                    params :=
+                      [ { name := some "values"
+                          ty := uintArrayTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage } ]
+                    visibility := some visibility
+                    mutability := L00_SourceSolidity.StateMutability.view } ] } ] }
+
+def externallyVisibleStorageReturnSource
+    (contractName : Name) (visibility : L00_SourceSolidity.Visibility) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "values", ty := uintArrayTy }
+              , L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "bad"
+                    returns :=
+                      [ { name := some "result"
+                          ty := uintArrayTy
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.storage } ]
+                    visibility := some visibility
+                    mutability := L00_SourceSolidity.StateMutability.view } ] } ] }
+
+def externalStorageParamRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (externallyVisibleStorageParamSource "ExternalStorageParam"
+        L00_SourceSolidity.Visibility.external_))
+
+def externalStorageReturnRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (externallyVisibleStorageReturnSource "ExternalStorageReturn"
+        L00_SourceSolidity.Visibility.external_))
+
+def publicStorageReturnRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (externallyVisibleStorageReturnSource "PublicStorageReturn"
+        L00_SourceSolidity.Visibility.public_))
+
+def declarationDataLocationDisciplineMatches : Bool :=
+  missingStructLocationRejected &&
+    missingStructReturnLocationRejected &&
+    valueTypeMemoryParamRejected &&
+    stringErrorWithLocationRejected &&
+    externalStorageParamRejected &&
+    publicStorageParamRejected &&
+    externalStorageReturnRejected &&
+    publicStorageReturnRejected &&
+    constructorDataLocationDisciplineMatches &&
+    modifierDataLocationDisciplineMatches
 
 def namedTargetFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -17233,6 +23667,294 @@ def emptyLibraryContract : L00_SourceSolidity.ContractDecl :=
   { kind := L00_SourceSolidity.ContractKind.library
     name := "Lib"
     items := [] }
+
+def libraryTypeTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "Lib")
+
+def libraryTypeAddressTy : Ty :=
+  L00_SourceSolidity.Ty.address false
+
+def libraryTypeUseSource (contractName : Name)
+    (items : List L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract emptyLibraryContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName, items := items } ] }
+
+def libraryTypeExpressionFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "libraryAddress"
+    params :=
+      [{ name := some "input", ty := libraryTypeAddressTy, location := none }]
+    returns :=
+      [{ name := none, ty := libraryTypeAddressTy, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.typeName libraryTypeAddressTy)
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.typeName libraryTypeTy)
+                    [ L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.ident "input") ]) ]))) }
+
+def libraryTypeExpressionSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeExpression"
+    [L00_SourceSolidity.ContractItem.function libraryTypeExpressionFunction]
+
+def libraryTypeParameterSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeParameter"
+    [ L00_SourceSolidity.ContractItem.function
+        { simpleReturnFunction with
+          name := some "bad"
+          visibility := some L00_SourceSolidity.Visibility.internal_
+          params := [{ name := some "input", ty := libraryTypeTy }] } ]
+
+def libraryTypeReturnSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeReturn"
+    [ L00_SourceSolidity.ContractItem.function
+        { simpleReturnFunction with
+          name := some "bad"
+          visibility := some L00_SourceSolidity.Visibility.internal_
+          returns := [{ name := some "result", ty := libraryTypeTy }]
+          body := some (L00_SourceSolidity.Stmt.block []) } ]
+
+def libraryTypeLocalSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeLocal"
+    [ L00_SourceSolidity.ContractItem.function
+        { libraryTypeExpressionFunction with
+          name := some "bad"
+          body :=
+            some
+              (L00_SourceSolidity.Stmt.block
+                [ L00_SourceSolidity.Stmt.varDecl
+                    [ { name := some "value"
+                        ty := some libraryTypeTy } ]
+                    (some
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.typeName libraryTypeTy)
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.ident "input")]))
+                , L00_SourceSolidity.Stmt.returnValues
+                    (some
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.typeName libraryTypeAddressTy)
+                        [L00_SourceSolidity.Arg.positional
+                          (L00_SourceSolidity.Expr.ident "value")])) ]) } ]
+
+def libraryTypeStateSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeState"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        { name := "value", ty := libraryTypeTy } ]
+
+def libraryTypeStructSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeStruct"
+    [ L00_SourceSolidity.ContractItem.structDecl
+        { name := "Bad"
+          fields := [{ name := "value", ty := libraryTypeTy }] } ]
+
+def libraryTypeEventSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeEvent"
+    [ L00_SourceSolidity.ContractItem.eventDecl
+        { name := "Bad"
+          params := [{ name := some "value", ty := libraryTypeTy }] } ]
+
+def libraryTypeErrorSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeError"
+    [ L00_SourceSolidity.ContractItem.errorDecl
+        { name := "Bad"
+          params := [{ name := some "value", ty := libraryTypeTy }] } ]
+
+def libraryTypeMappingSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeMapping"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        { name := "values"
+          ty := L00_SourceSolidity.Ty.mapping libraryTypeTy uint256 } ]
+
+def libraryTypeArraySource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeArray"
+    [ L00_SourceSolidity.ContractItem.function
+        { simpleReturnFunction with
+          name := some "bad"
+          visibility := some L00_SourceSolidity.Visibility.internal_
+          params :=
+            [ { name := some "values"
+                ty := L00_SourceSolidity.Ty.array libraryTypeTy none
+                location := some L00_SourceSolidity.DataLocation.memory } ] } ]
+
+def libraryTypeFunctionSource : L00_SourceSolidity.SourceUnit :=
+  libraryTypeUseSource "LibraryTypeFunction"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        { name := "callback"
+          ty := L00_SourceSolidity.Ty.function [libraryTypeTy] []
+            L00_SourceSolidity.StateMutability.pure
+            L00_SourceSolidity.Visibility.internal_ } ]
+
+def libraryTypeUsingSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract emptyLibraryContract
+      , L00_SourceSolidity.SourceItem.usingDecl
+          { library := userPath "Lib", target := some libraryTypeTy } ] }
+
+def libraryTypeUseDisciplineMatches : Bool :=
+  sourceUnitAccepted? libraryTypeExpressionSource &&
+    Result.isError (SourceUnit.check libraryTypeParameterSource) &&
+    Result.isError (SourceUnit.check libraryTypeReturnSource) &&
+    Result.isError (SourceUnit.check libraryTypeLocalSource) &&
+    Result.isError (SourceUnit.check libraryTypeStateSource) &&
+    Result.isError (SourceUnit.check libraryTypeStructSource) &&
+    Result.isError (SourceUnit.check libraryTypeEventSource) &&
+    Result.isError (SourceUnit.check libraryTypeErrorSource) &&
+    Result.isError (SourceUnit.check libraryTypeMappingSource) &&
+    Result.isError (SourceUnit.check libraryTypeArraySource) &&
+    Result.isError (SourceUnit.check libraryTypeFunctionSource) &&
+    Result.isError (SourceUnit.check libraryTypeUsingSource)
+
+def libraryMemberExternalFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "value", ty := uint256 }]
+    returns := [{ name := none, ty := uint256 }]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "value"))) }
+
+def libraryWithExternalMember : L00_SourceSolidity.ContractDecl :=
+  { emptyLibraryContract with
+    items :=
+      [L00_SourceSolidity.ContractItem.function
+        libraryMemberExternalFunction] }
+
+def libraryFunctionMemberSource (contractName : Name)
+    (fn : L00_SourceSolidity.FunctionDecl) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract libraryWithExternalMember
+      , L00_SourceSolidity.SourceItem.contract
+          { name := contractName
+            items := [L00_SourceSolidity.ContractItem.function fn] } ] }
+
+def transientLibraryMemberBase : L00_SourceSolidity.Expr :=
+  L00_SourceSolidity.Expr.call
+    (L00_SourceSolidity.Expr.typeName libraryTypeTy)
+    [L00_SourceSolidity.Arg.positional
+      (L00_SourceSolidity.Expr.ident "target")]
+
+def libraryNamespaceSelectorSource : L00_SourceSolidity.SourceUnit :=
+  libraryFunctionMemberSource "LibraryNamespaceSelector"
+    { simpleReturnFunction with
+      name := some "selector"
+      returns :=
+        [{ name := none, ty := L00_SourceSolidity.Ty.bytesN 4 }]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.typeName libraryTypeTy) "f")
+                "selector"))) }
+
+def transientLibrarySelectorSource : L00_SourceSolidity.SourceUnit :=
+  libraryFunctionMemberSource "TransientLibrarySelector"
+    { simpleReturnFunction with
+      name := some "bad"
+      params := [{ name := some "target", ty := libraryTypeAddressTy }]
+      returns :=
+        [{ name := none, ty := L00_SourceSolidity.Ty.bytesN 4 }]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.member
+                  transientLibraryMemberBase "f")
+                "selector"))) }
+
+def libraryNamespaceAddressSource : L00_SourceSolidity.SourceUnit :=
+  libraryFunctionMemberSource "LibraryNamespaceAddress"
+    { simpleReturnFunction with
+      name := some "bad"
+      returns := [{ name := none, ty := libraryTypeAddressTy }]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.member
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.typeName libraryTypeTy) "f")
+                "address"))) }
+
+def transientLibraryCallSource : L00_SourceSolidity.SourceUnit :=
+  libraryFunctionMemberSource "TransientLibraryCall"
+    { simpleReturnFunction with
+      name := some "bad"
+      params := [{ name := some "target", ty := libraryTypeAddressTy }]
+      returns := [{ name := none, ty := uint256 }]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  transientLibraryMemberBase "f")
+                [L00_SourceSolidity.Arg.positional (numberExpr "1")]))) }
+
+def transientLibraryCallOptionsSource : L00_SourceSolidity.SourceUnit :=
+  libraryFunctionMemberSource "TransientLibraryCallOptions"
+    { simpleReturnFunction with
+      name := some "bad"
+      params := [{ name := some "target", ty := libraryTypeAddressTy }]
+      returns := [{ name := none, ty := uint256 }]
+      visibility := some L00_SourceSolidity.Visibility.external_
+      mutability := L00_SourceSolidity.StateMutability.nonpayable
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.callWithOptions
+                (L00_SourceSolidity.Expr.member
+                  transientLibraryMemberBase "f")
+                [L00_SourceSolidity.CallOption.named "gas"
+                  (numberExpr "100000")]
+                [L00_SourceSolidity.Arg.positional (numberExpr "1")]))) }
+
+def libraryAbiEncodeCallSource : L00_SourceSolidity.SourceUnit :=
+  libraryFunctionMemberSource "LibraryAbiEncodeCall"
+    { simpleReturnFunction with
+      name := some "bad"
+      returns :=
+        [ { name := none
+            ty := L00_SourceSolidity.Ty.bytes
+            location := some L00_SourceSolidity.DataLocation.memory } ]
+      body :=
+        some
+          (L00_SourceSolidity.Stmt.returnValues
+            (some
+              (L00_SourceSolidity.Expr.call
+                (L00_SourceSolidity.Expr.member
+                  (L00_SourceSolidity.Expr.ident "abi") "encodeCall")
+                [ L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.member
+                      (L00_SourceSolidity.Expr.typeName libraryTypeTy) "f")
+                , L00_SourceSolidity.Arg.positional
+                    (L00_SourceSolidity.Expr.tuple
+                      [L00_SourceSolidity.TupleItem.value
+                        (numberExpr "1")]) ]))) }
+
+def libraryFunctionMemberDisciplineMatches : Bool :=
+  sourceUnitAccepted? libraryNamespaceSelectorSource &&
+    Result.isError (SourceUnit.check transientLibrarySelectorSource) &&
+    Result.isError (SourceUnit.check libraryNamespaceAddressSource) &&
+    Result.isError (SourceUnit.check transientLibraryCallSource) &&
+    Result.isError (SourceUnit.check transientLibraryCallOptionsSource) &&
+    Result.isError (SourceUnit.check libraryAbiEncodeCallSource)
 
 def usingKnownLibrarySource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -18000,6 +24722,31 @@ def erc7201StorageLayoutSource : L00_SourceSolidity.SourceUnit :=
 def erc7201StorageLayoutAccepted : Bool :=
   sourceUnitAccepted? erc7201StorageLayoutSource
 
+def erc7201MinusOneStorageLayoutSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Erc7201MinusOneStorageLayout"
+            layoutBase :=
+              some
+                (L00_SourceSolidity.Expr.binary
+                  L00_SourceSolidity.BinaryOp.sub
+                  (L00_SourceSolidity.Expr.call
+                    (L00_SourceSolidity.Expr.ident "erc7201")
+                    [ L00_SourceSolidity.Arg.positional
+                        (L00_SourceSolidity.Expr.literal
+                          (L00_SourceSolidity.Literal.string
+                            "example.main")) ])
+                  (numberExpr "1"))
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def erc7201MinusOneStorageLayoutAccepted : Bool :=
+  sourceUnitAccepted? erc7201MinusOneStorageLayoutSource
+
 def badErc7201StorageLayoutSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -18017,6 +24764,37 @@ def badErc7201StorageLayoutSource : L00_SourceSolidity.SourceUnit :=
 
 def badErc7201StorageLayoutRejected : Bool :=
   Result.isError (SourceUnit.check badErc7201StorageLayoutSource)
+
+def badErc7201ConcatStorageLayoutSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadErc7201ConcatStorageLayout"
+            layoutBase :=
+              some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "erc7201")
+                  [ L00_SourceSolidity.Arg.positional
+                      (L00_SourceSolidity.Expr.call
+                        (L00_SourceSolidity.Expr.member
+                          (L00_SourceSolidity.Expr.ident "string")
+                          "concat")
+                        [ L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.literal
+                              (L00_SourceSolidity.Literal.string
+                                "example"))
+                        , L00_SourceSolidity.Arg.positional
+                            (L00_SourceSolidity.Expr.literal
+                              (L00_SourceSolidity.Literal.string
+                                ".main")) ]) ])
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := uint256
+                    init := some (numberExpr "1") } ] } ] }
+
+def badErc7201ConcatStorageLayoutRejected : Bool :=
+  Result.isError (SourceUnit.check badErc7201ConcatStorageLayoutSource)
 
 def badKeccakStorageLayoutSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -18247,6 +25025,279 @@ def publicOverrideOfExternalSource : L00_SourceSolidity.SourceUnit :=
 
 def publicOverrideOfExternalAccepted : Bool :=
   sourceUnitAccepted? publicOverrideOfExternalSource
+
+def externalCalldataVirtualReferenceFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "convert"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    virtual := true
+    body := none }
+
+def publicMemoryReferenceOverrideFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "convert"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    visibility := some L00_SourceSolidity.Visibility.public_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    override? := some { bases := [] }
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "values"))) }
+
+def externalReferenceLocationOverrideSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ExternalReferenceLocationBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  externalCalldataVirtualReferenceFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ExternalReferenceLocationDerived"
+            bases :=
+              [ { base := userPath "ExternalReferenceLocationBase"
+                  args := [] } ]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  publicMemoryReferenceOverrideFunction ] } ] }
+
+def externalReferenceLocationOverrideAccepted : Bool :=
+  sourceUnitAccepted? externalReferenceLocationOverrideSource
+
+def pureStoragePointerPassFunction : L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "passStorage"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.storage } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.storage } ]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "values"))) }
+
+def pureStoragePointerPassSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PureStoragePointerPass"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  pureStoragePointerPassFunction ] } ] }
+
+def pureStoragePointerPassAccepted : Bool :=
+  sourceUnitAccepted? pureStoragePointerPassSource
+
+def pureStorageProjectionFunction : L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "readLength"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.storage } ]
+    returns := [{ name := none, ty := uint256, location := none }]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "values") "length"))) }
+
+def pureStorageProjectionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PureStorageProjection"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  pureStorageProjectionFunction ] } ] }
+
+def pureStorageProjectionRejected : Bool :=
+  Result.isError (SourceUnit.check pureStorageProjectionSource)
+
+def storagePointerEffectDisciplineMatches : Bool :=
+  pureStoragePointerPassAccepted && pureStorageProjectionRejected
+
+def publicMemoryParamVirtualFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "readLength"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := uint256, location := none }]
+    visibility := some L00_SourceSolidity.Visibility.public_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    virtual := true
+    body := none }
+
+def publicCalldataParamOverrideFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { publicMemoryParamVirtualFunction with
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    virtual := false
+    override? := some { bases := [] }
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "values") "length"))) }
+
+def publicParamLocationMismatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PublicParamLocationBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  publicMemoryParamVirtualFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PublicParamLocationDerived"
+            bases :=
+              [{ base := userPath "PublicParamLocationBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  publicCalldataParamOverrideFunction ] } ] }
+
+def publicParamLocationMismatchRejected : Bool :=
+  Result.isError (SourceUnit.check publicParamLocationMismatchSource)
+
+def publicMemoryReturnVirtualFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "identity"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    visibility := some L00_SourceSolidity.Visibility.public_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    virtual := true
+    body := none }
+
+def publicCalldataReturnOverrideFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { publicMemoryReturnVirtualFunction with
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    virtual := false
+    override? := some { bases := [] }
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "values"))) }
+
+def publicReturnLocationMismatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PublicReturnLocationBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  publicMemoryReturnVirtualFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PublicReturnLocationDerived"
+            bases :=
+              [{ base := userPath "PublicReturnLocationBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  publicCalldataReturnOverrideFunction ] } ] }
+
+def publicReturnLocationMismatchRejected : Bool :=
+  Result.isError (SourceUnit.check publicReturnLocationMismatchSource)
+
+def internalMemoryVirtualReferenceFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "internalIdentity"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    virtual := true
+    body := none }
+
+def internalCalldataReferenceOverrideFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { internalMemoryVirtualReferenceFunction with
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    returns :=
+      [ { name := none
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    virtual := false
+    override? := some { bases := [] }
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "values"))) }
+
+def internalLocationMismatchSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "InternalLocationBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalMemoryVirtualReferenceFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InternalLocationDerived"
+            bases :=
+              [{ base := userPath "InternalLocationBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  internalCalldataReferenceOverrideFunction ] } ] }
+
+def internalLocationMismatchRejected : Bool :=
+  Result.isError (SourceUnit.check internalLocationMismatchSource)
 
 def publicGetterOverrideSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -18516,6 +25567,30 @@ def unknownCallOptionExternalSource : L00_SourceSolidity.SourceUnit :=
 def unknownCallOptionExternalRejected : Bool :=
   Result.isError (SourceUnit.check unknownCallOptionExternalSource)
 
+def saltCallOptionExternalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract calleeContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "SaltCallOptionExternal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { externalMemberCallFunction with
+                    name := some "badSaltCallOption"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "get")
+                              [saltOption bytes32ZeroExpr]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (numberExpr "7") ]))) } ] } ] }
+
+def saltCallOptionExternalRejected : Bool :=
+  Result.isError (SourceUnit.check saltCallOptionExternalSource)
+
 def duplicateCallOptionExternalSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract calleeContract
@@ -18539,6 +25614,30 @@ def duplicateCallOptionExternalSource : L00_SourceSolidity.SourceUnit :=
 
 def duplicateCallOptionExternalRejected : Bool :=
   Result.isError (SourceUnit.check duplicateCallOptionExternalSource)
+
+def duplicateValueOptionExternalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract calleeContract
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "DuplicateValueOptionExternal"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { externalMemberCallFunction with
+                    name := some "badDuplicateValueOption"
+                    mutability := L00_SourceSolidity.StateMutability.payable
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "pay")
+                              [valueOption "1", valueOption "2"]
+                              []))) } ] } ] }
+
+def duplicateValueOptionExternalRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateValueOptionExternalSource)
 
 def internalCallOptionHelper : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -18648,6 +25747,273 @@ def lowLevelNamedArgumentSource : L00_SourceSolidity.SourceUnit :=
 def lowLevelNamedArgumentRejected : Bool :=
   Result.isError (SourceUnit.check lowLevelNamedArgumentSource)
 
+def lowLevelSaltOptionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelSaltOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badLowLevelSaltOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "call")
+                              [saltOption bytes32ZeroExpr]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelSaltOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelSaltOptionSource)
+
+def lowLevelUnknownOptionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelUnknownOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badLowLevelUnknownOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "call")
+                              [ L00_SourceSolidity.CallOption.named "foo"
+                                  (numberExpr "1") ]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelUnknownOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelUnknownOptionSource)
+
+def lowLevelStaticValueOptionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelStaticValueOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badStaticValueOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "staticcall")
+                              [valueOption "1"]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelStaticValueOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelStaticValueOptionSource)
+
+def lowLevelDelegateValueOptionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelDelegateValueOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badDelegateValueOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "delegatecall")
+                              [valueOption "1"]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelDelegateValueOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelDelegateValueOptionSource)
+
+def lowLevelStaticSignedGasOptionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelStaticSignedGasOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badStaticSignedGasOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none }
+                      , { name := some "gasAmount"
+                          ty := int256
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "staticcall")
+                              [ L00_SourceSolidity.CallOption.named "gas"
+                                  (L00_SourceSolidity.Expr.ident
+                                    "gasAmount") ]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelStaticSignedGasOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelStaticSignedGasOptionSource)
+
+def lowLevelDuplicateGasOptionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelDuplicateGasOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badDuplicateGasOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "call")
+                              [gasOption "1", gasOption "2"]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelDuplicateGasOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelDuplicateGasOptionSource)
+
+def lowLevelDuplicateValueOptionSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LowLevelDuplicateValueOption"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badDuplicateValueOption"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address true
+                          location := none } ]
+                    returns :=
+                      [ { name := some "ok"
+                          ty := L00_SourceSolidity.Ty.bool
+                          location := none }
+                      , { name := some "ret"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.callWithOptions
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "target")
+                                "call")
+                              [valueOption "1", valueOption "2"]
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1, 2])) ]))) } ] } ] }
+
+def lowLevelDuplicateValueOptionRejected : Bool :=
+  Result.isError (SourceUnit.check lowLevelDuplicateValueOptionSource)
+
 def arrayMemberCallOptionsSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -18676,16 +26042,34 @@ def arrayMemberCallOptionsSource : L00_SourceSolidity.SourceUnit :=
 def arrayMemberCallOptionsRejected : Bool :=
   Result.isError (SourceUnit.check arrayMemberCallOptionsSource)
 
-def callOptionDisciplineRejected : Bool :=
-  superCallOptionsRejected &&
-    signedValueOptionExternalRejected &&
+def highLevelCallOptionPlacementDisciplineMatches : Bool :=
+  signedValueOptionExternalRejected &&
     signedGasOptionExternalRejected &&
     unknownCallOptionExternalRejected &&
+    saltCallOptionExternalRejected &&
     duplicateCallOptionExternalRejected &&
+    duplicateValueOptionExternalRejected
+
+def lowLevelCallOptionPlacementDisciplineMatches : Bool :=
+  lowLevelNamedArgumentRejected &&
+    lowLevelSaltOptionRejected &&
+    lowLevelUnknownOptionRejected &&
+    lowLevelStaticValueOptionRejected &&
+    lowLevelDelegateValueOptionRejected &&
+    lowLevelStaticSignedGasOptionRejected &&
+    lowLevelDuplicateGasOptionRejected &&
+    lowLevelDuplicateValueOptionRejected
+
+def nonExternalCallOptionPlacementDisciplineMatches : Bool :=
+  superCallOptionsRejected &&
     internalIdentifierCallOptionsRejected &&
     internalFunctionPointerCallOptionsRejected &&
-    lowLevelNamedArgumentRejected &&
     arrayMemberCallOptionsRejected
+
+def callOptionDisciplineRejected : Bool :=
+  highLevelCallOptionPlacementDisciplineMatches &&
+    nonExternalCallOptionPlacementDisciplineMatches &&
+    lowLevelCallOptionPlacementDisciplineMatches
 
 def lowLevelSendFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -19600,6 +26984,50 @@ def freeStructFieldHiddenByInheritedRejected : Bool :=
   Result.isError
     (SourceUnit.check freeStructFieldHiddenByInheritedSource)
 
+def inheritedNameShadowingDisciplineMatches : Bool :=
+  stateVariableShadowingRejected &&
+    privateStateVariableShadowingAccepted &&
+    inheritedStateReadAccepted &&
+    privateInheritedStateReadRejected &&
+    privateStateShadowsInheritedFunctionRejected &&
+    privateStateShadowsInheritedPrivateFunctionAccepted &&
+    functionShadowsInheritedStateRejected &&
+    functionShadowsInheritedPrivateStateAccepted &&
+    modifierShadowsInheritedStateRejected &&
+    modifierShadowsInheritedPrivateStateAccepted &&
+    eventShadowsInheritedStateRejected &&
+    eventShadowsInheritedPrivateStateAccepted &&
+    errorShadowsInheritedStateRejected &&
+    errorShadowsInheritedPrivateStateAccepted &&
+    structShadowsInheritedStateRejected &&
+    structShadowsInheritedPrivateStateAccepted &&
+    enumShadowsInheritedStateRejected &&
+    enumShadowsInheritedPrivateStateAccepted &&
+    userValueTypeShadowsInheritedStateRejected &&
+    userValueTypeShadowsInheritedPrivateStateAccepted &&
+    eventShadowsInheritedFunctionRejected &&
+    eventShadowsInheritedPrivateFunctionAccepted &&
+    modifierShadowsInheritedFunctionRejected &&
+    functionShadowsInheritedModifierRejected &&
+    stateShadowsInheritedModifierRejected &&
+    eventShadowsInheritedModifierRejected &&
+    functionShadowsInheritedEventRejected &&
+    stateShadowsInheritedEventRejected &&
+    errorShadowsInheritedEventRejected &&
+    eventOverloadsInheritedEventAccepted &&
+    eventDuplicatesInheritedEventRejected &&
+    eventShadowsInheritedErrorRejected &&
+    revertInheritedErrorAccepted &&
+    inheritedErrorShadowsFreeErrorRejected &&
+    inheritedErrorShadowAllowsInheritedSignatureAccepted &&
+    inheritedEventShadowsFreeEventRejected &&
+    inheritedEventShadowAllowsInheritedSignatureAccepted &&
+    functionShadowsInheritedTypeRejected &&
+    inheritedUserTypesStateAccepted &&
+    qualifiedInheritedStructStateAccepted &&
+    freeStructShadowedByInheritedAccepted &&
+    freeStructFieldHiddenByInheritedRejected
+
 def virtualModifier : L00_SourceSolidity.ModifierDecl :=
   { name := "guard"
     virtual := true
@@ -19624,6 +27052,615 @@ def modifierOverrideSource : L00_SourceSolidity.SourceUnit :=
 
 def modifierOverrideAccepted : Bool :=
   sourceUnitAccepted? modifierOverrideSource
+
+def virtualMemoryReferenceModifier :
+    L00_SourceSolidity.ModifierDecl :=
+  { name := "referenceGuard"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.memory } ]
+    virtual := true
+    body := some L00_SourceSolidity.Stmt.modifierPlaceholder }
+
+def calldataReferenceOverrideModifier :
+    L00_SourceSolidity.ModifierDecl :=
+  { name := "referenceGuard"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some L00_SourceSolidity.DataLocation.calldata } ]
+    override? := some { bases := [] }
+    body := some L00_SourceSolidity.Stmt.modifierPlaceholder }
+
+def modifierLocationMismatchSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ModifierLocationBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  virtualMemoryReferenceModifier ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ModifierLocationDerived"
+            bases :=
+              [{ base := userPath "ModifierLocationBase", args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  calldataReferenceOverrideModifier ] } ] }
+
+def modifierLocationMismatchRejected : Bool :=
+  Result.isError (SourceUnit.check modifierLocationMismatchSource)
+
+def abstractCallableIdentityFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { virtualBaseFunction with body := none }
+
+def abstractConcreteCallableConflictSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractCallableConflictBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  abstractCallableIdentityFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "ConcreteCallableConflictBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  virtualBaseFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractConcreteCallableConflict"
+            abstract := true
+            bases :=
+              [ { base := userPath "AbstractCallableConflictBase" }
+              , { base := userPath "ConcreteCallableConflictBase" } ] } ] }
+
+def abstractConcreteCallableConflictRejected : Bool :=
+  Result.isError (SourceUnit.check abstractConcreteCallableConflictSource)
+
+def twoAbstractCallableConflictSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "FirstAbstractCallableBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  abstractCallableIdentityFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "SecondAbstractCallableBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  abstractCallableIdentityFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "TwoAbstractCallableConflict"
+            abstract := true
+            bases :=
+              [ { base := userPath "FirstAbstractCallableBase" }
+              , { base := userPath "SecondAbstractCallableBase" } ] } ] }
+
+def twoAbstractCallableConflictRejected : Bool :=
+  Result.isError (SourceUnit.check twoAbstractCallableConflictSource)
+
+def abstractCallableDominanceSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractCallableAncestor"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  abstractCallableIdentityFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractCallableImplementation"
+            bases := [{ base := userPath "AbstractCallableAncestor" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { overrideValueFunction with virtual := true } ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractCallableDominance"
+            bases :=
+              [ { base := userPath "AbstractCallableAncestor" }
+              , { base := userPath "AbstractCallableImplementation" } ] } ] }
+
+def abstractCallableDominanceAccepted : Bool :=
+  sourceUnitAccepted? abstractCallableDominanceSource
+
+def bodylessOverrideOfImplementedFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ImplementedCallableBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  virtualBaseFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BodylessImplementedCallableOverride"
+            abstract := true
+            bases := [{ base := userPath "ImplementedCallableBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { virtualBaseFunction with
+                    body := none
+                    override? := some { bases := [] } } ] } ] }
+
+def bodylessOverrideOfImplementedFunctionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check bodylessOverrideOfImplementedFunctionSource)
+
+def modifierDominanceSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractModifierAncestor"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  bodylessVirtualModifier ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractModifierImplementation"
+            bases := [{ base := userPath "AbstractModifierAncestor" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { virtualModifier with
+                    virtual := true
+                    override? := some { bases := [] } } ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AbstractModifierDominance"
+            bases :=
+              [ { base := userPath "AbstractModifierAncestor" }
+              , { base := userPath "AbstractModifierImplementation" } ] } ] }
+
+def modifierDominanceAccepted : Bool :=
+  sourceUnitAccepted? modifierDominanceSource
+
+def bodylessOverrideOfImplementedModifierSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ImplementedModifierBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  virtualModifier ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "BodylessImplementedModifierOverride"
+            abstract := true
+            bases := [{ base := userPath "ImplementedModifierBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  { bodylessVirtualModifier with
+                    override? := some { bases := [] } } ] } ] }
+
+def bodylessOverrideOfImplementedModifierRejected : Bool :=
+  Result.isError
+    (SourceUnit.check bodylessOverrideOfImplementedModifierSource)
+
+def unrelatedModifierConflictSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UnrelatedAbstractModifierBase"
+            abstract := true
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  bodylessVirtualModifier ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UnrelatedConcreteModifierBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.modifierDecl
+                  virtualModifier ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "UnrelatedModifierConflict"
+            abstract := true
+            bases :=
+              [ { base := userPath "UnrelatedAbstractModifierBase" }
+              , { base := userPath "UnrelatedConcreteModifierBase" } ] } ] }
+
+def unrelatedModifierConflictRejected : Bool :=
+  Result.isError (SourceUnit.check unrelatedModifierConflictSource)
+
+def locationOnlyOverloadFunction
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "locationOnly"
+    params :=
+      [ { name := some "values"
+          ty := uintArrayTy
+          location := some location } ]
+    returns := []
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body := some L00_SourceSolidity.Stmt.empty }
+
+def locationOnlyOverloadSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "LocationOnlyOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (locationOnlyOverloadFunction
+                    L00_SourceSolidity.DataLocation.memory)
+              , L00_SourceSolidity.ContractItem.function
+                  (locationOnlyOverloadFunction
+                    L00_SourceSolidity.DataLocation.calldata) ] } ] }
+
+def locationOnlyOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check locationOnlyOverloadSource)
+
+def signatureIdentityOverloadFunction
+    (paramName : Name) (returnTy : Ty)
+    (visibility : L00_SourceSolidity.Visibility)
+    (mutability : L00_SourceSolidity.StateMutability)
+    (returnExpr : L00_SourceSolidity.Expr) :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "same"
+    params :=
+      [{ name := some paramName
+         ty := uint256
+         location := none }]
+    returns := [{ name := none, ty := returnTy, location := none }]
+    visibility := some visibility
+    mutability := mutability
+    body := some (L00_SourceSolidity.Stmt.returnValues (some returnExpr)) }
+
+def signatureIdentityUintFunction
+    (paramName : Name)
+    (visibility : L00_SourceSolidity.Visibility :=
+      L00_SourceSolidity.Visibility.internal_)
+    (mutability : L00_SourceSolidity.StateMutability :=
+      L00_SourceSolidity.StateMutability.pure) :
+    L00_SourceSolidity.FunctionDecl :=
+  signatureIdentityOverloadFunction paramName uint256 visibility mutability
+    (L00_SourceSolidity.Expr.ident paramName)
+
+def returnOnlyOverloadSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ReturnOnlyOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "input")
+              , L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityOverloadFunction "input"
+                    L00_SourceSolidity.Ty.bool
+                    L00_SourceSolidity.Visibility.internal_
+                    L00_SourceSolidity.StateMutability.pure
+                    (boolExpr true)) ] } ] }
+
+def returnOnlyOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check returnOnlyOverloadSource)
+
+def parameterNameOnlyOverloadSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "ParameterNameOnlyOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "first")
+              , L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "second") ] } ] }
+
+def parameterNameOnlyOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check parameterNameOnlyOverloadSource)
+
+def visibilityOnlyOverloadSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "VisibilityOnlyOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "input"
+                    L00_SourceSolidity.Visibility.public_)
+              , L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "input"
+                    L00_SourceSolidity.Visibility.external_) ] } ] }
+
+def visibilityOnlyOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check visibilityOnlyOverloadSource)
+
+def mutabilityOnlyOverloadSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MutabilityOnlyOverload"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "input"
+                    L00_SourceSolidity.Visibility.public_
+                    L00_SourceSolidity.StateMutability.pure)
+              , L00_SourceSolidity.ContractItem.function
+                  (signatureIdentityUintFunction "input"
+                    L00_SourceSolidity.Visibility.public_
+                    L00_SourceSolidity.StateMutability.view) ] } ] }
+
+def mutabilityOnlyOverloadRejected : Bool :=
+  Result.isError (SourceUnit.check mutabilityOnlyOverloadSource)
+
+def selectorCollisionBurnFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "burn"
+    params :=
+      [{ name := some "value"
+         ty := uint256
+         location := none }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "value"))) }
+
+def selectorCollisionCollateFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { kind := L00_SourceSolidity.FunctionKind.function
+    name := some "collate_propagate_storage"
+    params :=
+      [{ name := some "value"
+         ty := L00_SourceSolidity.Ty.bytesN 16
+         location := none }]
+    returns :=
+      [{ name := none
+         ty := L00_SourceSolidity.Ty.bytesN 16
+         location := none }]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "value"))) }
+
+def functionSelectorCollisionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "FunctionSelectorCollision"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  selectorCollisionBurnFunction
+              , L00_SourceSolidity.ContractItem.function
+                  selectorCollisionCollateFunction ] } ] }
+
+def functionSelectorCollisionRejected : Bool :=
+  Result.isError (SourceUnit.check functionSelectorCollisionSource)
+
+def getterSelectorCollisionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "GetterSelectorCollision"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "burn"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping
+                        uint256 uint256
+                    visibility := some L00_SourceSolidity.Visibility.public_ }
+              , L00_SourceSolidity.ContractItem.function
+                  selectorCollisionCollateFunction ] } ] }
+
+def getterSelectorCollisionRejected : Bool :=
+  Result.isError (SourceUnit.check getterSelectorCollisionSource)
+
+def inheritedFunctionSelectorCollisionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "SelectorCollisionBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  selectorCollisionBurnFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedFunctionSelectorCollision"
+            bases :=
+              [{ base := { segments := ["SelectorCollisionBase"] }
+                 args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  selectorCollisionCollateFunction ] } ] }
+
+def inheritedFunctionSelectorCollisionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check inheritedFunctionSelectorCollisionSource)
+
+def inheritedGetterSelectorCollisionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "GetterSelectorCollisionBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "burn"
+                    ty :=
+                      L00_SourceSolidity.Ty.mapping
+                        uint256 uint256
+                    visibility := some L00_SourceSolidity.Visibility.public_ } ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedGetterSelectorCollision"
+            bases :=
+              [{ base := { segments := ["GetterSelectorCollisionBase"] }
+                 args := [] }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  selectorCollisionCollateFunction ] } ] }
+
+def inheritedGetterSelectorCollisionRejected : Bool :=
+  Result.isError
+    (SourceUnit.check inheritedGetterSelectorCollisionSource)
+
+def callableSignatureIdentityDisciplineMatches : Bool :=
+  locationOnlyOverloadRejected &&
+    returnOnlyOverloadRejected &&
+    parameterNameOnlyOverloadRejected &&
+    visibilityOnlyOverloadRejected &&
+    mutabilityOnlyOverloadRejected &&
+    functionSelectorCollisionRejected &&
+    getterSelectorCollisionRejected &&
+    inheritedFunctionSelectorCollisionRejected &&
+    inheritedGetterSelectorCollisionRejected
+
+def overrideReturnTypeMismatchFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { overrideValueFunction with
+    returns :=
+      [{ name := none
+         ty := L00_SourceSolidity.Ty.bool
+         location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (boolExpr true))) }
+
+def overrideReturnTypeMismatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideReturnTypeBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  virtualBaseFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideReturnTypeMismatch"
+            bases := [{ base := userPath "OverrideReturnTypeBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  overrideReturnTypeMismatchFunction ] } ] }
+
+def overrideReturnTypeMismatchRejected : Bool :=
+  Result.isError
+    (SourceUnit.check overrideReturnTypeMismatchSource)
+
+def overrideVisibilityMismatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideVisibilityBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  virtualBaseFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideVisibilityMismatch"
+            bases := [{ base := userPath "OverrideVisibilityBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { overrideValueFunction with
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.external_ } ] } ] }
+
+def overrideVisibilityMismatchRejected : Bool :=
+  Result.isError
+    (SourceUnit.check overrideVisibilityMismatchSource)
+
+def overrideMutabilityMismatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideMutabilityBase"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  virtualBaseFunction ] }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideMutabilityMismatch"
+            bases := [{ base := userPath "OverrideMutabilityBase" }]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { overrideValueFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.view } ] } ] }
+
+def overrideMutabilityMismatchRejected : Bool :=
+  Result.isError
+    (SourceUnit.check overrideMutabilityMismatchSource)
+
+def multiBaseOverrideFirstBase :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "MultiBaseOverrideFirst"
+      abstract := true
+      items :=
+        [ L00_SourceSolidity.ContractItem.function
+            abstractCallableIdentityFunction ] }
+
+def multiBaseOverrideSecondBase :
+    L00_SourceSolidity.SourceItem :=
+  L00_SourceSolidity.SourceItem.contract
+    { name := "MultiBaseOverrideSecond"
+      abstract := true
+      items :=
+        [ L00_SourceSolidity.ContractItem.function
+            abstractCallableIdentityFunction ] }
+
+def missingMultiBaseOverrideListSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ multiBaseOverrideFirstBase
+      , multiBaseOverrideSecondBase
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "MissingMultiBaseOverrideList"
+            bases :=
+              [ { base := userPath "MultiBaseOverrideFirst" }
+              , { base := userPath "MultiBaseOverrideSecond" } ]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  overrideValueFunction ] } ] }
+
+def missingMultiBaseOverrideListRejected : Bool :=
+  Result.isError
+    (SourceUnit.check missingMultiBaseOverrideListSource)
+
+def overrideBaseListMismatchSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ multiBaseOverrideFirstBase
+      , multiBaseOverrideSecondBase
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "OverrideBaseListMismatch"
+            bases :=
+              [ { base := userPath "MultiBaseOverrideFirst" }
+              , { base := userPath "MultiBaseOverrideSecond" } ]
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { overrideValueFunction with
+                    override? :=
+                      some
+                        { bases :=
+                            [userPath "MultiBaseOverrideFirst"] } } ] } ] }
+
+def overrideBaseListMismatchRejected : Bool :=
+  Result.isError
+    (SourceUnit.check overrideBaseListMismatchSource)
+
+def overrideSignatureCompatibilityDisciplineMatches : Bool :=
+  virtualOverrideAccepted &&
+    missingOverrideRejected &&
+    nonvirtualOverrideRejected &&
+    publicOverrideOfExternalAccepted &&
+    overrideReturnTypeMismatchRejected &&
+    overrideVisibilityMismatchRejected &&
+    overrideMutabilityMismatchRejected &&
+    missingMultiBaseOverrideListRejected &&
+    overrideBaseListMismatchRejected
+
+def callableIdentityDisciplineMatches : Bool :=
+  abstractConcreteCallableConflictRejected &&
+    twoAbstractCallableConflictRejected &&
+    abstractCallableDominanceAccepted &&
+    bodylessOverrideOfImplementedFunctionRejected &&
+    modifierDominanceAccepted &&
+    bodylessOverrideOfImplementedModifierRejected &&
+    unrelatedModifierConflictRejected &&
+    callableSignatureIdentityDisciplineMatches
+
+def overrideDataLocationDisciplineMatches : Bool :=
+  externalReferenceLocationOverrideAccepted &&
+    publicParamLocationMismatchRejected &&
+    publicReturnLocationMismatchRejected &&
+    internalLocationMismatchRejected &&
+    modifierLocationMismatchRejected
 
 def missingModifierOverrideSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -19985,6 +28022,20 @@ def viewCreatesContractSource : L00_SourceSolidity.SourceUnit :=
 def viewCreatesContractRejected : Bool :=
   Result.isError (SourceUnit.check viewCreatesContractSource)
 
+def stateMutabilityDisciplineMatches : Bool :=
+  pureStateReadRejected &&
+    viewStateReadAccepted &&
+    viewStateWriteRejected &&
+    nonpayableStateWriteAccepted &&
+    pureWithStateReadModifierRejected &&
+    viewWithStateReadModifierAccepted &&
+    viewWithStateWriteModifierRejected &&
+    nonpayableWithStateWriteModifierAccepted &&
+    pureCallsViewRejected &&
+    viewCallsPureAccepted &&
+    viewEmitRejected &&
+    viewCreatesContractRejected
+
 def externalViewUintFunctionTy : Ty :=
   L00_SourceSolidity.Ty.function [] [uint256]
     L00_SourceSolidity.StateMutability.view
@@ -19996,7 +28047,9 @@ def externalViewUintPairFunctionTy : Ty :=
     L00_SourceSolidity.Visibility.external_
 
 def externalViewBytesFunctionTy : Ty :=
-  L00_SourceSolidity.Ty.function [] [L00_SourceSolidity.Ty.bytes]
+  L00_SourceSolidity.Ty.functionWithLocations [] []
+    [L00_SourceSolidity.Ty.bytes]
+    [some L00_SourceSolidity.DataLocation.memory]
     L00_SourceSolidity.StateMutability.view
     L00_SourceSolidity.Visibility.external_
 
@@ -20111,6 +28164,13 @@ def internalPayableFunctionTypeSource : L00_SourceSolidity.SourceUnit :=
 def internalPayableFunctionTypeRejected : Bool :=
   Result.isError (SourceUnit.check internalPayableFunctionTypeSource)
 
+def functionTypeAbiAdmissibilityDisciplineMatches : Bool :=
+  externalFunctionTakingFunctionAccepted &&
+    externalFunctionTakingInternalFunctionRejected &&
+    externalFunctionTakingMappingRejected &&
+    externalPayableFunctionTypeAccepted &&
+    internalPayableFunctionTypeRejected
+
 def functionTypeMutabilityConversionFunction :
     L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -20142,6 +28202,151 @@ def functionTypeMutabilityConversionSource :
 
 def functionTypeMutabilityConversionAccepted : Bool :=
   sourceUnitAccepted? functionTypeMutabilityConversionSource
+
+def namedFunctionTypeCallTarget : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "target"
+    params :=
+      [{ name := some "a"
+         ty := uint256
+         location := none }]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "a"))) }
+
+def namedFunctionTypeCallFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "bad"
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "fn"
+                 ty := some internalPureUintUnaryFunctionTy
+                 location := none }]
+              (some (L00_SourceSolidity.Expr.ident "target"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some
+                (L00_SourceSolidity.Expr.call
+                  (L00_SourceSolidity.Expr.ident "fn")
+                  [L00_SourceSolidity.Arg.named "a"
+                    (numberExpr "1")])) ]) }
+
+def namedFunctionTypeCallSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NamedFunctionTypeCall"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  namedFunctionTypeCallTarget
+              , L00_SourceSolidity.ContractItem.function
+                  namedFunctionTypeCallFunction ] } ] }
+
+def namedFunctionTypeCallRejected : Bool :=
+  Result.isError (SourceUnit.check namedFunctionTypeCallSource)
+
+def functionLocationArrayTy : Ty :=
+  L00_SourceSolidity.Ty.array uint256 none
+
+def internalArrayFunctionTy
+    (location : L00_SourceSolidity.DataLocation) : Ty :=
+  L00_SourceSolidity.Ty.functionWithLocations
+    [functionLocationArrayTy] [some location] [uint256] [none]
+    L00_SourceSolidity.StateMutability.pure
+    L00_SourceSolidity.Visibility.internal_
+
+def functionLocationTarget (name : Name)
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.FunctionDecl :=
+  { name := some name
+    params :=
+      [{ name := some "values"
+         ty := functionLocationArrayTy
+         location := some location }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    visibility := some L00_SourceSolidity.Visibility.internal_
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "values") "length"))) }
+
+def functionLocationAssignment (name target : Name) (expected : Ty) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [{ name := some "fn", ty := some expected, location := none }]
+              (some (L00_SourceSolidity.Expr.ident target))
+          , L00_SourceSolidity.Stmt.returnValues (some (numberExpr "1")) ]) }
+
+def internalMemoryToCalldataFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MemoryToCalldataFunction"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (functionLocationTarget "target"
+                    L00_SourceSolidity.DataLocation.memory)
+              , L00_SourceSolidity.ContractItem.function
+                  (functionLocationAssignment "bad" "target"
+                    (internalArrayFunctionTy
+                      L00_SourceSolidity.DataLocation.calldata)) ] } ] }
+
+def internalCalldataToMemoryFunctionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "CalldataToMemoryFunction"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (functionLocationTarget "target"
+                    L00_SourceSolidity.DataLocation.calldata)
+              , L00_SourceSolidity.ContractItem.function
+                  (functionLocationAssignment "bad" "target"
+                    (internalArrayFunctionTy
+                      L00_SourceSolidity.DataLocation.memory)) ] } ] }
+
+def externalArrayFunctionTy
+    (location : L00_SourceSolidity.DataLocation) : Ty :=
+  L00_SourceSolidity.Ty.functionWithLocations
+    [functionLocationArrayTy] [some location]
+    [functionLocationArrayTy] [some location]
+    L00_SourceSolidity.StateMutability.pure
+    L00_SourceSolidity.Visibility.external_
+
+def externalCalldataArrayFunctionSig : FunctionSig :=
+  { name := "target"
+    params := [functionLocationArrayTy]
+    paramNames := [some "values"]
+    paramStorageRefs := [false]
+    paramDataLocations := [some L00_SourceSolidity.DataLocation.calldata]
+    returns := [functionLocationArrayTy]
+    returnStorageRefs := [false]
+    returnDataLocations := [some L00_SourceSolidity.DataLocation.calldata]
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := L00_SourceSolidity.StateMutability.pure }
+
+def functionTypeLocationDisciplineMatches : Bool :=
+  Result.isError (SourceUnit.check internalMemoryToCalldataFunctionSource) &&
+    Result.isError (SourceUnit.check internalCalldataToMemoryFunctionSource) &&
+    namedFunctionTypeCallRejected &&
+    match externalCalldataArrayFunctionSig.externalFunctionValueTy? with
+    | some actual =>
+        !Ty.canImplicitlyConvert actual
+          (externalArrayFunctionTy L00_SourceSolidity.DataLocation.calldata) &&
+        Ty.canImplicitlyConvert actual
+          (externalArrayFunctionTy L00_SourceSolidity.DataLocation.memory)
+    | none => false
 
 def internalFunctionPointerAliasTarget :
     L00_SourceSolidity.FunctionDecl :=
@@ -20726,6 +28931,13 @@ def publicStructInternalFunctionGetterSource :
 def publicStructInternalFunctionGetterRejected : Bool :=
   Result.isError
     (SourceUnit.check publicStructInternalFunctionGetterSource)
+
+def publicFunctionTypeAbiBoundaryDisciplineMatches : Bool :=
+  publicInternalFunctionPointerParamRejected &&
+    invalidPublicFunctionTypeParamRejected &&
+    publicExternalFunctionPointerStateVarAccepted &&
+    publicInternalFunctionPointerStateVarRejected &&
+    publicStructInternalFunctionGetterRejected
 
 def nestedPublicGetterSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -23597,6 +31809,29 @@ def tryContractCreationSource : L00_SourceSolidity.SourceUnit :=
 def tryContractCreationAccepted : Bool :=
   sourceUnitAccepted? tryContractCreationSource
 
+def tryCatchStaticDisciplineMatches : Bool :=
+  tryExternalFunctionCallAccepted &&
+    tryContractMemberCallAccepted &&
+    tryInternalFunctionCallRejected &&
+    tryLowLevelCallRejected &&
+    tryArrayPushRejected &&
+    tryLiteralRejected &&
+    tryReturnMismatchRejected &&
+    tryReturnsNoCatchRejected &&
+    tryNoCatchRejected &&
+    tryReturnBytesMemoryAccepted &&
+    badTryReturnBytesCalldataRejected &&
+    badTryReturnBytesStorageRejected &&
+    badTryReturnBytesNoLocationRejected &&
+    duplicateTryReturnNameRejected &&
+    tryCatchErrorAccepted &&
+    badCatchErrorRejected &&
+    tryCatchFullAccepted &&
+    duplicateCatchErrorRejected &&
+    duplicateCatchPanicRejected &&
+    duplicateLowLevelCatchRejected &&
+    tryContractCreationAccepted
+
 def pureMsgSigFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
     name := some "sig"
@@ -23722,6 +31957,181 @@ def viewAmbientBuiltinsSource : L00_SourceSolidity.SourceUnit :=
 
 def viewAmbientBuiltinsAccepted : Bool :=
   sourceUnitAccepted? viewAmbientBuiltinsSource
+
+def viewAmbientBuiltinsPreCancunRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.shanghai
+      viewAmbientBuiltinsSource)
+
+def preParisRandaoAliasSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PreParisRandaoAlias"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "randao"
+                    returns :=
+                      [ { name := none, ty := uint256, location := none }
+                      , { name := none, ty := uint256, location := none } ]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.tuple
+                              [ L00_SourceSolidity.TupleItem.value
+                                  (L00_SourceSolidity.Expr.member
+                                    (L00_SourceSolidity.Expr.ident "block")
+                                    "difficulty")
+                              , L00_SourceSolidity.TupleItem.value
+                                  (L00_SourceSolidity.Expr.member
+                                    (L00_SourceSolidity.Expr.ident "block")
+                                    "prevrandao") ]))) } ] } ] }
+
+def preParisRandaoAliasAccepted : Bool :=
+  Result.isOk
+    (SourceUnit.checkWithEvmVersion EvmVersion.london
+      preParisRandaoAliasSource)
+
+def blobbasefeeFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "blobbasefee"
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "block") "blobbasefee"))) }
+
+def blobbasefeeSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Blobbasefee"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                blobbasefeeFunction] } ] }
+
+def blobbasefeePreCancunRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.shanghai
+      blobbasefeeSource)
+
+def basefeeFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "basefee"
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "block") "basefee"))) }
+
+def basefeeSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Basefee"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                basefeeFunction] } ] }
+
+def basefeeAccepted : Bool :=
+  sourceUnitAccepted? basefeeSource
+
+def basefeePreLondonRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.berlin
+      basefeeSource)
+
+def chainidFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "chainid"
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.ident "block") "chainid"))) }
+
+def chainidSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Chainid"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                chainidFunction] } ] }
+
+def chainidAccepted : Bool :=
+  sourceUnitAccepted? chainidSource
+
+def chainidPreIstanbulRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.petersburg
+      chainidSource)
+
+def addressCodehashFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "codehash"
+    returns :=
+      [{ name := none
+         ty := L00_SourceSolidity.Ty.bytesN 32
+         location := none }]
+    mutability := L00_SourceSolidity.StateMutability.view
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.member
+              (L00_SourceSolidity.Expr.literal
+                (L00_SourceSolidity.Literal.address 0xbeef))
+              "codehash"))) }
+
+def addressCodehashSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AddressCodehash"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                addressCodehashFunction] } ] }
+
+def addressCodehashAccepted : Bool :=
+  sourceUnitAccepted? addressCodehashSource
+
+def addressCodehashPreConstantinopleRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.byzantium
+      addressCodehashSource)
+
+def saltedConstructorCreatePreConstantinopleRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.byzantium
+      saltedConstructorCreateSource)
+
+def transientStoragePreCancunRejected : Bool :=
+  Result.isError
+    (SourceUnit.checkWithEvmVersion EvmVersion.shanghai
+      (sourceUnitForContractDecl
+        L00_SourceSolidity.Executable.Examples.transientStorageContract))
+
+def evmVersionBuiltinDisciplineAccepted : Bool :=
+  viewAmbientBuiltinsAccepted &&
+    preParisRandaoAliasAccepted &&
+    basefeeAccepted &&
+    chainidAccepted &&
+    addressCodehashAccepted &&
+    saltedConstructorCreateAccepted
+
+def evmVersionBuiltinDisciplineRejected : Bool :=
+  viewAmbientBuiltinsPreCancunRejected &&
+    blobbasefeePreCancunRejected &&
+    basefeePreLondonRejected &&
+    chainidPreIstanbulRejected &&
+    addressCodehashPreConstantinopleRejected &&
+    saltedConstructorCreatePreConstantinopleRejected &&
+    transientStoragePreCancunRejected
 
 def pureGasleftFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -23912,11 +32322,117 @@ def pureAddressEnvMembersSource : L00_SourceSolidity.SourceUnit :=
 def pureAddressEnvMembersRejected : Bool :=
   Result.isError (SourceUnit.check pureAddressEnvMembersSource)
 
+def nonAddressMemberReceiverSource
+    (target : L00_SourceSolidity.ContractDecl) (readerName member : Name)
+    (returnTy : Ty) (returnLocation : Option L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract target
+      , L00_SourceSolidity.SourceItem.contract
+          { name := readerName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "bad"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.user
+                            (userPath target.name) } ]
+                    returns :=
+                      [ { name := none
+                          ty := returnTy
+                          location := returnLocation } ]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.ident "target")
+                              member))) } ] } ] }
+
+def contractBalanceMemberSource : L00_SourceSolidity.SourceUnit :=
+  nonAddressMemberReceiverSource { name := "BalanceTarget" }
+    "ContractBalanceReader" "balance" uint256 none
+
+def contractCodeMemberSource : L00_SourceSolidity.SourceUnit :=
+  nonAddressMemberReceiverSource { name := "CodeTargetMember" }
+    "ContractCodeReader" "code" L00_SourceSolidity.Ty.bytes
+    (some L00_SourceSolidity.DataLocation.memory)
+
+def contractCodehashMemberSource : L00_SourceSolidity.SourceUnit :=
+  nonAddressMemberReceiverSource { name := "CodehashTarget" }
+    "ContractCodehashReader" "codehash"
+    (L00_SourceSolidity.Ty.bytesN 32) none
+
+def libraryConversionMemberSource (libraryName readerName member : Name)
+    (returnTy : Ty) (returnLocation : Option L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := libraryName }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := readerName
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "bad"
+                    params :=
+                      [ { name := some "target"
+                          ty := L00_SourceSolidity.Ty.address false } ]
+                    returns :=
+                      [ { name := none
+                          ty := returnTy
+                          location := returnLocation } ]
+                    mutability := L00_SourceSolidity.StateMutability.view
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.member
+                              (L00_SourceSolidity.Expr.call
+                                (L00_SourceSolidity.Expr.typeName
+                                  (L00_SourceSolidity.Ty.user
+                                    (userPath libraryName)))
+                                [L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.ident "target")])
+                              member))) } ] } ] }
+
+def libraryBalanceMemberSource : L00_SourceSolidity.SourceUnit :=
+  libraryConversionMemberSource "BalanceLibrary"
+    "LibraryBalanceReader" "balance" uint256 none
+
+def libraryCodeMemberSource : L00_SourceSolidity.SourceUnit :=
+  libraryConversionMemberSource "CodeLibraryMember"
+    "LibraryCodeReader" "code" L00_SourceSolidity.Ty.bytes
+    (some L00_SourceSolidity.DataLocation.memory)
+
+def libraryCodehashMemberSource : L00_SourceSolidity.SourceUnit :=
+  libraryConversionMemberSource "CodehashLibrary"
+    "LibraryCodehashReader" "codehash"
+    (L00_SourceSolidity.Ty.bytesN 32) none
+
+def addressEnvironmentMemberReceiverDisciplineMatches : Bool :=
+  viewAddressEnvMembersAccepted &&
+    Result.isError (SourceUnit.check contractBalanceMemberSource) &&
+    Result.isError (SourceUnit.check contractCodeMemberSource) &&
+    Result.isError (SourceUnit.check contractCodehashMemberSource) &&
+    Result.isError (SourceUnit.check libraryBalanceMemberSource) &&
+    Result.isError (SourceUnit.check libraryCodeMemberSource) &&
+    Result.isError (SourceUnit.check libraryCodehashMemberSource)
+
 def uint8 : Ty := L00_SourceSolidity.Ty.uint 8
 
 def uint16 : Ty := L00_SourceSolidity.Ty.uint 16
 
+def uint32 : Ty := L00_SourceSolidity.Ty.uint 32
+
 def int8 : Ty := L00_SourceSolidity.Ty.int 8
+
+def int16 : Ty := L00_SourceSolidity.Ty.int 16
+
+def bytes2 : Ty := L00_SourceSolidity.Ty.bytesN 2
 
 def bytes4 : Ty := L00_SourceSolidity.Ty.bytesN 4
 
@@ -23925,6 +32441,16 @@ def bytes32 : Ty := L00_SourceSolidity.Ty.bytesN 32
 def addressTy : Ty := L00_SourceSolidity.Ty.address false
 
 def payableAddressTy : Ty := L00_SourceSolidity.Ty.address true
+
+def fixed8x1 : Ty := L00_SourceSolidity.Ty.fixed 8 1
+
+def fixed16x2 : Ty := L00_SourceSolidity.Ty.fixed 16 2
+
+def fixed128x18 : Ty := L00_SourceSolidity.Ty.fixed 128 18
+
+def ufixed8x1 : Ty := L00_SourceSolidity.Ty.ufixed 8 1
+
+def ufixed128x18 : Ty := L00_SourceSolidity.Ty.ufixed 128 18
 
 def oneExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.literal (L00_SourceSolidity.Literal.number "1")
@@ -23935,6 +32461,223 @@ def zeroExpr : L00_SourceSolidity.Expr :=
 def zeroBySubExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.binary
     L00_SourceSolidity.BinaryOp.sub oneExpr oneExpr
+
+def fixedPointArithmeticFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "mixFixed"
+    params :=
+      [ { name := some "a", ty := fixed16x2, location := none }
+      , { name := some "b", ty := ufixed8x1, location := none } ]
+    returns := [{ name := none, ty := fixed16x2, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.add
+              (L00_SourceSolidity.Expr.ident "a")
+              (L00_SourceSolidity.Expr.ident "b")))) }
+
+def fixedPointLiteralFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "literalFixed"
+    returns := [{ name := none, ty := fixed128x18, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (numberExpr "1.25"))) }
+
+def fixedPointSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.freeUserValueType
+          { name := "Wad", underlying := fixed128x18 }
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "FixedPointSurface"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "rates"
+                    ty := L00_SourceSolidity.Ty.mapping fixed128x18 uint256 }
+              , L00_SourceSolidity.ContractItem.stateVar
+                  { name := "plain", ty := ufixed128x18 } ] } ] }
+
+def fixedPointSourceAccepted : Bool :=
+  sourceUnitAccepted? fixedPointSource
+
+def fixedPointUnusedLocalFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "unusedLocal"
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "x"
+                  ty := some fixed128x18
+                  location := none } ] none
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def fixedPointUnusedLocalSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "FixedPointUnusedLocal"
+            items :=
+              [L00_SourceSolidity.ContractItem.function
+                fixedPointUnusedLocalFunction] } ] }
+
+def fixedPointUnusedLocalAccepted : Bool :=
+  sourceUnitAccepted? fixedPointUnusedLocalSource
+
+def fixedPointAbiCanonicalMatches : Bool :=
+  TypeContext.abiCanonical? TypeContext.empty fixed128x18 ==
+      some "fixed128x18" &&
+    TypeContext.abiCanonical? TypeContext.empty ufixed8x1 ==
+      some "ufixed8x1"
+
+def fixedPointExecutableTypeRejected : Bool :=
+  match L00_SourceSolidity.Executable.Ty.toCore? fixed128x18 with
+  | none => true
+  | some _ => false
+
+def fixedPointArithmeticSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointArithmetic"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  fixedPointArithmeticFunction ] } ] }
+
+def fixedPointLiteralSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointLiteral"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  fixedPointLiteralFunction ] } ] }
+
+def fixedPointStateInitSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointStateInit"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := fixed128x18
+                    init := some (numberExpr "1.25") } ] } ] }
+
+def fixedPointPublicGetterSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointPublicGetter"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "x"
+                    ty := fixed128x18
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def fixedPointLocalInitFunction : L00_SourceSolidity.FunctionDecl :=
+  { fixedPointUnusedLocalFunction with
+    name := some "badLocalInit"
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.block
+          [ L00_SourceSolidity.Stmt.varDecl
+              [ { name := some "x"
+                  ty := some fixed128x18
+                  location := none } ]
+              (some (numberExpr "1.25"))
+          , L00_SourceSolidity.Stmt.returnValues
+              (some (numberExpr "1")) ]) }
+
+def fixedPointLocalInitSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointLocalInit"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  fixedPointLocalInitFunction ] } ] }
+
+def badFixedPointBitsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointBits"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "bad"
+                    ty := L00_SourceSolidity.Ty.fixed 7 1 } ] } ] }
+
+def badFixedPointDecimalsSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointDecimals"
+            items :=
+              [ L00_SourceSolidity.ContractItem.stateVar
+                  { name := "bad"
+                    ty := L00_SourceSolidity.Ty.ufixed 128 81 } ] } ] }
+
+def badFixedPointImplicitFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badImplicit"
+    params := [{ name := some "a", ty := ufixed8x1, location := none }]
+    returns := [{ name := none, ty := fixed8x1, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some (L00_SourceSolidity.Expr.ident "a"))) }
+
+def badFixedPointImplicitSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointImplicit"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  badFixedPointImplicitFunction ] } ] }
+
+def badFixedPointBitwiseFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "badBitwise"
+    params :=
+      [ { name := some "a", ty := fixed128x18, location := none }
+      , { name := some "b", ty := fixed128x18, location := none } ]
+    returns := [{ name := none, ty := fixed128x18, location := none }]
+    mutability := L00_SourceSolidity.StateMutability.pure
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.binary
+              L00_SourceSolidity.BinaryOp.bitAnd
+              (L00_SourceSolidity.Expr.ident "a")
+              (L00_SourceSolidity.Expr.ident "b")))) }
+
+def badFixedPointBitwiseSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFixedPointBitwise"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  badFixedPointBitwiseFunction ] } ] }
+
+def fixedPointSourceDisciplineAccepted : Bool :=
+  fixedPointSourceAccepted &&
+    fixedPointUnusedLocalAccepted &&
+    fixedPointAbiCanonicalMatches &&
+    fixedPointExecutableTypeRejected
+
+def fixedPointSourceDisciplineRejected : Bool :=
+  Result.isError (SourceUnit.check badFixedPointBitsSource) &&
+    Result.isError (SourceUnit.check badFixedPointDecimalsSource) &&
+    Result.isError (SourceUnit.check fixedPointArithmeticSource) &&
+    Result.isError (SourceUnit.check fixedPointLiteralSource) &&
+    Result.isError (SourceUnit.check fixedPointStateInitSource) &&
+    Result.isError (SourceUnit.check fixedPointPublicGetterSource) &&
+    Result.isError (SourceUnit.check fixedPointLocalInitSource) &&
+    Result.isError (SourceUnit.check badFixedPointImplicitSource) &&
+    Result.isError (SourceUnit.check badFixedPointBitwiseSource)
 
 def int8OneExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.call
@@ -24697,6 +33440,54 @@ def contextualNarrowArrayOverflowExpr : L00_SourceSolidity.Expr :=
 
 def contextualNarrowArraySecondExpr : L00_SourceSolidity.Expr :=
   L00_SourceSolidity.Expr.array [numberExpr "3", numberExpr "4"]
+
+def emptyArrayLiteralSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "EmptyArrayLiteral"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badEmptyArrayLiteral"
+                    returns :=
+                      [ { name := none
+                          ty := uintArrayTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some (L00_SourceSolidity.Expr.array []))) } ] } ] }
+
+def emptyArrayLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check emptyArrayLiteralSource)
+
+def mixedArrayLiteralSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MixedArrayLiteral"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "badMixedArrayLiteral"
+                    returns :=
+                      [ { name := none
+                          ty := uintArrayTy
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.array
+                              [ numberExpr "1"
+                              , boolExpr true ]))) } ] } ] }
+
+def mixedArrayLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check mixedArrayLiteralSource)
+
+def arrayLiteralAcceptednessDisciplineMatches : Bool :=
+  emptyArrayLiteralRejected && mixedArrayLiteralRejected
 
 def contextualArrayTupleReturnFunction
     (name : Name) (first : L00_SourceSolidity.Expr) :
@@ -26000,6 +34791,51 @@ def badFallbackParamSource : L00_SourceSolidity.SourceUnit :=
 def badFallbackParamRejected : Bool :=
   Result.isError (SourceUnit.check badFallbackParamSource)
 
+def badTypedFallbackMemoryParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTypedFallbackMemoryParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { typedFallbackFunction with
+                    params :=
+                      [ { name := some "input"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.memory } ] } ] } ] }
+
+def badTypedFallbackMemoryParamRejected : Bool :=
+  Result.isError (SourceUnit.check badTypedFallbackMemoryParamSource)
+
+def badTypedFallbackCalldataReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTypedFallbackCalldataReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { typedFallbackFunction with
+                    returns :=
+                      [ { name := some "output"
+                          ty := L00_SourceSolidity.Ty.bytes
+                          location :=
+                            some
+                              L00_SourceSolidity.DataLocation.calldata } ] } ] } ] }
+
+def badTypedFallbackCalldataReturnRejected : Bool :=
+  Result.isError (SourceUnit.check badTypedFallbackCalldataReturnSource)
+
+def badTypedFallbackNoReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadTypedFallbackNoReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { typedFallbackFunction with returns := [] } ] } ] }
+
+def badTypedFallbackNoReturnRejected : Bool :=
+  Result.isError (SourceUnit.check badTypedFallbackNoReturnSource)
+
 def untypedFallbackFunction : L00_SourceSolidity.FunctionDecl :=
   { kind := L00_SourceSolidity.FunctionKind.fallback
     name := none
@@ -26008,6 +34844,42 @@ def untypedFallbackFunction : L00_SourceSolidity.FunctionDecl :=
     visibility := some L00_SourceSolidity.Visibility.external_
     mutability := L00_SourceSolidity.StateMutability.nonpayable
     body := some L00_SourceSolidity.Stmt.empty }
+
+def untypedFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "UntypedFallback"
+            items := [L00_SourceSolidity.ContractItem.function
+              untypedFallbackFunction] } ] }
+
+def untypedFallbackAccepted : Bool :=
+  sourceUnitAccepted? untypedFallbackSource
+
+def payableFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PayableFallback"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { untypedFallbackFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.payable } ] } ] }
+
+def payableFallbackAccepted : Bool :=
+  sourceUnitAccepted? payableFallbackSource
+
+def badFallbackPublicSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadFallbackPublic"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { untypedFallbackFunction with
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def badFallbackPublicRejected : Bool :=
+  Result.isError (SourceUnit.check badFallbackPublicSource)
 
 def virtualFallbackFunction : L00_SourceSolidity.FunctionDecl :=
   { untypedFallbackFunction with virtual := true }
@@ -26084,6 +34956,139 @@ def receiveOverrideSource : L00_SourceSolidity.SourceUnit :=
 def receiveOverrideAccepted : Bool :=
   sourceUnitAccepted? receiveOverrideSource
 
+def receiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Receive"
+            items := [L00_SourceSolidity.ContractItem.function
+              payableReceiveFunction] } ] }
+
+def receiveAccepted : Bool :=
+  sourceUnitAccepted? receiveSource
+
+def badReceiveNonpayableSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadReceiveNonpayable"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { payableReceiveFunction with
+                    mutability :=
+                      L00_SourceSolidity.StateMutability.nonpayable } ] } ] }
+
+def badReceiveNonpayableRejected : Bool :=
+  Result.isError (SourceUnit.check badReceiveNonpayableSource)
+
+def badReceivePublicSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadReceivePublic"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { payableReceiveFunction with
+                    visibility :=
+                      some L00_SourceSolidity.Visibility.public_ } ] } ] }
+
+def badReceivePublicRejected : Bool :=
+  Result.isError (SourceUnit.check badReceivePublicSource)
+
+def badReceiveParamSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadReceiveParam"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { payableReceiveFunction with
+                    params :=
+                      [{ name := some "value", ty := uint256, location := none }] } ] } ] }
+
+def badReceiveParamRejected : Bool :=
+  Result.isError (SourceUnit.check badReceiveParamSource)
+
+def badReceiveReturnSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadReceiveReturn"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { payableReceiveFunction with
+                    returns :=
+                      [{ name := none, ty := uint256, location := none }] } ] } ] }
+
+def badReceiveReturnRejected : Bool :=
+  Result.isError (SourceUnit.check badReceiveReturnSource)
+
+def multipleReceiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MultipleReceive"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  payableReceiveFunction
+              , L00_SourceSolidity.ContractItem.function
+                  payableReceiveFunction ] } ] }
+
+def multipleReceiveRejected : Bool :=
+  Result.isError (SourceUnit.check multipleReceiveSource)
+
+def multipleFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "MultipleFallback"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  untypedFallbackFunction
+              , L00_SourceSolidity.ContractItem.function
+                  typedFallbackFunction ] } ] }
+
+def multipleFallbackRejected : Bool :=
+  Result.isError (SourceUnit.check multipleFallbackSource)
+
+def libraryFallbackSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "LibraryFallback"
+            items := [L00_SourceSolidity.ContractItem.function
+              untypedFallbackFunction] } ] }
+
+def libraryFallbackRejected : Bool :=
+  Result.isError (SourceUnit.check libraryFallbackSource)
+
+def libraryReceiveSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { kind := L00_SourceSolidity.ContractKind.library
+            name := "LibraryReceive"
+            items := [L00_SourceSolidity.ContractItem.function
+              payableReceiveFunction] } ] }
+
+def libraryReceiveRejected : Bool :=
+  Result.isError (SourceUnit.check libraryReceiveSource)
+
+def fallbackReceiveCallableFormDisciplineMatches : Bool :=
+  interfaceFallbackAccepted &&
+    interfaceReceiveAccepted &&
+    interfaceTypedFallbackAccepted &&
+    untypedFallbackAccepted &&
+    payableFallbackAccepted &&
+    typedFallbackAccepted &&
+    receiveAccepted &&
+    badFallbackPublicRejected &&
+    badFallbackViewRejected &&
+    badFallbackParamRejected &&
+    badTypedFallbackMemoryParamRejected &&
+    badTypedFallbackCalldataReturnRejected &&
+    badTypedFallbackNoReturnRejected &&
+    badReceiveNonpayableRejected &&
+    badReceivePublicRejected &&
+    badReceiveParamRejected &&
+    badReceiveReturnRejected &&
+    multipleReceiveRejected &&
+    multipleFallbackRejected &&
+    libraryFallbackRejected &&
+    libraryReceiveRejected
+
 def constructorVirtualSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -26129,6 +35134,16 @@ def abstractFallbackWithoutVirtualSource : L00_SourceSolidity.SourceUnit :=
 
 def abstractFallbackWithoutVirtualRejected : Bool :=
   Result.isError (SourceUnit.check abstractFallbackWithoutVirtualSource)
+
+def callableHeaderAndOverrideDisciplineMatches : Bool :=
+  fallbackOverrideAccepted &&
+    receiveOverrideAccepted &&
+    missingFallbackOverrideRejected &&
+    payableFallbackOverrideRejected &&
+    constructorVirtualRejected &&
+    freeVirtualRejected &&
+    freePayableRejected &&
+    abstractFallbackWithoutVirtualRejected
 
 def payableContractConversionSource : L00_SourceSolidity.SourceUnit :=
   { items :=
@@ -26187,6 +35202,312 @@ def nonpayableContractConversionSource : L00_SourceSolidity.SourceUnit :=
 
 def nonpayableContractConversionRejected : Bool :=
   Result.isError (SourceUnit.check nonpayableContractConversionSource)
+
+def oneStepConversionFunction (name : Name) (sourceTy targetTy : Ty) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params := [{ name := some "input", ty := sourceTy, location := none }]
+    returns := [{ name := none, ty := targetTy, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.typeName targetTy)
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "input") ]))) }
+
+def numericBytesConversionValidSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "NumericBytesConversionValid"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "uint16FromUint8" uint8 uint16)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "uint8FromUint16" uint16 uint8)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "uint8FromInt8" int8 uint8)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "int8FromUint8" uint8 int8)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "bytes4FromBytes2" bytes2 bytes4)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "bytes2FromBytes4" bytes4 bytes2)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "bytes2FromUint16" uint16 bytes2)
+              , L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "uint16FromBytes2" bytes2 uint16) ] } ] }
+
+def int8ToUint16ConversionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Int8ToUint16"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "convert" int8 uint16) ] } ] }
+
+def uint8ToInt16ConversionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Uint8ToInt16"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "convert" uint8 int16) ] } ] }
+
+def bytes2ToUint8ConversionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Bytes2ToUint8"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "convert" bytes2 uint8) ] } ] }
+
+def uint32ToBytes2ConversionSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "Uint32ToBytes2"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (oneStepConversionFunction "convert" uint32 bytes2) ] } ] }
+
+def numericBytesConversionDisciplineMatches : Bool :=
+  sourceUnitAccepted? numericBytesConversionValidSource &&
+    Result.isError (SourceUnit.check int8ToUint16ConversionSource) &&
+    Result.isError (SourceUnit.check uint8ToInt16ConversionSource) &&
+    Result.isError (SourceUnit.check bytes2ToUint8ConversionSource) &&
+    Result.isError (SourceUnit.check uint32ToBytes2ConversionSource)
+
+def addressToContractFunction (name : Name) (sourceTy targetTy : Ty) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    params := [{ name := some "input", ty := sourceTy, location := none }]
+    returns := [{ name := none, ty := targetTy, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.call
+              (L00_SourceSolidity.Expr.typeName targetTy)
+              [ L00_SourceSolidity.Arg.positional
+                  (L00_SourceSolidity.Expr.ident "input") ]))) }
+
+def addressValueConversionValidSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AddressValueConversionValid"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "addressToBytes20" addressTy
+                    (L00_SourceSolidity.Ty.bytesN 20))
+              , L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "addressToUint160" addressTy
+                    (L00_SourceSolidity.Ty.uint 160))
+              , L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "bytes20ToAddress"
+                    (L00_SourceSolidity.Ty.bytesN 20) addressTy)
+              , L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "uint160ToAddress"
+                    (L00_SourceSolidity.Ty.uint 160) addressTy) ] } ] }
+
+def payableAddressToBytes20Source : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PayableAddressToBytes20"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" payableAddressTy
+                    (L00_SourceSolidity.Ty.bytesN 20)) ] } ] }
+
+def payableAddressToUint160Source : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "PayableAddressToUint160"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" payableAddressTy
+                    (L00_SourceSolidity.Ty.uint 160)) ] } ] }
+
+def addressToBytes32Source : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AddressToBytes32"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" addressTy
+                    (L00_SourceSolidity.Ty.bytesN 32)) ] } ] }
+
+def addressToUint256Source : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AddressToUint256"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" addressTy uint256) ] } ] }
+
+def addressValueConversionDisciplineMatches : Bool :=
+  sourceUnitAccepted? addressValueConversionValidSource &&
+    Result.isError (SourceUnit.check payableAddressToBytes20Source) &&
+    Result.isError (SourceUnit.check payableAddressToUint160Source) &&
+    Result.isError (SourceUnit.check addressToBytes32Source) &&
+    Result.isError (SourceUnit.check addressToUint256Source)
+
+def payableAddressConversionTarget : L00_SourceSolidity.ContractDecl :=
+  { name := "PayableAddressConversionTarget"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function payableReceiveFunction ] }
+
+def payableAddressConversionTargetTy : Ty :=
+  L00_SourceSolidity.Ty.user (userPath "PayableAddressConversionTarget")
+
+def addressToPayableContractSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract payableAddressConversionTarget
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AddressToPayableContract"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" addressTy
+                    payableAddressConversionTargetTy) ] } ] }
+
+def addressToPayableContractRejected : Bool :=
+  Result.isError (SourceUnit.check addressToPayableContractSource)
+
+def payableFallbackAddressConversionTarget :
+    L00_SourceSolidity.ContractDecl :=
+  { name := "PayableFallbackAddressConversionTarget"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function
+          { untypedFallbackFunction with
+            mutability := L00_SourceSolidity.StateMutability.payable } ] }
+
+def payableFallbackAddressConversionTargetTy : Ty :=
+  L00_SourceSolidity.Ty.user
+    (userPath "PayableFallbackAddressConversionTarget")
+
+def addressToPayableFallbackContractSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          payableFallbackAddressConversionTarget
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AddressToPayableFallbackContract"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" addressTy
+                    payableFallbackAddressConversionTargetTy) ] } ] }
+
+def addressToPayableFallbackContractRejected : Bool :=
+  Result.isError (SourceUnit.check addressToPayableFallbackContractSource)
+
+def payableAddressToPayableContractSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract payableAddressConversionTarget
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "PayableAddressToPayableContract"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" payableAddressTy
+                    payableAddressConversionTargetTy) ] } ] }
+
+def payableAddressToPayableContractAccepted : Bool :=
+  sourceUnitAccepted? payableAddressToPayableContractSource
+
+def nonpayableAddressConversionTarget : L00_SourceSolidity.ContractDecl :=
+  { name := "NonpayableAddressConversionTarget" }
+
+def nonpayableAddressConversionTargetTy : Ty :=
+  L00_SourceSolidity.Ty.user
+    (userPath "NonpayableAddressConversionTarget")
+
+def addressToNonpayableContractSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          nonpayableAddressConversionTarget
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AddressToNonpayableContract"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" addressTy
+                    nonpayableAddressConversionTargetTy) ] } ] }
+
+def addressToNonpayableContractAccepted : Bool :=
+  sourceUnitAccepted? addressToNonpayableContractSource
+
+def inheritedPayableConversionBase : L00_SourceSolidity.ContractDecl :=
+  { name := "InheritedPayableConversionBase"
+    items :=
+      [ L00_SourceSolidity.ContractItem.function payableReceiveFunction ] }
+
+def inheritedPayableConversionTarget : L00_SourceSolidity.ContractDecl :=
+  { name := "InheritedPayableConversionTarget"
+    bases := [{ base := userPath "InheritedPayableConversionBase" }] }
+
+def inheritedPayableConversionTargetTy : Ty :=
+  L00_SourceSolidity.Ty.user
+    (userPath "InheritedPayableConversionTarget")
+
+def addressToInheritedPayableContractSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract inheritedPayableConversionBase
+      , L00_SourceSolidity.SourceItem.contract inheritedPayableConversionTarget
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "AddressToInheritedPayableContract"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  (addressToContractFunction "convert" addressTy
+                    inheritedPayableConversionTargetTy) ] } ] }
+
+def addressToInheritedPayableContractRejected : Bool :=
+  Result.isError (SourceUnit.check addressToInheritedPayableContractSource)
+
+def inheritedPayableContractValueFunction :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "asPayable"
+    params :=
+      [ { name := some "input"
+          ty := inheritedPayableConversionTargetTy
+          location := none } ]
+    returns := [{ name := none, ty := payableAddressTy, location := none }]
+    body :=
+      some
+        (L00_SourceSolidity.Stmt.returnValues
+          (some
+            (L00_SourceSolidity.Expr.payableConversion
+              (L00_SourceSolidity.Expr.ident "input")))) }
+
+def inheritedPayableContractValueSource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract inheritedPayableConversionBase
+      , L00_SourceSolidity.SourceItem.contract inheritedPayableConversionTarget
+      , L00_SourceSolidity.SourceItem.contract
+          { name := "InheritedPayableContractValue"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  inheritedPayableContractValueFunction ] } ] }
+
+def inheritedPayableContractValueAccepted : Bool :=
+  sourceUnitAccepted? inheritedPayableContractValueSource
+
+def addressContractConversionDisciplineMatches : Bool :=
+  addressToPayableContractRejected &&
+    addressToPayableFallbackContractRejected &&
+    payableAddressToPayableContractAccepted &&
+    addressToNonpayableContractAccepted &&
+    addressToInheritedPayableContractRejected &&
+    inheritedPayableContractValueAccepted &&
+    nonpayableContractConversionRejected
 
 def priceTy : Ty :=
   L00_SourceSolidity.Ty.user (userPath "Price")
@@ -26742,6 +36063,152 @@ def badAbiDecodeSource : L00_SourceSolidity.SourceUnit :=
 def badAbiDecodeRejected : Bool :=
   Result.isError (SourceUnit.check badAbiDecodeSource)
 
+def badAbiEncodeWithSelectorSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodeWithSelector"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "encode"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "abi")
+                                "encodeWithSelector")
+                              [ L00_SourceSolidity.Arg.positional oneExpr
+                              , L00_SourceSolidity.Arg.positional
+                                  zeroExpr ]))) } ] } ] }
+
+def badAbiEncodeWithSelectorRejected : Bool :=
+  Result.isError (SourceUnit.check badAbiEncodeWithSelectorSource)
+
+def badAbiEncodeWithSignatureSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodeWithSignature"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "encode"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "abi")
+                                "encodeWithSignature")
+                              [ L00_SourceSolidity.Arg.positional oneExpr
+                              , L00_SourceSolidity.Arg.positional
+                                  zeroExpr ]))) } ] } ] }
+
+def badAbiEncodeWithSignatureRejected : Bool :=
+  Result.isError (SourceUnit.check badAbiEncodeWithSignatureSource)
+
+def abiSelectorSignatureDisciplineMatches : Bool :=
+  badAbiEncodeWithSelectorRejected &&
+    badAbiEncodeWithSignatureRejected
+
+def badAbiEncodePackedStructSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodePackedStruct"
+            items :=
+              [ L00_SourceSolidity.ContractItem.structDecl
+                  { name := "PackedStruct"
+                    fields := [{ name := "x", ty := uint256 }] }
+              , L00_SourceSolidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "packStruct"
+                    params :=
+                      [ { name := some "item"
+                          ty :=
+                            L00_SourceSolidity.Ty.user
+                              (userPath "PackedStruct")
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "abi")
+                                "encodePacked")
+                              [L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "item")]))) } ] } ] }
+
+def badAbiEncodePackedStructRejected : Bool :=
+  Result.isError (SourceUnit.check badAbiEncodePackedStructSource)
+
+def badAbiEncodePackedNestedArraySource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadAbiEncodePackedNestedArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "packNestedArray"
+                    params :=
+                      [ { name := some "matrix"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              (L00_SourceSolidity.Ty.array uint256 none)
+                              none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "abi")
+                                "encodePacked")
+                              [L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "matrix")]))) } ] } ] }
+
+def badAbiEncodePackedNestedArrayRejected : Bool :=
+  Result.isError (SourceUnit.check badAbiEncodePackedNestedArraySource)
+
+def abiEncodePackedStaticElementArraySource :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "AbiEncodePackedStaticElementArray"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "packArray"
+                    params :=
+                      [ { name := some "items"
+                          ty :=
+                            L00_SourceSolidity.Ty.array
+                              (L00_SourceSolidity.Ty.uint 8) none
+                          location :=
+                            some L00_SourceSolidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "abi")
+                                "encodePacked")
+                              [L00_SourceSolidity.Arg.positional
+                                (L00_SourceSolidity.Expr.ident
+                                  "items")]))) } ] } ] }
+
+def abiEncodePackedStaticElementArrayAccepted : Bool :=
+  sourceUnitAccepted? abiEncodePackedStaticElementArraySource
+
 def bytesConcatSource : L00_SourceSolidity.SourceUnit :=
   { items :=
       [ L00_SourceSolidity.SourceItem.contract
@@ -26791,6 +36258,120 @@ def badBytesConcatSource : L00_SourceSolidity.SourceUnit :=
 
 def badBytesConcatRejected : Bool :=
   Result.isError (SourceUnit.check badBytesConcatSource)
+
+def badBytesConcatNamedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadBytesConcatNamed"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "bytes")
+                                "concat")
+                              [ L00_SourceSolidity.Arg.named "x"
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1])) ]))) } ] } ] }
+
+def badBytesConcatNamedRejected : Bool :=
+  Result.isError (SourceUnit.check badBytesConcatNamedSource)
+
+def stringReturnFunction : L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    returns :=
+      [ { name := none
+          ty := L00_SourceSolidity.Ty.string
+          location := some L00_SourceSolidity.DataLocation.memory } ] }
+
+def stringConcatSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "StringConcat"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { stringReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "string")
+                                "concat")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.string "a"))
+                              , L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.unicodeString
+                                      "é")) ]))) } ] } ] }
+
+def stringConcatAccepted : Bool :=
+  sourceUnitAccepted? stringConcatSource
+
+def badStringConcatBytesSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadStringConcatBytes"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { stringReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "string")
+                                "concat")
+                              [ L00_SourceSolidity.Arg.positional
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.bytes
+                                      [1])) ]))) } ] } ] }
+
+def badStringConcatBytesRejected : Bool :=
+  Result.isError (SourceUnit.check badStringConcatBytesSource)
+
+def badStringConcatNamedSource : L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [ L00_SourceSolidity.SourceItem.contract
+          { name := "BadStringConcatNamed"
+            items :=
+              [ L00_SourceSolidity.ContractItem.function
+                  { stringReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (L00_SourceSolidity.Stmt.returnValues
+                          (some
+                            (L00_SourceSolidity.Expr.call
+                              (L00_SourceSolidity.Expr.member
+                                (L00_SourceSolidity.Expr.ident "string")
+                                "concat")
+                              [ L00_SourceSolidity.Arg.named "x"
+                                  (L00_SourceSolidity.Expr.literal
+                                    (L00_SourceSolidity.Literal.string
+                                      "a")) ]))) } ] } ] }
+
+def badStringConcatNamedRejected : Bool :=
+  Result.isError (SourceUnit.check badStringConcatNamedSource)
+
+def concatBuiltinDisciplineMatches : Bool :=
+  bytesConcatAccepted &&
+    stringConcatAccepted &&
+    badBytesConcatRejected &&
+    badBytesConcatNamedRejected &&
+    badStringConcatBytesRejected &&
+    badStringConcatNamedRejected
 
 def encodeCallTargetFunction : L00_SourceSolidity.FunctionDecl :=
   { simpleReturnFunction with
@@ -27309,7 +36890,10 @@ def contextualArrayTryExternalMemberCallOverflowRejected : Bool :=
     contextualArrayTryExternalMemberCallOverflowSource)
 
 def contextualArrayExternalFunctionValueTy : Ty :=
-  L00_SourceSolidity.Ty.function [contextualNarrowArrayTy] [uint8]
+  L00_SourceSolidity.Ty.functionWithLocations
+    [contextualNarrowArrayTy]
+    [some L00_SourceSolidity.DataLocation.memory]
+    [uint8] [none]
     L00_SourceSolidity.StateMutability.view
     L00_SourceSolidity.Visibility.external_
 
@@ -27928,6 +37512,236 @@ def badPureAddressThisSource : L00_SourceSolidity.SourceUnit :=
 
 def badPureAddressThisRejected : Bool :=
   Result.isError (SourceUnit.check badPureAddressThisSource)
+
+def localPointerBinding (name : Name)
+    (location : L00_SourceSolidity.DataLocation) :
+    L00_SourceSolidity.VarBinding :=
+  { name := some name
+    ty := some L00_SourceSolidity.Ty.bytes
+    location := some location }
+
+def localPointerAssign (name source : Name) : L00_SourceSolidity.Stmt :=
+  L00_SourceSolidity.Stmt.expr
+    (L00_SourceSolidity.Expr.assign
+      (L00_SourceSolidity.Expr.ident name)
+      L00_SourceSolidity.AssignOp.assign
+      (L00_SourceSolidity.Expr.ident source))
+
+def localPointerLengthReturn (name : Name) : L00_SourceSolidity.Stmt :=
+  L00_SourceSolidity.Stmt.returnValues
+    (some
+      (L00_SourceSolidity.Expr.member
+        (L00_SourceSolidity.Expr.ident name) "length"))
+
+def localPointerFunction (name : Name)
+    (mutability : L00_SourceSolidity.StateMutability)
+    (params : List L00_SourceSolidity.Parameter)
+    (body : List L00_SourceSolidity.Stmt) :
+    L00_SourceSolidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some name
+    visibility := some L00_SourceSolidity.Visibility.external_
+    mutability := mutability
+    params := params
+    returns := [{ name := none, ty := uint256 }]
+    body := some (L00_SourceSolidity.Stmt.block body) }
+
+def localPointerStateVar (name : Name) :
+    L00_SourceSolidity.StateVarDecl :=
+  { name := name
+    ty := L00_SourceSolidity.Ty.bytes
+    visibility := some L00_SourceSolidity.Visibility.private_ }
+
+def localPointerSource (name : Name)
+    (items : List L00_SourceSolidity.ContractItem) :
+    L00_SourceSolidity.SourceUnit :=
+  { items :=
+      [L00_SourceSolidity.SourceItem.contract
+        { name := name, items := items }] }
+
+def delayedStorageLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "DelayedStorageLocal"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        (localPointerStateVar "value")
+    , L00_SourceSolidity.ContractItem.function
+        (localPointerFunction "read" L00_SourceSolidity.StateMutability.view []
+          [ L00_SourceSolidity.Stmt.varDecl
+              [localPointerBinding "pointer"
+                L00_SourceSolidity.DataLocation.storage] none
+          , localPointerAssign "pointer" "value"
+          , localPointerLengthReturn "pointer" ]) ]
+
+def branchedStorageLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "BranchedStorageLocal"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        (localPointerStateVar "left")
+    , L00_SourceSolidity.ContractItem.stateVar
+        (localPointerStateVar "right")
+    , L00_SourceSolidity.ContractItem.function
+        (localPointerFunction "read" L00_SourceSolidity.StateMutability.view
+          [{ name := some "choose", ty := L00_SourceSolidity.Ty.bool }]
+          [ L00_SourceSolidity.Stmt.varDecl
+              [localPointerBinding "pointer"
+                L00_SourceSolidity.DataLocation.storage] none
+          , L00_SourceSolidity.Stmt.ifElse
+              (L00_SourceSolidity.Expr.ident "choose")
+              (localPointerAssign "pointer" "left")
+              (some (localPointerAssign "pointer" "right"))
+          , localPointerLengthReturn "pointer" ]) ]
+
+def delayedCalldataLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "DelayedCalldataLocal"
+    [L00_SourceSolidity.ContractItem.function
+      (localPointerFunction "read" L00_SourceSolidity.StateMutability.pure
+        [ { name := some "input"
+            ty := L00_SourceSolidity.Ty.bytes
+            location := some L00_SourceSolidity.DataLocation.calldata } ]
+        [ L00_SourceSolidity.Stmt.varDecl
+            [localPointerBinding "pointer"
+              L00_SourceSolidity.DataLocation.calldata] none
+        , localPointerAssign "pointer" "input"
+        , localPointerLengthReturn "pointer" ])]
+
+def unusedPointerLocalsSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "UnusedPointerLocals"
+    [L00_SourceSolidity.ContractItem.function
+      { simpleReturnFunction with
+        name := some "unused"
+        visibility := some L00_SourceSolidity.Visibility.external_
+        mutability := L00_SourceSolidity.StateMutability.pure
+        body :=
+          some
+            (L00_SourceSolidity.Stmt.block
+              [ L00_SourceSolidity.Stmt.varDecl
+                  [localPointerBinding "storagePointer"
+                    L00_SourceSolidity.DataLocation.storage] none
+              , L00_SourceSolidity.Stmt.varDecl
+                  [localPointerBinding "calldataPointer"
+                    L00_SourceSolidity.DataLocation.calldata] none ]) }]
+
+def shadowedPointerLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "ShadowedPointerLocal"
+    [L00_SourceSolidity.ContractItem.function
+      (localPointerFunction "read" L00_SourceSolidity.StateMutability.pure
+        [ { name := some "input"
+            ty := L00_SourceSolidity.Ty.bytes
+            location := some L00_SourceSolidity.DataLocation.calldata } ]
+        [ L00_SourceSolidity.Stmt.varDecl
+            [localPointerBinding "pointer"
+              L00_SourceSolidity.DataLocation.calldata]
+            (some (L00_SourceSolidity.Expr.ident "input"))
+        , L00_SourceSolidity.Stmt.block
+            [L00_SourceSolidity.Stmt.varDecl
+              [localPointerBinding "pointer"
+                L00_SourceSolidity.DataLocation.calldata] none]
+        , localPointerLengthReturn "pointer" ])]
+
+def doWhileAssignedStorageLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "DoWhileAssignedStorageLocal"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        (localPointerStateVar "value")
+    , L00_SourceSolidity.ContractItem.function
+        (localPointerFunction "read" L00_SourceSolidity.StateMutability.view []
+          [ L00_SourceSolidity.Stmt.varDecl
+              [localPointerBinding "pointer"
+                L00_SourceSolidity.DataLocation.storage] none
+          , L00_SourceSolidity.Stmt.doWhile
+              (localPointerAssign "pointer" "value")
+              (L00_SourceSolidity.Expr.literal
+                (L00_SourceSolidity.Literal.bool false))
+          , localPointerLengthReturn "pointer" ]) ]
+
+def unsafeStorageLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "UnsafeStorageLocal"
+    [L00_SourceSolidity.ContractItem.function
+      (localPointerFunction "bad" L00_SourceSolidity.StateMutability.pure []
+        [ L00_SourceSolidity.Stmt.varDecl
+            [localPointerBinding "pointer"
+              L00_SourceSolidity.DataLocation.storage] none
+        , localPointerLengthReturn "pointer" ])]
+
+def unsafeCalldataLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "UnsafeCalldataLocal"
+    [L00_SourceSolidity.ContractItem.function
+      (localPointerFunction "bad" L00_SourceSolidity.StateMutability.pure []
+        [ L00_SourceSolidity.Stmt.varDecl
+            [localPointerBinding "pointer"
+              L00_SourceSolidity.DataLocation.calldata] none
+        , localPointerLengthReturn "pointer" ])]
+
+def partialStorageLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "PartialStorageLocal"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        (localPointerStateVar "value")
+    , L00_SourceSolidity.ContractItem.function
+        (localPointerFunction "bad" L00_SourceSolidity.StateMutability.view
+          [{ name := some "choose", ty := L00_SourceSolidity.Ty.bool }]
+          [ L00_SourceSolidity.Stmt.varDecl
+              [localPointerBinding "pointer"
+                L00_SourceSolidity.DataLocation.storage] none
+          , L00_SourceSolidity.Stmt.ifElse
+              (L00_SourceSolidity.Expr.ident "choose")
+              (localPointerAssign "pointer" "value") none
+          , localPointerLengthReturn "pointer" ]) ]
+
+def loopAssignedStorageLocalSource : L00_SourceSolidity.SourceUnit :=
+  localPointerSource "LoopAssignedStorageLocal"
+    [ L00_SourceSolidity.ContractItem.stateVar
+        (localPointerStateVar "value")
+    , L00_SourceSolidity.ContractItem.function
+        (localPointerFunction "bad" L00_SourceSolidity.StateMutability.view []
+          [ L00_SourceSolidity.Stmt.varDecl
+              [localPointerBinding "pointer"
+                L00_SourceSolidity.DataLocation.storage] none
+          , L00_SourceSolidity.Stmt.whileLoop
+              (L00_SourceSolidity.Expr.literal
+                (L00_SourceSolidity.Literal.bool true))
+              (L00_SourceSolidity.Stmt.block
+                [ localPointerAssign "pointer" "value"
+                , L00_SourceSolidity.Stmt.break ])
+          , localPointerLengthReturn "pointer" ]) ]
+
+def localPointerDefiniteAssignmentDisciplineMatches : Bool :=
+  sourceUnitAccepted? delayedStorageLocalSource &&
+    sourceUnitAccepted? branchedStorageLocalSource &&
+    sourceUnitAccepted? delayedCalldataLocalSource &&
+    sourceUnitAccepted? unusedPointerLocalsSource &&
+    sourceUnitAccepted? shadowedPointerLocalSource &&
+    sourceUnitAccepted? doWhileAssignedStorageLocalSource &&
+    Result.isError (SourceUnit.check unsafeStorageLocalSource) &&
+    Result.isError (SourceUnit.check unsafeCalldataLocalSource) &&
+    Result.isError (SourceUnit.check partialStorageLocalSource) &&
+    Result.isError (SourceUnit.check loopAssignedStorageLocalSource)
+
+def nominalAliasPairStructDecl : L00_SourceSolidity.StructDecl :=
+  { name := "Pair"
+    fields :=
+      [ { name := "a", ty := L00_SourceSolidity.Ty.uint 256 } ] }
+
+def nominalAliasOtherContract : L00_SourceSolidity.ContractDecl :=
+  { name := "Other"
+    items :=
+      [ L00_SourceSolidity.ContractItem.structDecl
+          nominalAliasPairStructDecl ] }
+
+def nominalAliasCurrentTypes : TypeContext :=
+  (TypeContext.empty.withSourceTypes
+    [nominalAliasOtherContract] [] [] []).withContractTypes
+      "Current" [nominalAliasPairStructDecl] [] []
+
+def nominalLocalUserAliasDisciplineMatches : Bool :=
+  TypeContext.canImplicitlyConvert nominalAliasCurrentTypes
+    (L00_SourceSolidity.Ty.user
+      (TypeContext.qualifiedPath "Current" "Pair"))
+    (L00_SourceSolidity.Ty.user (TypeContext.pathOfName "Pair")) &&
+  TypeContext.canImplicitlyConvert nominalAliasCurrentTypes
+    (L00_SourceSolidity.Ty.user (TypeContext.pathOfName "Pair"))
+    (L00_SourceSolidity.Ty.user
+      (TypeContext.qualifiedPath "Current" "Pair")) &&
+  !TypeContext.canImplicitlyConvert nominalAliasCurrentTypes
+    (L00_SourceSolidity.Ty.user
+      (TypeContext.qualifiedPath "Other" "Pair"))
+    (L00_SourceSolidity.Ty.user (TypeContext.pathOfName "Pair"))
 
 end Examples
 

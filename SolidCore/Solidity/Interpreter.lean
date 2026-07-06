@@ -77,6 +77,16 @@ inductive Ty where
   | tuple : List Ty -> Ty
   deriving Repr
 
+inductive AbiCleanup where
+  | none
+  | uint : Nat -> AbiCleanup
+  | int : Nat -> AbiCleanup
+  | enum : Word -> AbiCleanup
+  | fixedArray : Nat -> AbiCleanup -> AbiCleanup
+  | dynamicArray : AbiCleanup -> AbiCleanup
+  | tuple : List AbiCleanup -> AbiCleanup
+  deriving Repr
+
 inductive Value where
   | word : Word -> Value
   | int : Word -> Value
@@ -87,6 +97,8 @@ inductive Value where
   | tuple : List Value -> Value
   | storageRef : String -> Value
   | storagePathRef : String -> List Value -> Value
+  | memoryRef : Nat -> Value
+  | abiLazy : AbiCleanup -> Value -> Value
   deriving Repr
 
 def Ty.defaultValue : Ty -> Value
@@ -102,6 +114,26 @@ def Ty.defaultValue : Ty -> Value
   | Ty.dynamicArray _ => Value.dynamicArray []
   | Ty.tuple elements =>
       Value.tuple (elements.map Ty.defaultValue)
+
+def externalFunctionSelectorModulus : Nat :=
+  2 ^ (8 * selectorBytes)
+
+def externalFunctionStorageWord? (addr selector : Word) : Option Word :=
+  if SharedSemantics.norm addr < SharedSemantics.Account.addressModulus &&
+      SharedSemantics.norm selector < externalFunctionSelectorModulus then
+    some
+      (normWord
+        (SharedSemantics.Account.addressWord addr *
+          externalFunctionSelectorModulus +
+          SharedSemantics.norm selector))
+  else
+    none
+
+def externalFunctionValueFromStorageWord (word : Word) : Value :=
+  Value.externalFunction
+    (SharedSemantics.Account.addressWord
+      (SharedSemantics.norm word / externalFunctionSelectorModulus))
+    (SharedSemantics.norm word % externalFunctionSelectorModulus)
 
 def Value.asWord? : Value -> Option Word
   | Value.word value => some (SharedSemantics.norm value)
@@ -126,6 +158,12 @@ def Value.length? : Value -> Option Nat
   | Value.externalFunction _ _ => none
   | Value.storageRef _ => none
   | Value.storagePathRef _ _ => none
+  | Value.memoryRef _ => none
+  | Value.abiLazy _ value => value.length?
+
+def Value.storageArrayLength? : Value -> Option Nat
+  | Value.word length => some (SharedSemantics.norm length)
+  | value => value.length?
 
 def Value.defaultLike : Value -> Value
   | Value.word _ => Value.word 0
@@ -137,6 +175,16 @@ def Value.defaultLike : Value -> Value
   | Value.tuple values => Value.tuple (values.map Value.defaultLike)
   | Value.storageRef target => Value.storageRef target
   | Value.storagePathRef target indexes => Value.storagePathRef target indexes
+  | Value.memoryRef id => Value.memoryRef id
+  | Value.abiLazy _ value => value.defaultLike
+
+def Value.isMemoryObject : Value -> Bool
+  | Value.bytes _ => true
+  | Value.fixedArray _ => true
+  | Value.dynamicArray _ => true
+  | Value.tuple _ => true
+  | Value.abiLazy _ value => value.isMemoryObject
+  | _ => false
 
 def Value.storageRefForPath (target : String) (indexes : List Value) :
     Value :=
@@ -186,11 +234,17 @@ def RevertData.divByZero : RevertData :=
 def RevertData.enumConversion : RevertData :=
   RevertData.panic 0x21
 
+def RevertData.invalidStorageByteArray : RevertData :=
+  RevertData.panic 0x22
+
 def RevertData.popEmptyArray : RevertData :=
   RevertData.panic 0x31
 
 def RevertData.indexOutOfBounds : RevertData :=
   RevertData.panic 0x32
+
+def RevertData.memoryAllocationTooLarge : RevertData :=
+  RevertData.panic 0x41
 
 def RevertData.typeMismatch : RevertData :=
   RevertData.panic 0
@@ -201,13 +255,77 @@ def RevertData.fromRawBytes (bytes : List Byte) : RevertData :=
   else
     RevertData.raw bytes
 
+mutual
+
+def AbiCleanup.accepts : AbiCleanup -> Value -> Bool
+  | AbiCleanup.none, _ => true
+  | AbiCleanup.uint bits, Value.word value =>
+      0 < bits && bits <= 256 && SharedSemantics.norm value < 2 ^ bits
+  | AbiCleanup.int bits, Value.int value =>
+      if 0 < bits && bits <= 256 then
+        let modulus := 2 ^ bits
+        let signBit := 2 ^ (bits - 1)
+        let low := SharedSemantics.norm value % modulus
+        let canonical :=
+          if signBit <= low then
+            SharedSemantics.norm (wordModulus - modulus + low)
+          else
+            SharedSemantics.norm low
+        wordEq canonical value
+      else
+        false
+  | AbiCleanup.enum maxValue, Value.word value =>
+      SharedSemantics.norm value <= SharedSemantics.norm maxValue
+  | AbiCleanup.fixedArray size cleanup, Value.fixedArray values =>
+      values.length == size && AbiCleanup.acceptsAll cleanup values
+  | AbiCleanup.dynamicArray cleanup, Value.dynamicArray values =>
+      AbiCleanup.acceptsAll cleanup values
+  | AbiCleanup.tuple cleanups, Value.tuple values =>
+      AbiCleanups.accept cleanups values
+  | cleanup, Value.abiLazy inner value =>
+      inner.accepts value && cleanup.accepts value
+  | _, _ => false
+
+def AbiCleanup.acceptsAll (cleanup : AbiCleanup) : List Value -> Bool
+  | [] => true
+  | value :: rest => cleanup.accepts value && cleanup.acceptsAll rest
+
+def AbiCleanups.accept : List AbiCleanup -> List Value -> Bool
+  | [], [] => true
+  | cleanup :: cleanups, value :: values =>
+      cleanup.accepts value && AbiCleanups.accept cleanups values
+  | _, _ => false
+
+end
+
+def AbiCleanup.forceValue (cleanup : AbiCleanup)
+    (value : Value) : Except RevertData Value :=
+  if cleanup.accepts value then
+    Except.ok value
+  else
+    Except.error RevertData.empty
+
+def Value.forceAbiLazy : Value -> Except RevertData Value
+  | Value.abiLazy cleanup value => cleanup.forceValue value
+  | value => Except.ok value
+
+def Value.expectWordRaw : Value -> Except RevertData Word
+  | Value.word value => Except.ok (SharedSemantics.norm value)
+  | _ => Except.error RevertData.typeMismatch
+
 def Value.expectWord : Value -> Except RevertData Word
   | Value.word value => Except.ok (SharedSemantics.norm value)
+  | Value.abiLazy cleanup value => do
+      let forced ← cleanup.forceValue value
+      forced.expectWordRaw
   | _ => Except.error RevertData.typeMismatch
 
 mutual
 
 def Ty.coerceValue? : Ty -> Value -> Option Value
+  | ty, Value.abiLazy cleanup value => do
+      let coerced ← Ty.coerceValue? ty value
+      some (Value.abiLazy cleanup coerced)
   | Ty.bool, Value.word value =>
       if wordEq value 0 || wordEq value 1 then
         some (Value.word value)
@@ -265,11 +383,18 @@ def Ty.storageValueFromWord? : Ty -> Word -> Option Value
   | Ty.uint256, value => some (Value.word value)
   | Ty.int256, value => some (Value.int value)
   | Ty.fixedBytes _, value => some (Value.word value)
+  | Ty.externalFunction, value =>
+      some (externalFunctionValueFromStorageWord value)
   | _, _ => none
 
 mutual
 
 def Value.coerceLike? : Value -> Value -> Option Value
+  | template, Value.abiLazy cleanup value => do
+      let coerced ← Value.coerceLike? template value
+      some (Value.abiLazy cleanup coerced)
+  | Value.abiLazy _ template, value =>
+      Value.coerceLike? template value
   | Value.word _, Value.word value => some (Value.word value)
   | Value.int _, Value.int value => some (Value.int value)
   | Value.int _, Value.word value => some (Value.int value)
@@ -281,7 +406,7 @@ def Value.coerceLike? : Value -> Value -> Option Value
       | some coerced => some (Value.fixedArray coerced)
       | none => none
   | Value.dynamicArray oldValues, Value.dynamicArray values =>
-      match Value.coerceLikeList? oldValues values with
+      match Value.coerceDynamicArrayLike? oldValues values with
       | some coerced => some (Value.dynamicArray coerced)
       | none => none
   | Value.tuple oldValues, Value.tuple values =>
@@ -297,6 +422,16 @@ def Value.coerceLikeList? : List Value -> List Value -> Option (List Value)
       let tail ← Value.coerceLikeList? oldValues values
       some (head :: tail)
   | _, _ => none
+
+def Value.coerceDynamicArrayLike? :
+    List Value -> List Value -> Option (List Value)
+  | [], values => some values
+  | _ :: _, [] => some []
+  | template :: templates, value :: values => do
+      let head ← Value.coerceLike? template value
+      let tail ←
+        Value.coerceDynamicArrayLike? (template :: templates) values
+      some (head :: tail)
 
 end
 
@@ -328,6 +463,10 @@ def Value.index? (container : Value) (index : Word) :
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
   | Value.storagePathRef _ _ =>
+      Except.error RevertData.typeMismatch
+  | Value.memoryRef _ =>
+      Except.error RevertData.typeMismatch
+  | Value.abiLazy _ _ =>
       Except.error RevertData.typeMismatch
 
 def fixedBytesIndex? (size : Nat) (value index : Word) :
@@ -369,6 +508,19 @@ def uintCast? (bits : Nat) (value : Value) : Except RevertData Value :=
   else
     Except.error RevertData.typeMismatch
 
+def uintCleanup? (checked : Bool) (bits : Nat) (value : Value) :
+    Except RevertData Value :=
+  if 0 < bits && bits <= 256 then
+    match value.asStorageWord? with
+    | some word =>
+        if checked && !(SharedSemantics.norm word < 2 ^ bits) then
+          Except.error RevertData.overflow
+        else
+          uintCast? bits value
+    | none => Except.error RevertData.typeMismatch
+  else
+    Except.error RevertData.typeMismatch
+
 def intCast? (bits : Nat) (value : Value) : Except RevertData Value :=
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
@@ -382,6 +534,22 @@ def intCast? (bits : Nat) (value : Value) : Except RevertData Value :=
           else
             SharedSemantics.norm low
         Except.ok (Value.int casted)
+    | none => Except.error RevertData.typeMismatch
+  else
+    Except.error RevertData.typeMismatch
+
+def intCleanup? (checked : Bool) (bits : Nat) (value : Value) :
+    Except RevertData Value :=
+  if 0 < bits && bits <= 256 then
+    match value.asStorageWord? with
+    | some word =>
+        let signed := SharedSemantics.signedValue word
+        let min := -(Int.ofNat (2 ^ (bits - 1)))
+        let max := Int.ofNat ((2 ^ (bits - 1)) - 1)
+        if checked && (signed < min || max < signed) then
+          Except.error RevertData.overflow
+        else
+          intCast? bits value
     | none => Except.error RevertData.typeMismatch
   else
     Except.error RevertData.typeMismatch
@@ -452,6 +620,10 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
       Except.error RevertData.typeMismatch
   | Value.storagePathRef _ _ =>
       Except.error RevertData.typeMismatch
+  | Value.memoryRef _ =>
+      Except.error RevertData.typeMismatch
+  | Value.abiLazy _ _ =>
+      Except.error RevertData.typeMismatch
 
 abbrev WordMap := List (Word × Word)
 
@@ -482,6 +654,64 @@ def ByteMap.lookup? : ByteMap -> Word -> Option (List Byte)
       else
         ByteMap.lookup? rest query
 
+abbrev MemoryMap := List (Nat × Value)
+
+def MemoryMap.lookup? : MemoryMap -> Nat -> Option Value
+  | [], _ => none
+  | (key, value) :: rest, query =>
+      if key == query then
+        some value
+      else
+        MemoryMap.lookup? rest query
+
+def MemoryMap.insertLoop : MemoryMap -> Nat -> Value -> MemoryMap
+  | [], key, value => [(key, value)]
+  | (entryKey, entryValue) :: rest, key, value =>
+      if entryKey == key then
+        (key, value) :: rest
+      else
+        (entryKey, entryValue) :: MemoryMap.insertLoop rest key value
+
+def initialFreeMemoryPointer : Nat := 128
+
+structure MemoryAllocation where
+  start : Nat
+  sizeBytes : Nat
+  deriving Repr, BEq
+
+abbrev MemoryByteMap := List (Nat × Byte)
+
+def MemoryByteMap.lookup? : MemoryByteMap -> Nat -> Option Byte
+  | [], _ => none
+  | (key, value) :: rest, query =>
+      if key == query then
+        some value
+      else
+        MemoryByteMap.lookup? rest query
+
+def MemoryByteMap.insert : MemoryByteMap -> Nat -> Byte -> MemoryByteMap
+  | [], key, value => [(key, normByte value)]
+  | (entryKey, entryValue) :: rest, key, value =>
+      if entryKey == key then
+        (key, normByte value) :: rest
+      else
+        (entryKey, entryValue) :: MemoryByteMap.insert rest key value
+
+def MemoryByteMap.insertBytesFrom
+    (map : MemoryByteMap) (start : Nat) : List Byte -> MemoryByteMap
+  | [] => map
+  | byte :: rest =>
+      MemoryByteMap.insertBytesFrom
+        (MemoryByteMap.insert map start byte) (start + 1) rest
+
+def MemoryByteMap.readBytes? (map : MemoryByteMap) (start : Nat) :
+    Nat -> Option (List Byte)
+  | 0 => some []
+  | size + 1 => do
+      let head ← MemoryByteMap.lookup? map start
+      let tail ← MemoryByteMap.readBytes? map (start + 1) size
+      some (head :: tail)
+
 abbrev ImmutableMap := List (String × Value)
 
 def ImmutableMap.lookup? : ImmutableMap -> String -> Option Value
@@ -508,16 +738,76 @@ structure Event where
   dataBytes : List Byte := []
   deriving Repr
 
+def Event.toLogEntry (self : Word) (event : Event) :
+    SharedSemantics.Log.Entry :=
+  { address := SharedSemantics.Account.addressWord self
+    topics := event.topics.map SharedSemantics.norm
+    data := SharedSemantics.Account.normalizeBytes event.dataBytes }
+
+abbrev SourceExternalCallResult :=
+  SharedSemantics.Call.Result SharedSemantics.Call.ExternalCallKind
+
+abbrev SourceContractCreationResult :=
+  SharedSemantics.Call.CreationResult
+
+inductive ExternalInteraction where
+  | lowLevelCall : SourceExternalCallResult -> ExternalInteraction
+  | contractCreation :
+      SourceContractCreationResult -> ExternalInteraction
+  deriving Repr
+
 structure State where
   storage : WordMap
   transient : WordMap := []
   immutables : ImmutableMap := []
   selfdestructs : List (Word × Word) := []
+  selfdestructEffects : List SharedSemantics.Account.SelfdestructRecord := []
+  externalInteractions : List ExternalInteraction := []
   events : List Event
   deriving Repr
 
 def State.empty : State :=
   { storage := [], transient := [], immutables := [], events := [] }
+
+def State.logEntries (state : State) (self : Word) :
+    List SharedSemantics.Log.Entry :=
+  state.events.map (Event.toLogEntry self)
+
+structure StateEffectsObservation where
+  selfdestructs : List (Word × Word)
+  selfdestructEffects : List SharedSemantics.Account.SelfdestructRecord
+  externalInteractions : List ExternalInteraction
+  logs : List SharedSemantics.Log.Entry
+  deriving Repr
+
+def State.observeEffects (state : State) (self : Word) :
+    StateEffectsObservation :=
+  { selfdestructs := state.selfdestructs
+    selfdestructEffects := state.selfdestructEffects
+    externalInteractions := state.externalInteractions
+    logs := state.logEntries self }
+
+structure StateObservation where
+  storage : WordMap
+  transient : WordMap
+  immutables : ImmutableMap
+  effects : StateEffectsObservation
+  selfdestructs : List (Word × Word)
+  selfdestructEffects : List SharedSemantics.Account.SelfdestructRecord
+  externalInteractions : List ExternalInteraction
+  logs : List SharedSemantics.Log.Entry
+  deriving Repr
+
+def State.observe (state : State) (self : Word) : StateObservation :=
+  let effects := state.observeEffects self
+  { storage := state.storage
+    transient := state.transient
+    immutables := state.immutables
+    effects := effects
+    selfdestructs := effects.selfdestructs
+    selfdestructEffects := effects.selfdestructEffects
+    externalInteractions := effects.externalInteractions
+    logs := effects.logs }
 
 def State.loadSlot (state : State) (slot : Word) : Word :=
   match WordMap.lookup? state.storage slot with
@@ -546,13 +836,17 @@ def State.storeImmutable (state : State) (name : String)
   { state with
     immutables := ImmutableMap.insertLoop state.immutables name value }
 
-def State.recordSelfdestruct
-    (state : State) (self recipient : Word) : State :=
+def State.recordSelfdestruct (state : State)
+    (evmVersion : SharedSemantics.Block.EvmVersion)
+    (createdAccounts : List Word) (self recipient : Word) : State :=
+  let record :=
+    SharedSemantics.Account.selfdestructRecord
+      evmVersion createdAccounts self recipient
   { state with
     selfdestructs :=
       state.selfdestructs ++
-        [ ( SharedSemantics.Account.addressWord self
-          , SharedSemantics.Account.addressWord recipient) ] }
+        [(record.fromAddress, record.recipient)]
+    selfdestructEffects := state.selfdestructEffects ++ [record] }
 
 abbrev Frame := List (String × Value)
 abbrev LocalEnv := List Frame
@@ -598,13 +892,134 @@ def LocalEnv.declare (locals : LocalEnv) (name : String) (value : Value) :
   | [] => [[(name, value)]]
   | frame :: rest => ((name, value) :: frame) :: rest
 
+def Frame.visibleBindingsFrom (seen : List String) :
+    Frame -> List String × Frame
+  | [] => (seen, [])
+  | (name, value) :: rest =>
+      if seen.any (fun seenName => seenName == name) then
+        Frame.visibleBindingsFrom seen rest
+      else
+        let (seen', visibleRest) :=
+          Frame.visibleBindingsFrom (name :: seen) rest
+        (seen', (name, value) :: visibleRest)
+
+def LocalEnv.currentFrame : LocalEnv -> Frame
+  | [] => []
+  | frame :: _ => frame
+
+def LocalEnv.visibleBindingsFrom (seen : List String) :
+    LocalEnv -> Frame
+  | [] => []
+  | frame :: rest =>
+      let (seen', visibleFrame) := Frame.visibleBindingsFrom seen frame
+      visibleFrame ++ LocalEnv.visibleBindingsFrom seen' rest
+
+def LocalEnv.visibleBindings (locals : LocalEnv) : Frame :=
+  LocalEnv.visibleBindingsFrom [] locals
+
+structure LocalObservation where
+  frames : LocalEnv
+  currentFrame : Frame
+  visibleBindings : Frame
+  deriving Repr
+
+def LocalEnv.observe (locals : LocalEnv) : LocalObservation :=
+  { frames := locals
+    currentFrame := locals.currentFrame
+    visibleBindings := locals.visibleBindings }
+
+def LocalObservation.lookup? (observation : LocalObservation)
+    (name : String) : Option Value :=
+  Frame.lookup? observation.visibleBindings name
+
 structure Runtime where
   state : State
   locals : LocalEnv
+  memory : MemoryMap := []
+  nextMemory : Nat := 0
+  memoryByteMap : MemoryByteMap := []
+  memoryBytesUsed : Nat := 0
+  memoryFreePointer : Nat := initialFreeMemoryPointer
+  memoryAllocations : List MemoryAllocation := []
   deriving Repr
 
 def Runtime.ofState (state : State) : Runtime :=
   { state, locals := [[]] }
+
+def Runtime.recordExternalInteraction
+    (runtime : Runtime) (interaction : ExternalInteraction) : Runtime :=
+  { runtime with
+    state :=
+      { runtime.state with
+        externalInteractions :=
+          runtime.state.externalInteractions ++ [interaction] } }
+
+structure MemoryObservation where
+  objects : MemoryMap
+  nextObject : Nat
+  allocationSizes : List Nat
+  allocatedBytes : Nat
+  deriving Repr
+
+def Runtime.observeMemory (runtime : Runtime) : MemoryObservation :=
+  { objects := runtime.memory
+    nextObject := runtime.nextMemory
+    allocationSizes :=
+      runtime.memoryAllocations.map (fun allocation => allocation.sizeBytes)
+    allocatedBytes := runtime.memoryBytesUsed }
+
+structure RuntimeObservation where
+  state : StateObservation
+  locals : LocalObservation
+  memory : MemoryObservation
+  deriving Repr
+
+def Runtime.observe (runtime : Runtime) (self : Word) :
+    RuntimeObservation :=
+  { state := runtime.state.observe self
+    locals := runtime.locals.observe
+    memory := runtime.observeMemory }
+
+def roundUpToWordBytes (n : Nat) : Nat :=
+  ((n + 31) / 32) * 32
+
+def dynamicBytesMemoryFootprint (length : Nat) : Nat :=
+  32 + roundUpToWordBytes length
+
+def dynamicArrayMemoryFootprint (_elementTy : Ty) (length : Nat) : Nat :=
+  32 + length * 32
+
+def dynamicBytesMemoryContent (length : Nat) : List Byte :=
+  wordToBytesBE wordBytes length ++
+    List.replicate (roundUpToWordBytes length) 0
+
+def dynamicArrayMemoryContent (_elementTy : Ty) (length : Nat) : List Byte :=
+  wordToBytesBE wordBytes length ++
+    List.replicate (length * wordBytes) 0
+
+def Runtime.noteMemoryAllocation
+    (runtime : Runtime) (bytes : Nat) (contents : List Byte) : Runtime :=
+  let start := runtime.memoryFreePointer
+  let contents := bytesPrefixRightPadded bytes contents
+  { runtime with
+    memoryByteMap :=
+      MemoryByteMap.insertBytesFrom runtime.memoryByteMap start contents
+    memoryBytesUsed := runtime.memoryBytesUsed + bytes
+    memoryFreePointer := start + bytes
+    memoryAllocations :=
+      runtime.memoryAllocations ++
+        [{ start := start, sizeBytes := bytes }] }
+
+def Runtime.noteMemoryBytes (runtime : Runtime) (bytes : Nat) : Runtime :=
+  runtime.noteMemoryAllocation bytes (List.replicate bytes 0)
+
+def Runtime.loadMemoryByte? (runtime : Runtime) (address : Nat) :
+    Option Byte :=
+  MemoryByteMap.lookup? runtime.memoryByteMap address
+
+def Runtime.readMemoryBytes? (runtime : Runtime) (start size : Nat) :
+    Option (List Byte) :=
+  MemoryByteMap.readBytes? runtime.memoryByteMap start size
 
 def Runtime.pushScope (runtime : Runtime) : Runtime :=
   { runtime with locals := [] :: runtime.locals }
@@ -615,6 +1030,133 @@ def Runtime.popScope (runtime : Runtime) : Runtime :=
 def Runtime.lookupLocal? (runtime : Runtime) (name : String) :
     Option Value :=
   LocalEnv.lookup? runtime.locals name
+
+def Runtime.loadMemory? (runtime : Runtime) (id : Nat) : Option Value :=
+  MemoryMap.lookup? runtime.memory id
+
+def Runtime.allocMemory (runtime : Runtime) (value : Value) :
+    Runtime × Value :=
+  let id := runtime.nextMemory
+  ( { runtime with
+      memory := MemoryMap.insertLoop runtime.memory id value
+      nextMemory := id + 1 }
+  , Value.memoryRef id )
+
+def Runtime.derefMemoryValue (runtime : Runtime) (value : Value) :
+    Except RevertData Value :=
+  match value with
+  | Value.memoryRef id =>
+      match runtime.loadMemory? id with
+      | some stored => Except.ok stored
+      | none => Except.error RevertData.typeMismatch
+  | Value.abiLazy cleanup value =>
+      cleanup.forceValue value
+  | _ => Except.ok value
+
+mutual
+
+def Runtime.derefMemoryValueWithFuel (runtime : Runtime) :
+    Nat -> Value -> Except RevertData Value
+  | 0, _ => Except.error RevertData.typeMismatch
+  | fuel + 1, Value.memoryRef id =>
+      match runtime.loadMemory? id with
+      | some stored => runtime.derefMemoryValueWithFuel fuel stored
+      | none => Except.error RevertData.typeMismatch
+  | fuel + 1, Value.abiLazy cleanup value => do
+      let value ← cleanup.forceValue value
+      runtime.derefMemoryValueWithFuel fuel value
+  | fuel + 1, Value.fixedArray values => do
+      let values ← runtime.derefMemoryValuesWithFuel (fuel + 1) values
+      Except.ok (Value.fixedArray values)
+  | fuel + 1, Value.dynamicArray values => do
+      let values ← runtime.derefMemoryValuesWithFuel (fuel + 1) values
+      Except.ok (Value.dynamicArray values)
+  | fuel + 1, Value.tuple values => do
+      let values ← runtime.derefMemoryValuesWithFuel (fuel + 1) values
+      Except.ok (Value.tuple values)
+  | _fuel + 1, value => Except.ok value
+
+def Runtime.derefMemoryValuesWithFuel (runtime : Runtime)
+    (fuel : Nat) : List Value -> Except RevertData (List Value)
+  | [] => Except.ok []
+  | value :: rest => do
+      let value ← runtime.derefMemoryValueWithFuel fuel value
+      let rest ← runtime.derefMemoryValuesWithFuel fuel rest
+      Except.ok (value :: rest)
+
+end
+
+def Runtime.derefMemoryValueDeep (runtime : Runtime)
+    (value : Value) : Except RevertData Value :=
+  runtime.derefMemoryValueWithFuel (runtime.nextMemory + 1) value
+
+def Runtime.derefMemoryValuesDeep (runtime : Runtime)
+    (values : List Value) : Except RevertData (List Value) :=
+  runtime.derefMemoryValuesWithFuel (runtime.nextMemory + 1) values
+
+def Runtime.storageMaterializedValue (runtime : Runtime)
+    (value : Value) : Except RevertData Value :=
+  runtime.derefMemoryValueDeep value
+
+mutual
+
+def Runtime.memoryStoredValue (runtime : Runtime) (value : Value) :
+    Runtime × Value :=
+  match value with
+  | Value.fixedArray values =>
+      let (runtime', storedValues) := runtime.memoryStoredValues values
+      (runtime', Value.fixedArray storedValues)
+  | Value.dynamicArray values =>
+      let (runtime', storedValues) := runtime.memoryStoredValues values
+      (runtime', Value.dynamicArray storedValues)
+  | Value.tuple values =>
+      let (runtime', storedValues) := runtime.memoryStoredValues values
+      (runtime', Value.tuple storedValues)
+  | _ => (runtime, value)
+
+def Runtime.memoryStoredValues (runtime : Runtime) :
+    List Value -> Runtime × List Value
+  | [] => (runtime, [])
+  | value :: rest =>
+      let (runtime', storedValue) :=
+        if value.isMemoryObject then
+          let (nestedRuntime, nestedValue) :=
+            runtime.memoryStoredValue value
+          nestedRuntime.allocMemory nestedValue
+        else
+          (runtime, value)
+      let (runtime'', storedRest) :=
+        runtime'.memoryStoredValues rest
+      (runtime'', storedValue :: storedRest)
+
+end
+
+def Runtime.storeMemory? (runtime : Runtime) (id : Nat)
+    (value : Value) : Option Runtime :=
+  match runtime.loadMemory? id with
+  | some _ =>
+      let (runtime', storedValue) := runtime.memoryStoredValue value
+      some
+        { runtime' with
+          memory := MemoryMap.insertLoop runtime'.memory id storedValue }
+  | none => none
+
+def Runtime.memoryStoreValue (runtime : Runtime) (value : Value) :
+    Runtime × Value :=
+  match value with
+  | Value.memoryRef _ => (runtime, value)
+  | _ =>
+      if value.isMemoryObject then
+        let (runtime', storedValue) := runtime.memoryStoredValue value
+        runtime'.allocMemory storedValue
+      else
+        (runtime, value)
+
+def Runtime.lookupMemoryRef? (runtime : Runtime) (name : String) :
+    Option Nat :=
+  match runtime.lookupLocal? name with
+  | some (Value.memoryRef id) => some id
+  | _ => none
 
 def Runtime.lookupStorageRef? (runtime : Runtime) (name : String) :
     Option String :=
@@ -655,10 +1197,28 @@ def Runtime.declareLocal
     (runtime : Runtime) (name : String) (value : Value) : Runtime :=
   { runtime with locals := LocalEnv.declare runtime.locals name value }
 
+def Runtime.assignLocalRaw?
+    (runtime : Runtime) (name : String) (value : Value) :
+    Option Runtime :=
+  match LocalEnv.assign? runtime.locals name value with
+  | some locals => some { runtime with locals }
+  | none => none
+
 def Runtime.assignLocal?
     (runtime : Runtime) (name : String) (value : Value) :
     Option Runtime :=
   match runtime.lookupLocal? name with
+  | some (Value.memoryRef _) =>
+      match value with
+      | Value.memoryRef id =>
+          runtime.assignLocalRaw? name (Value.memoryRef id)
+      | _ =>
+          if value.isMemoryObject then
+            let (runtime', storedValue) := runtime.memoryStoredValue value
+            let (runtime'', ref) := runtime'.allocMemory storedValue
+            runtime''.assignLocalRaw? name ref
+          else
+            none
   | some oldValue =>
       match oldValue.coerceLike? value with
       | some coerced =>
@@ -677,8 +1237,27 @@ def Runtime.assignNamedValues? (runtime : Runtime) :
       | none => none
   | _, _ => none
 
+def Runtime.declareMemoryLocal (runtime : Runtime) (ty : Ty)
+    (name : String) (value : Value) : Option Runtime := do
+  let coerced ← ty.coerceValue? value
+  let (runtime', storedValue) := runtime.memoryStoredValue coerced
+  let (runtime'', ref) := runtime'.allocMemory storedValue
+  some (runtime''.declareLocal name ref)
+
+def Runtime.localizeMemoryLocal (runtime : Runtime) (ty : Ty)
+    (name : String) : Option Runtime := do
+  match runtime.lookupLocal? name with
+  | some (Value.memoryRef _) => some runtime
+  | some value => do
+      let coerced ← ty.coerceValue? value
+      let (runtime', storedValue) := runtime.memoryStoredValue coerced
+      let (runtime'', ref) := runtime'.allocMemory storedValue
+      runtime''.assignLocalRaw? name ref
+  | none => none
+
 inductive StorageLayout where
   | scalar : Ty -> StorageLayout
+  | packedScalar : Nat -> Nat -> Bool -> Ty -> StorageLayout
   | struct : List StorageLayout -> StorageLayout
   | fixedArray : Nat -> StorageLayout -> StorageLayout
   | dynamicArray : StorageLayout -> StorageLayout
@@ -687,11 +1266,31 @@ inductive StorageLayout where
   | mapping : Ty -> StorageLayout -> StorageLayout
   deriving Repr
 
+structure StorageLayoutCursor where
+  slot : Nat
+  offset : Nat := 0
+  deriving Repr
+
+def StorageLayoutCursor.finishSlot (cursor : StorageLayoutCursor) : Nat :=
+  if cursor.offset == 0 then cursor.slot else cursor.slot + 1
+
+def StorageLayoutCursor.align (cursor : StorageLayoutCursor) :
+    StorageLayoutCursor :=
+  if cursor.offset == 0 then cursor
+  else { slot := cursor.slot + 1, offset := 0 }
+
+def natCeilDiv (n d : Nat) : Nat :=
+  if d == 0 then 0 else (n + d - 1) / d
+
 mutual
 
 def StorageLayout.slotSpan : StorageLayout -> Nat
   | StorageLayout.scalar _ => 1
+  | StorageLayout.packedScalar _ _ _ _ => 1
   | StorageLayout.struct layouts => StorageLayouts.slotSpan layouts
+  | StorageLayout.fixedArray size
+      (StorageLayout.packedScalar _ widthBytes _ _) =>
+      natCeilDiv (size * widthBytes) wordBytes
   | StorageLayout.fixedArray size elementLayout =>
       size * StorageLayout.slotSpan elementLayout
   | StorageLayout.dynamicArray _ => 1
@@ -700,21 +1299,153 @@ def StorageLayout.slotSpan : StorageLayout -> Nat
   | StorageLayout.mapping _ _ => 1
 
 def StorageLayouts.slotSpan : List StorageLayout -> Nat
-  | [] => 0
+  | layouts =>
+      (StorageLayouts.cursorAfter { slot := 0, offset := 0 }
+        layouts).finishSlot
+
+def StorageLayout.cursorStep (cursor : StorageLayoutCursor)
+    (layout : StorageLayout) : Nat × StorageLayoutCursor :=
+  match layout with
+  | StorageLayout.packedScalar offset widthBytes _ _ =>
+      let slot :=
+        if offset < cursor.offset then cursor.slot + 1 else cursor.slot
+      let nextOffset := offset + widthBytes
+      let next :=
+        if nextOffset == wordBytes then
+          { slot := slot + 1, offset := 0 }
+        else
+          { slot := slot, offset := nextOffset }
+      (slot, next)
+  | StorageLayout.scalar _
+  | StorageLayout.dynamicArray _
+  | StorageLayout.bytes
+  | StorageLayout.string
+  | StorageLayout.mapping _ _ =>
+      let aligned := cursor.align
+      (aligned.slot, { slot := aligned.slot + 1, offset := 0 })
+  | StorageLayout.struct layouts =>
+      let aligned := cursor.align
+      (aligned.slot,
+        { slot := aligned.slot + StorageLayouts.slotSpan layouts
+          offset := 0 })
+  | StorageLayout.fixedArray size
+      (StorageLayout.packedScalar _ widthBytes _ _) =>
+      let aligned := cursor.align
+      let span := natCeilDiv (size * widthBytes) wordBytes
+      (aligned.slot, { slot := aligned.slot + span, offset := 0 })
+  | StorageLayout.fixedArray size elementLayout =>
+      let aligned := cursor.align
+      let span := size * StorageLayout.slotSpan elementLayout
+      (aligned.slot, { slot := aligned.slot + span, offset := 0 })
+
+def StorageLayouts.cursorAfter (cursor : StorageLayoutCursor) :
+    List StorageLayout -> StorageLayoutCursor
+  | [] => cursor
   | layout :: rest =>
-      StorageLayout.slotSpan layout + StorageLayouts.slotSpan rest
+      StorageLayouts.cursorAfter
+        (StorageLayout.cursorStep cursor layout).snd rest
 
 end
 
-def StorageLayouts.fieldOffsetAndLayout? :
-    Nat -> Nat -> List StorageLayout -> Option (Nat × StorageLayout)
+mutual
+
+def StorageLayout.depth : StorageLayout -> Nat
+  | StorageLayout.scalar _
+  | StorageLayout.packedScalar _ _ _ _
+  | StorageLayout.bytes
+  | StorageLayout.string => 1
+  | StorageLayout.struct layouts => StorageLayouts.depth layouts + 1
+  | StorageLayout.fixedArray _ elementLayout
+  | StorageLayout.dynamicArray elementLayout
+  | StorageLayout.mapping _ elementLayout => elementLayout.depth + 1
+
+def StorageLayouts.depth : List StorageLayout -> Nat
+  | [] => 0
+  | layout :: rest => max layout.depth (StorageLayouts.depth rest)
+
+end
+
+def StorageLayouts.fieldOffsetAndLayoutFrom? :
+    Nat -> StorageLayoutCursor -> List StorageLayout ->
+      Option (Nat × StorageLayout)
   | _, _, [] => none
-  | target, offset, layout :: rest =>
+  | target, cursor, layout :: rest =>
+      let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       if target == 0 then
         some (offset, layout)
       else
-        StorageLayouts.fieldOffsetAndLayout? (target - 1)
-          (offset + StorageLayout.slotSpan layout) rest
+        StorageLayouts.fieldOffsetAndLayoutFrom? (target - 1)
+          nextCursor rest
+
+def StorageLayouts.fieldOffsetAndLayout? :
+    Nat -> Nat -> List StorageLayout -> Option (Nat × StorageLayout)
+  | target, offset, layouts =>
+      StorageLayouts.fieldOffsetAndLayoutFrom? target
+        { slot := offset, offset := 0 } layouts
+
+def StorageLayout.arrayElementOffsetAndLayout?
+    (index : Nat) (elementLayout : StorageLayout) :
+    Option (Nat × StorageLayout) :=
+  match elementLayout with
+  | StorageLayout.packedScalar _ widthBytes signed ty =>
+      if widthBytes == 0 then
+        none
+      else
+        let byteOffset := index * widthBytes
+        some
+          ( byteOffset / wordBytes
+          , StorageLayout.packedScalar
+              (byteOffset % wordBytes) widthBytes signed ty )
+  | _ =>
+      some (index * StorageLayout.slotSpan elementLayout, elementLayout)
+
+inductive StorageLayoutObservation where
+  | scalar : Ty -> Nat -> StorageLayoutObservation
+  | packedScalar : Nat -> Nat -> Bool -> Ty -> Nat -> StorageLayoutObservation
+  | struct : List StorageLayoutObservation -> Nat -> StorageLayoutObservation
+  | fixedArray : Nat -> StorageLayoutObservation -> Nat ->
+      StorageLayoutObservation
+  | dynamicArray : StorageLayoutObservation -> Nat -> StorageLayoutObservation
+  | bytes : Nat -> StorageLayoutObservation
+  | string : Nat -> StorageLayoutObservation
+  | mapping : Ty -> StorageLayoutObservation -> Nat ->
+      StorageLayoutObservation
+  deriving Repr
+
+mutual
+
+def StorageLayout.observe : StorageLayout -> StorageLayoutObservation
+  | StorageLayout.scalar ty =>
+      StorageLayoutObservation.scalar ty
+        (StorageLayout.slotSpan (StorageLayout.scalar ty))
+  | StorageLayout.packedScalar offset widthBytes signed ty =>
+      StorageLayoutObservation.packedScalar offset widthBytes signed ty
+        (StorageLayout.slotSpan
+          (StorageLayout.packedScalar offset widthBytes signed ty))
+  | StorageLayout.struct layouts =>
+      StorageLayoutObservation.struct (StorageLayouts.observe layouts)
+        (StorageLayout.slotSpan (StorageLayout.struct layouts))
+  | StorageLayout.fixedArray size layout =>
+      StorageLayoutObservation.fixedArray size (StorageLayout.observe layout)
+        (StorageLayout.slotSpan (StorageLayout.fixedArray size layout))
+  | StorageLayout.dynamicArray layout =>
+      StorageLayoutObservation.dynamicArray (StorageLayout.observe layout)
+        (StorageLayout.slotSpan (StorageLayout.dynamicArray layout))
+  | StorageLayout.bytes =>
+      StorageLayoutObservation.bytes (StorageLayout.slotSpan StorageLayout.bytes)
+  | StorageLayout.string =>
+      StorageLayoutObservation.string
+        (StorageLayout.slotSpan StorageLayout.string)
+  | StorageLayout.mapping keyTy layout =>
+      StorageLayoutObservation.mapping keyTy (StorageLayout.observe layout)
+        (StorageLayout.slotSpan (StorageLayout.mapping keyTy layout))
+
+def StorageLayouts.observe :
+    List StorageLayout -> List StorageLayoutObservation
+  | [] => []
+  | layout :: rest => StorageLayout.observe layout :: StorageLayouts.observe rest
+
+end
 
 structure StorageField where
   name : String
@@ -722,12 +1453,36 @@ structure StorageField where
   ty? : Option Ty := none
   layout? : Option StorageLayout := none
   transient : Bool := false
+  packedOffset : Nat := 0
+  packedBytes : Nat := wordBytes
+  packedSigned : Bool := false
   deriving Repr
 
 structure ImmutableField where
   name : String
   ty : Ty
   deriving Repr
+
+structure StorageFieldObservation where
+  name : String
+  slot : Word
+  ty? : Option Ty
+  layout? : Option StorageLayoutObservation
+  transient : Bool
+  packedOffset : Nat
+  packedBytes : Nat
+  packedSigned : Bool
+  deriving Repr
+
+def StorageField.observe (field : StorageField) : StorageFieldObservation :=
+  { name := field.name
+    slot := field.slot
+    ty? := field.ty?
+    layout? := field.layout?.map StorageLayout.observe
+    transient := field.transient
+    packedOffset := field.packedOffset
+    packedBytes := field.packedBytes
+    packedSigned := field.packedSigned }
 
 structure EventField where
   ty : Ty
@@ -758,6 +1513,58 @@ abbrev TxEnv :=
 
 def TxEnv.empty : TxEnv :=
   SharedSemantics.Block.TxEnv.empty
+
+abbrev EvmVersion :=
+  SharedSemantics.Block.EvmVersion
+
+namespace EvmVersion
+
+abbrev homestead : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.homestead
+
+abbrev tangerineWhistle : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.tangerineWhistle
+
+abbrev spuriousDragon : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.spuriousDragon
+
+abbrev byzantium : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.byzantium
+
+abbrev constantinople : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.constantinople
+
+abbrev petersburg : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.petersburg
+
+abbrev istanbul : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.istanbul
+
+abbrev berlin : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.berlin
+
+abbrev london : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.london
+
+abbrev paris : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.paris
+
+abbrev shanghai : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.shanghai
+
+abbrev cancun : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.cancun
+
+abbrev prague : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.prague
+
+abbrev osaka : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.osaka
+
+def default : EvmVersion :=
+  SharedSemantics.Block.EvmVersion.default
+
+end EvmVersion
 
 abbrev LowLevelCallKind :=
   SharedSemantics.Call.ExternalCallKind
@@ -806,6 +1613,22 @@ def ContractCreationResult.matches (result : ContractCreationResult)
   SharedSemantics.Call.CreationResult.matchesRequest result contractName
     constructorArgs value salt?
 
+def ContractCreationResult.failedRequest
+    (contractName : String) (constructorArgs : List Byte)
+    (value : Word) (salt? : Option Word) : ContractCreationResult :=
+  { contractName := contractName
+    constructorArgs := SharedSemantics.Account.normalizeBytes constructorArgs
+    value := SharedSemantics.norm value
+    salt? := salt?.map SharedSemantics.norm
+    success := false
+    address := 0
+    output := [] }
+
+inductive ChildEvalOrder where
+  | leftToRight
+  | rightToLeft
+  deriving Repr, BEq
+
 structure Context where
   storageFields : List StorageField
   immutableFields : List ImmutableField := []
@@ -826,7 +1649,11 @@ structure Context where
   contractCreationResults : List ContractCreationResult
   blockEnv : BlockEnv
   txEnv : TxEnv
+  evmVersion : EvmVersion := EvmVersion.default
+  createdInTransactionAccounts : List Word := []
   gasleft : Word
+  memoryAllocationLimit? : Option Nat := none
+  childEvalOrder? : Option ChildEvalOrder := none
   deriving Repr
 
 def Context.empty : Context :=
@@ -849,7 +1676,117 @@ def Context.empty : Context :=
     contractCreationResults := []
     blockEnv := BlockEnv.empty
     txEnv := TxEnv.empty
-    gasleft := 0 }
+    evmVersion := EvmVersion.default
+    createdInTransactionAccounts := []
+    gasleft := 0
+    memoryAllocationLimit? := none
+    childEvalOrder? := none }
+
+structure ContextDeclarationObservation where
+  storageFields : List StorageField
+  storageFieldObservations : List StorageFieldObservation
+  immutableFields : List ImmutableField
+  eventDecls : List EventDecl
+  deriving Repr
+
+structure ContextAmbientObservation where
+  checked : Bool
+  construction : Bool
+  calldata : List Byte
+  sender : Word
+  value : Word
+  self : Word
+  blockEnv : BlockEnv
+  txEnv : TxEnv
+  evmVersion : EvmVersion
+  gasleft : Word
+  memoryAllocationLimit? : Option Nat
+  childEvalOrder? : Option ChildEvalOrder
+  deriving Repr
+
+structure ContextAccountOracleObservation where
+  accountBalances : WordMap
+  accountCodes : ByteMap
+  accountCodehashes : WordMap
+  createdInTransactionAccounts : List Word
+  deriving Repr
+
+structure ContextCodeOracleObservation where
+  contractAddresses : SharedSemantics.Call.NamedWordMap
+  contractCreationCodes : SharedSemantics.Call.NamedBytesMap
+  contractRuntimeCodes : SharedSemantics.Call.NamedBytesMap
+  deriving Repr
+
+structure ContextExternalOracleObservation where
+  lowLevelCallResults : List LowLevelCallResult
+  contractCreationResults : List ContractCreationResult
+  deriving Repr
+
+structure ContextObservation where
+  declarations : ContextDeclarationObservation
+  ambient : ContextAmbientObservation
+  accounts : ContextAccountOracleObservation
+  code : ContextCodeOracleObservation
+  externalOracles : ContextExternalOracleObservation
+  deriving Repr
+
+def Context.observeDeclarations
+    (context : Context) : ContextDeclarationObservation :=
+  { storageFields := context.storageFields
+    storageFieldObservations := context.storageFields.map StorageField.observe
+    immutableFields := context.immutableFields
+    eventDecls := context.eventDecls }
+
+def Context.observeAmbient (context : Context) :
+    ContextAmbientObservation :=
+  { checked := context.checked
+    construction := context.construction
+    calldata := context.calldata
+    sender := context.sender
+    value := context.value
+    self := context.self
+    blockEnv := context.blockEnv
+    txEnv := context.txEnv
+    evmVersion := context.evmVersion
+    gasleft := context.gasleft
+    memoryAllocationLimit? := context.memoryAllocationLimit?
+    childEvalOrder? := context.childEvalOrder? }
+
+def Context.observeAccounts (context : Context) :
+    ContextAccountOracleObservation :=
+  { accountBalances := context.accountBalances
+    accountCodes := context.accountCodes
+    accountCodehashes := context.accountCodehashes
+    createdInTransactionAccounts := context.createdInTransactionAccounts }
+
+def Context.observeCode (context : Context) :
+    ContextCodeOracleObservation :=
+  { contractAddresses := context.contractAddresses
+    contractCreationCodes := context.contractCreationCodes
+    contractRuntimeCodes := context.contractRuntimeCodes }
+
+def Context.observeExternalOracles (context : Context) :
+    ContextExternalOracleObservation :=
+  { lowLevelCallResults := context.lowLevelCallResults
+    contractCreationResults := context.contractCreationResults }
+
+def Context.observe (context : Context) : ContextObservation :=
+  { declarations := context.observeDeclarations
+    ambient := context.observeAmbient
+    accounts := context.observeAccounts
+    code := context.observeCode
+    externalOracles := context.observeExternalOracles }
+
+def Context.checkMemoryAllocation (context : Context) (length : Word) :
+    Except RevertData Nat :=
+  let size := SharedSemantics.norm length
+  match context.memoryAllocationLimit? with
+  | some limit =>
+      if size <= limit then
+        Except.ok size
+      else
+        Except.error RevertData.memoryAllocationTooLarge
+  | none => Except.ok size
 
 def Context.lookupPrecompileCall? (context : Context)
     (kind : SharedSemantics.Precompile.Kind) (input : List Byte)
@@ -948,6 +1885,25 @@ def fixedArrayLayoutStorageSlot
   normWord (SharedSemantics.norm slot +
     SharedSemantics.norm index * StorageLayout.slotSpan elementLayout)
 
+def dynamicArrayLayoutStorageSlotAndLayout?
+    (slot index : Word) (elementLayout : StorageLayout) :
+    Option (Word × StorageLayout) := do
+  let (offset, layout) ←
+    StorageLayout.arrayElementOffsetAndLayout?
+      (SharedSemantics.norm index) elementLayout
+  some
+    ( normWord
+        (SharedSemantics.norm (dynamicArrayDataSlot slot) + offset)
+    , layout )
+
+def fixedArrayLayoutStorageSlotAndLayout?
+    (slot index : Word) (elementLayout : StorageLayout) :
+    Option (Word × StorageLayout) := do
+  let (offset, layout) ←
+    StorageLayout.arrayElementOffsetAndLayout?
+      (SharedSemantics.norm index) elementLayout
+  some (normWord (SharedSemantics.norm slot + offset), layout)
+
 def structFieldStorageSlot? (slot : Word)
     (layouts : List StorageLayout) (index : Nat) :
     Option (Word × StorageLayout) := do
@@ -970,8 +1926,31 @@ def Context.eventDecl? (context : Context) (name : String) :
 def Context.lookupLowLevelCall? (context : Context)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) (gas? : Option Word) : Option LowLevelCallResult :=
-  SharedSemantics.Call.Result.lookup?
-    context.lowLevelCallResults kind target calldata value gas?
+  match
+      SharedSemantics.Call.Result.lookup?
+        context.lowLevelCallResults kind target calldata value gas? with
+  | some result => some result
+  | none =>
+      SharedSemantics.Precompile.builtinStaticcallResult?
+        kind target calldata value gas?
+
+def LowLevelCallResult.failedRequest
+    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
+    (value : Word) (gas? : Option Word) : LowLevelCallResult :=
+  { kind := kind
+    target := SharedSemantics.Account.addressWord target
+    calldata := SharedSemantics.Account.normalizeBytes calldata
+    value := SharedSemantics.norm value
+    gas? := gas?.map SharedSemantics.norm
+    success := false
+    output := [] }
+
+def Context.resolveLowLevelCall (context : Context)
+    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
+    (value : Word) (gas? : Option Word) : LowLevelCallResult :=
+  match context.lookupLowLevelCall? kind target calldata value gas? with
+  | some result => result
+  | none => LowLevelCallResult.failedRequest kind target calldata value gas?
 
 def Context.accountHasCode (context : Context) (target : Word) : Bool :=
   !(SharedSemantics.Account.codeAt context.accountCodes target).isEmpty
@@ -981,6 +1960,93 @@ def Context.lookupContractCreation? (context : Context)
     (value : Word) (salt? : Option Word) : Option ContractCreationResult :=
   SharedSemantics.Call.CreationResult.lookup?
     context.contractCreationResults contractName constructorArgs value salt?
+
+def Context.resolveContractCreation (context : Context)
+    (contractName : String) (constructorArgs : List Byte)
+    (value : Word) (salt? : Option Word) : ContractCreationResult :=
+  match
+      context.lookupContractCreation?
+        contractName constructorArgs value salt? with
+  | some result => result
+  | none =>
+      ContractCreationResult.failedRequest
+        contractName constructorArgs value salt?
+
+inductive ExternalResolutionKind where
+  | resolved
+  | failedFallback
+  deriving Repr, BEq
+
+structure LowLevelCallResolutionObservation where
+  context : ContextObservation
+  kind : LowLevelCallKind
+  target : Word
+  calldata : List Byte
+  value : Word
+  gas? : Option Word
+  resolution : ExternalResolutionKind
+  result : LowLevelCallResult
+  deriving Repr
+
+structure ContractCreationResolutionObservation where
+  context : ContextObservation
+  contractName : String
+  constructorArgs : List Byte
+  value : Word
+  salt? : Option Word
+  resolution : ExternalResolutionKind
+  result : ContractCreationResult
+  deriving Repr
+
+def Context.observeLowLevelCallResolution (context : Context)
+    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
+    (value : Word) (gas? : Option Word) :
+    LowLevelCallResolutionObservation :=
+  match context.lookupLowLevelCall? kind target calldata value gas? with
+  | some result =>
+      { context := context.observe
+        kind := kind
+        target := target
+        calldata := calldata
+        value := value
+        gas? := gas?
+        resolution := ExternalResolutionKind.resolved
+        result := result }
+  | none =>
+      { context := context.observe
+        kind := kind
+        target := target
+        calldata := calldata
+        value := value
+        gas? := gas?
+        resolution := ExternalResolutionKind.failedFallback
+        result :=
+          LowLevelCallResult.failedRequest
+            kind target calldata value gas? }
+
+def Context.observeContractCreationResolution (context : Context)
+    (contractName : String) (constructorArgs : List Byte)
+    (value : Word) (salt? : Option Word) :
+    ContractCreationResolutionObservation :=
+  match context.lookupContractCreation? contractName constructorArgs value salt? with
+  | some result =>
+      { context := context.observe
+        contractName := contractName
+        constructorArgs := constructorArgs
+        value := value
+        salt? := salt?
+        resolution := ExternalResolutionKind.resolved
+        result := result }
+  | none =>
+      { context := context.observe
+        contractName := contractName
+        constructorArgs := constructorArgs
+        value := value
+        salt? := salt?
+        resolution := ExternalResolutionKind.failedFallback
+        result :=
+          ContractCreationResult.failedRequest
+            contractName constructorArgs value salt? }
 
 inductive EnvWord where
   | blockBasefee : EnvWord
@@ -1000,20 +2066,33 @@ inductive EnvWord where
 def EnvWord.eval (which : EnvWord) (context : Context) : Word :=
   match which with
   | EnvWord.blockBasefee =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.basefee
+      if context.evmVersion.londonOrLater then
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.basefee
+      else
+        0
   | EnvWord.blockBlobbasefee =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.blobbasefee
+      if context.evmVersion.cancunOrLater then
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.blobbasefee
+      else
+        0
   | EnvWord.blockChainid =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.chainid
+      if context.evmVersion.istanbulOrLater then
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.chainid
+      else
+        0
   | EnvWord.blockCoinbase =>
       SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
         SharedSemantics.Block.BlockEnv.WordField.coinbase
   | EnvWord.blockDifficulty =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.prevrandao
+      if context.evmVersion.parisOrLater then
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.prevrandao
+      else
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.difficulty
   | EnvWord.blockGaslimit =>
       SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
         SharedSemantics.Block.BlockEnv.WordField.gaslimit
@@ -1021,8 +2100,12 @@ def EnvWord.eval (which : EnvWord) (context : Context) : Word :=
       SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
         SharedSemantics.Block.BlockEnv.WordField.number
   | EnvWord.blockPrevrandao =>
-      SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
-        SharedSemantics.Block.BlockEnv.WordField.prevrandao
+      if context.evmVersion.parisOrLater then
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.prevrandao
+      else
+        SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
+          SharedSemantics.Block.BlockEnv.WordField.difficulty
   | EnvWord.blockTimestamp =>
       SharedSemantics.Block.BlockEnv.evalWord context.blockEnv
         SharedSemantics.Block.BlockEnv.WordField.timestamp
@@ -1047,11 +2130,17 @@ def EnvLookup.eval (which : EnvLookup) (context : Context) (key : Word) :
   | EnvLookup.blockhash =>
       SharedSemantics.Block.BlockEnv.blockhash context.blockEnv key
   | EnvLookup.blobhash =>
-      SharedSemantics.Block.TxEnv.blobhash context.txEnv key
+      if context.evmVersion.cancunOrLater then
+        SharedSemantics.Block.TxEnv.blobhash context.txEnv key
+      else
+        0
   | EnvLookup.accountBalance =>
       SharedSemantics.Account.balanceAt context.accountBalances key
   | EnvLookup.accountCodehash =>
-      SharedSemantics.Account.codehashAt context.accountCodehashes key
+      if context.evmVersion.constantinopleOrLater then
+        SharedSemantics.Account.codehashAt context.accountCodehashes key
+      else
+        0
 
 inductive EnvBytesLookup where
   | accountCode : EnvBytesLookup
@@ -1063,6 +2152,64 @@ def EnvBytesLookup.eval
   match which with
   | EnvBytesLookup.accountCode =>
       SharedSemantics.Account.codeAt context.accountCodes key
+
+inductive SharedPrimitiveRequest where
+  | keccak : List Byte -> SharedPrimitiveRequest
+  | envWord : EnvWord -> SharedPrimitiveRequest
+  | envLookup : EnvLookup -> Word -> SharedPrimitiveRequest
+  | envBytesLookup : EnvBytesLookup -> Word -> SharedPrimitiveRequest
+  | externalHash : ExternalHashKind -> List Byte -> SharedPrimitiveRequest
+  | ecrecover : Word -> Word -> Word -> Word -> SharedPrimitiveRequest
+  | lowLevelCall :
+      LowLevelCallKind -> Word -> List Byte -> Word -> Option Word ->
+        SharedPrimitiveRequest
+  | contractCreation :
+      String -> List Byte -> Word -> Option Word ->
+        SharedPrimitiveRequest
+  deriving Repr
+
+inductive SharedPrimitiveResult where
+  | word : Word -> SharedPrimitiveResult
+  | word? : Option Word -> SharedPrimitiveResult
+  | bytes : List Byte -> SharedPrimitiveResult
+  | lowLevelCall : LowLevelCallResult -> SharedPrimitiveResult
+  | contractCreation : ContractCreationResult -> SharedPrimitiveResult
+  deriving Repr
+
+structure SharedPrimitiveObservation where
+  request : SharedPrimitiveRequest
+  result : SharedPrimitiveResult
+  deriving Repr
+
+def SharedPrimitiveRequest.eval (context : Context) :
+    SharedPrimitiveRequest -> SharedPrimitiveResult
+  | SharedPrimitiveRequest.keccak bytes =>
+      SharedPrimitiveResult.word (keccakWord bytes)
+  | SharedPrimitiveRequest.envWord which =>
+      SharedPrimitiveResult.word (which.eval context)
+  | SharedPrimitiveRequest.envLookup which key =>
+      SharedPrimitiveResult.word (which.eval context key)
+  | SharedPrimitiveRequest.envBytesLookup which key =>
+      SharedPrimitiveResult.bytes (which.eval context key)
+  | SharedPrimitiveRequest.externalHash kind bytes =>
+      SharedPrimitiveResult.word? (kind.lookup? context bytes)
+  | SharedPrimitiveRequest.ecrecover digest v r s =>
+      SharedPrimitiveResult.word (context.ecrecoverAt digest v r s)
+  | SharedPrimitiveRequest.lowLevelCall kind target calldata value gas? =>
+      SharedPrimitiveResult.lowLevelCall
+        (context.observeLowLevelCallResolution
+          kind target calldata value gas?).result
+  | SharedPrimitiveRequest.contractCreation contractName constructorArgs
+      value salt? =>
+      SharedPrimitiveResult.contractCreation
+        (context.observeContractCreationResolution
+          contractName constructorArgs value salt?).result
+
+def Context.observeSharedPrimitive
+    (context : Context) (request : SharedPrimitiveRequest) :
+    SharedPrimitiveObservation :=
+  { request := request
+    result := request.eval context }
 
 def loadStorageWordAs (state : State) (slot : Word) (ty : Ty) :
     Except RevertData Value :=
@@ -1076,9 +2223,15 @@ def coerceStorageWordAs (ty : Ty) (value : Value) :
     match ty.coerceValue? value with
     | some coerced => Except.ok coerced
     | none => Except.error RevertData.typeMismatch
-  match coerced.asStorageWord? with
-  | some word => Except.ok word
-  | none => Except.error RevertData.typeMismatch
+  match ty, coerced with
+  | Ty.externalFunction, Value.externalFunction addr selector =>
+      match externalFunctionStorageWord? addr selector with
+      | some word => Except.ok word
+      | none => Except.error RevertData.typeMismatch
+  | _, _ =>
+      match coerced.asStorageWord? with
+      | some word => Except.ok word
+      | none => Except.error RevertData.typeMismatch
 
 def State.storeFixedArraySlots (state : State)
     (slot : Word) (elementTy : Ty) : Nat -> List Value ->
@@ -1116,41 +2269,321 @@ def State.loadBytesSlots (state : State) (slot : Word) :
       normByte (state.loadSlot (dynamicArrayStorageSlot slot index)) ::
         State.loadBytesSlots state slot (index + 1) remaining
 
+def wordBitRange (offset width : Nat) (value : Word) : Word :=
+  if width == 0 then
+    0
+  else
+    let shifted := SharedSemantics.norm value / (2 ^ offset)
+    SharedSemantics.norm (shifted % (2 ^ width))
+
+def wordReplaceBitRange
+    (offset width : Nat) (current value : Word) : Word :=
+  if width == 0 then
+    SharedSemantics.norm current
+  else
+    let shift := 2 ^ offset
+    let modulus := 2 ^ width
+    let currentNorm := SharedSemantics.norm current
+    let currentPart := ((currentNorm / shift) % modulus) * shift
+    let valuePart := (SharedSemantics.norm value % modulus) * shift
+    SharedSemantics.norm (currentNorm - currentPart + valuePart)
+
+structure StorageBytesHeader where
+  length : Nat
+  long : Bool
+  deriving Repr
+
+def storageBytesHeader? (word : Word) :
+    Except RevertData StorageBytesHeader :=
+  let raw := SharedSemantics.norm word
+  let lowByte := raw % 256
+  if lowByte % 2 == 0 then
+    let length := lowByte / 2
+    if length <= 31 then
+      Except.ok { length := length, long := false }
+    else
+      Except.error RevertData.invalidStorageByteArray
+  else
+    Except.ok { length := (raw - 1) / 2, long := true }
+
+def storageBytesLongHeader (length : Nat) : Word :=
+  normWord (length * 2 + 1)
+
+def storageBytesShortWord (bytes : List Byte) : Word :=
+  bytesToWordBE
+    (bytesPrefixRightPadded (wordBytes - 1) bytes ++
+      [normByte (bytes.length * 2)])
+
+def storageBytesLongDataSlot (slot : Word) (chunk : Nat) : Word :=
+  normWord
+    (SharedSemantics.norm (dynamicArrayDataSlot slot) + chunk)
+
+def storageBytesLongChunkCount (length : Nat) : Nat :=
+  if length <= 31 then
+    0
+  else
+    (length + wordBytes - 1) / wordBytes
+
+def wordByteBE? (word : Word) (index : Nat) : Option Byte :=
+  listGet? (wordToBytesBE wordBytes word) index
+
+def wordReplaceByteBE? (word : Word) (index : Nat) (byte : Byte) :
+    Option Word := do
+  let bytes ← listUpdateAt? (wordToBytesBE wordBytes word)
+    index (normByte byte)
+  some (bytesToWordBE bytes)
+
+def State.storeStorageBytesLongSlotsFuel :
+    Nat -> State -> Word -> Nat -> List Byte -> State
+  | 0, state, _, _, _ => state
+  | _ + 1, state, _, _, [] => state
+  | fuel + 1, state, slot, chunkIndex, bytes =>
+      let chunk := bytesPrefixRightPadded wordBytes bytes
+      let rest := bytes.drop wordBytes
+      State.storeStorageBytesLongSlotsFuel fuel
+        (state.storeSlot
+          (storageBytesLongDataSlot slot chunkIndex)
+          (bytesToWordBE chunk))
+        slot (chunkIndex + 1) rest
+
+def State.storeStorageBytesLongSlots (state : State) (slot : Word)
+    (bytes : List Byte) : State :=
+  State.storeStorageBytesLongSlotsFuel
+    (bytes.length + 1) state slot 0 bytes
+
+def State.clearStorageBytesLongSlotsFuel :
+    Nat -> State -> Word -> Nat -> State
+  | 0, state, _, _ => state
+  | fuel + 1, state, slot, chunkIndex =>
+      State.clearStorageBytesLongSlotsFuel fuel
+        (state.storeSlot
+          (storageBytesLongDataSlot slot chunkIndex)
+          0)
+        slot (chunkIndex + 1)
+
+def State.clearStorageBytesLongSlots (state : State) (slot : Word)
+    (start count : Nat) : State :=
+  State.clearStorageBytesLongSlotsFuel count state slot start
+
+def State.loadStorageBytesLongSlots (state : State) (slot : Word) :
+    Nat -> Nat -> List Byte
+  | _, 0 => []
+  | index, remaining + 1 =>
+      let word :=
+        state.loadSlot
+          (storageBytesLongDataSlot slot (index / wordBytes))
+      let byte := (wordByteBE? word (index % wordBytes)).getD 0
+      normByte byte ::
+        State.loadStorageBytesLongSlots state slot
+          (index + 1) remaining
+
+def State.loadStorageBytesAt (state : State) (slot : Word) :
+    Except RevertData (List Byte) := do
+  let header ← storageBytesHeader? (state.loadSlot slot)
+  if header.long then
+    Except.ok (State.loadStorageBytesLongSlots state slot 0 header.length)
+  else
+    Except.ok
+      ((wordToBytesBE wordBytes (state.loadSlot slot)).take
+        header.length |>.map normByte)
+
+def State.storeStorageBytesAt (state : State) (slot : Word)
+    (bytes : List Byte) : State :=
+  let bytes := bytes.map normByte
+  let oldLongChunks :=
+    match storageBytesHeader? (state.loadSlot slot) with
+    | Except.ok header =>
+        if header.long then
+          storageBytesLongChunkCount header.length
+        else
+          0
+    | Except.error _ => 0
+  let newLongChunks := storageBytesLongChunkCount bytes.length
+  let written :=
+    if bytes.length <= 31 then
+      state.storeSlot slot (storageBytesShortWord bytes)
+    else
+      (State.storeStorageBytesLongSlots state slot bytes)
+        |>.storeSlot slot (storageBytesLongHeader bytes.length)
+  State.clearStorageBytesLongSlots written slot
+    newLongChunks (oldLongChunks - newLongChunks)
+
+def State.storageBytesLengthAt (state : State) (slot : Word) :
+    Except RevertData Nat := do
+  let header ← storageBytesHeader? (state.loadSlot slot)
+  Except.ok header.length
+
+def State.storageBytesElementSlotAndOffset (state : State) (slot key : Word) :
+    Except RevertData (Word × Nat) := do
+  let header ← storageBytesHeader? (state.loadSlot slot)
+  let index := SharedSemantics.norm key
+  if header.length <= index then
+    Except.error RevertData.indexOutOfBounds
+  else if header.long then
+    Except.ok
+      ( storageBytesLongDataSlot slot (index / wordBytes)
+      , wordBytes - 1 - (index % wordBytes) )
+  else
+    Except.ok (slot, wordBytes - 1 - index)
+
+def State.loadStorageByteAt (state : State) (slot key : Word) :
+    Except RevertData Word := do
+  let (elementSlot, offset) ←
+    State.storageBytesElementSlotAndOffset state slot key
+  Except.ok (wordBitRange (offset * 8) 8 (state.loadSlot elementSlot))
+
+def State.storeStorageByteAt (state : State) (slot key : Word)
+    (byte : Word) : Except RevertData State := do
+  let (elementSlot, offset) ←
+    State.storageBytesElementSlotAndOffset state slot key
+  Except.ok
+    (state.storeSlot elementSlot
+      (wordReplaceBitRange (offset * 8) 8
+        (state.loadSlot elementSlot) byte))
+
+def State.clearStorageByteAt (state : State) (slot key : Word) :
+    Except RevertData State :=
+  State.storeStorageByteAt state slot key 0
+
+def State.pushStorageByteAt (state : State) (slot : Word) (byte : Word) :
+    Except RevertData State := do
+  let bytes ← State.loadStorageBytesAt state slot
+  let newLength := bytes.length + 1
+  if wordModulus <= newLength then
+    Except.error RevertData.overflow
+  else
+    Except.ok
+      (State.storeStorageBytesAt state slot
+        (bytes ++ [normByte byte]))
+
+def State.popStorageByteAt (state : State) (slot : Word) :
+    Except RevertData State := do
+  let bytes ← State.loadStorageBytesAt state slot
+  if bytes.isEmpty then
+    Except.error RevertData.popEmptyArray
+  else
+    Except.ok
+      (State.storeStorageBytesAt state slot
+        (bytes.take (bytes.length - 1)))
+
+def packedStorageValueFromWord? (signed : Bool) (bytes : Nat)
+    (ty : Ty) (word : Word) : Option Value :=
+  match ty with
+  | Ty.int256 =>
+      if signed && bytes < wordBytes then
+        match intCast? (bytes * 8) (Value.word word) with
+        | Except.ok (Value.int signedWord) => some (Value.int signedWord)
+        | _ => none
+      else
+        ty.storageValueFromWord? word
+  | _ => ty.storageValueFromWord? word
+
 mutual
 
-def State.loadStorageLayoutAt (state : State) (slot : Word) :
-    StorageLayout -> Except RevertData Value
-  | StorageLayout.scalar ty =>
-      loadStorageWordAs state slot ty
-  | StorageLayout.struct layouts => do
-      let values ← State.loadStructSlots state slot 0 layouts
-      Except.ok (Value.tuple values)
-  | StorageLayout.bytes =>
-      let length := SharedSemantics.norm (state.loadSlot slot)
-      Except.ok
-        (Value.bytes (State.loadBytesSlots state slot 0 length))
-  | StorageLayout.string =>
-      let length := SharedSemantics.norm (state.loadSlot slot)
-      Except.ok
-        (Value.bytes (State.loadBytesSlots state slot 0 length))
-  | StorageLayout.fixedArray _ _
-  | StorageLayout.dynamicArray _
-  | StorageLayout.mapping _ _ =>
-      Except.error RevertData.typeMismatch
+def State.loadStorageLayoutAtFuel :
+    Nat -> State -> Word -> StorageLayout -> Except RevertData Value
+  | 0, _, _, _ => Except.error RevertData.typeMismatch
+  | fuel + 1, state, slot, layout =>
+      match layout with
+      | StorageLayout.scalar ty =>
+          loadStorageWordAs state slot ty
+      | StorageLayout.packedScalar offset bytes signed ty =>
+          let word :=
+            wordBitRange (offset * 8) (bytes * 8) (state.loadSlot slot)
+          match packedStorageValueFromWord? signed bytes ty word with
+          | some value => Except.ok value
+          | none => Except.error RevertData.typeMismatch
+      | StorageLayout.struct layouts => do
+          let values ←
+            State.loadStructSlotsFuel fuel state slot
+              { slot := 0, offset := 0 } layouts
+          Except.ok (Value.tuple values)
+      | StorageLayout.bytes => do
+          let bytes ← State.loadStorageBytesAt state slot
+          Except.ok (Value.bytes bytes)
+      | StorageLayout.string => do
+          let bytes ← State.loadStorageBytesAt state slot
+          Except.ok (Value.bytes bytes)
+      | StorageLayout.fixedArray size elementLayout => do
+          let values ←
+            State.loadFixedArrayLayoutSlotsFuel
+              fuel state slot elementLayout 0 size
+          Except.ok (Value.fixedArray values)
+      | StorageLayout.dynamicArray elementLayout => do
+          let length := SharedSemantics.norm (state.loadSlot slot)
+          let values ←
+            State.loadDynamicArrayLayoutSlotsFuel
+              fuel state slot elementLayout 0 length
+          Except.ok (Value.dynamicArray values)
+      | StorageLayout.mapping _ _ =>
+          Except.error RevertData.typeMismatch
+termination_by fuel _ _ _ => (fuel, 0, 0)
 
-def State.loadStructSlots (state : State) (slot : Word) :
-    Nat -> List StorageLayout -> Except RevertData (List Value)
+def State.loadStructSlotsFuel (fuel : Nat) (state : State) (slot : Word) :
+    StorageLayoutCursor -> List StorageLayout ->
+      Except RevertData (List Value)
   | _, [] => Except.ok []
-  | offset, layout :: rest => do
+  | cursor, layout :: rest => do
+      let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       let fieldSlot :=
         normWord (SharedSemantics.norm slot + offset)
       let value ←
-        State.loadStorageLayoutAt state fieldSlot layout
-      let tail ← State.loadStructSlots state slot
-        (offset + StorageLayout.slotSpan layout) rest
+        State.loadStorageLayoutAtFuel fuel state fieldSlot layout
+      let tail ←
+        State.loadStructSlotsFuel fuel state slot nextCursor rest
       Except.ok (value :: tail)
+termination_by _ layouts => (fuel, 1, sizeOf layouts)
+
+def State.loadFixedArrayLayoutSlotsFuel (fuel : Nat)
+    (state : State) (slot : Word) (elementLayout : StorageLayout) :
+    Nat -> Nat -> Except RevertData (List Value)
+  | _, 0 => Except.ok []
+  | index, remaining + 1 => do
+      let (elementSlot, elementSlotLayout) ←
+        match fixedArrayLayoutStorageSlotAndLayout?
+          slot index elementLayout with
+        | some pair => Except.ok pair
+        | none => Except.error RevertData.typeMismatch
+      let value ←
+        State.loadStorageLayoutAtFuel
+          fuel state elementSlot elementSlotLayout
+      let rest ←
+        State.loadFixedArrayLayoutSlotsFuel
+          fuel state slot elementLayout (index + 1) remaining
+      Except.ok (value :: rest)
+termination_by _ remaining => (fuel, 1, remaining)
+
+def State.loadDynamicArrayLayoutSlotsFuel (fuel : Nat)
+    (state : State) (slot : Word) (elementLayout : StorageLayout) :
+    Nat -> Nat -> Except RevertData (List Value)
+  | _, 0 => Except.ok []
+  | index, remaining + 1 => do
+      let (elementSlot, elementSlotLayout) ←
+        match dynamicArrayLayoutStorageSlotAndLayout?
+          slot index elementLayout with
+        | some pair => Except.ok pair
+        | none => Except.error RevertData.typeMismatch
+      let value ←
+        State.loadStorageLayoutAtFuel
+          fuel state elementSlot elementSlotLayout
+      let rest ←
+        State.loadDynamicArrayLayoutSlotsFuel
+          fuel state slot elementLayout (index + 1) remaining
+      Except.ok (value :: rest)
+termination_by _ remaining => (fuel, 1, remaining)
 
 end
+
+def State.loadStorageLayoutAt (state : State) (slot : Word)
+    (layout : StorageLayout) : Except RevertData Value :=
+  State.loadStorageLayoutAtFuel (layout.depth + 1) state slot layout
+
+def State.loadStructSlots (state : State) (slot : Word)
+    (cursor : StorageLayoutCursor) (layouts : List StorageLayout) :
+    Except RevertData (List Value) :=
+  State.loadStructSlotsFuel
+    (StorageLayouts.depth layouts + 1)
+    state slot cursor layouts
 
 mutual
 
@@ -1160,24 +2593,28 @@ def State.storeStorageLayoutAt (state : State) (slot : Word)
   | StorageLayout.scalar ty => do
       let word ← coerceStorageWordAs ty value
       Except.ok (state.storeSlot slot word)
+  | StorageLayout.packedScalar offset bytes _ ty => do
+      let word ← coerceStorageWordAs ty value
+      let current := state.loadSlot slot
+      Except.ok
+        (state.storeSlot slot
+          (wordReplaceBitRange (offset * 8) (bytes * 8)
+            current word))
   | StorageLayout.struct layouts =>
       match value with
       | Value.tuple values =>
-          State.storeStructSlots state slot 0 layouts values
+          State.storeStructSlots state slot
+            { slot := 0, offset := 0 } layouts values
       | _ => Except.error RevertData.typeMismatch
   | StorageLayout.bytes =>
       match value with
       | Value.bytes bytes =>
-          Except.ok
-            ((State.storeBytesSlots state slot 0 bytes)
-              |>.storeSlot slot bytes.length)
+          Except.ok (State.storeStorageBytesAt state slot bytes)
       | _ => Except.error RevertData.typeMismatch
   | StorageLayout.string =>
       match value with
       | Value.bytes bytes =>
-          Except.ok
-            ((State.storeBytesSlots state slot 0 bytes)
-              |>.storeSlot slot bytes.length)
+          Except.ok (State.storeStorageBytesAt state slot bytes)
       | _ => Except.error RevertData.typeMismatch
   | StorageLayout.fixedArray size elementLayout =>
       match value with
@@ -1200,15 +2637,17 @@ def State.storeStorageLayoutAt (state : State) (slot : Word)
       Except.error RevertData.typeMismatch
 
 def State.storeStructSlots (state : State) (slot : Word) :
-    Nat -> List StorageLayout -> List Value -> Except RevertData State
+    StorageLayoutCursor -> List StorageLayout -> List Value ->
+    Except RevertData State
   | _, [], [] => Except.ok state
-  | offset, layout :: layouts, value :: values => do
+  | cursor, layout :: layouts, value :: values => do
+      let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       let fieldSlot :=
         normWord (SharedSemantics.norm slot + offset)
       let state ←
         State.storeStorageLayoutAt state fieldSlot layout value
       State.storeStructSlots
-        state slot (offset + StorageLayout.slotSpan layout) layouts values
+        state slot nextCursor layouts values
   | _, _, _ => Except.error RevertData.typeMismatch
 
 def State.storeFixedArrayLayoutSlots (state : State) (slot : Word)
@@ -1216,10 +2655,13 @@ def State.storeFixedArrayLayoutSlots (state : State) (slot : Word)
     Nat -> List Value -> Except RevertData State
   | _, [] => Except.ok state
   | index, value :: rest => do
+      let (elementSlot, elementSlotLayout) ←
+        match fixedArrayLayoutStorageSlotAndLayout?
+          slot index elementLayout with
+        | some pair => Except.ok pair
+        | none => Except.error RevertData.typeMismatch
       let state ←
-        State.storeStorageLayoutAt state
-          (fixedArrayLayoutStorageSlot slot index elementLayout)
-          elementLayout value
+        State.storeStorageLayoutAt state elementSlot elementSlotLayout value
       State.storeFixedArrayLayoutSlots state slot elementLayout
         (index + 1) rest
 
@@ -1228,10 +2670,13 @@ def State.storeDynamicArrayLayoutSlots (state : State) (slot : Word)
     Nat -> List Value -> Except RevertData State
   | _, [] => Except.ok state
   | index, value :: rest => do
+      let (elementSlot, elementSlotLayout) ←
+        match dynamicArrayLayoutStorageSlotAndLayout?
+          slot index elementLayout with
+        | some pair => Except.ok pair
+        | none => Except.error RevertData.typeMismatch
       let state ←
-        State.storeStorageLayoutAt state
-          (dynamicArrayLayoutStorageSlot slot index elementLayout)
-          elementLayout value
+        State.storeStorageLayoutAt state elementSlot elementSlotLayout value
       State.storeDynamicArrayLayoutSlots state slot elementLayout
         (index + 1) rest
 
@@ -1260,6 +2705,88 @@ def State.storeFieldSlot (state : State) (field : StorageField)
   else
     state.storeSlot field.slot value
 
+def StorageField.packedBitOffset (field : StorageField) : Nat :=
+  field.packedOffset * 8
+
+def StorageField.packedBitWidth (field : StorageField) : Nat :=
+  field.packedBytes * 8
+
+def StorageField.isPacked (field : StorageField) : Bool :=
+  field.packedOffset != 0 || field.packedBytes != wordBytes
+
+def State.loadFieldWord (state : State) (field : StorageField) : Word :=
+  if field.isPacked then
+    wordBitRange field.packedBitOffset field.packedBitWidth
+      (state.loadFieldSlot field)
+  else
+    state.loadFieldSlot field
+
+def State.storeFieldWord (state : State) (field : StorageField)
+    (value : Word) : State :=
+  if field.isPacked then
+    let current := state.loadFieldSlot field
+    let updated :=
+      wordReplaceBitRange field.packedBitOffset field.packedBitWidth
+        current value
+    state.storeFieldSlot field updated
+  else
+    state.storeFieldSlot field value
+
+inductive StorageFieldAccessKind where
+  | load
+  | store
+  deriving Repr, BEq
+
+structure StorageFieldWordObservation where
+  self : Word
+  field : StorageFieldObservation
+  access : StorageFieldAccessKind
+  inputState : StateObservation
+  slotWordBefore : Word
+  fieldWordBefore : Word
+  value? : Option Word := none
+  outputState? : Option StateObservation := none
+  slotWordAfter? : Option Word := none
+  fieldWordAfter? : Option Word := none
+  deriving Repr
+
+def State.observeStorageFieldWordLoad (state : State)
+    (self : Word) (field : StorageField) :
+    StorageFieldWordObservation :=
+  { self := self
+    field := field.observe
+    access := StorageFieldAccessKind.load
+    inputState := state.observe self
+    slotWordBefore := state.loadFieldSlot field
+    fieldWordBefore := state.loadFieldWord field }
+
+def State.observeStorageFieldWordStore (state : State)
+    (self : Word) (field : StorageField) (value : Word) :
+    StorageFieldWordObservation :=
+  let outputState := state.storeFieldWord field value
+  { self := self
+    field := field.observe
+    access := StorageFieldAccessKind.store
+    inputState := state.observe self
+    slotWordBefore := state.loadFieldSlot field
+    fieldWordBefore := state.loadFieldWord field
+    value? := some value
+    outputState? := some (outputState.observe self)
+    slotWordAfter? := some (outputState.loadFieldSlot field)
+    fieldWordAfter? := some (outputState.loadFieldWord field) }
+
+def StorageField.storageValueFromWord? (field : StorageField)
+    (ty : Ty) (word : Word) : Option Value :=
+  match ty with
+  | Ty.int256 =>
+      if field.packedSigned && field.packedBytes < wordBytes then
+        match intCast? field.packedBitWidth (Value.word word) with
+        | Except.ok (Value.int signedWord) => some (Value.int signedWord)
+        | _ => none
+      else
+        ty.storageValueFromWord? word
+  | _ => ty.storageValueFromWord? word
+
 def Runtime.loadStorageField (context : Context)
     (runtime : Runtime) (name : String) : Except RevertData Value :=
   match context.storageField? name with
@@ -1267,28 +2794,39 @@ def Runtime.loadStorageField (context : Context)
       match field.layout? with
       | some (StorageLayout.dynamicArray _) =>
           Except.ok (Value.word (runtime.state.loadFieldSlot field))
-      | some StorageLayout.bytes =>
-          Except.ok (Value.word (runtime.state.loadFieldSlot field))
+      | some StorageLayout.bytes => do
+          let length ← State.storageBytesLengthAt runtime.state field.slot
+          Except.ok (Value.word length)
       | some StorageLayout.string =>
           Except.error RevertData.typeMismatch
       | some (StorageLayout.struct tys) => do
-          let values ← State.loadStructSlots runtime.state field.slot 0 tys
+          let values ←
+            State.loadStructSlots runtime.state field.slot
+              { slot := 0, offset := 0 } tys
           Except.ok (Value.tuple values)
       | some (StorageLayout.fixedArray _ _) =>
           Except.error RevertData.typeMismatch
       | some (StorageLayout.mapping _ _) =>
           Except.error RevertData.typeMismatch
+      | some layout@(StorageLayout.packedScalar _ _ _ _) =>
+          State.loadStorageLayoutAt runtime.state field.slot layout
       | some (StorageLayout.scalar ty) =>
-          match ty.storageValueFromWord? (runtime.state.loadFieldSlot field) with
+          match
+            field.storageValueFromWord? ty
+              (runtime.state.loadFieldWord field)
+          with
           | some value => Except.ok value
           | none => Except.error RevertData.typeMismatch
       | none =>
           match field.ty? with
           | some ty =>
-              match ty.storageValueFromWord? (runtime.state.loadFieldSlot field) with
+              match
+                field.storageValueFromWord? ty
+                  (runtime.state.loadFieldWord field)
+              with
               | some value => Except.ok value
               | none => Except.error RevertData.typeMismatch
-          | none => Except.ok (Value.word (runtime.state.loadFieldSlot field))
+          | none => Except.ok (Value.word (runtime.state.loadFieldWord field))
   | none => Except.error RevertData.typeMismatch
 
 def Runtime.loadImmutableField (context : Context)
@@ -1310,6 +2848,7 @@ def Runtime.storeStorageField (context : Context)
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
+  let value ← runtime.storageMaterializedValue value
   match field.layout? with
   | some layout@(StorageLayout.dynamicArray _) => do
       let state ←
@@ -1321,8 +2860,7 @@ def Runtime.storeStorageField (context : Context)
           Except.ok
             { runtime with
               state :=
-                (State.storeBytesSlots runtime.state field.slot 0 bytes)
-                  |>.storeSlot field.slot bytes.length }
+                State.storeStorageBytesAt runtime.state field.slot bytes }
       | _ => Except.error RevertData.typeMismatch
   | some StorageLayout.string =>
       match value with
@@ -1330,8 +2868,7 @@ def Runtime.storeStorageField (context : Context)
           Except.ok
             { runtime with
               state :=
-                (State.storeBytesSlots runtime.state field.slot 0 bytes)
-                  |>.storeSlot field.slot bytes.length }
+                State.storeStorageBytesAt runtime.state field.slot bytes }
       | _ => Except.error RevertData.typeMismatch
   | some layout@(StorageLayout.struct _) => do
       let state ←
@@ -1343,14 +2880,17 @@ def Runtime.storeStorageField (context : Context)
       Except.ok { runtime with state }
   | some (StorageLayout.mapping _ _) =>
       Except.error RevertData.typeMismatch
+  | some layout@(StorageLayout.packedScalar _ _ _ _) => do
+      let state ← State.storeStorageLayoutAt runtime.state field.slot layout value
+      Except.ok { runtime with state }
   | some (StorageLayout.scalar ty) => do
       let word ← coerceStorageWordAs ty value
       Except.ok
-        { runtime with state := runtime.state.storeFieldSlot field word }
+        { runtime with state := runtime.state.storeFieldWord field word }
   | none =>
       let word ← coerceStorageWordAs Ty.uint256 value
       Except.ok
-        { runtime with state := runtime.state.storeFieldSlot field word }
+        { runtime with state := runtime.state.storeFieldWord field word }
 
 def Runtime.storeImmutableField (context : Context)
     (runtime : Runtime) (name : String) (value : Value) :
@@ -1378,15 +2918,11 @@ def Runtime.loadStorageByteStringField (context : Context)
     | none => Except.error RevertData.typeMismatch
   match field.layout? with
   | some StorageLayout.bytes =>
-      let length := SharedSemantics.norm (runtime.state.loadSlot field.slot)
-      Except.ok
-        (Value.bytes
-          (State.loadBytesSlots runtime.state field.slot 0 length))
+      let bytes ← State.loadStorageBytesAt runtime.state field.slot
+      Except.ok (Value.bytes bytes)
   | some StorageLayout.string =>
-      let length := SharedSemantics.norm (runtime.state.loadSlot field.slot)
-      Except.ok
-        (Value.bytes
-          (State.loadBytesSlots runtime.state field.slot 0 length))
+      let bytes ← State.loadStorageBytesAt runtime.state field.slot
+      Except.ok (Value.bytes bytes)
   | _ => Except.error RevertData.typeMismatch
 
 def State.clearFixedArraySlots (state : State) (slot defaultWord : Word) :
@@ -1405,17 +2941,6 @@ def State.clearLayoutSpanSlots (state : State) (slot : Word) :
         (state.storeSlot (normWord (SharedSemantics.norm slot + offset)) 0)
         slot (offset + 1) remaining
 
-def State.clearFixedArrayLayoutSlots (state : State) (slot : Word)
-    (elementLayout : StorageLayout) :
-    Nat -> Nat -> State
-  | _, 0 => state
-  | index, remaining + 1 =>
-      State.clearFixedArrayLayoutSlots
-        (State.clearLayoutSpanSlots state
-          (fixedArrayLayoutStorageSlot slot index elementLayout)
-          0 (StorageLayout.slotSpan elementLayout))
-        slot elementLayout (index + 1) remaining
-
 mutual
 
 def State.clearStorageLayoutAt (state : State) (slot : Word) :
@@ -1423,30 +2948,38 @@ def State.clearStorageLayoutAt (state : State) (slot : Word) :
   | StorageLayout.scalar ty => do
       let defaultWord ← coerceStorageWordAs ty ty.defaultValue
       Except.ok (state.storeSlot slot defaultWord)
+  | StorageLayout.packedScalar offset bytes _ ty => do
+      let defaultWord ← coerceStorageWordAs ty ty.defaultValue
+      Except.ok
+        (state.storeSlot slot
+          (wordReplaceBitRange (offset * 8) (bytes * 8)
+            (state.loadSlot slot) defaultWord))
   | StorageLayout.struct layouts =>
-      State.clearStructLayoutSlots state slot 0 layouts
+      State.clearStructLayoutSlots state slot { slot := 0, offset := 0 } layouts
   | StorageLayout.bytes =>
-      Except.ok (state.storeSlot slot 0)
+      Except.ok (State.storeStorageBytesAt state slot [])
   | StorageLayout.string =>
-      Except.ok (state.storeSlot slot 0)
+      Except.ok (State.storeStorageBytesAt state slot [])
   | StorageLayout.dynamicArray _ =>
       Except.ok (state.storeSlot slot 0)
   | StorageLayout.mapping _ _ =>
       Except.ok state
   | StorageLayout.fixedArray size elementLayout =>
       Except.ok
-        (State.clearFixedArrayLayoutSlots
-          state slot elementLayout 0 size)
+        (State.clearLayoutSpanSlots state slot 0
+          (StorageLayout.slotSpan
+            (StorageLayout.fixedArray size elementLayout)))
 
 def State.clearStructLayoutSlots (state : State) (slot : Word) :
-    Nat -> List StorageLayout -> Except RevertData State
+    StorageLayoutCursor -> List StorageLayout -> Except RevertData State
   | _, [] => Except.ok state
-  | offset, layout :: rest => do
+  | cursor, layout :: rest => do
+      let (offset, nextCursor) := StorageLayout.cursorStep cursor layout
       let state ←
         State.clearStorageLayoutAt state
           (normWord (SharedSemantics.norm slot + offset)) layout
       State.clearStructLayoutSlots state slot
-        (offset + StorageLayout.slotSpan layout) rest
+        nextCursor rest
 
 end
 
@@ -1455,10 +2988,14 @@ def State.clearDynamicArrayLayoutSlots (state : State) (slot : Word)
     Nat -> Nat -> Except RevertData State
   | _, 0 => Except.ok state
   | index, remaining + 1 => do
+      let (elementSlot, elementSlotLayout) ←
+        match dynamicArrayLayoutStorageSlotAndLayout?
+          slot index elementLayout with
+        | some pair => Except.ok pair
+        | none => Except.error RevertData.typeMismatch
       let state ←
         State.clearStorageLayoutAt state
-          (dynamicArrayLayoutStorageSlot slot index elementLayout)
-          elementLayout
+          elementSlot elementSlotLayout
       State.clearDynamicArrayLayoutSlots
         state slot elementLayout (index + 1) remaining
 
@@ -1473,6 +3010,7 @@ mutual
 
 def StorageLayout.clearDepth : StorageLayout -> Nat
   | StorageLayout.scalar _ => 1
+  | StorageLayout.packedScalar _ _ _ _ => 1
   | StorageLayout.struct layouts => StorageLayouts.clearDepth layouts + 1
   | StorageLayout.fixedArray _ elementLayout =>
       StorageLayout.clearDepth elementLayout + 1
@@ -1499,34 +3037,45 @@ def State.clearStorageLayoutAtFuel :
       | StorageLayout.scalar ty => do
           let defaultWord ← coerceStorageWordAs ty ty.defaultValue
           Except.ok (state.storeSlot slot defaultWord)
+      | StorageLayout.packedScalar offset bytes _ ty => do
+          let defaultWord ← coerceStorageWordAs ty ty.defaultValue
+          Except.ok
+            (state.storeSlot slot
+              (wordReplaceBitRange (offset * 8) (bytes * 8)
+                (state.loadSlot slot) defaultWord))
       | StorageLayout.struct layouts => do
           let (state, _) ←
             layouts.foldlM
-              (fun (acc : State × Nat) layout => do
-                let (state, offset) := acc
+              (fun (acc : State × StorageLayoutCursor) layout => do
+                let (state, cursor) := acc
+                let (offset, nextCursor) :=
+                  StorageLayout.cursorStep cursor layout
                 let fieldSlot :=
                   normWord (SharedSemantics.norm slot + offset)
                 let state ←
                   State.clearStorageLayoutAtFuel fuel
                     state fieldSlot layout
                 Except.ok
-                  (state, offset + StorageLayout.slotSpan layout))
-              (state, 0)
+                  (state, nextCursor))
+              (state, { slot := 0, offset := 0 })
           Except.ok state
       | StorageLayout.bytes =>
-          Except.ok (state.storeSlot slot 0)
+          Except.ok (State.storeStorageBytesAt state slot [])
       | StorageLayout.string =>
-          Except.ok (state.storeSlot slot 0)
+          Except.ok (State.storeStorageBytesAt state slot [])
       | StorageLayout.dynamicArray elementLayout => do
           let length := SharedSemantics.norm (state.loadSlot slot)
           let state ←
             (List.range length).foldlM
               (fun state index => do
+                let (elementSlot, elementSlotLayout) ←
+                  match dynamicArrayLayoutStorageSlotAndLayout?
+                    slot index elementLayout with
+                  | some pair => Except.ok pair
+                  | none => Except.error RevertData.typeMismatch
                 let state ←
                   State.clearStorageLayoutAtFuel fuel state
-                    (dynamicArrayLayoutStorageSlot
-                      slot index elementLayout)
-                    elementLayout
+                    elementSlot elementSlotLayout
                 Except.ok state)
               state
           Except.ok (state.storeSlot slot 0)
@@ -1535,11 +3084,14 @@ def State.clearStorageLayoutAtFuel :
       | StorageLayout.fixedArray size elementLayout =>
           (List.range size).foldlM
             (fun state index => do
+              let (elementSlot, elementSlotLayout) ←
+                match fixedArrayLayoutStorageSlotAndLayout?
+                  slot index elementLayout with
+                | some pair => Except.ok pair
+                | none => Except.error RevertData.typeMismatch
               let state ←
                 State.clearStorageLayoutAtFuel fuel state
-                  (fixedArrayLayoutStorageSlot
-                    slot index elementLayout)
-                  elementLayout
+                  elementSlot elementSlotLayout
               Except.ok state)
             state
 
@@ -1552,11 +3104,14 @@ def State.clearDynamicArrayLayoutTail (state : State) (slot : Word)
     (elementLayout : StorageLayout) (start count : Nat) :
     Except RevertData State :=
   (List.range count).foldlM
-    (fun state offset =>
+    (fun state offset => do
+      let (elementSlot, elementSlotLayout) ←
+        match dynamicArrayLayoutStorageSlotAndLayout?
+          slot (start + offset) elementLayout with
+        | some pair => Except.ok pair
+        | none => Except.error RevertData.typeMismatch
       State.clearStorageLayoutAtDeep state
-        (dynamicArrayLayoutStorageSlot
-          slot (start + offset) elementLayout)
-        elementLayout)
+        elementSlot elementSlotLayout)
     state
 
 def State.storeStorageLayoutAtWithDeepClearFuel :
@@ -1570,17 +3125,19 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
           if layouts.length == values.length then
             let (state, _) ←
               (layouts.zip values).foldlM
-                (fun (acc : State × Nat) pair => do
-                  let (state, offset) := acc
+                (fun (acc : State × StorageLayoutCursor) pair => do
+                  let (state, cursor) := acc
                   let (layout, value) := pair
+                  let (offset, nextCursor) :=
+                    StorageLayout.cursorStep cursor layout
                   let fieldSlot :=
                     normWord (SharedSemantics.norm slot + offset)
                   let state ←
                     State.storeStorageLayoutAtWithDeepClearFuel
                       fuel state fieldSlot layout value
                   Except.ok
-                    (state, offset + StorageLayout.slotSpan layout))
-                (state, 0)
+                    (state, nextCursor))
+                (state, { slot := 0, offset := 0 })
             Except.ok state
           else
             Except.error RevertData.typeMismatch
@@ -1590,10 +3147,13 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
             (List.range values.length).zip values |>.foldlM
               (fun state pair => do
                 let (index, value) := pair
+                let (elementSlot, elementSlotLayout) ←
+                  match fixedArrayLayoutStorageSlotAndLayout?
+                    slot index elementLayout with
+                  | some pair => Except.ok pair
+                  | none => Except.error RevertData.typeMismatch
                 State.storeStorageLayoutAtWithDeepClearFuel fuel state
-                  (fixedArrayLayoutStorageSlot
-                    slot index elementLayout)
-                  elementLayout value)
+                  elementSlot elementSlotLayout value)
               state
           else
             Except.error RevertData.typeMismatch
@@ -1604,10 +3164,13 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
             (List.range values.length).zip values |>.foldlM
               (fun state pair => do
                 let (index, value) := pair
+                let (elementSlot, elementSlotLayout) ←
+                  match dynamicArrayLayoutStorageSlotAndLayout?
+                    slot index elementLayout with
+                  | some pair => Except.ok pair
+                  | none => Except.error RevertData.typeMismatch
                 State.storeStorageLayoutAtWithDeepClearFuel fuel state
-                  (dynamicArrayLayoutStorageSlot
-                    slot index elementLayout)
-                  elementLayout value)
+                  elementSlot elementSlotLayout value)
               state
           let newLength := values.length
           let state ←
@@ -1632,6 +3195,7 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
+  let value ← runtime.storageMaterializedValue value
   match field.layout?, value with
   | some (StorageLayout.dynamicArray elementLayout),
       Value.dynamicArray _ => do
@@ -1650,6 +3214,7 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
+  let value ← runtime.storageMaterializedValue value
   match field.layout? with
   | some (StorageLayout.mapping keyTy valueLayout) => do
       let slot ← mappingStorageSlotForKey field.slot keyTy index
@@ -1659,16 +3224,10 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
       Except.ok { runtime with state }
   | some StorageLayout.bytes => do
       let key ← index.expectWord
-      let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
-        Except.error RevertData.indexOutOfBounds
-      else
-        let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
-        Except.ok
-          { runtime with
-            state :=
-              runtime.state.storeSlot
-                (dynamicArrayStorageSlot field.slot key) word }
+      let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
+      let state ←
+        State.storeStorageByteAt runtime.state field.slot key word
+      Except.ok { runtime with state }
   | some StorageLayout.string =>
       Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
@@ -1677,20 +3236,28 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
       if SharedSemantics.norm length <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.storeStorageLayoutAtWithDeepClear runtime.state
-            (dynamicArrayLayoutStorageSlot field.slot key elementLayout)
-            elementLayout value
+            elementSlot elementSlotLayout value
         Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
       if size <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match fixedArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.storeStorageLayoutAtWithDeepClear runtime.state
-            (fixedArrayLayoutStorageSlot field.slot key elementLayout)
-            elementLayout value
+            elementSlot elementSlotLayout value
         Except.ok { runtime with state }
   | some (StorageLayout.struct layouts) => do
       let key ← index.expectWord
@@ -1705,6 +3272,8 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
           Except.ok { runtime with state }
       | none => Except.error RevertData.indexOutOfBounds
   | some (StorageLayout.scalar _) =>
+      Except.error RevertData.typeMismatch
+  | some (StorageLayout.packedScalar _ _ _ _) =>
       Except.error RevertData.typeMismatch
   | none => do
       let key ← index.expectWord
@@ -1730,10 +3299,14 @@ def Runtime.deleteStorageField (context : Context)
       Except.ok { runtime with state }
   | some StorageLayout.bytes =>
       Except.ok
-        { runtime with state := runtime.state.storeSlot field.slot 0 }
+        { runtime with
+          state :=
+            State.storeStorageBytesAt runtime.state field.slot [] }
   | some StorageLayout.string =>
       Except.ok
-        { runtime with state := runtime.state.storeSlot field.slot 0 }
+        { runtime with
+          state :=
+            State.storeStorageBytesAt runtime.state field.slot [] }
   | some (StorageLayout.struct layouts) => do
       let state ←
         State.clearStorageLayoutAtDeep runtime.state field.slot
@@ -1746,14 +3319,17 @@ def Runtime.deleteStorageField (context : Context)
       Except.ok { runtime with state }
   | some (StorageLayout.mapping _ _) =>
       Except.ok runtime
+  | some layout@(StorageLayout.packedScalar _ _ _ _) => do
+      let state ← State.clearStorageLayoutAtDeep runtime.state field.slot layout
+      Except.ok { runtime with state }
   | some (StorageLayout.scalar ty) => do
       let defaultWord ← coerceStorageWordAs ty ty.defaultValue
       Except.ok
         { runtime with
-          state := runtime.state.storeFieldSlot field defaultWord }
+          state := runtime.state.storeFieldWord field defaultWord }
   | none =>
       Except.ok
-        { runtime with state := runtime.state.storeFieldSlot field 0 }
+        { runtime with state := runtime.state.storeFieldWord field 0 }
 
 def Runtime.deleteStorageIndex (context : Context)
     (runtime : Runtime) (name : String) (index : Value) :
@@ -1770,15 +3346,8 @@ def Runtime.deleteStorageIndex (context : Context)
       Except.ok { runtime with state }
   | some StorageLayout.bytes => do
       let key ← index.expectWord
-      let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
-        Except.error RevertData.indexOutOfBounds
-      else
-        Except.ok
-          { runtime with
-            state :=
-              runtime.state.storeSlot
-                (dynamicArrayStorageSlot field.slot key) 0 }
+      let state ← State.clearStorageByteAt runtime.state field.slot key
+      Except.ok { runtime with state }
   | some StorageLayout.string =>
       Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
@@ -1787,20 +3356,28 @@ def Runtime.deleteStorageIndex (context : Context)
       if SharedSemantics.norm length <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.clearStorageLayoutAtDeep runtime.state
-            (dynamicArrayLayoutStorageSlot field.slot key elementLayout)
-            elementLayout
+            elementSlot elementSlotLayout
         Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
       if size <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match fixedArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.clearStorageLayoutAtDeep runtime.state
-            (fixedArrayLayoutStorageSlot field.slot key elementLayout)
-            elementLayout
+            elementSlot elementSlotLayout
         Except.ok { runtime with state }
   | some (StorageLayout.struct layouts) => do
       let key ← index.expectWord
@@ -1815,6 +3392,8 @@ def Runtime.deleteStorageIndex (context : Context)
           Except.ok { runtime with state }
       | none => Except.error RevertData.indexOutOfBounds
   | some (StorageLayout.scalar _) =>
+      Except.error RevertData.typeMismatch
+  | some (StorageLayout.packedScalar _ _ _ _) =>
       Except.error RevertData.typeMismatch
   | none => do
       let key ← index.expectWord
@@ -1837,26 +3416,32 @@ def State.resolveStoragePathSlot (state : State) :
       if SharedSemantics.norm length <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         State.resolveStoragePathSlot state
-          (dynamicArrayLayoutStorageSlot slot key elementLayout)
-          elementLayout rest
+          elementSlot elementSlotLayout rest
   | slot, StorageLayout.fixedArray size elementLayout, index :: rest => do
       let key ← index.expectWord
       if size <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match fixedArrayLayoutStorageSlotAndLayout?
+            slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         State.resolveStoragePathSlot state
-          (fixedArrayLayoutStorageSlot slot key elementLayout)
-          elementLayout rest
+          elementSlot elementSlotLayout rest
   | slot, StorageLayout.bytes, index :: rest => do
       let key ← index.expectWord
-      let length := state.loadSlot slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
-        Except.error RevertData.indexOutOfBounds
-      else
-        State.resolveStoragePathSlot state
-          (dynamicArrayStorageSlot slot key)
-          (StorageLayout.scalar (Ty.fixedBytes 1)) rest
+      let (elementSlot, offset) ←
+        State.storageBytesElementSlotAndOffset state slot key
+      State.resolveStoragePathSlot state elementSlot
+        (StorageLayout.packedScalar offset 1 false (Ty.fixedBytes 1))
+        rest
   | slot, StorageLayout.struct layouts, index :: rest => do
       let key ← index.expectWord
       match structFieldStorageSlot? slot layouts (SharedSemantics.norm key) with
@@ -1866,6 +3451,37 @@ def State.resolveStoragePathSlot (state : State) :
       | none => Except.error RevertData.indexOutOfBounds
   | _, _, _ :: _ =>
       Except.error RevertData.typeMismatch
+
+structure StoragePathResolutionObservation where
+  self : Word
+  inputState : StateObservation
+  baseSlot : Word
+  baseLayout : StorageLayoutObservation
+  indexes : List Value
+  resolvedSlot? : Option Word := none
+  resolvedLayout? : Option StorageLayoutObservation := none
+  error? : Option RevertData := none
+  deriving Repr
+
+def State.observeStoragePathResolution (state : State)
+    (self : Word) (slot : Word) (layout : StorageLayout)
+    (indexes : List Value) : StoragePathResolutionObservation :=
+  match state.resolveStoragePathSlot slot layout indexes with
+  | Except.ok (resolvedSlot, resolvedLayout) =>
+      { self := self
+        inputState := state.observe self
+        baseSlot := slot
+        baseLayout := layout.observe
+        indexes := indexes
+        resolvedSlot? := some resolvedSlot
+        resolvedLayout? := some resolvedLayout.observe }
+  | Except.error error =>
+      { self := self
+        inputState := state.observe self
+        baseSlot := slot
+        baseLayout := layout.observe
+        indexes := indexes
+        error? := some error }
 
 def Runtime.loadStoragePath (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value) :
@@ -1891,35 +3507,8 @@ def Runtime.loadStoragePath (context : Context)
 
 def Runtime.loadStorageRefPathValue (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value) :
-    Except RevertData Value := do
-  match indexes with
-  | [] => runtime.loadStorageField context name
-  | _ =>
-      let field ←
-        match context.storageField? name with
-        | some field => Except.ok field
-        | none => Except.error RevertData.typeMismatch
-      if field.transient then
-        Except.error RevertData.typeMismatch
-      else
-        pure ()
-      let layout ←
-        match field.layout? with
-        | some layout => Except.ok layout
-        | none =>
-            match field.ty? with
-            | some ty => Except.ok (StorageLayout.scalar ty)
-            | none => Except.error RevertData.typeMismatch
-      let (slot, valueLayout) ←
-        State.resolveStoragePathSlot runtime.state field.slot layout indexes
-      match valueLayout with
-      | StorageLayout.dynamicArray _ =>
-          Except.ok (Value.word (runtime.state.loadSlot slot))
-      | StorageLayout.bytes =>
-          Except.ok (Value.word (runtime.state.loadSlot slot))
-      | StorageLayout.string =>
-          Except.error RevertData.typeMismatch
-      | _ => runtime.state.loadStorageLayoutAt slot valueLayout
+    Except RevertData Value :=
+  runtime.loadStoragePath context name indexes
 
 def Runtime.storeStoragePathWithDeepClear (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value)
@@ -1928,6 +3517,7 @@ def Runtime.storeStoragePathWithDeepClear (context : Context)
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
+  let value ← runtime.storageMaterializedValue value
   if field.transient && !indexes.isEmpty then
     Except.error RevertData.typeMismatch
   else
@@ -1983,15 +3573,8 @@ def Runtime.loadStorageIndex (context : Context)
       runtime.state.loadStorageLayoutAt slot valueLayout
   | some StorageLayout.bytes => do
       let key ← index.expectWord
-      let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
-        Except.error RevertData.indexOutOfBounds
-      else
-        Except.ok
-          (Value.word
-            (normByte
-              (runtime.state.loadSlot
-                (dynamicArrayStorageSlot field.slot key))))
+      let byte ← State.loadStorageByteAt runtime.state field.slot key
+      Except.ok (Value.word byte)
   | some StorageLayout.string =>
       Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
@@ -2000,17 +3583,25 @@ def Runtime.loadStorageIndex (context : Context)
       if SharedSemantics.norm length <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         runtime.state.loadStorageLayoutAt
-          (dynamicArrayLayoutStorageSlot field.slot key elementLayout)
-          elementLayout
+          elementSlot elementSlotLayout
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
       if size <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match fixedArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         runtime.state.loadStorageLayoutAt
-          (fixedArrayLayoutStorageSlot field.slot key elementLayout)
-          elementLayout
+          elementSlot elementSlotLayout
   | some (StorageLayout.struct layouts) => do
       let key ← index.expectWord
       match structFieldStorageSlot? field.slot layouts (SharedSemantics.norm key) with
@@ -2019,6 +3610,8 @@ def Runtime.loadStorageIndex (context : Context)
             fieldSlot fieldLayout
       | none => Except.error RevertData.indexOutOfBounds
   | some (StorageLayout.scalar _) =>
+      Except.error RevertData.typeMismatch
+  | some (StorageLayout.packedScalar _ _ _ _) =>
       Except.error RevertData.typeMismatch
   | none => do
       let key ← index.expectWord
@@ -2033,6 +3626,7 @@ def Runtime.storeStorageIndex (context : Context)
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
+  let value ← runtime.storageMaterializedValue value
   match field.layout? with
   | some (StorageLayout.mapping keyTy valueLayout) => do
       let slot ← mappingStorageSlotForKey field.slot keyTy index
@@ -2041,16 +3635,10 @@ def Runtime.storeStorageIndex (context : Context)
       Except.ok { runtime with state }
   | some StorageLayout.bytes => do
       let key ← index.expectWord
-      let length := runtime.state.loadSlot field.slot
-      if SharedSemantics.norm length <= SharedSemantics.norm key then
-        Except.error RevertData.indexOutOfBounds
-      else
-        let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
-        Except.ok
-          { runtime with
-            state :=
-              runtime.state.storeSlot
-                (dynamicArrayStorageSlot field.slot key) word }
+      let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
+      let state ←
+        State.storeStorageByteAt runtime.state field.slot key word
+      Except.ok { runtime with state }
   | some StorageLayout.string =>
       Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
@@ -2059,20 +3647,28 @@ def Runtime.storeStorageIndex (context : Context)
       if SharedSemantics.norm length <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.storeStorageLayoutAt runtime.state
-            (dynamicArrayLayoutStorageSlot field.slot key elementLayout)
-            elementLayout value
+            elementSlot elementSlotLayout value
         Except.ok { runtime with state }
   | some (StorageLayout.fixedArray size elementLayout) => do
       let key ← index.expectWord
       if size <= SharedSemantics.norm key then
         Except.error RevertData.indexOutOfBounds
       else
+        let (elementSlot, elementSlotLayout) ←
+          match fixedArrayLayoutStorageSlotAndLayout?
+            field.slot key elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.storeStorageLayoutAt runtime.state
-            (fixedArrayLayoutStorageSlot field.slot key elementLayout)
-            elementLayout value
+            elementSlot elementSlotLayout value
         Except.ok { runtime with state }
   | some (StorageLayout.struct layouts) => do
       let key ← index.expectWord
@@ -2087,6 +3683,8 @@ def Runtime.storeStorageIndex (context : Context)
           Except.ok { runtime with state }
       | none => Except.error RevertData.indexOutOfBounds
   | some (StorageLayout.scalar _) =>
+      Except.error RevertData.typeMismatch
+  | some (StorageLayout.packedScalar _ _ _ _) =>
       Except.error RevertData.typeMismatch
   | none => do
       let key ← index.expectWord
@@ -2104,23 +3702,28 @@ def Runtime.storageArrayPush (context : Context)
     match context.storageField? name with
     | some field => Except.ok field
     | none => Except.error RevertData.typeMismatch
-  let length := runtime.state.loadSlot field.slot
-  let rawLength := SharedSemantics.norm length + 1
-  if wordModulus <= rawLength then
-    Except.error RevertData.overflow
-  else
-    match field.layout? with
+  match field.layout? with
     | some (StorageLayout.dynamicArray elementLayout) => do
-        let elementSlot :=
-          dynamicArrayLayoutStorageSlot field.slot length elementLayout
+        let length := runtime.state.loadSlot field.slot
+        let rawLength := SharedSemantics.norm length + 1
+        if wordModulus <= rawLength then
+          Except.error RevertData.overflow
+        else
+          pure ()
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            field.slot length elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           match value? with
           | some value =>
+              let value ← runtime.storageMaterializedValue value
               State.storeStorageLayoutAtWithDeepClear runtime.state
-                elementSlot elementLayout value
+                elementSlot elementSlotLayout value
           | none =>
               State.clearStorageLayoutAtDeep runtime.state
-                elementSlot elementLayout
+                elementSlot elementSlotLayout
         Except.ok
           { runtime with
             state := state.storeSlot field.slot (normWord rawLength) }
@@ -2129,15 +3732,19 @@ def Runtime.storageArrayPush (context : Context)
           match value? with
           | some value => coerceStorageWordAs (Ty.fixedBytes 1) value
           | none => Except.ok 0
+        let state ←
+          State.pushStorageByteAt runtime.state field.slot word
         Except.ok
-          { runtime with
-            state :=
-              (runtime.state.storeSlot
-                (dynamicArrayStorageSlot field.slot length) word)
-                |>.storeSlot field.slot (normWord rawLength) }
+          { runtime with state }
     | some StorageLayout.string =>
         Except.error RevertData.typeMismatch
     | none => do
+        let length := runtime.state.loadSlot field.slot
+        let rawLength := SharedSemantics.norm length + 1
+        if wordModulus <= rawLength then
+          Except.error RevertData.overflow
+        else
+          pure ()
         let word ←
           match value? with
           | some value => coerceStorageWordAs Ty.uint256 value
@@ -2163,28 +3770,34 @@ def Runtime.storageArrayPop (context : Context)
   | some StorageLayout.string => Except.error RevertData.typeMismatch
   | none => Except.ok ()
   | _ => Except.error RevertData.typeMismatch
-  let length := runtime.state.loadSlot field.slot
-  if wordEq length 0 then
-    Except.error RevertData.popEmptyArray
-  else
-    let newLength := SharedSemantics.subWord length 1
-    match field.layout? with
+  match field.layout? with
     | some (StorageLayout.dynamicArray elementLayout) => do
+        let length := runtime.state.loadSlot field.slot
+        if wordEq length 0 then
+          Except.error RevertData.popEmptyArray
+        else
+          pure ()
+        let newLength := SharedSemantics.subWord length 1
+        let (elementSlot, elementSlotLayout) ←
+          match dynamicArrayLayoutStorageSlotAndLayout?
+            field.slot newLength elementLayout with
+          | some pair => Except.ok pair
+          | none => Except.error RevertData.typeMismatch
         let state ←
           State.clearStorageLayoutAtDeep runtime.state
-            (dynamicArrayLayoutStorageSlot
-              field.slot newLength elementLayout)
-            elementLayout
+            elementSlot elementSlotLayout
         Except.ok
           { runtime with state := state.storeSlot field.slot newLength }
-    | some StorageLayout.bytes =>
-        Except.ok
-          { runtime with
-            state :=
-              (runtime.state.storeSlot
-                (dynamicArrayStorageSlot field.slot newLength) 0)
-                |>.storeSlot field.slot newLength }
-    | none =>
+    | some StorageLayout.bytes => do
+        let state ← State.popStorageByteAt runtime.state field.slot
+        Except.ok { runtime with state }
+    | none => do
+        let length := runtime.state.loadSlot field.slot
+        if wordEq length 0 then
+          Except.error RevertData.popEmptyArray
+        else
+          pure ()
+        let newLength := SharedSemantics.subWord length 1
         Except.ok
           { runtime with
             state :=
@@ -2214,23 +3827,28 @@ def Runtime.storageArrayPushPath (context : Context)
         | none => Except.error RevertData.typeMismatch
       let (slot, valueLayout) ←
         State.resolveStoragePathSlot runtime.state field.slot layout indexes
-      let length := runtime.state.loadSlot slot
-      let rawLength := SharedSemantics.norm length + 1
-      if wordModulus <= rawLength then
-        Except.error RevertData.overflow
-      else
-        match valueLayout with
+      match valueLayout with
         | StorageLayout.dynamicArray elementLayout => do
-            let elementSlot :=
-              dynamicArrayLayoutStorageSlot slot length elementLayout
+            let length := runtime.state.loadSlot slot
+            let rawLength := SharedSemantics.norm length + 1
+            if wordModulus <= rawLength then
+              Except.error RevertData.overflow
+            else
+              pure ()
+            let (elementSlot, elementSlotLayout) ←
+              match dynamicArrayLayoutStorageSlotAndLayout?
+                slot length elementLayout with
+              | some pair => Except.ok pair
+              | none => Except.error RevertData.typeMismatch
             let state ←
               match value? with
               | some value =>
+                  let value ← runtime.storageMaterializedValue value
                   State.storeStorageLayoutAtWithDeepClear runtime.state
-                    elementSlot elementLayout value
+                    elementSlot elementSlotLayout value
               | none =>
                   State.clearStorageLayoutAtDeep runtime.state
-                    elementSlot elementLayout
+                    elementSlot elementSlotLayout
             Except.ok
               { runtime with
                 state := state.storeSlot slot (normWord rawLength) }
@@ -2239,12 +3857,8 @@ def Runtime.storageArrayPushPath (context : Context)
               match value? with
               | some value => coerceStorageWordAs (Ty.fixedBytes 1) value
               | none => Except.ok 0
-            Except.ok
-              { runtime with
-                state :=
-                  (runtime.state.storeSlot
-                    (dynamicArrayStorageSlot slot length) word)
-                    |>.storeSlot slot (normWord rawLength) }
+            let state ← State.pushStorageByteAt runtime.state slot word
+            Except.ok { runtime with state }
         | StorageLayout.string =>
             Except.error RevertData.typeMismatch
         | _ => Except.error RevertData.typeMismatch
@@ -2269,29 +3883,44 @@ def Runtime.storageArrayPopPath (context : Context)
         | none => Except.error RevertData.typeMismatch
       let (slot, valueLayout) ←
         State.resolveStoragePathSlot runtime.state field.slot layout indexes
-      let length := runtime.state.loadSlot slot
-      if wordEq length 0 then
-        Except.error RevertData.popEmptyArray
-      else
-        let newLength := SharedSemantics.subWord length 1
-        match valueLayout with
+      match valueLayout with
         | StorageLayout.dynamicArray elementLayout => do
+            let length := runtime.state.loadSlot slot
+            if wordEq length 0 then
+              Except.error RevertData.popEmptyArray
+            else
+              pure ()
+            let newLength := SharedSemantics.subWord length 1
+            let (elementSlot, elementSlotLayout) ←
+              match dynamicArrayLayoutStorageSlotAndLayout?
+                slot newLength elementLayout with
+              | some pair => Except.ok pair
+              | none => Except.error RevertData.typeMismatch
             let state ←
               State.clearStorageLayoutAtDeep runtime.state
-                (dynamicArrayLayoutStorageSlot slot newLength elementLayout)
-                elementLayout
+                elementSlot elementSlotLayout
             Except.ok
               { runtime with state := state.storeSlot slot newLength }
-        | StorageLayout.bytes =>
-            Except.ok
-              { runtime with
-                state :=
-                  (runtime.state.storeSlot
-                    (dynamicArrayStorageSlot slot newLength) 0)
-                    |>.storeSlot slot newLength }
+        | StorageLayout.bytes => do
+            let state ← State.popStorageByteAt runtime.state slot
+            Except.ok { runtime with state }
         | StorageLayout.string =>
             Except.error RevertData.typeMismatch
         | _ => Except.error RevertData.typeMismatch
+
+def abiAddressFits (value : Word) : Bool :=
+  SharedSemantics.norm value < 2 ^ 160
+
+def abiSelectorFits (value : Word) : Bool :=
+  SharedSemantics.norm value < 2 ^ (8 * selectorBytes)
+
+def abiFixedBytesFits (size : Nat) (value : Word) : Bool :=
+  0 < size && size <= wordBytes &&
+    SharedSemantics.norm value < 2 ^ (8 * size)
+
+def abiAllZeroBytes : List Byte -> Bool
+  | [] => true
+  | byte :: rest => normByte byte == 0 && abiAllZeroBytes rest
 
 def abiStaticBytes? : Ty -> Value -> Option (List Byte)
   | Ty.bool, Value.word value =>
@@ -2299,21 +3928,28 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
         some (wordToBytesBE wordBytes value)
       else
         none
-  | Ty.address, Value.word value => some (wordToBytesBE wordBytes value)
+  | Ty.address, Value.word value =>
+      if abiAddressFits value then
+        some (wordToBytesBE wordBytes value)
+      else
+        none
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
   | Ty.fixedBytes size, Value.word value =>
-      if 0 < size && size <= wordBytes then
+      if abiFixedBytesFits size value then
         some
           (wordToBytesBE size value ++
             List.replicate (wordBytes - size) 0)
       else
         none
   | Ty.externalFunction, Value.externalFunction addr selector =>
-      some
-        (wordToBytesBE 20 addr ++
-          wordToBytesBE selectorBytes selector ++
-          List.replicate (wordBytes - 20 - selectorBytes) 0)
+      if abiAddressFits addr && abiSelectorFits selector then
+        some
+          (wordToBytesBE 20 addr ++
+            wordToBytesBE selectorBytes selector ++
+            List.replicate (wordBytes - 20 - selectorBytes) 0)
+      else
+        none
   | _, _ => none
 
 def abiPaddingLength (length : Nat) : Nat :=
@@ -2336,6 +3972,13 @@ def Ty.listHasDynamicAbi : List Ty -> Bool
   | ty :: rest => Ty.isDynamicAbi ty || Ty.listHasDynamicAbi rest
 
 end
+
+def Ty.isHashedEventIndexed : Ty -> Bool
+  | Ty.bytesCalldata => true
+  | Ty.dynamicArray _ => true
+  | Ty.fixedArray _ _ => true
+  | Ty.tuple _ => true
+  | _ => false
 
 mutual
 
@@ -2558,7 +4201,10 @@ def abiDecodeValueAtWithFuel? :
         none
   | _fuel + 1, argData, headIndex, Ty.address => do
       let value ← readWord? argData (wordBytes * headIndex)
-      some (Value.word value)
+      if abiAddressFits value then
+        some (Value.word value)
+      else
+        none
   | _fuel + 1, argData, headIndex, Ty.uint256 => do
       let value ← readWord? argData (wordBytes * headIndex)
       some (Value.word value)
@@ -2568,17 +4214,28 @@ def abiDecodeValueAtWithFuel? :
   | _fuel + 1, argData, headIndex, Ty.fixedBytes size =>
       if 0 < size && size <= wordBytes then
         do
-        let bytes ← readBytes? argData (wordBytes * headIndex) size
-        some (Value.word (bytesToWordBE bytes))
+        let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
+        let bytes ← readBytes? slot 0 size
+        let padding ← readBytes? slot size (wordBytes - size)
+        if abiAllZeroBytes padding then
+          some (Value.word (bytesToWordBE bytes))
+        else
+          none
       else
         none
   | _fuel + 1, argData, headIndex, Ty.externalFunction => do
-      let bytes ← readBytes? argData (wordBytes * headIndex) 24
-      let addressBytes ← readBytes? bytes 0 20
-      let selectorPart ← readBytes? bytes 20 selectorBytes
-      some
-        (Value.externalFunction
-          (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
+      let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
+      let addressBytes ← readBytes? slot 0 20
+      let selectorPart ← readBytes? slot 20 selectorBytes
+      let padding ←
+        readBytes? slot (20 + selectorBytes)
+          (wordBytes - 20 - selectorBytes)
+      if abiAllZeroBytes padding then
+        some
+          (Value.externalFunction
+            (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
+      else
+        none
   | _fuel + 1, argData, headIndex, Ty.bytesCalldata => do
       let offset ← readWord? argData (wordBytes * headIndex)
       let length ← readWord? argData offset
@@ -2693,7 +4350,7 @@ def abiEventIndexedTupleBytes? :
 end
 
 def abiEventTopic? (ty : Ty) (value : Value) : Option Word :=
-  if Ty.isDynamicAbi ty then
+  if Ty.isHashedEventIndexed ty then
     match abiEventIndexedBytes? false ty value with
     | some bytes => some (keccakWord bytes)
     | none => none
@@ -2826,6 +4483,95 @@ inductive BinaryOp where
   | boolOr : BinaryOp
   deriving Repr
 
+inductive ValueCleanup where
+  | none
+  | uint : Nat -> ValueCleanup
+  | int : Nat -> ValueCleanup
+  deriving Repr
+
+def ValueCleanup.apply (checked : Bool) (cleanup : ValueCleanup)
+    (value : Value) : Except RevertData Value :=
+  match cleanup with
+  | ValueCleanup.none => Except.ok value
+  | ValueCleanup.uint bits => uintCleanup? checked bits value
+  | ValueCleanup.int bits => intCleanup? checked bits value
+
+def AbiCleanups.acceptOrUnspecified
+    (cleanups : List AbiCleanup) (values : List Value) : Bool :=
+  cleanups.isEmpty || AbiCleanups.accept cleanups values
+
+mutual
+
+def AbiCleanup.lazyValue : AbiCleanup -> Value -> Option Value
+  | AbiCleanup.none, value => some value
+  | AbiCleanup.fixedArray size cleanup, Value.fixedArray values =>
+      if values.length == size then
+        match AbiCleanup.lazyValues cleanup values with
+        | some values => some (Value.fixedArray values)
+        | none => none
+      else
+        none
+  | AbiCleanup.dynamicArray cleanup, Value.dynamicArray values =>
+      match AbiCleanup.lazyValues cleanup values with
+      | some values => some (Value.dynamicArray values)
+      | none => none
+  | AbiCleanup.tuple cleanups, Value.tuple values =>
+      match AbiCleanups.lazyValues cleanups values with
+      | some values => some (Value.tuple values)
+      | none => none
+  | cleanup, value => some (Value.abiLazy cleanup value)
+
+def AbiCleanup.lazyValues (cleanup : AbiCleanup) :
+    List Value -> Option (List Value)
+  | [] => some []
+  | value :: rest => do
+      let value ← cleanup.lazyValue value
+      let rest ← cleanup.lazyValues rest
+      some (value :: rest)
+
+def AbiCleanups.lazyValues : List AbiCleanup -> List Value ->
+    Option (List Value)
+  | [], [] => some []
+  | cleanup :: cleanups, value :: values => do
+      let value ← cleanup.lazyValue value
+      let values ← AbiCleanups.lazyValues cleanups values
+      some (value :: values)
+  | _, _ => none
+
+end
+
+def AbiCleanup.lazyParamValue : AbiCleanup -> Value -> Option Value
+  | AbiCleanup.none, value => some value
+  | AbiCleanup.fixedArray size cleanup, Value.fixedArray values =>
+      if values.length == size then
+        match AbiCleanup.lazyValues cleanup values with
+        | some values => some (Value.fixedArray values)
+        | Option.none => Option.none
+      else
+        Option.none
+  | AbiCleanup.dynamicArray cleanup, Value.dynamicArray values =>
+      match AbiCleanup.lazyValues cleanup values with
+      | some values => some (Value.dynamicArray values)
+      | Option.none => Option.none
+  | AbiCleanup.tuple cleanups, Value.tuple values =>
+      match AbiCleanups.lazyValues cleanups values with
+      | some values => some (Value.tuple values)
+      | Option.none => Option.none
+  | cleanup, value =>
+      if cleanup.accepts value then
+        some value
+      else
+        Option.none
+
+def AbiCleanups.lazyParamValues : List AbiCleanup -> List Value ->
+    Option (List Value)
+  | [], [] => some []
+  | cleanup :: cleanups, value :: values => do
+      let value ← cleanup.lazyParamValue value
+      let values ← AbiCleanups.lazyParamValues cleanups values
+      some (value :: values)
+  | _, _ => none
+
 inductive Expr where
   | word : Word -> Expr
   | intWord : Word -> Expr
@@ -2847,6 +4593,7 @@ inductive Expr where
   | storageBytes : String -> Expr
   | storageIndex : String -> Expr -> Expr
   | storagePath : String -> List Expr -> Expr
+  | externalFunctionValue : Expr -> Word -> Expr
   | externalFunctionSelector : Expr -> Expr
   | externalFunctionAddress : Expr -> Expr
   | unary : UnaryOp -> Expr -> Expr
@@ -2854,8 +4601,10 @@ inductive Expr where
   | preDecrement : Expr -> Expr
   | postIncrement : Expr -> Expr
   | postDecrement : Expr -> Expr
+  | incDecCleanup : Expr -> BinaryOp -> Bool -> ValueCleanup -> Expr
   | assignExpr : Expr -> Expr -> Expr
   | assignOpExpr : Expr -> BinaryOp -> Expr -> Expr
+  | assignOpCleanupExpr : Expr -> BinaryOp -> Expr -> ValueCleanup -> Expr
   | binary : BinaryOp -> Expr -> Expr -> Expr
   | addMod : Expr -> Expr -> Expr -> Expr
   | mulMod : Expr -> Expr -> Expr -> Expr
@@ -2865,13 +4614,15 @@ inductive Expr where
   | fixedBytesFromBytes : Nat -> Expr -> Expr
   | uintCast : Nat -> Expr -> Expr
   | intCast : Nat -> Expr -> Expr
+  | uintCleanup : Nat -> Expr -> Expr
+  | intCleanup : Nat -> Expr -> Expr
   | keccak256 : Expr -> Expr
   | erc7201 : Expr -> Expr
   | tuple : List Expr -> Expr
   | abiEncode : List Ty -> List Expr -> Expr
   | abiEncodeWithSelector : Expr -> List Ty -> List Expr -> Expr
   | abiEncodePacked : List Ty -> List Expr -> Expr
-  | abiDecode : List Ty -> Expr -> Expr
+  | abiDecode : List Ty -> List AbiCleanup -> Expr -> Expr
   | lowLevelCall :
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool -> Expr
   | contractCreate : String -> Expr -> Expr -> Option Expr -> Expr
@@ -2892,6 +4643,11 @@ def Expr.hasStorageRoot : Expr -> Bool
   | Expr.storageIndex _ _ => true
   | Expr.storagePath _ _ => true
   | Expr.index base _ => Expr.hasStorageRoot base
+  | _ => false
+
+def Expr.hasStorageRefRoot (runtime : Runtime) : Expr -> Bool
+  | Expr.var name => runtime.lookupStoragePathRef? name |>.isSome
+  | Expr.index base _ => Expr.hasStorageRefRoot runtime base
   | _ => false
 
 inductive LValue where
@@ -3131,6 +4887,13 @@ def BinaryOp.apply
           Except.ok (Value.word (boolWord (wordEq lhsWord rhsWord)))
       | Value.int lhsWord, Value.int rhsWord =>
           Except.ok (Value.word (boolWord (wordEq lhsWord rhsWord)))
+      | Value.externalFunction lhsAddr lhsSelector,
+          Value.externalFunction rhsAddr rhsSelector =>
+          Except.ok
+            (Value.word
+              (boolWord
+                (wordEq lhsAddr rhsAddr &&
+                  wordEq lhsSelector rhsSelector)))
       | _, _ => Except.error RevertData.typeMismatch
   | BinaryOp.ne =>
       match lhs, rhs with
@@ -3138,6 +4901,13 @@ def BinaryOp.apply
           Except.ok (Value.word (boolWord (!(wordEq lhsWord rhsWord))))
       | Value.int lhsWord, Value.int rhsWord =>
           Except.ok (Value.word (boolWord (!(wordEq lhsWord rhsWord))))
+      | Value.externalFunction lhsAddr lhsSelector,
+          Value.externalFunction rhsAddr rhsSelector =>
+          Except.ok
+            (Value.word
+              (boolWord
+                (!(wordEq lhsAddr rhsAddr &&
+                  wordEq lhsSelector rhsSelector))))
       | _, _ => Except.error RevertData.typeMismatch
   | _ =>
       match lhs, rhs with
@@ -3156,6 +4926,57 @@ def BinaryOp.apply
               Except.ok (Value.int (SharedSemantics.sarWord rhsWord lhsWord))
           | _ => Except.error RevertData.typeMismatch
       | _, _ => Except.error RevertData.typeMismatch
+
+inductive BinaryArithmeticOperandMode where
+  | unsignedWord
+  | signedWord
+  | signedAndWord
+  | unsupported
+  deriving Repr, BEq
+
+def BinaryArithmeticOperandMode.ofValues
+    (lhs rhs : Value) : BinaryArithmeticOperandMode :=
+  match lhs, rhs with
+  | Value.word _, Value.word _ =>
+      BinaryArithmeticOperandMode.unsignedWord
+  | Value.int _, Value.int _ =>
+      BinaryArithmeticOperandMode.signedWord
+  | Value.int _, Value.word _ =>
+      BinaryArithmeticOperandMode.signedAndWord
+  | _, _ =>
+      BinaryArithmeticOperandMode.unsupported
+
+structure BinaryArithmeticObservation where
+  checked : Bool
+  op : BinaryOp
+  lhs : Value
+  rhs : Value
+  operandMode : BinaryArithmeticOperandMode
+  lhsWord? : Option Word := none
+  rhsWord? : Option Word := none
+  result? : Option Value := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+def BinaryOp.observeApply
+    (checked : Bool) (op : BinaryOp) (lhs rhs : Value) :
+    BinaryArithmeticObservation :=
+  let result := BinaryOp.apply checked op lhs rhs
+  { checked := checked
+    op := op
+    lhs := lhs
+    rhs := rhs
+    operandMode := BinaryArithmeticOperandMode.ofValues lhs rhs
+    lhsWord? := lhs.asStorageWord?
+    rhsWord? := rhs.asStorageWord?
+    result? :=
+      match result with
+      | Except.ok value => some value
+      | Except.error _ => none
+    revertData? :=
+      match result with
+      | Except.ok _ => none
+      | Except.error revertData => some revertData }
 
 def UnaryOp.apply (checked : Bool) (op : UnaryOp) (value : Value) :
     Except RevertData Value :=
@@ -3242,7 +5063,7 @@ def Expr.eval (context : Context) (runtime : Runtime) :
           runtime.loadStorageRefPathValue context target indexes
       | none =>
           match runtime.lookupLocal? name with
-          | some value => Except.ok value
+          | some value => runtime.derefMemoryValue value
           | none => Except.error RevertData.typeMismatch
   | Expr.immutable name =>
       runtime.loadImmutableField context name
@@ -3256,6 +5077,10 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.storagePath name indexes => do
       let indexValues ← Expr.evalList context runtime indexes
       runtime.loadStoragePath context name indexValues
+  | Expr.externalFunctionValue addressExpr selector => do
+      let value ← addressExpr.eval context runtime
+      let addr ← value.expectWord
+      Except.ok (Value.externalFunction addr selector)
   | Expr.externalFunctionSelector expr => do
       let value ← expr.eval context runtime
       match value with
@@ -3277,9 +5102,13 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       Except.error RevertData.typeMismatch
   | Expr.postDecrement _ =>
       Except.error RevertData.typeMismatch
+  | Expr.incDecCleanup _ _ _ _ =>
+      Except.error RevertData.typeMismatch
   | Expr.assignExpr _ _ =>
       Except.error RevertData.typeMismatch
   | Expr.assignOpExpr _ _ _ =>
+      Except.error RevertData.typeMismatch
+  | Expr.assignOpCleanupExpr _ _ _ _ =>
       Except.error RevertData.typeMismatch
   | Expr.binary BinaryOp.boolAnd lhs rhs => do
       let lhsValue ← lhs.eval context runtime
@@ -3347,6 +5176,12 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.intCast bits expr => do
       let value ← expr.eval context runtime
       intCast? bits value
+  | Expr.uintCleanup bits expr => do
+      let value ← expr.eval context runtime
+      uintCleanup? context.checked bits value
+  | Expr.intCleanup bits expr => do
+      let value ← expr.eval context runtime
+      intCleanup? context.checked bits value
   | Expr.keccak256 expr => do
       let value ← expr.eval context runtime
       match value.asBytes? with
@@ -3402,14 +5237,19 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       match abiEncodePackedValues? tys values with
       | some bytes => Except.ok (Value.bytes bytes)
       | none => Except.error RevertData.typeMismatch
-  | Expr.abiDecode tys expr => do
+  | Expr.abiDecode tys cleanups expr => do
       let value ← expr.eval context runtime
       match value.asBytes? with
       | some bytes =>
           match abiDecodeValues? tys bytes with
-          | some [decoded] => Except.ok decoded
-          | some decoded => Except.ok (Value.tuple decoded)
-          | none => Except.error RevertData.typeMismatch
+          | some decoded =>
+              if AbiCleanups.acceptOrUnspecified cleanups decoded then
+                match decoded with
+                | [value] => Except.ok value
+                | values => Except.ok (Value.tuple values)
+              else
+                Except.error RevertData.empty
+          | none => Except.error RevertData.empty
       | none => Except.error RevertData.typeMismatch
   | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr gasExpr? gasFirst => do
       let targetValue ← targetExpr.eval context runtime
@@ -3438,14 +5278,12 @@ def Expr.eval (context : Context) (runtime : Runtime) :
               let gasValue ← gasExpr.eval context runtime
               let gas ← gasValue.expectWord
               Except.ok (value, some gas)
-      match context.lookupLowLevelCall? kind target calldata value gas? with
-      | some result =>
-          Except.ok
-            (Value.tuple
-              [ Value.word (boolWord result.success)
-              , Value.bytes result.output ])
-      | none =>
-          Except.ok (Value.tuple [Value.word 0, Value.bytes []])
+      let result :=
+        context.resolveLowLevelCall kind target calldata value gas?
+      Except.ok
+        (Value.tuple
+          [ Value.word (boolWord result.success)
+          , Value.bytes result.output ])
   | Expr.contractCreate contractName constructorArgsExpr valueExpr (some saltExpr) => do
       let argsValue ← constructorArgsExpr.eval context runtime
       let constructorArgs ←
@@ -3485,16 +5323,15 @@ def Expr.eval (context : Context) (runtime : Runtime) :
   | Expr.newBytes lengthExpr => do
       let lengthValue ← lengthExpr.eval context runtime
       let length ← lengthValue.expectWord
-      Except.ok
-        (Value.bytes
-          (List.replicate (SharedSemantics.norm length) 0))
+      let size ← context.checkMemoryAllocation length
+      Except.ok (Value.bytes (List.replicate size 0))
   | Expr.newDynamicArray elementTy lengthExpr => do
       let lengthValue ← lengthExpr.eval context runtime
       let length ← lengthValue.expectWord
+      let size ← context.checkMemoryAllocation length
       Except.ok
         (Value.dynamicArray
-          (List.replicate (SharedSemantics.norm length)
-            elementTy.defaultValue))
+          (List.replicate size elementTy.defaultValue))
   | Expr.enumFromUInt maxValue expr => do
       let value : Value ← expr.eval context runtime
       enumFromUIntValue maxValue value
@@ -3506,28 +5343,26 @@ def Expr.eval (context : Context) (runtime : Runtime) :
       else
         elseExpr.eval context runtime
   | Expr.length expr => do
+      let lengthValue (value : Value) : Except RevertData Value :=
+        match value with
+        | Value.word len => Except.ok (Value.word len)
+        | _ =>
+            match value.length? with
+            | some len => Except.ok (Value.word len)
+            | none => Except.error RevertData.typeMismatch
       match expr with
       | Expr.var name =>
           match runtime.lookupStoragePathRef? name with
           | some (target, indexes) => do
               let value ←
                 runtime.loadStorageRefPathValue context target indexes
-              match value with
-              | Value.word len => Except.ok (Value.word len)
-              | _ =>
-                  match value.length? with
-                  | some len => Except.ok (Value.word len)
-                  | none => Except.error RevertData.typeMismatch
+              lengthValue value
           | none =>
               let value ← expr.eval context runtime
-              match value.length? with
-              | some len => Except.ok (Value.word len)
-              | none => Except.error RevertData.typeMismatch
+              lengthValue value
       | _ =>
           let value ← expr.eval context runtime
-          match value.length? with
-          | some len => Except.ok (Value.word len)
-          | none => Except.error RevertData.typeMismatch
+          lengthValue value
   | Expr.index base idx => do
       match base with
       | Expr.var name =>
@@ -3539,12 +5374,16 @@ def Expr.eval (context : Context) (runtime : Runtime) :
               let baseValue ← base.eval context runtime
               let indexValue ← idx.eval context runtime
               let indexWord ← indexValue.expectWord
-              baseValue.index? indexWord
+              let baseValue ← runtime.derefMemoryValue baseValue
+              let value ← baseValue.index? indexWord
+              runtime.derefMemoryValue value
       | _ =>
           let baseValue ← base.eval context runtime
           let indexValue ← idx.eval context runtime
           let indexWord ← indexValue.expectWord
-          baseValue.index? indexWord
+          let baseValue ← runtime.derefMemoryValue baseValue
+          let value ← baseValue.index? indexWord
+          runtime.derefMemoryValue value
   | Expr.slice base start stop => do
       let baseValue ← base.eval context runtime
       let startWord? ←
@@ -3581,7 +5420,7 @@ def LValue.read (context : Context) (runtime : Runtime) :
           runtime.loadStorageRefPathValue context target indexes
       | none =>
           match runtime.lookupLocal? name with
-          | some value => Except.ok value
+          | some value => runtime.derefMemoryValue value
           | none => Except.error RevertData.typeMismatch
   | LValue.immutable name =>
       runtime.loadImmutableField context name
@@ -3601,12 +5440,67 @@ def LValue.read (context : Context) (runtime : Runtime) :
               let baseValue ← base.read context runtime
               let indexValue ← idx.eval context runtime
               let indexWord ← indexValue.expectWord
-              baseValue.index? indexWord
+              let baseValue ← runtime.derefMemoryValue baseValue
+              let value ← baseValue.index? indexWord
+              runtime.derefMemoryValue value
       | _ =>
           let baseValue ← base.read context runtime
           let indexValue ← idx.eval context runtime
           let indexWord ← indexValue.expectWord
-          baseValue.index? indexWord
+          let baseValue ← runtime.derefMemoryValue baseValue
+          let value ← baseValue.index? indexWord
+          runtime.derefMemoryValue value
+
+def LValue.writeContainer (context : Context) (runtime : Runtime)
+    (target : LValue) (value : Value) : Except RevertData Runtime :=
+  match target with
+  | LValue.var name =>
+      match runtime.lookupStoragePathRef? name with
+      | some (target, []) =>
+          runtime.storeStorageFieldWithDeepClear context target value
+      | some (target, indexes) =>
+          runtime.storeStoragePathWithDeepClear context target indexes value
+      | none =>
+          match runtime.lookupMemoryRef? name with
+          | some id =>
+              match runtime.storeMemory? id value with
+              | some updated => Except.ok updated
+              | none => Except.error RevertData.typeMismatch
+          | none =>
+              match runtime.assignLocal? name value with
+              | some updated => Except.ok updated
+              | none => Except.error RevertData.typeMismatch
+  | LValue.immutable name =>
+      runtime.storeImmutableField context name value
+  | LValue.storage name =>
+      runtime.storeStorageFieldWithDeepClear context name value
+  | LValue.storageIndex name idx => do
+      let indexValue ← idx.eval context runtime
+      runtime.storeStorageIndexWithDeepClear context name indexValue value
+  | LValue.index base idx => do
+      match base with
+      | LValue.var name =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
+              let indexValue ← idx.eval context runtime
+              runtime.storeStoragePathWithDeepClear
+                context target (indexes ++ [indexValue]) value
+          | none =>
+              let baseValue ← base.read context runtime
+              let indexValue ← idx.eval context runtime
+              let indexWord ← indexValue.expectWord
+              let baseValue ← runtime.derefMemoryValue baseValue
+              let (runtime', storedValue) := runtime.memoryStoreValue value
+              let updatedBase ← baseValue.setIndex? indexWord storedValue
+              base.writeContainer context runtime' updatedBase
+        | _ =>
+            let baseValue ← base.read context runtime
+            let indexValue ← idx.eval context runtime
+            let indexWord ← indexValue.expectWord
+            let baseValue ← runtime.derefMemoryValue baseValue
+            let (runtime', storedValue) := runtime.memoryStoreValue value
+            let updatedBase ← baseValue.setIndex? indexWord storedValue
+            base.writeContainer context runtime' updatedBase
 
 def LValue.write (context : Context) (runtime : Runtime)
     (target : LValue) (value : Value) : Except RevertData Runtime :=
@@ -3640,14 +5534,18 @@ def LValue.write (context : Context) (runtime : Runtime)
               let baseValue ← base.read context runtime
               let indexValue ← idx.eval context runtime
               let indexWord ← indexValue.expectWord
-              let updatedBase ← baseValue.setIndex? indexWord value
-              base.write context runtime updatedBase
+              let baseValue ← runtime.derefMemoryValue baseValue
+              let (runtime', storedValue) := runtime.memoryStoreValue value
+              let updatedBase ← baseValue.setIndex? indexWord storedValue
+              base.writeContainer context runtime' updatedBase
         | _ =>
             let baseValue ← base.read context runtime
             let indexValue ← idx.eval context runtime
             let indexWord ← indexValue.expectWord
-            let updatedBase ← baseValue.setIndex? indexWord value
-            base.write context runtime updatedBase
+            let baseValue ← runtime.derefMemoryValue baseValue
+            let (runtime', storedValue) := runtime.memoryStoreValue value
+            let updatedBase ← baseValue.setIndex? indexWord storedValue
+            base.writeContainer context runtime' updatedBase
 
 def Value.oneLike? : Value -> Except RevertData Value
   | Value.word _ => Except.ok (Value.word 1)
@@ -3678,6 +5576,7 @@ def LValues.writeTuple? (context : Context) :
 
 inductive ResolvedLValue where
   | local : String -> ResolvedLValue
+  | memoryCell : Nat -> ResolvedLValue
   | immutable : String -> ResolvedLValue
   | storageField : String -> ResolvedLValue
   | storageIndex : String -> Value -> ResolvedLValue
@@ -3692,10 +5591,16 @@ def ResolvedLValue.asStoragePath? :
   | ResolvedLValue.storagePath name indexes => some (name, indexes)
   | _ => none
 
-def ResolvedLValue.read (context : Context) (runtime : Runtime) :
+mutual
+
+def ResolvedLValue.readRaw (context : Context) (runtime : Runtime) :
     ResolvedLValue -> Except RevertData Value
   | ResolvedLValue.local name =>
       match runtime.lookupLocal? name with
+      | some value => Except.ok value
+      | none => Except.error RevertData.typeMismatch
+  | ResolvedLValue.memoryCell id =>
+      match runtime.loadMemory? id with
       | some value => Except.ok value
       | none => Except.error RevertData.typeMismatch
   | ResolvedLValue.immutable name =>
@@ -3708,14 +5613,33 @@ def ResolvedLValue.read (context : Context) (runtime : Runtime) :
       runtime.loadStoragePath context name indexes
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
+      let baseValue ← runtime.derefMemoryValue baseValue
       baseValue.index? index
 
-def ResolvedLValue.write (context : Context) (runtime : Runtime)
+def ResolvedLValue.read (context : Context) (runtime : Runtime) :
+    ResolvedLValue -> Except RevertData Value
+  | target => do
+      let value ← target.readRaw context runtime
+      runtime.derefMemoryValue value
+
+end
+
+def ResolvedLValue.writeContainer (context : Context) (runtime : Runtime)
     (target : ResolvedLValue) (value : Value) :
     Except RevertData Runtime :=
   match target with
   | ResolvedLValue.local name =>
-      match runtime.assignLocal? name value with
+      match runtime.lookupMemoryRef? name with
+      | some id =>
+          match runtime.storeMemory? id value with
+          | some updated => Except.ok updated
+              | none => Except.error RevertData.typeMismatch
+      | none =>
+          match runtime.assignLocal? name value with
+          | some updated => Except.ok updated
+          | none => Except.error RevertData.typeMismatch
+  | ResolvedLValue.memoryCell id =>
+      match runtime.storeMemory? id value with
       | some updated => Except.ok updated
       | none => Except.error RevertData.typeMismatch
   | ResolvedLValue.immutable name =>
@@ -3728,15 +5652,61 @@ def ResolvedLValue.write (context : Context) (runtime : Runtime)
       runtime.storeStoragePathWithDeepClear context name indexes value
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
-      let updatedBase ← baseValue.setIndex? index value
-      base.write context runtime updatedBase
+      let baseValue ← runtime.derefMemoryValue baseValue
+      let (runtime', storedValue) := runtime.memoryStoreValue value
+      let updatedBase ← baseValue.setIndex? index storedValue
+      base.writeContainer context runtime' updatedBase
+
+def ResolvedLValue.write (context : Context) (runtime : Runtime)
+    (target : ResolvedLValue) (value : Value) :
+    Except RevertData Runtime :=
+  match target with
+  | ResolvedLValue.local name =>
+      match runtime.assignLocal? name value with
+      | some updated => Except.ok updated
+      | none => Except.error RevertData.typeMismatch
+  | ResolvedLValue.memoryCell id =>
+      match runtime.storeMemory? id value with
+      | some updated => Except.ok updated
+      | none => Except.error RevertData.typeMismatch
+  | ResolvedLValue.immutable name =>
+      runtime.storeImmutableField context name value
+  | ResolvedLValue.storageField name =>
+      runtime.storeStorageFieldWithDeepClear context name value
+  | ResolvedLValue.storageIndex name index =>
+      runtime.storeStorageIndexWithDeepClear context name index value
+  | ResolvedLValue.storagePath name indexes =>
+      runtime.storeStoragePathWithDeepClear context name indexes value
+  | ResolvedLValue.valueIndex base index => do
+      let baseValue ← base.read context runtime
+      let baseValue ← runtime.derefMemoryValue baseValue
+      let (runtime', storedValue) := runtime.memoryStoreValue value
+      let updatedBase ← baseValue.setIndex? index storedValue
+      base.writeContainer context runtime' updatedBase
 
 def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
     ResolvedLValue -> Except RevertData Runtime
   | ResolvedLValue.local name =>
       match runtime.lookupLocal? name with
+      | some (Value.memoryRef id) => do
+          let value ←
+            match runtime.loadMemory? id with
+            | some value => Except.ok value
+            | none => Except.error RevertData.typeMismatch
+          let (runtime', defaultValue) :=
+            runtime.memoryStoreValue value.defaultLike
+          match runtime'.assignLocal? name defaultValue with
+          | some updated => Except.ok updated
+          | none => Except.error RevertData.typeMismatch
       | some value =>
           match runtime.assignLocal? name value.defaultLike with
+          | some updated => Except.ok updated
+          | none => Except.error RevertData.typeMismatch
+      | none => Except.error RevertData.typeMismatch
+  | ResolvedLValue.memoryCell id =>
+      match runtime.loadMemory? id with
+      | some value =>
+          match runtime.storeMemory? id value.defaultLike with
           | some updated => Except.ok updated
           | none => Except.error RevertData.typeMismatch
       | none => Except.error RevertData.typeMismatch
@@ -3751,9 +5721,10 @@ def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
       runtime.deleteStoragePath context name indexes
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
+      let baseValue ← runtime.derefMemoryValue baseValue
       let oldValue ← baseValue.index? index
       let updatedBase ← baseValue.setIndex? index oldValue.defaultLike
-      base.write context runtime updatedBase
+      base.writeContainer context runtime updatedBase
 
 def ResolvedLValue.applyIncDec (context : Context) (runtime : Runtime)
     (target : ResolvedLValue) (op : BinaryOp) (returnOld : Bool) :
@@ -3767,7 +5738,36 @@ def ResolvedLValue.applyIncDec (context : Context) (runtime : Runtime)
   else
     Except.ok (newValue, updated)
 
+def ResolvedLValue.applyIncDecCleanup (context : Context)
+    (runtime : Runtime) (target : ResolvedLValue) (op : BinaryOp)
+    (returnOld : Bool) (cleanup : ValueCleanup) :
+    Except RevertData (Value × Runtime) := do
+  let oldValue ← target.read context runtime
+  let one ← oldValue.oneLike?
+  let newValue ← BinaryOp.apply context.checked op oldValue one
+  let cleaned ← cleanup.apply context.checked newValue
+  let updated ← target.write context runtime cleaned
+  if returnOld then
+    Except.ok (oldValue, updated)
+  else
+    Except.ok (cleaned, updated)
+
 mutual
+
+def Expr.memoryRefOrValueWithRuntime (context : Context) :
+    Runtime -> Expr -> Except RevertData (Option Nat × Option Value × Runtime)
+  | runtime, Expr.var name =>
+      Except.ok (runtime.lookupMemoryRef? name, none, runtime)
+  | runtime, Expr.index base idx => do
+      let (baseValue, runtime') ← base.evalWithRuntime context runtime
+      let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
+      let indexWord ← indexValue.expectWord
+      let baseValue ← runtime''.derefMemoryValue baseValue
+      let value ← baseValue.index? indexWord
+      match value with
+      | Value.memoryRef id => Except.ok (some id, none, runtime'')
+      | _ => Except.ok (none, some value, runtime'')
+  | runtime, _ => Except.ok (none, none, runtime)
 
 def Expr.resolveLValueWithRuntime (context : Context) :
     Runtime -> Expr -> Except RevertData (ResolvedLValue × Runtime)
@@ -3804,8 +5804,17 @@ def Expr.resolveLValueWithRuntime (context : Context) :
               runtime'')
       | _ =>
           let indexWord ← indexValue.expectWord
+          let target ←
+            match baseTarget.readRaw context runtime'' with
+            | Except.ok (Value.memoryRef id) =>
+                Except.ok
+                  (ResolvedLValue.valueIndex
+                    (ResolvedLValue.memoryCell id) indexWord)
+            | Except.ok _ =>
+                Except.ok (ResolvedLValue.valueIndex baseTarget indexWord)
+            | Except.error err => Except.error err
           Except.ok
-            (ResolvedLValue.valueIndex baseTarget indexWord, runtime'')
+            (target, runtime'')
   | _, _ => Except.error RevertData.typeMismatch
 
 def Expr.evalWithRuntime (context : Context) :
@@ -3861,7 +5870,9 @@ def Expr.evalWithRuntime (context : Context) :
           Except.ok (value, runtime)
       | none =>
           match runtime.lookupLocal? name with
-          | some value => Except.ok (value, runtime)
+          | some value => do
+              let value ← runtime.derefMemoryValue value
+              Except.ok (value, runtime)
           | none => Except.error RevertData.typeMismatch
   | runtime, Expr.immutable name => do
       let value ← runtime.loadImmutableField context name
@@ -3881,6 +5892,10 @@ def Expr.evalWithRuntime (context : Context) :
         Expr.evalListWithRuntime context runtime indexes
       let value ← runtime'.loadStoragePath context name indexValues
       Except.ok (value, runtime')
+  | runtime, Expr.externalFunctionValue addressExpr selector => do
+      let (value, runtime') ← addressExpr.evalWithRuntime context runtime
+      let addr ← value.expectWord
+      Except.ok (Value.externalFunction addr selector, runtime')
   | runtime, Expr.externalFunctionSelector expr => do
       let (value, runtime') ← expr.evalWithRuntime context runtime
       match value with
@@ -3913,6 +5928,10 @@ def Expr.evalWithRuntime (context : Context) :
       let (resolved, runtime') ←
         target.resolveLValueWithRuntime context runtime
       resolved.applyIncDec context runtime' BinaryOp.sub true
+  | runtime, Expr.incDecCleanup target op returnOld cleanup => do
+      let (resolved, runtime') ←
+        target.resolveLValueWithRuntime context runtime
+      resolved.applyIncDecCleanup context runtime' op returnOld cleanup
   | runtime, Expr.assignExpr target rhs => do
       let (value, runtime') ← rhs.evalWithRuntime context runtime
       let (resolved, runtime'') ←
@@ -3927,6 +5946,15 @@ def Expr.evalWithRuntime (context : Context) :
       let value ← BinaryOp.apply context.checked op lhsValue rhsValue
       let updated ← resolved.write context runtime'' value
       Except.ok (value, updated)
+  | runtime, Expr.assignOpCleanupExpr target op rhs cleanup => do
+      let (resolved, runtime') ←
+        target.resolveLValueWithRuntime context runtime
+      let lhsValue ← resolved.read context runtime'
+      let (rhsValue, runtime'') ← rhs.evalWithRuntime context runtime'
+      let value ← BinaryOp.apply context.checked op lhsValue rhsValue
+      let cleaned ← cleanup.apply context.checked value
+      let updated ← resolved.write context runtime'' cleaned
+      Except.ok (cleaned, updated)
   | runtime, Expr.binary BinaryOp.boolAnd lhs rhs => do
       let (lhsValue, runtime') ← lhs.evalWithRuntime context runtime
       let lhsWord ← lhsValue.expectWord
@@ -4000,6 +6028,14 @@ def Expr.evalWithRuntime (context : Context) :
       let (value, runtime') ← expr.evalWithRuntime context runtime
       let casted ← intCast? bits value
       Except.ok (casted, runtime')
+  | runtime, Expr.uintCleanup bits expr => do
+      let (value, runtime') ← expr.evalWithRuntime context runtime
+      let casted ← uintCleanup? context.checked bits value
+      Except.ok (casted, runtime')
+  | runtime, Expr.intCleanup bits expr => do
+      let (value, runtime') ← expr.evalWithRuntime context runtime
+      let casted ← intCleanup? context.checked bits value
+      Except.ok (casted, runtime')
   | runtime, Expr.keccak256 expr => do
       let (value, runtime') ← expr.evalWithRuntime context runtime
       match value.asBytes? with
@@ -4057,14 +6093,19 @@ def Expr.evalWithRuntime (context : Context) :
       match abiEncodePackedValues? tys values with
       | some bytes => Except.ok (Value.bytes bytes, runtime')
       | none => Except.error RevertData.typeMismatch
-  | runtime, Expr.abiDecode tys expr => do
+  | runtime, Expr.abiDecode tys cleanups expr => do
       let (value, runtime') ← expr.evalWithRuntime context runtime
       match value.asBytes? with
       | some bytes =>
           match abiDecodeValues? tys bytes with
-          | some [decoded] => Except.ok (decoded, runtime')
-          | some decoded => Except.ok (Value.tuple decoded, runtime')
-          | none => Except.error RevertData.typeMismatch
+          | some decoded =>
+              if AbiCleanups.acceptOrUnspecified cleanups decoded then
+                match decoded with
+                | [value] => Except.ok (value, runtime')
+                | values => Except.ok (Value.tuple values, runtime')
+              else
+                Except.error RevertData.empty
+          | none => Except.error RevertData.empty
       | none => Except.error RevertData.typeMismatch
   | runtime, Expr.lowLevelCall kind targetExpr calldataExpr valueExpr
       gasExpr? gasFirst => do
@@ -4100,15 +6141,14 @@ def Expr.evalWithRuntime (context : Context) :
                 gasExpr.evalWithRuntime context runtimeValue
               let gas ← gasValue.expectWord
               Except.ok (value, some gas, runtimeGas)
-      match context.lookupLowLevelCall? kind target calldata value gas? with
-      | some result =>
-          Except.ok
-            ( Value.tuple
-                [ Value.word (boolWord result.success)
-                , Value.bytes result.output ]
-            , runtime''' )
-      | none =>
-          Except.ok (Value.tuple [Value.word 0, Value.bytes []], runtime''')
+      let result :=
+        context.resolveLowLevelCall kind target calldata value gas?
+      Except.ok
+        ( Value.tuple
+            [ Value.word (boolWord result.success)
+            , Value.bytes result.output ]
+        , runtime'''.recordExternalInteraction
+            (ExternalInteraction.lowLevelCall result) )
   | runtime, Expr.contractCreate contractName constructorArgsExpr valueExpr
       (some saltExpr) => do
       let (argsValue, runtime') ←
@@ -4125,7 +6165,10 @@ def Expr.evalWithRuntime (context : Context) :
           contractName constructorArgs value (some salt) with
       | some result =>
           if result.success then
-            Except.ok (Value.word result.address, runtime''')
+            Except.ok
+              ( Value.word result.address
+              , runtime'''.recordExternalInteraction
+                  (ExternalInteraction.contractCreation result) )
           else
             Except.error (RevertData.fromRawBytes result.output)
       | none => Except.error RevertData.empty
@@ -4142,24 +6185,32 @@ def Expr.evalWithRuntime (context : Context) :
           contractName constructorArgs value none with
       | some result =>
           if result.success then
-            Except.ok (Value.word result.address, runtime'')
+            Except.ok
+              ( Value.word result.address
+              , runtime''.recordExternalInteraction
+                  (ExternalInteraction.contractCreation result) )
           else
             Except.error (RevertData.fromRawBytes result.output)
       | none => Except.error RevertData.empty
   | runtime, Expr.newBytes lengthExpr => do
       let (lengthValue, runtime') ← lengthExpr.evalWithRuntime context runtime
       let length ← lengthValue.expectWord
+      let size ← context.checkMemoryAllocation length
+      let footprint := dynamicBytesMemoryFootprint size
       Except.ok
-        ( Value.bytes (List.replicate (SharedSemantics.norm length) 0)
-        , runtime' )
+        ( Value.bytes (List.replicate size 0)
+        , runtime'.noteMemoryAllocation footprint
+            (dynamicBytesMemoryContent size) )
   | runtime, Expr.newDynamicArray elementTy lengthExpr => do
       let (lengthValue, runtime') ← lengthExpr.evalWithRuntime context runtime
       let length ← lengthValue.expectWord
+      let size ← context.checkMemoryAllocation length
+      let footprint := dynamicArrayMemoryFootprint elementTy size
       Except.ok
         ( Value.dynamicArray
-            (List.replicate (SharedSemantics.norm length)
-              elementTy.defaultValue)
-        , runtime' )
+            (List.replicate size elementTy.defaultValue)
+        , runtime'.noteMemoryAllocation footprint
+            (dynamicArrayMemoryContent elementTy size) )
   | runtime, Expr.enumFromUInt maxValue expr => do
       let (value, runtime') ← expr.evalWithRuntime context runtime
       let coerced ← enumFromUIntValue maxValue value
@@ -4172,30 +6223,42 @@ def Expr.evalWithRuntime (context : Context) :
       else
         elseExpr.evalWithRuntime context runtime'
   | runtime, Expr.length expr => do
+      let lengthValue (value : Value) : Except RevertData Value :=
+        match value with
+        | Value.word len => Except.ok (Value.word len)
+        | _ =>
+            match value.length? with
+            | some len => Except.ok (Value.word len)
+            | none => Except.error RevertData.typeMismatch
       match expr with
       | Expr.var name =>
           match runtime.lookupStoragePathRef? name with
           | some (target, indexes) => do
               let value ←
                 runtime.loadStorageRefPathValue context target indexes
-              match value with
-              | Value.word len => Except.ok (Value.word len, runtime)
-              | _ =>
-                  match value.length? with
-                  | some len => Except.ok (Value.word len, runtime)
-                  | none => Except.error RevertData.typeMismatch
+              let len ← lengthValue value
+              Except.ok (len, runtime)
           | none =>
               let (value, runtime') ← expr.evalWithRuntime context runtime
-              match value.length? with
-              | some len => Except.ok (Value.word len, runtime')
-              | none => Except.error RevertData.typeMismatch
+              let len ← lengthValue value
+              Except.ok (len, runtime')
       | _ =>
           let (value, runtime') ← expr.evalWithRuntime context runtime
-          match value.length? with
-          | some len => Except.ok (Value.word len, runtime')
-          | none => Except.error RevertData.typeMismatch
+          let len ← lengthValue value
+          Except.ok (len, runtime')
   | runtime, Expr.index base idx => do
       if base.hasStorageRoot then
+        let (baseTarget, runtime') ←
+          base.resolveLValueWithRuntime context runtime
+        match baseTarget.asStoragePath? with
+        | some (name, indexes) =>
+            let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
+            let value ←
+              runtime''.loadStoragePath context name
+                (indexes ++ [indexValue])
+            Except.ok (value, runtime'')
+        | none => Except.error RevertData.typeMismatch
+      else if base.hasStorageRefRoot runtime then
         let (baseTarget, runtime') ←
           base.resolveLValueWithRuntime context runtime
         match baseTarget.asStoragePath? with
@@ -4220,13 +6283,17 @@ def Expr.evalWithRuntime (context : Context) :
                 let (baseValue, runtime') ← base.evalWithRuntime context runtime
                 let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
                 let indexWord ← indexValue.expectWord
+                let baseValue ← runtime''.derefMemoryValue baseValue
                 let value ← baseValue.index? indexWord
+                let value ← runtime''.derefMemoryValue value
                 Except.ok (value, runtime'')
         | _ =>
             let (baseValue, runtime') ← base.evalWithRuntime context runtime
             let (indexValue, runtime'') ← idx.evalWithRuntime context runtime'
             let indexWord ← indexValue.expectWord
+            let baseValue ← runtime''.derefMemoryValue baseValue
             let value ← baseValue.index? indexWord
+            let value ← runtime''.derefMemoryValue value
             Except.ok (value, runtime'')
   | runtime, Expr.slice base start stop => do
       let (baseValue, runtime') ← base.evalWithRuntime context runtime
@@ -4257,9 +6324,1793 @@ def Expr.evalListWithRuntime (context : Context) :
 
 end
 
+mutual
+
+def Expr.orderFuel : Expr -> Nat
+  | Expr.word _ => 1
+  | Expr.intWord _ => 1
+  | Expr.byteArray _ => 1
+  | Expr.contractAddress _ => 1
+  | Expr.contractCreationCode _ => 1
+  | Expr.contractRuntimeCode _ => 1
+  | Expr.calldata => 1
+  | Expr.msgSig => 1
+  | Expr.caller => 1
+  | Expr.callValue => 1
+  | Expr.self => 1
+  | Expr.env _ => 1
+  | Expr.envLookup _ expr => Expr.orderFuel expr + 1
+  | Expr.envBytesLookup _ expr => Expr.orderFuel expr + 1
+  | Expr.var _ => 1
+  | Expr.immutable _ => 1
+  | Expr.storage _ => 1
+  | Expr.storageBytes _ => 1
+  | Expr.storageIndex _ idx => Expr.orderFuel idx + 1
+  | Expr.storagePath _ indexes => Expr.listEvalFuel indexes + 1
+  | Expr.externalFunctionValue addressExpr _ => Expr.orderFuel addressExpr + 1
+  | Expr.externalFunctionSelector expr => Expr.orderFuel expr + 1
+  | Expr.externalFunctionAddress expr => Expr.orderFuel expr + 1
+  | Expr.unary _ expr => Expr.orderFuel expr + 1
+  | Expr.preIncrement target => Expr.orderFuel target + 1
+  | Expr.preDecrement target => Expr.orderFuel target + 1
+  | Expr.postIncrement target => Expr.orderFuel target + 1
+  | Expr.postDecrement target => Expr.orderFuel target + 1
+  | Expr.incDecCleanup target _ _ _ => Expr.orderFuel target + 1
+  | Expr.assignExpr target rhs =>
+      Expr.orderFuel target + Expr.orderFuel rhs + 1
+  | Expr.assignOpExpr target _ rhs =>
+      Expr.orderFuel target + Expr.orderFuel rhs + 1
+  | Expr.assignOpCleanupExpr target _ rhs _ =>
+      Expr.orderFuel target + Expr.orderFuel rhs + 1
+  | Expr.binary _ lhs rhs =>
+      Expr.orderFuel lhs + Expr.orderFuel rhs + 1
+  | Expr.addMod lhs rhs modulus =>
+      Expr.orderFuel lhs + Expr.orderFuel rhs +
+        Expr.orderFuel modulus + 1
+  | Expr.mulMod lhs rhs modulus =>
+      Expr.orderFuel lhs + Expr.orderFuel rhs +
+        Expr.orderFuel modulus + 1
+  | Expr.concatBytes exprs => Expr.listEvalFuel exprs + 1
+  | Expr.fixedBytesIndex _ base idx =>
+      Expr.orderFuel base + Expr.orderFuel idx + 1
+  | Expr.fixedBytesCast _ _ expr => Expr.orderFuel expr + 1
+  | Expr.fixedBytesFromBytes _ expr => Expr.orderFuel expr + 1
+  | Expr.uintCast _ expr => Expr.orderFuel expr + 1
+  | Expr.intCast _ expr => Expr.orderFuel expr + 1
+  | Expr.uintCleanup _ expr => Expr.orderFuel expr + 1
+  | Expr.intCleanup _ expr => Expr.orderFuel expr + 1
+  | Expr.keccak256 expr => Expr.orderFuel expr + 1
+  | Expr.erc7201 expr => Expr.orderFuel expr + 1
+  | Expr.tuple exprs => Expr.listEvalFuel exprs + 1
+  | Expr.abiEncode _ exprs => Expr.listEvalFuel exprs + 1
+  | Expr.abiEncodeWithSelector selectorExpr _ exprs =>
+      Expr.orderFuel selectorExpr + Expr.listEvalFuel exprs + 1
+  | Expr.abiEncodePacked _ exprs => Expr.listEvalFuel exprs + 1
+  | Expr.abiDecode _ _ expr => Expr.orderFuel expr + 1
+  | Expr.lowLevelCall _ targetExpr calldataExpr valueExpr gas? _ =>
+      Expr.orderFuel targetExpr + Expr.orderFuel calldataExpr +
+        Expr.orderFuel valueExpr +
+          (match gas? with
+          | some gas => Expr.orderFuel gas
+          | none => 0) + 1
+  | Expr.contractCreate _ args value salt? =>
+      Expr.orderFuel args + Expr.orderFuel value +
+        (match salt? with
+        | some salt => Expr.orderFuel salt
+        | none => 0) + 1
+  | Expr.newBytes expr => Expr.orderFuel expr + 1
+  | Expr.newDynamicArray _ expr => Expr.orderFuel expr + 1
+  | Expr.externalHash _ expr => Expr.orderFuel expr + 1
+  | Expr.ecrecover digest v r s =>
+      Expr.orderFuel digest + Expr.orderFuel v +
+        Expr.orderFuel r + Expr.orderFuel s + 1
+  | Expr.enumFromUInt _ expr => Expr.orderFuel expr + 1
+  | Expr.ternary cond thenExpr elseExpr =>
+      Expr.orderFuel cond + Expr.orderFuel thenExpr +
+        Expr.orderFuel elseExpr + 1
+  | Expr.fixedArray exprs => Expr.listEvalFuel exprs + 1
+  | Expr.length expr => Expr.orderFuel expr + 1
+  | Expr.index base idx => Expr.orderFuel base + Expr.orderFuel idx + 1
+  | Expr.slice base start stop =>
+      Expr.orderFuel base +
+        (match start with
+        | some expr => Expr.orderFuel expr
+        | none => 0) +
+        (match stop with
+        | some expr => Expr.orderFuel expr
+        | none => 0) + 1
+
+def Expr.listEvalFuel : List Expr -> Nat
+  | [] => 1
+  | expr :: rest => Expr.orderFuel expr + Expr.listEvalFuel rest + 1
+
+end
+
+mutual
+
+def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
+    (context : Context) : Runtime -> Expr ->
+    Except RevertData (Value × Runtime)
+  | runtime, expr =>
+      match fuel with
+      | 0 => Except.error RevertData.typeMismatch
+      | fuel + 1 =>
+          match expr with
+          | Expr.word value =>
+              Except.ok (Value.word (normWord value), runtime)
+          | Expr.intWord value =>
+              Except.ok (Value.int (normWord value), runtime)
+          | Expr.byteArray bytes =>
+              Except.ok (Value.bytes (bytes.map normByte), runtime)
+          | Expr.contractAddress name =>
+              Except.ok
+                ( Value.word
+                    (SharedSemantics.Call.namedWordAt
+                      context.contractAddresses name)
+                , runtime )
+          | Expr.contractCreationCode name =>
+              Except.ok
+                ( Value.bytes
+                    (SharedSemantics.Call.namedBytesAt
+                      context.contractCreationCodes name)
+                , runtime )
+          | Expr.contractRuntimeCode name =>
+              Except.ok
+                ( Value.bytes
+                    (SharedSemantics.Call.namedBytesAt
+                      context.contractRuntimeCodes name)
+                , runtime )
+          | Expr.calldata =>
+              Except.ok (Value.bytes (context.calldata.map normByte), runtime)
+          | Expr.msgSig =>
+              Except.ok
+                (Value.word (calldataSelectorWord context.calldata), runtime)
+          | Expr.caller =>
+              Except.ok (Value.word context.sender, runtime)
+          | Expr.callValue =>
+              Except.ok (Value.word context.value, runtime)
+          | Expr.self =>
+              Except.ok (Value.word context.self, runtime)
+          | Expr.env which =>
+              Except.ok (Value.word (which.eval context), runtime)
+          | Expr.envLookup which keyExpr => do
+              let (keyValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
+              let key ← keyValue.expectWord
+              Except.ok (Value.word (which.eval context key), runtime')
+          | Expr.envBytesLookup which keyExpr => do
+              let (keyValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
+              let key ← keyValue.expectWord
+              Except.ok (Value.bytes (which.eval context key), runtime')
+          | Expr.var name =>
+              match runtime.lookupStoragePathRef? name with
+              | some (target, indexes) => do
+                  let value ←
+                    runtime.loadStorageRefPathValue context target indexes
+                  Except.ok (value, runtime)
+              | none =>
+                  match runtime.lookupLocal? name with
+                  | some value => do
+                      let value ← runtime.derefMemoryValue value
+                      Except.ok (value, runtime)
+                  | none => Except.error RevertData.typeMismatch
+          | Expr.immutable name => do
+              let value ← runtime.loadImmutableField context name
+              Except.ok (value, runtime)
+          | Expr.storage name => do
+              let value ← runtime.loadStorageField context name
+              Except.ok (value, runtime)
+          | Expr.storageBytes name => do
+              let value ← runtime.loadStorageByteStringField context name
+              Except.ok (value, runtime)
+          | Expr.storageIndex name idx => do
+              let (indexValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime idx
+              let value ← runtime'.loadStorageIndex context name indexValue
+              Except.ok (value, runtime')
+          | Expr.storagePath name indexes => do
+              let (indexValues, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  indexes
+              let value ← runtime'.loadStoragePath context name indexValues
+              Except.ok (value, runtime')
+          | Expr.externalFunctionValue addressExpr selector => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                  addressExpr
+              let addr ← value.expectWord
+              Except.ok (Value.externalFunction addr selector, runtime')
+          | Expr.externalFunctionSelector expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value with
+              | Value.externalFunction _ selector =>
+                  Except.ok (Value.word selector, runtime')
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.externalFunctionAddress expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value with
+              | Value.externalFunction addr _ =>
+                  Except.ok (Value.word addr, runtime')
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.unary op expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let result ← op.apply context.checked value
+              Except.ok (result, runtime')
+          | Expr.preIncrement target => do
+              let (resolved, runtime') ←
+                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                  runtime target
+              resolved.applyIncDec context runtime' BinaryOp.add false
+          | Expr.preDecrement target => do
+              let (resolved, runtime') ←
+                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                  runtime target
+              resolved.applyIncDec context runtime' BinaryOp.sub false
+          | Expr.postIncrement target => do
+              let (resolved, runtime') ←
+                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                  runtime target
+              resolved.applyIncDec context runtime' BinaryOp.add true
+          | Expr.postDecrement target => do
+              let (resolved, runtime') ←
+                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                  runtime target
+              resolved.applyIncDec context runtime' BinaryOp.sub true
+          | Expr.incDecCleanup target op returnOld cleanup => do
+              let (resolved, runtime') ←
+                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                  runtime target
+              resolved.applyIncDecCleanup context runtime' op returnOld cleanup
+          | Expr.assignExpr target rhs => do
+              let (resolved, value, runtime'') ←
+                match order with
+                | ChildEvalOrder.leftToRight => do
+                    let (resolved, runtime') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime target
+                    let (value, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime' rhs
+                    Except.ok (resolved, value, runtime'')
+                | ChildEvalOrder.rightToLeft => do
+                    let (value, runtime') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime rhs
+                    let (resolved, runtime'') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime' target
+                    Except.ok (resolved, value, runtime'')
+              let updated ← resolved.write context runtime'' value
+              Except.ok (value, updated)
+          | Expr.assignOpExpr target op rhs => do
+              let (resolved, lhsValue, rhsValue, runtime'') ←
+                match order with
+                | ChildEvalOrder.leftToRight => do
+                    let (resolved, runtime') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime target
+                    let lhsValue ← resolved.read context runtime'
+                    let (rhsValue, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime' rhs
+                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+                | ChildEvalOrder.rightToLeft => do
+                    let (rhsValue, runtime') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime rhs
+                    let (resolved, runtime'') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime' target
+                    let lhsValue ← resolved.read context runtime''
+                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+              let value ← BinaryOp.apply context.checked op lhsValue rhsValue
+              let updated ← resolved.write context runtime'' value
+              Except.ok (value, updated)
+          | Expr.assignOpCleanupExpr target op rhs cleanup => do
+              let (resolved, lhsValue, rhsValue, runtime'') ←
+                match order with
+                | ChildEvalOrder.leftToRight => do
+                    let (resolved, runtime') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime target
+                    let lhsValue ← resolved.read context runtime'
+                    let (rhsValue, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime' rhs
+                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+                | ChildEvalOrder.rightToLeft => do
+                    let (rhsValue, runtime') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime rhs
+                    let (resolved, runtime'') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime' target
+                    let lhsValue ← resolved.read context runtime''
+                    Except.ok (resolved, lhsValue, rhsValue, runtime'')
+              let value ← BinaryOp.apply context.checked op lhsValue rhsValue
+              let cleaned ← cleanup.apply context.checked value
+              let updated ← resolved.write context runtime'' cleaned
+              Except.ok (cleaned, updated)
+          | Expr.binary BinaryOp.boolAnd lhs rhs => do
+              let (lhsValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime lhs
+              let lhsWord ← lhsValue.expectWord
+              if wordTruthy lhsWord then
+                let (rhsValue, runtime'') ←
+                  Expr.evalWithRuntimeOrderFuel fuel order context runtime' rhs
+                let rhsWord ← rhsValue.expectWord
+                Except.ok
+                  (Value.word (boolWord (wordTruthy rhsWord)), runtime'')
+              else
+                Except.ok (Value.word 0, runtime')
+          | Expr.binary BinaryOp.boolOr lhs rhs => do
+              let (lhsValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime lhs
+              let lhsWord ← lhsValue.expectWord
+              if wordTruthy lhsWord then
+                Except.ok (Value.word 1, runtime')
+              else
+                let (rhsValue, runtime'') ←
+                  Expr.evalWithRuntimeOrderFuel fuel order context runtime' rhs
+                let rhsWord ← rhsValue.expectWord
+                Except.ok
+                  (Value.word (boolWord (wordTruthy rhsWord)), runtime'')
+          | Expr.binary op lhs rhs => do
+              let ((lhsValue, rhsValue), runtime'') ←
+                match order with
+                | ChildEvalOrder.leftToRight => do
+                    let (lhsValue, runtime') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                        lhs
+                    let (rhsValue, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                        rhs
+                    Except.ok ((lhsValue, rhsValue), runtime'')
+                | ChildEvalOrder.rightToLeft => do
+                    let (rhsValue, runtime') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                        rhs
+                    let (lhsValue, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                        lhs
+                    Except.ok ((lhsValue, rhsValue), runtime'')
+              let value ← BinaryOp.apply context.checked op lhsValue rhsValue
+              Except.ok (value, runtime'')
+          | Expr.addMod lhs rhs modulus => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  [lhs, rhs, modulus]
+              match values with
+              | [lhsValue, rhsValue, modulusValue] => do
+                  let lhsWord ← lhsValue.expectWord
+                  let rhsWord ← rhsValue.expectWord
+                  let modulusWord ← modulusValue.expectWord
+                  let value ← checkedAddMod lhsWord rhsWord modulusWord
+                  Except.ok (Value.word value, runtime')
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.mulMod lhs rhs modulus => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  [lhs, rhs, modulus]
+              match values with
+              | [lhsValue, rhsValue, modulusValue] => do
+                  let lhsWord ← lhsValue.expectWord
+                  let rhsWord ← rhsValue.expectWord
+                  let modulusWord ← modulusValue.expectWord
+                  let value ← checkedMulMod lhsWord rhsWord modulusWord
+                  Except.ok (Value.word value, runtime')
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.concatBytes exprs => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  exprs
+              match Value.concatBytes? values with
+              | some bs => Except.ok (Value.bytes bs, runtime')
+              | none => Except.error RevertData.typeMismatch
+          | Expr.fixedBytesIndex size base idx => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  [base, idx]
+              match values with
+              | [baseValue, indexValue] => do
+                  let word ← baseValue.expectWord
+                  let indexWord ← indexValue.expectWord
+                  let value ← fixedBytesIndex? size word indexWord
+                  Except.ok (value, runtime')
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.fixedBytesCast targetSize sourceSize expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let word ← value.expectWord
+              let casted ← fixedBytesCast? targetSize sourceSize word
+              Except.ok (casted, runtime')
+          | Expr.fixedBytesFromBytes targetSize expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value.asBytes? with
+              | some bytes => do
+                  let casted ← fixedBytesFromBytes? targetSize bytes
+                  Except.ok (casted, runtime')
+              | none => Except.error RevertData.typeMismatch
+          | Expr.uintCast bits expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let casted ← uintCast? bits value
+              Except.ok (casted, runtime')
+          | Expr.intCast bits expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let casted ← intCast? bits value
+              Except.ok (casted, runtime')
+          | Expr.uintCleanup bits expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let casted ← uintCleanup? context.checked bits value
+              Except.ok (casted, runtime')
+          | Expr.intCleanup bits expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let casted ← intCleanup? context.checked bits value
+              Except.ok (casted, runtime')
+          | Expr.keccak256 expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value.asBytes? with
+              | some bytes =>
+                  Except.ok (Value.word (keccakWord bytes), runtime')
+              | none => Except.error RevertData.typeMismatch
+          | Expr.erc7201 expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value.asBytes? with
+              | some bytes =>
+                  Except.ok (Value.word (erc7201Slot bytes), runtime')
+              | none => Except.error RevertData.typeMismatch
+          | Expr.externalHash kind expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value.asBytes? with
+              | some bytes =>
+                  match kind.lookup? context bytes with
+                  | some hash => Except.ok (Value.word hash, runtime')
+                  | none => Except.error RevertData.typeMismatch
+              | none => Except.error RevertData.typeMismatch
+          | Expr.ecrecover digestExpr vExpr rExpr sExpr => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  [digestExpr, vExpr, rExpr, sExpr]
+              match values with
+              | [digestValue, vValue, rValue, sValue] => do
+                  let digest ← digestValue.expectWord
+                  let v ← vValue.expectWord
+                  let r ← rValue.expectWord
+                  let s ← sValue.expectWord
+                  let address := context.ecrecoverAt digest v r s
+                  Except.ok (Value.word address, runtime')
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.tuple exprs => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  exprs
+              Except.ok (Value.tuple values, runtime')
+          | Expr.fixedArray exprs => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  exprs
+              Except.ok (Value.fixedArray values, runtime')
+          | Expr.abiEncode tys exprs => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  exprs
+              match abiEncodeValues? tys values with
+              | some bytes => Except.ok (Value.bytes bytes, runtime')
+              | none => Except.error RevertData.typeMismatch
+          | Expr.abiEncodeWithSelector selectorExpr tys exprs => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  (selectorExpr :: exprs)
+              match values with
+              | selectorValue :: argValues => do
+                  let selector ← selectorValue.expectWord
+                  match abiEncodeValues? tys argValues with
+                  | some bytes =>
+                      Except.ok
+                        ( Value.bytes
+                            (wordToBytesBE selectorBytes selector ++ bytes)
+                        , runtime' )
+                  | none => Except.error RevertData.typeMismatch
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.abiEncodePacked tys exprs => do
+              let (values, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  exprs
+              match abiEncodePackedValues? tys values with
+              | some bytes => Except.ok (Value.bytes bytes, runtime')
+              | none => Except.error RevertData.typeMismatch
+          | Expr.abiDecode tys cleanups expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              match value.asBytes? with
+              | some bytes =>
+                  match abiDecodeValues? tys bytes with
+                  | some decoded =>
+                      if AbiCleanups.acceptOrUnspecified cleanups decoded then
+                        match decoded with
+                        | [value] => Except.ok (value, runtime')
+                        | values =>
+                            Except.ok (Value.tuple values, runtime')
+                      else
+                        Except.error RevertData.empty
+                  | none => Except.error RevertData.empty
+              | none => Except.error RevertData.typeMismatch
+          | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr
+              gasExpr? _gasFirst => do
+              let (values, runtime') ←
+                match gasExpr? with
+                | none =>
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [targetExpr, calldataExpr, valueExpr]
+                | some gasExpr =>
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [targetExpr, calldataExpr, valueExpr, gasExpr]
+              match values with
+              | [targetValue, calldataValue, valueValue] => do
+                  let target ← targetValue.expectWord
+                  let calldata ←
+                    match calldataValue.asBytes? with
+                    | some bytes => Except.ok bytes
+                    | none => Except.error RevertData.typeMismatch
+                  let value ← valueValue.expectWord
+                  let result :=
+                    context.resolveLowLevelCall
+                      kind target calldata value none
+                  Except.ok
+                    ( Value.tuple
+                        [ Value.word (boolWord result.success)
+                        , Value.bytes result.output ]
+                    , runtime'.recordExternalInteraction
+                        (ExternalInteraction.lowLevelCall result) )
+              | [targetValue, calldataValue, valueValue, gasValue] => do
+                  let target ← targetValue.expectWord
+                  let calldata ←
+                    match calldataValue.asBytes? with
+                    | some bytes => Except.ok bytes
+                    | none => Except.error RevertData.typeMismatch
+                  let value ← valueValue.expectWord
+                  let gas ← gasValue.expectWord
+                  let result :=
+                    context.resolveLowLevelCall
+                      kind target calldata value (some gas)
+                  Except.ok
+                    ( Value.tuple
+                        [ Value.word (boolWord result.success)
+                        , Value.bytes result.output ]
+                    , runtime'.recordExternalInteraction
+                        (ExternalInteraction.lowLevelCall result) )
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.contractCreate contractName constructorArgsExpr valueExpr
+              saltExpr? => do
+              let (values, runtime') ←
+                match saltExpr? with
+                | none =>
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [constructorArgsExpr, valueExpr]
+                | some saltExpr =>
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [constructorArgsExpr, valueExpr, saltExpr]
+              match values with
+              | [argsValue, valueValue] => do
+                  let constructorArgs ←
+                    match argsValue.asBytes? with
+                    | some bytes => Except.ok bytes
+                    | none => Except.error RevertData.typeMismatch
+                  let value ← valueValue.expectWord
+                  match
+                      context.lookupContractCreation?
+                        contractName constructorArgs value none with
+                  | some result =>
+                      if result.success then
+                        Except.ok
+                          ( Value.word result.address
+                          , runtime'.recordExternalInteraction
+                              (ExternalInteraction.contractCreation result) )
+                      else
+                        Except.error (RevertData.fromRawBytes result.output)
+                  | none => Except.error RevertData.empty
+              | [argsValue, valueValue, saltValue] => do
+                  let constructorArgs ←
+                    match argsValue.asBytes? with
+                    | some bytes => Except.ok bytes
+                    | none => Except.error RevertData.typeMismatch
+                  let value ← valueValue.expectWord
+                  let salt ← saltValue.expectWord
+                  match
+                      context.lookupContractCreation?
+                        contractName constructorArgs value (some salt) with
+                  | some result =>
+                      if result.success then
+                        Except.ok
+                          ( Value.word result.address
+                          , runtime'.recordExternalInteraction
+                              (ExternalInteraction.contractCreation result) )
+                      else
+                        Except.error (RevertData.fromRawBytes result.output)
+                  | none => Except.error RevertData.empty
+              | _ => Except.error RevertData.typeMismatch
+          | Expr.newBytes lengthExpr => do
+              let (lengthValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                  lengthExpr
+              let length ← lengthValue.expectWord
+              let size ← context.checkMemoryAllocation length
+              let footprint := dynamicBytesMemoryFootprint size
+              Except.ok
+                ( Value.bytes (List.replicate size 0)
+                , runtime'.noteMemoryAllocation footprint
+                    (dynamicBytesMemoryContent size) )
+          | Expr.newDynamicArray elementTy lengthExpr => do
+              let (lengthValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                  lengthExpr
+              let length ← lengthValue.expectWord
+              let size ← context.checkMemoryAllocation length
+              let footprint := dynamicArrayMemoryFootprint elementTy size
+              Except.ok
+                ( Value.dynamicArray
+                    (List.replicate size elementTy.defaultValue)
+                , runtime'.noteMemoryAllocation footprint
+                    (dynamicArrayMemoryContent elementTy size) )
+          | Expr.enumFromUInt maxValue expr => do
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              let coerced ← enumFromUIntValue maxValue value
+              Except.ok (coerced, runtime')
+          | Expr.ternary cond thenExpr elseExpr => do
+              let (condValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime cond
+              let condWord ← condValue.expectWord
+              if wordTruthy condWord then
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                  thenExpr
+              else
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                  elseExpr
+          | Expr.length expr => do
+              let lengthValue (value : Value) : Except RevertData Value :=
+                match value with
+                | Value.word len => Except.ok (Value.word len)
+                | _ =>
+                    match value.length? with
+                    | some len => Except.ok (Value.word len)
+                    | none => Except.error RevertData.typeMismatch
+              match expr with
+              | Expr.var name =>
+                  match runtime.lookupStoragePathRef? name with
+                  | some (target, indexes) => do
+                      let value ←
+                        runtime.loadStorageRefPathValue context target indexes
+                      let len ← lengthValue value
+                      Except.ok (len, runtime)
+                  | none =>
+                      let (value, runtime') ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtime expr
+                      let len ← lengthValue value
+                      Except.ok (len, runtime')
+              | _ =>
+                  if expr.hasStorageRoot || expr.hasStorageRefRoot runtime then
+                    let (target, runtime') ←
+                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                        context runtime expr
+                    match target.asStoragePath? with
+                    | some (name, indexes) => do
+                        let value ←
+                          runtime'.loadStorageRefPathValue context name indexes
+                        let len ← lengthValue value
+                        Except.ok (len, runtime')
+                    | none => Except.error RevertData.typeMismatch
+                  else
+                    let (value, runtime') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                        expr
+                    let len ← lengthValue value
+                    Except.ok (len, runtime')
+          | Expr.index base idx => do
+              if base.hasStorageRoot then
+                let (baseTarget, runtime') ←
+                  Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                    context runtime base
+                match baseTarget.asStoragePath? with
+                | some (name, indexes) =>
+                    let (indexValue, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime' idx
+                    let value ←
+                      runtime''.loadStoragePath context name
+                        (indexes ++ [indexValue])
+                    Except.ok (value, runtime'')
+                | none => Except.error RevertData.typeMismatch
+              else if base.hasStorageRefRoot runtime then
+                let (resolved, runtime') ←
+                  Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                    runtime (Expr.index base idx)
+                let value ← resolved.read context runtime'
+                Except.ok (value, runtime')
+              else
+                match base with
+                | Expr.var name =>
+                    match runtime.lookupStoragePathRef? name with
+                    | some (target, indexes) =>
+                        let (indexValue, runtime') ←
+                          Expr.evalWithRuntimeOrderFuel fuel order context
+                            runtime idx
+                        let value ←
+                          runtime'.loadStoragePath context target
+                            (indexes ++ [indexValue])
+                        Except.ok (value, runtime')
+                    | none =>
+                        let (values, runtime') ←
+                          Expr.evalListWithRuntimeOrderFuel fuel order
+                            context runtime [base, idx]
+                        match values with
+                        | [baseValue, indexValue] => do
+                            let indexWord ← indexValue.expectWord
+                            let baseValue ←
+                              runtime'.derefMemoryValue baseValue
+                            let value ← baseValue.index? indexWord
+                            let value ← runtime'.derefMemoryValue value
+                            Except.ok (value, runtime')
+                        | _ => Except.error RevertData.typeMismatch
+                | _ =>
+                    let (values, runtime') ←
+                      Expr.evalListWithRuntimeOrderFuel fuel order context
+                        runtime [base, idx]
+                    match values with
+                    | [baseValue, indexValue] => do
+                        let indexWord ← indexValue.expectWord
+                        let baseValue ← runtime'.derefMemoryValue baseValue
+                        let value ← baseValue.index? indexWord
+                        let value ← runtime'.derefMemoryValue value
+                        Except.ok (value, runtime')
+                    | _ => Except.error RevertData.typeMismatch
+          | Expr.slice base start stop => do
+              let readSlice (baseValue : Value)
+                  (startValue? stopValue? : Option Value)
+                  (runtime' : Runtime) :
+                  Except RevertData (Value × Runtime) := do
+                let startWord? ←
+                  match startValue? with
+                  | some value => do
+                      let word ← value.expectWord
+                      Except.ok (some word)
+                  | none => Except.ok none
+                let stopWord? ←
+                  match stopValue? with
+                  | some value => do
+                      let word ← value.expectWord
+                      Except.ok (some word)
+                  | none => Except.ok none
+                let value ← baseValue.slice? startWord? stopWord?
+                Except.ok (value, runtime')
+              match start, stop with
+              | none, none => do
+                  let (baseValue, runtime') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime base
+                  readSlice baseValue none none runtime'
+              | some startExpr, none => do
+                  let (values, runtime') ←
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [base, startExpr]
+                  match values with
+                  | [baseValue, startValue] =>
+                      readSlice baseValue (some startValue) none runtime'
+                  | _ => Except.error RevertData.typeMismatch
+              | none, some stopExpr => do
+                  let (values, runtime') ←
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [base, stopExpr]
+                  match values with
+                  | [baseValue, stopValue] =>
+                      readSlice baseValue none (some stopValue) runtime'
+                  | _ => Except.error RevertData.typeMismatch
+              | some startExpr, some stopExpr => do
+                  let (values, runtime') ←
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime [base, startExpr, stopExpr]
+                  match values with
+                  | [baseValue, startValue, stopValue] =>
+                      readSlice baseValue (some startValue) (some stopValue)
+                        runtime'
+                  | _ => Except.error RevertData.typeMismatch
+
+def Expr.evalListWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
+    (context : Context) : Runtime -> List Expr ->
+    Except RevertData (List Value × Runtime)
+  | runtime, exprs =>
+      match fuel with
+      | 0 => Except.error RevertData.typeMismatch
+      | fuel + 1 =>
+          match exprs with
+          | [] => Except.ok ([], runtime)
+          | expr :: rest =>
+              match order with
+              | ChildEvalOrder.leftToRight => do
+                  let (value, runtime') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                      expr
+                  let (values, runtime'') ←
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime' rest
+                  Except.ok (value :: values, runtime'')
+              | ChildEvalOrder.rightToLeft => do
+                  let (values, runtime') ←
+                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                      runtime rest
+                    let (value, runtime'') ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime' expr
+                    Except.ok (value :: values, runtime'')
+
+def Expr.memoryRefOrValueWithRuntimeOrderFuel
+    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+    Runtime -> Expr -> Except RevertData (Option Nat × Option Value × Runtime)
+  | runtime, expr =>
+      match fuel with
+      | 0 => Except.error RevertData.typeMismatch
+      | fuel + 1 =>
+          match expr with
+          | Expr.var name =>
+              Except.ok (runtime.lookupMemoryRef? name, none, runtime)
+          | Expr.index base idx => do
+              let finish (baseValue indexValue : Value)
+                  (runtime' : Runtime) :
+                  Except RevertData
+                    (Option Nat × Option Value × Runtime) := do
+                let indexWord ← indexValue.expectWord
+                let baseValue ← runtime'.derefMemoryValue baseValue
+                let value ← baseValue.index? indexWord
+                match value with
+                | Value.memoryRef id =>
+                    Except.ok (some id, none, runtime')
+                | _ => Except.ok (none, some value, runtime')
+              match order with
+              | ChildEvalOrder.leftToRight => do
+                  let (baseValue, runtime') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime base
+                  let (indexValue, runtime'') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime' idx
+                  finish baseValue indexValue runtime''
+              | ChildEvalOrder.rightToLeft => do
+                  let (indexValue, runtime') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime idx
+                  let (baseValue, runtime'') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime' base
+                  finish baseValue indexValue runtime''
+          | _ => Except.ok (none, none, runtime)
+
+def Expr.resolveLValueWithRuntimeOrderFuel
+    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+    Runtime -> Expr -> Except RevertData (ResolvedLValue × Runtime)
+  | runtime, expr =>
+      match fuel with
+      | 0 => Except.error RevertData.typeMismatch
+      | fuel + 1 =>
+          match expr with
+          | Expr.var name =>
+              match runtime.lookupStoragePathRef? name with
+              | some (target, []) =>
+                  Except.ok (ResolvedLValue.storageField target, runtime)
+              | some (target, indexes) =>
+                  Except.ok (ResolvedLValue.storagePath target indexes,
+                    runtime)
+              | none =>
+                  match runtime.lookupLocal? name with
+                  | some _ => Except.ok (ResolvedLValue.local name, runtime)
+                  | none => Except.error RevertData.typeMismatch
+          | Expr.immutable name =>
+              Except.ok (ResolvedLValue.immutable name, runtime)
+          | Expr.storage name =>
+              Except.ok (ResolvedLValue.storageField name, runtime)
+          | Expr.storageIndex name idx => do
+              let (indexValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime idx
+              Except.ok (ResolvedLValue.storageIndex name indexValue,
+                runtime')
+          | Expr.index base idx => do
+              let finish (baseTarget : ResolvedLValue)
+                  (indexValue : Value) (runtime' : Runtime) :
+                  Except RevertData (ResolvedLValue × Runtime) := do
+                match baseTarget with
+                | ResolvedLValue.storageField name =>
+                    Except.ok
+                      (ResolvedLValue.storageIndex name indexValue,
+                        runtime')
+                | ResolvedLValue.storageIndex name firstIndex =>
+                    Except.ok
+                      (ResolvedLValue.storagePath name
+                          [firstIndex, indexValue],
+                        runtime')
+                | ResolvedLValue.storagePath name indexes =>
+                    Except.ok
+                      (ResolvedLValue.storagePath name
+                          (indexes ++ [indexValue]),
+                        runtime')
+                | _ =>
+                    let indexWord ← indexValue.expectWord
+                    let target ←
+                      match baseTarget.readRaw context runtime' with
+                      | Except.ok (Value.memoryRef id) =>
+                          Except.ok
+                            (ResolvedLValue.valueIndex
+                              (ResolvedLValue.memoryCell id) indexWord)
+                      | Except.ok _ =>
+                          Except.ok
+                            (ResolvedLValue.valueIndex baseTarget indexWord)
+                      | Except.error err => Except.error err
+                    Except.ok (target, runtime')
+              match order with
+              | ChildEvalOrder.leftToRight => do
+                  let (baseTarget, runtime') ←
+                    Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                      context runtime base
+                  let (indexValue, runtime'') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime' idx
+                  finish baseTarget indexValue runtime''
+              | ChildEvalOrder.rightToLeft => do
+                  let (indexValue, runtime') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context
+                      runtime idx
+                  let (baseTarget, runtime'') ←
+                    Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                      context runtime' base
+                  finish baseTarget indexValue runtime''
+          | _ => Except.error RevertData.typeMismatch
+
+end
+
+def Expr.evalWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (expr : Expr) : Except RevertData (Value × Runtime) :=
+  Expr.evalWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
+    order context runtime expr
+
+def Expr.evalListWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (exprs : List Expr) : Except RevertData (List Value × Runtime) :=
+  Expr.evalListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
+    order context runtime exprs
+
+def Expr.memoryRefOrValueWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (expr : Expr) : Except RevertData (Option Nat × Option Value × Runtime) :=
+  Expr.memoryRefOrValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
+    order context runtime expr
+
+def Expr.resolveLValueWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (expr : Expr) : Except RevertData (ResolvedLValue × Runtime) :=
+  Expr.resolveLValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
+    order context runtime expr
+
+def Expr.evalBinaryWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (op : BinaryOp) (lhs rhs : Expr) :
+    Except RevertData (Value × Runtime) :=
+  Expr.evalWithRuntimeOrder order context runtime (Expr.binary op lhs rhs)
+
+def Context.withChildEvalOrder
+    (context : Context) (order : ChildEvalOrder) : Context :=
+  { context with childEvalOrder? := some order }
+
+def Context.withoutChildEvalOrder (context : Context) : Context :=
+  { context with childEvalOrder? := none }
+
+def ChildEvalOrder.yulCompatible : ChildEvalOrder :=
+  ChildEvalOrder.rightToLeft
+
+def Context.effectiveChildEvalOrder (context : Context) : ChildEvalOrder :=
+  context.childEvalOrder?.getD ChildEvalOrder.yulCompatible
+
+def ChildEvalOrder.unspecifiedOrders : List ChildEvalOrder :=
+  [ChildEvalOrder.yulCompatible]
+
+def Context.withUnspecifiedChildEvalOrders
+    (context : Context) : List Context :=
+  ChildEvalOrder.unspecifiedOrders.map context.withChildEvalOrder
+
+structure ChildEvaluationPolicyObservation where
+  requested? : Option ChildEvalOrder := none
+  effective : ChildEvalOrder
+  yulCompatible : ChildEvalOrder
+  unspecifiedOrders : List ChildEvalOrder
+  usesYulCompatibleDefault : Bool
+  deriving Repr
+
+def Context.observeChildEvaluationPolicy
+    (context : Context) : ChildEvaluationPolicyObservation :=
+  let effective := context.effectiveChildEvalOrder
+  { requested? := context.childEvalOrder?
+    effective := effective
+    yulCompatible := ChildEvalOrder.yulCompatible
+    unspecifiedOrders := ChildEvalOrder.unspecifiedOrders
+    usesYulCompatibleDefault :=
+      context.childEvalOrder?.isNone &&
+        effective == ChildEvalOrder.yulCompatible }
+
+def Expr.evalWithRuntimeByContext
+    (expr : Expr) (context : Context) (runtime : Runtime) :
+    Except RevertData (Value × Runtime) :=
+  Expr.evalWithRuntimeOrder
+    context.effectiveChildEvalOrder context runtime expr
+
+def Expr.evalListWithRuntimeByContext
+    (context : Context) (runtime : Runtime) (exprs : List Expr) :
+    Except RevertData (List Value × Runtime) :=
+  Expr.evalListWithRuntimeOrder
+    context.effectiveChildEvalOrder context runtime exprs
+
+structure ExprListEvaluationObservation where
+  order : ChildEvalOrder
+  policy : ChildEvaluationPolicyObservation
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  expressionCount : Nat
+  values? : Option (List Value) := none
+  outputRuntime? : Option RuntimeObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+def Expr.observeListEvaluation (context : Context) (runtime : Runtime)
+    (exprs : List Expr) (self : Word) :
+    ExprListEvaluationObservation :=
+  let order := context.effectiveChildEvalOrder
+  match Expr.evalListWithRuntimeOrder order context runtime exprs with
+  | Except.ok (values, outputRuntime) =>
+      { order := order
+        policy := context.observeChildEvaluationPolicy
+        context := context.observe
+        inputRuntime := runtime.observe self
+        expressionCount := exprs.length
+        values? := some values
+        outputRuntime? := some (outputRuntime.observe self) }
+  | Except.error revert =>
+      { order := order
+        policy := context.observeChildEvaluationPolicy
+        context := context.observe
+        inputRuntime := runtime.observe self
+        expressionCount := exprs.length
+        revertData? := some revert }
+
+inductive LowLevelCallEvaluationStatus where
+  | resolved
+  | notLowLevelCall
+  | operandsReverted
+  | malformedOperands
+  | targetTypeMismatch
+  | calldataTypeMismatch
+  | valueTypeMismatch
+  | gasTypeMismatch
+  deriving Repr, BEq
+
+structure LowLevelCallEvaluationObservation where
+  source : Expr
+  kind? : Option LowLevelCallKind := none
+  policy : ChildEvaluationPolicyObservation
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  operandEvaluation? : Option ExprListEvaluationObservation := none
+  gasFirst? : Option Bool := none
+  hasGas : Bool := false
+  targetValue? : Option Value := none
+  calldataValue? : Option Value := none
+  valueValue? : Option Value := none
+  gasValue? : Option Value := none
+  target? : Option Word := none
+  calldata? : Option (List Byte) := none
+  value? : Option Word := none
+  gas? : Option Word := none
+  operandRuntime? : Option RuntimeObservation := none
+  resolution? : Option LowLevelCallResolutionObservation := none
+  outputValue? : Option Value := none
+  outputRuntime? : Option RuntimeObservation := none
+  revertData? : Option RevertData := none
+  status : LowLevelCallEvaluationStatus
+  deriving Repr
+
+def Expr.observeLowLevelCallEvaluation
+    (context : Context) (runtime : Runtime) (expr : Expr) (self : Word) :
+    LowLevelCallEvaluationObservation :=
+  let base :=
+    { source := expr
+      policy := context.observeChildEvaluationPolicy
+      context := context.observe
+      inputRuntime := runtime.observe self
+      status := LowLevelCallEvaluationStatus.notLowLevelCall }
+  match expr with
+  | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr gasExpr? gasFirst =>
+      let operands :=
+        match gasExpr? with
+        | none => [targetExpr, calldataExpr, valueExpr]
+        | some gasExpr => [targetExpr, calldataExpr, valueExpr, gasExpr]
+      let operandObservation :=
+        Expr.observeListEvaluation context runtime operands self
+      let callBase :=
+        { base with
+          kind? := some kind
+          operandEvaluation? := some operandObservation
+          gasFirst? := some gasFirst
+          hasGas := gasExpr?.isSome }
+      let resolveNoGas
+          (targetValue calldataValue valueValue : Value)
+          (operandRuntime : Runtime) :
+          LowLevelCallEvaluationObservation :=
+        match targetValue.expectWord with
+        | Except.error err =>
+            { callBase with
+              targetValue? := some targetValue
+              operandRuntime? := some (operandRuntime.observe self)
+              revertData? := some err
+              status := LowLevelCallEvaluationStatus.targetTypeMismatch }
+        | Except.ok target =>
+            match calldataValue.asBytes? with
+            | none =>
+                { callBase with
+                  targetValue? := some targetValue
+                  calldataValue? := some calldataValue
+                  target? := some target
+                  operandRuntime? := some (operandRuntime.observe self)
+                  revertData? := some RevertData.typeMismatch
+                  status :=
+                    LowLevelCallEvaluationStatus.calldataTypeMismatch }
+            | some callData =>
+                match valueValue.expectWord with
+                | Except.error err =>
+                    { callBase with
+                      targetValue? := some targetValue
+                      calldataValue? := some calldataValue
+                      valueValue? := some valueValue
+                      target? := some target
+                      calldata? := some callData
+                      operandRuntime? := some (operandRuntime.observe self)
+                      revertData? := some err
+                      status :=
+                        LowLevelCallEvaluationStatus.valueTypeMismatch }
+                | Except.ok value =>
+                    let resolution :=
+                      context.observeLowLevelCallResolution
+                        kind target callData value none
+                    let outputValue :=
+                      Value.tuple
+                        [ Value.word (boolWord resolution.result.success)
+                        , Value.bytes resolution.result.output ]
+                    let outputRuntime :=
+                      operandRuntime.recordExternalInteraction
+                        (ExternalInteraction.lowLevelCall resolution.result)
+                    { callBase with
+                      targetValue? := some targetValue
+                      calldataValue? := some calldataValue
+                      valueValue? := some valueValue
+                      target? := some target
+                      calldata? := some callData
+                      value? := some value
+                      operandRuntime? := some (operandRuntime.observe self)
+                      resolution? := some resolution
+                      outputValue? := some outputValue
+                      outputRuntime? := some (outputRuntime.observe self)
+                      status := LowLevelCallEvaluationStatus.resolved }
+      let resolveWithGas
+          (targetValue calldataValue valueValue gasValue : Value)
+          (operandRuntime : Runtime) :
+          LowLevelCallEvaluationObservation :=
+        match targetValue.expectWord with
+        | Except.error err =>
+            { callBase with
+              targetValue? := some targetValue
+              gasValue? := some gasValue
+              operandRuntime? := some (operandRuntime.observe self)
+              revertData? := some err
+              status := LowLevelCallEvaluationStatus.targetTypeMismatch }
+        | Except.ok target =>
+            match calldataValue.asBytes? with
+            | none =>
+                { callBase with
+                  targetValue? := some targetValue
+                  calldataValue? := some calldataValue
+                  gasValue? := some gasValue
+                  target? := some target
+                  operandRuntime? := some (operandRuntime.observe self)
+                  revertData? := some RevertData.typeMismatch
+                  status :=
+                    LowLevelCallEvaluationStatus.calldataTypeMismatch }
+            | some callData =>
+                match valueValue.expectWord with
+                | Except.error err =>
+                    { callBase with
+                      targetValue? := some targetValue
+                      calldataValue? := some calldataValue
+                      valueValue? := some valueValue
+                      gasValue? := some gasValue
+                      target? := some target
+                      calldata? := some callData
+                      operandRuntime? := some (operandRuntime.observe self)
+                      revertData? := some err
+                      status :=
+                        LowLevelCallEvaluationStatus.valueTypeMismatch }
+                | Except.ok value =>
+                    match gasValue.expectWord with
+                    | Except.error err =>
+                        { callBase with
+                          targetValue? := some targetValue
+                          calldataValue? := some calldataValue
+                          valueValue? := some valueValue
+                          gasValue? := some gasValue
+                          target? := some target
+                          calldata? := some callData
+                          value? := some value
+                          operandRuntime? :=
+                            some (operandRuntime.observe self)
+                          revertData? := some err
+                          status :=
+                            LowLevelCallEvaluationStatus.gasTypeMismatch }
+                    | Except.ok gas =>
+                        let resolution :=
+                          context.observeLowLevelCallResolution
+                            kind target callData value (some gas)
+                        let outputValue :=
+                          Value.tuple
+                            [ Value.word (boolWord resolution.result.success)
+                            , Value.bytes resolution.result.output ]
+                        let outputRuntime :=
+                          operandRuntime.recordExternalInteraction
+                            (ExternalInteraction.lowLevelCall
+                              resolution.result)
+                        { callBase with
+                          targetValue? := some targetValue
+                          calldataValue? := some calldataValue
+                          valueValue? := some valueValue
+                          gasValue? := some gasValue
+                          target? := some target
+                          calldata? := some callData
+                          value? := some value
+                          gas? := some gas
+                          operandRuntime? :=
+                            some (operandRuntime.observe self)
+                          resolution? := some resolution
+                          outputValue? := some outputValue
+                          outputRuntime? := some (outputRuntime.observe self)
+                          status := LowLevelCallEvaluationStatus.resolved }
+      match Expr.evalListWithRuntimeByContext context runtime operands with
+      | Except.error revert =>
+          { callBase with
+            revertData? := some revert
+            status := LowLevelCallEvaluationStatus.operandsReverted }
+      | Except.ok ([targetValue, calldataValue, valueValue], operandRuntime) =>
+          match gasExpr? with
+          | none =>
+              resolveNoGas targetValue calldataValue valueValue operandRuntime
+          | some _ =>
+              { callBase with
+                targetValue? := some targetValue
+                calldataValue? := some calldataValue
+                valueValue? := some valueValue
+                operandRuntime? := some (operandRuntime.observe self)
+                revertData? := some RevertData.typeMismatch
+                status := LowLevelCallEvaluationStatus.malformedOperands }
+      | Except.ok
+          ([targetValue, calldataValue, valueValue, gasValue], operandRuntime) =>
+          match gasExpr? with
+          | none =>
+              { callBase with
+                targetValue? := some targetValue
+                calldataValue? := some calldataValue
+                valueValue? := some valueValue
+                gasValue? := some gasValue
+                operandRuntime? := some (operandRuntime.observe self)
+                revertData? := some RevertData.typeMismatch
+                status := LowLevelCallEvaluationStatus.malformedOperands }
+          | some _ =>
+              resolveWithGas targetValue calldataValue valueValue gasValue
+                operandRuntime
+      | Except.ok (_, operandRuntime) =>
+          { callBase with
+            operandRuntime? := some (operandRuntime.observe self)
+            revertData? := some RevertData.typeMismatch
+            status := LowLevelCallEvaluationStatus.malformedOperands }
+  | _ => base
+
+inductive ContractCreationEvaluationStatus where
+  | deployed
+  | notContractCreation
+  | operandsReverted
+  | malformedOperands
+  | constructorArgsTypeMismatch
+  | valueTypeMismatch
+  | saltTypeMismatch
+  | creationReverted
+  deriving Repr, BEq
+
+structure ContractCreationEvaluationObservation where
+  source : Expr
+  contractName? : Option String := none
+  policy : ChildEvaluationPolicyObservation
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  operandEvaluation? : Option ExprListEvaluationObservation := none
+  hasSalt : Bool := false
+  constructorArgsValue? : Option Value := none
+  valueValue? : Option Value := none
+  saltValue? : Option Value := none
+  constructorArgs? : Option (List Byte) := none
+  value? : Option Word := none
+  salt? : Option Word := none
+  operandRuntime? : Option RuntimeObservation := none
+  resolution? : Option ContractCreationResolutionObservation := none
+  outputValue? : Option Value := none
+  outputRuntime? : Option RuntimeObservation := none
+  revertData? : Option RevertData := none
+  status : ContractCreationEvaluationStatus
+  deriving Repr
+
+def Expr.observeContractCreationEvaluation
+    (context : Context) (runtime : Runtime) (expr : Expr) (self : Word) :
+    ContractCreationEvaluationObservation :=
+  let base :=
+    { source := expr
+      policy := context.observeChildEvaluationPolicy
+      context := context.observe
+      inputRuntime := runtime.observe self
+      status := ContractCreationEvaluationStatus.notContractCreation }
+  match expr with
+  | Expr.contractCreate contractName constructorArgsExpr valueExpr saltExpr? =>
+      let operands :=
+        match saltExpr? with
+        | none => [constructorArgsExpr, valueExpr]
+        | some saltExpr => [constructorArgsExpr, valueExpr, saltExpr]
+      let operandObservation :=
+        Expr.observeListEvaluation context runtime operands self
+      let creationBase :=
+        { base with
+          contractName? := some contractName
+          operandEvaluation? := some operandObservation
+          hasSalt := saltExpr?.isSome }
+      let resolveNoSalt
+          (constructorArgsValue valueValue : Value)
+          (operandRuntime : Runtime) :
+          ContractCreationEvaluationObservation :=
+        match constructorArgsValue.asBytes? with
+        | none =>
+            { creationBase with
+              constructorArgsValue? := some constructorArgsValue
+              operandRuntime? := some (operandRuntime.observe self)
+              revertData? := some RevertData.typeMismatch
+              status :=
+                ContractCreationEvaluationStatus.constructorArgsTypeMismatch }
+        | some constructorArgs =>
+            match valueValue.expectWord with
+            | Except.error err =>
+                { creationBase with
+                  constructorArgsValue? := some constructorArgsValue
+                  valueValue? := some valueValue
+                  constructorArgs? := some constructorArgs
+                  operandRuntime? := some (operandRuntime.observe self)
+                  revertData? := some err
+                  status :=
+                    ContractCreationEvaluationStatus.valueTypeMismatch }
+            | Except.ok value =>
+                let resolution :=
+                  context.observeContractCreationResolution
+                    contractName constructorArgs value none
+                if resolution.result.success then
+                  let outputValue := Value.word resolution.result.address
+                  let outputRuntime :=
+                    operandRuntime.recordExternalInteraction
+                      (ExternalInteraction.contractCreation
+                        resolution.result)
+                  { creationBase with
+                    constructorArgsValue? := some constructorArgsValue
+                    valueValue? := some valueValue
+                    constructorArgs? := some constructorArgs
+                    value? := some value
+                    operandRuntime? := some (operandRuntime.observe self)
+                    resolution? := some resolution
+                    outputValue? := some outputValue
+                    outputRuntime? := some (outputRuntime.observe self)
+                    status := ContractCreationEvaluationStatus.deployed }
+                else
+                  { creationBase with
+                    constructorArgsValue? := some constructorArgsValue
+                    valueValue? := some valueValue
+                    constructorArgs? := some constructorArgs
+                    value? := some value
+                    operandRuntime? := some (operandRuntime.observe self)
+                    resolution? := some resolution
+                    revertData? :=
+                      some (RevertData.fromRawBytes resolution.result.output)
+                    status :=
+                      ContractCreationEvaluationStatus.creationReverted }
+      let resolveWithSalt
+          (constructorArgsValue valueValue saltValue : Value)
+          (operandRuntime : Runtime) :
+          ContractCreationEvaluationObservation :=
+        match constructorArgsValue.asBytes? with
+        | none =>
+            { creationBase with
+              constructorArgsValue? := some constructorArgsValue
+              saltValue? := some saltValue
+              operandRuntime? := some (operandRuntime.observe self)
+              revertData? := some RevertData.typeMismatch
+              status :=
+                ContractCreationEvaluationStatus.constructorArgsTypeMismatch }
+        | some constructorArgs =>
+            match valueValue.expectWord with
+            | Except.error err =>
+                { creationBase with
+                  constructorArgsValue? := some constructorArgsValue
+                  valueValue? := some valueValue
+                  saltValue? := some saltValue
+                  constructorArgs? := some constructorArgs
+                  operandRuntime? := some (operandRuntime.observe self)
+                  revertData? := some err
+                  status :=
+                    ContractCreationEvaluationStatus.valueTypeMismatch }
+            | Except.ok value =>
+                match saltValue.expectWord with
+                | Except.error err =>
+                    { creationBase with
+                      constructorArgsValue? := some constructorArgsValue
+                      valueValue? := some valueValue
+                      saltValue? := some saltValue
+                      constructorArgs? := some constructorArgs
+                      value? := some value
+                      operandRuntime? := some (operandRuntime.observe self)
+                      revertData? := some err
+                      status :=
+                        ContractCreationEvaluationStatus.saltTypeMismatch }
+                | Except.ok salt =>
+                    let resolution :=
+                      context.observeContractCreationResolution
+                        contractName constructorArgs value (some salt)
+                    if resolution.result.success then
+                      let outputValue := Value.word resolution.result.address
+                      let outputRuntime :=
+                        operandRuntime.recordExternalInteraction
+                          (ExternalInteraction.contractCreation
+                            resolution.result)
+                      { creationBase with
+                        constructorArgsValue? := some constructorArgsValue
+                        valueValue? := some valueValue
+                        saltValue? := some saltValue
+                        constructorArgs? := some constructorArgs
+                        value? := some value
+                        salt? := some salt
+                        operandRuntime? := some (operandRuntime.observe self)
+                        resolution? := some resolution
+                        outputValue? := some outputValue
+                        outputRuntime? := some (outputRuntime.observe self)
+                        status := ContractCreationEvaluationStatus.deployed }
+                    else
+                      { creationBase with
+                        constructorArgsValue? := some constructorArgsValue
+                        valueValue? := some valueValue
+                        saltValue? := some saltValue
+                        constructorArgs? := some constructorArgs
+                        value? := some value
+                        salt? := some salt
+                        operandRuntime? := some (operandRuntime.observe self)
+                        resolution? := some resolution
+                        revertData? :=
+                          some
+                            (RevertData.fromRawBytes
+                              resolution.result.output)
+                        status :=
+                          ContractCreationEvaluationStatus.creationReverted }
+      match Expr.evalListWithRuntimeByContext context runtime operands with
+      | Except.error revert =>
+          { creationBase with
+            revertData? := some revert
+            status := ContractCreationEvaluationStatus.operandsReverted }
+      | Except.ok ([constructorArgsValue, valueValue], operandRuntime) =>
+          match saltExpr? with
+          | none =>
+              resolveNoSalt constructorArgsValue valueValue operandRuntime
+          | some _ =>
+              { creationBase with
+                constructorArgsValue? := some constructorArgsValue
+                valueValue? := some valueValue
+                operandRuntime? := some (operandRuntime.observe self)
+                revertData? := some RevertData.typeMismatch
+                status := ContractCreationEvaluationStatus.malformedOperands }
+      | Except.ok
+          ([constructorArgsValue, valueValue, saltValue], operandRuntime) =>
+          match saltExpr? with
+          | none =>
+              { creationBase with
+                constructorArgsValue? := some constructorArgsValue
+                valueValue? := some valueValue
+                saltValue? := some saltValue
+                operandRuntime? := some (operandRuntime.observe self)
+                revertData? := some RevertData.typeMismatch
+                status := ContractCreationEvaluationStatus.malformedOperands }
+          | some _ =>
+              resolveWithSalt constructorArgsValue valueValue saltValue
+                operandRuntime
+      | Except.ok (_, operandRuntime) =>
+          { creationBase with
+            operandRuntime? := some (operandRuntime.observe self)
+            revertData? := some RevertData.typeMismatch
+            status := ContractCreationEvaluationStatus.malformedOperands }
+  | _ => base
+
+inductive ShortCircuitDecision where
+  | skippedRight
+  | evaluatedRight
+  deriving Repr, BEq
+
+structure ShortCircuitEvaluationObservation where
+  op : BinaryOp
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  lhsValue? : Option Value := none
+  lhsRuntime? : Option RuntimeObservation := none
+  decision? : Option ShortCircuitDecision := none
+  rhsValue? : Option Value := none
+  rhsRuntime? : Option RuntimeObservation := none
+  outputValue? : Option Value := none
+  outputRuntime? : Option RuntimeObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+def Expr.observeShortCircuitEvaluation (context : Context)
+    (runtime : Runtime) (op : BinaryOp) (lhs rhs : Expr) (self : Word) :
+    ShortCircuitEvaluationObservation :=
+  let base : ShortCircuitEvaluationObservation :=
+    { op := op
+      context := context.observe
+      inputRuntime := runtime.observe self }
+  match op with
+  | BinaryOp.boolAnd =>
+      match lhs.evalWithRuntime context runtime with
+      | Except.error revert => { base with revertData? := some revert }
+      | Except.ok (lhsValue, lhsRuntime) =>
+          let lhsRuntimeObservation := lhsRuntime.observe self
+          match lhsValue.expectWord with
+          | Except.error revert =>
+              { base with
+                lhsValue? := some lhsValue
+                lhsRuntime? := some lhsRuntimeObservation
+                revertData? := some revert }
+          | Except.ok lhsWord =>
+              if wordTruthy lhsWord then
+                match rhs.evalWithRuntime context lhsRuntime with
+                | Except.error revert =>
+                    { base with
+                      lhsValue? := some lhsValue
+                      lhsRuntime? := some lhsRuntimeObservation
+                      decision? :=
+                        some ShortCircuitDecision.evaluatedRight
+                      revertData? := some revert }
+                | Except.ok (rhsValue, rhsRuntime) =>
+                    let rhsRuntimeObservation := rhsRuntime.observe self
+                    match rhsValue.expectWord with
+                    | Except.error revert =>
+                        { base with
+                          lhsValue? := some lhsValue
+                          lhsRuntime? := some lhsRuntimeObservation
+                          decision? :=
+                            some ShortCircuitDecision.evaluatedRight
+                          rhsValue? := some rhsValue
+                          rhsRuntime? := some rhsRuntimeObservation
+                          revertData? := some revert }
+                    | Except.ok rhsWord =>
+                        { base with
+                          lhsValue? := some lhsValue
+                          lhsRuntime? := some lhsRuntimeObservation
+                          decision? :=
+                            some ShortCircuitDecision.evaluatedRight
+                          rhsValue? := some rhsValue
+                          rhsRuntime? := some rhsRuntimeObservation
+                          outputValue? :=
+                            some (Value.word (boolWord (wordTruthy rhsWord)))
+                          outputRuntime? := some rhsRuntimeObservation }
+              else
+                { base with
+                  lhsValue? := some lhsValue
+                  lhsRuntime? := some lhsRuntimeObservation
+                  decision? := some ShortCircuitDecision.skippedRight
+                  outputValue? := some (Value.word 0)
+                  outputRuntime? := some lhsRuntimeObservation }
+  | BinaryOp.boolOr =>
+      match lhs.evalWithRuntime context runtime with
+      | Except.error revert => { base with revertData? := some revert }
+      | Except.ok (lhsValue, lhsRuntime) =>
+          let lhsRuntimeObservation := lhsRuntime.observe self
+          match lhsValue.expectWord with
+          | Except.error revert =>
+              { base with
+                lhsValue? := some lhsValue
+                lhsRuntime? := some lhsRuntimeObservation
+                revertData? := some revert }
+          | Except.ok lhsWord =>
+              if wordTruthy lhsWord then
+                { base with
+                  lhsValue? := some lhsValue
+                  lhsRuntime? := some lhsRuntimeObservation
+                  decision? := some ShortCircuitDecision.skippedRight
+                  outputValue? := some (Value.word 1)
+                  outputRuntime? := some lhsRuntimeObservation }
+              else
+                match rhs.evalWithRuntime context lhsRuntime with
+                | Except.error revert =>
+                    { base with
+                      lhsValue? := some lhsValue
+                      lhsRuntime? := some lhsRuntimeObservation
+                      decision? :=
+                        some ShortCircuitDecision.evaluatedRight
+                      revertData? := some revert }
+                | Except.ok (rhsValue, rhsRuntime) =>
+                    let rhsRuntimeObservation := rhsRuntime.observe self
+                    match rhsValue.expectWord with
+                    | Except.error revert =>
+                        { base with
+                          lhsValue? := some lhsValue
+                          lhsRuntime? := some lhsRuntimeObservation
+                          decision? :=
+                            some ShortCircuitDecision.evaluatedRight
+                          rhsValue? := some rhsValue
+                          rhsRuntime? := some rhsRuntimeObservation
+                          revertData? := some revert }
+                    | Except.ok rhsWord =>
+                        { base with
+                          lhsValue? := some lhsValue
+                          lhsRuntime? := some lhsRuntimeObservation
+                          decision? :=
+                            some ShortCircuitDecision.evaluatedRight
+                          rhsValue? := some rhsValue
+                          rhsRuntime? := some rhsRuntimeObservation
+                          outputValue? :=
+                            some (Value.word (boolWord (wordTruthy rhsWord)))
+                          outputRuntime? := some rhsRuntimeObservation }
+  | _ => { base with revertData? := some RevertData.typeMismatch }
+
+inductive TernaryBranch where
+  | thenBranch
+  | elseBranch
+  deriving Repr, BEq
+
+structure TernaryEvaluationObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  conditionValue? : Option Value := none
+  conditionRuntime? : Option RuntimeObservation := none
+  selectedBranch? : Option TernaryBranch := none
+  branchValue? : Option Value := none
+  outputRuntime? : Option RuntimeObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+def Expr.observeTernaryEvaluation (context : Context)
+    (runtime : Runtime) (cond thenExpr elseExpr : Expr) (self : Word) :
+    TernaryEvaluationObservation :=
+  let base : TernaryEvaluationObservation :=
+    { context := context.observe
+      inputRuntime := runtime.observe self }
+  match cond.evalWithRuntime context runtime with
+  | Except.error revert => { base with revertData? := some revert }
+  | Except.ok (conditionValue, conditionRuntime) =>
+      let conditionRuntimeObservation := conditionRuntime.observe self
+      match conditionValue.expectWord with
+      | Except.error revert =>
+          { base with
+            conditionValue? := some conditionValue
+            conditionRuntime? := some conditionRuntimeObservation
+            revertData? := some revert }
+      | Except.ok conditionWord =>
+          if wordTruthy conditionWord then
+            match thenExpr.evalWithRuntime context conditionRuntime with
+            | Except.error revert =>
+                { base with
+                  conditionValue? := some conditionValue
+                  conditionRuntime? := some conditionRuntimeObservation
+                  selectedBranch? := some TernaryBranch.thenBranch
+                  revertData? := some revert }
+            | Except.ok (branchValue, outputRuntime) =>
+                { base with
+                  conditionValue? := some conditionValue
+                  conditionRuntime? := some conditionRuntimeObservation
+                  selectedBranch? := some TernaryBranch.thenBranch
+                  branchValue? := some branchValue
+                  outputRuntime? := some (outputRuntime.observe self) }
+          else
+            match elseExpr.evalWithRuntime context conditionRuntime with
+            | Except.error revert =>
+                { base with
+                  conditionValue? := some conditionValue
+                  conditionRuntime? := some conditionRuntimeObservation
+                  selectedBranch? := some TernaryBranch.elseBranch
+                  revertData? := some revert }
+            | Except.ok (branchValue, outputRuntime) =>
+                { base with
+                  conditionValue? := some conditionValue
+                  conditionRuntime? := some conditionRuntimeObservation
+                  selectedBranch? := some TernaryBranch.elseBranch
+                  branchValue? := some branchValue
+                  outputRuntime? := some (outputRuntime.observe self) }
+
+def Expr.memoryRefOrValueWithRuntimeByContext
+    (expr : Expr) (context : Context) (runtime : Runtime) :
+    Except RevertData (Option Nat × Option Value × Runtime) :=
+  Expr.memoryRefOrValueWithRuntimeOrder
+    context.effectiveChildEvalOrder context runtime expr
+
+def Expr.resolveLValueWithRuntimeByContext
+    (expr : Expr) (context : Context) (runtime : Runtime) :
+    Except RevertData (ResolvedLValue × Runtime) :=
+  Expr.resolveLValueWithRuntimeOrder
+    context.effectiveChildEvalOrder context runtime expr
+
+def Expr.evalReturnValueWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (expr : Expr) : Except RevertData (Value × Runtime) :=
+  match expr with
+  | Expr.var name =>
+      match runtime.lookupMemoryRef? name with
+      | some id => Except.ok (Value.memoryRef id, runtime)
+      | none => Expr.evalWithRuntimeOrder order context runtime expr
+  | _ => Expr.evalWithRuntimeOrder order context runtime expr
+
+def Expr.evalReturnListWithRuntimeOrderFuel
+    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+    Runtime -> List Expr -> Except RevertData (List Value × Runtime)
+  | runtime, exprs =>
+      match fuel with
+      | 0 => Except.error RevertData.typeMismatch
+      | fuel + 1 =>
+          match exprs with
+          | [] => Except.ok ([], runtime)
+          | expr :: rest =>
+              match order with
+              | ChildEvalOrder.leftToRight => do
+                  let (value, runtime') ←
+                    Expr.evalReturnValueWithRuntimeOrder order context
+                      runtime expr
+                  let (values, runtime'') ←
+                    Expr.evalReturnListWithRuntimeOrderFuel fuel order
+                      context runtime' rest
+                  Except.ok (value :: values, runtime'')
+              | ChildEvalOrder.rightToLeft => do
+                  let (values, runtime') ←
+                    Expr.evalReturnListWithRuntimeOrderFuel fuel order
+                      context runtime rest
+                  let (value, runtime'') ←
+                    Expr.evalReturnValueWithRuntimeOrder order context
+                      runtime' expr
+                  Except.ok (value :: values, runtime'')
+
+def Expr.evalReturnListWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (exprs : List Expr) : Except RevertData (List Value × Runtime) :=
+  Expr.evalReturnListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
+    order context runtime exprs
+
+def Expr.evalReturnListWithRuntimeByContext
+    (context : Context) (runtime : Runtime) (exprs : List Expr) :
+    Except RevertData (List Value × Runtime) :=
+  Expr.evalReturnListWithRuntimeOrder
+    context.effectiveChildEvalOrder context runtime exprs
+
 def LValue.resolveWithRuntime (target : LValue) (context : Context)
     (runtime : Runtime) : Except RevertData (ResolvedLValue × Runtime) :=
-  target.toExpr.resolveLValueWithRuntime context runtime
+  target.toExpr.resolveLValueWithRuntimeByContext context runtime
 
 def LValues.writeTupleWithRuntime? (context : Context) :
     Runtime -> List (Option LValue) -> List Value -> Except RevertData Runtime
@@ -4283,23 +8134,31 @@ inductive Stmt where
   | skip : Stmt
   | block : List Stmt -> Stmt
   | varDecl : Ty -> String -> Option Expr -> Stmt
+  | memoryVarDecl : Ty -> String -> Option Expr -> Stmt
+  | memoryLocalize : Ty -> String -> Stmt
   | storageAlias : String -> String -> Stmt
   | storageAliasPath : String -> String -> List Expr -> Stmt
   | storageAliasFrom : String -> String -> Stmt
+  | storageAliasFromPath : String -> String -> List Expr -> Stmt
   | storageAliasAssign : String -> String -> Stmt
   | storageAliasAssignPath : String -> String -> List Expr -> Stmt
   | storageAliasAssignFrom : String -> String -> Stmt
+  | storageAliasAssignFromPath : String -> String -> List Expr -> Stmt
   | exprStmt : Expr -> Stmt
   | assign : LValue -> Expr -> Stmt
   | assignTuple : List (Option LValue) -> Expr -> Stmt
   | assignOp : LValue -> BinaryOp -> Expr -> Stmt
+  | assignOpCleanup : LValue -> BinaryOp -> Expr -> ValueCleanup -> Stmt
   | deleteValue : LValue -> Stmt
   | storageArrayPush : String -> Option Expr -> Stmt
   | storageArrayPushRef : String -> Option Expr -> Stmt
+  | storageArrayPushRefPath : String -> List Expr -> Option Expr -> Stmt
   | storageArrayPushPath : String -> List Expr -> Option Expr -> Stmt
   | storageArrayPushPathAssign : String -> List Expr -> Expr -> Stmt
+  | storageArrayPushRefPathAssign : String -> List Expr -> Expr -> Stmt
   | storageArrayPop : String -> Stmt
   | storageArrayPopRef : String -> Stmt
+  | storageArrayPopRefPath : String -> List Expr -> Stmt
   | storageArrayPopPath : String -> List Expr -> Stmt
   | panic : Word -> Stmt
   | assertStmt : Expr -> Stmt
@@ -4314,7 +8173,8 @@ inductive Stmt where
   | forLoop : Stmt -> Expr -> Stmt -> Stmt -> Stmt
   | tryExternalCall :
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool ->
-      Bool -> List BindingDecl -> Stmt -> List TryCatchClause -> Stmt
+      Bool -> List BindingDecl -> List AbiCleanup -> Stmt ->
+      List TryCatchClause -> Stmt
   | tryContractCreate :
       String -> Expr -> Expr -> Option Expr -> List BindingDecl -> Stmt ->
       List TryCatchClause -> Stmt
@@ -4343,6 +8203,303 @@ inductive Result where
   | reverted : Runtime -> RevertData -> Result
   | broke : Runtime -> Result
   | continued : Runtime -> Result
+  deriving Repr
+
+inductive ResultMode where
+  | normal
+  | returned
+  | selfdestructed
+  | reverted
+  | broke
+  | continued
+  deriving Repr, BEq
+
+structure ResultObservation where
+  mode : ResultMode
+  runtime : RuntimeObservation
+  returnValues : List Value := []
+  revertData? : Option RevertData := none
+  deriving Repr
+
+def Result.observe (self : Word) : Result -> ResultObservation
+  | Result.normal runtime =>
+      { mode := ResultMode.normal
+        runtime := runtime.observe self }
+  | Result.returned runtime values =>
+      { mode := ResultMode.returned
+        runtime := runtime.observe self
+        returnValues := values }
+  | Result.selfdestructed runtime =>
+      { mode := ResultMode.selfdestructed
+        runtime := runtime.observe self }
+  | Result.reverted runtime revert =>
+      { mode := ResultMode.reverted
+        runtime := runtime.observe self
+        revertData? := some revert }
+  | Result.broke runtime =>
+      { mode := ResultMode.broke
+        runtime := runtime.observe self }
+  | Result.continued runtime =>
+      { mode := ResultMode.continued
+        runtime := runtime.observe self }
+
+inductive RevertPayloadKind where
+  | empty
+  | errorString
+  | errorBytesExpression
+  | customError
+  deriving Repr, BEq
+
+inductive RevertPayloadSource where
+  | empty
+  | errorString : String -> RevertPayloadSource
+  | errorBytesExpression : Expr -> RevertPayloadSource
+  | customError : String -> List Expr -> RevertPayloadSource
+  deriving Repr
+
+structure RevertPayloadObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  kind : RevertPayloadKind
+  name? : Option String := none
+  expressionCount : Nat := 0
+  values? : Option (List Value) := none
+  expressionRuntime? : Option RuntimeObservation := none
+  revertData? : Option RevertData := none
+  result? : Option ResultObservation := none
+  error? : Option RevertData := none
+  deriving Repr
+
+inductive TerminalEvaluationKind where
+  | notTerminal
+  | returnValues
+  | revertEmpty
+  | revertString
+  | revertBytesExpression
+  | customError
+  | selfdestruct
+  deriving Repr, BEq
+
+inductive TerminalEvaluationStatus where
+  | notTerminal
+  | returned
+  | returnArgumentsReverted
+  | reverted
+  | revertPayloadErrored
+  | selfdestructed
+  | selfdestructRecipientReverted
+  | selfdestructRecipientTypeMismatch
+  deriving Repr, BEq
+
+structure TerminalEvaluationObservation where
+  source : Stmt
+  kind : TerminalEvaluationKind
+  policy : ChildEvaluationPolicyObservation
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  sourceOperands : List Expr := []
+  expressionCount : Nat := 0
+  values? : Option (List Value) := none
+  expressionRuntime? : Option RuntimeObservation := none
+  payloadObservation? : Option RevertPayloadObservation := none
+  recipientValue? : Option Value := none
+  recipient? : Option Word := none
+  recipientRuntime? : Option RuntimeObservation := none
+  selfdestructRecord? :
+    Option SharedSemantics.Account.SelfdestructRecord := none
+  result? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  status : TerminalEvaluationStatus
+  deriving Repr
+
+inductive RequireCheckKind where
+  | assert
+  | requireEmpty
+  | requireString
+  | requireBytesExpression
+  | requireCustom
+  deriving Repr, BEq
+
+inductive RequireCheckSource where
+  | assert : Expr -> RequireCheckSource
+  | requireEmpty : Expr -> RequireCheckSource
+  | requireString : Expr -> String -> RequireCheckSource
+  | requireBytesExpression : Expr -> Expr -> RequireCheckSource
+  | requireCustom : Expr -> String -> List Expr -> RequireCheckSource
+  deriving Repr
+
+structure RequireCheckObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  kind : RequireCheckKind
+  name? : Option String := none
+  conditionValue? : Option Value := none
+  conditionWord? : Option Word := none
+  conditionRuntime? : Option RuntimeObservation := none
+  payloadObservation? : Option RevertPayloadObservation := none
+  result? : Option ResultObservation := none
+  error? : Option RevertData := none
+  deriving Repr
+
+inductive TryCatchMatchKind where
+  | errorString
+  | panic
+  | lowLevel
+  deriving Repr, BEq
+
+structure TryCatchMatchObservation where
+  raw : List Byte
+  clauseCount : Nat
+  selectedIndex? : Option Nat := none
+  selectedKind? : Option TryCatchMatchKind := none
+  selectedName? : Option String := none
+  frame? : Option Frame := none
+  body? : Option Stmt := none
+  deriving Repr
+
+inductive EvalMode where
+  | completed
+  | outOfFuel
+  deriving Repr, BEq
+
+structure EvalObservation where
+  mode : EvalMode
+  result? : Option ResultObservation := none
+  deriving Repr
+
+def OptionResult.observe (self : Word) :
+    Option Result -> EvalObservation
+  | some result =>
+      { mode := EvalMode.completed
+        result? := some (result.observe self) }
+  | none =>
+      { mode := EvalMode.outOfFuel }
+
+structure BlockScopeObservation where
+  beforeScope : RuntimeObservation
+  enteredScope : RuntimeObservation
+  bodyResult? : Option ResultObservation := none
+  finalResult? : Option ResultObservation := none
+  deriving Repr
+
+structure LocalDeclarationObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  name : String
+  ty : Ty
+  initializerValue? : Option Value := none
+  initializerRuntime? : Option RuntimeObservation := none
+  declaredValue? : Option Value := none
+  result? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+structure LocalAssignmentObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  name : String
+  order : ChildEvalOrder
+  previousValue? : Option Value := none
+  rhsValue? : Option Value := none
+  rhsRuntime? : Option RuntimeObservation := none
+  targetRuntime? : Option RuntimeObservation := none
+  assignedValue? : Option Value := none
+  result? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+inductive IfBranchSelection where
+  | thenBranch
+  | elseBranch
+  deriving Repr, BEq
+
+structure IfBranchObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  conditionValue? : Option Word := none
+  conditionRuntime? : Option RuntimeObservation := none
+  selected? : Option IfBranchSelection := none
+  result? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+inductive SwitchBranchSelection where
+  | caseBranch : Word -> SwitchBranchSelection
+  | defaultBranch
+  | noBranch
+  deriving Repr, BEq
+
+structure SwitchBranchObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  discriminantValue? : Option Word := none
+  discriminantRuntime? : Option RuntimeObservation := none
+  selected? : Option SwitchBranchSelection := none
+  result? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+inductive WhileLoopStep where
+  | outOfFuel
+  | conditionFalse
+  | conditionErrored
+  | bodyNormal
+  | bodyContinue
+  | bodyBreak
+  | bodyTerminal
+  | bodyOutOfFuel
+  deriving Repr, BEq
+
+structure WhileLoopObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  conditionValue? : Option Word := none
+  conditionRuntime? : Option RuntimeObservation := none
+  step? : Option WhileLoopStep := none
+  bodyResult? : Option ResultObservation := none
+  finalResult? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+structure DoWhileLoopObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  bodyResult? : Option ResultObservation := none
+  conditionValue? : Option Word := none
+  conditionRuntime? : Option RuntimeObservation := none
+  step? : Option WhileLoopStep := none
+  finalResult? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  deriving Repr
+
+inductive ForLoopStep where
+  | outOfFuel
+  | initOutOfFuel
+  | initTerminal
+  | conditionFalse
+  | conditionErrored
+  | bodyNormal
+  | bodyContinue
+  | bodyBreak
+  | bodyTerminal
+  | bodyOutOfFuel
+  | postTerminal
+  | postOutOfFuel
+  deriving Repr, BEq
+
+structure ForLoopObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  enteredScope? : Option RuntimeObservation := none
+  initResult? : Option ResultObservation := none
+  conditionValue? : Option Word := none
+  conditionRuntime? : Option RuntimeObservation := none
+  bodyResult? : Option ResultObservation := none
+  postResult? : Option ResultObservation := none
+  step? : Option ForLoopStep := none
+  loopResult? : Option ResultObservation := none
+  finalResult? : Option ResultObservation := none
+  revertData? : Option RevertData := none
   deriving Repr
 
 def Result.mapRuntime (f : Runtime -> Runtime) : Result -> Result
@@ -4378,6 +8535,17 @@ def BindingDecl.bindArgs? :
       some (head :: tail)
   | _, _ => none
 
+structure EventEmissionObservation where
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  name : String
+  values : List Value
+  event? : Option Event := none
+  logEntry? : Option SharedSemantics.Log.Entry := none
+  outputRuntime? : Option RuntimeObservation := none
+  error? : Option RevertData := none
+  deriving Repr
+
 def Runtime.withFrame (runtime : Runtime) (frame : Frame) : Runtime :=
   { runtime with locals := frame :: runtime.locals }
 
@@ -4412,6 +8580,28 @@ def Runtime.emitEvent (context : Context)
       | none => Except.error RevertData.typeMismatch
   | none => Except.error RevertData.typeMismatch
 
+def Runtime.observeEventEmission (context : Context)
+    (runtime : Runtime) (name : String) (values : List Value) :
+    EventEmissionObservation :=
+  match runtime.emitEvent context name values with
+  | Except.ok output =>
+      let event? :=
+        (output.state.events.drop runtime.state.events.length).head?
+      let logEntry? := event?.map (Event.toLogEntry context.self)
+      { context := context.observe
+        inputRuntime := runtime.observe context.self
+        name := name
+        values := values
+        event? := event?
+        logEntry? := logEntry?
+        outputRuntime? := some (output.observe context.self) }
+  | Except.error err =>
+      { context := context.observe
+        inputRuntime := runtime.observe context.self
+        name := name
+        values := values
+        error? := some err }
+
 def externalErrorSelector : Word := 0x08c379a0
 
 def externalPanicSelector : Word := 0x4e487b71
@@ -4422,6 +8612,355 @@ def errorStringBytesRevert? (value : Value) : Option RevertData := do
   some
     (RevertData.raw
       (wordToBytesBE selectorBytes externalErrorSelector ++ encoded))
+
+def Stmt.observeRevertPayload (context : Context) (runtime : Runtime)
+    (source : RevertPayloadSource) (self : Word) :
+    RevertPayloadObservation :=
+  let observeResult (result : Result) := some (result.observe self)
+  let resultWith (runtime : Runtime) (data : RevertData) :=
+    Result.reverted runtime data
+  let typeMismatch := RevertData.typeMismatch
+  match source with
+  | RevertPayloadSource.empty =>
+      let data := RevertData.empty
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        kind := RevertPayloadKind.empty
+        revertData? := some data
+        result? := observeResult (resultWith runtime data) }
+  | RevertPayloadSource.errorString reason =>
+      let data := RevertData.error reason
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        kind := RevertPayloadKind.errorString
+        revertData? := some data
+        result? := observeResult (resultWith runtime data) }
+  | RevertPayloadSource.errorBytesExpression expr =>
+      match expr.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, runtime') =>
+          match errorStringBytesRevert? value with
+          | some data =>
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                kind := RevertPayloadKind.errorBytesExpression
+                expressionCount := 1
+                values? := some [value]
+                expressionRuntime? := some (runtime'.observe self)
+                revertData? := some data
+                result? := observeResult (resultWith runtime' data) }
+          | none =>
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                kind := RevertPayloadKind.errorBytesExpression
+                expressionCount := 1
+                values? := some [value]
+                expressionRuntime? := some (runtime'.observe self)
+                revertData? := some typeMismatch
+                result? := observeResult (resultWith runtime' typeMismatch)
+                error? := some typeMismatch }
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RevertPayloadKind.errorBytesExpression
+            expressionCount := 1
+            revertData? := some err
+            result? := observeResult (resultWith runtime err)
+            error? := some err }
+  | RevertPayloadSource.customError name exprs =>
+      match Expr.evalListWithRuntimeByContext context runtime exprs with
+      | Except.ok (values, runtime') =>
+          let data := RevertData.custom name values
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RevertPayloadKind.customError
+            name? := some name
+            expressionCount := exprs.length
+            values? := some values
+            expressionRuntime? := some (runtime'.observe self)
+            revertData? := some data
+            result? := observeResult (resultWith runtime' data) }
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RevertPayloadKind.customError
+            name? := some name
+            expressionCount := exprs.length
+            revertData? := some err
+            result? := observeResult (resultWith runtime err)
+            error? := some err }
+
+def Stmt.observeTerminalEvaluation (context : Context) (runtime : Runtime)
+    (stmt : Stmt) (self : Word) : TerminalEvaluationObservation :=
+  let observeResult (result : Result) := some (result.observe self)
+  let base :=
+    { source := stmt
+      kind := TerminalEvaluationKind.notTerminal
+      policy := context.observeChildEvaluationPolicy
+      context := context.observe
+      inputRuntime := runtime.observe self
+      status := TerminalEvaluationStatus.notTerminal }
+  let observePayload (kind : TerminalEvaluationKind)
+      (operands : List Expr) (source : RevertPayloadSource) :=
+    let payload :=
+      Stmt.observeRevertPayload context runtime source self
+    { base with
+      kind := kind
+      sourceOperands := operands
+      expressionCount := operands.length
+      values? := payload.values?
+      expressionRuntime? := payload.expressionRuntime?
+      payloadObservation? := some payload
+      result? := payload.result?
+      revertData? := payload.revertData?
+      status :=
+        if payload.error?.isSome then
+          TerminalEvaluationStatus.revertPayloadErrored
+        else
+          TerminalEvaluationStatus.reverted }
+  match stmt with
+  | Stmt.returnValues exprs =>
+      match Expr.evalReturnListWithRuntimeByContext context runtime exprs with
+      | Except.ok (values, runtime') =>
+          { base with
+            kind := TerminalEvaluationKind.returnValues
+            sourceOperands := exprs
+            expressionCount := exprs.length
+            values? := some values
+            expressionRuntime? := some (runtime'.observe self)
+            result? :=
+              observeResult (Result.returned runtime' values)
+            status := TerminalEvaluationStatus.returned }
+      | Except.error err =>
+          { base with
+            kind := TerminalEvaluationKind.returnValues
+            sourceOperands := exprs
+            expressionCount := exprs.length
+            result? :=
+              observeResult (Result.reverted runtime err)
+            revertData? := some err
+            status :=
+              TerminalEvaluationStatus.returnArgumentsReverted }
+  | Stmt.revertError reason =>
+      match reason with
+      | some message =>
+          observePayload TerminalEvaluationKind.revertString []
+            (RevertPayloadSource.errorString message)
+      | none =>
+          observePayload TerminalEvaluationKind.revertEmpty []
+            RevertPayloadSource.empty
+  | Stmt.revertErrorExpr reasonExpr =>
+      observePayload TerminalEvaluationKind.revertBytesExpression
+        [reasonExpr] (RevertPayloadSource.errorBytesExpression reasonExpr)
+  | Stmt.revert name exprs =>
+      observePayload TerminalEvaluationKind.customError exprs
+        (RevertPayloadSource.customError name exprs)
+  | Stmt.selfdestruct recipientExpr =>
+      match recipientExpr.evalWithRuntimeByContext context runtime with
+      | Except.error err =>
+          { base with
+            kind := TerminalEvaluationKind.selfdestruct
+            sourceOperands := [recipientExpr]
+            expressionCount := 1
+            result? :=
+              observeResult (Result.reverted runtime err)
+            revertData? := some err
+            status :=
+              TerminalEvaluationStatus.selfdestructRecipientReverted }
+      | Except.ok (recipientValue, runtime') =>
+          match recipientValue.expectWord with
+          | Except.error err =>
+              { base with
+                kind := TerminalEvaluationKind.selfdestruct
+                sourceOperands := [recipientExpr]
+                expressionCount := 1
+                values? := some [recipientValue]
+                expressionRuntime? := some (runtime'.observe self)
+                recipientValue? := some recipientValue
+                recipientRuntime? := some (runtime'.observe self)
+                result? :=
+                  observeResult (Result.reverted runtime' err)
+                revertData? := some err
+                status :=
+                  TerminalEvaluationStatus.selfdestructRecipientTypeMismatch }
+          | Except.ok recipient =>
+              let record :=
+                SharedSemantics.Account.selfdestructRecord
+                  context.evmVersion context.createdInTransactionAccounts
+                  context.self recipient
+              let runtime'' :=
+                { runtime' with
+                  state :=
+                    runtime'.state.recordSelfdestruct
+                      context.evmVersion
+                      context.createdInTransactionAccounts
+                      context.self recipient }
+              { base with
+                kind := TerminalEvaluationKind.selfdestruct
+                sourceOperands := [recipientExpr]
+                expressionCount := 1
+                values? := some [recipientValue]
+                expressionRuntime? := some (runtime'.observe self)
+                recipientValue? := some recipientValue
+                recipient? := some recipient
+                recipientRuntime? := some (runtime'.observe self)
+                selfdestructRecord? := some record
+                result? :=
+                  observeResult (Result.selfdestructed runtime'')
+                status := TerminalEvaluationStatus.selfdestructed }
+  | _ => base
+
+def Stmt.observeRequireCheck (context : Context) (runtime : Runtime)
+    (source : RequireCheckSource) (self : Word) :
+    RequireCheckObservation :=
+  let observeResult (result : Result) := some (result.observe self)
+  let reverted (runtime : Runtime) (data : RevertData) :=
+    Result.reverted runtime data
+  let normal (runtime : Runtime) := Result.normal runtime
+  let finishConditionOnly (kind : RequireCheckKind)
+      (value : Value) (conditionRuntime : Runtime)
+      (falseData : RevertData) :
+      RequireCheckObservation :=
+    match value.expectWord with
+    | Except.ok word =>
+        let result :=
+          if wordTruthy word then
+            normal conditionRuntime
+          else
+            reverted conditionRuntime falseData
+        { context := context.observe
+          inputRuntime := runtime.observe self
+          kind := kind
+          conditionValue? := some value
+          conditionWord? := some word
+          conditionRuntime? := some (conditionRuntime.observe self)
+          result? := observeResult result }
+    | Except.error err =>
+        { context := context.observe
+          inputRuntime := runtime.observe self
+          kind := kind
+          conditionValue? := some value
+          conditionRuntime? := some (conditionRuntime.observe self)
+          result? := observeResult (reverted conditionRuntime err)
+          error? := some err }
+  let finishPayload (kind : RequireCheckKind) (name? : Option String)
+      (value : Value) (conditionRuntime : Runtime)
+      (payload : RevertPayloadObservation) :
+      RequireCheckObservation :=
+    let base : RequireCheckObservation :=
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        kind := kind
+        name? := name?
+        conditionValue? := some value
+        conditionRuntime? := some (conditionRuntime.observe self)
+        payloadObservation? := some payload }
+    match payload.result? with
+    | none =>
+        { base with error? := payload.error? }
+    | some payloadResult =>
+        if payload.error?.isSome then
+          { base with
+            result? := some payloadResult
+            error? := payload.error? }
+        else
+          match value.expectWord with
+          | Except.ok word =>
+              if wordTruthy word then
+                match payload.expressionRuntime? with
+                | some payloadRuntime =>
+                    { base with
+                      conditionWord? := some word
+                      result? :=
+                        some
+                          { mode := ResultMode.normal
+                            runtime := payloadRuntime } }
+                | none =>
+                    { base with
+                      conditionWord? := some word
+                      result? :=
+                        observeResult (normal conditionRuntime) }
+              else
+                { base with
+                  conditionWord? := some word
+                  result? := some payloadResult }
+          | Except.error err =>
+              match payload.expressionRuntime? with
+              | some payloadRuntime =>
+                  { base with
+                    result? :=
+                      some
+                        { mode := ResultMode.reverted
+                          runtime := payloadRuntime
+                          revertData? := some err }
+                    error? := some err }
+              | none =>
+                  { base with
+                    result? :=
+                      observeResult (reverted conditionRuntime err)
+                    error? := some err }
+  match source with
+  | RequireCheckSource.assert cond =>
+      match cond.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, conditionRuntime) =>
+          finishConditionOnly RequireCheckKind.assert value conditionRuntime
+            RevertData.assertFailure
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RequireCheckKind.assert
+            result? := observeResult (reverted runtime err)
+            error? := some err }
+  | RequireCheckSource.requireEmpty cond =>
+      match cond.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, conditionRuntime) =>
+          finishConditionOnly RequireCheckKind.requireEmpty value
+            conditionRuntime RevertData.empty
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RequireCheckKind.requireEmpty
+            result? := observeResult (reverted runtime err)
+            error? := some err }
+  | RequireCheckSource.requireString cond reason =>
+      match cond.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, conditionRuntime) =>
+          finishConditionOnly RequireCheckKind.requireString value
+            conditionRuntime (RevertData.error reason)
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RequireCheckKind.requireString
+            result? := observeResult (reverted runtime err)
+            error? := some err }
+  | RequireCheckSource.requireBytesExpression cond reasonExpr =>
+      match cond.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, conditionRuntime) =>
+          let payload :=
+            Stmt.observeRevertPayload context conditionRuntime
+              (RevertPayloadSource.errorBytesExpression reasonExpr) self
+          finishPayload RequireCheckKind.requireBytesExpression none value
+            conditionRuntime payload
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RequireCheckKind.requireBytesExpression
+            result? := observeResult (reverted runtime err)
+            error? := some err }
+  | RequireCheckSource.requireCustom cond name exprs =>
+      match cond.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, conditionRuntime) =>
+          let payload :=
+            Stmt.observeRevertPayload context conditionRuntime
+              (RevertPayloadSource.customError name exprs) self
+          finishPayload RequireCheckKind.requireCustom (some name) value
+            conditionRuntime payload
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            kind := RequireCheckKind.requireCustom
+            name? := some name
+            result? := observeResult (reverted runtime err)
+            error? := some err }
 
 def revertBytesSelector? (bytes : List Byte) : Option Word :=
   match readBytes? bytes 0 selectorBytes with
@@ -4466,14 +9005,49 @@ def TryCatchClause.findMatch? (raw : List Byte) :
       | some matched => some matched
       | none => TryCatchClause.findMatch? raw rest
 
-def Stmt.findSwitchBranch? (value : Word) :
-    List (Word × Stmt) -> Option Stmt
+def TryCatchClause.name? : TryCatchClause -> Option String
+  | TryCatchClause.clause name? _ _ => name?
+
+def TryCatchClause.matchKind? : TryCatchClause -> Option TryCatchMatchKind
+  | TryCatchClause.clause (some "Error") _ _ =>
+      some TryCatchMatchKind.errorString
+  | TryCatchClause.clause (some "Panic") _ _ =>
+      some TryCatchMatchKind.panic
+  | TryCatchClause.clause none _ _ =>
+      some TryCatchMatchKind.lowLevel
+  | TryCatchClause.clause (some _) _ _ => none
+
+def TryCatchClause.observeFindMatch (raw : List Byte)
+    (clauses : List TryCatchClause) : TryCatchMatchObservation :=
+  let rec go : Nat -> List TryCatchClause -> TryCatchMatchObservation
+    | _, [] =>
+        { raw := raw
+          clauseCount := clauses.length }
+    | index, head :: rest =>
+        match head.match? raw with
+        | some (frame, body) =>
+            { raw := raw
+              clauseCount := clauses.length
+              selectedIndex? := some index
+              selectedKind? := head.matchKind?
+              selectedName? := head.name?
+              frame? := some frame
+              body? := some body }
+        | none => go (index + 1) rest
+  go 0 clauses
+
+def Stmt.findSwitchCase? (value : Word) :
+    List (Word × Stmt) -> Option (Word × Stmt)
   | [] => none
   | (label, body) :: rest =>
       if wordEq label value then
-        some body
+        some (label, body)
       else
-        Stmt.findSwitchBranch? value rest
+        Stmt.findSwitchCase? value rest
+
+def Stmt.findSwitchBranch? (value : Word)
+    (cases : List (Word × Stmt)) : Option Stmt :=
+  (Stmt.findSwitchCase? value cases).map Prod.snd
 
 mutual
 
@@ -4491,7 +9065,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
       | Stmt.varDecl ty name init =>
           match init with
           | some expr =>
-              match expr.evalWithRuntime context runtime with
+              match expr.evalWithRuntimeByContext context runtime with
               | Except.ok (value, runtime') =>
                   match ty.coerceValue? value with
                   | some coerced =>
@@ -4506,12 +9080,45 @@ def Stmt.eval (fuel : Nat) (context : Context)
               some
                 (Result.normal
                   (runtime.declareLocal name ty.defaultValue))
+      | Stmt.memoryVarDecl ty name init =>
+          match init with
+          | some expr =>
+              match
+                Expr.memoryRefOrValueWithRuntimeByContext
+                  expr context runtime
+              with
+              | Except.ok (some id, _, runtime') =>
+                  some
+                    (Result.normal
+                      (runtime'.declareLocal name (Value.memoryRef id)))
+              | Except.ok (none, some value, runtime') =>
+                  match runtime'.declareMemoryLocal ty name value with
+                  | some updated => some (Result.normal updated)
+                  | none =>
+                      some (Result.reverted runtime RevertData.typeMismatch)
+              | Except.ok (none, none, runtime') =>
+                  match expr.evalWithRuntimeByContext context runtime' with
+                  | Except.ok (value, runtime'') =>
+                      match runtime''.declareMemoryLocal ty name value with
+                      | some updated => some (Result.normal updated)
+                      | none =>
+                          some (Result.reverted runtime RevertData.typeMismatch)
+                  | Except.error err => some (Result.reverted runtime err)
+              | Except.error err => some (Result.reverted runtime err)
+          | none =>
+              match runtime.declareMemoryLocal ty name ty.defaultValue with
+              | some updated => some (Result.normal updated)
+              | none => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.memoryLocalize ty name =>
+          match runtime.localizeMemoryLocal ty name with
+          | some updated => some (Result.normal updated)
+          | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAlias name target =>
           some
             (Result.normal
               (runtime.declareLocal name (Value.storageRef target)))
       | Stmt.storageAliasPath name target indexes =>
-          match Expr.evalListWithRuntime context runtime indexes with
+          match Expr.evalListWithRuntimeByContext context runtime indexes with
           | Except.ok (indexValues, runtime') =>
               some
                 (Result.normal
@@ -4526,12 +9133,26 @@ def Stmt.eval (fuel : Nat) (context : Context)
                   (runtime.declareLocal name
                     (Value.storageRefForPath target indexes)))
           | none => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageAliasFromPath name source extraIndexes =>
+          match runtime.lookupStoragePathRef? source with
+          | some (target, indexes) =>
+              match
+                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+              with
+              | Except.ok (extraIndexValues, runtime') =>
+                  some
+                    (Result.normal
+                      (runtime'.declareLocal name
+                        (Value.storageRefForPath target
+                          (indexes ++ extraIndexValues))))
+              | Except.error err => some (Result.reverted runtime err)
+          | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssign name target =>
           match runtime.assignStorageRef? name target with
           | some updated => some (Result.normal updated)
           | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssignPath name target indexes =>
-          match Expr.evalListWithRuntime context runtime indexes with
+          match Expr.evalListWithRuntimeByContext context runtime indexes with
           | Except.ok (indexValues, runtime') =>
               match
                 runtime'.assignStoragePathRef? name target indexValues
@@ -4546,22 +9167,69 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | some updated => some (Result.normal updated)
               | none => some (Result.reverted runtime RevertData.typeMismatch)
           | none => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageAliasAssignFromPath name source extraIndexes =>
+          match runtime.lookupStoragePathRef? source with
+          | some (target, indexes) =>
+              match
+                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+              with
+              | Except.ok (extraIndexValues, runtime') =>
+                  match
+                    runtime'.assignStoragePathRef? name target
+                      (indexes ++ extraIndexValues)
+                  with
+                  | some updated => some (Result.normal updated)
+                  | none => some (Result.reverted runtime RevertData.typeMismatch)
+              | Except.error err => some (Result.reverted runtime err)
+          | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.exprStmt expr =>
-          match expr.evalWithRuntime context runtime with
+          match expr.evalWithRuntimeByContext context runtime with
           | Except.ok (_, runtime') => some (Result.normal runtime')
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.assign target expr =>
-          match expr.evalWithRuntime context runtime with
-          | Except.ok (value, runtime') =>
-              match target.resolveWithRuntime context runtime' with
-              | Except.ok (resolved, runtime'') =>
-                  match resolved.write context runtime'' value with
-                  | Except.ok updated => some (Result.normal updated)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
+          let writeAssigned
+              (resolved : ResolvedLValue) (value : Value)
+              (runtime' : Runtime) :=
+            match resolved.write context runtime' value with
+            | Except.ok updated => some (Result.normal updated)
+            | Except.error err => some (Result.reverted runtime err)
+          let evalTargetThenRhs :=
+            match target.resolveWithRuntime context runtime with
+            | Except.ok (resolved, runtime') =>
+                match expr.evalWithRuntimeByContext context runtime' with
+                | Except.ok (value, runtime'') =>
+                    writeAssigned resolved value runtime''
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          let evalRhsThenTarget :=
+            match expr.evalWithRuntimeByContext context runtime with
+            | Except.ok (value, runtime') =>
+                match target.resolveWithRuntime context runtime' with
+                | Except.ok (resolved, runtime'') =>
+                    writeAssigned resolved value runtime''
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          match target, expr with
+          | LValue.var name, Expr.var source =>
+              match runtime.lookupMemoryRef? name,
+                  runtime.lookupMemoryRef? source with
+              | some _, some sourceId =>
+                  match
+                    runtime.assignLocalRaw? name (Value.memoryRef sourceId)
+                  with
+                  | some updated => some (Result.normal updated)
+                  | none =>
+                      some (Result.reverted runtime RevertData.typeMismatch)
+              | _, _ =>
+                  match context.effectiveChildEvalOrder with
+                  | ChildEvalOrder.leftToRight => evalTargetThenRhs
+                  | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+          | _, _ =>
+              match context.effectiveChildEvalOrder with
+              | ChildEvalOrder.leftToRight => evalTargetThenRhs
+              | ChildEvalOrder.rightToLeft => evalRhsThenTarget
       | Stmt.assignTuple targets expr =>
-          match expr.evalWithRuntime context runtime with
+          match expr.evalWithRuntimeByContext context runtime with
           | Except.ok (Value.tuple values, runtime') =>
               match LValues.writeTupleWithRuntime? context runtime' targets values with
               | Except.ok updated => some (Result.normal updated)
@@ -4569,21 +9237,78 @@ def Stmt.eval (fuel : Nat) (context : Context)
           | Except.ok _ => some (Result.reverted runtime RevertData.typeMismatch)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.assignOp target op expr =>
-          match target.resolveWithRuntime context runtime with
-          | Except.ok (resolved, runtime') =>
-              match resolved.read context runtime' with
-              | Except.ok lhs =>
-                  match expr.evalWithRuntime context runtime' with
-                  | Except.ok (rhs, runtime'') =>
-                      match BinaryOp.apply context.checked op lhs rhs with
-                      | Except.ok value =>
-                          match resolved.write context runtime'' value with
-                          | Except.ok updated => some (Result.normal updated)
-                          | Except.error err => some (Result.reverted runtime err)
-                      | Except.error err => some (Result.reverted runtime err)
-                  | Except.error err => some (Result.reverted runtime err)
-              | Except.error err => some (Result.reverted runtime err)
-          | Except.error err => some (Result.reverted runtime err)
+          let writeApplied
+              (resolved : ResolvedLValue) (lhs rhs : Value)
+              (runtime' : Runtime) :=
+            match BinaryOp.apply context.checked op lhs rhs with
+            | Except.ok value =>
+                match resolved.write context runtime' value with
+                | Except.ok updated => some (Result.normal updated)
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          let evalTargetThenRhs :=
+            match target.resolveWithRuntime context runtime with
+            | Except.ok (resolved, runtime') =>
+                match resolved.read context runtime' with
+                | Except.ok lhs =>
+                    match expr.evalWithRuntimeByContext context runtime' with
+                    | Except.ok (rhs, runtime'') =>
+                        writeApplied resolved lhs rhs runtime''
+                    | Except.error err => some (Result.reverted runtime err)
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          let evalRhsThenTarget :=
+            match expr.evalWithRuntimeByContext context runtime with
+            | Except.ok (rhs, runtime') =>
+                match target.resolveWithRuntime context runtime' with
+                | Except.ok (resolved, runtime'') =>
+                    match resolved.read context runtime'' with
+                    | Except.ok lhs =>
+                        writeApplied resolved lhs rhs runtime''
+                    | Except.error err => some (Result.reverted runtime err)
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          match context.effectiveChildEvalOrder with
+          | ChildEvalOrder.leftToRight => evalTargetThenRhs
+          | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+      | Stmt.assignOpCleanup target op expr cleanup =>
+          let writeApplied
+              (resolved : ResolvedLValue) (lhs rhs : Value)
+              (runtime' : Runtime) :=
+            match BinaryOp.apply context.checked op lhs rhs with
+            | Except.ok value =>
+                match cleanup.apply context.checked value with
+                | Except.ok cleaned =>
+                    match resolved.write context runtime' cleaned with
+                    | Except.ok updated => some (Result.normal updated)
+                    | Except.error err => some (Result.reverted runtime err)
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          let evalTargetThenRhs :=
+            match target.resolveWithRuntime context runtime with
+            | Except.ok (resolved, runtime') =>
+                match resolved.read context runtime' with
+                | Except.ok lhs =>
+                    match expr.evalWithRuntimeByContext context runtime' with
+                    | Except.ok (rhs, runtime'') =>
+                        writeApplied resolved lhs rhs runtime''
+                    | Except.error err => some (Result.reverted runtime err)
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          let evalRhsThenTarget :=
+            match expr.evalWithRuntimeByContext context runtime with
+            | Except.ok (rhs, runtime') =>
+                match target.resolveWithRuntime context runtime' with
+                | Except.ok (resolved, runtime'') =>
+                    match resolved.read context runtime'' with
+                    | Except.ok lhs =>
+                        writeApplied resolved lhs rhs runtime''
+                    | Except.error err => some (Result.reverted runtime err)
+                | Except.error err => some (Result.reverted runtime err)
+            | Except.error err => some (Result.reverted runtime err)
+          match context.effectiveChildEvalOrder with
+          | ChildEvalOrder.leftToRight => evalTargetThenRhs
+          | ChildEvalOrder.rightToLeft => evalRhsThenTarget
       | Stmt.deleteValue target =>
           match target with
           | LValue.storage name =>
@@ -4611,7 +9336,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
       | Stmt.storageArrayPush name value? =>
           match value? with
           | some expr =>
-              match expr.evalWithRuntime context runtime with
+              match expr.evalWithRuntimeByContext context runtime with
               | Except.ok (value, runtime') =>
                   match runtime'.storageArrayPush context name (some value) with
                   | Except.ok updated => some (Result.normal updated)
@@ -4624,7 +9349,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
       | Stmt.storageArrayPushRef name value? =>
           match runtime.lookupStoragePathRef? name, value? with
           | some (target, indexes), some expr =>
-              match expr.evalWithRuntime context runtime with
+              match expr.evalWithRuntimeByContext context runtime with
               | Except.ok (value, runtime') =>
                   match
                     runtime'.storageArrayPushPath context target indexes
@@ -4638,12 +9363,41 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | none, _ => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageArrayPushRefPath name extraIndexes value? =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
+              match
+                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+              with
+              | Except.ok (extraIndexValues, runtime') =>
+                  let allIndexes := indexes ++ extraIndexValues
+                  match value? with
+                  | some expr =>
+                      match expr.evalWithRuntimeByContext context runtime' with
+                      | Except.ok (value, runtime'') =>
+                          match
+                            runtime''.storageArrayPushPath context target
+                              allIndexes (some value)
+                          with
+                          | Except.ok updated => some (Result.normal updated)
+                          | Except.error err =>
+                              some (Result.reverted runtime err)
+                      | Except.error err => some (Result.reverted runtime' err)
+                  | none =>
+                      match
+                        runtime'.storageArrayPushPath context target
+                          allIndexes none
+                      with
+                      | Except.ok updated => some (Result.normal updated)
+                      | Except.error err => some (Result.reverted runtime err)
+              | Except.error err => some (Result.reverted runtime err)
+          | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPushPath name indexes value? =>
-          match Expr.evalListWithRuntime context runtime indexes with
+          match Expr.evalListWithRuntimeByContext context runtime indexes with
           | Except.ok (indexValues, runtime') =>
               match value? with
               | some expr =>
-                  match expr.evalWithRuntime context runtime' with
+                  match expr.evalWithRuntimeByContext context runtime' with
                   | Except.ok (value, runtime'') =>
                       match
                         runtime''.storageArrayPushPath context name indexValues
@@ -4660,36 +9414,81 @@ def Stmt.eval (fuel : Nat) (context : Context)
                   | Except.error err => some (Result.reverted runtime err)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.storageArrayPushPathAssign name indexes rhs =>
-          match Expr.evalListWithRuntime context runtime indexes with
+          match Expr.evalListWithRuntimeByContext context runtime indexes with
           | Except.ok (indexValues, runtime') =>
               match runtime'.storageArrayPushPath context name indexValues none with
               | Except.ok pushed =>
-                  match rhs.evalWithRuntime context pushed with
+                  match rhs.evalWithRuntimeByContext context pushed with
                   | Except.ok (value, runtime'') =>
                       match
                         runtime''.loadStorageRefPathValue
                           context name indexValues
                       with
-                      | Except.ok (Value.word length) =>
-                          let last := SharedSemantics.norm length - 1
-                          match
-                            runtime''.storeStoragePathWithDeepClear
-                              context name
-                              (indexValues ++ [Value.word last])
-                              value
-                          with
-                          | Except.ok updated => some (Result.normal updated)
-                          | Except.error err =>
-                              some (Result.reverted runtime'' err)
-                      | Except.ok _ =>
-                          some
-                            (Result.reverted runtime''
-                              RevertData.typeMismatch)
+                      | Except.ok container =>
+                          match container.storageArrayLength? with
+                          | some length =>
+                              let last := length - 1
+                              match
+                                runtime''.storeStoragePathWithDeepClear
+                                  context name
+                                  (indexValues ++ [Value.word last])
+                                  value
+                              with
+                              | Except.ok updated =>
+                                  some (Result.normal updated)
+                              | Except.error err =>
+                                  some (Result.reverted runtime'' err)
+                          | none =>
+                              some
+                                (Result.reverted runtime''
+                                  RevertData.typeMismatch)
                       | Except.error err =>
                           some (Result.reverted runtime'' err)
                   | Except.error err => some (Result.reverted pushed err)
               | Except.error err => some (Result.reverted runtime err)
           | Except.error err => some (Result.reverted runtime err)
+      | Stmt.storageArrayPushRefPathAssign name extraIndexes rhs =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
+              match
+                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+              with
+              | Except.ok (extraIndexValues, runtime') =>
+                  let allIndexes := indexes ++ extraIndexValues
+                  match
+                    runtime'.storageArrayPushPath context target allIndexes none
+                  with
+                  | Except.ok pushed =>
+                      match rhs.evalWithRuntimeByContext context pushed with
+                      | Except.ok (value, runtime'') =>
+                          match
+                            runtime''.loadStorageRefPathValue
+                              context target allIndexes
+                          with
+                          | Except.ok container =>
+                              match container.storageArrayLength? with
+                              | some length =>
+                                  let last := length - 1
+                                  match
+                                    runtime''.storeStoragePathWithDeepClear
+                                      context target
+                                      (allIndexes ++ [Value.word last])
+                                      value
+                                  with
+                                  | Except.ok updated =>
+                                      some (Result.normal updated)
+                                  | Except.error err =>
+                                      some (Result.reverted runtime'' err)
+                              | none =>
+                                  some
+                                    (Result.reverted runtime''
+                                      RevertData.typeMismatch)
+                          | Except.error err =>
+                              some (Result.reverted runtime'' err)
+                      | Except.error err => some (Result.reverted pushed err)
+                  | Except.error err => some (Result.reverted runtime' err)
+              | Except.error err => some (Result.reverted runtime err)
+          | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPop name =>
           match runtime.storageArrayPop context name with
           | Except.ok updated => some (Result.normal updated)
@@ -4701,8 +9500,23 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | none => some (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.storageArrayPopRefPath name extraIndexes =>
+          match runtime.lookupStoragePathRef? name with
+          | some (target, indexes) =>
+              match
+                Expr.evalListWithRuntimeByContext context runtime extraIndexes
+              with
+              | Except.ok (extraIndexValues, runtime') =>
+                  match
+                    runtime'.storageArrayPopPath context target
+                      (indexes ++ extraIndexValues)
+                  with
+                  | Except.ok updated => some (Result.normal updated)
+                  | Except.error err => some (Result.reverted runtime err)
+              | Except.error err => some (Result.reverted runtime err)
+          | none => some (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPopPath name indexes =>
-          match Expr.evalListWithRuntime context runtime indexes with
+          match Expr.evalListWithRuntimeByContext context runtime indexes with
           | Except.ok (indexValues, runtime') =>
               match runtime'.storageArrayPopPath context name indexValues with
               | Except.ok updated => some (Result.normal updated)
@@ -4711,7 +9525,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
       | Stmt.panic code =>
           some (Result.reverted runtime (RevertData.panic code))
       | Stmt.assertStmt cond =>
-          match cond.evalWithRuntime context runtime with
+          match cond.evalWithRuntimeByContext context runtime with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
@@ -4722,7 +9536,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.error err => some (Result.reverted runtime' err)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.requireStmt cond reason =>
-          match cond.evalWithRuntime context runtime with
+          match cond.evalWithRuntimeByContext context runtime with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
@@ -4737,9 +9551,9 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.error err => some (Result.reverted runtime' err)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.requireErrorExpr cond reasonExpr =>
-          match cond.evalWithRuntime context runtime with
+          match cond.evalWithRuntimeByContext context runtime with
           | Except.ok (value, runtime') =>
-              match reasonExpr.evalWithRuntime context runtime' with
+              match reasonExpr.evalWithRuntimeByContext context runtime' with
               | Except.ok (reasonValue, runtime'') =>
                   match value.expectWord with
                   | Except.ok word =>
@@ -4756,9 +9570,9 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.error err => some (Result.reverted runtime' err)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.requireCustom cond name exprs =>
-          match cond.evalWithRuntime context runtime with
+          match cond.evalWithRuntimeByContext context runtime with
           | Except.ok (value, runtime') =>
-              match Expr.evalListWithRuntime context runtime' exprs with
+              match Expr.evalListWithRuntimeByContext context runtime' exprs with
               | Except.ok (args, runtime'') =>
                   match value.expectWord with
                   | Except.ok word =>
@@ -4783,7 +9597,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
           | some result => some result
           | none => none
       | Stmt.ifElse cond thenBranch elseBranch =>
-          match cond.evalWithRuntime context runtime with
+          match cond.evalWithRuntimeByContext context runtime with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
@@ -4794,7 +9608,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.error err => some (Result.reverted runtime' err)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.switch discr cases defaultBranch =>
-          match discr.evalWithRuntime context runtime with
+          match discr.evalWithRuntimeByContext context runtime with
           | Except.ok (value, runtime') =>
               match value.expectWord with
               | Except.ok word =>
@@ -4818,13 +9632,13 @@ def Stmt.eval (fuel : Nat) (context : Context)
           | some result => some (result.mapRuntime Runtime.popScope)
           | none => none
         | Stmt.tryExternalCall kind targetExpr calldataExpr valueExpr
-            gasExpr? gasFirst checkTargetCode returns successBody
+            gasExpr? gasFirst checkTargetCode returns returnAbiCleanups successBody
             catchClauses =>
-            match targetExpr.evalWithRuntime context runtime with
+            match targetExpr.evalWithRuntimeByContext context runtime with
             | Except.ok (targetValue, runtime') =>
                 match targetValue.expectWord with
                 | Except.ok target =>
-                    match calldataExpr.evalWithRuntime context runtime' with
+                    match calldataExpr.evalWithRuntimeByContext context runtime' with
                     | Except.ok (calldataValue, runtime'') =>
                         match calldataValue.asBytes? with
                         | some calldata =>
@@ -4833,7 +9647,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                   (Word × Option Word × Runtime) :=
                               match gasExpr? with
                               | none =>
-                                  match valueExpr.evalWithRuntime context runtime'' with
+                                  match valueExpr.evalWithRuntimeByContext context runtime'' with
                                   | Except.ok (valueValue, runtimeValue) =>
                                       match valueValue.expectWord with
                                       | Except.ok value =>
@@ -4844,7 +9658,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                       Except.error (runtime'', err)
                               | some gasExpr =>
                                   if gasFirst then
-                                    match gasExpr.evalWithRuntime context runtime'' with
+                                    match gasExpr.evalWithRuntimeByContext context runtime'' with
                                     | Except.ok (gasValue, runtimeGas) =>
                                         match gasValue.expectWord with
                                         | Except.ok gas =>
@@ -4895,49 +9709,59 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                     let missingCode :=
                                       checkTargetCode &&
                                         !(context.accountHasCode target)
-                                    let callResult? :=
+                                    let callResult :=
                                       if missingCode then
-                                        none
-                                      else
-                                        context.lookupLowLevelCall?
+                                        LowLevelCallResult.failedRequest
                                           kind target calldata value gas?
-                                    let success :=
-                                      match callResult? with
-                                      | some result => result.success
-                                      | none => false
-                                    let output :=
-                                      match callResult? with
-                                      | some result => result.output.map normByte
-                                      | none => []
+                                      else
+                                        context.resolveLowLevelCall
+                                          kind target calldata value gas?
+                                    let runtimeWithInteraction :=
+                                      runtime'''.recordExternalInteraction
+                                        (ExternalInteraction.lowLevelCall
+                                          callResult)
+                                    let success := callResult.success
+                                    let output := callResult.output.map normByte
                                     if success then
                                       match abiDecodeValues?
                                           (returns.map BindingDecl.ty) output with
                                         | some decoded =>
-                                            match BindingDecl.bindArgs?
-                                                returns decoded with
-                                            | some frame =>
-                                                match Stmt.eval fuel context
-                                                    (runtime'''.withFrame frame)
-                                                    successBody with
-                                                | some result =>
-                                                    some
-                                                    (result.mapRuntime
-                                                      Runtime.popScope)
-                                                | none => none
-                                            | none =>
+                                            if AbiCleanups.acceptOrUnspecified
+                                                returnAbiCleanups decoded then
+                                              match BindingDecl.bindArgs?
+                                                  returns decoded with
+                                              | some frame =>
+                                                  match Stmt.eval fuel context
+                                                      (runtimeWithInteraction.withFrame
+                                                        frame)
+                                                      successBody with
+                                                  | some result =>
+                                                      some
+                                                      (result.mapRuntime
+                                                        Runtime.popScope)
+                                                  | none => none
+                                              | none =>
+                                                  some
+                                                    (Result.reverted
+                                                      runtimeWithInteraction
+                                                      RevertData.typeMismatch)
+                                            else
                                                 some
-                                                  (Result.reverted runtime'''
-                                                    RevertData.typeMismatch)
+                                                  (Result.reverted
+                                                    runtimeWithInteraction
+                                                    RevertData.empty)
                                         | none =>
                                             some
-                                              (Result.reverted runtime'''
-                                                RevertData.typeMismatch)
+                                              (Result.reverted
+                                                runtimeWithInteraction
+                                                RevertData.empty)
                                     else
                                         match TryCatchClause.findMatch?
                                             output catchClauses with
                                         | some (frame, body) =>
                                             match Stmt.eval fuel context
-                                                (runtime'''.withFrame frame) body with
+                                                (runtimeWithInteraction.withFrame
+                                                  frame) body with
                                             | some result =>
                                                 some
                                                 (result.mapRuntime
@@ -4945,7 +9769,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                             | none => none
                                         | none =>
                                             some
-                                              (Result.reverted runtime'''
+                                              (Result.reverted
+                                                runtimeWithInteraction
                                                 (RevertData.fromRawBytes output))
                             | Except.error (runtimeFailed, err) =>
                                 some (Result.reverted runtimeFailed err)
@@ -4956,11 +9781,11 @@ def Stmt.eval (fuel : Nat) (context : Context)
             | Except.error err => some (Result.reverted runtime err)
         | Stmt.tryContractCreate contractName constructorArgsExpr valueExpr
             saltExpr? returns successBody catchClauses =>
-            match constructorArgsExpr.evalWithRuntime context runtime with
+            match constructorArgsExpr.evalWithRuntimeByContext context runtime with
             | Except.ok (argsValue, runtime') =>
                 match argsValue.asBytes? with
                 | some constructorArgs =>
-                    match valueExpr.evalWithRuntime context runtime' with
+                    match valueExpr.evalWithRuntimeByContext context runtime' with
                     | Except.ok (valueValue, runtime'') =>
                         match valueValue.expectWord with
                         | Except.ok value =>
@@ -4969,37 +9794,32 @@ def Stmt.eval (fuel : Nat) (context : Context)
                               match saltExpr? with
                               | some saltExpr => do
                                   let (saltValue, runtime''') ←
-                                    saltExpr.evalWithRuntime context runtime''
+                                    saltExpr.evalWithRuntimeByContext context runtime''
                                   let salt ← saltValue.expectWord
                                   Except.ok (some salt, runtime''')
                               | none => Except.ok (none, runtime'')
                             match saltResult? with
                             | Except.ok (salt?, runtime''') =>
-                                let createResult? :=
-                                  context.lookupContractCreation?
-                                  contractName constructorArgs value salt?
-                              let success :=
-                                match createResult? with
-                                | some result => result.success
-                                | none => false
-                              let output :=
-                                match createResult? with
-                                | some result => result.output.map normByte
-                                | none => []
+                                let createResult :=
+                                  context.resolveContractCreation
+                                    contractName constructorArgs value salt?
+                              let runtimeWithInteraction :=
+                                runtime'''.recordExternalInteraction
+                                  (ExternalInteraction.contractCreation
+                                    createResult)
+                              let success := createResult.success
+                              let output := createResult.output.map normByte
                               if success then
-                                let address :=
-                                  match createResult? with
-                                  | some result => result.address
-                                  | none => 0
+                                let address := createResult.address
                                 let values :=
                                   if returns.isEmpty then
                                     []
                                   else
                                     [Value.word address]
-                                  match BindingDecl.bindArgs? returns values with
-                                  | some frame =>
-                                      match Stmt.eval fuel context
-                                          (runtime'''.withFrame frame)
+                                match BindingDecl.bindArgs? returns values with
+                                | some frame =>
+                                    match Stmt.eval fuel context
+                                          (runtimeWithInteraction.withFrame frame)
                                           successBody with
                                       | some result =>
                                         some
@@ -5008,14 +9828,15 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                       | none => none
                                   | none =>
                                       some
-                                        (Result.reverted runtime'''
+                                        (Result.reverted runtimeWithInteraction
                                           RevertData.typeMismatch)
                                 else
                                   match TryCatchClause.findMatch?
                                       output catchClauses with
                                   | some (frame, body) =>
                                       match Stmt.eval fuel context
-                                          (runtime'''.withFrame frame) body with
+                                          (runtimeWithInteraction.withFrame frame)
+                                          body with
                                       | some result =>
                                         some
                                           (result.mapRuntime
@@ -5023,7 +9844,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                       | none => none
                                   | none =>
                                       some
-                                        (Result.reverted runtime'''
+                                        (Result.reverted runtimeWithInteraction
                                           (RevertData.fromRawBytes output))
                             | Except.error err =>
                                 some (Result.reverted runtime'' err)
@@ -5035,7 +9856,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
       | Stmt.break => some (Result.broke runtime)
       | Stmt.continue => some (Result.continued runtime)
       | Stmt.returnValues exprs =>
-          match Expr.evalListWithRuntime context runtime exprs with
+          match Expr.evalReturnListWithRuntimeByContext context runtime exprs with
           | Except.ok (values, runtime') =>
               some (Result.returned runtime' values)
           | Except.error err => some (Result.reverted runtime err)
@@ -5046,7 +9867,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
           | none =>
               some (Result.reverted runtime RevertData.empty)
       | Stmt.revertErrorExpr reasonExpr =>
-          match reasonExpr.evalWithRuntime context runtime with
+          match reasonExpr.evalWithRuntimeByContext context runtime with
           | Except.ok (reasonValue, runtime') =>
               match errorStringBytesRevert? reasonValue with
               | some payload =>
@@ -5055,19 +9876,19 @@ def Stmt.eval (fuel : Nat) (context : Context)
                   some (Result.reverted runtime' RevertData.typeMismatch)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.revert name exprs =>
-          match Expr.evalListWithRuntime context runtime exprs with
+          match Expr.evalListWithRuntimeByContext context runtime exprs with
           | Except.ok (values, runtime') =>
               some (Result.reverted runtime' (RevertData.custom name values))
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.emitEvent name exprs =>
-          match Expr.evalListWithRuntime context runtime exprs with
+          match Expr.evalListWithRuntimeByContext context runtime exprs with
           | Except.ok (values, runtime') =>
               match runtime'.emitEvent context name values with
               | Except.ok updated => some (Result.normal updated)
               | Except.error err => some (Result.reverted runtime err)
           | Except.error err => some (Result.reverted runtime err)
       | Stmt.selfdestruct recipientExpr =>
-          match recipientExpr.evalWithRuntime context runtime with
+          match recipientExpr.evalWithRuntimeByContext context runtime with
           | Except.ok (recipientValue, runtime') =>
               match recipientValue.expectWord with
               | Except.ok recipient =>
@@ -5076,6 +9897,8 @@ def Stmt.eval (fuel : Nat) (context : Context)
                       { runtime' with
                         state :=
                           runtime'.state.recordSelfdestruct
+                            context.evmVersion
+                            context.createdInTransactionAccounts
                             context.self recipient })
               | Except.error err => some (Result.reverted runtime' err)
           | Except.error err => some (Result.reverted runtime err)
@@ -5100,7 +9923,7 @@ def Stmt.evalWhile (fuel : Nat) (context : Context)
   match fuel with
   | 0 => none
   | fuel + 1 =>
-      match cond.evalWithRuntime context runtime with
+      match cond.evalWithRuntimeByContext context runtime with
       | Except.ok (value, runtime') =>
           match value.expectWord with
           | Except.ok word =>
@@ -5127,7 +9950,7 @@ def Stmt.evalDoWhile (fuel : Nat) (context : Context)
   | fuel + 1 =>
       match Stmt.eval fuel context runtime body with
       | some (Result.normal runtime') =>
-          match cond.evalWithRuntime context runtime' with
+          match cond.evalWithRuntimeByContext context runtime' with
           | Except.ok (value, runtime'') =>
               match value.expectWord with
               | Except.ok word =>
@@ -5138,7 +9961,7 @@ def Stmt.evalDoWhile (fuel : Nat) (context : Context)
               | Except.error err => some (Result.reverted runtime'' err)
           | Except.error err => some (Result.reverted runtime' err)
       | some (Result.continued runtime') =>
-          match cond.evalWithRuntime context runtime' with
+          match cond.evalWithRuntimeByContext context runtime' with
           | Except.ok (value, runtime'') =>
               match value.expectWord with
               | Except.ok word =>
@@ -5159,7 +9982,7 @@ def Stmt.evalFor (fuel : Nat) (context : Context)
   match fuel with
   | 0 => none
   | fuel + 1 =>
-      match cond.evalWithRuntime context runtime with
+      match cond.evalWithRuntimeByContext context runtime with
       | Except.ok (value, runtime') =>
           match value.expectWord with
           | Except.ok word =>
@@ -5188,11 +10011,1454 @@ def Stmt.evalFor (fuel : Nat) (context : Context)
 
 end
 
+def Stmt.observeBlockScope (fuel : Nat) (context : Context)
+    (runtime : Runtime) (body : List Stmt) (self : Word) :
+    BlockScopeObservation :=
+  let entered := runtime.pushScope
+  let bodyResult? := Stmt.evalList fuel context entered body
+  { beforeScope := runtime.observe self
+    enteredScope := entered.observe self
+    bodyResult? := bodyResult?.map (fun result => result.observe self)
+    finalResult? :=
+      bodyResult?.map
+        (fun result => (result.mapRuntime Runtime.popScope).observe self) }
+
+def Stmt.observeLocalDeclaration (context : Context)
+    (runtime : Runtime) (ty : Ty) (name : String) (init : Option Expr)
+    (self : Word) : LocalDeclarationObservation :=
+  match init with
+  | none =>
+      let value := ty.defaultValue
+      let result := Result.normal (runtime.declareLocal name value)
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        name := name
+        ty := ty
+        declaredValue? := some value
+        result? := some (result.observe self) }
+  | some expr =>
+      match expr.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, runtime') =>
+          match ty.coerceValue? value with
+          | some coerced =>
+              let result :=
+                Result.normal (runtime'.declareLocal name coerced)
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                name := name
+                ty := ty
+                initializerValue? := some value
+                initializerRuntime? := some (runtime'.observe self)
+                declaredValue? := some coerced
+                result? := some (result.observe self) }
+          | none =>
+              let err := RevertData.typeMismatch
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                name := name
+                ty := ty
+                initializerValue? := some value
+                initializerRuntime? := some (runtime'.observe self)
+                result? := some ((Result.reverted runtime err).observe self)
+                revertData? := some err }
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            name := name
+            ty := ty
+            result? := some ((Result.reverted runtime err).observe self)
+            revertData? := some err }
+
+def Stmt.observeLocalAssignment (context : Context)
+    (runtime : Runtime) (name : String) (expr : Expr) (self : Word) :
+    LocalAssignmentObservation :=
+  let order := context.effectiveChildEvalOrder
+  let previousValue? := runtime.lookupLocal? name
+  let observeResult (result : Result) := some (result.observe self)
+  let finish (rhsValue? : Option Value)
+      (rhsRuntime? targetRuntime? : Option Runtime)
+      (assignedValue? : Option Value) (result : Result)
+      (revertData? : Option RevertData) :
+      LocalAssignmentObservation :=
+    { context := context.observe
+      inputRuntime := runtime.observe self
+      name := name
+      order := order
+      previousValue? := previousValue?
+      rhsValue? := rhsValue?
+      rhsRuntime? := rhsRuntime?.map (fun runtime => runtime.observe self)
+      targetRuntime? :=
+        targetRuntime?.map (fun runtime => runtime.observe self)
+      assignedValue? := assignedValue?
+      result? := observeResult result
+      revertData? := revertData? }
+  let writeAssigned (resolved : ResolvedLValue) (value : Value)
+      (runtime' : Runtime) (rhsRuntime? targetRuntime? : Option Runtime) :=
+    match resolved.write context runtime' value with
+    | Except.ok updated =>
+        finish (some value) rhsRuntime? targetRuntime? (some value)
+          (Result.normal updated) none
+    | Except.error err =>
+        finish (some value) rhsRuntime? targetRuntime? (some value)
+          (Result.reverted runtime err) (some err)
+  let evalTargetThenRhs :=
+    match (LValue.var name).resolveWithRuntime context runtime with
+    | Except.ok (resolved, targetRuntime) =>
+        match expr.evalWithRuntimeByContext context targetRuntime with
+        | Except.ok (value, rhsRuntime) =>
+            writeAssigned resolved value rhsRuntime
+              (some rhsRuntime) (some targetRuntime)
+        | Except.error err =>
+            finish none none (some targetRuntime) none
+              (Result.reverted runtime err) (some err)
+    | Except.error err =>
+        finish none none none none
+          (Result.reverted runtime err) (some err)
+  let evalRhsThenTarget :=
+    match expr.evalWithRuntimeByContext context runtime with
+    | Except.ok (value, rhsRuntime) =>
+        match (LValue.var name).resolveWithRuntime context rhsRuntime with
+        | Except.ok (resolved, targetRuntime) =>
+            writeAssigned resolved value targetRuntime
+              (some rhsRuntime) (some targetRuntime)
+        | Except.error err =>
+            finish (some value) (some rhsRuntime) none none
+              (Result.reverted runtime err) (some err)
+    | Except.error err =>
+        finish none none none none
+          (Result.reverted runtime err) (some err)
+  match expr with
+  | Expr.var source =>
+      match runtime.lookupMemoryRef? name, runtime.lookupMemoryRef? source with
+      | some _, some sourceId =>
+          let assigned := Value.memoryRef sourceId
+          match runtime.assignLocalRaw? name assigned with
+          | some updated =>
+              finish (some assigned) none none (some assigned)
+                (Result.normal updated) none
+          | none =>
+              let err := RevertData.typeMismatch
+              finish (some assigned) none none (some assigned)
+                (Result.reverted runtime err) (some err)
+      | _, _ =>
+          match order with
+          | ChildEvalOrder.leftToRight => evalTargetThenRhs
+          | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+  | _ =>
+      match order with
+      | ChildEvalOrder.leftToRight => evalTargetThenRhs
+      | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+
+def Stmt.observeIfBranch (fuel : Nat) (context : Context)
+    (runtime : Runtime) (cond : Expr) (thenBranch elseBranch : Stmt)
+    (self : Word) : IfBranchObservation :=
+  match cond.evalWithRuntimeByContext context runtime with
+  | Except.ok (value, conditionRuntime) =>
+      match value.expectWord with
+      | Except.ok word =>
+          let selected :=
+            if wordTruthy word then
+              IfBranchSelection.thenBranch
+            else
+              IfBranchSelection.elseBranch
+          let branch :=
+            match selected with
+            | IfBranchSelection.thenBranch => thenBranch
+            | IfBranchSelection.elseBranch => elseBranch
+          let result? := Stmt.eval fuel context conditionRuntime branch
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            conditionValue? := some word
+            conditionRuntime? := some (conditionRuntime.observe self)
+            selected? := some selected
+            result? := result?.map (fun result => result.observe self) }
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            conditionRuntime? := some (conditionRuntime.observe self)
+            result? :=
+              some
+                ((Result.reverted conditionRuntime err).observe self)
+            revertData? := some err }
+  | Except.error err =>
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        result? := some ((Result.reverted runtime err).observe self)
+        revertData? := some err }
+
+def Stmt.observeSwitchBranch (fuel : Nat) (context : Context)
+    (runtime : Runtime) (discr : Expr) (cases : List (Word × Stmt))
+    (defaultBranch : Option Stmt) (self : Word) :
+    SwitchBranchObservation :=
+  match discr.evalWithRuntimeByContext context runtime with
+  | Except.ok (value, discrRuntime) =>
+      match value.expectWord with
+      | Except.ok word =>
+          match Stmt.findSwitchCase? word cases, defaultBranch with
+          | some (label, branch), _ =>
+              let result? := Stmt.eval fuel context discrRuntime branch
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                discriminantValue? := some word
+                discriminantRuntime? := some (discrRuntime.observe self)
+                selected? := some (SwitchBranchSelection.caseBranch label)
+                result? := result?.map (fun result => result.observe self) }
+          | none, some branch =>
+              let result? := Stmt.eval fuel context discrRuntime branch
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                discriminantValue? := some word
+                discriminantRuntime? := some (discrRuntime.observe self)
+                selected? := some SwitchBranchSelection.defaultBranch
+                result? := result?.map (fun result => result.observe self) }
+          | none, none =>
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                discriminantValue? := some word
+                discriminantRuntime? := some (discrRuntime.observe self)
+                selected? := some SwitchBranchSelection.noBranch
+                result? :=
+                  some ((Result.normal discrRuntime).observe self) }
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            discriminantRuntime? := some (discrRuntime.observe self)
+            result? :=
+              some ((Result.reverted discrRuntime err).observe self)
+            revertData? := some err }
+  | Except.error err =>
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        result? := some ((Result.reverted runtime err).observe self)
+        revertData? := some err }
+
+inductive TryExternalCallEvaluationStatus where
+  | notTryExternalCall
+  | targetReverted
+  | targetTypeMismatch
+  | calldataReverted
+  | calldataTypeMismatch
+  | valueReverted
+  | valueTypeMismatch
+  | gasReverted
+  | gasTypeMismatch
+  | successBodyEvaluated
+  | successBodyOutOfFuel
+  | successAbiDecodeFailure
+  | successReturnBindFailure
+  | catchBodyEvaluated
+  | catchBodyOutOfFuel
+  | catchUnmatched
+  deriving Repr, BEq
+
+structure TryExternalCallEvaluationObservation where
+  source : Stmt
+  kind? : Option LowLevelCallKind := none
+  policy : ChildEvaluationPolicyObservation
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  sourceOperands : List Expr := []
+  gasFirst? : Option Bool := none
+  hasGas : Bool := false
+  checkTargetCode : Bool := false
+  returnCount : Nat := 0
+  returnAbiCleanups : List AbiCleanup := []
+  catchCount : Nat := 0
+  targetValue? : Option Value := none
+  target? : Option Word := none
+  targetRuntime? : Option RuntimeObservation := none
+  calldataValue? : Option Value := none
+  calldata? : Option (List Byte) := none
+  calldataRuntime? : Option RuntimeObservation := none
+  valueValue? : Option Value := none
+  value? : Option Word := none
+  valueRuntime? : Option RuntimeObservation := none
+  gasValue? : Option Value := none
+  gas? : Option Word := none
+  gasRuntime? : Option RuntimeObservation := none
+  operandRuntime? : Option RuntimeObservation := none
+  missingCode : Bool := false
+  resolution? : Option LowLevelCallResolutionObservation := none
+  callResult? : Option LowLevelCallResult := none
+  interactionRuntime? : Option RuntimeObservation := none
+  decodedReturns? : Option (List Value) := none
+  successFrame? : Option Frame := none
+  catchMatch? : Option TryCatchMatchObservation := none
+  bodyResult? : Option ResultObservation := none
+  finalResult? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  status : TryExternalCallEvaluationStatus
+  deriving Repr
+
+def Stmt.observeTryExternalCallEvaluation (fuel : Nat) (context : Context)
+    (runtime : Runtime) (stmt : Stmt) (self : Word) :
+    TryExternalCallEvaluationObservation :=
+  let base :=
+    { source := stmt
+      policy := context.observeChildEvaluationPolicy
+      context := context.observe
+      inputRuntime := runtime.observe self
+      status := TryExternalCallEvaluationStatus.notTryExternalCall }
+  let observeResult (result : Result) := some (result.observe self)
+  match stmt with
+  | Stmt.tryExternalCall kind targetExpr calldataExpr valueExpr
+      gasExpr? gasFirst checkTargetCode returns returnAbiCleanups successBody
+      catchClauses =>
+      let sourceOperands :=
+        [targetExpr, calldataExpr] ++
+          match gasExpr? with
+          | none => [valueExpr]
+          | some gasExpr =>
+              if gasFirst then
+                [gasExpr, valueExpr]
+              else
+                [valueExpr, gasExpr]
+      let callBase :=
+        { base with
+          kind? := some kind
+          sourceOperands := sourceOperands
+          gasFirst? := some gasFirst
+          hasGas := gasExpr?.isSome
+          checkTargetCode := checkTargetCode
+          returnCount := returns.length
+          returnAbiCleanups := returnAbiCleanups
+          catchCount := catchClauses.length }
+      let finishReverted
+          (status : TryExternalCallEvaluationStatus)
+          (revertRuntime : Runtime) (err : RevertData) :=
+        { callBase with
+          finalResult? :=
+            observeResult (Result.reverted revertRuntime err)
+          revertData? := some err
+          status := status }
+      let finishCall
+          (targetValue : Value) (target : Word)
+          (targetRuntime : Runtime) (calldataValue : Value)
+          (calldata : List Byte) (calldataRuntime : Runtime)
+          (valueValue : Value) (value : Word)
+          (valueRuntime : Runtime) (gasValue? : Option Value)
+          (gas? : Option Word) (gasRuntime? : Option Runtime)
+          (operandRuntime : Runtime) :=
+        let missingCode :=
+          checkTargetCode && !(context.accountHasCode target)
+        let resolution? :=
+          if missingCode then
+            none
+          else
+            some
+              (context.observeLowLevelCallResolution
+                kind target calldata value gas?)
+        let callResult :=
+          match resolution? with
+          | some resolution => resolution.result
+          | none =>
+              LowLevelCallResult.failedRequest
+                kind target calldata value gas?
+        let runtimeWithInteraction :=
+          operandRuntime.recordExternalInteraction
+            (ExternalInteraction.lowLevelCall callResult)
+        let callObserved :=
+          { callBase with
+            targetValue? := some targetValue
+            target? := some target
+            targetRuntime? := some (targetRuntime.observe self)
+            calldataValue? := some calldataValue
+            calldata? := some calldata
+            calldataRuntime? := some (calldataRuntime.observe self)
+            valueValue? := some valueValue
+            value? := some value
+            valueRuntime? := some (valueRuntime.observe self)
+            gasValue? := gasValue?
+            gas? := gas?
+            gasRuntime? :=
+              gasRuntime?.map (fun (rt : Runtime) => Runtime.observe rt self)
+            operandRuntime? := some (operandRuntime.observe self)
+            missingCode := missingCode
+            resolution? := resolution?
+            callResult? := some callResult
+            interactionRuntime? :=
+              some (runtimeWithInteraction.observe self) }
+        let output := callResult.output.map normByte
+        if callResult.success then
+          match abiDecodeValues? (returns.map BindingDecl.ty) output with
+          | some decoded =>
+              if AbiCleanups.acceptOrUnspecified returnAbiCleanups decoded then
+                match BindingDecl.bindArgs? returns decoded with
+                | some frame =>
+                    match
+                        Stmt.eval fuel context
+                          (runtimeWithInteraction.withFrame frame) successBody
+                    with
+                    | some bodyResult =>
+                        let finalResult := bodyResult.mapRuntime Runtime.popScope
+                        { callObserved with
+                          decodedReturns? := some decoded
+                          successFrame? := some frame
+                          bodyResult? := some (bodyResult.observe self)
+                          finalResult? := some (finalResult.observe self)
+                          status :=
+                            TryExternalCallEvaluationStatus.successBodyEvaluated }
+                    | none =>
+                        { callObserved with
+                          decodedReturns? := some decoded
+                          successFrame? := some frame
+                          status :=
+                            TryExternalCallEvaluationStatus.successBodyOutOfFuel }
+                | none =>
+                    let err := RevertData.typeMismatch
+                    let finalResult :=
+                      Result.reverted runtimeWithInteraction err
+                    { callObserved with
+                      decodedReturns? := some decoded
+                      finalResult? := some (finalResult.observe self)
+                      revertData? := some err
+                      status :=
+                        TryExternalCallEvaluationStatus.successReturnBindFailure }
+              else
+                  let err := RevertData.empty
+                  let finalResult :=
+                    Result.reverted runtimeWithInteraction err
+                  { callObserved with
+                    decodedReturns? := some decoded
+                    finalResult? := some (finalResult.observe self)
+                    revertData? := some err
+                    status :=
+                      TryExternalCallEvaluationStatus.successAbiDecodeFailure }
+          | none =>
+              let err := RevertData.empty
+              let finalResult := Result.reverted runtimeWithInteraction err
+              { callObserved with
+                finalResult? := some (finalResult.observe self)
+                revertData? := some err
+                status :=
+                  TryExternalCallEvaluationStatus.successAbiDecodeFailure }
+        else
+          let matchObservation :=
+            TryCatchClause.observeFindMatch output catchClauses
+          match matchObservation.frame?, matchObservation.body? with
+          | some frame, some body =>
+              match
+                  Stmt.eval fuel context
+                    (runtimeWithInteraction.withFrame frame) body
+              with
+              | some bodyResult =>
+                  let finalResult := bodyResult.mapRuntime Runtime.popScope
+                  { callObserved with
+                    catchMatch? := some matchObservation
+                    bodyResult? := some (bodyResult.observe self)
+                    finalResult? := some (finalResult.observe self)
+                    status :=
+                      TryExternalCallEvaluationStatus.catchBodyEvaluated }
+              | none =>
+                  { callObserved with
+                    catchMatch? := some matchObservation
+                    status :=
+                      TryExternalCallEvaluationStatus.catchBodyOutOfFuel }
+          | _, _ =>
+              let err := RevertData.fromRawBytes output
+              let finalResult :=
+                Result.reverted runtimeWithInteraction err
+              { callObserved with
+                catchMatch? := some matchObservation
+                finalResult? := some (finalResult.observe self)
+                revertData? := some err
+                status := TryExternalCallEvaluationStatus.catchUnmatched }
+      match targetExpr.evalWithRuntimeByContext context runtime with
+      | Except.error err =>
+          finishReverted
+            TryExternalCallEvaluationStatus.targetReverted runtime err
+      | Except.ok (targetValue, targetRuntime) =>
+          match targetValue.expectWord with
+          | Except.error err =>
+              { callBase with
+                targetValue? := some targetValue
+                targetRuntime? := some (targetRuntime.observe self)
+                finalResult? :=
+                  observeResult (Result.reverted targetRuntime err)
+                revertData? := some err
+                status :=
+                  TryExternalCallEvaluationStatus.targetTypeMismatch }
+          | Except.ok target =>
+              match calldataExpr.evalWithRuntimeByContext
+                  context targetRuntime with
+              | Except.error err =>
+                  { callBase with
+                    targetValue? := some targetValue
+                    target? := some target
+                    targetRuntime? := some (targetRuntime.observe self)
+                    finalResult? :=
+                      observeResult (Result.reverted targetRuntime err)
+                    revertData? := some err
+                    status :=
+                      TryExternalCallEvaluationStatus.calldataReverted }
+              | Except.ok (calldataValue, calldataRuntime) =>
+                  match calldataValue.asBytes? with
+                  | none =>
+                      let err := RevertData.typeMismatch
+                      { callBase with
+                        targetValue? := some targetValue
+                        target? := some target
+                        targetRuntime? := some (targetRuntime.observe self)
+                        calldataValue? := some calldataValue
+                        calldataRuntime? :=
+                          some (calldataRuntime.observe self)
+                        finalResult? :=
+                          observeResult
+                            (Result.reverted calldataRuntime err)
+                        revertData? := some err
+                        status :=
+                          TryExternalCallEvaluationStatus.calldataTypeMismatch }
+                  | some calldata =>
+                      let valueReverted
+                          (valueRuntime : Runtime) (err : RevertData)
+                          (gasValue? : Option Value := none)
+                          (gas? : Option Word := none)
+                          (gasRuntime? : Option Runtime := none) :=
+                        { callBase with
+                          targetValue? := some targetValue
+                          target? := some target
+                          targetRuntime? :=
+                            some (targetRuntime.observe self)
+                          calldataValue? := some calldataValue
+                          calldata? := some calldata
+                          calldataRuntime? :=
+                            some (calldataRuntime.observe self)
+                          gasValue? := gasValue?
+                          gas? := gas?
+                          gasRuntime? :=
+                            gasRuntime?.map
+                              (fun (rt : Runtime) => Runtime.observe rt self)
+                          finalResult? :=
+                            observeResult
+                              (Result.reverted valueRuntime err)
+                          revertData? := some err
+                          status :=
+                            TryExternalCallEvaluationStatus.valueReverted }
+                      let valueTypeMismatch
+                          (valueValue : Value) (valueRuntime : Runtime)
+                          (err : RevertData)
+                          (gasValue? : Option Value := none)
+                          (gas? : Option Word := none)
+                          (gasRuntime? : Option Runtime := none) :=
+                        { callBase with
+                          targetValue? := some targetValue
+                          target? := some target
+                          targetRuntime? :=
+                            some (targetRuntime.observe self)
+                          calldataValue? := some calldataValue
+                          calldata? := some calldata
+                          calldataRuntime? :=
+                            some (calldataRuntime.observe self)
+                          valueValue? := some valueValue
+                          valueRuntime? := some (valueRuntime.observe self)
+                          gasValue? := gasValue?
+                          gas? := gas?
+                          gasRuntime? :=
+                            gasRuntime?.map
+                              (fun (rt : Runtime) => Runtime.observe rt self)
+                          finalResult? :=
+                            observeResult
+                              (Result.reverted valueRuntime err)
+                          revertData? := some err
+                          status :=
+                            TryExternalCallEvaluationStatus.valueTypeMismatch }
+                      let gasReverted
+                          (valueValue : Value) (value : Word)
+                          (valueRuntime : Runtime) (err : RevertData) :=
+                        { callBase with
+                          targetValue? := some targetValue
+                          target? := some target
+                          targetRuntime? :=
+                            some (targetRuntime.observe self)
+                          calldataValue? := some calldataValue
+                          calldata? := some calldata
+                          calldataRuntime? :=
+                            some (calldataRuntime.observe self)
+                          valueValue? := some valueValue
+                          value? := some value
+                          valueRuntime? := some (valueRuntime.observe self)
+                          finalResult? :=
+                            observeResult
+                              (Result.reverted valueRuntime err)
+                          revertData? := some err
+                          status :=
+                            TryExternalCallEvaluationStatus.gasReverted }
+                      let gasTypeMismatch
+                          (valueValue : Value) (value : Word)
+                          (valueRuntime : Runtime) (gasValue : Value)
+                          (gasRuntime : Runtime) (err : RevertData) :=
+                        { callBase with
+                          targetValue? := some targetValue
+                          target? := some target
+                          targetRuntime? :=
+                            some (targetRuntime.observe self)
+                          calldataValue? := some calldataValue
+                          calldata? := some calldata
+                          calldataRuntime? :=
+                            some (calldataRuntime.observe self)
+                          valueValue? := some valueValue
+                          value? := some value
+                          valueRuntime? := some (valueRuntime.observe self)
+                          gasValue? := some gasValue
+                          gasRuntime? := some (gasRuntime.observe self)
+                          finalResult? :=
+                            observeResult
+                              (Result.reverted gasRuntime err)
+                          revertData? := some err
+                          status :=
+                            TryExternalCallEvaluationStatus.gasTypeMismatch }
+                      match gasExpr? with
+                      | none =>
+                          match valueExpr.evalWithRuntimeByContext
+                              context calldataRuntime with
+                          | Except.error err =>
+                              valueReverted calldataRuntime err
+                          | Except.ok (valueValue, valueRuntime) =>
+                              match valueValue.expectWord with
+                              | Except.error err =>
+                                  valueTypeMismatch valueValue valueRuntime err
+                              | Except.ok value =>
+                                  finishCall targetValue target targetRuntime
+                                    calldataValue calldata calldataRuntime
+                                    valueValue value valueRuntime none none none
+                                    valueRuntime
+                      | some gasExpr =>
+                          if gasFirst then
+                            match gasExpr.evalWithRuntimeByContext
+                                context calldataRuntime with
+                            | Except.error err =>
+                                { callBase with
+                                  targetValue? := some targetValue
+                                  target? := some target
+                                  targetRuntime? :=
+                                    some (targetRuntime.observe self)
+                                  calldataValue? := some calldataValue
+                                  calldata? := some calldata
+                                  calldataRuntime? :=
+                                    some (calldataRuntime.observe self)
+                                  finalResult? :=
+                                    observeResult
+                                      (Result.reverted calldataRuntime err)
+                                  revertData? := some err
+                                  status :=
+                                    TryExternalCallEvaluationStatus.gasReverted }
+                            | Except.ok (gasValue, gasRuntime) =>
+                                match gasValue.expectWord with
+                                | Except.error err =>
+                                    { callBase with
+                                      targetValue? := some targetValue
+                                      target? := some target
+                                      targetRuntime? :=
+                                        some (targetRuntime.observe self)
+                                      calldataValue? := some calldataValue
+                                      calldata? := some calldata
+                                      calldataRuntime? :=
+                                        some (calldataRuntime.observe self)
+                                      gasValue? := some gasValue
+                                      gasRuntime? :=
+                                        some (gasRuntime.observe self)
+                                      finalResult? :=
+                                        observeResult
+                                          (Result.reverted gasRuntime err)
+                                      revertData? := some err
+                                      status :=
+                                        TryExternalCallEvaluationStatus.gasTypeMismatch }
+                                | Except.ok gas =>
+                                    match valueExpr.evalWithRuntime
+                                        context gasRuntime with
+                                    | Except.error err =>
+                                        valueReverted gasRuntime err
+                                          (some gasValue) (some gas)
+                                          (some gasRuntime)
+                                    | Except.ok (valueValue, valueRuntime) =>
+                                        match valueValue.expectWord with
+                                        | Except.error err =>
+                                            valueTypeMismatch valueValue
+                                              valueRuntime err (some gasValue)
+                                              (some gas) (some gasRuntime)
+                                        | Except.ok value =>
+                                            finishCall targetValue target
+                                              targetRuntime calldataValue
+                                              calldata calldataRuntime
+                                              valueValue value valueRuntime
+                                              (some gasValue) (some gas)
+                                              (some gasRuntime) valueRuntime
+                          else
+                            match valueExpr.evalWithRuntime
+                                context calldataRuntime with
+                            | Except.error err =>
+                                valueReverted calldataRuntime err
+                            | Except.ok (valueValue, valueRuntime) =>
+                                match valueValue.expectWord with
+                                | Except.error err =>
+                                    valueTypeMismatch valueValue valueRuntime err
+                                | Except.ok value =>
+                                    match gasExpr.evalWithRuntime
+                                        context valueRuntime with
+                                    | Except.error err =>
+                                        gasReverted valueValue value
+                                          valueRuntime err
+                                    | Except.ok (gasValue, gasRuntime) =>
+                                        match gasValue.expectWord with
+                                        | Except.error err =>
+                                            gasTypeMismatch valueValue value
+                                              valueRuntime gasValue gasRuntime err
+                                        | Except.ok gas =>
+                                            finishCall targetValue target
+                                              targetRuntime calldataValue
+                                              calldata calldataRuntime
+                                              valueValue value valueRuntime
+                                              (some gasValue) (some gas)
+                                              (some gasRuntime) gasRuntime
+  | _ => base
+
+inductive TryContractCreateEvaluationStatus where
+  | notTryContractCreate
+  | constructorArgsReverted
+  | constructorArgsTypeMismatch
+  | valueReverted
+  | valueTypeMismatch
+  | saltReverted
+  | saltTypeMismatch
+  | successBodyEvaluated
+  | successBodyOutOfFuel
+  | successReturnBindFailure
+  | catchBodyEvaluated
+  | catchBodyOutOfFuel
+  | catchUnmatched
+  deriving Repr, BEq
+
+structure TryContractCreateEvaluationObservation where
+  source : Stmt
+  contractName? : Option String := none
+  policy : ChildEvaluationPolicyObservation
+  context : ContextObservation
+  inputRuntime : RuntimeObservation
+  sourceOperands : List Expr := []
+  hasSalt : Bool := false
+  returnCount : Nat := 0
+  catchCount : Nat := 0
+  constructorArgsValue? : Option Value := none
+  constructorArgs? : Option (List Byte) := none
+  constructorArgsRuntime? : Option RuntimeObservation := none
+  valueValue? : Option Value := none
+  value? : Option Word := none
+  valueRuntime? : Option RuntimeObservation := none
+  saltValue? : Option Value := none
+  salt? : Option Word := none
+  saltRuntime? : Option RuntimeObservation := none
+  operandRuntime? : Option RuntimeObservation := none
+  resolution? : Option ContractCreationResolutionObservation := none
+  creationResult? : Option ContractCreationResult := none
+  interactionRuntime? : Option RuntimeObservation := none
+  address? : Option Word := none
+  successFrame? : Option Frame := none
+  catchMatch? : Option TryCatchMatchObservation := none
+  bodyResult? : Option ResultObservation := none
+  finalResult? : Option ResultObservation := none
+  revertData? : Option RevertData := none
+  status : TryContractCreateEvaluationStatus
+  deriving Repr
+
+def Stmt.observeTryContractCreateEvaluation (fuel : Nat)
+    (context : Context) (runtime : Runtime) (stmt : Stmt) (self : Word) :
+    TryContractCreateEvaluationObservation :=
+  let base :=
+    { source := stmt
+      policy := context.observeChildEvaluationPolicy
+      context := context.observe
+      inputRuntime := runtime.observe self
+      status := TryContractCreateEvaluationStatus.notTryContractCreate }
+  let observeResult (result : Result) := some (result.observe self)
+  match stmt with
+  | Stmt.tryContractCreate contractName constructorArgsExpr valueExpr
+      saltExpr? returns successBody catchClauses =>
+      let sourceOperands :=
+        [constructorArgsExpr, valueExpr] ++
+          match saltExpr? with
+          | none => []
+          | some saltExpr => [saltExpr]
+      let createBase :=
+        { base with
+          contractName? := some contractName
+          sourceOperands := sourceOperands
+          hasSalt := saltExpr?.isSome
+          returnCount := returns.length
+          catchCount := catchClauses.length }
+      let finishReverted
+          (status : TryContractCreateEvaluationStatus)
+          (revertRuntime : Runtime) (err : RevertData) :=
+        { createBase with
+          finalResult? :=
+            observeResult (Result.reverted revertRuntime err)
+          revertData? := some err
+          status := status }
+      let finishCreate
+          (constructorArgsValue : Value) (constructorArgs : List Byte)
+          (constructorArgsRuntime : Runtime) (valueValue : Value)
+          (value : Word) (valueRuntime : Runtime)
+          (saltValue? : Option Value) (salt? : Option Word)
+          (saltRuntime? : Option Runtime) (operandRuntime : Runtime) :=
+        let resolution :=
+          context.observeContractCreationResolution
+            contractName constructorArgs value salt?
+        let createResult := resolution.result
+        let runtimeWithInteraction :=
+          operandRuntime.recordExternalInteraction
+            (ExternalInteraction.contractCreation createResult)
+        let createObserved :=
+          { createBase with
+            constructorArgsValue? := some constructorArgsValue
+            constructorArgs? := some constructorArgs
+            constructorArgsRuntime? :=
+              some (constructorArgsRuntime.observe self)
+            valueValue? := some valueValue
+            value? := some value
+            valueRuntime? := some (valueRuntime.observe self)
+            saltValue? := saltValue?
+            salt? := salt?
+            saltRuntime? :=
+              saltRuntime?.map
+                (fun (rt : Runtime) => Runtime.observe rt self)
+            operandRuntime? := some (operandRuntime.observe self)
+            resolution? := some resolution
+            creationResult? := some createResult
+            interactionRuntime? :=
+              some (runtimeWithInteraction.observe self) }
+        let output := createResult.output.map normByte
+        if createResult.success then
+          let address := createResult.address
+          let values :=
+            if returns.isEmpty then
+              []
+            else
+              [Value.word address]
+          match BindingDecl.bindArgs? returns values with
+          | some frame =>
+              match
+                  Stmt.eval fuel context
+                    (runtimeWithInteraction.withFrame frame) successBody
+              with
+              | some bodyResult =>
+                  let finalResult := bodyResult.mapRuntime Runtime.popScope
+                  { createObserved with
+                    address? := some address
+                    successFrame? := some frame
+                    bodyResult? := some (bodyResult.observe self)
+                    finalResult? := some (finalResult.observe self)
+                    status :=
+                      TryContractCreateEvaluationStatus.successBodyEvaluated }
+              | none =>
+                  { createObserved with
+                    address? := some address
+                    successFrame? := some frame
+                    status :=
+                      TryContractCreateEvaluationStatus.successBodyOutOfFuel }
+          | none =>
+              let err := RevertData.typeMismatch
+              let finalResult := Result.reverted runtimeWithInteraction err
+              { createObserved with
+                address? := some address
+                finalResult? := some (finalResult.observe self)
+                revertData? := some err
+                status :=
+                  TryContractCreateEvaluationStatus.successReturnBindFailure }
+        else
+          let matchObservation :=
+            TryCatchClause.observeFindMatch output catchClauses
+          match matchObservation.frame?, matchObservation.body? with
+          | some frame, some body =>
+              match
+                  Stmt.eval fuel context
+                    (runtimeWithInteraction.withFrame frame) body
+              with
+              | some bodyResult =>
+                  let finalResult := bodyResult.mapRuntime Runtime.popScope
+                  { createObserved with
+                    catchMatch? := some matchObservation
+                    bodyResult? := some (bodyResult.observe self)
+                    finalResult? := some (finalResult.observe self)
+                    status :=
+                      TryContractCreateEvaluationStatus.catchBodyEvaluated }
+              | none =>
+                  { createObserved with
+                    catchMatch? := some matchObservation
+                    status :=
+                      TryContractCreateEvaluationStatus.catchBodyOutOfFuel }
+          | _, _ =>
+              let err := RevertData.fromRawBytes output
+              let finalResult := Result.reverted runtimeWithInteraction err
+              { createObserved with
+                catchMatch? := some matchObservation
+                finalResult? := some (finalResult.observe self)
+                revertData? := some err
+                status := TryContractCreateEvaluationStatus.catchUnmatched }
+      match constructorArgsExpr.evalWithRuntimeByContext context runtime with
+      | Except.error err =>
+          finishReverted
+            TryContractCreateEvaluationStatus.constructorArgsReverted
+            runtime err
+      | Except.ok (constructorArgsValue, constructorArgsRuntime) =>
+          match constructorArgsValue.asBytes? with
+          | none =>
+              let err := RevertData.typeMismatch
+              { createBase with
+                constructorArgsValue? := some constructorArgsValue
+                constructorArgsRuntime? :=
+                  some (constructorArgsRuntime.observe self)
+                finalResult? :=
+                  observeResult
+                    (Result.reverted constructorArgsRuntime err)
+                revertData? := some err
+                status :=
+                  TryContractCreateEvaluationStatus.constructorArgsTypeMismatch }
+          | some constructorArgs =>
+              match valueExpr.evalWithRuntimeByContext
+                  context constructorArgsRuntime with
+              | Except.error err =>
+                  { createBase with
+                    constructorArgsValue? := some constructorArgsValue
+                    constructorArgs? := some constructorArgs
+                    constructorArgsRuntime? :=
+                      some (constructorArgsRuntime.observe self)
+                    finalResult? :=
+                      observeResult
+                        (Result.reverted constructorArgsRuntime err)
+                    revertData? := some err
+                    status :=
+                      TryContractCreateEvaluationStatus.valueReverted }
+              | Except.ok (valueValue, valueRuntime) =>
+                  match valueValue.expectWord with
+                  | Except.error err =>
+                      { createBase with
+                        constructorArgsValue? := some constructorArgsValue
+                        constructorArgs? := some constructorArgs
+                        constructorArgsRuntime? :=
+                          some (constructorArgsRuntime.observe self)
+                        valueValue? := some valueValue
+                        valueRuntime? := some (valueRuntime.observe self)
+                        finalResult? :=
+                          observeResult (Result.reverted valueRuntime err)
+                        revertData? := some err
+                        status :=
+                          TryContractCreateEvaluationStatus.valueTypeMismatch }
+                  | Except.ok value =>
+                      match saltExpr? with
+                      | none =>
+                          finishCreate constructorArgsValue constructorArgs
+                            constructorArgsRuntime valueValue value
+                            valueRuntime none none none valueRuntime
+                      | some saltExpr =>
+                          match saltExpr.evalWithRuntimeByContext
+                              context valueRuntime with
+                          | Except.error err =>
+                              { createBase with
+                                constructorArgsValue? :=
+                                  some constructorArgsValue
+                                constructorArgs? := some constructorArgs
+                                constructorArgsRuntime? :=
+                                  some (constructorArgsRuntime.observe self)
+                                valueValue? := some valueValue
+                                value? := some value
+                                valueRuntime? :=
+                                  some (valueRuntime.observe self)
+                                finalResult? :=
+                                  observeResult
+                                    (Result.reverted valueRuntime err)
+                                revertData? := some err
+                                status :=
+                                  TryContractCreateEvaluationStatus.saltReverted }
+                          | Except.ok (saltValue, saltRuntime) =>
+                              match saltValue.expectWord with
+                              | Except.error err =>
+                                  { createBase with
+                                    constructorArgsValue? :=
+                                      some constructorArgsValue
+                                    constructorArgs? := some constructorArgs
+                                    constructorArgsRuntime? :=
+                                      some (constructorArgsRuntime.observe self)
+                                    valueValue? := some valueValue
+                                    value? := some value
+                                    valueRuntime? :=
+                                      some (valueRuntime.observe self)
+                                    saltValue? := some saltValue
+                                    saltRuntime? :=
+                                      some (saltRuntime.observe self)
+                                    finalResult? :=
+                                      observeResult
+                                        (Result.reverted valueRuntime err)
+                                    revertData? := some err
+                                    status :=
+                                      TryContractCreateEvaluationStatus.saltTypeMismatch }
+                              | Except.ok salt =>
+                                  finishCreate constructorArgsValue
+                                    constructorArgs constructorArgsRuntime
+                                    valueValue value valueRuntime
+                                    (some saltValue) (some salt)
+                                    (some saltRuntime) saltRuntime
+  | _ => base
+
+def Stmt.observeWhileLoop (fuel : Nat) (context : Context)
+    (runtime : Runtime) (cond : Expr) (body : Stmt) (self : Word) :
+    WhileLoopObservation :=
+  match fuel with
+  | 0 =>
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        step? := some WhileLoopStep.outOfFuel }
+  | fuel + 1 =>
+      match cond.evalWithRuntimeByContext context runtime with
+      | Except.ok (value, conditionRuntime) =>
+          match value.expectWord with
+          | Except.ok word =>
+              if wordTruthy word then
+                match Stmt.eval fuel context conditionRuntime body with
+                | some (Result.normal bodyRuntime) =>
+                    let finalResult? :=
+                      Stmt.evalWhile fuel context bodyRuntime cond body
+                    { context := context.observe
+                      inputRuntime := runtime.observe self
+                      conditionValue? := some word
+                      conditionRuntime? :=
+                        some (conditionRuntime.observe self)
+                      step? := some WhileLoopStep.bodyNormal
+                      bodyResult? :=
+                        some ((Result.normal bodyRuntime).observe self)
+                      finalResult? :=
+                        finalResult?.map
+                          (fun result => result.observe self) }
+                | some (Result.continued bodyRuntime) =>
+                    let finalResult? :=
+                      Stmt.evalWhile fuel context bodyRuntime cond body
+                    { context := context.observe
+                      inputRuntime := runtime.observe self
+                      conditionValue? := some word
+                      conditionRuntime? :=
+                        some (conditionRuntime.observe self)
+                      step? := some WhileLoopStep.bodyContinue
+                      bodyResult? :=
+                        some ((Result.continued bodyRuntime).observe self)
+                      finalResult? :=
+                        finalResult?.map
+                          (fun result => result.observe self) }
+                | some (Result.broke bodyRuntime) =>
+                    { context := context.observe
+                      inputRuntime := runtime.observe self
+                      conditionValue? := some word
+                      conditionRuntime? :=
+                        some (conditionRuntime.observe self)
+                      step? := some WhileLoopStep.bodyBreak
+                      bodyResult? :=
+                        some ((Result.broke bodyRuntime).observe self)
+                      finalResult? :=
+                        some ((Result.normal bodyRuntime).observe self) }
+                | some result =>
+                    { context := context.observe
+                      inputRuntime := runtime.observe self
+                      conditionValue? := some word
+                      conditionRuntime? :=
+                        some (conditionRuntime.observe self)
+                      step? := some WhileLoopStep.bodyTerminal
+                      bodyResult? := some (result.observe self)
+                      finalResult? := some (result.observe self) }
+                | none =>
+                    { context := context.observe
+                      inputRuntime := runtime.observe self
+                      conditionValue? := some word
+                      conditionRuntime? :=
+                        some (conditionRuntime.observe self)
+                      step? := some WhileLoopStep.bodyOutOfFuel }
+              else
+                { context := context.observe
+                  inputRuntime := runtime.observe self
+                  conditionValue? := some word
+                  conditionRuntime? :=
+                    some (conditionRuntime.observe self)
+                  step? := some WhileLoopStep.conditionFalse
+                  finalResult? :=
+                    some ((Result.normal conditionRuntime).observe self) }
+          | Except.error err =>
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                conditionRuntime? := some (conditionRuntime.observe self)
+                step? := some WhileLoopStep.conditionErrored
+                finalResult? :=
+                  some ((Result.reverted conditionRuntime err).observe self)
+                revertData? := some err }
+      | Except.error err =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            step? := some WhileLoopStep.conditionErrored
+            finalResult? := some ((Result.reverted runtime err).observe self)
+            revertData? := some err }
+
+def Stmt.observeDoWhileLoop (fuel : Nat) (context : Context)
+    (runtime : Runtime) (body : Stmt) (cond : Expr) (self : Word) :
+    DoWhileLoopObservation :=
+  match fuel with
+  | 0 =>
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        step? := some WhileLoopStep.outOfFuel }
+  | fuel + 1 =>
+      match Stmt.eval fuel context runtime body with
+      | some (Result.normal bodyRuntime) =>
+          match cond.evalWithRuntimeByContext context bodyRuntime with
+          | Except.ok (value, conditionRuntime) =>
+              match value.expectWord with
+              | Except.ok word =>
+                  let finalResult? :=
+                    if wordTruthy word then
+                      Stmt.evalDoWhile fuel context conditionRuntime body cond
+                    else
+                      some (Result.normal conditionRuntime)
+                  { context := context.observe
+                    inputRuntime := runtime.observe self
+                    bodyResult? :=
+                      some ((Result.normal bodyRuntime).observe self)
+                    conditionValue? := some word
+                    conditionRuntime? :=
+                      some (conditionRuntime.observe self)
+                    step? := some WhileLoopStep.bodyNormal
+                    finalResult? :=
+                      finalResult?.map
+                        (fun result => result.observe self) }
+              | Except.error err =>
+                  { context := context.observe
+                    inputRuntime := runtime.observe self
+                    bodyResult? :=
+                      some ((Result.normal bodyRuntime).observe self)
+                    conditionRuntime? :=
+                      some (conditionRuntime.observe self)
+                    step? := some WhileLoopStep.conditionErrored
+                    finalResult? :=
+                      some
+                        ((Result.reverted conditionRuntime err).observe self)
+                    revertData? := some err }
+          | Except.error err =>
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                bodyResult? :=
+                  some ((Result.normal bodyRuntime).observe self)
+                step? := some WhileLoopStep.conditionErrored
+                finalResult? :=
+                  some ((Result.reverted bodyRuntime err).observe self)
+                revertData? := some err }
+      | some (Result.continued bodyRuntime) =>
+          match cond.evalWithRuntimeByContext context bodyRuntime with
+          | Except.ok (value, conditionRuntime) =>
+              match value.expectWord with
+              | Except.ok word =>
+                  let finalResult? :=
+                    if wordTruthy word then
+                      Stmt.evalDoWhile fuel context conditionRuntime body cond
+                    else
+                      some (Result.normal conditionRuntime)
+                  { context := context.observe
+                    inputRuntime := runtime.observe self
+                    bodyResult? :=
+                      some ((Result.continued bodyRuntime).observe self)
+                    conditionValue? := some word
+                    conditionRuntime? :=
+                      some (conditionRuntime.observe self)
+                    step? := some WhileLoopStep.bodyContinue
+                    finalResult? :=
+                      finalResult?.map
+                        (fun result => result.observe self) }
+              | Except.error err =>
+                  { context := context.observe
+                    inputRuntime := runtime.observe self
+                    bodyResult? :=
+                      some ((Result.continued bodyRuntime).observe self)
+                    conditionRuntime? :=
+                      some (conditionRuntime.observe self)
+                    step? := some WhileLoopStep.conditionErrored
+                    finalResult? :=
+                      some
+                        ((Result.reverted conditionRuntime err).observe self)
+                    revertData? := some err }
+          | Except.error err =>
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                bodyResult? :=
+                  some ((Result.continued bodyRuntime).observe self)
+                step? := some WhileLoopStep.conditionErrored
+                finalResult? :=
+                  some ((Result.reverted bodyRuntime err).observe self)
+                revertData? := some err }
+      | some (Result.broke bodyRuntime) =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            bodyResult? := some ((Result.broke bodyRuntime).observe self)
+            step? := some WhileLoopStep.bodyBreak
+            finalResult? := some ((Result.normal bodyRuntime).observe self) }
+      | some result =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            bodyResult? := some (result.observe self)
+            step? := some WhileLoopStep.bodyTerminal
+            finalResult? := some (result.observe self) }
+      | none =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            step? := some WhileLoopStep.bodyOutOfFuel }
+
+def Stmt.observeForLoop (fuel : Nat) (context : Context)
+    (runtime : Runtime) (init : Stmt) (cond : Expr) (post : Stmt)
+    (body : Stmt) (self : Word) : ForLoopObservation :=
+  match fuel with
+  | 0 =>
+      { context := context.observe
+        inputRuntime := runtime.observe self
+        step? := some ForLoopStep.outOfFuel }
+  | fuel + 1 =>
+      let loopRuntime := runtime.pushScope
+      match Stmt.eval fuel context loopRuntime init with
+      | some (Result.normal initialized) =>
+          match cond.evalWithRuntimeByContext context initialized with
+          | Except.ok (value, conditionRuntime) =>
+              match value.expectWord with
+              | Except.ok word =>
+                  if wordTruthy word then
+                    match Stmt.eval fuel context conditionRuntime body with
+                    | some (Result.normal bodyRuntime) =>
+                        match Stmt.eval fuel context bodyRuntime post with
+                        | some (Result.normal posted) =>
+                            let loopResult? :=
+                              Stmt.evalFor fuel context posted cond post body
+                            { context := context.observe
+                              inputRuntime := runtime.observe self
+                              enteredScope? :=
+                                some (loopRuntime.observe self)
+                              initResult? :=
+                                some
+                                  ((Result.normal initialized).observe self)
+                              conditionValue? := some word
+                              conditionRuntime? :=
+                                some (conditionRuntime.observe self)
+                              bodyResult? :=
+                                some
+                                  ((Result.normal bodyRuntime).observe self)
+                              postResult? :=
+                                some ((Result.normal posted).observe self)
+                              step? := some ForLoopStep.bodyNormal
+                              loopResult? :=
+                                loopResult?.map
+                                  (fun result => result.observe self)
+                              finalResult? :=
+                                loopResult?.map
+                                  (fun result =>
+                                    (result.mapRuntime
+                                      Runtime.popScope).observe self) }
+                        | some postResult =>
+                            { context := context.observe
+                              inputRuntime := runtime.observe self
+                              enteredScope? :=
+                                some (loopRuntime.observe self)
+                              initResult? :=
+                                some
+                                  ((Result.normal initialized).observe self)
+                              conditionValue? := some word
+                              conditionRuntime? :=
+                                some (conditionRuntime.observe self)
+                              bodyResult? :=
+                                some
+                                  ((Result.normal bodyRuntime).observe self)
+                              postResult? := some (postResult.observe self)
+                              step? := some ForLoopStep.postTerminal
+                              loopResult? := some (postResult.observe self)
+                              finalResult? :=
+                                some
+                                  ((postResult.mapRuntime
+                                    Runtime.popScope).observe self) }
+                        | none =>
+                            { context := context.observe
+                              inputRuntime := runtime.observe self
+                              enteredScope? :=
+                                some (loopRuntime.observe self)
+                              initResult? :=
+                                some
+                                  ((Result.normal initialized).observe self)
+                              conditionValue? := some word
+                              conditionRuntime? :=
+                                some (conditionRuntime.observe self)
+                              bodyResult? :=
+                                some
+                                  ((Result.normal bodyRuntime).observe self)
+                              step? := some ForLoopStep.postOutOfFuel }
+                    | some (Result.continued bodyRuntime) =>
+                        match Stmt.eval fuel context bodyRuntime post with
+                        | some (Result.normal posted) =>
+                            let loopResult? :=
+                              Stmt.evalFor fuel context posted cond post body
+                            { context := context.observe
+                              inputRuntime := runtime.observe self
+                              enteredScope? :=
+                                some (loopRuntime.observe self)
+                              initResult? :=
+                                some
+                                  ((Result.normal initialized).observe self)
+                              conditionValue? := some word
+                              conditionRuntime? :=
+                                some (conditionRuntime.observe self)
+                              bodyResult? :=
+                                some
+                                  ((Result.continued bodyRuntime).observe self)
+                              postResult? :=
+                                some ((Result.normal posted).observe self)
+                              step? := some ForLoopStep.bodyContinue
+                              loopResult? :=
+                                loopResult?.map
+                                  (fun result => result.observe self)
+                              finalResult? :=
+                                loopResult?.map
+                                  (fun result =>
+                                    (result.mapRuntime
+                                      Runtime.popScope).observe self) }
+                        | some postResult =>
+                            { context := context.observe
+                              inputRuntime := runtime.observe self
+                              enteredScope? :=
+                                some (loopRuntime.observe self)
+                              initResult? :=
+                                some
+                                  ((Result.normal initialized).observe self)
+                              conditionValue? := some word
+                              conditionRuntime? :=
+                                some (conditionRuntime.observe self)
+                              bodyResult? :=
+                                some
+                                  ((Result.continued bodyRuntime).observe self)
+                              postResult? := some (postResult.observe self)
+                              step? := some ForLoopStep.postTerminal
+                              loopResult? := some (postResult.observe self)
+                              finalResult? :=
+                                some
+                                  ((postResult.mapRuntime
+                                    Runtime.popScope).observe self) }
+                        | none =>
+                            { context := context.observe
+                              inputRuntime := runtime.observe self
+                              enteredScope? :=
+                                some (loopRuntime.observe self)
+                              initResult? :=
+                                some
+                                  ((Result.normal initialized).observe self)
+                              conditionValue? := some word
+                              conditionRuntime? :=
+                                some (conditionRuntime.observe self)
+                              bodyResult? :=
+                                some
+                                  ((Result.continued bodyRuntime).observe self)
+                              step? := some ForLoopStep.postOutOfFuel }
+                    | some (Result.broke bodyRuntime) =>
+                        let loopResult := Result.normal bodyRuntime
+                        { context := context.observe
+                          inputRuntime := runtime.observe self
+                          enteredScope? := some (loopRuntime.observe self)
+                          initResult? :=
+                            some ((Result.normal initialized).observe self)
+                          conditionValue? := some word
+                          conditionRuntime? :=
+                            some (conditionRuntime.observe self)
+                          bodyResult? :=
+                            some ((Result.broke bodyRuntime).observe self)
+                          step? := some ForLoopStep.bodyBreak
+                          loopResult? := some (loopResult.observe self)
+                          finalResult? :=
+                            some
+                              ((loopResult.mapRuntime
+                                Runtime.popScope).observe self) }
+                    | some bodyResult =>
+                        { context := context.observe
+                          inputRuntime := runtime.observe self
+                          enteredScope? := some (loopRuntime.observe self)
+                          initResult? :=
+                            some ((Result.normal initialized).observe self)
+                          conditionValue? := some word
+                          conditionRuntime? :=
+                            some (conditionRuntime.observe self)
+                          bodyResult? := some (bodyResult.observe self)
+                          step? := some ForLoopStep.bodyTerminal
+                          loopResult? := some (bodyResult.observe self)
+                          finalResult? :=
+                            some
+                              ((bodyResult.mapRuntime
+                                Runtime.popScope).observe self) }
+                    | none =>
+                        { context := context.observe
+                          inputRuntime := runtime.observe self
+                          enteredScope? := some (loopRuntime.observe self)
+                          initResult? :=
+                            some ((Result.normal initialized).observe self)
+                          conditionValue? := some word
+                          conditionRuntime? :=
+                            some (conditionRuntime.observe self)
+                          step? := some ForLoopStep.bodyOutOfFuel }
+                  else
+                    let loopResult := Result.normal conditionRuntime
+                    { context := context.observe
+                      inputRuntime := runtime.observe self
+                      enteredScope? := some (loopRuntime.observe self)
+                      initResult? :=
+                        some ((Result.normal initialized).observe self)
+                      conditionValue? := some word
+                      conditionRuntime? :=
+                        some (conditionRuntime.observe self)
+                      step? := some ForLoopStep.conditionFalse
+                      loopResult? := some (loopResult.observe self)
+                      finalResult? :=
+                        some
+                          ((loopResult.mapRuntime
+                            Runtime.popScope).observe self) }
+              | Except.error err =>
+                  let loopResult := Result.reverted conditionRuntime err
+                  { context := context.observe
+                    inputRuntime := runtime.observe self
+                    enteredScope? := some (loopRuntime.observe self)
+                    initResult? :=
+                      some ((Result.normal initialized).observe self)
+                    conditionRuntime? :=
+                      some (conditionRuntime.observe self)
+                    step? := some ForLoopStep.conditionErrored
+                    loopResult? := some (loopResult.observe self)
+                    finalResult? :=
+                      some
+                        ((loopResult.mapRuntime Runtime.popScope).observe self)
+                    revertData? := some err }
+          | Except.error err =>
+              let loopResult := Result.reverted initialized err
+              { context := context.observe
+                inputRuntime := runtime.observe self
+                enteredScope? := some (loopRuntime.observe self)
+                initResult? := some ((Result.normal initialized).observe self)
+                step? := some ForLoopStep.conditionErrored
+                loopResult? := some (loopResult.observe self)
+                finalResult? :=
+                  some ((loopResult.mapRuntime Runtime.popScope).observe self)
+                revertData? := some err }
+      | some initResult =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            enteredScope? := some (loopRuntime.observe self)
+            initResult? := some (initResult.observe self)
+            step? := some ForLoopStep.initTerminal
+            loopResult? := some (initResult.observe self)
+            finalResult? :=
+              some
+                ((initResult.mapRuntime Runtime.popScope).observe self) }
+      | none =>
+          { context := context.observe
+            inputRuntime := runtime.observe self
+            enteredScope? := some (loopRuntime.observe self)
+            step? := some ForLoopStep.initOutOfFuel }
+
 structure FunctionDef where
   name : String
   selector? : Option Word
   payable : Bool := false
   params : List BindingDecl
+  paramAbiCleanups : List AbiCleanup := []
   returns : List BindingDecl
   body : Stmt
   deriving Repr
@@ -5201,6 +11467,28 @@ inductive CallResult where
   | returned : State -> List Value -> CallResult
   | reverted : State -> RevertData -> CallResult
   deriving Repr
+
+inductive CallExitMode where
+  | returned
+  | reverted
+  deriving Repr, BEq
+
+structure CallObservation where
+  mode : CallExitMode
+  state : StateObservation
+  returnValues : List Value := []
+  revertData? : Option RevertData := none
+  deriving Repr
+
+def CallResult.observe (self : Word) : CallResult -> CallObservation
+  | CallResult.returned state values =>
+      { mode := CallExitMode.returned
+        state := state.observe self
+        returnValues := values }
+  | CallResult.reverted state revert =>
+      { mode := CallExitMode.reverted
+        state := state.observe self
+        revertData? := some revert }
 
 def CallResult.clearTransient : CallResult -> CallResult
   | CallResult.returned state values =>
@@ -5211,12 +11499,22 @@ def CallResult.clearTransient : CallResult -> CallResult
 def FunctionDef.acceptsValue (function : FunctionDef) (value : Word) : Bool :=
   function.payable || wordEq value 0
 
+def FunctionDef.returnDefaultBindings (function : FunctionDef) : Frame :=
+  function.returns.map BindingDecl.defaultBinding
+
 def FunctionDef.initialFrame? (function : FunctionDef)
     (args : List Value) : Option Frame :=
   match BindingDecl.bindArgs? function.params args with
   | some params =>
-      some (params ++ function.returns.map BindingDecl.defaultBinding)
+      some (params ++ function.returnDefaultBindings)
   | none => none
+
+def FunctionDef.entryInitialFrame? (function : FunctionDef)
+    (context : Context) (args : List Value) : Option Frame :=
+  if function.acceptsValue context.value then
+    function.initialFrame? args
+  else
+    none
 
 def FunctionDef.collectReturns (function : FunctionDef)
     (runtime : Runtime) : Except RevertData (List Value) :=
@@ -5225,7 +11523,7 @@ def FunctionDef.collectReturns (function : FunctionDef)
     | decl :: rest => do
         let value ←
           match runtime.lookupLocal? decl.name with
-          | some value => Except.ok value
+          | some value => runtime.derefMemoryValueDeep value
           | none => Except.error RevertData.typeMismatch
         let value ←
           match decl.ty.coerceValue? value with
@@ -5235,58 +11533,197 @@ def FunctionDef.collectReturns (function : FunctionDef)
         Except.ok (value :: values)
   collect function.returns
 
-def FunctionDef.coerceReturnValues? (function : FunctionDef)
-    (values : List Value) : Option (List Value) :=
-  let rec coerce : List BindingDecl -> List Value -> Option (List Value)
-    | [], [] => some []
+def FunctionDef.coerceReturnValues (function : FunctionDef)
+    (runtime : Runtime) (values : List Value) :
+    Except RevertData (List Value) :=
+  let rec coerce :
+      List BindingDecl -> List Value -> Except RevertData (List Value)
+    | [], [] => Except.ok []
     | decl :: decls, value :: rest => do
-        let head ← decl.ty.coerceValue? value
+        let value ← runtime.derefMemoryValueDeep value
+        let head ←
+          match decl.ty.coerceValue? value with
+          | some coerced => Except.ok coerced
+          | none => Except.error RevertData.typeMismatch
         let tail ← coerce decls rest
-        some (head :: tail)
-    | _, _ => none
+        Except.ok (head :: tail)
+    | _, _ => Except.error RevertData.typeMismatch
   coerce function.returns values
 
-def FunctionDef.call? (fuel : Nat) (context : Context)
+def FunctionDef.callBodyResult (function : FunctionDef)
+    (state : State) : Result -> CallResult
+  | Result.normal runtime' =>
+      match function.collectReturns runtime' with
+      | Except.ok values => CallResult.returned runtime'.state values
+      | Except.error err => CallResult.reverted state err
+  | Result.returned runtime' values =>
+      if values.isEmpty then
+        match function.collectReturns runtime' with
+        | Except.ok namedValues =>
+            CallResult.returned runtime'.state namedValues
+        | Except.error err => CallResult.reverted state err
+      else
+        match function.coerceReturnValues runtime' values with
+        | Except.ok coerced => CallResult.returned runtime'.state coerced
+        | Except.error err => CallResult.reverted state err
+  | Result.selfdestructed runtime' =>
+      CallResult.returned runtime'.state []
+  | Result.reverted runtime' revert =>
+      let _ := runtime'
+      CallResult.reverted state revert
+  | Result.broke runtime' =>
+      let _ := runtime'
+      CallResult.reverted state RevertData.typeMismatch
+  | Result.continued runtime' =>
+      let _ := runtime'
+      CallResult.reverted state RevertData.typeMismatch
+
+def FunctionDef.evalBodyEntry? (fuel : Nat) (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
-    Option CallResult :=
+    Option Result :=
   if function.acceptsValue context.value then
     match function.initialFrame? args with
     | some frame =>
         let runtime : Runtime := { state, locals := [frame] }
-        match Stmt.eval fuel context runtime function.body with
-        | some (Result.normal runtime') =>
-            match function.collectReturns runtime' with
-            | Except.ok values => some (CallResult.returned runtime'.state values)
-            | Except.error err =>
-                some (CallResult.reverted state err)
-        | some (Result.returned runtime' values) =>
-            if values.isEmpty then
-              match function.collectReturns runtime' with
-              | Except.ok namedValues =>
-                  some (CallResult.returned runtime'.state namedValues)
-              | Except.error err =>
-                  some (CallResult.reverted state err)
-            else
-              match function.coerceReturnValues? values with
-              | some coerced =>
-                  some (CallResult.returned runtime'.state coerced)
-              | none =>
-                  some (CallResult.reverted state RevertData.typeMismatch)
-        | some (Result.selfdestructed runtime') =>
-            some (CallResult.returned runtime'.state [])
-        | some (Result.reverted runtime' revert) =>
-            let _ := runtime'
-            some (CallResult.reverted state revert)
-        | some (Result.broke runtime') =>
-            let _ := runtime'
-            some (CallResult.reverted state RevertData.typeMismatch)
-        | some (Result.continued runtime') =>
-            let _ := runtime'
-            some (CallResult.reverted state RevertData.typeMismatch)
-        | none => none
+        Stmt.eval fuel context runtime function.body
     | none => none
   else
-    some (CallResult.reverted state RevertData.empty)
+    some
+      (Result.reverted (Runtime.ofState state) RevertData.empty)
+
+def FunctionDef.call? (fuel : Nat) (context : Context)
+    (function : FunctionDef) (state : State) (args : List Value) :
+    Option CallResult :=
+  match function.evalBodyEntry? fuel context state args with
+  | some result => some (function.callBodyResult state result)
+  | none => none
+
+inductive FunctionEntryKind where
+  | ordinary
+  | construction
+  deriving Repr, BEq
+
+inductive FunctionExitKind where
+  | fallthroughNamedReturns
+  | bareReturnCollectsNamedReturns
+  | explicitReturnValues
+  | selfdestructReturnsEmpty
+  | revertRollsBack
+  | invalidControlReverts
+  deriving Repr, BEq
+
+def FunctionExitKind.ofBodyResult : Result -> FunctionExitKind
+  | Result.normal _ => FunctionExitKind.fallthroughNamedReturns
+  | Result.returned _ values =>
+      if values.isEmpty then
+        FunctionExitKind.bareReturnCollectsNamedReturns
+      else
+        FunctionExitKind.explicitReturnValues
+  | Result.selfdestructed _ => FunctionExitKind.selfdestructReturnsEmpty
+  | Result.reverted _ _ => FunctionExitKind.revertRollsBack
+  | Result.broke _ => FunctionExitKind.invalidControlReverts
+  | Result.continued _ => FunctionExitKind.invalidControlReverts
+
+structure FunctionExitObservation where
+  kind : FunctionExitKind
+  bodyResult : ResultObservation
+  callResult : CallObservation
+  deriving Repr
+
+structure FunctionEntryInputObservation where
+  kind : FunctionEntryKind
+  fuel : Nat
+  functionName : String
+  selector? : Option Word
+  payable : Bool
+  params : List BindingDecl
+  returns : List BindingDecl
+  context : ContextObservation
+  submittedState : StateObservation
+  args : List Value
+  initialFrame? : Option Frame
+  deriving Repr
+
+structure FunctionReturnInitializationObservation where
+  returns : List BindingDecl
+  defaultBindings : Frame
+  initialFrame? : Option Frame
+  initialRuntime? : Option RuntimeObservation := none
+  deriving Repr
+
+structure FunctionEntryObservation where
+  input : FunctionEntryInputObservation
+  returnInitialization? : Option FunctionReturnInitializationObservation := none
+  bodyResult? : Option ResultObservation := none
+  exit? : Option FunctionExitObservation := none
+  result? : Option CallObservation := none
+  deriving Repr
+
+def FunctionExitObservation.fromResults? (self : Word)
+    (bodyResult? : Option Result) (callResult? : Option CallResult) :
+    Option FunctionExitObservation :=
+  match bodyResult?, callResult? with
+  | some bodyResult, some callResult =>
+      some
+        { kind := FunctionExitKind.ofBodyResult bodyResult
+          bodyResult := bodyResult.observe self
+          callResult := callResult.observe self }
+  | _, _ => none
+
+def FunctionDef.observeReturnInitialization? (function : FunctionDef)
+    (context : Context) (state : State) (args : List Value) (self : Word) :
+    Option FunctionReturnInitializationObservation :=
+  match function.entryInitialFrame? context args with
+  | some frame =>
+      let runtime : Runtime := { state, locals := [frame] }
+      some
+        { returns := function.returns
+          defaultBindings := function.returnDefaultBindings
+          initialFrame? := some frame
+          initialRuntime? := some (runtime.observe self) }
+  | none => none
+
+def FunctionDef.observeCallEntry (function : FunctionDef)
+    (kind : FunctionEntryKind) (fuel : Nat) (context : Context)
+    (state : State) (args : List Value) (self : Word) :
+    FunctionEntryObservation :=
+  let bodyResult? := function.evalBodyEntry? fuel context state args
+  let callResult? :=
+    bodyResult?.map (fun result => function.callBodyResult state result)
+  { input :=
+      { kind := kind
+        fuel := fuel
+        functionName := function.name
+        selector? := function.selector?
+        payable := function.payable
+        params := function.params
+        returns := function.returns
+        context := context.observe
+        submittedState := state.observe self
+        args := args
+        initialFrame? := function.entryInitialFrame? context args }
+    returnInitialization? :=
+      function.observeReturnInitialization? context state args self
+    bodyResult? :=
+      bodyResult?.map (fun result => result.observe self)
+    exit? := FunctionExitObservation.fromResults? self bodyResult? callResult?
+    result? :=
+      callResult?.map (fun result => result.observe self) }
+
+def FunctionDef.callUnspecifiedResults (fuel : Nat) (context : Context)
+    (function : FunctionDef) (state : State) (args : List Value) :
+    List CallResult :=
+  context.withUnspecifiedChildEvalOrders.filterMap
+    (fun orderedContext =>
+      function.call? fuel orderedContext state args)
+
+def FunctionDef.CallsUnspecified (fuel : Nat) (context : Context)
+    (function : FunctionDef) (state : State) (args : List Value)
+    (result : CallResult) : Prop :=
+  function.call? fuel
+      (context.withChildEvalOrder ChildEvalOrder.yulCompatible)
+      state args =
+    some result
 
 theorem FunctionDef.call?_reverted_rolls_back
     {fuel : Nat} {context : Context} {function : FunctionDef}
@@ -5294,13 +11731,14 @@ theorem FunctionDef.call?_reverted_rolls_back
     {runtime : Runtime} {revert : RevertData}
     (hAccepts : function.acceptsValue context.value = true)
     (hFrame : function.initialFrame? args = some frame)
-    (hEval :
+  (hEval :
       Stmt.eval fuel context { state := state, locals := [frame] }
           function.body =
         some (Result.reverted runtime revert)) :
     function.call? fuel context state args =
       some (CallResult.reverted state revert) := by
-  simp [FunctionDef.call?, hAccepts, hFrame, hEval]
+  simp [FunctionDef.call?, FunctionDef.evalBodyEntry?,
+    FunctionDef.callBodyResult, hAccepts, hFrame, hEval]
 
 structure Contract where
   storageFields : List StorageField := []
@@ -5358,16 +11796,18 @@ def Contract.findFunction? (contract : Contract) :
   | CallTarget.name name => contract.findFunctionByName? name
   | CallTarget.selector selector => contract.findFunctionBySelector? selector
 
+def Contract.resolveCallFunction? (contract : Contract)
+    (target : CallTarget) (args : List Value) : Option FunctionDef :=
+  match target with
+  | CallTarget.name name =>
+      contract.findCallableFunctionByName? name args
+  | CallTarget.selector selector =>
+      contract.findFunctionBySelector? selector
+
 def Contract.call? (fuel : Nat) (contract : Contract)
     (target : CallTarget) (state : State) (args : List Value) :
     Option CallResult :=
-  let function? :=
-    match target with
-    | CallTarget.name name =>
-        contract.findCallableFunctionByName? name args
-    | CallTarget.selector selector =>
-        contract.findFunctionBySelector? selector
-  match function? with
+  match contract.resolveCallFunction? target args with
   | some function =>
       function.call? fuel contract.context state args
   | none => none
@@ -5377,6 +11817,67 @@ def Contract.callTransaction? (fuel : Nat) (contract : Contract)
     Option CallResult := do
   let result ← Contract.call? fuel contract target state.clearTransient args
   some result.clearTransient
+
+inductive ContractCallKind where
+  | messageCall
+  | transaction
+  deriving Repr, BEq
+
+def ContractCallKind.executionState (kind : ContractCallKind)
+    (state : State) : State :=
+  match kind with
+  | ContractCallKind.messageCall => state
+  | ContractCallKind.transaction => state.clearTransient
+
+def ContractCallKind.result? (kind : ContractCallKind)
+    (fuel : Nat) (contract : Contract) (target : CallTarget)
+    (state : State) (args : List Value) : Option CallResult :=
+  match kind with
+  | ContractCallKind.messageCall =>
+      contract.call? fuel target state args
+  | ContractCallKind.transaction =>
+      contract.callTransaction? fuel target state args
+
+structure ContractCallInputObservation where
+  kind : ContractCallKind
+  fuel : Nat
+  target : CallTarget
+  selectedFunctionName? : Option String
+  selectedSelector? : Option Word
+  submittedState : StateObservation
+  executionState : StateObservation
+  args : List Value
+  deriving Repr
+
+structure ContractCallObservation where
+  input : ContractCallInputObservation
+  functionEntry? : Option FunctionEntryObservation := none
+  result? : Option CallObservation := none
+  deriving Repr
+
+def Contract.observeCallEntry (contract : Contract)
+    (kind : ContractCallKind) (fuel : Nat) (target : CallTarget)
+    (state : State) (args : List Value) : ContractCallObservation :=
+  let self := contract.context.self
+  let executionState := kind.executionState state
+  let function? := contract.resolveCallFunction? target args
+  { input :=
+      { kind := kind
+        fuel := fuel
+        target := target
+        selectedFunctionName? := function?.map (fun function => function.name)
+        selectedSelector? := function?.bind (fun function => function.selector?)
+        submittedState := state.observe self
+        executionState := executionState.observe self
+        args := args }
+    functionEntry? :=
+      function?.map
+        (fun function =>
+          function.observeCallEntry FunctionEntryKind.ordinary fuel
+            contract.context executionState args self)
+    result? :=
+      (kind.result? fuel contract target state args).map
+        (fun result => result.observe self) }
 
 def uint256 (name : String) : BindingDecl :=
   { name, ty := Ty.uint256 }

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/abi-struct-tuples/out"
+cache_path = "../../.foundry-suites/abi-struct-tuples/cache"
+evm_version = "cancun"

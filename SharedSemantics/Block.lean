@@ -5,6 +5,64 @@ namespace Block
 
 abbrev WordMap := List (Word × Word)
 
+inductive EvmVersion where
+  | homestead
+  | tangerineWhistle
+  | spuriousDragon
+  | byzantium
+  | constantinople
+  | petersburg
+  | istanbul
+  | berlin
+  | london
+  | paris
+  | shanghai
+  | cancun
+  | prague
+  | osaka
+  deriving Repr, BEq, DecidableEq
+
+namespace EvmVersion
+
+def default : EvmVersion :=
+  EvmVersion.cancun
+
+def rank : EvmVersion -> Nat
+  | EvmVersion.homestead => 0
+  | EvmVersion.tangerineWhistle => 1
+  | EvmVersion.spuriousDragon => 2
+  | EvmVersion.byzantium => 3
+  | EvmVersion.constantinople => 4
+  | EvmVersion.petersburg => 5
+  | EvmVersion.istanbul => 6
+  | EvmVersion.berlin => 7
+  | EvmVersion.london => 8
+  | EvmVersion.paris => 9
+  | EvmVersion.shanghai => 10
+  | EvmVersion.cancun => 11
+  | EvmVersion.prague => 12
+  | EvmVersion.osaka => 13
+
+def atLeast (minimum version : EvmVersion) : Bool :=
+  decide (rank minimum <= rank version)
+
+def constantinopleOrLater (version : EvmVersion) : Bool :=
+  atLeast EvmVersion.constantinople version
+
+def istanbulOrLater (version : EvmVersion) : Bool :=
+  atLeast EvmVersion.istanbul version
+
+def londonOrLater (version : EvmVersion) : Bool :=
+  atLeast EvmVersion.london version
+
+def parisOrLater : EvmVersion -> Bool
+  | version => atLeast EvmVersion.paris version
+
+def cancunOrLater : EvmVersion -> Bool
+  | version => atLeast EvmVersion.cancun version
+
+end EvmVersion
+
 def wordEq (lhs rhs : Word) : Bool :=
   norm lhs == norm rhs
 

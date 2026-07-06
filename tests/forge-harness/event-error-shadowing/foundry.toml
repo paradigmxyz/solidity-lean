@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/event-error-shadowing/out"
+cache_path = "../../.foundry-suites/event-error-shadowing/cache"
+evm_version = "cancun"

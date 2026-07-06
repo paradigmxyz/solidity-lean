@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/abi-coder-modes/out"
+cache_path = "../../.foundry-suites/abi-coder-modes/cache"
+evm_version = "cancun"

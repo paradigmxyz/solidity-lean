@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/uniswap-transfer-helper/out"
+cache_path = "../../.foundry-suites/uniswap-transfer-helper/cache"
+evm_version = "cancun"

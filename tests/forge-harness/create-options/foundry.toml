@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/create-options/out"
+cache_path = "../../.foundry-suites/create-options/cache"
+evm_version = "cancun"

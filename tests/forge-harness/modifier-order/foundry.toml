@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/modifier-order/out"
+cache_path = "../../.foundry-suites/modifier-order/cache"
+evm_version = "cancun"

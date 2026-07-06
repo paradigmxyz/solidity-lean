@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/branch-require/out"
+cache_path = "../../.foundry-suites/branch-require/cache"
+evm_version = "cancun"

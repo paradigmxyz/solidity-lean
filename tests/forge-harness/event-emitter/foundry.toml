@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/event-emitter/out"
+cache_path = "../../.foundry-suites/event-emitter/cache"
+evm_version = "cancun"

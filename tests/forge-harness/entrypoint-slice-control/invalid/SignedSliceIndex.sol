@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.35;
+
+contract SignedSliceIndex {
+    function bad(bytes calldata payload, int256 offset)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return payload[offset:4];
+    }
+}

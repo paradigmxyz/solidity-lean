@@ -70,6 +70,8 @@ inductive Ty where
   | address : Bool -> Ty
   | uint : Nat -> Ty
   | int : Nat -> Ty
+  | fixed : Nat -> Nat -> Ty
+  | ufixed : Nat -> Nat -> Ty
   | bytesN : Nat -> Ty
   | bytes
   | string
@@ -77,9 +79,51 @@ inductive Ty where
   | array : Ty -> Option Nat -> Ty
   | mapping : Ty -> Ty -> Ty
   | tuple : List Ty -> Ty
+  | struct : Path -> List Ty -> Ty
   | user : Path -> Ty
-  | function : List Ty -> List Ty -> StateMutability -> Visibility -> Ty
+  | enum : Nat -> Ty
+  | functionWithLocations :
+      List Ty -> List (Option DataLocation) ->
+      List Ty -> List (Option DataLocation) ->
+      StateMutability -> Visibility -> Ty
   deriving Repr, BEq
+
+def Ty.function (params returns : List Ty)
+    (mutability : StateMutability) (visibility : Visibility) : Ty :=
+  Ty.functionWithLocations params (List.replicate params.length none)
+    returns (List.replicate returns.length none) mutability visibility
+
+def Ty.validFixedPointShape (bits decimals : Nat) : Bool :=
+  8 <= bits && bits <= 256 && bits % 8 == 0 && decimals <= 80
+
+def Ty.fixedPointImplicitlyConvertible
+    (actualSigned : Bool) (actualBits actualDecimals : Nat)
+    (expectedSigned : Bool) (expectedBits expectedDecimals : Nat) : Bool :=
+  actualDecimals <= expectedDecimals &&
+    if actualSigned == expectedSigned then
+      actualBits <= expectedBits
+    else
+      !actualSigned && expectedSigned && actualBits < expectedBits
+
+def Ty.commonFixedPoint?
+    (leftSigned : Bool) (leftBits leftDecimals : Nat)
+    (rightSigned : Bool) (rightBits rightDecimals : Nat) : Option Ty :=
+  let decimals := max leftDecimals rightDecimals
+  if leftSigned == rightSigned then
+    let bits := max leftBits rightBits
+    if Ty.validFixedPointShape bits decimals then
+      if leftSigned then some (Ty.fixed bits decimals)
+      else some (Ty.ufixed bits decimals)
+    else
+      none
+  else
+    let signedBits := if leftSigned then leftBits else rightBits
+    let unsignedBits := if leftSigned then rightBits else leftBits
+    let bits := max signedBits (unsignedBits + 8)
+    if Ty.validFixedPointShape bits decimals then
+      some (Ty.fixed bits decimals)
+    else
+      none
 
 structure Parameter where
   name : Option Name := none
@@ -403,6 +447,8 @@ namespace Executable
 
 abbrev CoreTy := SolidCore.Solidity.Source.Ty
 abbrev CoreValue := SolidCore.Solidity.Source.Value
+abbrev CoreValueCleanup := SolidCore.Solidity.Source.ValueCleanup
+abbrev CoreAbiCleanup := SolidCore.Solidity.Source.AbiCleanup
 abbrev CoreExpr := SolidCore.Solidity.Source.Expr
 abbrev CoreLValue := SolidCore.Solidity.Source.LValue
 abbrev CoreStmt := SolidCore.Solidity.Source.Stmt
@@ -431,6 +477,11 @@ abbrev SourceModifierInvocation :=
 
 def pathLast? (path : Path) : Option Name :=
   path.segments.reverse.head?
+
+def Path.matchesNominal (lhs rhs : Path) : Bool :=
+  lhs.segments == rhs.segments ||
+    ((lhs.segments.length == 1 || rhs.segments.length == 1) &&
+      pathLast? lhs == pathLast? rhs)
 
 def pathInitLast? (path : Path) : Option (Path × Name) :=
   let rec go : List Name -> Option (List Name × Name)
@@ -475,14 +526,56 @@ def namesUnique : List Name -> Bool
   | [] => true
   | name :: rest => !nameIn name rest && namesUnique rest
 
+def dropCharPrefix? : List Char -> List Char -> Option (List Char)
+  | [], rest => some rest
+  | _ :: _, [] => none
+  | prefixHead :: prefixTail, textHead :: textTail =>
+      if prefixHead == textHead then
+        dropCharPrefix? prefixTail textTail
+      else
+        none
+
+def dropStringPrefix? (needle text : String) : Option String := do
+  let rest ← dropCharPrefix? needle.toList text.toList
+  some (String.ofList rest)
+
 def immutableNameTag (name : Name) : Name :=
   "__immutable:" ++ name
 
+def immutableNameUntag? (name : Name) : Option Name :=
+  dropStringPrefix? "__immutable:" name
+
+def stateNameAliasPrefix : Name :=
+  "__solidcore_state_alias:"
+
+def stateNameAliasEntry (source target : Name) : Name :=
+  stateNameAliasPrefix ++ source ++ ":" ++ target
+
+def stateNameAliasTarget? (source entry : Name) : Option Name :=
+  dropStringPrefix? (stateNameAliasPrefix ++ source ++ ":") entry
+
+def stateNameRuntimeKey? (name : Name) : List Name -> Option Name
+  | [] => none
+  | candidate :: rest =>
+      if candidate == name then
+        some name
+      else
+        match stateNameAliasTarget? name candidate with
+        | some target => some target
+        | none => stateNameRuntimeKey? name rest
+
 def stateNameIsStorage (name : Name) (stateNames : List Name) : Bool :=
-  nameIn name stateNames
+  (stateNameRuntimeKey? name stateNames).isSome
 
 def stateNameIsImmutable (name : Name) (stateNames : List Name) : Bool :=
-  nameIn (immutableNameTag name) stateNames
+  match stateNameRuntimeKey? (immutableNameTag name) stateNames with
+  | some tagged => immutableNameUntag? tagged |>.isSome
+  | none => false
+
+def stateNameImmutableKey? (name : Name) (stateNames : List Name) :
+    Option Name := do
+  let tagged ← stateNameRuntimeKey? (immutableNameTag name) stateNames
+  immutableNameUntag? tagged
 
 def stateNamesFrom (storageVars immutableVars : List StateVarDecl) :
     List Name :=
@@ -948,6 +1041,51 @@ def CatchClause.rewriteBaseCalls (baseNames : List Name)
     (clause : CatchClause) : CatchClause :=
   CatchClause.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel clause
 
+inductive DispatchCallRewriteKind where
+  | ordinary
+  | superCall
+  | explicitBaseCall
+  deriving Repr, BEq
+
+structure DispatchCallRewriteObservation where
+  contractName : Name
+  baseNames : List Name
+  source : Expr
+  afterSuper : Expr
+  afterBase : Expr
+  kind : DispatchCallRewriteKind
+  deriving Repr
+
+def Expr.dispatchCallRewriteKind (baseNames : List Name) :
+    Expr -> DispatchCallRewriteKind
+  | Expr.call (Expr.member (Expr.ident "super") _) _ =>
+      DispatchCallRewriteKind.superCall
+  | Expr.callWithOptions (Expr.member (Expr.ident "super") _) _ _ =>
+      DispatchCallRewriteKind.superCall
+  | Expr.call (Expr.member (Expr.ident baseName) _) _ =>
+      if nameIn baseName baseNames then
+        DispatchCallRewriteKind.explicitBaseCall
+      else
+        DispatchCallRewriteKind.ordinary
+  | Expr.callWithOptions (Expr.member (Expr.ident baseName) _) _ _ =>
+      if nameIn baseName baseNames then
+        DispatchCallRewriteKind.explicitBaseCall
+      else
+        DispatchCallRewriteKind.ordinary
+  | _ => DispatchCallRewriteKind.ordinary
+
+def Expr.observeDispatchCallRewrite (contractName : Name)
+    (baseNames : List Name) (expr : Expr) :
+    DispatchCallRewriteObservation :=
+  let afterSuper := Expr.rewriteSuperCalls contractName expr
+  let afterBase := Expr.rewriteBaseCalls baseNames afterSuper
+  { contractName := contractName
+    baseNames := baseNames
+    source := expr
+    afterSuper := afterSuper
+    afterBase := afterBase
+    kind := Expr.dispatchCallRewriteKind baseNames expr }
+
 def FunctionDecl.asBaseHelper? (contractName : Name)
     (decl : FunctionDecl) : Option FunctionDecl :=
   match decl.name with
@@ -1077,9 +1215,11 @@ def mapIdx {α β : Type} (f : Nat -> α -> β) : Nat -> List α -> List β
   | index, item :: rest =>
       f index item :: mapIdx f (index + 1) rest
 
-def abiDecodeReturnExprs (tys : List CoreTy) (dataCore : CoreExpr) :
+def abiDecodeReturnExprs (tys : List CoreTy)
+    (cleanups : List CoreAbiCleanup) (dataCore : CoreExpr) :
     List CoreExpr :=
-  let decoded := SolidCore.Solidity.Source.Expr.abiDecode tys dataCore
+  let decoded :=
+    SolidCore.Solidity.Source.Expr.abiDecode tys cleanups dataCore
   match tys with
   | [] => []
   | [_] => [decoded]
@@ -1136,13 +1276,15 @@ def Ty.resolveUserTypesFuel : Nat -> UserTypeEnv -> Ty -> Ty
       | Ty.array element size => Ty.array (resolve element) size
       | Ty.mapping key value => Ty.mapping (resolve key) (resolve value)
       | Ty.tuple tys => Ty.tuple (tys.map resolve)
+      | Ty.struct path tys => Ty.struct path (tys.map resolve)
       | Ty.user path =>
           match UserTypeEnv.lookup? env path with
           | some underlying => resolve underlying
           | none => Ty.user path
-      | Ty.function params returns mutability visibility =>
-          Ty.function (params.map resolve) (returns.map resolve)
-            mutability visibility
+      | Ty.functionWithLocations params paramLocations returns returnLocations
+          mutability visibility =>
+          Ty.functionWithLocations (params.map resolve) paramLocations
+            (returns.map resolve) returnLocations mutability visibility
       | other => other
 
 end
@@ -1191,6 +1333,31 @@ def Expr.resolveUserTypesFuel : Nat -> UserTypeEnv -> Expr -> Expr
               [Arg.positional (resolve arg)]
       | Expr.call (Expr.member (Expr.typeName ty@(Ty.user _)) member) args =>
           Expr.call (Expr.member (Expr.typeName ty) member)
+            (args.map resolveArg)
+      | Expr.call
+          (Expr.member
+            (Expr.member (Expr.typeName (Ty.user parentPath)) typeName)
+            member)
+          [Arg.positional arg] =>
+          let ty := Ty.user { segments := parentPath.segments ++ [typeName] }
+          if member == "wrap" || member == "unwrap" then
+            Expr.call (Expr.typeName (Ty.resolveUserTypesFuel fuel env ty))
+              [Arg.positional (resolve arg)]
+          else
+            Expr.call
+              (Expr.member
+                (Expr.member (Expr.typeName (Ty.user parentPath)) typeName)
+                member)
+              [Arg.positional (resolve arg)]
+      | Expr.call
+          (Expr.member
+            (Expr.member (Expr.typeName (Ty.user parentPath)) typeName)
+            member)
+          args =>
+          Expr.call
+            (Expr.member
+              (Expr.member (Expr.typeName (Ty.user parentPath)) typeName)
+              member)
             (args.map resolveArg)
       | Expr.call fn args =>
           Expr.call (resolve fn) (args.map resolveArg)
@@ -1425,6 +1592,11 @@ def EnumDecl.maxValue? (decl : EnumDecl) : Option Nat :=
 def EnumDecl.toAbiSourceTy (_decl : EnumDecl) : Ty :=
   Ty.uint 8
 
+def EnumDecl.toResolvedTy (decl : EnumDecl) : Ty :=
+  match EnumDecl.maxValue? decl with
+  | some maxValue => Ty.enum maxValue
+  | none => Ty.uint 8
+
 def EnumDecl.toCoreSourceTy (_decl : EnumDecl) : Ty :=
   Ty.uint 256
 
@@ -1438,13 +1610,15 @@ def Ty.resolveEnumsFuel : Nat -> EnumEnv -> Ty -> Ty
       | Ty.array element size => Ty.array (resolve element) size
       | Ty.mapping key value => Ty.mapping (resolve key) (resolve value)
       | Ty.tuple tys => Ty.tuple (tys.map resolve)
+      | Ty.struct path tys => Ty.struct path (tys.map resolve)
       | Ty.user path =>
           match EnumEnv.lookup? env path with
-          | some decl => EnumDecl.toAbiSourceTy decl
+          | some decl => EnumDecl.toResolvedTy decl
           | none => Ty.user path
-      | Ty.function params returns mutability visibility =>
-          Ty.function (params.map resolve) (returns.map resolve)
-            mutability visibility
+      | Ty.functionWithLocations params paramLocations returns returnLocations
+          mutability visibility =>
+          Ty.functionWithLocations (params.map resolve) paramLocations
+            (returns.map resolve) returnLocations mutability visibility
       | other => other
 
 end
@@ -1746,14 +1920,16 @@ def Ty.resolveStructsFuel : Nat -> StructEnv -> Ty -> Ty
       | Ty.array element size => Ty.array (resolve element) size
       | Ty.mapping key value => Ty.mapping (resolve key) (resolve value)
       | Ty.tuple tys => Ty.tuple (tys.map resolve)
+      | Ty.struct path tys => Ty.struct path (tys.map resolve)
       | Ty.user path =>
           match StructEnv.lookup? env path with
           | some decl =>
-              Ty.tuple (decl.fields.map (fun field => resolve field.ty))
+              Ty.struct path (decl.fields.map (fun field => resolve field.ty))
           | none => Ty.user path
-      | Ty.function params returns mutability visibility =>
-          Ty.function (params.map resolve) (returns.map resolve)
-            mutability visibility
+      | Ty.functionWithLocations params paramLocations returns returnLocations
+          mutability visibility =>
+          Ty.functionWithLocations (params.map resolve) paramLocations
+            (returns.map resolve) returnLocations mutability visibility
       | other => other
 
 end
@@ -1762,7 +1938,8 @@ def Ty.resolveStructs (env : StructEnv) (ty : Ty) : Ty :=
   Ty.resolveStructsFuel defaultResolveUserTypesFuel env ty
 
 def StructDecl.toTupleTy (env : StructEnv) (decl : StructDecl) : Ty :=
-  Ty.tuple (decl.fields.map (fun field => Ty.resolveStructs env field.ty))
+  Ty.struct { segments := [decl.name] }
+    (decl.fields.map (fun field => Ty.resolveStructs env field.ty))
 
 def Parameter.resolveStructs (env : StructEnv)
     (param : Parameter) : Parameter :=
@@ -1849,6 +2026,19 @@ def Expr.sourceTyWithEnv? (env : StructEnv) (typeEnv : TypeEnv) :
       | Ty.mapping _ valueTy => some valueTy
       | Ty.bytes => some (Ty.bytesN 1)
       | _ => none
+  | Expr.tuple items => do
+      let tys ←
+        mapOption
+          (fun item =>
+            match item with
+            | TupleItem.value
+                (Expr.call (Expr.typeName ty) [Arg.positional _]) =>
+                some ty
+            | TupleItem.value (Expr.typeName ty) => some ty
+            | TupleItem.value _ => none
+            | TupleItem.hole => none)
+          items
+      some (Ty.tuple tys)
   | Expr.ternary _ thenExpr _ =>
       Expr.sourceTyWithEnv? env typeEnv thenExpr
   | _ => none
@@ -1889,26 +2079,15 @@ def Expr.resolveStructsFuel :
           | some decl =>
               match StructDecl.constructorArgs? decl args with
               | some fieldExprs =>
-                  let typedArgs :=
+                  let typedItems :=
                     (decl.fields.zip fieldExprs).map
                       (fun pair =>
-                        Arg.positional
+                        TupleItem.value
                           (Expr.call
                             (Expr.typeName
                               (Ty.resolveStructsFuel fuel env pair.fst.ty))
                             [Arg.positional (resolve pair.snd)]))
-                  Expr.call
-                    (Expr.member (Expr.ident "abi") "decode")
-                    [ Arg.positional
-                        (Expr.call
-                          (Expr.member (Expr.ident "abi") "encode")
-                          typedArgs)
-                    , Arg.positional
-                        (Expr.typeName
-                          (Ty.tuple
-                            (decl.fields.map
-                              (fun field =>
-                                Ty.resolveStructsFuel fuel env field.ty)))) ]
+                  Expr.tuple typedItems
               | none =>
                   Expr.call (Expr.typeName (Ty.user path))
                     (args.map resolveArg)
@@ -2338,6 +2517,8 @@ def Ty.toCore? : Ty -> Option CoreTy
         some SolidCore.Solidity.Source.Ty.int256
       else
         none
+  | Ty.enum _ =>
+      some SolidCore.Solidity.Source.Ty.uint256
   | Ty.bytesN size =>
       if 0 < size && size <= 32 then
         some (SolidCore.Solidity.Source.Ty.fixedBytes size)
@@ -2359,8 +2540,11 @@ def Ty.toCore? : Ty -> Option CoreTy
   | Ty.tuple tys => do
       let coreTys ← Ty.listToCore? tys
       some (SolidCore.Solidity.Source.Ty.tuple coreTys)
+  | Ty.struct _ tys => do
+      let coreTys ← Ty.listToCore? tys
+      some (SolidCore.Solidity.Source.Ty.tuple coreTys)
   | Ty.user _ => some SolidCore.Solidity.Source.Ty.address
-  | Ty.function _ _ _ Visibility.external_ =>
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ =>
       some SolidCore.Solidity.Source.Ty.externalFunction
   | _ => none
 
@@ -2369,6 +2553,49 @@ def Ty.listToCore? : List Ty -> Option (List CoreTy)
   | ty :: rest => do
       let head ← Ty.toCore? ty
       let tail ← Ty.listToCore? rest
+      some (head :: tail)
+
+end
+
+mutual
+
+def Ty.toCoreAbiCleanup? : Ty -> Option CoreAbiCleanup
+  | Ty.uint bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (SolidCore.Solidity.Source.AbiCleanup.uint bits)
+      else
+        none
+  | Ty.int bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (SolidCore.Solidity.Source.AbiCleanup.int bits)
+      else
+        none
+  | Ty.enum maxValue =>
+      some (SolidCore.Solidity.Source.AbiCleanup.enum maxValue)
+  | Ty.array elementTy none => do
+      let elementCleanup ← Ty.toCoreAbiCleanup? elementTy
+      some (SolidCore.Solidity.Source.AbiCleanup.dynamicArray elementCleanup)
+  | Ty.array elementTy (some size) => do
+      let elementCleanup ← Ty.toCoreAbiCleanup? elementTy
+      some
+        (SolidCore.Solidity.Source.AbiCleanup.fixedArray
+          size elementCleanup)
+  | Ty.tuple tys
+  | Ty.struct _ tys => do
+      let cleanups ← Tys.toCoreAbiCleanups? tys
+      some (SolidCore.Solidity.Source.AbiCleanup.tuple cleanups)
+  | Ty.mapping _ _
+  | Ty.fixed _ _
+  | Ty.ufixed _ _ => none
+  | _ => some SolidCore.Solidity.Source.AbiCleanup.none
+
+def Tys.toCoreAbiCleanups? : List Ty -> Option (List CoreAbiCleanup)
+  | [] => some []
+  | ty :: rest => do
+      let head ← Ty.toCoreAbiCleanup? ty
+      let tail ← Tys.toCoreAbiCleanups? rest
       some (head :: tail)
 
 end
@@ -2386,6 +2613,8 @@ def Ty.toCoreStorageWord? : Ty -> Option CoreTy
         some SolidCore.Solidity.Source.Ty.int256
       else
         none
+  | Ty.enum _ =>
+      some SolidCore.Solidity.Source.Ty.uint256
   | Ty.bytesN size =>
       if 0 < size && size <= 32 then
         some (SolidCore.Solidity.Source.Ty.fixedBytes size)
@@ -2396,12 +2625,83 @@ def Ty.toCoreStorageWord? : Ty -> Option CoreTy
         some (SolidCore.Solidity.Source.Ty.fixedBytes size)
       else
         none
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ =>
+      some SolidCore.Solidity.Source.Ty.externalFunction
   | _ => none
+
+def Ty.storagePackedBytes? : Ty -> Option Nat
+  | Ty.bool => some 1
+  | Ty.address _ => some 20
+  | Ty.uint bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 && bits % 8 == 0 then
+        some (bits / 8)
+      else
+        none
+  | Ty.int bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 && bits % 8 == 0 then
+        some (bits / 8)
+      else
+        none
+  | Ty.enum _ => some 1
+  | Ty.bytesN size =>
+      if 0 < size && size <= SolidCore.Solidity.Source.wordBytes then
+        some size
+      else
+        none
+  | Ty.fixedBytes size =>
+      if 0 < size && size <= SolidCore.Solidity.Source.wordBytes then
+        some size
+      else
+        none
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ => some 24
+  | _ => none
+
+def Ty.storagePackedSigned : Ty -> Bool
+  | Ty.int _ => true
+  | _ => false
 
 def Ty.toCoreMappingKey? : Ty -> Option CoreTy
   | Ty.bytes => some SolidCore.Solidity.Source.Ty.bytesCalldata
   | Ty.string => some SolidCore.Solidity.Source.Ty.bytesCalldata
+  | Ty.functionWithLocations _ _ _ _ _ _ => none
   | ty => Ty.toCoreStorageWord? ty
+
+structure StorageLayoutPackingCursor where
+  slot : Nat
+  offset : Nat := 0
+  deriving Repr
+
+def StorageLayoutPackingCursor.align
+    (cursor : StorageLayoutPackingCursor) :
+    StorageLayoutPackingCursor :=
+  if cursor.offset == 0 then cursor
+  else { slot := cursor.slot + 1, offset := 0 }
+
+def CoreStorageLayout.placeInPackedCursor
+    (cursor : StorageLayoutPackingCursor) :
+    CoreStorageLayout -> CoreStorageLayout × StorageLayoutPackingCursor
+  | SolidCore.Solidity.Source.StorageLayout.packedScalar
+      _ widthBytes signed ty =>
+      let fits :=
+        cursor.offset + widthBytes <= SolidCore.Solidity.Source.wordBytes
+      let slot := if fits then cursor.slot else cursor.slot + 1
+      let offset := if fits then cursor.offset else 0
+      let nextOffset := offset + widthBytes
+      let next :=
+        if nextOffset == SolidCore.Solidity.Source.wordBytes then
+          { slot := slot + 1, offset := 0 }
+        else
+          { slot := slot, offset := nextOffset }
+      ( SolidCore.Solidity.Source.StorageLayout.packedScalar
+          offset widthBytes signed ty
+      , next )
+  | layout =>
+      let aligned := cursor.align
+      let span :=
+        max 1 (SolidCore.Solidity.Source.StorageLayout.slotSpan layout)
+      (layout, { slot := aligned.slot + span, offset := 0 })
 
 mutual
 
@@ -2409,13 +2709,16 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
   | Ty.bytes => some SolidCore.Solidity.Source.StorageLayout.bytes
   | Ty.string => some SolidCore.Solidity.Source.StorageLayout.string
   | Ty.tuple tys => do
-      let fields ← Tys.toCoreStorageLayouts? tys
+      let fields ← Tys.toCorePackedStorageLayouts? tys
+      some (SolidCore.Solidity.Source.StorageLayout.struct fields)
+  | Ty.struct _ tys => do
+      let fields ← Tys.toCorePackedStorageLayouts? tys
       some (SolidCore.Solidity.Source.StorageLayout.struct fields)
   | Ty.array elementTy none => do
-      let element ← Ty.toCoreStorageLayout? elementTy
+      let element ← Ty.toCoreStorageMemberLayout? elementTy
       some (SolidCore.Solidity.Source.StorageLayout.dynamicArray element)
   | Ty.array elementTy (some size) => do
-      let element ← Ty.toCoreStorageLayout? elementTy
+      let element ← Ty.toCoreStorageMemberLayout? elementTy
       some (SolidCore.Solidity.Source.StorageLayout.fixedArray size element)
   | Ty.mapping keyTy valueTy => do
       let key ← Ty.toCoreMappingKey? keyTy
@@ -2425,12 +2728,41 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
       let scalar ← Ty.toCoreStorageWord? ty
       some (SolidCore.Solidity.Source.StorageLayout.scalar scalar)
 
+def Ty.toCoreStorageMemberLayout? (ty : Ty) :
+    Option CoreStorageLayout :=
+  match Ty.storagePackedBytes? ty, Ty.toCoreStorageWord? ty with
+  | some widthBytes, some scalar =>
+      some
+        (SolidCore.Solidity.Source.StorageLayout.packedScalar
+          0 widthBytes (Ty.storagePackedSigned ty) scalar)
+  | _, _ => Ty.toCoreStorageLayout? ty
+
 def Tys.toCoreStorageLayouts? : List Ty -> Option (List CoreStorageLayout)
   | [] => some []
   | ty :: rest => do
       let head ← Ty.toCoreStorageLayout? ty
       let tail ← Tys.toCoreStorageLayouts? rest
       some (head :: tail)
+
+def Tys.toCorePackedStorageLayoutsFrom?
+    (cursor : StorageLayoutPackingCursor) :
+    List Ty ->
+      Option (List CoreStorageLayout × StorageLayoutPackingCursor)
+  | [] => some ([], cursor)
+  | ty :: rest => do
+      let rawLayout ← Ty.toCoreStorageMemberLayout? ty
+      let (layout, next) :=
+        CoreStorageLayout.placeInPackedCursor cursor rawLayout
+      let (tail, finalCursor) ←
+        Tys.toCorePackedStorageLayoutsFrom? next rest
+      some (layout :: tail, finalCursor)
+
+def Tys.toCorePackedStorageLayouts? (tys : List Ty) :
+    Option (List CoreStorageLayout) := do
+  let (layouts, _) ←
+    Tys.toCorePackedStorageLayoutsFrom?
+      { slot := 0, offset := 0 } tys
+  some layouts
 
 end
 
@@ -2446,6 +2778,8 @@ def Ty.omittedFromStructPublicGetter? : Nat -> Ty -> Bool
   | _ + 1, Ty.mapping _ _ => true
   | _ + 1, Ty.array _ _ => true
   | fuel + 1, Ty.tuple tys =>
+      Tys.omittedFromStructPublicGetter? fuel tys
+  | fuel + 1, Ty.struct _ tys =>
       Tys.omittedFromStructPublicGetter? fuel tys
   | _ + 1, _ => false
 
@@ -2472,6 +2806,8 @@ def Ty.publicGetterReturnFields? : Nat -> Ty ->
     Option (List (List Nat × Ty))
   | 0, _ => none
   | fuel + 1, Ty.tuple tys =>
+      Ty.publicGetterStructReturnFields? fuel 0 tys
+  | fuel + 1, Ty.struct _ tys =>
       Ty.publicGetterStructReturnFields? fuel 0 tys
   | _ + 1, ty => some [([], ty)]
 
@@ -2512,6 +2848,16 @@ def Ty.abiCanonical? : Ty -> Option String
         some ("int" ++ toString bits)
       else
         none
+  | Ty.fixed bits decimals =>
+      if Ty.validFixedPointShape bits decimals then
+        some ("fixed" ++ toString bits ++ "x" ++ toString decimals)
+      else
+        none
+  | Ty.ufixed bits decimals =>
+      if Ty.validFixedPointShape bits decimals then
+        some ("ufixed" ++ toString bits ++ "x" ++ toString decimals)
+      else
+        none
   | Ty.bytesN size =>
       if 0 < size && size <= 32 then
         some ("bytes" ++ toString size)
@@ -2533,8 +2879,12 @@ def Ty.abiCanonical? : Ty -> Option String
   | Ty.tuple tys => do
       let elements ← Ty.listAbiCanonical? tys
       some ("(" ++ joinStringsWith "," elements ++ ")")
+  | Ty.struct _ tys => do
+      let elements ← Ty.listAbiCanonical? tys
+      some ("(" ++ joinStringsWith "," elements ++ ")")
+  | Ty.enum _ => some "uint8"
   | Ty.user _ => some "address"
-  | Ty.function _ _ _ _ => some "function"
+  | Ty.functionWithLocations _ _ _ _ _ _ => some "function"
   | _ => none
 
 def Ty.listAbiCanonical? : List Ty -> Option (List String)
@@ -2576,6 +2926,28 @@ def BinaryOp.toCore? (op : BinaryOp) :
     | BinaryOp.ne => SolidCore.Solidity.Source.BinaryOp.ne
     | BinaryOp.boolAnd => SolidCore.Solidity.Source.BinaryOp.boolAnd
     | BinaryOp.boolOr => SolidCore.Solidity.Source.BinaryOp.boolOr)
+
+def BinaryOp.tempTag : BinaryOp -> String
+  | BinaryOp.add => "add"
+  | BinaryOp.sub => "sub"
+  | BinaryOp.mul => "mul"
+  | BinaryOp.div => "div"
+  | BinaryOp.mod => "mod"
+  | BinaryOp.exp => "exp"
+  | BinaryOp.bitAnd => "bitAnd"
+  | BinaryOp.bitOr => "bitOr"
+  | BinaryOp.bitXor => "bitXor"
+  | BinaryOp.shl => "shl"
+  | BinaryOp.shr => "shr"
+  | BinaryOp.sar => "sar"
+  | BinaryOp.lt => "lt"
+  | BinaryOp.gt => "gt"
+  | BinaryOp.le => "le"
+  | BinaryOp.ge => "ge"
+  | BinaryOp.eq => "eq"
+  | BinaryOp.ne => "ne"
+  | BinaryOp.boolAnd => "boolAnd"
+  | BinaryOp.boolOr => "boolOr"
 
 def AssignOp.toCoreBinary? : AssignOp -> Option SolidCore.Solidity.Source.BinaryOp
   | AssignOp.addAssign => some SolidCore.Solidity.Source.BinaryOp.add
@@ -3086,6 +3458,18 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
         let actualBits := if actualBits == 0 then 256 else actualBits
         let expectedBits := if expectedBits == 0 then 256 else expectedBits
         actualBits < expectedBits
+    | Ty.fixed actualBits actualDecimals,
+      Ty.fixed expectedBits expectedDecimals =>
+        Ty.fixedPointImplicitlyConvertible true actualBits actualDecimals
+          true expectedBits expectedDecimals
+    | Ty.ufixed actualBits actualDecimals,
+      Ty.ufixed expectedBits expectedDecimals =>
+        Ty.fixedPointImplicitlyConvertible false actualBits actualDecimals
+          false expectedBits expectedDecimals
+    | Ty.ufixed actualBits actualDecimals,
+      Ty.fixed expectedBits expectedDecimals =>
+        Ty.fixedPointImplicitlyConvertible false actualBits actualDecimals
+          true expectedBits expectedDecimals
     | Ty.bytesN actualSize, Ty.bytesN expectedSize =>
         actualSize <= expectedSize
     | Ty.fixedBytes actualSize, Ty.fixedBytes expectedSize =>
@@ -3094,13 +3478,21 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
         actualSize <= expectedSize
     | Ty.fixedBytes actualSize, Ty.bytesN expectedSize =>
         actualSize <= expectedSize
-    | Ty.function actualParams actualReturns actualMutability actualVisibility,
-      Ty.function expectedParams expectedReturns expectedMutability expectedVisibility =>
+    | Ty.functionWithLocations actualParams actualParamLocations actualReturns
+        actualReturnLocations actualMutability actualVisibility,
+      Ty.functionWithLocations expectedParams expectedParamLocations expectedReturns
+        expectedReturnLocations expectedMutability expectedVisibility =>
         actualParams == expectedParams &&
+          actualParamLocations == expectedParamLocations &&
           actualReturns == expectedReturns &&
+          actualReturnLocations == expectedReturnLocations &&
           actualVisibility == expectedVisibility &&
           StateMutability.canImplicitlyConvertFunction
             actualMutability expectedMutability
+    | Ty.tuple actualFields, Ty.struct _ expectedFields =>
+        actualFields == expectedFields
+    | Ty.struct _ actualFields, Ty.tuple expectedFields =>
+        actualFields == expectedFields
     | _, _ => false
 
 def Ty.commonImplicit? (left right : Ty) : Option Ty :=
@@ -3117,6 +3509,22 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
         let leftBits := if leftBits == 0 then 256 else leftBits
         let rightBits := if rightBits == 0 then 256 else rightBits
         some (Ty.int (max leftBits rightBits))
+    | Ty.fixed leftBits leftDecimals,
+      Ty.fixed rightBits rightDecimals =>
+        Ty.commonFixedPoint? true leftBits leftDecimals
+          true rightBits rightDecimals
+    | Ty.ufixed leftBits leftDecimals,
+      Ty.ufixed rightBits rightDecimals =>
+        Ty.commonFixedPoint? false leftBits leftDecimals
+          false rightBits rightDecimals
+    | Ty.fixed leftBits leftDecimals,
+      Ty.ufixed rightBits rightDecimals =>
+        Ty.commonFixedPoint? true leftBits leftDecimals
+          false rightBits rightDecimals
+    | Ty.ufixed leftBits leftDecimals,
+      Ty.fixed rightBits rightDecimals =>
+        Ty.commonFixedPoint? false leftBits leftDecimals
+          true rightBits rightDecimals
     | Ty.bytesN leftSize, Ty.bytesN rightSize =>
         some (Ty.bytesN (max leftSize rightSize))
     | Ty.fixedBytes leftSize, Ty.fixedBytes rightSize =>
@@ -3125,6 +3533,15 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
         some (Ty.fixedBytes (max leftSize rightSize))
     | Ty.fixedBytes leftSize, Ty.bytesN rightSize =>
         some (Ty.fixedBytes (max leftSize rightSize))
+    | Ty.struct leftPath leftFields, Ty.struct rightPath rightFields =>
+        if leftPath == rightPath && leftFields == rightFields then
+          some left
+        else
+          none
+    | Ty.struct _ fields, Ty.tuple tupleFields =>
+        if fields == tupleFields then some left else none
+    | Ty.tuple tupleFields, Ty.struct _ fields =>
+        if tupleFields == fields then some right else none
     | _, _ =>
         if Ty.canImplicitlyConvert left right then
           some right
@@ -3155,6 +3572,7 @@ def Ty.allowsUintCastSource? (bits : Nat) (sourceTy : Ty) : Option Unit :=
   match sourceTy with
   | Ty.uint _ => some ()
   | Ty.int _ => some ()
+  | Ty.enum _ => some ()
   | Ty.address _ =>
       if bits == 160 then some () else none
   | _ =>
@@ -3172,6 +3590,46 @@ def Ty.allowsIntCastSource? (bits : Nat) (sourceTy : Ty) : Option Unit :=
       | some size =>
           if size * 8 == bits then some () else none
       | none => none
+
+def Ty.implicitCleanupCore? (targetTy : Ty) (expr : CoreExpr) :
+    Option CoreExpr :=
+  match targetTy with
+  | Ty.uint bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (SolidCore.Solidity.Source.Expr.uintCleanup bits expr)
+      else
+        none
+  | Ty.int bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (SolidCore.Solidity.Source.Expr.intCleanup bits expr)
+      else
+        none
+  | _ => some expr
+
+def Ty.implicitCleanupCore (targetTy : Ty) (expr : CoreExpr) :
+    CoreExpr :=
+  match Ty.implicitCleanupCore? targetTy expr with
+  | some cleaned => cleaned
+  | none => expr
+
+def Ty.toCoreValueCleanup? : Ty -> Option CoreValueCleanup
+  | Ty.uint bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (SolidCore.Solidity.Source.ValueCleanup.uint bits)
+      else
+        none
+  | Ty.int bits =>
+      let bits := if bits == 0 then 256 else bits
+      if 0 < bits && bits <= 256 then
+        some (SolidCore.Solidity.Source.ValueCleanup.int bits)
+      else
+        none
+  | Ty.enum _ =>
+      some (SolidCore.Solidity.Source.ValueCleanup.uint 8)
+  | _ => some SolidCore.Solidity.Source.ValueCleanup.none
 
 def Expr.numberLiteralNat? (expr : Expr) : Option Nat := do
   let value ← Expr.numberLiteralRat? expr
@@ -3499,23 +3957,12 @@ def Expr.memberCallIsBuiltin? : Expr -> Name -> Bool
         name == "encodeWithSignature" || name == "encodeCall"
   | Expr.ident "bytes", "concat" => true
   | Expr.ident "string", "concat" => true
+  | Expr.typeName Ty.bytes, "concat" => true
+  | Expr.typeName Ty.string, "concat" => true
   | _, _ => false
 
 def generatedLibraryAddressPrefix : String :=
   "__solidcore_library_address_"
-
-def dropCharPrefix? : List Char -> List Char -> Option (List Char)
-  | [], rest => some rest
-  | _ :: _, [] => none
-  | prefixHead :: prefixTail, textHead :: textTail =>
-      if prefixHead == textHead then
-        dropCharPrefix? prefixTail textTail
-      else
-        none
-
-def dropStringPrefix? (needle text : String) : Option String := do
-  let rest ← dropCharPrefix? needle.toList text.toList
-  some (String.ofList rest)
 
 def generatedLibraryAddressIdent (libraryName : Name) : Name :=
   generatedLibraryAddressPrefix ++ libraryName
@@ -3530,12 +3977,13 @@ def sourceIdentCore (storageNames : List Name) (name : Name) : CoreExpr :=
   | none =>
       if name == "this" then
         SolidCore.Solidity.Source.Expr.self
-      else if stateNameIsStorage name storageNames then
-        SolidCore.Solidity.Source.Expr.storage name
-      else if stateNameIsImmutable name storageNames then
-        SolidCore.Solidity.Source.Expr.immutable name
       else
-        SolidCore.Solidity.Source.Expr.var name
+        match stateNameRuntimeKey? name storageNames with
+        | some key => SolidCore.Solidity.Source.Expr.storage key
+        | none =>
+            match stateNameImmutableKey? name storageNames with
+            | some key => SolidCore.Solidity.Source.Expr.immutable key
+            | none => SolidCore.Solidity.Source.Expr.var name
 
 def externalFunctionSignature? (name : Name) (argTys : List Ty) :
     Option String := do
@@ -3547,6 +3995,7 @@ structure ExternalCallKindEntry where
   functionName : Name
   paramTys : List Ty := []
   paramNames : List (Option Name) := []
+  returnTys : List Ty := []
   mutability : StateMutability := StateMutability.nonpayable
   isConstructor : Bool := false
   deriving Repr
@@ -3596,7 +4045,8 @@ def ExternalCallKindEntry.toTypeEnvEntry?
     some
       (some
         ( key
-        , Ty.function entry.paramTys [] entry.mutability Visibility.external_ ))
+        , Ty.function entry.paramTys entry.returnTys entry.mutability
+            Visibility.external_ ))
 
 def ExternalCallKindEnv.toTypeEnv? (env : ExternalCallKindEnv) :
     Option TypeEnv :=
@@ -3611,7 +4061,7 @@ def TypeEnv.lookupExternalMutability? (env : TypeEnv)
   let key ← externalCallKindTypeEnvName? contractName functionName paramTys
   let ty ← TypeEnv.lookup? env key
   match ty with
-  | Ty.function _ _ mutability Visibility.external_ =>
+  | Ty.functionWithLocations _ _ _ _ mutability Visibility.external_ =>
       some mutability
   | _ => none
 
@@ -3703,6 +4153,30 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           let _ ← Ty.toCore? innerTy
           Expr.toCore? storageNames innerExpr
       | _ => none
+  | Expr.call (Expr.typeName Ty.string)
+      [Arg.positional
+        (Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args)] => do
+      let (tys, exprs) ← Args.toAbiEncode? storageNames args
+      some (SolidCore.Solidity.Source.Expr.abiEncodePacked tys exprs)
+  | Expr.call (Expr.typeName targetTy)
+      [Arg.positional
+        (Expr.member (Expr.typeName sourceTy@(Ty.user _)) "name")] =>
+      if targetTy == Ty.bytes || targetTy == Ty.string then
+        Ty.typeInfoExpr? sourceTy "name"
+      else
+        none
+  | Expr.call (Expr.typeName Ty.bytes)
+      [Arg.positional (Expr.index (Expr.ident name) index)] =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
+        do
+        let indexCore ← Expr.toCore? storageNames index
+        some (SolidCore.Solidity.Source.Expr.storageIndex key indexCore)
+      | none =>
+        do
+        let baseCore ← Expr.toCore? storageNames (Expr.ident name)
+        let indexCore ← Expr.toCore? storageNames index
+        some (SolidCore.Solidity.Source.Expr.index baseCore indexCore)
   | Expr.call (Expr.typeName ty@(Ty.address _)) [Arg.positional expr] =>
       match Expr.toCoreAddressLiteral? expr with
       | some coreExpr => some coreExpr
@@ -3746,41 +4220,75 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
                 match Expr.toCoreNumericLiteralAs? ty expr with
                 | some coreExpr => some coreExpr
                 | none =>
-                    if Ty.isIntOrUint ty &&
+                  if Ty.isIntOrUint ty &&
                         Expr.isNumberLiteralExpression expr then
                       none
                     else
-                      match Ty.uintBits? ty with
-                      | some bits =>
-                          match Expr.abiTy? storageNames expr with
-                          | some sourceTy => do
-                              let _ ←
-                                Ty.allowsUintCastSource? bits sourceTy
-                              let coreExpr ← Expr.toCore? storageNames expr
-                              some
-                                (SolidCore.Solidity.Source.Expr.uintCast
-                                  bits coreExpr)
-                          | none => do
-                              let _ ← Ty.toCore? ty
-                              Expr.toCore? storageNames expr
-                      | none =>
-                          match Ty.intBits? ty with
+                      match ty with
+                      | Ty.bytes | Ty.string =>
+                          match expr with
+                          | Expr.ident name =>
+                              match stateNameRuntimeKey? name storageNames with
+                              | some key =>
+                                some
+                                  (SolidCore.Solidity.Source.Expr.storageBytes
+                                    key)
+                              | none =>
+                                some (sourceIdentCore storageNames name)
+                          | Expr.literal literal => do
+                              let sourceTy ← Expr.abiTy? storageNames expr
+                              match sourceTy with
+                              | Ty.bytes | Ty.string =>
+                                  Literal.toCoreExpr? literal
+                              | _ => none
+                          | Expr.call (Expr.typeName sourceTy)
+                              [Arg.positional (Expr.ident name)] =>
+                              match sourceTy with
+                              | Ty.bytes | Ty.string =>
+                                  match stateNameRuntimeKey? name storageNames with
+                                  | some key =>
+                                    some
+                                      (SolidCore.Solidity.Source.Expr.storageBytes
+                                        key)
+                                  | none =>
+                                    some (sourceIdentCore storageNames name)
+                              | _ => none
+                          | _ => do
+                              let sourceTy ← Expr.abiTy? storageNames expr
+                              match sourceTy with
+                              | _ => none
+                      | _ =>
+                          match Ty.uintBits? ty with
                           | some bits =>
                               match Expr.abiTy? storageNames expr with
                               | some sourceTy => do
                                   let _ ←
-                                    Ty.allowsIntCastSource? bits sourceTy
-                                  let coreExpr ←
-                                    Expr.toCore? storageNames expr
+                                    Ty.allowsUintCastSource? bits sourceTy
+                                  let coreExpr ← Expr.toCore? storageNames expr
                                   some
-                                    (SolidCore.Solidity.Source.Expr.intCast
+                                    (SolidCore.Solidity.Source.Expr.uintCast
                                       bits coreExpr)
                               | none => do
                                   let _ ← Ty.toCore? ty
                                   Expr.toCore? storageNames expr
-                          | none => do
-                              let _ ← Ty.toCore? ty
-                              Expr.toCore? storageNames expr
+                          | none =>
+                              match Ty.intBits? ty with
+                              | some bits =>
+                                  match Expr.abiTy? storageNames expr with
+                                  | some sourceTy => do
+                                      let _ ←
+                                        Ty.allowsIntCastSource? bits sourceTy
+                                      let coreExpr ←
+                                        Expr.toCore? storageNames expr
+                                      some
+                                        (SolidCore.Solidity.Source.Expr.intCast
+                                          bits coreExpr)
+                                  | none => do
+                                      let _ ← Ty.toCore? ty
+                                      Expr.toCore? storageNames expr
+                              | none => do
+                                  let _ ← Ty.toCore? ty
+                                  Expr.toCore? storageNames expr
   | Expr.member base "balance" => do
       let baseCore ← Expr.toCore? storageNames base
       some (SolidCore.Solidity.Source.Expr.envLookup
@@ -3953,8 +4461,10 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       some (SolidCore.Solidity.Source.Expr.abiEncode tys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "decode")
       [Arg.positional data, Arg.positional typesExpr] => do
-      let (tys, dataCore) ← Expr.toAbiDecode? storageNames data typesExpr
-      some (SolidCore.Solidity.Source.Expr.abiDecode tys dataCore)
+      let (tys, cleanups, dataCore) ←
+        Expr.toAbiDecode? storageNames data typesExpr
+      some
+        (SolidCore.Solidity.Source.Expr.abiDecode tys cleanups dataCore)
   | Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args => do
       let (tys, exprs) ← Args.toAbiEncode? storageNames args
       some (SolidCore.Solidity.Source.Expr.abiEncodePacked tys exprs)
@@ -3998,6 +4508,16 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           selectorCore
           coreTys coreExprs)
+  | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+      [Arg.positional functionPointer, Arg.positional argumentExpr] => do
+      let (sourceTy, coreTy, coreExpr) ←
+        Expr.toAbiEncodeSourceArg? storageNames argumentExpr
+      let selectorCore ←
+        Expr.functionPointerSelectorCore?
+          storageNames functionPointer [sourceTy]
+      some
+        (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
+          selectorCore [coreTy] [coreExpr])
   | Expr.call (Expr.ident "blockhash") [Arg.positional number] => do
       let numberCore ← Expr.toCore? storageNames number
       some (SolidCore.Solidity.Source.Expr.envLookup
@@ -4056,6 +4576,14 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           coreTys coreExprs)
       else
         none
+  | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args => do
+      let (sourceTys, coreTys, coreExprs) ←
+        Args.toAbiEncodeSource? storageNames args
+      if Tys.allBytesConcatArgs sourceTys then
+        some (SolidCore.Solidity.Source.Expr.abiEncodePacked
+          coreTys coreExprs)
+      else
+        none
   | Expr.call (Expr.member (Expr.ident "string") "concat") args => do
       let (sourceTys, coreTys, coreExprs) ←
         Args.toAbiEncodeSource? storageNames args
@@ -4064,10 +4592,19 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           coreTys coreExprs)
       else
         none
-  | Expr.member (Expr.ident name) "length" =>
-      if stateNameIsStorage name storageNames then
-        some (SolidCore.Solidity.Source.Expr.storage name)
+  | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") args => do
+      let (sourceTys, coreTys, coreExprs) ←
+        Args.toAbiEncodeSource? storageNames args
+      if Tys.allStringConcatArgs sourceTys then
+        some (SolidCore.Solidity.Source.Expr.abiEncodePacked
+          coreTys coreExprs)
       else
+        none
+  | Expr.member (Expr.ident name) "length" =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
+        some (SolidCore.Solidity.Source.Expr.storage key)
+      | none =>
         do
         let baseCore ← Expr.toCore? storageNames (Expr.ident name)
         some (SolidCore.Solidity.Source.Expr.length baseCore)
@@ -4083,11 +4620,12 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           let baseCore ← Expr.toCore? storageNames base
           some (SolidCore.Solidity.Source.Expr.length baseCore)
   | Expr.index (Expr.ident name) index =>
-      if stateNameIsStorage name storageNames then
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
         do
         let indexCore ← Expr.toCore? storageNames index
-        some (SolidCore.Solidity.Source.Expr.storageIndex name indexCore)
-      else
+        some (SolidCore.Solidity.Source.Expr.storageIndex key indexCore)
+      | none =>
         do
         let baseCore ← Expr.toCore? storageNames (Expr.ident name)
         let indexCore ← Expr.toCore? storageNames index
@@ -4398,59 +4936,93 @@ def Expr.arrayLiteralCommonTy? (storageNames : List Name) :
       some info.snd
 termination_by exprs => (sizeOf exprs, 2)
 
+def Expr.toCoreStorageByteStringAs? (storageNames : List Name)
+    (targetTy : Ty) : Expr -> Option CoreExpr
+  | Expr.ident name =>
+      match targetTy with
+      | Ty.bytes | Ty.string =>
+          match stateNameRuntimeKey? name storageNames with
+          | some key =>
+              some (SolidCore.Solidity.Source.Expr.storageBytes key)
+          | none => none
+      | _ => none
+  | _ => none
+
+def Expr.toCoreStorageArrayAs? (storageNames : List Name)
+    (targetTy : Ty) : Expr -> Option CoreExpr
+  | Expr.ident name =>
+      match targetTy with
+      | Ty.array _ _ =>
+          match stateNameRuntimeKey? name storageNames with
+          | some key =>
+              some (SolidCore.Solidity.Source.Expr.storagePath key [])
+          | none => none
+      | _ => none
+  | _ => none
+
 def Expr.toCoreAs? (storageNames : List Name)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
-  match Expr.toCoreFixedBytesLiteralAs? targetTy expr with
+  match Expr.toCoreStorageArrayAs? storageNames targetTy expr with
   | some coreExpr => some coreExpr
   | none =>
-      if Ty.isFixedBytes targetTy &&
-          Expr.isFixedBytesLiteralCandidate expr then
-        none
-      else
-        match Expr.toCoreNumericLiteralAs? targetTy expr with
-        | some coreExpr => some coreExpr
-        | none =>
-            if Ty.isIntOrUint targetTy &&
-                Expr.isNumberLiteralExpression expr then
-              none
-            else do
-              let sourceTy ← Expr.abiTy? storageNames expr
-              let coreExpr ← Expr.toCore? storageNames expr
-              if sourceTy == targetTy then
-                some coreExpr
+      match Expr.toCoreStorageByteStringAs? storageNames targetTy expr with
+      | some coreExpr => some coreExpr
+      | none =>
+          match Expr.toCoreFixedBytesLiteralAs? targetTy expr with
+          | some coreExpr => some coreExpr
+          | none =>
+              if Ty.isFixedBytes targetTy &&
+                  Expr.isFixedBytesLiteralCandidate expr then
+                none
               else
-                match targetTy with
-                | Ty.uint bits => do
-                    let bits := if bits == 0 then 256 else bits
-                    let _ ← Ty.allowsUintCastSource? bits sourceTy
-                    some
-                      (SolidCore.Solidity.Source.Expr.uintCast
-                        bits coreExpr)
-                | Ty.int bits => do
-                    let bits := if bits == 0 then 256 else bits
-                    let _ ← Ty.allowsIntCastSource? bits sourceTy
-                    some
-                      (SolidCore.Solidity.Source.Expr.intCast
-                        bits coreExpr)
-                | Ty.bytesN targetSize
-                | Ty.fixedBytes targetSize =>
-                    match sourceTy with
-                    | Ty.bytes =>
-                        some
-                          (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
-                            targetSize coreExpr)
-                    | _ => do
-                        let sourceSize ←
-                          Ty.fixedBytesCastWordSourceSize?
-                            targetSize sourceTy
-                        some
-                          (SolidCore.Solidity.Source.Expr.fixedBytesCast
-                            targetSize sourceSize coreExpr)
-                | _ =>
-                    if Ty.canImplicitlyConvert sourceTy targetTy then
-                      some coreExpr
-                    else
+                match Expr.toCoreNumericLiteralAs? targetTy expr with
+                | some coreExpr => some coreExpr
+                | none =>
+                    if Ty.isIntOrUint targetTy &&
+                        Expr.isNumberLiteralExpression expr then
                       none
+                    else do
+                      let sourceTy ← Expr.abiTy? storageNames expr
+                      let coreExpr ← Expr.toCore? storageNames expr
+                      if
+                          (targetTy == Ty.bytes || targetTy == Ty.string) &&
+                            (sourceTy == Ty.bytes || sourceTy == Ty.string) then
+                        some coreExpr
+                      else if sourceTy == targetTy then
+                        Ty.implicitCleanupCore? targetTy coreExpr
+                      else
+                        match targetTy with
+                    | Ty.uint bits => do
+                        let bits := if bits == 0 then 256 else bits
+                        let _ ← Ty.allowsUintCastSource? bits sourceTy
+                        some
+                          (SolidCore.Solidity.Source.Expr.uintCleanup
+                            bits coreExpr)
+                    | Ty.int bits => do
+                        let bits := if bits == 0 then 256 else bits
+                        let _ ← Ty.allowsIntCastSource? bits sourceTy
+                        some
+                          (SolidCore.Solidity.Source.Expr.intCleanup
+                            bits coreExpr)
+                    | Ty.bytesN targetSize
+                    | Ty.fixedBytes targetSize =>
+                        match sourceTy with
+                        | Ty.bytes =>
+                            some
+                              (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
+                                targetSize coreExpr)
+                        | _ => do
+                            let sourceSize ←
+                              Ty.fixedBytesCastWordSourceSize?
+                                targetSize sourceTy
+                            some
+                              (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                                targetSize sourceSize coreExpr)
+                    | _ =>
+                        if Ty.canImplicitlyConvert sourceTy targetTy then
+                          some coreExpr
+                        else
+                          none
 termination_by (sizeOf expr, 1)
 
 def Expr.arrayLiteralCoreExprsAs? (storageNames : List Name)
@@ -4506,6 +5078,20 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
   | Expr.member (Expr.typeName (Ty.user _)) "name" => some Ty.string
   | Expr.member (Expr.typeName (Ty.user _)) "creationCode" => some Ty.bytes
   | Expr.member (Expr.typeName (Ty.user _)) "runtimeCode" => some Ty.bytes
+  | Expr.member (Expr.typeName ty) "min" => do
+      match Ty.uintBits? ty with
+      | some _ => some ty
+      | none =>
+          match Ty.intBits? ty with
+          | some _ => some ty
+          | none => none
+  | Expr.member (Expr.typeName ty) "max" => do
+      match Ty.uintBits? ty with
+      | some _ => some ty
+      | none =>
+          match Ty.intBits? ty with
+          | some _ => some ty
+          | none => none
   | Expr.newExpr Ty.bytes [Arg.positional _] => some Ty.bytes
   | Expr.newExpr Ty.string [Arg.positional _] => some Ty.string
   | Expr.newExpr (Ty.array elementTy none) [Arg.positional _] =>
@@ -4554,8 +5140,12 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
       some Ty.bytes
   | Expr.call (Expr.member (Expr.ident "bytes") "concat") _ => some Ty.bytes
   | Expr.call (Expr.member (Expr.ident "string") "concat") _ => some Ty.string
+  | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") _ =>
+      some Ty.bytes
+  | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") _ =>
+      some Ty.string
   | Expr.enumFromUInt _ _ => some (Ty.uint 8)
-  | Expr.index base _ => do
+  | Expr.index base indexExpr => do
       let baseTy ← Expr.abiTy? storageNames base
       match Ty.fixedBytesSize? baseTy with
       | some _ => some (Ty.bytesN 1)
@@ -4563,6 +5153,12 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
           match baseTy with
           | Ty.bytes => some (Ty.bytesN 1)
           | Ty.array elementTy _ => some elementTy
+          | Ty.tuple elements => do
+              let index ← Expr.numberLiteralNat? indexExpr
+              listGet? elements index
+          | Ty.struct _ elements => do
+              let index ← Expr.numberLiteralNat? indexExpr
+              listGet? elements index
           | _ => none
   | Expr.member base "balance" => do
       let _ ← Expr.abiTy? storageNames base
@@ -4586,11 +5182,28 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
           some Ty.bool
       | _ => Expr.abiTy? storageNames lhs
   | Expr.ternary _ thenExpr _ => Expr.abiTy? storageNames thenExpr
+  | Expr.tuple items => do
+      let tys ←
+        mapOption
+          (fun item =>
+            match item with
+            | TupleItem.value
+                (Expr.call (Expr.typeName ty) [Arg.positional _]) => do
+                let _ ← Ty.toCore? ty
+                some ty
+            | TupleItem.value (Expr.typeName ty) => do
+                let _ ← Ty.toCore? ty
+                some ty
+            | TupleItem.value _ => none
+            | TupleItem.hole => none)
+          items
+      some (Ty.tuple tys)
   | Expr.array exprs => Expr.arrayLiteralTy? storageNames exprs
   | Expr.slice base _ _ => do
       let baseTy ← Expr.abiTy? storageNames base
       match baseTy with
       | Ty.bytes => some Ty.bytes
+      | Ty.string => some Ty.string
       | Ty.array elementTy _ => some (Ty.array elementTy none)
       | _ => none
   | _ => none
@@ -4768,6 +5381,17 @@ def Expr.externalCallTargetContractNameWithEnv? (env : TypeEnv)
       pathLast? path
   | _ => none
 
+def lowLevelCallReservedMemberName (name : Name) : Bool :=
+  name == "call" || name == "staticcall" ||
+    name == "delegatecall" || name == "send" ||
+    name == "transfer"
+
+def highLevelExternalCallReservedMemberWithEnv
+    (env : TypeEnv) (target : Expr) (name : Name) : Bool :=
+  (lowLevelCallReservedMemberName name &&
+      (Expr.externalCallTargetContractNameWithEnv? env target).isNone) ||
+    Expr.memberCallIsBuiltin? target name
+
 def Expr.externalCallKindForTargetWithEnv (env : TypeEnv)
     (externalCallKindEnv : ExternalCallKindEnv) (target : Expr)
     (name : Name) (argTys : List Ty) : CoreLowLevelCallKind :=
@@ -4867,13 +5491,7 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
         (CoreLowLevelCallKind × CoreExpr × CoreExpr × CoreExpr ×
           Option CoreExpr × Bool)
   | Expr.call (Expr.member target name) args => do
-      if name == "call" || name == "staticcall" ||
-          name == "delegatecall" || name == "send" ||
-          name == "transfer" then
-        none
-      else
-        some ()
-      if Expr.memberCallIsBuiltin? target name then
+      if highLevelExternalCallReservedMemberWithEnv env target name then
         none
       else
         some ()
@@ -4898,13 +5516,7 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
         , none
         , false )
   | Expr.callWithOptions (Expr.member target name) options args => do
-      if name == "call" || name == "staticcall" ||
-          name == "delegatecall" || name == "send" ||
-          name == "transfer" then
-        none
-      else
-        some ()
-      if Expr.memberCallIsBuiltin? target name then
+      if highLevelExternalCallReservedMemberWithEnv env target name then
         none
       else
         some ()
@@ -4928,6 +5540,23 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
             (SolidCore.Solidity.Source.ABI.selectorFromSignature signature))
           coreTys coreExprs
       some (kind, targetCore, callData, valueCore, gasCore?, gasFirst)
+  | _ => none
+
+def Expr.externalCallDeclaredReturnTysWithKindEnv?
+    (storageNames : List Name) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) : Expr -> Option (List Ty)
+  | Expr.call (Expr.member target name) args => do
+      let contractName ← Expr.externalCallTargetContractNameWithEnv? env target
+      let (entry, _, _, _) ←
+        ExternalCallKindEnv.lookupAbiCall?
+          storageNames externalCallKindEnv contractName name args
+      some entry.returnTys
+  | Expr.callWithOptions (Expr.member target name) _ args => do
+      let contractName ← Expr.externalCallTargetContractNameWithEnv? env target
+      let (entry, _, _, _) ←
+        ExternalCallKindEnv.lookupAbiCall?
+          storageNames externalCallKindEnv contractName name args
+      some entry.returnTys
   | _ => none
 
 def Expr.toExternalCallWithTypeEnv? (storageNames : List Name)
@@ -5019,6 +5648,12 @@ def CoreBindingDecls.toVarExprs
   bindings.map (fun binding =>
     SolidCore.Solidity.Source.Expr.var binding.name)
 
+def CoreBindingDecls.toVarExprsAs
+    (tys : List Ty) (bindings : List CoreBindingDecl) : List CoreExpr :=
+  (tys.zip bindings).map (fun pair =>
+    Ty.implicitCleanupCore pair.fst
+      (SolidCore.Solidity.Source.Expr.var pair.snd.name))
+
 def CoreBindingDecls.assignToVars (names : List Name)
     (bindings : List CoreBindingDecl) : List CoreStmt :=
   (names.zip bindings).map
@@ -5026,6 +5661,27 @@ def CoreBindingDecls.assignToVars (names : List Name)
       SolidCore.Solidity.Source.Stmt.assign
         (SolidCore.Solidity.Source.LValue.var pair.fst)
         (SolidCore.Solidity.Source.Expr.var pair.snd.name))
+
+def CoreBindingDecls.assignToVarsAs (tys : List Ty) (names : List Name)
+    (bindings : List CoreBindingDecl) : List CoreStmt :=
+  (names.zip (tys.zip bindings)).map
+    (fun pair =>
+      SolidCore.Solidity.Source.Stmt.assign
+        (SolidCore.Solidity.Source.LValue.var pair.fst)
+        (Ty.implicitCleanupCore pair.snd.fst
+          (SolidCore.Solidity.Source.Expr.var pair.snd.snd.name)))
+
+def CoreBindingDecls.assignToTargets
+    (targets : List (Option CoreLValue))
+    (bindings : List CoreBindingDecl) : List CoreStmt :=
+  (targets.zip bindings).filterMap
+    (fun pair =>
+      match pair.fst with
+      | some target =>
+          some
+            (SolidCore.Solidity.Source.Stmt.assign target
+              (SolidCore.Solidity.Source.Expr.var pair.snd.name))
+      | none => none)
 
 def Expr.transferCore? (storageNames : List Name)
     (target value : Expr) : Option CoreStmt := do
@@ -5038,7 +5694,7 @@ def Expr.transferCore? (storageNames : List Name)
       (SolidCore.Solidity.Source.Expr.byteArray [])
       valueCore
       (some (SolidCore.Solidity.Source.Expr.word 2300))
-      false false [] SolidCore.Solidity.Source.Stmt.skip [])
+      false false [] [] SolidCore.Solidity.Source.Stmt.skip [])
 
 def Expr.externalCallWithReturnsCoreWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
@@ -5046,13 +5702,22 @@ def Expr.externalCallWithReturnsCoreWithKindEnv? (storageNames : List Name)
     (successBody : List CoreBindingDecl -> CoreStmt) : Option CoreStmt := do
   let (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) ←
     Expr.toExternalCallWithKindEnv? storageNames env externalCallKindEnv expr
-  let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
+  let callReturnTys :=
+    (Expr.externalCallDeclaredReturnTysWithKindEnv?
+      storageNames env externalCallKindEnv expr).getD returnTys
+  if callReturnTys.length != returnTys.length then
+    none
+  else
+    some ()
+  let returnBindings ← Tys.toExternalReturnBindings? namePrefix callReturnTys
+  let returnAbiCleanups ← Tys.toCoreAbiCleanups? callReturnTys
   let checkTargetCode :=
-    Expr.externalCallNeedsCodeCheckWithEnv env returnTys expr
+    Expr.externalCallNeedsCodeCheckWithEnv env callReturnTys expr
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
       kind targetCore calldataCore valueCore gasCore? gasFirst
-      checkTargetCode returnBindings (successBody returnBindings) [])
+      checkTargetCode returnBindings returnAbiCleanups
+      (successBody returnBindings) [])
 
 def Expr.externalCallWithReturnsCoreWithTypeEnv? (storageNames : List Name)
     (env : TypeEnv)
@@ -5091,7 +5756,9 @@ def Expr.externalCallSingleReturnCoreWithKindEnv? (storageNames : List Name)
     (fun bindings =>
       match bindings with
       | [binding] =>
-          useResult (SolidCore.Solidity.Source.Expr.var binding.name)
+          useResult
+            (Ty.implicitCleanupCore expectedTy
+              (SolidCore.Solidity.Source.Expr.var binding.name))
       | _ => SolidCore.Solidity.Source.Stmt.skip)
 
 def Expr.externalCallSingleReturnCoreWithTypeEnv? (storageNames : List Name)
@@ -5115,7 +5782,7 @@ def Expr.externalCallAssignVarsCoreWithKindEnv? (storageNames : List Name)
       storageNames env externalCallKindEnv "__ext" returnTys expr
       (fun bindings =>
         SolidCore.Solidity.Source.Stmt.block
-          (CoreBindingDecls.assignToVars targetNames bindings))
+          (CoreBindingDecls.assignToVarsAs returnTys targetNames bindings))
   else
     none
 
@@ -5138,7 +5805,7 @@ def Expr.externalCallReturnCoreWithKindEnv? (storageNames : List Name)
     storageNames env externalCallKindEnv "__extret" returnTys expr
     (fun bindings =>
       SolidCore.Solidity.Source.Stmt.returnValues
-        (CoreBindingDecls.toVarExprs bindings))
+        (CoreBindingDecls.toVarExprsAs returnTys bindings))
 
 def Expr.externalCallReturnCoreWithTypeEnv? (storageNames : List Name)
     (env : TypeEnv) (returnTys : List Ty) (expr : Expr) : Option CoreStmt :=
@@ -5166,27 +5833,30 @@ def Expr.abiDecodeSourceTypes? : Expr -> Option (List Ty)
   | _ => none
 
 def Expr.toAbiDecode? (storageNames : List Name)
-    (data typesExpr : Expr) : Option (List CoreTy × CoreExpr) := do
+    (data typesExpr : Expr) :
+    Option (List CoreTy × List CoreAbiCleanup × CoreExpr) := do
   let sourceTys ← Expr.abiDecodeSourceTypes? typesExpr
   let coreTys ← Ty.listToCore? sourceTys
+  let cleanups ← Tys.toCoreAbiCleanups? sourceTys
   let dataCore ← Expr.toCore? storageNames data
-  some (coreTys, dataCore)
+  some (coreTys, cleanups, dataCore)
 termination_by (sizeOf data + sizeOf typesExpr + 1, 1)
 
 def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
   | Expr.ident name =>
-      if stateNameIsStorage name storageNames then
-        some (SolidCore.Solidity.Source.LValue.storage name)
-      else if stateNameIsImmutable name storageNames then
-        some (SolidCore.Solidity.Source.LValue.immutable name)
-      else
-        some (SolidCore.Solidity.Source.LValue.var name)
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (SolidCore.Solidity.Source.LValue.storage key)
+      | none =>
+          match stateNameImmutableKey? name storageNames with
+          | some key => some (SolidCore.Solidity.Source.LValue.immutable key)
+          | none => some (SolidCore.Solidity.Source.LValue.var name)
   | Expr.index (Expr.ident name) index =>
-      if stateNameIsStorage name storageNames then
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
         do
         let indexCore ← Expr.toCore? storageNames index
-        some (SolidCore.Solidity.Source.LValue.storageIndex name indexCore)
-      else
+        some (SolidCore.Solidity.Source.LValue.storageIndex key indexCore)
+      | none =>
         do
         let baseCore ← Expr.toCoreLValue? storageNames (Expr.ident name)
         let indexCore ← Expr.toCore? storageNames index
@@ -5237,7 +5907,12 @@ def VarBindings.toCoreTupleDecls? :
       match binding.name, binding.ty with
       | some name, some ty => do
           let coreTy ← Ty.toCore? ty
-          some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none :: tail)
+          let head :=
+            if binding.location == some DataLocation.memory then
+              SolidCore.Solidity.Source.Stmt.memoryVarDecl coreTy name none
+            else
+              SolidCore.Solidity.Source.Stmt.varDecl coreTy name none
+          some (head :: tail)
       | some _, none => none
       | none, _ => some tail
 termination_by bindings => (sizeOf bindings, 0)
@@ -5273,12 +5948,60 @@ def tupleVarDeclCorePieces? (storageNames : List Name)
     ( coreDecls
     , [SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore] )
 
-def storageArrayPushAssignCore? (storageNames : List Name)
-    (name : Name) (rhs : Expr) : Option CoreStmt := do
-  if nameIn name storageNames then
+def VarBindings.assignFromExternalReturnBindings? :
+    List VarBinding -> List CoreBindingDecl -> Option (List CoreStmt)
+  | [], [] => some []
+  | binding :: bindings, ret :: returns => do
+      let tail ←
+        VarBindings.assignFromExternalReturnBindings? bindings returns
+      match binding.name with
+      | none => some tail
+      | some name =>
+          match binding.ty with
+          | some ty =>
+              some
+                (SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var name)
+                  (Ty.implicitCleanupCore ty
+                    (SolidCore.Solidity.Source.Expr.var ret.name)) :: tail)
+          | none => none
+  | _, _ => none
+
+def VarBindings.sourceTysIncludingAnonymous? :
+    List VarBinding -> Option (List Ty)
+  | [] => some []
+  | binding :: rest => do
+      let ty ← binding.ty
+      let tail ← VarBindings.sourceTysIncludingAnonymous? rest
+      some (ty :: tail)
+
+def Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
+    (storageNames : List Name) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (bindings : List VarBinding) (expr : Expr) : Option (List CoreStmt) := do
+  let returnTys ←
+    match
+        Expr.externalCallDeclaredReturnTysWithKindEnv?
+          storageNames env externalCallKindEnv expr with
+    | some tys => some tys
+    | none => VarBindings.sourceTysIncludingAnonymous? bindings
+  if bindings.length == returnTys.length then
     some ()
   else
     none
+  let decls ← VarBindings.toCoreTupleDecls? bindings
+  let returnBindings ← Tys.toExternalReturnBindings? "__ext" returnTys
+  let assigns ←
+    VarBindings.assignFromExternalReturnBindings? bindings returnBindings
+  let callCore ←
+    Expr.externalCallWithReturnsCoreWithKindEnv?
+      storageNames env externalCallKindEnv "__ext" returnTys expr
+      (fun _ => SolidCore.Solidity.Source.Stmt.block assigns)
+  some (decls ++ [callCore])
+
+def storageArrayPushAssignCore? (storageNames : List Name)
+    (name : Name) (rhs : Expr) : Option CoreStmt := do
+  let name ← stateNameRuntimeKey? name storageNames
   let rhsCore ← Expr.toCore? storageNames rhs
   let lastIndex :=
     SolidCore.Solidity.Source.Expr.binary
@@ -5320,6 +6043,49 @@ def storageArrayPushPathCore? (storageNames : List Name)
         (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
           name indexes valueCore?)
 
+def storageReferenceBindingSupported? (binding : VarBinding) : Option Unit := do
+  let ty ← binding.ty
+  match Ty.toCore? ty with
+  | some _ => some ()
+  | none =>
+      match Ty.toCoreStorageLayout? ty with
+      | some _ => some ()
+      | none => none
+
+def storagePathValueExpr (name : Name) (indexes : List CoreExpr) : CoreExpr :=
+  match indexes with
+  | [] => SolidCore.Solidity.Source.Expr.storage name
+  | _ => SolidCore.Solidity.Source.Expr.storagePath name indexes
+
+def storageLastPushedIndexExpr (name : Name)
+    (indexes : List CoreExpr) : CoreExpr :=
+  SolidCore.Solidity.Source.Expr.binary
+    SolidCore.Solidity.Source.BinaryOp.sub
+    (storagePathValueExpr name indexes)
+    (SolidCore.Solidity.Source.Expr.word 1)
+
+def storageArrayPushReturnAliasCore? (storageNames : List Name)
+    (binding : VarBinding) (target : Expr) :
+    Option (CoreStmt × CoreStmt) := do
+  let localName ← binding.name
+  match binding.location with
+  | some DataLocation.storage =>
+      storageReferenceBindingSupported? binding
+      let (name, indexes) ← Expr.storagePathCore? storageNames target
+      let pushStmt ← storageArrayPushPathCore? storageNames target none
+      let lastIndex := storageLastPushedIndexExpr name indexes
+      some
+        ( pushStmt
+        , SolidCore.Solidity.Source.Stmt.storageAliasPath
+            localName name (indexes ++ [lastIndex]) )
+  | _ => none
+
+def storageArrayPushReturnAliasBlockCore? (storageNames : List Name)
+    (binding : VarBinding) (target : Expr) : Option CoreStmt := do
+  let (pushStmt, aliasStmt) ←
+    storageArrayPushReturnAliasCore? storageNames binding target
+  some (SolidCore.Solidity.Source.Stmt.block [pushStmt, aliasStmt])
+
 def storageArrayPopPathCore? (storageNames : List Name)
     (target : Expr) : Option CoreStmt := do
   let (name, indexes) ← Expr.storagePathCore? storageNames target
@@ -5352,15 +6118,84 @@ def Stmt.replaceTopLevelModifierPlaceholder (replacement : Stmt) : Stmt -> Stmt
 def Expr.storagePathCore? (storageNames : List Name) :
     Expr -> Option (Name × List CoreExpr)
   | Expr.ident name =>
-      if stateNameIsStorage name storageNames then
-        some (name, [])
-      else
-        none
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (key, [])
+      | none => none
   | Expr.index base index => do
       let (name, indexes) ← Expr.storagePathCore? storageNames base
       let indexCore ← Expr.toCore? storageNames index
       some (name, indexes ++ [indexCore])
   | _ => none
+
+def Expr.storageRefPathCore? (storageRefEnv : StorageRefEnv)
+    (storageNames : List Name) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name =>
+      if (stateNameRuntimeKey? name storageNames).isSome then
+        none
+      else if StorageRefEnv.isStorageRef storageRefEnv name then
+        some (name, [])
+      else
+        none
+  | Expr.index base index => do
+      let (name, indexes) ←
+        Expr.storageRefPathCore? storageRefEnv storageNames base
+      let indexCore ← Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
+
+def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
+    Expr -> Option CoreStmt
+  | Expr.unary UnaryOp.delete target => do
+      let targetCore ← Expr.toCoreLValue? storageNames target
+      some (SolidCore.Solidity.Source.Stmt.deleteValue targetCore)
+  | Expr.call (Expr.member target "push") [Arg.positional value] =>
+      storageArrayPushPathCore? storageNames target (some value)
+  | Expr.call (Expr.member target "pop") [] =>
+      storageArrayPopPathCore? storageNames target
+  | Expr.call (Expr.member target "transfer") [Arg.positional value] =>
+      Expr.transferCore? storageNames target value
+  | Expr.call (Expr.ident "selfdestruct") [Arg.positional recipient] => do
+      let recipientCore ← Expr.toCore? storageNames recipient
+      some (SolidCore.Solidity.Source.Stmt.selfdestruct recipientCore)
+  | Expr.call (Expr.ident "assert") [Arg.positional cond] => do
+      let condCore ← Expr.toCore? storageNames cond
+      some (SolidCore.Solidity.Source.Stmt.assertStmt condCore)
+  | Expr.call (Expr.ident "require") [Arg.positional cond] => do
+      let condCore ← Expr.toCore? storageNames cond
+      some (SolidCore.Solidity.Source.Stmt.requireStmt condCore none)
+  | Expr.call (Expr.ident "require")
+      [Arg.positional cond, Arg.positional (Expr.literal (Literal.string reason))] => do
+      let condCore ← Expr.toCore? storageNames cond
+      some (SolidCore.Solidity.Source.Stmt.requireStmt condCore (some reason))
+  | Expr.call (Expr.ident "require")
+      [Arg.positional cond, Arg.positional (Expr.call (Expr.ident name) args)] => do
+      let condCore ← Expr.toCore? storageNames cond
+      let coreArgs ← Args.toCoreExprs? storageNames args
+      some
+        (SolidCore.Solidity.Source.Stmt.requireCustom
+          condCore name coreArgs)
+  | Expr.call (Expr.ident "require")
+      [Arg.positional cond, Arg.positional reason] => do
+      let condCore ← Expr.toCore? storageNames cond
+      let reasonCore ← Expr.toCore? storageNames reason
+      some
+        (SolidCore.Solidity.Source.Stmt.requireErrorExpr
+          condCore reasonCore)
+  | Expr.call (Expr.ident "revert") [] =>
+      some (SolidCore.Solidity.Source.Stmt.revertError none)
+  | Expr.call (Expr.ident "revert")
+      [Arg.positional (Expr.literal (Literal.string reason))] =>
+      some (SolidCore.Solidity.Source.Stmt.revertError (some reason))
+  | Expr.call (Expr.ident "revert") [Arg.positional reason] => do
+      let reasonCore ← Expr.toCore? storageNames reason
+      some (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
+  | _ => none
+
+def CoreStmt.thenReturnEmpty (stmt : CoreStmt) : CoreStmt :=
+  SolidCore.Solidity.Source.Stmt.block
+    [ stmt
+    , SolidCore.Solidity.Source.Stmt.returnValues [] ]
 
 def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
@@ -5380,49 +6215,42 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
           | some name, some ty =>
               match binding.location, init with
               | some DataLocation.storage, some source => do
-                  let _ ←
-                    match Ty.toCore? ty with
-                    | some _ => some ()
-                    | none =>
-                        match Ty.toCoreStorageLayout? ty with
-                        | some _ => some ()
-                        | none => none
-                  let (target, indexes) ←
-                    Expr.storagePathCore? storageNames source
-                  match indexes with
-                  | [] =>
-                      some
-                        (SolidCore.Solidity.Source.Stmt.storageAlias
-                          name target)
-                  | _ =>
-                      some
-                        (SolidCore.Solidity.Source.Stmt.storageAliasPath
-                          name target indexes)
-              | some DataLocation.storage, _ => none
+                  match source with
+                  | Expr.call (Expr.member target "push") [] =>
+                      storageArrayPushReturnAliasBlockCore?
+                        storageNames binding target
+                  | _ => do
+                      storageReferenceBindingSupported? binding
+                      let (target, indexes) ←
+                        Expr.storagePathCore? storageNames source
+                      match indexes with
+                      | [] =>
+                          some
+                            (SolidCore.Solidity.Source.Stmt.storageAlias
+                              name target)
+                      | _ =>
+                          some
+                            (SolidCore.Solidity.Source.Stmt.storageAliasPath
+                              name target indexes)
+              | some DataLocation.storage, none =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.storageAlias name "")
               | _, _ => do
                   let coreTy ← Ty.toCore? ty
                   let initCore ←
                     match init with
                     | some expr => do
-                        let coreExpr ←
-                          match Expr.toCoreFixedBytesLiteralAs? ty expr with
-                          | some coreExpr => some coreExpr
-                          | none =>
-                              if Ty.isFixedBytes ty &&
-                                  Expr.isFixedBytesLiteralCandidate expr then
-                                none
-                              else
-                                match Expr.toCoreNumericLiteralAs? ty expr with
-                                | some coreExpr => some coreExpr
-                                | none =>
-                                    if Ty.isIntOrUint ty &&
-                                        Expr.isNumberLiteralExpression expr then
-                                      none
-                                    else
-                                      Expr.toCore? storageNames expr
+                        let coreExpr ← Expr.toCoreAs? storageNames ty expr
                         some (some coreExpr)
                     | none => some none
-                  some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name initCore)
+                  if binding.location == some DataLocation.memory then
+                    some
+                      (SolidCore.Solidity.Source.Stmt.memoryVarDecl
+                        coreTy name initCore)
+                  else
+                    some
+                      (SolidCore.Solidity.Source.Stmt.varDecl
+                        coreTy name initCore)
           | _, _ => none
       | _ =>
           match init with
@@ -5434,7 +6262,14 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
                     match binding.name, binding.ty with
                     | some name, some ty => do
                         let coreTy ← Ty.toCore? ty
-                        some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
+                        if binding.location == some DataLocation.memory then
+                          some
+                            (SolidCore.Solidity.Source.Stmt.memoryVarDecl
+                              coreTy name none)
+                        else
+                          some
+                            (SolidCore.Solidity.Source.Stmt.varDecl
+                              coreTy name none)
                     | _, _ => none)
                   bindings
               some (SolidCore.Solidity.Source.Stmt.block coreDecls)
@@ -5506,8 +6341,11 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       some (SolidCore.Solidity.Source.Stmt.requireErrorExpr
         condCore reasonCore)
   | Stmt.expr expr => do
-      let coreExpr ← Expr.toCore? storageNames expr
-      some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+      match Expr.noReturnEffectStmtCore? storageNames expr with
+      | some effect => some effect
+      | none => do
+          let coreExpr ← Expr.toCore? storageNames expr
+          some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
   | Stmt.ifElse cond thenBranch elseBranch => do
       let condCore ← Expr.toCore? storageNames cond
       let thenCore ← Stmt.toCore? storageNames thenBranch
@@ -5548,7 +6386,7 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode []
+              checkTargetCode [] []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -5560,6 +6398,8 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
               SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
+      let returnAbiCleanups ←
+        Tys.toCoreAbiCleanups? (returns.map Parameter.ty)
       match Expr.toExternalCall? storageNames expr with
       | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) => do
           let successCore ← Stmt.toCore? storageNames success
@@ -5570,7 +6410,8 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode returnBindings successCore catchCore)
+              checkTargetCode returnBindings returnAbiCleanups
+              successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -5608,16 +6449,20 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       (some
         (Expr.call (Expr.member (Expr.ident "abi") "decode")
           [Arg.positional data, Arg.positional typesExpr])) => do
-      let (tys, dataCore) ← Expr.toAbiDecode? storageNames data typesExpr
+      let (tys, cleanups, dataCore) ←
+        Expr.toAbiDecode? storageNames data typesExpr
       some
         (SolidCore.Solidity.Source.Stmt.returnValues
-          (abiDecodeReturnExprs tys dataCore))
+          (abiDecodeReturnExprs tys cleanups dataCore))
   | Stmt.returnValues (some (Expr.tuple items)) => do
       let coreExprs ← TupleItems.toCoreExprs? storageNames items
       some (SolidCore.Solidity.Source.Stmt.returnValues coreExprs)
   | Stmt.returnValues (some expr) => do
-      let coreExpr ← Expr.toCore? storageNames expr
-      some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
+      match Expr.noReturnEffectStmtCore? storageNames expr with
+      | some effect => some (CoreStmt.thenReturnEmpty effect)
+      | none => do
+          let coreExpr ← Expr.toCore? storageNames expr
+          some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
   | Stmt.break => some SolidCore.Solidity.Source.Stmt.break
   | Stmt.continue => some SolidCore.Solidity.Source.Stmt.continue
   | Stmt.unchecked body => do
@@ -5701,21 +6546,259 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               some (Ty.uint 256)
           | Expr.member base "selector" => do
               match Expr.abiTyWithEnv? env base with
-              | some (Ty.function _ _ _ Visibility.external_) =>
+              | some (Ty.functionWithLocations _ _ _ _ _ Visibility.external_) =>
                   some (Ty.bytesN 4)
               | _ => none
           | Expr.member base "address" => do
               match Expr.abiTyWithEnv? env base with
-              | some (Ty.function _ _ _ Visibility.external_) =>
+              | some (Ty.functionWithLocations _ _ _ _ _ Visibility.external_) =>
                   some (Ty.address false)
               | _ => none
+          | Expr.tuple items => do
+              let tys ←
+                mapOption
+                  (fun item =>
+                    match item with
+                    | TupleItem.value
+                        (Expr.call (Expr.typeName ty)
+                          [Arg.positional _]) => do
+                        let _ ← Ty.toCore? ty
+                        some ty
+                    | TupleItem.value (Expr.typeName ty) => do
+                        let _ ← Ty.toCore? ty
+                        some ty
+                    | TupleItem.value _ => none
+                    | TupleItem.hole => none)
+                  items
+              some (Ty.tuple tys)
+          | Expr.index base indexExpr => do
+              let baseTy ← Expr.abiTyWithEnv? env base
+              match Ty.fixedBytesSize? baseTy with
+              | some _ => some (Ty.bytesN 1)
+              | none =>
+                  match baseTy with
+                  | Ty.bytes => some (Ty.bytesN 1)
+                  | Ty.array elementTy _ => some elementTy
+                  | Ty.mapping _ valueTy => some valueTy
+                  | Ty.tuple elements => do
+                      let index ← Expr.numberLiteralNat? indexExpr
+                      listGet? elements index
+                  | Ty.struct _ elements => do
+                      let index ← Expr.numberLiteralNat? indexExpr
+                      listGet? elements index
+                  | _ => none
           | Expr.slice base _ _ => do
               match Expr.abiTyWithEnv? env base with
               | some Ty.bytes => some Ty.bytes
+              | some Ty.string => some Ty.string
               | some (Ty.array elementTy _) =>
                   some (Ty.array elementTy none)
               | _ => none
           | _ => none
+
+def Expr.toCoreAssignOpWithEnv? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreExpr
+  | Expr.assign lhs op rhs => do
+      let coreOp ← AssignOp.toCoreBinary? op
+      let lhsCore ← Expr.toCoreLValue? storageNames lhs
+      let rhsCore ← Expr.toCore? storageNames rhs
+      let lhsTy ← Expr.abiTyWithEnv? env lhs
+      let cleanup ← Ty.toCoreValueCleanup? lhsTy
+      some
+        (SolidCore.Solidity.Source.Expr.assignOpCleanupExpr
+          lhsCore.toExpr coreOp rhsCore cleanup)
+  | _ => none
+
+def Expr.toCoreIncDecWithEnv? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreExpr
+  | Expr.unary op target => do
+      let (coreOp, returnOld) ←
+        match op with
+        | UnaryOp.preIncrement =>
+            some (SolidCore.Solidity.Source.BinaryOp.add, false)
+        | UnaryOp.preDecrement =>
+            some (SolidCore.Solidity.Source.BinaryOp.sub, false)
+        | UnaryOp.postIncrement =>
+            some (SolidCore.Solidity.Source.BinaryOp.add, true)
+        | UnaryOp.postDecrement =>
+            some (SolidCore.Solidity.Source.BinaryOp.sub, true)
+        | _ => none
+      let targetCore ← Expr.toCoreLValue? storageNames target
+      let targetTy ← Expr.abiTyWithEnv? env target
+      let cleanup ← Ty.toCoreValueCleanup? targetTy
+      some
+        (SolidCore.Solidity.Source.Expr.incDecCleanup
+          targetCore.toExpr coreOp returnOld cleanup)
+  | _ => none
+
+def Expr.coreAsFromTy? (targetTy sourceTy : Ty) (coreExpr : CoreExpr) :
+    Option CoreExpr :=
+  if sourceTy == targetTy then
+    Ty.implicitCleanupCore? targetTy coreExpr
+  else if
+      (targetTy == Ty.bytes || targetTy == Ty.string) &&
+        (sourceTy == Ty.bytes || sourceTy == Ty.string) then
+    some coreExpr
+  else
+    match targetTy with
+    | Ty.struct _ targetFields => do
+        match sourceTy with
+        | Ty.tuple sourceFields
+        | Ty.struct _ sourceFields =>
+            if sourceFields == targetFields then
+              Ty.implicitCleanupCore? targetTy coreExpr
+            else
+              none
+        | _ => none
+    | Ty.uint bits => do
+        let bits := if bits == 0 then 256 else bits
+        let _ ← Ty.allowsUintCastSource? bits sourceTy
+        some
+          (SolidCore.Solidity.Source.Expr.uintCleanup
+            bits coreExpr)
+    | Ty.int bits => do
+        let bits := if bits == 0 then 256 else bits
+        let _ ← Ty.allowsIntCastSource? bits sourceTy
+        some
+          (SolidCore.Solidity.Source.Expr.intCleanup
+            bits coreExpr)
+    | Ty.bytesN targetSize
+    | Ty.fixedBytes targetSize =>
+        match sourceTy with
+        | Ty.bytes =>
+            some
+              (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
+                targetSize coreExpr)
+        | _ => do
+            let sourceSize ←
+              Ty.fixedBytesCastWordSourceSize?
+                targetSize sourceTy
+            some
+              (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                targetSize sourceSize coreExpr)
+    | _ =>
+        if Ty.canImplicitlyConvert sourceTy targetTy then
+          some coreExpr
+        else
+          none
+
+def Expr.boundExternalFunctionValueCoreAs? (storageNames : List Name)
+    (targetTy : Ty) : Expr -> Option CoreExpr
+  | Expr.member base member => do
+      match targetTy with
+      | Ty.functionWithLocations paramTys _ _ _ _ Visibility.external_ => do
+          let signature ← externalFunctionSignature? member paramTys
+          let baseCore ← Expr.toCore? storageNames base
+          some
+            (SolidCore.Solidity.Source.Expr.externalFunctionValue
+              baseCore
+              (SolidCore.Solidity.Source.ABI.selectorFromSignature
+                signature))
+      | _ => none
+  | _ => none
+
+def Expr.toCoreAsWithEnvDirect? (storageNames : List Name) (env : TypeEnv)
+    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match Expr.boundExternalFunctionValueCoreAs? storageNames targetTy expr with
+  | some coreExpr => some coreExpr
+  | none =>
+      match Expr.toCoreAs? storageNames targetTy expr with
+      | some coreExpr => some coreExpr
+      | none =>
+          match Expr.toCoreFixedBytesLiteralAs? targetTy expr with
+          | some coreExpr => some coreExpr
+          | none =>
+              if Ty.isFixedBytes targetTy &&
+                  Expr.isFixedBytesLiteralCandidate expr then
+                none
+              else
+                match Expr.toCoreNumericLiteralAs? targetTy expr with
+                | some coreExpr => some coreExpr
+                | none =>
+                    if Ty.isIntOrUint targetTy &&
+                        Expr.isNumberLiteralExpression expr then
+                      none
+                    else do
+                      let sourceTy ← Expr.abiTyWithEnv? env expr
+                      let coreExpr ← Expr.toCore? storageNames expr
+                      Expr.coreAsFromTy? targetTy sourceTy coreExpr
+
+def Expr.commonOperandTyWithEnv? (env : TypeEnv)
+    (lhs rhs : Expr) : Option Ty := do
+  let lhsTy ← Expr.abiTyWithEnv? env lhs
+  let rhsTy ← Expr.abiTyWithEnv? env rhs
+  if Expr.isDirectLiteral rhs && implicitLiteralFits lhsTy rhs then
+    some lhsTy
+  else if Expr.isDirectLiteral lhs && implicitLiteralFits rhsTy lhs then
+    some rhsTy
+  else
+    Ty.commonImplicit? lhsTy rhsTy
+
+def Expr.binaryToCoreWithEnvTyped? (storageNames : List Name) (env : TypeEnv)
+    (op : BinaryOp) (lhs rhs : Expr) : Option (Ty × CoreExpr) :=
+  match op with
+  | BinaryOp.boolAnd
+  | BinaryOp.boolOr
+  | BinaryOp.shl
+  | BinaryOp.shr => none
+  | _ => do
+      let coreOp ← BinaryOp.toCore? op
+      let operandTy ← Expr.commonOperandTyWithEnv? env lhs rhs
+      let lhsCore ← Expr.toCoreAsWithEnvDirect? storageNames env operandTy lhs
+      let rhsCore ← Expr.toCoreAsWithEnvDirect? storageNames env operandTy rhs
+      let resultTy :=
+        match op with
+        | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
+        | BinaryOp.eq | BinaryOp.ne => Ty.bool
+        | _ => operandTy
+      some
+        (resultTy,
+          SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
+
+def Expr.binaryToCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (op : BinaryOp) (lhs rhs : Expr) : Option CoreExpr :=
+  match Expr.binaryToCoreWithEnvTyped? storageNames env op lhs rhs with
+  | some (_, coreExpr) => some coreExpr
+  | none => none
+
+def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match Expr.toCoreIncDecWithEnv? storageNames env expr with
+  | some coreExpr => some coreExpr
+  | none =>
+      match Expr.toCoreAssignOpWithEnv? storageNames env expr with
+      | some coreExpr => some coreExpr
+      | none =>
+          match expr with
+          | Expr.ternary cond thenExpr elseExpr => do
+              let condCore ←
+                Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
+              let thenCore ←
+                Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr
+              let elseCore ←
+                Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr
+              some
+                (SolidCore.Solidity.Source.Expr.ternary
+                  condCore thenCore elseCore)
+          | Expr.binary op lhs rhs =>
+              match
+                  Expr.binaryToCoreWithEnvTyped? storageNames env op lhs rhs with
+              | some (sourceTy, coreExpr) =>
+                  Expr.coreAsFromTy? targetTy sourceTy coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+          | _ =>
+              Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+
+def TupleItems.toCoreExprsAsWithEnv? (storageNames : List Name)
+    (env : TypeEnv) : List Ty -> List TupleItem -> Option (List CoreExpr)
+  | [], [] => some []
+  | targetTy :: targetTys, TupleItem.value expr :: rest => do
+      let head ← Expr.toCoreAsWithEnv? storageNames env targetTy expr
+      let tail ← TupleItems.toCoreExprsAsWithEnv?
+        storageNames env targetTys rest
+      some (head :: tail)
+  | _, _ => none
 
 def Expr.externalFunctionValueCallCore? (storageNames : List Name)
     (env : TypeEnv) :
@@ -5725,7 +6808,8 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
   | Expr.call fn args => do
       let fnTy ← Expr.abiTyWithEnv? env fn
       match fnTy with
-      | Ty.function paramTys returnTys mutability Visibility.external_ => do
+      | Ty.functionWithLocations paramTys _ returnTys _ mutability
+          Visibility.external_ => do
           if paramTys.length == args.length then
             let coreTys ← Ty.listToCore? paramTys
             let coreExprs ← Args.toCoreExprs? storageNames args
@@ -5749,7 +6833,8 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
   | Expr.callWithOptions fn options args => do
       let fnTy ← Expr.abiTyWithEnv? env fn
       match fnTy with
-      | Ty.function paramTys returnTys mutability Visibility.external_ => do
+      | Ty.functionWithLocations paramTys _ returnTys _ mutability
+          Visibility.external_ => do
           if paramTys.length == args.length then
             let coreTys ← Ty.listToCore? paramTys
             let coreExprs ← Args.toCoreExprs? storageNames args
@@ -5784,11 +6869,13 @@ def Expr.externalFunctionValueCallWithReturnsCore?
     gasFirst) ←
     Expr.externalFunctionValueCallCore? storageNames env expr
   let returnBindings ← Tys.toExternalReturnBindings? namePrefix returnTys
+  let returnAbiCleanups ← Tys.toCoreAbiCleanups? returnTys
   let checkTargetCode := returnTys.isEmpty
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
       kind targetCore calldataCore valueCore gasCore? gasFirst
-      checkTargetCode returnBindings (successBody returnBindings) [])
+      checkTargetCode returnBindings returnAbiCleanups
+      (successBody returnBindings) [])
 
 def Expr.externalFunctionValueCallDiscardCore?
     (storageNames : List Name) (env : TypeEnv) (expr : Expr) :
@@ -5798,7 +6885,7 @@ def Expr.externalFunctionValueCallDiscardCore?
   some
     (SolidCore.Solidity.Source.Stmt.tryExternalCall
       kind targetCore calldataCore valueCore gasCore? gasFirst true []
-      SolidCore.Solidity.Source.Stmt.skip [])
+      [] SolidCore.Solidity.Source.Stmt.skip [])
 
 def Expr.externalFunctionValueCallSingleReturnCore?
     (storageNames : List Name) (env : TypeEnv) (expr : Expr)
@@ -5829,6 +6916,25 @@ def Expr.externalFunctionValueCallAssignVarsCore?
           (CoreBindingDecls.assignToVars targetNames bindings))
   else
     none
+
+def Expr.externalFunctionValueCallAssignBindingsCorePieces?
+    (storageNames : List Name) (env : TypeEnv)
+    (bindings : List VarBinding) (expr : Expr) : Option (List CoreStmt) := do
+  let (_, returnTys, _, _, _, _, _) ←
+    Expr.externalFunctionValueCallCore? storageNames env expr
+  if bindings.length == returnTys.length then
+    some ()
+  else
+    none
+  let decls ← VarBindings.toCoreTupleDecls? bindings
+  let returnBindings ← Tys.toExternalReturnBindings? "__extfn" returnTys
+  let assigns ←
+    VarBindings.assignFromExternalReturnBindings? bindings returnBindings
+  let callCore ←
+    Expr.externalFunctionValueCallWithReturnsCore?
+      storageNames env "__extfn" expr
+      (fun _ => SolidCore.Solidity.Source.Stmt.block assigns)
+  some (decls ++ [callCore])
 
 def Expr.externalFunctionValueCallReturnCore?
     (storageNames : List Name) (env : TypeEnv)
@@ -5925,6 +7031,12 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
             [ Arg.positional (annotate functionPointer)
             , Arg.positional
                 (Expr.tuple (items.map annotateAbiTupleItem)) ]
+      | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+          [Arg.positional functionPointer, Arg.positional argumentExpr] =>
+          Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+            [ Arg.positional (annotate functionPointer)
+            , annotateAbiArg
+                (Arg.positional argumentExpr) ]
       | Expr.call (Expr.member (Expr.ident "abi") "decode")
           [Arg.positional data, typesExpr] =>
           Expr.call (Expr.member (Expr.ident "abi") "decode")
@@ -6119,7 +7231,7 @@ def Stmt.toCoreReplacingModifierPlaceholder?
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode []
+              checkTargetCode [] []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
@@ -6130,6 +7242,8 @@ def Stmt.toCoreReplacingModifierPlaceholder?
               SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
+      let returnAbiCleanups ←
+        Tys.toCoreAbiCleanups? (returns.map Parameter.ty)
       let successCore ←
         Stmt.toCoreReplacingModifierPlaceholder?
           storageNames returnNames replacement success
@@ -6144,7 +7258,8 @@ def Stmt.toCoreReplacingModifierPlaceholder?
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode returnBindings successCore catchCore)
+              checkTargetCode returnBindings returnAbiCleanups
+              successCore catchCore)
       | none => do
           let (contractName, argsCore, valueCore, saltCore?) ←
             Expr.toContractCreation? storageNames expr
@@ -6245,45 +7360,123 @@ def Ty.storageReferenceSupported? (ty : Ty) : Option Unit :=
       | none => none
 
 def Parameter.toStorageAwareCoreArgDecl? (storageRefEnv : StorageRefEnv)
-    (storageNames : List Name) (fallbackPrefix : String) (index : Nat)
-    (param : Parameter) (arg : Expr) : Option CoreStmt := do
+    (storageNames : List Name) (env : TypeEnv) (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) (arg : Expr) : Option CoreStmt := do
   let name := param.name.getD (fallbackPrefix ++ toString index)
   match param.location with
   | some DataLocation.storage =>
       let _ ← Ty.storageReferenceSupported? param.ty
       match arg with
       | Expr.ident target =>
-          if stateNameIsStorage target storageNames then
-            some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
-          else if StorageRefEnv.isStorageRef storageRefEnv target then
+          match stateNameRuntimeKey? target storageNames with
+          | some key =>
+            some (SolidCore.Solidity.Source.Stmt.storageAlias name key)
+          | none =>
+          if StorageRefEnv.isStorageRef storageRefEnv target then
             some (SolidCore.Solidity.Source.Stmt.storageAliasFrom name target)
           else
             none
       | _ => do
-          let (target, indexes) ← Expr.storagePathCore? storageNames arg
-          match indexes with
-          | [] =>
-              some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
-          | _ =>
-              some
-                (SolidCore.Solidity.Source.Stmt.storageAliasPath
-                  name target indexes)
-  | _ =>
-      Stmt.toCore? storageNames
-        (Parameter.toVarDeclWithArg fallbackPrefix index param arg)
+          match
+              Expr.storageRefPathCore? storageRefEnv storageNames arg
+          with
+          | some (source, indexes) =>
+              match indexes with
+              | [] =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.storageAliasFrom
+                      name source)
+              | _ =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.storageAliasFromPath
+                      name source indexes)
+          | none => do
+              let (target, indexes) ← Expr.storagePathCore? storageNames arg
+              match indexes with
+              | [] =>
+                  some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+              | _ =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.storageAliasPath
+                      name target indexes)
+  | _ => do
+      let coreTy ← Ty.toCore? param.ty
+      let initCore ←
+        match Expr.toCoreAsWithEnv? storageNames env param.ty arg with
+        | some coreExpr => some coreExpr
+        | none => Expr.toCore? storageNames arg
+      if param.location == some DataLocation.memory then
+        some
+          (SolidCore.Solidity.Source.Stmt.memoryVarDecl
+            coreTy name (some initCore))
+      else
+        some
+          (SolidCore.Solidity.Source.Stmt.varDecl
+            coreTy name (some initCore))
 
 def Parameters.toStorageAwareCoreArgDecls? (storageRefEnv : StorageRefEnv)
-    (storageNames : List Name) (fallbackPrefix : String)
+    (storageNames : List Name) (env : TypeEnv) (fallbackPrefix : String)
     (params : List Parameter) (args : List Expr) :
     Option (List CoreStmt) :=
   if params.length == args.length then
     mapOptionIdx
       (fun index pair =>
         Parameter.toStorageAwareCoreArgDecl?
-          storageRefEnv storageNames fallbackPrefix index pair.fst pair.snd)
+          storageRefEnv storageNames env fallbackPrefix index pair.fst pair.snd)
       0 (params.zip args)
   else
     none
+
+def Parameter.toCoreCleanupStmt? (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) : Option CoreStmt :=
+  match param.location with
+  | some DataLocation.storage => some SolidCore.Solidity.Source.Stmt.skip
+  | some DataLocation.memory => do
+      let coreTy ← Ty.toCore? param.ty
+      let name := param.name.getD (fallbackPrefix ++ toString index)
+      some (SolidCore.Solidity.Source.Stmt.memoryLocalize coreTy name)
+  | _ =>
+      match param.ty with
+      | Ty.uint bits => do
+          let bits := if bits == 0 then 256 else bits
+          if 0 < bits && bits <= 256 then
+            let name := param.name.getD (fallbackPrefix ++ toString index)
+            some
+              (SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var name)
+                (SolidCore.Solidity.Source.Expr.uintCleanup bits
+                  (SolidCore.Solidity.Source.Expr.var name)))
+          else
+            none
+      | Ty.int bits => do
+          let bits := if bits == 0 then 256 else bits
+          if 0 < bits && bits <= 256 then
+            let name := param.name.getD (fallbackPrefix ++ toString index)
+            some
+              (SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var name)
+                (SolidCore.Solidity.Source.Expr.intCleanup bits
+                  (SolidCore.Solidity.Source.Expr.var name)))
+          else
+            none
+      | _ => some SolidCore.Solidity.Source.Stmt.skip
+
+def Parameters.toCoreCleanupStmts? (fallbackPrefix : String)
+    (params : List Parameter) : Option (List CoreStmt) :=
+  mapOptionIdx (Parameter.toCoreCleanupStmt? fallbackPrefix) 0 params
+
+def Parameter.toCoreMemoryLocalizeStmt? (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) : Option CoreStmt :=
+  if param.location == some DataLocation.memory then do
+    let coreTy ← Ty.toCore? param.ty
+    let name := param.name.getD (fallbackPrefix ++ toString index)
+    some (SolidCore.Solidity.Source.Stmt.memoryLocalize coreTy name)
+  else
+    some SolidCore.Solidity.Source.Stmt.skip
+
+def Parameters.toCoreMemoryLocalizeStmts? (fallbackPrefix : String)
+    (params : List Parameter) : Option (List CoreStmt) :=
+  mapOptionIdx (Parameter.toCoreMemoryLocalizeStmt? fallbackPrefix) 0 params
 
 def Parameter.toDefaultVarDecl (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Stmt :=
@@ -6311,7 +7504,10 @@ def Parameter.toStorageAwareDefaultCoreDecl? (fallbackPrefix : String)
           name uninitializedStorageReturnTarget)
   | _ => do
       let coreTy ← Ty.toCore? param.ty
-      some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
+      if param.location == some DataLocation.memory then
+        some (SolidCore.Solidity.Source.Stmt.memoryVarDecl coreTy name none)
+      else
+        some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
 
 def Parameters.toStorageAwareDefaultCoreDecls?
     (fallbackPrefix : String) (params : List Parameter) :
@@ -6323,7 +7519,10 @@ def VarBinding.toCoreDecl? (binding : VarBinding) : Option CoreStmt := do
   let name ← binding.name
   let ty ← binding.ty
   let coreTy ← Ty.toCore? ty
-  some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
+  if binding.location == some DataLocation.memory then
+    some (SolidCore.Solidity.Source.Stmt.memoryVarDecl coreTy name none)
+  else
+    some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
 
 def VarBindings.toCoreDecls? :
     List VarBinding -> Option (List CoreStmt) :=
@@ -6346,9 +7545,14 @@ def VarBindings.toCoreDeclsExceptStorageReturns? :
             match binding.ty with
             | some ty => do
                 let coreTy ← Ty.toCore? ty
-                some
-                  (SolidCore.Solidity.Source.Stmt.varDecl
-                    coreTy name none :: tail)
+                let head :=
+                  if binding.location == some DataLocation.memory then
+                    SolidCore.Solidity.Source.Stmt.memoryVarDecl
+                      coreTy name none
+                  else
+                    SolidCore.Solidity.Source.Stmt.varDecl
+                      coreTy name none
+                some (head :: tail)
             | none => none
   | _, _ => none
 
@@ -6426,6 +7630,23 @@ def ErrorDecl.selectorEntry? (decl : ErrorDecl) :
   let selector ← ErrorDecl.abiSelector? decl
   some (decl.name, selector)
 
+def EventDecl.abiSignature? (decl : EventDecl) : Option String := do
+  let paramTypes ←
+    mapOption (fun param => Ty.abiCanonical? param.ty) decl.params
+  some (decl.name ++ "(" ++ joinStringsWith "," paramTypes ++ ")")
+
+def EventDecl.abiSelector? (decl : EventDecl) : Option Word := do
+  let signature ← EventDecl.abiSignature? decl
+  some (SolidCore.Solidity.Source.Keccak.digestWord signature)
+
+def EventDecl.selectorEntry? (decl : EventDecl) :
+    Option (Name × Word) := do
+  if decl.anonymous then
+    none
+  else
+    let selector ← EventDecl.abiSelector? decl
+    some (decl.name, selector)
+
 def StateVarDecl.publicGetterSignature? (decl : StateVarDecl) :
     Option String :=
   match decl.visibility with
@@ -6443,6 +7664,15 @@ def StateVarDecl.selectorEntry? (decl : StateVarDecl) :
     , SolidCore.Solidity.Source.ABI.selectorFromSignature signature )
 
 abbrev SelectorEnv := List (Name × Word)
+
+def selectorQualifiedName (contractName functionName : Name) : Name :=
+  contractName ++ "." ++ functionName
+
+def FunctionDecl.qualifiedSelectorEntry? (contractName : Name)
+    (decl : FunctionDecl) : Option (Name × Word) := do
+  let name ← decl.name
+  let selector ← FunctionDecl.abiSelector? decl
+  some (selectorQualifiedName contractName name, selector)
 
 def SelectorEnv.lookupCompatibleLoop? (query : Name) :
     Option Word -> SelectorEnv -> Option (Option Word)
@@ -6468,6 +7698,10 @@ def FunctionDecls.selectorEntries (decls : List FunctionDecl) :
     SelectorEnv :=
   decls.filterMap FunctionDecl.selectorEntry?
 
+def FunctionDecls.qualifiedSelectorEntries
+    (contractName : Name) (decls : List FunctionDecl) : SelectorEnv :=
+  decls.filterMap (FunctionDecl.qualifiedSelectorEntry? contractName)
+
 def ErrorDecls.selectorEntries (decls : List ErrorDecl) :
     SelectorEnv :=
   decls.filterMap ErrorDecl.selectorEntry?
@@ -6476,6 +7710,16 @@ def StateVarDecls.selectorEntries (decls : List StateVarDecl) :
     SelectorEnv :=
   decls.filterMap StateVarDecl.selectorEntry?
 
+abbrev EventSelectorEnv := List (Name × Word)
+
+def EventDecls.selectorEntries (decls : List EventDecl) :
+    EventSelectorEnv :=
+  decls.filterMap EventDecl.selectorEntry?
+
+def EventSelectorEnv.lookup? (env : EventSelectorEnv) (query : Name) :
+    Option Word :=
+  SelectorEnv.lookup? env query
+
 def selectorLiteralExpr (selector : Word) : Expr :=
   Expr.call (Expr.typeName (Ty.bytesN 4))
     [ Arg.positional
@@ -6483,6 +7727,14 @@ def selectorLiteralExpr (selector : Word) : Expr :=
           (Literal.bytes
             (SolidCore.Solidity.Source.wordToBytesBE
               SolidCore.Solidity.Source.selectorBytes selector))) ]
+
+def eventSelectorLiteralExpr (selector : Word) : Expr :=
+  Expr.call (Expr.typeName (Ty.bytesN 32))
+    [ Arg.positional
+        (Expr.literal
+          (Literal.bytes
+            (SolidCore.Solidity.Source.wordToBytesBE
+              SolidCore.Solidity.Source.wordBytes selector))) ]
 
 def FunctionDecls.interfaceId? : List FunctionDecl -> Option Word
   | [] => some 0
@@ -6659,18 +7911,43 @@ def ModifierDecl.resolveInterfaceIds (env : InterfaceIdEnv)
 
 mutual
 
-def Expr.resolveSelectorsFuel : Nat -> SelectorEnv -> Expr -> Expr
-  | 0, _, expr => expr
-  | fuel + 1, env, expr =>
-      let resolve := Expr.resolveSelectorsFuel fuel env
-      let resolveArg := Arg.resolveSelectorsFuel fuel env
-      let resolveOption := CallOption.resolveSelectorsFuel fuel env
-      let resolveTupleItem := TupleItem.resolveSelectorsFuel fuel env
+def Expr.resolveSelectorsFuel :
+    Nat -> SelectorEnv -> SelectorEnv -> Expr -> Expr
+  | 0, _, _, expr => expr
+  | fuel + 1, env, unqualifiedEnv, expr =>
+      let resolve := Expr.resolveSelectorsFuel fuel env unqualifiedEnv
+      let resolveArg := Arg.resolveSelectorsFuel fuel env unqualifiedEnv
+      let resolveOption := CallOption.resolveSelectorsFuel fuel env unqualifiedEnv
+      let resolveTupleItem :=
+        TupleItem.resolveSelectorsFuel fuel env unqualifiedEnv
       match expr with
       | Expr.member (Expr.ident name) "selector" =>
-          match SelectorEnv.lookup? env name with
+          match SelectorEnv.lookup? unqualifiedEnv name with
           | some selector => selectorLiteralExpr selector
           | none => expr
+      | Expr.member
+          (Expr.member
+            (Expr.typeName (Ty.user path)) name) "selector" =>
+          match pathLast? path with
+          | some contractName =>
+              match
+                  SelectorEnv.lookup? env
+                    (selectorQualifiedName contractName name) with
+              | some selector => selectorLiteralExpr selector
+              | none =>
+                  match SelectorEnv.lookup? env name with
+                  | some selector => selectorLiteralExpr selector
+                  | none =>
+                      Expr.member
+                        (Expr.member (Expr.typeName (Ty.user path)) name)
+                        "selector"
+          | none =>
+              match SelectorEnv.lookup? env name with
+              | some selector => selectorLiteralExpr selector
+              | none =>
+                  Expr.member
+                    (Expr.member (Expr.typeName (Ty.user path)) name)
+                    "selector"
       | Expr.member (Expr.member base name) "selector" =>
           match SelectorEnv.lookup? env name with
           | some selector => selectorLiteralExpr selector
@@ -6701,27 +7978,27 @@ def Expr.resolveSelectorsFuel : Nat -> SelectorEnv -> Expr -> Expr
       | Expr.payableConversion inner => Expr.payableConversion (resolve inner)
 
 def Arg.resolveSelectorsFuel :
-    Nat -> SelectorEnv -> Arg -> Arg
-  | 0, _, arg => arg
-  | fuel + 1, env, arg =>
-      let resolve := Expr.resolveSelectorsFuel fuel env
+    Nat -> SelectorEnv -> SelectorEnv -> Arg -> Arg
+  | 0, _, _, arg => arg
+  | fuel + 1, env, unqualifiedEnv, arg =>
+      let resolve := Expr.resolveSelectorsFuel fuel env unqualifiedEnv
       match arg with
       | Arg.positional expr => Arg.positional (resolve expr)
       | Arg.named name expr => Arg.named name (resolve expr)
 
 def CallOption.resolveSelectorsFuel :
-    Nat -> SelectorEnv -> CallOption -> CallOption
-  | 0, _, option => option
-  | fuel + 1, env, option =>
-      let resolve := Expr.resolveSelectorsFuel fuel env
+    Nat -> SelectorEnv -> SelectorEnv -> CallOption -> CallOption
+  | 0, _, _, option => option
+  | fuel + 1, env, unqualifiedEnv, option =>
+      let resolve := Expr.resolveSelectorsFuel fuel env unqualifiedEnv
       match option with
       | CallOption.named name expr => CallOption.named name (resolve expr)
 
 def TupleItem.resolveSelectorsFuel :
-    Nat -> SelectorEnv -> TupleItem -> TupleItem
-  | 0, _, item => item
-  | fuel + 1, env, item =>
-      let resolve := Expr.resolveSelectorsFuel fuel env
+    Nat -> SelectorEnv -> SelectorEnv -> TupleItem -> TupleItem
+  | 0, _, _, item => item
+  | fuel + 1, env, unqualifiedEnv, item =>
+      let resolve := Expr.resolveSelectorsFuel fuel env unqualifiedEnv
       match item with
       | TupleItem.hole => TupleItem.hole
       | TupleItem.value expr => TupleItem.value (resolve expr)
@@ -6731,31 +8008,68 @@ end
 def defaultResolveSelectorsFuel : Nat := 1024
 
 def Expr.resolveSelectors (env : SelectorEnv) (expr : Expr) : Expr :=
-  Expr.resolveSelectorsFuel defaultResolveSelectorsFuel env expr
+  Expr.resolveSelectorsFuel defaultResolveSelectorsFuel env env expr
+
+def Expr.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (expr : Expr) : Expr :=
+  Expr.resolveSelectorsFuel defaultResolveSelectorsFuel
+    env unqualifiedEnv expr
 
 def Arg.resolveSelectors (env : SelectorEnv) (arg : Arg) : Arg :=
-  Arg.resolveSelectorsFuel defaultResolveSelectorsFuel env arg
+  Arg.resolveSelectorsFuel defaultResolveSelectorsFuel env env arg
+
+def Arg.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (arg : Arg) : Arg :=
+  Arg.resolveSelectorsFuel defaultResolveSelectorsFuel
+    env unqualifiedEnv arg
 
 def BaseSpecifier.resolveSelectors (env : SelectorEnv)
     (spec : BaseSpecifier) : BaseSpecifier :=
   { spec with args := spec.args.map (Arg.resolveSelectors env) }
 
+def BaseSpecifier.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (spec : BaseSpecifier) :
+    BaseSpecifier :=
+  { spec with
+    args :=
+      spec.args.map (Arg.resolveSelectorsWithUnqualified env unqualifiedEnv) }
+
 def ModifierInvocation.resolveSelectors (env : SelectorEnv)
     (invocation : ModifierInvocation) : ModifierInvocation :=
   { invocation with args := invocation.args.map (Arg.resolveSelectors env) }
+
+def ModifierInvocation.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv)
+    (invocation : ModifierInvocation) : ModifierInvocation :=
+  { invocation with
+    args :=
+      invocation.args.map
+        (Arg.resolveSelectorsWithUnqualified env unqualifiedEnv) }
 
 def StateVarDecl.resolveSelectors (env : SelectorEnv)
     (decl : StateVarDecl) : StateVarDecl :=
   { decl with init := decl.init.map (Expr.resolveSelectors env) }
 
+def StateVarDecl.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (decl : StateVarDecl) :
+    StateVarDecl :=
+  { decl with
+    init :=
+      decl.init.map
+        (Expr.resolveSelectorsWithUnqualified env unqualifiedEnv) }
+
 mutual
 
-def Stmt.resolveSelectorsFuel : Nat -> SelectorEnv -> Stmt -> Stmt
-  | 0, _, stmt => stmt
-  | fuel + 1, env, stmt =>
-      let resolveStmt := Stmt.resolveSelectorsFuel fuel env
-      let resolveExpr := Expr.resolveSelectorsFuel fuel env
-      let resolveClause := CatchClause.resolveSelectorsFuel fuel env
+def Stmt.resolveSelectorsFuel :
+    Nat -> SelectorEnv -> SelectorEnv -> Stmt -> Stmt
+  | 0, _, _, stmt => stmt
+  | fuel + 1, env, unqualifiedEnv, stmt =>
+      let resolveStmt :=
+        Stmt.resolveSelectorsFuel fuel env unqualifiedEnv
+      let resolveExpr :=
+        Expr.resolveSelectorsFuel fuel env unqualifiedEnv
+      let resolveClause :=
+        CatchClause.resolveSelectorsFuel fuel env unqualifiedEnv
       match stmt with
       | Stmt.empty => Stmt.empty
       | Stmt.block body => Stmt.block (body.map resolveStmt)
@@ -6787,18 +8101,23 @@ def Stmt.resolveSelectorsFuel : Nat -> SelectorEnv -> Stmt -> Stmt
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveSelectorsFuel :
-    Nat -> SelectorEnv -> CatchClause -> CatchClause
-  | 0, _, clause => clause
-  | fuel + 1, env, clause =>
+    Nat -> SelectorEnv -> SelectorEnv -> CatchClause -> CatchClause
+  | 0, _, _, clause => clause
+  | fuel + 1, env, unqualifiedEnv, clause =>
       match clause with
       | CatchClause.clause name params body =>
           CatchClause.clause name params
-            (Stmt.resolveSelectorsFuel fuel env body)
+            (Stmt.resolveSelectorsFuel fuel env unqualifiedEnv body)
 
 end
 
 def Stmt.resolveSelectors (env : SelectorEnv) (stmt : Stmt) : Stmt :=
-  Stmt.resolveSelectorsFuel defaultResolveSelectorsFuel env stmt
+  Stmt.resolveSelectorsFuel defaultResolveSelectorsFuel env env stmt
+
+def Stmt.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (stmt : Stmt) : Stmt :=
+  Stmt.resolveSelectorsFuel defaultResolveSelectorsFuel
+    env unqualifiedEnv stmt
 
 def FunctionDecl.resolveSelectors (env : SelectorEnv)
     (decl : FunctionDecl) : FunctionDecl :=
@@ -6806,9 +8125,28 @@ def FunctionDecl.resolveSelectors (env : SelectorEnv)
     modifiers := decl.modifiers.map (ModifierInvocation.resolveSelectors env)
     body := decl.body.map (Stmt.resolveSelectors env) }
 
+def FunctionDecl.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (decl : FunctionDecl) :
+    FunctionDecl :=
+  { decl with
+    modifiers :=
+      decl.modifiers.map
+        (ModifierInvocation.resolveSelectorsWithUnqualified
+          env unqualifiedEnv)
+    body :=
+      decl.body.map (Stmt.resolveSelectorsWithUnqualified env unqualifiedEnv) }
+
 def ModifierDecl.resolveSelectors (env : SelectorEnv)
     (decl : ModifierDecl) : ModifierDecl :=
   { decl with body := decl.body.map (Stmt.resolveSelectors env) }
+
+def ModifierDecl.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (decl : ModifierDecl) :
+    ModifierDecl :=
+  { decl with
+    body :=
+      decl.body.map
+        (Stmt.resolveSelectorsWithUnqualified env unqualifiedEnv) }
 
 def ContractItem.resolveSelectors (env : SelectorEnv) :
     ContractItem -> ContractItem
@@ -6820,12 +8158,216 @@ def ContractItem.resolveSelectors (env : SelectorEnv) :
       ContractItem.modifierDecl (ModifierDecl.resolveSelectors env decl)
   | other => other
 
+def ContractItem.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) :
+    ContractItem -> ContractItem
+  | ContractItem.stateVar decl =>
+      ContractItem.stateVar
+        (StateVarDecl.resolveSelectorsWithUnqualified env unqualifiedEnv decl)
+  | ContractItem.function decl =>
+      ContractItem.function
+        (FunctionDecl.resolveSelectorsWithUnqualified env unqualifiedEnv decl)
+  | ContractItem.modifierDecl decl =>
+      ContractItem.modifierDecl
+        (ModifierDecl.resolveSelectorsWithUnqualified env unqualifiedEnv decl)
+  | other => other
+
 def ContractDecl.resolveSelectors (env : SelectorEnv)
     (decl : ContractDecl) : ContractDecl :=
   { decl with
     layoutBase := decl.layoutBase.map (Expr.resolveSelectors env)
     bases := decl.bases.map (BaseSpecifier.resolveSelectors env)
     items := decl.items.map (ContractItem.resolveSelectors env) }
+
+def ContractDecl.resolveSelectorsWithUnqualified
+    (env unqualifiedEnv : SelectorEnv) (decl : ContractDecl) :
+    ContractDecl :=
+  { decl with
+    layoutBase :=
+      decl.layoutBase.map
+        (Expr.resolveSelectorsWithUnqualified env unqualifiedEnv)
+    bases :=
+      decl.bases.map
+        (BaseSpecifier.resolveSelectorsWithUnqualified env unqualifiedEnv)
+    items :=
+      decl.items.map
+        (ContractItem.resolveSelectorsWithUnqualified env unqualifiedEnv) }
+
+mutual
+
+def Expr.resolveEventSelectorsFuel :
+    Nat -> EventSelectorEnv -> Expr -> Expr
+  | 0, _, expr => expr
+  | fuel + 1, env, expr =>
+      let resolve := Expr.resolveEventSelectorsFuel fuel env
+      let resolveArg := Arg.resolveEventSelectorsFuel fuel env
+      let resolveOption := CallOption.resolveEventSelectorsFuel fuel env
+      let resolveTupleItem := TupleItem.resolveEventSelectorsFuel fuel env
+      match expr with
+      | Expr.member (Expr.ident name) "selector" =>
+          match EventSelectorEnv.lookup? env name with
+          | some selector => eventSelectorLiteralExpr selector
+          | none => expr
+      | Expr.member (Expr.member base name) "selector" =>
+          match EventSelectorEnv.lookup? env name with
+          | some selector => eventSelectorLiteralExpr selector
+          | none => Expr.member (Expr.member (resolve base) name) "selector"
+      | Expr.literal literal => Expr.literal literal
+      | Expr.ident name => Expr.ident name
+      | Expr.typeName ty => Expr.typeName ty
+      | Expr.member base member => Expr.member (resolve base) member
+      | Expr.index base index => Expr.index (resolve base) (resolve index)
+      | Expr.slice base start stop =>
+          Expr.slice (resolve base) (start.map resolve) (stop.map resolve)
+      | Expr.call fn args =>
+          Expr.call (resolve fn) (args.map resolveArg)
+      | Expr.callWithOptions fn options args =>
+          Expr.callWithOptions (resolve fn)
+            (options.map resolveOption) (args.map resolveArg)
+      | Expr.newExpr ty args => Expr.newExpr ty (args.map resolveArg)
+      | Expr.tuple items => Expr.tuple (items.map resolveTupleItem)
+      | Expr.array exprs => Expr.array (exprs.map resolve)
+      | Expr.enumFromUInt maxValue inner =>
+          Expr.enumFromUInt maxValue (resolve inner)
+      | Expr.unary op inner => Expr.unary op (resolve inner)
+      | Expr.binary op lhs rhs =>
+          Expr.binary op (resolve lhs) (resolve rhs)
+      | Expr.ternary cond thenExpr elseExpr =>
+          Expr.ternary (resolve cond) (resolve thenExpr) (resolve elseExpr)
+      | Expr.assign lhs op rhs => Expr.assign (resolve lhs) op (resolve rhs)
+      | Expr.payableConversion inner => Expr.payableConversion (resolve inner)
+
+def Arg.resolveEventSelectorsFuel :
+    Nat -> EventSelectorEnv -> Arg -> Arg
+  | 0, _, arg => arg
+  | fuel + 1, env, arg =>
+      let resolve := Expr.resolveEventSelectorsFuel fuel env
+      match arg with
+      | Arg.positional expr => Arg.positional (resolve expr)
+      | Arg.named name expr => Arg.named name (resolve expr)
+
+def CallOption.resolveEventSelectorsFuel :
+    Nat -> EventSelectorEnv -> CallOption -> CallOption
+  | 0, _, option => option
+  | fuel + 1, env, option =>
+      let resolve := Expr.resolveEventSelectorsFuel fuel env
+      match option with
+      | CallOption.named name expr => CallOption.named name (resolve expr)
+
+def TupleItem.resolveEventSelectorsFuel :
+    Nat -> EventSelectorEnv -> TupleItem -> TupleItem
+  | 0, _, item => item
+  | fuel + 1, env, item =>
+      let resolve := Expr.resolveEventSelectorsFuel fuel env
+      match item with
+      | TupleItem.hole => TupleItem.hole
+      | TupleItem.value expr => TupleItem.value (resolve expr)
+
+end
+
+def Expr.resolveEventSelectors
+    (env : EventSelectorEnv) (expr : Expr) : Expr :=
+  Expr.resolveEventSelectorsFuel defaultResolveSelectorsFuel env expr
+
+def Arg.resolveEventSelectors
+    (env : EventSelectorEnv) (arg : Arg) : Arg :=
+  Arg.resolveEventSelectorsFuel defaultResolveSelectorsFuel env arg
+
+def BaseSpecifier.resolveEventSelectors
+    (env : EventSelectorEnv) (spec : BaseSpecifier) : BaseSpecifier :=
+  { spec with args := spec.args.map (Arg.resolveEventSelectors env) }
+
+def ModifierInvocation.resolveEventSelectors
+    (env : EventSelectorEnv)
+    (invocation : ModifierInvocation) : ModifierInvocation :=
+  { invocation with
+    args := invocation.args.map (Arg.resolveEventSelectors env) }
+
+def StateVarDecl.resolveEventSelectors
+    (env : EventSelectorEnv) (decl : StateVarDecl) : StateVarDecl :=
+  { decl with init := decl.init.map (Expr.resolveEventSelectors env) }
+
+mutual
+
+def Stmt.resolveEventSelectorsFuel :
+    Nat -> EventSelectorEnv -> Stmt -> Stmt
+  | 0, _, stmt => stmt
+  | fuel + 1, env, stmt =>
+      let resolveStmt := Stmt.resolveEventSelectorsFuel fuel env
+      let resolveExpr := Expr.resolveEventSelectorsFuel fuel env
+      let resolveClause := CatchClause.resolveEventSelectorsFuel fuel env
+      match stmt with
+      | Stmt.empty => Stmt.empty
+      | Stmt.block body => Stmt.block (body.map resolveStmt)
+      | Stmt.varDecl bindings init =>
+          Stmt.varDecl bindings (init.map resolveExpr)
+      | Stmt.expr expr => Stmt.expr (resolveExpr expr)
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse (resolveExpr cond) (resolveStmt thenBranch)
+            (elseBranch.map resolveStmt)
+      | Stmt.whileLoop cond body =>
+          Stmt.whileLoop (resolveExpr cond) (resolveStmt body)
+      | Stmt.doWhile body cond =>
+          Stmt.doWhile (resolveStmt body) (resolveExpr cond)
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map resolveStmt) (cond.map resolveExpr)
+            (post.map resolveExpr) (resolveStmt body)
+      | Stmt.tryCatch expr clauses =>
+          Stmt.tryCatch (resolveExpr expr) (clauses.map resolveClause)
+      | Stmt.tryCatchReturns expr returns success clauses =>
+          Stmt.tryCatchReturns (resolveExpr expr) returns
+            (resolveStmt success) (clauses.map resolveClause)
+      | Stmt.emitEvent expr => Stmt.emitEvent (resolveExpr expr)
+      | Stmt.revertCall expr => Stmt.revertCall (resolveExpr expr)
+      | Stmt.returnValues expr? => Stmt.returnValues (expr?.map resolveExpr)
+      | Stmt.break => Stmt.break
+      | Stmt.continue => Stmt.continue
+      | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+      | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+
+def CatchClause.resolveEventSelectorsFuel :
+    Nat -> EventSelectorEnv -> CatchClause -> CatchClause
+  | 0, _, clause => clause
+  | fuel + 1, env, clause =>
+      match clause with
+      | CatchClause.clause name params body =>
+          CatchClause.clause name params
+            (Stmt.resolveEventSelectorsFuel fuel env body)
+
+end
+
+def Stmt.resolveEventSelectors
+    (env : EventSelectorEnv) (stmt : Stmt) : Stmt :=
+  Stmt.resolveEventSelectorsFuel defaultResolveSelectorsFuel env stmt
+
+def FunctionDecl.resolveEventSelectors
+    (env : EventSelectorEnv) (decl : FunctionDecl) : FunctionDecl :=
+  { decl with
+    modifiers := decl.modifiers.map
+      (ModifierInvocation.resolveEventSelectors env)
+    body := decl.body.map (Stmt.resolveEventSelectors env) }
+
+def ModifierDecl.resolveEventSelectors
+    (env : EventSelectorEnv) (decl : ModifierDecl) : ModifierDecl :=
+  { decl with body := decl.body.map (Stmt.resolveEventSelectors env) }
+
+def ContractItem.resolveEventSelectors
+    (env : EventSelectorEnv) : ContractItem -> ContractItem
+  | ContractItem.stateVar decl =>
+      ContractItem.stateVar (StateVarDecl.resolveEventSelectors env decl)
+  | ContractItem.function decl =>
+      ContractItem.function (FunctionDecl.resolveEventSelectors env decl)
+  | ContractItem.modifierDecl decl =>
+      ContractItem.modifierDecl (ModifierDecl.resolveEventSelectors env decl)
+  | other => other
+
+def ContractDecl.resolveEventSelectors
+    (env : EventSelectorEnv) (decl : ContractDecl) : ContractDecl :=
+  { decl with
+    layoutBase := decl.layoutBase.map (Expr.resolveEventSelectors env)
+    bases := decl.bases.map (BaseSpecifier.resolveEventSelectors env)
+    items := decl.items.map (ContractItem.resolveEventSelectors env) }
 
 mutual
 
@@ -6837,10 +8379,7 @@ def Expr.resolveFunctionAddressesFuel : Nat -> SelectorEnv -> Expr -> Expr
       let resolveOption := CallOption.resolveFunctionAddressesFuel fuel env
       let resolveTupleItem := TupleItem.resolveFunctionAddressesFuel fuel env
       match expr with
-      | Expr.member (Expr.member base name) "address" =>
-          match SelectorEnv.lookup? env name with
-          | some _ => resolve base
-          | none => Expr.member (Expr.member (resolve base) name) "address"
+      | Expr.member (Expr.member base _) "address" => resolve base
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name
       | Expr.typeName ty => Expr.typeName ty
@@ -7187,23 +8726,291 @@ def Stmt.resolveNamedEventErrorArgs
   Stmt.resolveNamedEventErrorArgsFuel defaultResolveInterfaceIdsFuel
     eventEnv errorEnv stmt
 
+def modifierArgTempName (index : Nat) : Name :=
+  "_sol_mod_arg" ++ reprStr index
+
+def modifierParamRuntimeName (index : Nat) : Name :=
+  "_sol_mod_param" ++ reprStr index
+
+abbrev NameAliasEnv := List (Name × Name)
+
+def NameAliasEnv.lookup? : NameAliasEnv -> Name -> Option Name
+  | [], _ => none
+  | (source, target) :: rest, name =>
+      if source == name then
+        some target
+      else
+        NameAliasEnv.lookup? rest name
+
+def NameAliasEnv.resolve (env : NameAliasEnv) (name : Name) : Name :=
+  (NameAliasEnv.lookup? env name).getD name
+
+def NameAliasEnv.remove (env : NameAliasEnv) (name : Name) : NameAliasEnv :=
+  env.filter (fun binding => binding.fst != name)
+
+def VarBinding.removeNameAlias (env : NameAliasEnv)
+    (binding : VarBinding) : NameAliasEnv :=
+  match binding.name with
+  | some name => NameAliasEnv.remove env name
+  | none => env
+
+def VarBindings.removeNameAliases :
+    NameAliasEnv -> List VarBinding -> NameAliasEnv
+  | env, [] => env
+  | env, binding :: rest =>
+      VarBindings.removeNameAliases
+        (VarBinding.removeNameAlias env binding) rest
+
+def Parameter.removeNameAlias (env : NameAliasEnv)
+    (param : Parameter) : NameAliasEnv :=
+  match param.name with
+  | some name => NameAliasEnv.remove env name
+  | none => env
+
+def Parameters.removeNameAliases :
+    NameAliasEnv -> List Parameter -> NameAliasEnv
+  | env, [] => env
+  | env, param :: rest =>
+      Parameters.removeNameAliases
+        (Parameter.removeNameAlias env param) rest
+
+mutual
+
+def Expr.renameIdentsFuel : Nat -> NameAliasEnv -> Expr -> Expr
+  | 0, _, expr => expr
+  | _ + 1, _, Expr.literal literal => Expr.literal literal
+  | _ + 1, env, Expr.ident name => Expr.ident (NameAliasEnv.resolve env name)
+  | _ + 1, _, Expr.typeName ty => Expr.typeName ty
+  | fuel + 1, env, Expr.member base member =>
+      Expr.member (Expr.renameIdentsFuel fuel env base) member
+  | fuel + 1, env, Expr.index base index =>
+      Expr.index
+        (Expr.renameIdentsFuel fuel env base)
+        (Expr.renameIdentsFuel fuel env index)
+  | fuel + 1, env, Expr.slice base start stop =>
+      Expr.slice
+        (Expr.renameIdentsFuel fuel env base)
+        (start.map (Expr.renameIdentsFuel fuel env))
+        (stop.map (Expr.renameIdentsFuel fuel env))
+  | fuel + 1, env, Expr.call fn args =>
+      Expr.call
+        (Expr.renameIdentsFuel fuel env fn)
+        (args.map (Arg.renameIdentsFuel fuel env))
+  | fuel + 1, env, Expr.callWithOptions fn options args =>
+      Expr.callWithOptions
+        (Expr.renameIdentsFuel fuel env fn)
+        (options.map (CallOption.renameIdentsFuel fuel env))
+        (args.map (Arg.renameIdentsFuel fuel env))
+  | fuel + 1, env, Expr.newExpr ty args =>
+      Expr.newExpr ty (args.map (Arg.renameIdentsFuel fuel env))
+  | fuel + 1, env, Expr.tuple items =>
+      Expr.tuple (items.map (TupleItem.renameIdentsFuel fuel env))
+  | fuel + 1, env, Expr.array exprs =>
+      Expr.array (exprs.map (Expr.renameIdentsFuel fuel env))
+  | fuel + 1, env, Expr.enumFromUInt maxValue inner =>
+      Expr.enumFromUInt maxValue (Expr.renameIdentsFuel fuel env inner)
+  | fuel + 1, env, Expr.unary op inner =>
+      Expr.unary op (Expr.renameIdentsFuel fuel env inner)
+  | fuel + 1, env, Expr.binary op lhs rhs =>
+      Expr.binary op
+        (Expr.renameIdentsFuel fuel env lhs)
+        (Expr.renameIdentsFuel fuel env rhs)
+  | fuel + 1, env, Expr.ternary cond thenExpr elseExpr =>
+      Expr.ternary
+        (Expr.renameIdentsFuel fuel env cond)
+        (Expr.renameIdentsFuel fuel env thenExpr)
+        (Expr.renameIdentsFuel fuel env elseExpr)
+  | fuel + 1, env, Expr.assign lhs op rhs =>
+      Expr.assign
+        (Expr.renameIdentsFuel fuel env lhs)
+        op
+        (Expr.renameIdentsFuel fuel env rhs)
+  | fuel + 1, env, Expr.payableConversion inner =>
+      Expr.payableConversion (Expr.renameIdentsFuel fuel env inner)
+termination_by fuel _ _ => fuel
+
+def Arg.renameIdentsFuel : Nat -> NameAliasEnv -> Arg -> Arg
+  | 0, _, arg => arg
+  | fuel + 1, env, Arg.positional expr =>
+      Arg.positional (Expr.renameIdentsFuel fuel env expr)
+  | fuel + 1, env, Arg.named name expr =>
+      Arg.named name (Expr.renameIdentsFuel fuel env expr)
+termination_by fuel _ _ => fuel
+
+def CallOption.renameIdentsFuel : Nat -> NameAliasEnv -> CallOption -> CallOption
+  | 0, _, option => option
+  | fuel + 1, env, CallOption.named name expr =>
+      CallOption.named name (Expr.renameIdentsFuel fuel env expr)
+termination_by fuel _ _ => fuel
+
+def TupleItem.renameIdentsFuel : Nat -> NameAliasEnv -> TupleItem -> TupleItem
+  | 0, _, item => item
+  | _ + 1, _, TupleItem.hole => TupleItem.hole
+  | fuel + 1, env, TupleItem.value expr =>
+      TupleItem.value (Expr.renameIdentsFuel fuel env expr)
+termination_by fuel _ _ => fuel
+
+def Stmt.renameIdentsFuel : Nat -> NameAliasEnv -> Stmt -> Stmt
+  | 0, _, stmt => stmt
+  | _ + 1, _, Stmt.empty => Stmt.empty
+  | fuel + 1, env, Stmt.block body =>
+      Stmt.block (Stmt.renameIdentSeqFuel fuel env body).fst
+  | fuel + 1, env, Stmt.varDecl bindings init =>
+      Stmt.varDecl bindings (init.map (Expr.renameIdentsFuel fuel env))
+  | fuel + 1, env, Stmt.expr expr =>
+      Stmt.expr (Expr.renameIdentsFuel fuel env expr)
+  | fuel + 1, env, Stmt.ifElse cond thenBranch elseBranch =>
+      Stmt.ifElse
+        (Expr.renameIdentsFuel fuel env cond)
+        (Stmt.renameIdentsFuel fuel env thenBranch)
+        (elseBranch.map (Stmt.renameIdentsFuel fuel env))
+  | fuel + 1, env, Stmt.whileLoop cond body =>
+      Stmt.whileLoop
+        (Expr.renameIdentsFuel fuel env cond)
+        (Stmt.renameIdentsFuel fuel env body)
+  | fuel + 1, env, Stmt.doWhile body cond =>
+      Stmt.doWhile
+        (Stmt.renameIdentsFuel fuel env body)
+        (Expr.renameIdentsFuel fuel env cond)
+  | fuel + 1, env, Stmt.forLoop init cond post body =>
+      Stmt.forLoop
+        (init.map (Stmt.renameIdentsFuel fuel env))
+        (cond.map (Expr.renameIdentsFuel fuel env))
+        (post.map (Expr.renameIdentsFuel fuel env))
+        (Stmt.renameIdentsFuel fuel env body)
+  | fuel + 1, env, Stmt.tryCatch expr clauses =>
+      Stmt.tryCatch
+        (Expr.renameIdentsFuel fuel env expr)
+        (clauses.map (CatchClause.renameIdentsFuel fuel env))
+  | fuel + 1, env, Stmt.tryCatchReturns expr returns success clauses =>
+      let successEnv := Parameters.removeNameAliases env returns
+      Stmt.tryCatchReturns
+        (Expr.renameIdentsFuel fuel env expr)
+        returns
+        (Stmt.renameIdentsFuel fuel successEnv success)
+        (clauses.map (CatchClause.renameIdentsFuel fuel env))
+  | fuel + 1, env, Stmt.emitEvent expr =>
+      Stmt.emitEvent (Expr.renameIdentsFuel fuel env expr)
+  | fuel + 1, env, Stmt.revertCall expr =>
+      Stmt.revertCall (Expr.renameIdentsFuel fuel env expr)
+  | fuel + 1, env, Stmt.returnValues expr? =>
+      Stmt.returnValues (expr?.map (Expr.renameIdentsFuel fuel env))
+  | _ + 1, _, Stmt.break => Stmt.break
+  | _ + 1, _, Stmt.continue => Stmt.continue
+  | fuel + 1, env, Stmt.unchecked body =>
+      Stmt.unchecked (Stmt.renameIdentsFuel fuel env body)
+  | _ + 1, _, Stmt.inlineAssembly code => Stmt.inlineAssembly code
+  | _ + 1, _, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+termination_by fuel _ _ => fuel
+
+def CatchClause.renameIdentsFuel :
+    Nat -> NameAliasEnv -> CatchClause -> CatchClause
+  | 0, _, clause => clause
+  | fuel + 1, env, CatchClause.clause name params body =>
+      let bodyEnv := Parameters.removeNameAliases env params
+      CatchClause.clause name params (Stmt.renameIdentsFuel fuel bodyEnv body)
+termination_by fuel _ _ => fuel
+
+def Stmt.renameIdentSeqFuel :
+    Nat -> NameAliasEnv -> List Stmt -> List Stmt × NameAliasEnv
+  | 0, env, stmts => (stmts, env)
+  | fuel + 1, env, Stmt.varDecl bindings init :: rest =>
+      let head :=
+        Stmt.renameIdentsFuel fuel env (Stmt.varDecl bindings init)
+      let env' := VarBindings.removeNameAliases env bindings
+      let (tail, finalEnv) := Stmt.renameIdentSeqFuel fuel env' rest
+      (head :: tail, finalEnv)
+  | fuel + 1, env, stmt :: rest =>
+      let head := Stmt.renameIdentsFuel fuel env stmt
+      let (tail, finalEnv) := Stmt.renameIdentSeqFuel fuel env rest
+      (head :: tail, finalEnv)
+  | _ + 1, env, [] => ([], env)
+termination_by fuel _ _ => fuel
+
+end
+
+def defaultRenameIdentsFuel : Nat := 1024
+
+def Expr.renameIdents (env : NameAliasEnv) (expr : Expr) : Expr :=
+  Expr.renameIdentsFuel defaultRenameIdentsFuel env expr
+
+def Arg.renameIdents (env : NameAliasEnv) (arg : Arg) : Arg :=
+  Arg.renameIdentsFuel defaultRenameIdentsFuel env arg
+
+def ModifierInvocation.renameIdents (env : NameAliasEnv)
+    (invocation : ModifierInvocation) : ModifierInvocation :=
+  { invocation with args := invocation.args.map (Arg.renameIdents env) }
+
+def Stmt.renameIdents (env : NameAliasEnv) (stmt : Stmt) : Stmt :=
+  Stmt.renameIdentsFuel defaultRenameIdentsFuel env stmt
+
+def Parameter.runtimeName (fallbackPrefix : String) (index : Nat) : Name :=
+  fallbackPrefix ++ toString index
+
+def Parameter.withRuntimeName (fallbackPrefix : String) (index : Nat)
+    (param : Parameter) : Parameter :=
+  { param with name := some (Parameter.runtimeName fallbackPrefix index) }
+
+def Parameters.withRuntimeNames (fallbackPrefix : String)
+    (params : List Parameter) : List Parameter :=
+  mapIdx (Parameter.withRuntimeName fallbackPrefix) 0 params
+
+def Parameter.runtimeAlias? (fallbackPrefix : String) (index : Nat)
+    (param : Parameter) : Option (Name × Name) :=
+  param.name.map
+    (fun name => (name, Parameter.runtimeName fallbackPrefix index))
+
+def Parameters.runtimeAliasEnv (fallbackPrefix : String)
+    (params : List Parameter) : NameAliasEnv :=
+  mapIdx (Parameter.runtimeAlias? fallbackPrefix) 0 params |>.filterMap id
+
+def ModifierDecl.paramAliasEnv (decl : SourceModifierDecl) : NameAliasEnv :=
+  mapIdx
+    (fun index param =>
+      match param.name with
+      | some name => some (name, modifierParamRuntimeName index)
+      | none => none)
+    0 decl.params |>.filterMap id
+
+def ModifierDecl.aliasedParams (decl : SourceModifierDecl) : List Parameter :=
+  mapIdx
+    (fun index param =>
+      { param with name := some (modifierParamRuntimeName index) })
+    0 decl.params
+
+def ModifierDecl.aliasParamsInBody
+    (decl : SourceModifierDecl) (body : Stmt) : Stmt :=
+  Stmt.renameIdents (ModifierDecl.paramAliasEnv decl) body
+
+def modifierParamBindingsFrom? :
+    Nat -> List Parameter -> List Expr -> Option (List Stmt)
+  | _, [], [] => some []
+  | index, param :: params, arg :: args => do
+      let rest ← modifierParamBindingsFrom? (index + 1) params args
+      let tempName := modifierArgTempName index
+      some
+        ( Stmt.varDecl
+            [{ name := some tempName
+               ty := some param.ty
+               location := param.location }]
+            (some arg)
+          :: Stmt.varDecl
+            [{ name := some (modifierParamRuntimeName index)
+               ty := some param.ty
+               location := param.location }]
+            (some (Expr.ident tempName))
+          :: rest)
+  | _, _, _ => none
+
 def modifierParamBindingsWithArgs? (decl : SourceModifierDecl)
     (args : List Arg) : Option (List Stmt) := do
   let orderedArgs ← Args.toExprsForParams? decl.params args
-  some
-    (decl.params.zip orderedArgs |>.map
-      (fun pair =>
-        let param := pair.fst
-        let arg := pair.snd
-        Stmt.varDecl
-          [{ name := param.name
-             ty := some param.ty
-             location := param.location }]
-          (some arg)))
+  modifierParamBindingsFrom? 0 decl.params orderedArgs
 
 def modifierApply? (decl : SourceModifierDecl)
     (invocation : SourceModifierInvocation) (inner : Stmt) : Option Stmt := do
   let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
   let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
   some
     (Stmt.block
@@ -7228,8 +9035,49 @@ def modifierApplyToCore? (storageNames returnNames : List Name)
     (invocation : SourceModifierInvocation) (inner : CoreStmt) :
     Option CoreStmt := do
   let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
   let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
   let prefixCore ← Stmt.listToCore? storageNames prefixStmts
+  let bodyCore ←
+    Stmt.toCoreReplacingModifierPlaceholder?
+      storageNames returnNames inner body
+  some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
+
+def modifierParamBindingsToCoreWithEnv? (storageNames : List Name) :
+    StorageRefEnv -> TypeEnv -> List Stmt -> Option (List CoreStmt)
+  | _, _, [] => some []
+  | storageRefEnv, env,
+      Stmt.varDecl [binding] (some expr) :: rest => do
+      let name ← binding.name
+      let ty ← binding.ty
+      let param : Parameter :=
+        { name := some name, ty := ty, location := binding.location }
+      let head ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env "_sol_mod" 0 param expr
+      let tail ←
+        modifierParamBindingsToCoreWithEnv? storageNames
+          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+          (VarBinding.extendTypeEnv env binding) rest
+      some (head :: tail)
+  | _, _, _ => none
+termination_by _ _ stmts => stmts.length
+
+def modifierApplyToCoreWithEnv? (storageRefEnv : StorageRefEnv)
+    (env : TypeEnv)
+    (storageNames returnNames : List Name)
+    (decl : SourceModifierDecl)
+    (invocation : SourceModifierInvocation) (inner : CoreStmt) :
+    Option CoreStmt := do
+  let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
+  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
+  let prefixCore ←
+    modifierParamBindingsToCoreWithEnv?
+      storageNames storageRefEnv env prefixStmts
+  let modifierEnv :=
+    Parameters.extendTypeEnv "_mod" env (ModifierDecl.aliasedParams decl)
+  let body := Stmt.annotateAbi modifierEnv body
   let bodyCore ←
     Stmt.toCoreReplacingModifierPlaceholder?
       storageNames returnNames inner body
@@ -7249,6 +9097,119 @@ def functionExpandModifiersToCore? (storageNames returnNames : List Name)
       let modifierDecl ← modifierFindByName? available modifierName
       modifierApplyToCore? storageNames returnNames
         modifierDecl invocation inner
+
+inductive ModifierApplicationStatus where
+  | applied
+  | badTarget
+  | missingModifier
+  | missingBody
+  | badArguments
+  | coreExpansionFailed
+  deriving Repr, BEq
+
+structure ModifierApplicationObservation where
+  target : Path
+  selectedName? : Option Name := none
+  modifierName? : Option Name := none
+  argumentCount : Nat
+  parameterNames : List (Option Name) := []
+  innerSource : Stmt
+  innerCore : CoreStmt
+  modifierBody? : Option Stmt := none
+  prefixStmts? : Option (List Stmt) := none
+  expandedSource? : Option Stmt := none
+  expandedCore? : Option CoreStmt := none
+  status : ModifierApplicationStatus
+  deriving Repr
+
+def ModifierInvocation.observeApplication
+    (storageNames returnNames : List Name)
+    (available : List SourceModifierDecl)
+    (invocation : SourceModifierInvocation) (inner : Stmt)
+    (innerCore : CoreStmt) : ModifierApplicationObservation :=
+  let selectedName? := pathLast? invocation.target
+  match selectedName? with
+  | none =>
+      { target := invocation.target
+        argumentCount := invocation.args.length
+        innerSource := inner
+        innerCore := innerCore
+        status := ModifierApplicationStatus.badTarget }
+  | some modifierName =>
+      match modifierFindByName? available modifierName with
+      | none =>
+          { target := invocation.target
+            selectedName? := some modifierName
+            argumentCount := invocation.args.length
+            innerSource := inner
+            innerCore := innerCore
+            status := ModifierApplicationStatus.missingModifier }
+      | some decl =>
+          let prefixStmts? := modifierParamBindingsWithArgs? decl invocation.args
+          let expandedSource? := modifierApply? decl invocation inner
+          let expandedCore? :=
+            modifierApplyToCore? storageNames returnNames decl invocation innerCore
+          let status :=
+            match decl.body, prefixStmts?, expandedSource?, expandedCore? with
+            | none, _, _, _ => ModifierApplicationStatus.missingBody
+            | _, none, _, _ => ModifierApplicationStatus.badArguments
+            | _, some _, some _, some _ => ModifierApplicationStatus.applied
+            | _, some _, some _, none =>
+                ModifierApplicationStatus.coreExpansionFailed
+            | _, _, _, _ => ModifierApplicationStatus.coreExpansionFailed
+          { target := invocation.target
+            selectedName? := some modifierName
+            modifierName? := some decl.name
+            argumentCount := invocation.args.length
+            parameterNames := decl.params.map Parameter.name
+            innerSource := inner
+            innerCore := innerCore
+            modifierBody? := decl.body
+            prefixStmts? := prefixStmts?
+            expandedSource? := expandedSource?
+            expandedCore? := expandedCore?
+            status := status }
+
+structure FunctionModifierExpansionObservation where
+  functionName? : Option Name := none
+  storageNames : List Name
+  returnNames : List Name
+  modifierCount : Nat
+  body? : Option Stmt := none
+  expandedSource? : Option Stmt := none
+  expandedCore? : Option CoreStmt := none
+  status : ModifierApplicationStatus
+  deriving Repr
+
+def FunctionDecl.observeModifierExpansion
+    (storageNames returnNames : List Name)
+    (available : List SourceModifierDecl) (decl : FunctionDecl) :
+    FunctionModifierExpansionObservation :=
+  match decl.body with
+  | none =>
+      { functionName? := decl.name
+        storageNames := storageNames
+        returnNames := returnNames
+        modifierCount := decl.modifiers.length
+        status := ModifierApplicationStatus.missingBody }
+  | some body =>
+      let expandedSource? :=
+        functionExpandModifiers? available decl.modifiers body
+      let expandedCore? :=
+        functionExpandModifiersToCore?
+          storageNames returnNames available decl.modifiers body
+      let status :=
+        match expandedSource?, expandedCore? with
+        | some _, some _ => ModifierApplicationStatus.applied
+        | _, _ => ModifierApplicationStatus.coreExpansionFailed
+      { functionName? := decl.name
+        storageNames := storageNames
+        returnNames := returnNames
+        modifierCount := decl.modifiers.length
+        body? := some body
+        expandedSource? := expandedSource?
+        expandedCore? := expandedCore?
+        status := status }
 
 def FunctionDecl.isConstructor (decl : FunctionDecl) : Bool :=
   match decl.kind with
@@ -7293,8 +9254,16 @@ def Ty.matchesShape : Ty -> Ty -> Bool
   | Ty.string, Ty.string => true
   | Ty.array lhsTy lhsSize?, Ty.array rhsTy rhsSize? =>
       lhsSize? == rhsSize? && Ty.matchesShape lhsTy rhsTy
+  | Ty.mapping lhsKey lhsValue, Ty.mapping rhsKey rhsValue =>
+      Ty.matchesShape lhsKey rhsKey && Ty.matchesShape lhsValue rhsValue
   | Ty.tuple lhs, Ty.tuple rhs => Ty.listMatchesShape lhs rhs
-  | Ty.user lhs, Ty.user rhs => lhs.segments == rhs.segments
+  | Ty.struct lhsPath lhs, Ty.struct rhsPath rhs =>
+      Path.matchesNominal lhsPath rhsPath && Ty.listMatchesShape lhs rhs
+  | Ty.tuple lhs, Ty.struct _ rhs => Ty.listMatchesShape lhs rhs
+  | Ty.struct _ lhs, Ty.tuple rhs => Ty.listMatchesShape lhs rhs
+  | Ty.user lhs, Ty.user rhs => Path.matchesNominal lhs rhs
+  | Ty.user lhs, Ty.struct rhs _ => Path.matchesNominal lhs rhs
+  | Ty.struct lhs _, Ty.user rhs => Path.matchesNominal lhs rhs
   | _, _ => false
 
 def Ty.listMatchesShape : List Ty -> List Ty -> Bool
@@ -7313,7 +9282,8 @@ def Parameter.matchesArg? (env : TypeEnv) (param : Parameter)
 def Parameter.matchesArgAllowingInternalFunctionName?
     (env : TypeEnv) (param : Parameter) (arg : Expr) : Option Bool :=
   match param.ty, arg with
-  | Ty.function _ _ _ Visibility.internal_, Expr.ident _ => some true
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_, Expr.ident _ =>
+      some true
   | _, _ => Parameter.matchesArg? env param arg
 
 def Parameters.matchArgsWithEnv? (env : TypeEnv) :
@@ -7392,6 +9362,152 @@ def FunctionDecl.findInternalCalleeWithArgs?
       let orderedArgs ← FunctionDecl.orderedArgs? fn args
       some (fn, orderedArgs)
 
+def FunctionDecl.singleReturnTy? (decl : FunctionDecl) : Option Ty :=
+  match decl.returns with
+  | [ret] => some ret.ty
+  | _ => none
+
+def FunctionDecl.findInternalCalleeReturnTyWithArgs?
+    (functions : List FunctionDecl) (env : TypeEnv)
+    (name : Name) (args : List Arg) : Option Ty := do
+  let (callee, _) ←
+    FunctionDecl.findInternalCalleeWithArgs? functions env name args
+  FunctionDecl.singleReturnTy? callee
+
+def Expr.abiTyWithInternalFunctionsEnv?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (expr : Expr) : Option Ty :=
+  match Expr.abiTyWithEnv? env expr with
+  | some ty => some ty
+  | none =>
+      match expr with
+      | Expr.call (Expr.ident name) args =>
+          match
+              FunctionDecl.findInternalCalleeReturnTyWithArgs?
+                functions env name args with
+          | some ty => some ty
+          | none =>
+              FunctionDecl.findInternalCalleeReturnTyWithArgs?
+                freeFunctions env name args
+      | Expr.call (Expr.typeName ty) [Arg.positional _] => some ty
+      | Expr.payableConversion _ => some (Ty.address true)
+      | Expr.unary UnaryOp.bitNot inner =>
+          Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env inner
+      | Expr.unary UnaryOp.neg inner =>
+          Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env inner
+      | Expr.unary UnaryOp.preIncrement inner
+      | Expr.unary UnaryOp.preDecrement inner
+      | Expr.unary UnaryOp.postIncrement inner
+      | Expr.unary UnaryOp.postDecrement inner =>
+          Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env inner
+      | Expr.assign lhs _ _ =>
+          Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env lhs
+      | Expr.binary op lhs _ =>
+          match op with
+          | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
+          | BinaryOp.eq | BinaryOp.ne
+          | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
+          | _ =>
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env lhs
+      | Expr.ternary _ thenExpr _ =>
+          Expr.abiTyWithInternalFunctionsEnv?
+            functions freeFunctions env thenExpr
+      | Expr.member base "balance" => do
+          let _ ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env base
+          some (Ty.uint 256)
+      | Expr.member base "code" => do
+          let _ ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env base
+          some Ty.bytes
+      | Expr.member base "codehash" => do
+          let _ ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env base
+          some (Ty.bytesN 32)
+      | Expr.member base "length" => do
+          let _ ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env base
+          some (Ty.uint 256)
+      | Expr.member base "selector" => do
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env base with
+          | some (Ty.functionWithLocations _ _ _ _ _ Visibility.external_) =>
+              some (Ty.bytesN 4)
+          | _ => none
+      | Expr.member base "address" => do
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env base with
+          | some (Ty.functionWithLocations _ _ _ _ _ Visibility.external_) =>
+              some (Ty.address false)
+          | _ => none
+      | Expr.index base indexExpr => do
+          let baseTy ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env base
+          match Ty.fixedBytesSize? baseTy with
+          | some _ => some (Ty.bytesN 1)
+          | none =>
+              match baseTy with
+              | Ty.bytes => some (Ty.bytesN 1)
+              | Ty.array elementTy _ => some elementTy
+              | Ty.mapping _ valueTy => some valueTy
+              | Ty.tuple elements => do
+                  let index ← Expr.numberLiteralNat? indexExpr
+                  listGet? elements index
+              | Ty.struct _ elements => do
+                  let index ← Expr.numberLiteralNat? indexExpr
+                  listGet? elements index
+              | _ => none
+      | Expr.slice base _ _ => do
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env base with
+          | some Ty.bytes => some Ty.bytes
+          | some Ty.string => some Ty.string
+          | some (Ty.array elementTy _) =>
+              some (Ty.array elementTy none)
+          | _ => none
+      | _ => none
+termination_by expr
+
+def Parameter.matchesArgWithInternalFunctions?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (param : Parameter) (arg : Expr) : Option Bool := do
+  let argTy ←
+    Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env arg
+  some (Ty.matchesShape argTy param.ty)
+
+def Parameter.matchesArgAllowingInternalFunctionNameWithFunctions?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (param : Parameter) (arg : Expr) : Option Bool :=
+  match param.ty, arg with
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_, Expr.ident _ =>
+      some true
+  | _, _ =>
+      Parameter.matchesArgWithInternalFunctions?
+        functions freeFunctions env param arg
+
+def Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv) :
+    List Parameter -> List Expr -> Option Bool
+  | [], [] => some true
+  | param :: params, arg :: args => do
+      let head ←
+        Parameter.matchesArgAllowingInternalFunctionNameWithFunctions?
+          functions freeFunctions env param arg
+      let tail ←
+        Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+          functions freeFunctions env params args
+      some (head && tail)
+  | _, _ => some false
+
 structure InternalFunctionAliasBinding where
   alias : Name
   expected : Ty
@@ -7443,9 +9559,12 @@ def FunctionDecl.internalFunctionValueTy? (decl : FunctionDecl) :
   | FunctionKind.function, some _, some Visibility.external_ => none
   | FunctionKind.function, some _, _ =>
       some
-        (Ty.function (decl.params.map Parameter.ty)
-          (decl.returns.map Parameter.ty) decl.mutability
-          Visibility.internal_)
+        (Ty.functionWithLocations
+          (decl.params.map Parameter.ty)
+          (decl.params.map Parameter.location)
+          (decl.returns.map Parameter.ty)
+          (decl.returns.map Parameter.location)
+          decl.mutability Visibility.internal_)
   | _, _, _ => none
 
 def FunctionDecl.matchesInternalFunctionAliasTarget
@@ -7492,7 +9611,7 @@ def VarBinding.internalFunctionAliasTarget?
   let aliasName ← binding.name
   let expected ← binding.ty
   match expected with
-  | Ty.function _ _ _ Visibility.internal_ =>
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_ =>
       let target ←
         InternalFunctionAliasEnv.aliasTarget?
           aliasEnv functions freeFunctions expected sourceName
@@ -7507,7 +9626,7 @@ def VarBinding.internalFunctionAliasDecl?
   let aliasName ← binding.name
   let expected ← binding.ty
   match expected with
-  | Ty.function _ _ _ Visibility.internal_ =>
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_ =>
       some
         { alias := aliasName
           expected := expected
@@ -7553,7 +9672,8 @@ def Parameter.internalFunctionAliasArg?
     Option InternalFunctionAliasBinding := do
   let expected := param.ty
   match expected, arg with
-  | Ty.function _ _ _ Visibility.internal_, Expr.ident sourceName =>
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_,
+      Expr.ident sourceName =>
       let aliasName := param.name.getD (fallbackPrefix ++ toString index)
       if sourceName == internalFunctionPointerPanicName then
         some
@@ -7572,47 +9692,131 @@ def Parameter.internalFunctionAliasArg?
 
 def Parameter.isInternalFunction (param : Parameter) : Bool :=
   match param.ty with
-  | Ty.function _ _ _ Visibility.internal_ => true
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_ => true
   | _ => false
 
-def Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
+def internalCallArgTempName (fallbackPrefix : String) (index : Nat) : Name :=
+  fallbackPrefix ++ "_eval" ++ toString index
+
+def Arg.directInternalCall? : Arg -> Option (Name × List Arg)
+  | Arg.positional (Expr.call (Expr.ident name) args) => some (name, args)
+  | Arg.named _ (Expr.call (Expr.ident name) args) => some (name, args)
+  | _ => none
+
+def Arg.withExpr (expr : Expr) : Arg -> Arg
+  | Arg.positional _ => Arg.positional expr
+  | Arg.named name _ => Arg.named name expr
+
+def Args.replaceDirectInternalCallArg? (fallbackPrefix : String) :
+    Nat -> List Arg -> Option (Name × List Arg × Name × List Arg)
+  | _, [] => none
+  | index, arg :: rest =>
+      let tempName := internalCallArgTempName fallbackPrefix index
+      match Arg.directInternalCall? arg with
+      | some (name, args) =>
+          some
+            ( name
+            , args
+            , tempName
+            , Arg.withExpr (Expr.ident tempName) arg :: rest )
+      | none => do
+          let (name, args, foundTemp, rest') ←
+            Args.replaceDirectInternalCallArg? fallbackPrefix (index + 1) rest
+          some (name, args, foundTemp, arg :: rest')
+
+def Parameter.toStorageAwareCoreArgDeclsEvaluated?
     (storageRefEnv : StorageRefEnv) (storageNames : List Name)
+    (env : TypeEnv) (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) (arg : Expr) :
+    Option (List CoreStmt) := do
+  match param.location with
+  | some DataLocation.storage => do
+      let coreStmt ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env fallbackPrefix index param arg
+      some [coreStmt]
+  | _ => do
+      let tempName := internalCallArgTempName fallbackPrefix index
+      let tempParam := { param with name := some tempName }
+      let tempDecl ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env fallbackPrefix index tempParam arg
+      let paramDecl ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env fallbackPrefix index param
+          (Expr.ident tempName)
+      some [tempDecl, paramDecl]
+
+def Parameter.toStorageAwareCoreArgDeclPiecesEvaluated?
+    (storageRefEnv : StorageRefEnv) (storageNames : List Name)
+    (env : TypeEnv) (fallbackPrefix : String)
+    (index : Nat) (param : Parameter) (arg : Expr) :
+    Option (List CoreStmt × List CoreStmt) := do
+  match param.location with
+  | some DataLocation.storage => do
+      let coreStmt ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env fallbackPrefix index param arg
+      some ([], [coreStmt])
+  | _ => do
+      let tempName := internalCallArgTempName fallbackPrefix index
+      let tempParam := { param with name := some tempName }
+      let tempDecl ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env fallbackPrefix index tempParam arg
+      let paramDecl ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env fallbackPrefix index param
+          (Expr.ident tempName)
+      some ([tempDecl], [paramDecl])
+
+def Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
+    (storageRefEnv : StorageRefEnv) (storageNames : List Name)
+    (env : TypeEnv)
     (functions freeFunctions : List FunctionDecl)
     (fallbackPrefix : String) :
     Nat -> InternalFunctionAliasEnv -> List Parameter -> List Expr ->
-    Option (InternalFunctionAliasEnv × List CoreStmt)
-  | _, aliasEnv, [], [] => some (aliasEnv, [])
+    Option (InternalFunctionAliasEnv × List CoreStmt × List CoreStmt)
+  | _, aliasEnv, [], [] => some (aliasEnv, [], [])
   | index, aliasEnv, param :: params, arg :: args =>
       match
           Parameter.internalFunctionAliasArg?
             aliasEnv functions freeFunctions fallbackPrefix index param arg with
       | some binding => do
           let aliasEnv' := InternalFunctionAliasEnv.extend aliasEnv binding
-          Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
-            storageRefEnv storageNames functions freeFunctions fallbackPrefix
-            (index + 1) aliasEnv' params args
+          Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
+            storageRefEnv storageNames env functions freeFunctions
+            fallbackPrefix (index + 1) aliasEnv' params args
       | none => do
           if Parameter.isInternalFunction param then
             none
           else
-            let head ←
-              Parameter.toStorageAwareCoreArgDecl?
-                storageRefEnv storageNames fallbackPrefix index param arg
-            let (aliasEnv', tail) ←
-              Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
-                storageRefEnv storageNames functions freeFunctions fallbackPrefix
-                (index + 1) aliasEnv params args
-            some (aliasEnv', head :: tail)
+            let (headArgDecls, headParamDecls) ←
+              Parameter.toStorageAwareCoreArgDeclPiecesEvaluated?
+                storageRefEnv storageNames env fallbackPrefix index param arg
+            let (aliasEnv', tailArgDecls, tailParamDecls) ←
+              Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
+                storageRefEnv storageNames env functions freeFunctions
+                fallbackPrefix (index + 1) aliasEnv params args
+            some
+              ( aliasEnv'
+              , headArgDecls ++ tailArgDecls
+              , headParamDecls ++ tailParamDecls )
   | _, _, _, _ => none
 
 def Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
     (storageRefEnv : StorageRefEnv) (storageNames : List Name)
+    (env : TypeEnv)
     (functions freeFunctions : List FunctionDecl)
     (fallbackPrefix : String) (params : List Parameter) (args : List Expr) :
     Option (InternalFunctionAliasEnv × List CoreStmt) :=
-  Parameters.toStorageAwareCoreArgDeclsWithInternalAliasesFrom?
-    storageRefEnv storageNames functions freeFunctions fallbackPrefix
-    0 [] params args
+  match
+      Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
+        storageRefEnv storageNames env functions freeFunctions fallbackPrefix
+        0 [] params args with
+  | some (aliasEnv, argDecls, paramDecls) =>
+      some (aliasEnv, argDecls ++ paramDecls)
+  | none => none
 
 set_option maxHeartbeats 1000000 in
 mutual
@@ -7965,89 +10169,186 @@ def Stmt.inlineInternalFunctionAliasesInBody
   Stmt.inlineInternalFunctionAliasesFuel
     functions freeFunctions defaultInternalFunctionAliasFuel [] stmt
 
+inductive InternalFunctionPointerCallRewriteStatus where
+  | resolved
+  | panic
+  | notFunctionPointerCall
+  deriving Repr, BEq
+
+structure InternalFunctionPointerCallRewriteObservation where
+  source : Expr
+  aliasName? : Option Name := none
+  targetName? : Option Name := none
+  argumentCount : Nat := 0
+  rewritten? : Option Expr := none
+  status : InternalFunctionPointerCallRewriteStatus
+  deriving Repr
+
+def Expr.observeInternalFunctionPointerCallRewrite
+    (aliasEnv : InternalFunctionAliasEnv) (expr : Expr) :
+    InternalFunctionPointerCallRewriteObservation :=
+  match expr with
+  | Expr.call (Expr.ident name) args =>
+      match InternalFunctionAliasEnv.lookup? aliasEnv name with
+      | some binding =>
+          { source := expr
+            aliasName? := some name
+            targetName? := binding.target
+            argumentCount := args.length
+            rewritten? :=
+              some
+                (Expr.inlineInternalFunctionAliasesFuel
+                  defaultInternalFunctionAliasFuel aliasEnv expr)
+            status :=
+              match binding.target with
+              | some _ =>
+                  InternalFunctionPointerCallRewriteStatus.resolved
+              | none =>
+                  InternalFunctionPointerCallRewriteStatus.panic }
+      | none =>
+          { source := expr
+            argumentCount := args.length
+            status :=
+              InternalFunctionPointerCallRewriteStatus.notFunctionPointerCall }
+  | _ =>
+      { source := expr
+        status :=
+          InternalFunctionPointerCallRewriteStatus.notFunctionPointerCall }
+
+def InternalFunctionAliasBinding.targetPair
+    (binding : InternalFunctionAliasBinding) :
+    Name × Option Name :=
+  (binding.alias, binding.target)
+
+def InternalFunctionAliasEnv.targetPairs
+    (env : InternalFunctionAliasEnv) :
+    List (Name × Option Name) :=
+  env.map InternalFunctionAliasBinding.targetPair
+
+structure InternalFunctionPointerRewriteObservation where
+  sourceBody : List Stmt
+  rewrittenBody : List Stmt
+  finalAliasTargets : List (Name × Option Name)
+  panicName : Name
+  deriving Repr
+
+def Stmt.observeInternalFunctionPointerRewrite
+    (functions freeFunctions : List FunctionDecl) (body : List Stmt) :
+    InternalFunctionPointerRewriteObservation :=
+  let (rewritten, finalEnv) :=
+    Stmt.inlineInternalFunctionAliasSeqFuel functions freeFunctions
+      defaultInternalFunctionAliasFuel [] body
+  { sourceBody := body
+    rewrittenBody := rewritten
+    finalAliasTargets := InternalFunctionAliasEnv.targetPairs finalEnv
+    panicName := internalFunctionPointerPanicName }
+
 def Expr.storageRefArrayMemberStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) :
     Expr -> Option CoreStmt
-  | Expr.call (Expr.member (Expr.ident name) "push") [] => do
-      if stateNameIsStorage name storageNames then
-        none
-      else
-        some ()
-      if StorageRefEnv.isStorageRef storageRefEnv name then
-        some ()
-      else
-        none
-      let ty ← TypeEnv.lookup? env name
-      if Ty.hasStorageArrayMembers ty then
-        some (SolidCore.Solidity.Source.Stmt.storageArrayPushRef name none)
-      else
-        none
-  | Expr.call (Expr.member (Expr.ident name) "push")
-      [Arg.positional value] => do
-      if stateNameIsStorage name storageNames then
-        none
-      else
-        some ()
-      if StorageRefEnv.isStorageRef storageRefEnv name then
-        some ()
-      else
-        none
-      let ty ← TypeEnv.lookup? env name
-      if Ty.hasStorageArrayMembers ty then
-        let valueCore ← Expr.toCore? storageNames value
-        some
-          (SolidCore.Solidity.Source.Stmt.storageArrayPushRef
-            name (some valueCore))
-      else
-        none
-  | Expr.call (Expr.member (Expr.ident name) "pop") [] => do
-      if stateNameIsStorage name storageNames then
-        none
-      else
-        some ()
-      if StorageRefEnv.isStorageRef storageRefEnv name then
-        some ()
-      else
-        none
-      let ty ← TypeEnv.lookup? env name
-      if Ty.hasStorageArrayMembers ty then
-        some (SolidCore.Solidity.Source.Stmt.storageArrayPopRef name)
-      else
-        none
+  | Expr.call (Expr.member target "push") [] => do
+      let (source, indexes) ←
+        Expr.storageRefPathCore? storageRefEnv storageNames target
+      match target with
+      | Expr.ident name => do
+          let ty ← TypeEnv.lookup? env name
+          if Ty.hasStorageArrayMembers ty then
+            some ()
+          else
+            none
+      | _ => some ()
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageArrayPushRef source none)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageArrayPushRefPath
+              source indexes none)
+  | Expr.call (Expr.member target "push") [Arg.positional value] => do
+      let (source, indexes) ←
+        Expr.storageRefPathCore? storageRefEnv storageNames target
+      match target with
+      | Expr.ident name => do
+          let ty ← TypeEnv.lookup? env name
+          if Ty.hasStorageArrayMembers ty then
+            some ()
+          else
+            none
+      | _ => some ()
+      let valueCore ← Expr.toCore? storageNames value
+      match indexes with
+      | [] =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageArrayPushRef
+              source (some valueCore))
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageArrayPushRefPath
+              source indexes (some valueCore))
+  | Expr.call (Expr.member target "pop") [] => do
+      let (source, indexes) ←
+        Expr.storageRefPathCore? storageRefEnv storageNames target
+      match target with
+      | Expr.ident name => do
+          let ty ← TypeEnv.lookup? env name
+          if Ty.hasStorageArrayMembers ty then
+            some ()
+          else
+            none
+      | _ => some ()
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageArrayPopRef source)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageArrayPopRefPath
+              source indexes)
   | _ => none
 
 def Expr.storageRefArrayPushAssignStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
-    (storageNames : List Name) (name : Name) (rhs : Expr) :
+    (storageNames : List Name) (target : Expr) (rhs : Expr) :
     Option CoreStmt := do
-  if stateNameIsStorage name storageNames then
-    none
-  else
-    some ()
-  if StorageRefEnv.isStorageRef storageRefEnv name then
-    some ()
-  else
-    none
-  let ty ← TypeEnv.lookup? env name
-  if Ty.hasStorageArrayMembers ty then
-    some ()
-  else
-    none
+  let (name, indexes) ←
+    Expr.storageRefPathCore? storageRefEnv storageNames target
+  match target with
+  | Expr.ident ident => do
+      let ty ← TypeEnv.lookup? env ident
+      if Ty.hasStorageArrayMembers ty then
+        some ()
+      else
+        none
+  | _ => some ()
   let rhsCore ← Expr.toCore? storageNames rhs
-  let lastIndex :=
-    SolidCore.Solidity.Source.Expr.binary
-      SolidCore.Solidity.Source.BinaryOp.sub
-      (SolidCore.Solidity.Source.Expr.var name)
-      (SolidCore.Solidity.Source.Expr.word 1)
-  some
-    (SolidCore.Solidity.Source.Stmt.block
-      [ SolidCore.Solidity.Source.Stmt.storageArrayPushRef name none
-      , SolidCore.Solidity.Source.Stmt.assign
-          (SolidCore.Solidity.Source.LValue.index
-            (SolidCore.Solidity.Source.LValue.var name)
-            lastIndex)
-          rhsCore ])
+  match indexes with
+  | [] =>
+      let lastIndex :=
+        SolidCore.Solidity.Source.Expr.binary
+          SolidCore.Solidity.Source.BinaryOp.sub
+          (SolidCore.Solidity.Source.Expr.var name)
+          (SolidCore.Solidity.Source.Expr.word 1)
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          [ SolidCore.Solidity.Source.Stmt.storageArrayPushRef name none
+          , SolidCore.Solidity.Source.Stmt.assign
+              (SolidCore.Solidity.Source.LValue.index
+                (SolidCore.Solidity.Source.LValue.var name)
+                lastIndex)
+              rhsCore ])
+  | _ =>
+      some
+        (SolidCore.Solidity.Source.Stmt.storageArrayPushRefPathAssign
+          name indexes rhsCore)
+
+def Expr.noReturnEffectStmtCoreWithStorageRefs?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (storageNames : List Name) (expr : Expr) : Option CoreStmt :=
+  match Expr.noReturnEffectStmtCore? storageNames expr with
+  | some coreStmt => some coreStmt
+  | none =>
+      Expr.storageRefArrayMemberStmtCore?
+        storageRefEnv env storageNames expr
 
 def storageAliasDeclFromRefCore? (storageRefEnv : StorageRefEnv)
     (binding : VarBinding) (source : Name) : Option CoreStmt :=
@@ -8059,12 +10360,31 @@ def storageAliasDeclFromRefCore? (storageRefEnv : StorageRefEnv)
         none
   | _, _ => none
 
+def storageAliasDeclFromRefPathCore? (storageRefEnv : StorageRefEnv)
+    (storageNames : List Name) (binding : VarBinding)
+    (source : Expr) : Option CoreStmt := do
+  let name ← binding.name
+  match binding.location with
+  | some DataLocation.storage =>
+      let (target, indexes) ←
+        Expr.storageRefPathCore? storageRefEnv storageNames source
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageAliasFrom name target)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageAliasFromPath
+              name target indexes)
+  | _ => none
+
 def storageAliasAssignmentCore? (storageRefEnv : StorageRefEnv)
     (storageNames : List Name) (name target : Name) : Option CoreStmt :=
   if StorageRefEnv.isStorageRef storageRefEnv name then
-    if stateNameIsStorage target storageNames then
-      some (SolidCore.Solidity.Source.Stmt.storageAliasAssign name target)
-    else if StorageRefEnv.isStorageRef storageRefEnv target then
+    match stateNameRuntimeKey? target storageNames with
+    | some key =>
+      some (SolidCore.Solidity.Source.Stmt.storageAliasAssign name key)
+    | none =>
+    if StorageRefEnv.isStorageRef storageRefEnv target then
       some (SolidCore.Solidity.Source.Stmt.storageAliasAssignFrom name target)
     else
       none
@@ -8084,15 +10404,15 @@ def Stmt.toCoreWithStorageRefsOnly? (storageRefEnv : StorageRefEnv)
       some (SolidCore.Solidity.Source.Stmt.block coreBody)
   | Stmt.expr
       (Expr.assign
-        (Expr.call (Expr.member (Expr.ident name) "push") [])
+        (Expr.call (Expr.member target "push") [])
         AssignOp.assign rhs) =>
       match Expr.storageRefArrayPushAssignStmtCore?
-          storageRefEnv env storageNames name rhs with
+          storageRefEnv env storageNames target rhs with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames
           (Stmt.expr
             (Expr.assign
-              (Expr.call (Expr.member (Expr.ident name) "push") [])
+              (Expr.call (Expr.member target "push") [])
               AssignOp.assign rhs))
   | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
@@ -8197,6 +10517,50 @@ def Stmt.listToCoreWithStorageRefsOnly? (storageRefEnv : StorageRefEnv)
               (VarBinding.extendTypeEnv env binding)
               storageNames rest
           some (head :: tail)
+  | Stmt.varDecl [binding] (some source@(Expr.member _ _)) :: rest =>
+      match
+          storageAliasDeclFromRefPathCore?
+            storageRefEnv storageNames binding source with
+      | some head => do
+          let tail ←
+            Stmt.listToCoreWithStorageRefsOnly?
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              storageNames rest
+          some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithStorageRefsOnly?
+              storageRefEnv env storageNames
+              (Stmt.varDecl [binding] (some source))
+          let tail ←
+            Stmt.listToCoreWithStorageRefsOnly?
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              storageNames rest
+          some (head :: tail)
+  | Stmt.varDecl [binding] (some source@(Expr.index _ _)) :: rest =>
+      match
+          storageAliasDeclFromRefPathCore?
+            storageRefEnv storageNames binding source with
+      | some head => do
+          let tail ←
+            Stmt.listToCoreWithStorageRefsOnly?
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              storageNames rest
+          some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithStorageRefsOnly?
+              storageRefEnv env storageNames
+              (Stmt.varDecl [binding] (some source))
+          let tail ←
+            Stmt.listToCoreWithStorageRefsOnly?
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              storageNames rest
+          some (head :: tail)
   | stmt :: rest => do
       let head ←
         Stmt.toCoreWithStorageRefsOnly? storageRefEnv env storageNames stmt
@@ -8233,7 +10597,7 @@ def functionExpandModifiersToCoreWithStorageRefsOnly?
           storageRefEnv env storageNames returnNames available rest body
       let modifierName ← pathLast? invocation.target
       let modifierDecl ← modifierFindByName? available modifierName
-      modifierApplyToCore? storageNames returnNames
+      modifierApplyToCoreWithEnv? storageRefEnv env storageNames returnNames
         modifierDecl invocation inner
 
 def Expr.localStorageArrayMemberStmtCore?
@@ -8357,6 +10721,40 @@ def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
 
 def defaultInternalCallInlineFuel : Nat := 64
 
+def Stmt.listLeadingBeforeFinalTopLevelModifierPlaceholder? :
+    List Stmt -> Option (List Stmt)
+  | [] => none
+  | Stmt.modifierPlaceholder :: [] => some []
+  | Stmt.modifierPlaceholder :: _ :: _ => none
+  | stmt :: rest => do
+      let before ← Stmt.listLeadingBeforeFinalTopLevelModifierPlaceholder? rest
+      some (stmt :: before)
+
+def Stmt.leadingBeforeFinalTopLevelModifierPlaceholder? :
+    Stmt -> Option (List Stmt)
+  | Stmt.modifierPlaceholder => some []
+  | Stmt.block body =>
+      Stmt.listLeadingBeforeFinalTopLevelModifierPlaceholder? body
+  | _ => none
+
+def modifierApplyLeadingSource? (decl : SourceModifierDecl)
+    (invocation : SourceModifierInvocation) (inner : Stmt) :
+    Option Stmt := do
+  let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
+  let before ← Stmt.leadingBeforeFinalTopLevelModifierPlaceholder? body
+  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
+  some (Stmt.block (prefixStmts ++ before ++ [inner]))
+
+def functionExpandLeadingModifiers? (available : List SourceModifierDecl) :
+    List SourceModifierInvocation -> Stmt -> Option Stmt
+  | [], body => some body
+  | invocation :: rest, body => do
+      let inner ← functionExpandLeadingModifiers? available rest body
+      let modifierName ← pathLast? invocation.target
+      let modifierDecl ← modifierFindByName? available modifierName
+      modifierApplyLeadingSource? modifierDecl invocation inner
+
 def Ty.internalCallConversionCore? (targetTy : Ty) :
     Option (CoreExpr -> CoreExpr) :=
   match targetTy with
@@ -8375,6 +10773,187 @@ def Ty.internalCallConversionCore? (targetTy : Ty) :
       else
         none
   | _ => none
+
+def Expr.internalSingleReturnCallConversion? :
+    Expr -> Option (Name × List Arg × (CoreExpr -> CoreExpr))
+  | Expr.call (Expr.ident name) args => some (name, args, id)
+  | Expr.call (Expr.member (Expr.typeName (Ty.user path)) method) args => do
+      let libraryName ← pathLast? path
+      some ("__library_" ++ libraryName ++ "_" ++ method, args, id)
+  | Expr.call (Expr.typeName targetTy) [Arg.positional inner] => do
+      let (name, args, innerConvert) ←
+        Expr.internalSingleReturnCallConversion? inner
+      let convert ← Ty.internalCallConversionCore? targetTy
+      some (name, args, fun retExpr => convert (innerConvert retExpr))
+  | _ => none
+termination_by expr => sizeOf expr
+
+def Arg.internalSingleReturnCallExpr? : Arg -> Option Expr
+  | Arg.positional expr => do
+      let _ ← Expr.internalSingleReturnCallConversion? expr
+      some expr
+  | Arg.named _ expr => do
+      let _ ← Expr.internalSingleReturnCallConversion? expr
+      some expr
+
+def Args.replaceInternalSingleReturnCallExprArg? (fallbackPrefix : String) :
+    Nat -> List Arg -> Option (Expr × Name × List Arg)
+  | _, [] => none
+  | index, arg :: rest =>
+      let tempName := internalCallArgTempName fallbackPrefix index
+      match Arg.internalSingleReturnCallExpr? arg with
+      | some expr =>
+          some
+            ( expr
+            , tempName
+            , Arg.withExpr (Expr.ident tempName) arg :: rest )
+      | none => do
+          let (expr, foundTemp, rest') ←
+            Args.replaceInternalSingleReturnCallExprArg?
+              fallbackPrefix (index + 1) rest
+          some (expr, foundTemp, arg :: rest')
+
+def Expr.actualInternalSingleReturnCall?
+    (functions : List FunctionDecl) (env : TypeEnv) (expr : Expr) :
+    Option (Expr × Ty) := do
+  let (name, args, _) ← Expr.internalSingleReturnCallConversion? expr
+  let (callee, _) ← FunctionDecl.findInternalCalleeWithArgs?
+    functions env name args
+  match callee.returns with
+  | [ret] => some (expr, ret.ty)
+  | _ => none
+
+def Arg.actualInternalSingleReturnCall?
+    (functions : List FunctionDecl) (env : TypeEnv) :
+    Arg -> Option (Expr × Ty)
+  | Arg.positional expr => Expr.actualInternalSingleReturnCall?
+      functions env expr
+  | Arg.named _ expr => Expr.actualInternalSingleReturnCall?
+      functions env expr
+
+mutual
+
+def Expr.replaceAbiInternalSingleReturnCall?
+    (functions : List FunctionDecl) (env : TypeEnv)
+    (fallbackPrefix : String) :
+    Nat -> Expr -> Option (Expr × Name × Expr)
+  | index, Expr.call (Expr.member (Expr.ident "abi") member) args =>
+      if
+          member == "encode" || member == "encodePacked" ||
+            member == "encodeWithSelector" ||
+            member == "encodeWithSignature" then
+        match Args.replaceActualInternalSingleReturnCallArg?
+            functions env fallbackPrefix index args with
+        | some (callExpr, _, tmpName, replacedArgs) =>
+            some
+              ( callExpr
+              , tmpName
+              , Expr.call (Expr.member (Expr.ident "abi") member)
+                  replacedArgs )
+        | none => do
+            let (callExpr, tmpName, replacedArgs) ←
+              Args.replaceAbiInternalSingleReturnCall?
+                functions env fallbackPrefix index args
+            some
+              ( callExpr
+              , tmpName
+              , Expr.call (Expr.member (Expr.ident "abi") member)
+                  replacedArgs )
+      else
+        match Args.replaceAbiInternalSingleReturnCall?
+            functions env fallbackPrefix index args with
+        | some (callExpr, tmpName, replacedArgs) =>
+            some
+              ( callExpr
+              , tmpName
+              , Expr.call (Expr.member (Expr.ident "abi") member)
+                  replacedArgs )
+        | none => none
+  | index, Expr.call target args =>
+      match Expr.replaceAbiInternalSingleReturnCall?
+          functions env fallbackPrefix index target with
+      | some (callExpr, tmpName, replacedTarget) =>
+          some (callExpr, tmpName, Expr.call replacedTarget args)
+      | none => do
+          let (callExpr, tmpName, replacedArgs) ←
+            Args.replaceAbiInternalSingleReturnCall?
+              functions env fallbackPrefix index args
+          some (callExpr, tmpName, Expr.call target replacedArgs)
+  | index, Expr.callWithOptions target options args =>
+      match Expr.replaceAbiInternalSingleReturnCall?
+          functions env fallbackPrefix index target with
+      | some (callExpr, tmpName, replacedTarget) =>
+          some
+            (callExpr, tmpName,
+              Expr.callWithOptions replacedTarget options args)
+      | none => do
+          let (callExpr, tmpName, replacedArgs) ←
+            Args.replaceAbiInternalSingleReturnCall?
+              functions env fallbackPrefix index args
+          some
+            (callExpr, tmpName,
+              Expr.callWithOptions target options replacedArgs)
+  | _, _ => none
+termination_by _ expr => (sizeOf expr, 0, 0)
+
+def Arg.replaceAbiInternalSingleReturnCall?
+    (functions : List FunctionDecl) (env : TypeEnv)
+    (fallbackPrefix : String) (index : Nat) :
+    Arg -> Option (Expr × Name × Arg)
+  | Arg.positional expr => do
+      let (callExpr, tmpName, replacedExpr) ←
+        Expr.replaceAbiInternalSingleReturnCall?
+          functions env fallbackPrefix index expr
+      some (callExpr, tmpName, Arg.positional replacedExpr)
+  | Arg.named name expr => do
+      let (callExpr, tmpName, replacedExpr) ←
+        Expr.replaceAbiInternalSingleReturnCall?
+          functions env fallbackPrefix index expr
+      some (callExpr, tmpName, Arg.named name replacedExpr)
+termination_by arg => (sizeOf arg, 0, 1)
+
+def Args.replaceActualInternalSingleReturnCallArg?
+    (functions : List FunctionDecl) (env : TypeEnv)
+    (fallbackPrefix : String) :
+    Nat -> List Arg -> Option (Expr × Ty × Name × List Arg)
+  | _, [] => none
+  | index, arg :: rest =>
+      let tempName := internalCallArgTempName fallbackPrefix index
+      match Arg.actualInternalSingleReturnCall? functions env arg with
+      | some (expr, retTy) =>
+          let tempExpr :=
+            Expr.call (Expr.typeName retTy)
+              [Arg.positional (Expr.ident tempName)]
+          some
+            ( expr
+            , retTy
+            , tempName
+            , Arg.withExpr tempExpr arg :: rest )
+      | none => do
+          let (expr, retTy, foundTemp, rest') ←
+            Args.replaceActualInternalSingleReturnCallArg?
+              functions env fallbackPrefix (index + 1) rest
+          some (expr, retTy, foundTemp, arg :: rest')
+termination_by _ args => (sizeOf args, 0, 2)
+
+def Args.replaceAbiInternalSingleReturnCall?
+    (functions : List FunctionDecl) (env : TypeEnv)
+    (fallbackPrefix : String) :
+    Nat -> List Arg -> Option (Expr × Name × List Arg)
+  | _, [] => none
+  | index, arg :: rest =>
+      match Arg.replaceAbiInternalSingleReturnCall?
+          functions env fallbackPrefix index arg with
+      | some (expr, foundTemp, replacedArg) =>
+          some (expr, foundTemp, replacedArg :: rest)
+      | none => do
+          let (expr, foundTemp, rest') ←
+            Args.replaceAbiInternalSingleReturnCall?
+              functions env fallbackPrefix (index + 1) rest
+          some (expr, foundTemp, arg :: rest')
+termination_by _ args => (sizeOf args, 0, 3)
+
+end
 
 set_option maxHeartbeats 1000000 in
 mutual
@@ -8408,7 +10987,7 @@ def functionExpandModifiersToCoreWithInternalCalls?
           returnNames available functions freeFunctions returnTys rest body
       let modifierName ← pathLast? invocation.target
       let modifierDecl ← modifierFindByName? available modifierName
-      modifierApplyToCore? storageNames returnNames
+      modifierApplyToCoreWithEnv? storageRefEnv env storageNames returnNames
         modifierDecl invocation inner
 termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
 
@@ -8422,41 +11001,53 @@ def FunctionDecl.internalCallParts?
   match FunctionDecl.findInternalCalleeWithArgs?
       functions env name args with
   | some (callee, sourceArgs) => do
+      let returnPrefix := "_ret_" ++ name ++ "_"
+      let runtimeReturns :=
+        Parameters.withRuntimeNames returnPrefix callee.returns
+      let runtimeCallee :=
+        { callee with returns := runtimeReturns }
+      let runtimeAliasEnv :=
+        Parameters.runtimeAliasEnv returnPrefix callee.returns
       let (paramAliasEnv, paramDecls) ←
         Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-          storageRefEnv storageNames functions freeFunctions "_arg"
+          storageRefEnv storageNames env functions freeFunctions "_arg"
           callee.params sourceArgs
       let returnDecls ←
-        Parameters.toStorageAwareDefaultCoreDecls? "_ret" callee.returns
-      let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
-      let returnStorageRefs := Parameters.storageRefFlags callee.returns
+        Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
+      let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
+      let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
       let body ← callee.body
       let calleeEnv :=
-        FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
+        FunctionDecl.typeEnv env runtimeCallee
       let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv "_ret"
+        Parameters.extendStorageRefEnv returnPrefix
           (Parameters.extendStorageRefEnv "_arg" [] callee.params)
-          callee.returns
+          runtimeReturns
+      let body := Stmt.renameIdents runtimeAliasEnv body
       let body :=
         Stmt.inlineInternalFunctionAliasesFuel
           functions freeFunctions defaultInternalFunctionAliasFuel
           paramAliasEnv body
       let body :=
-        Stmt.rewriteStorageReturnAssignments "_ret" callee.returns body
+        Stmt.rewriteStorageReturnAssignments "_ret" runtimeReturns body
       let body := Stmt.annotateAbi calleeEnv body
+      let (calleeModifiers, body) :=
+        match functionExpandLeadingModifiers? modifiers callee.modifiers body with
+        | some body => ([], body)
+        | none => (callee.modifiers, body)
       let bodyCore ←
         match internalFuel with
         | 0 =>
             functionExpandModifiersToCoreWithStorageRefsOnly?
               calleeStorageRefEnv calleeEnv storageNames
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              modifiers callee.modifiers body
+              modifiers calleeModifiers body
         | fuel + 1 =>
             functionExpandModifiersToCoreWithInternalCalls?
               fuel calleeStorageRefEnv calleeEnv externalCallKindEnv storageNames
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
               modifiers functions freeFunctions
-              (callee.returns.map Parameter.ty) callee.modifiers body
+              (runtimeReturns.map Parameter.ty) calleeModifiers body
       let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
       let prefixCore := paramDecls ++ returnDecls
       some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
@@ -8464,41 +11055,54 @@ def FunctionDecl.internalCallParts?
       let (callee, sourceArgs) ←
         FunctionDecl.findInternalCalleeWithArgs?
           freeFunctions env name args
+      let returnPrefix := "_ret_" ++ name ++ "_"
+      let runtimeReturns :=
+        Parameters.withRuntimeNames returnPrefix callee.returns
+      let runtimeCallee :=
+        { callee with returns := runtimeReturns }
+      let runtimeAliasEnv :=
+        Parameters.runtimeAliasEnv returnPrefix callee.returns
       let (paramAliasEnv, paramDecls) ←
         Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-          storageRefEnv storageNames functions freeFunctions "_arg"
+          storageRefEnv storageNames env functions freeFunctions "_arg"
           callee.params sourceArgs
       let returnDecls ←
-        Parameters.toStorageAwareDefaultCoreDecls? "_ret" callee.returns
-      let returnBindings ← Parameters.toCoreBindings? "_ret" callee.returns
-      let returnStorageRefs := Parameters.storageRefFlags callee.returns
+        Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
+      let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
+      let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
       let body ← callee.body
       let calleeEnv :=
-        FunctionDecl.typeEnv (TypeEnv.externalCallKindEntries env) callee
+        FunctionDecl.typeEnv
+          (TypeEnv.externalCallKindEntries env) runtimeCallee
       let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv "_ret"
+        Parameters.extendStorageRefEnv returnPrefix
           (Parameters.extendStorageRefEnv "_arg" [] callee.params)
-          callee.returns
+          runtimeReturns
+      let body := Stmt.renameIdents runtimeAliasEnv body
       let body :=
         Stmt.inlineInternalFunctionAliasesFuel
           functions freeFunctions defaultInternalFunctionAliasFuel
           paramAliasEnv body
       let body :=
-        Stmt.rewriteStorageReturnAssignments "_ret" callee.returns body
+        Stmt.rewriteStorageReturnAssignments "_ret" runtimeReturns body
       let body := Stmt.annotateAbi calleeEnv body
+      let (calleeModifiers, body) :=
+        match functionExpandLeadingModifiers? [] callee.modifiers body with
+        | some body => ([], body)
+        | none => (callee.modifiers, body)
       let bodyCore ←
         match internalFuel with
         | 0 =>
             functionExpandModifiersToCoreWithStorageRefsOnly?
               calleeStorageRefEnv calleeEnv []
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              [] callee.modifiers body
+              [] calleeModifiers body
         | fuel + 1 =>
             functionExpandModifiersToCoreWithInternalCalls?
               fuel calleeStorageRefEnv calleeEnv externalCallKindEnv []
               (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
               [] [] freeFunctions
-              (callee.returns.map Parameter.ty) callee.modifiers body
+              (runtimeReturns.map Parameter.ty) calleeModifiers body
       let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
       let prefixCore := paramDecls ++ returnDecls
       some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
@@ -8511,14 +11115,16 @@ def FunctionDecl.internalStatementCallCore?
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
     Option CoreStmt := do
-  let (_, _, prefixCore, bodyCore) ←
+  let (returnBindings, _, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
       modifiers functions freeFunctions name args
+  let returnNames :=
+    returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
   some
     (SolidCore.Solidity.Source.Stmt.block
       (prefixCore ++
-        [SolidCore.Solidity.Source.Stmt.captureReturn [] bodyCore]))
+        [SolidCore.Solidity.Source.Stmt.captureReturn returnNames bodyCore]))
 termination_by (internalFuel, 0, 1)
 
 def FunctionDecl.internalSingleReturnCallCore?
@@ -8543,6 +11149,88 @@ def FunctionDecl.internalSingleReturnCallCore?
             , useResult (SolidCore.Solidity.Source.Expr.var retName) ]))
   | _ => none
 termination_by (internalFuel, 0, 1)
+
+def FunctionDecl.internalSingleReturnCallExprCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (expr : Expr)
+    (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
+  let (name, args, convert) ← Expr.internalSingleReturnCallConversion? expr
+  match internalFuel with
+  | fuel + 1 =>
+      match
+          Args.replaceInternalSingleReturnCallExprArg?
+            "_sol_internal_call_arg" 0 args with
+      | some (argExpr, argTmp, replacedArgs) => do
+          let argTy ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env argExpr
+          let argCoreTy ← Ty.toCore? argTy
+          let envWithArgTmp := (argTmp, argTy) :: env
+          let argCore ←
+            FunctionDecl.internalSingleReturnCallExprCore?
+              fuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions argExpr
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var argTmp)
+                  retExpr)
+          let outerCore ←
+            FunctionDecl.internalSingleReturnCallCore?
+              fuel storageRefEnv envWithArgTmp externalCallKindEnv storageNames
+              modifiers functions freeFunctions name replacedArgs
+              (fun retExpr => useResult (convert retExpr))
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy argTmp none
+              , argCore
+              , outerCore ])
+      | none =>
+          FunctionDecl.internalSingleReturnCallCore?
+            (fuel + 1) storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args
+            (fun retExpr => useResult (convert retExpr))
+  | 0 =>
+      FunctionDecl.internalSingleReturnCallCore?
+        0 storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions name args
+        (fun retExpr => useResult (convert retExpr))
+termination_by (internalFuel, 0, 3)
+
+def FunctionDecl.abiInternalSingleReturnUseCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (fallbackPrefix : String) (expr : Expr)
+    (useReplaced : Expr -> Option CoreStmt) : Option CoreStmt := do
+  let (callExpr, tmpName, replacedExpr) ←
+    Expr.replaceAbiInternalSingleReturnCall?
+      functions env fallbackPrefix 0 expr
+  let (name, args, _) ← Expr.internalSingleReturnCallConversion? callExpr
+  let (callee, _) ← FunctionDecl.findInternalCalleeWithArgs?
+    functions env name args
+  match callee.returns with
+  | [retParam] => do
+      let tmpTy ← Ty.toCore? retParam.ty
+      let callCore ←
+        FunctionDecl.internalSingleReturnCallExprCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions callExpr
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.assign
+              (SolidCore.Solidity.Source.LValue.var tmpName) retExpr)
+      let replacedCore ← useReplaced replacedExpr
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          [ SolidCore.Solidity.Source.Stmt.varDecl tmpTy tmpName none
+          , callCore
+          , replacedCore ])
+  | _ => none
+termination_by (internalFuel, sizeOf expr + 1, 4)
 
 def FunctionDecl.internalSingleStorageReturnRefCore?
     (internalFuel : Nat)
@@ -8652,6 +11340,93 @@ def FunctionDecl.internalAssignReturnCallCore?
     none
 termination_by (internalFuel, 0, 1)
 
+def FunctionDecl.internalTupleAssignReturnCallCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
+    (targets : List (Option CoreLValue)) : Option CoreStmt := do
+  let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  if returnStorageRefs.any id then
+    none
+  else
+    some ()
+  if targets.length == returnBindings.length then
+    let returnNames :=
+      returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+    some
+      (SolidCore.Solidity.Source.Stmt.block
+        (prefixCore ++
+          [ SolidCore.Solidity.Source.Stmt.captureReturn
+              returnNames bodyCore ] ++
+          CoreBindingDecls.assignToTargets targets returnBindings))
+  else
+    none
+termination_by (internalFuel, 0, 1)
+
+def FunctionDecl.internalTupleVarDeclAssignReturnCallCorePieces?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
+    (bindings : List VarBinding) : Option (List CoreStmt) := do
+  let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  if returnStorageRefs.any id then
+    none
+  else
+    some ()
+  if bindings.length == returnBindings.length then
+    some ()
+  else
+    none
+  let decls ← VarBindings.toCoreTupleDecls? bindings
+  let targets ← VarBindings.toCoreTupleTargets? bindings
+  let returnNames :=
+    returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+  some
+    (decls ++ prefixCore ++
+      [SolidCore.Solidity.Source.Stmt.captureReturn
+        returnNames bodyCore] ++
+      CoreBindingDecls.assignToTargets targets returnBindings)
+termination_by (internalFuel, 0, 1)
+
+def FunctionDecl.internalReturnCallCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
+    (returnTys : List Ty) : Option CoreStmt := do
+  let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  if returnStorageRefs.any id then
+    none
+  else
+    some ()
+  if returnTys.length == returnBindings.length then
+    let returnNames :=
+      returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+    some
+      (SolidCore.Solidity.Source.Stmt.block
+        (prefixCore ++
+          [ SolidCore.Solidity.Source.Stmt.captureReturn
+              returnNames bodyCore
+          , SolidCore.Solidity.Source.Stmt.returnValues
+              (returnNames.map SolidCore.Solidity.Source.Expr.var) ]))
+  else
+    none
+termination_by (internalFuel, 0, 1)
+
 def FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -8694,15 +11469,38 @@ def FunctionDecl.internalUnarySingleReturnUseCore?
     (functions freeFunctions : List FunctionDecl)
     (op : UnaryOp) (expr : Expr) (useResult : CoreExpr -> CoreStmt) :
     Option CoreStmt :=
-  match expr with
-  | Expr.call (Expr.ident name) args => do
+  match Expr.internalSingleReturnCallConversion? expr with
+  | some (name, args, convert) => do
       let coreOp ← UnaryOp.toCore? op
       FunctionDecl.internalSingleReturnCallCore?
         internalFuel storageRefEnv env externalCallKindEnv storageNames
         modifiers functions freeFunctions name args
         (fun retExpr =>
           useResult
-            (SolidCore.Solidity.Source.Expr.unary coreOp retExpr))
+            (SolidCore.Solidity.Source.Expr.unary coreOp
+              (convert retExpr)))
+  | none =>
+      match expr with
+  | expr@(Expr.call (Expr.member _ _) _) =>
+      match op with
+      | UnaryOp.logicalNot => do
+          let coreOp ← UnaryOp.toCore? op
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv Ty.bool expr
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.unary coreOp retExpr))
+      | _ => none
+  | expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
+      match op with
+      | UnaryOp.logicalNot => do
+          let coreOp ← UnaryOp.toCore? op
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv Ty.bool expr
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.unary coreOp retExpr))
+      | _ => none
   | _ => none
 termination_by (internalFuel, 0, 2)
 
@@ -8714,14 +11512,71 @@ def FunctionDecl.internalTypeConversionSingleReturnUseCore?
     (functions freeFunctions : List FunctionDecl)
     (targetTy : Ty) (expr : Expr) (useResult : CoreExpr -> CoreStmt) :
     Option CoreStmt :=
-  match expr with
-  | Expr.call (Expr.ident name) args => do
+  match Expr.internalSingleReturnCallConversion? expr with
+  | some (name, args, innerConvert) => do
       let convert ← Ty.internalCallConversionCore? targetTy
-      FunctionDecl.internalSingleReturnCallCore?
-        internalFuel storageRefEnv env externalCallKindEnv storageNames
-        modifiers functions freeFunctions name args
-        (fun retExpr => useResult (convert retExpr))
-  | _ => none
+      match internalFuel with
+      | fuel + 1 =>
+          match
+              Args.replaceInternalSingleReturnCallExprArg?
+                "_sol_internal_call_arg" 0 args with
+          | some (argExpr, argTmp, replacedArgs) =>
+              match
+                  Expr.abiTyWithInternalFunctionsEnv?
+                    functions freeFunctions env argExpr with
+              | some argTy => do
+                  let argCoreTy ← Ty.toCore? argTy
+                  let envWithArgTmp := (argTmp, argTy) :: env
+                  let argCore ←
+                    FunctionDecl.internalSingleReturnCallExprCore?
+                      fuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions argExpr
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var argTmp)
+                          retExpr)
+                  let outerCore ←
+                    FunctionDecl.internalSingleReturnCallCore?
+                      fuel storageRefEnv envWithArgTmp externalCallKindEnv
+                      storageNames modifiers functions freeFunctions name
+                      replacedArgs
+                      (fun retExpr =>
+                        useResult (convert (innerConvert retExpr)))
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          argCoreTy argTmp none
+                      , argCore
+                      , outerCore ])
+              | none =>
+                  FunctionDecl.internalSingleReturnCallCore?
+                    (fuel + 1) storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions name args
+                    (fun retExpr =>
+                      useResult (convert (innerConvert retExpr)))
+          | none =>
+              FunctionDecl.internalSingleReturnCallCore?
+                (fuel + 1) storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions name args
+                (fun retExpr => useResult (convert (innerConvert retExpr)))
+      | 0 =>
+          FunctionDecl.internalSingleReturnCallCore?
+            0 storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args
+            (fun retExpr => useResult (convert (innerConvert retExpr)))
+  | none =>
+      match expr with
+      | expr@(Expr.call (Expr.member _ _) _)
+      | expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv targetTy expr useResult
+      | expr@(Expr.call (Expr.ident _) _)
+      | expr@(Expr.callWithOptions (Expr.ident _) _ _) =>
+          Expr.externalFunctionValueCallSingleReturnCore?
+            storageNames env expr
+            (fun resultExpr =>
+              useResult (Ty.implicitCleanupCore targetTy resultExpr))
+      | _ => none
 termination_by (internalFuel, 0, 2)
 
 def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
@@ -8754,7 +11609,7 @@ def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
     (functions freeFunctions : List FunctionDecl)
     (cond thenExpr elseExpr : Expr)
     (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
-  let condCore ← Expr.toCore? storageNames cond
+  let condCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
   match thenExpr, elseExpr with
   | Expr.call (Expr.ident thenName) thenArgs,
     Expr.call (Expr.ident elseName) elseArgs => do
@@ -8794,6 +11649,89 @@ def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
   | _, _ => none
 termination_by (internalFuel, 0, 2)
 
+def FunctionDecl.internalExprSingleReturnUseCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (expr : Expr) (useResult : CoreExpr -> CoreStmt) : Option CoreStmt :=
+  match expr with
+  | Expr.call (Expr.ident name) args =>
+      FunctionDecl.internalSingleReturnCallExprCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions
+        (Expr.call (Expr.ident name) args) useResult
+  | Expr.unary op inner =>
+      FunctionDecl.internalUnarySingleReturnUseCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions op inner useResult
+  | Expr.call (Expr.typeName targetTy) [Arg.positional inner] =>
+      match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions targetTy inner useResult with
+      | some coreStmt => some coreStmt
+      | none =>
+          match inner, internalFuel with
+          | Expr.binary op lhs rhs, fuel + 1 => do
+              let convert ← Ty.internalCallConversionCore? targetTy
+              FunctionDecl.internalBinarySingleReturnUseCore?
+                fuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions op lhs rhs
+                (fun resultExpr => useResult (convert resultExpr))
+          | _, _ => none
+  | Expr.slice base (some startExpr) none => do
+      let baseCore ← Expr.toCore? storageNames base
+      FunctionDecl.internalExprSingleReturnUseCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions startExpr
+        (fun startCore =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.slice
+              baseCore (some startCore) none))
+  | Expr.slice base none (some stopExpr) => do
+      let baseCore ← Expr.toCore? storageNames base
+      FunctionDecl.internalExprSingleReturnUseCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions stopExpr
+        (fun stopCore =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.slice
+              baseCore none (some stopCore)))
+  | Expr.member base "length" =>
+      match
+          Expr.abiTyWithInternalFunctionsEnv?
+            functions freeFunctions env base with
+      | some ty =>
+          match Ty.fixedBytesSize? ty with
+          | some size =>
+              some (useResult (SolidCore.Solidity.Source.Expr.word size))
+          | none =>
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions base
+                (fun baseCore =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.length baseCore))
+      | none => none
+  | Expr.ternary cond thenExpr elseExpr =>
+      match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions cond thenExpr elseExpr
+          useResult with
+      | some coreStmt => some coreStmt
+      | none =>
+          FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions cond thenExpr elseExpr
+            useResult
+  | Expr.binary op lhs rhs =>
+      FunctionDecl.internalBinarySingleReturnUseCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions op lhs rhs useResult
+  | _ => none
+termination_by (internalFuel, sizeOf expr, 5)
+
 def FunctionDecl.internalBinarySingleReturnUseCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -8802,9 +11740,11 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
     (functions freeFunctions : List FunctionDecl)
     (op : BinaryOp) (lhs rhs : Expr) (useResult : CoreExpr -> CoreStmt) :
     Option CoreStmt :=
-  match lhs, rhs with
-  | Expr.call (Expr.ident firstName) firstArgs,
-    Expr.call (Expr.ident secondName) secondArgs => do
+  let lhsCall? := Expr.internalSingleReturnCallConversion? lhs
+  let rhsCall? := Expr.internalSingleReturnCallConversion? rhs
+  match lhsCall?, rhsCall? with
+  | some (firstName, firstArgs, firstConvert),
+    some (secondName, secondArgs, secondConvert) => do
       let coreOp ← BinaryOp.toCore? op
       let lhsTmp := "_sol_bin_lhs"
       match op with
@@ -8818,7 +11758,7 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                 useResult
                   (SolidCore.Solidity.Source.Expr.binary coreOp
                     (SolidCore.Solidity.Source.Expr.var lhsTmp)
-                    retExpr))
+                    (secondConvert retExpr)))
           let skipCore :=
             match op with
             | BinaryOp.boolAnd =>
@@ -8841,30 +11781,61 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
             (fun retExpr =>
               SolidCore.Solidity.Source.Stmt.block
                 [ SolidCore.Solidity.Source.Stmt.varDecl
-                    SolidCore.Solidity.Source.Ty.bool lhsTmp (some retExpr)
+                    SolidCore.Solidity.Source.Ty.bool lhsTmp
+                    (some (firstConvert retExpr))
                 , branchCore ])
       | _ =>
-          match FunctionDecl.internalTwoSingleReturnCallsCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions firstName firstArgs
-              secondName secondArgs lhsTmp
-              (fun firstExpr secondExpr =>
-                useResult
-                  (SolidCore.Solidity.Source.Expr.binary
-                    coreOp firstExpr secondExpr)) with
-          | some coreStmt => some coreStmt
-          | none => do
-              let rhsCore ←
-                Expr.toCore? storageNames
-                  (Expr.call (Expr.ident secondName) secondArgs)
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env lhs with
+          | some lhsTy =>
+              let lhsCoreTy ← Ty.toCore? lhsTy
+              let rhsCallCore ←
+                FunctionDecl.internalSingleReturnCallCore?
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions
+                  secondName secondArgs
+                  (fun retExpr =>
+                    useResult
+                      (SolidCore.Solidity.Source.Expr.binary coreOp
+                        (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                        (secondConvert retExpr)))
               FunctionDecl.internalSingleReturnCallCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
                 modifiers functions freeFunctions firstName firstArgs
                 (fun retExpr =>
-                  useResult
-                    (SolidCore.Solidity.Source.Expr.binary
-                      coreOp retExpr rhsCore))
-  | Expr.call (Expr.ident name) args, rhs => do
+                  SolidCore.Solidity.Source.Stmt.block
+                    [ SolidCore.Solidity.Source.Stmt.varDecl
+                        lhsCoreTy lhsTmp (some (firstConvert retExpr))
+                    , rhsCallCore ])
+          | none =>
+              match lhs, rhs with
+              | Expr.call (Expr.ident rawFirstName) rawFirstArgs,
+                Expr.call (Expr.ident rawSecondName) rawSecondArgs =>
+                  match FunctionDecl.internalTwoSingleReturnCallsCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions
+                      rawFirstName rawFirstArgs rawSecondName rawSecondArgs
+                      lhsTmp
+                      (fun firstExpr secondExpr =>
+                        useResult
+                          (SolidCore.Solidity.Source.Expr.binary
+                            coreOp firstExpr secondExpr)) with
+                  | some coreStmt => some coreStmt
+                  | none => do
+                      let rhsCore ←
+                        Expr.toCore? storageNames
+                          (Expr.call (Expr.ident rawSecondName) rawSecondArgs)
+                      FunctionDecl.internalSingleReturnCallCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions
+                        rawFirstName rawFirstArgs
+                        (fun retExpr =>
+                          useResult
+                            (SolidCore.Solidity.Source.Expr.binary
+                              coreOp retExpr rhsCore))
+              | _, _ => none
+  | some (name, args, convert), none => do
       let coreOp ← BinaryOp.toCore? op
       let rhsCore ← Expr.toCore? storageNames rhs
       FunctionDecl.internalSingleReturnCallCore?
@@ -8873,64 +11844,372 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
         (fun retExpr =>
           useResult
             (SolidCore.Solidity.Source.Expr.binary
-              coreOp retExpr rhsCore))
-  | lhs, Expr.call (Expr.ident name) args => do
+              coreOp (convert retExpr) rhsCore))
+  | none, some _ => do
       let coreOp ← BinaryOp.toCore? op
-      let lhsCore ← Expr.toCore? storageNames lhs
-      let lhsTy ← Expr.abiTyWithEnv? env lhs
+      let lhsTy ←
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env lhs
       let lhsCoreTy ← Ty.toCore? lhsTy
       let lhsTmp := "_sol_bin_lhs"
-      match op with
-      | BinaryOp.boolAnd
-      | BinaryOp.boolOr => do
-          let callCore ←
-            FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                useResult
-                  (SolidCore.Solidity.Source.Expr.binary coreOp
+      let rhsCallCore ←
+        FunctionDecl.internalSingleReturnCallExprCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions rhs
+          (fun retExpr =>
+            useResult
+              (SolidCore.Solidity.Source.Expr.binary coreOp
+                (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                retExpr))
+      let lhsThen (lhsCore : CoreExpr) : CoreStmt :=
+        match op with
+        | BinaryOp.boolAnd
+        | BinaryOp.boolOr =>
+            let skipCore :=
+              match op with
+              | BinaryOp.boolAnd =>
+                  useResult (SolidCore.Solidity.Source.Expr.word 0)
+              | _ =>
+                  useResult (SolidCore.Solidity.Source.Expr.word 1)
+            let branchCore :=
+              match op with
+              | BinaryOp.boolAnd =>
+                  SolidCore.Solidity.Source.Stmt.ifElse
                     (SolidCore.Solidity.Source.Expr.var lhsTmp)
-                    retExpr))
-          let skipCore :=
-            match op with
-            | BinaryOp.boolAnd =>
-                useResult (SolidCore.Solidity.Source.Expr.word 0)
-            | _ =>
-                useResult (SolidCore.Solidity.Source.Expr.word 1)
-          let branchCore :=
-            match op with
-            | BinaryOp.boolAnd =>
-                SolidCore.Solidity.Source.Stmt.ifElse
-                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
-                  callCore skipCore
-            | _ =>
-                SolidCore.Solidity.Source.Stmt.ifElse
-                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
-                  skipCore callCore
-          some
-            (SolidCore.Solidity.Source.Stmt.block
+                    rhsCallCore skipCore
+              | _ =>
+                  SolidCore.Solidity.Source.Stmt.ifElse
+                    (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                    skipCore rhsCallCore
+            SolidCore.Solidity.Source.Stmt.block
               [ SolidCore.Solidity.Source.Stmt.varDecl
                   lhsCoreTy lhsTmp (some lhsCore)
-              , branchCore ])
-      | _ =>
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                useResult
-                  (SolidCore.Solidity.Source.Expr.binary coreOp
-                    (SolidCore.Solidity.Source.Expr.var lhsTmp)
-                    retExpr)) with
-          | some coreStmt =>
-              some
-                (SolidCore.Solidity.Source.Stmt.block
+              , branchCore ]
+        | _ =>
+            SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl
+                  lhsCoreTy lhsTmp (some lhsCore)
+              , rhsCallCore ]
+      match Expr.toCore? storageNames lhs with
+      | some lhsCore => some (lhsThen lhsCore)
+      | none =>
+          FunctionDecl.internalExprSingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions lhs lhsThen
+  | none, none => do
+      let coreOp ← BinaryOp.toCore? op
+      let lhsTy ←
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env lhs
+      let lhsCoreTy ← Ty.toCore? lhsTy
+      let lhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_lhs"
+      match
+          FunctionDecl.internalExprSingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions rhs
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.binary coreOp
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  retExpr)) with
+      | some rhsCallCore =>
+          let lhsThen (lhsCore : CoreExpr) : CoreStmt :=
+            match op with
+            | BinaryOp.boolAnd
+            | BinaryOp.boolOr =>
+            let skipCore :=
+              match op with
+              | BinaryOp.boolAnd =>
+                  useResult (SolidCore.Solidity.Source.Expr.word 0)
+              | _ =>
+                  useResult (SolidCore.Solidity.Source.Expr.word 1)
+              let branchCore :=
+                match op with
+                | BinaryOp.boolAnd =>
+                    SolidCore.Solidity.Source.Stmt.ifElse
+                      (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                      rhsCallCore skipCore
+                | _ =>
+                    SolidCore.Solidity.Source.Stmt.ifElse
+                      (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                      skipCore rhsCallCore
+              SolidCore.Solidity.Source.Stmt.block
+                [ SolidCore.Solidity.Source.Stmt.varDecl
+                    lhsCoreTy lhsTmp (some lhsCore)
+                , branchCore ]
+            | _ =>
+                SolidCore.Solidity.Source.Stmt.block
                   [ SolidCore.Solidity.Source.Stmt.varDecl
                       lhsCoreTy lhsTmp (some lhsCore)
-                  , coreStmt ])
-          | none => none
-  | _, _ => none
-termination_by (internalFuel, 0, 2)
+                  , rhsCallCore ]
+          match Expr.toCore? storageNames lhs with
+          | some lhsCore => some (lhsThen lhsCore)
+          | none =>
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions lhs lhsThen
+      | none =>
+          match Expr.toCore? storageNames lhs with
+          | some _ => none
+          | none => do
+              let rhsCore ← Expr.toCore? storageNames rhs
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions lhs
+                (fun lhsCore =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore))
+termination_by (internalFuel, sizeOf (Expr.binary op lhs rhs), 4)
+
+def FunctionDecl.conditionUseCoreWithInternalCalls?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (cond : Expr) (useCond : CoreExpr -> CoreStmt) :
+    Option CoreStmt :=
+  match cond with
+  | Expr.call (Expr.typeName targetTy) [Arg.positional inner] =>
+      match
+          FunctionDecl.internalTypeConversionSingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions targetTy inner useCond with
+      | some coreStmt => some coreStmt
+      | none => do
+          let condCore ← Expr.toCore? storageNames cond
+          some (useCond condCore)
+  | Expr.binary op lhs rhs =>
+      match
+          FunctionDecl.internalBinarySingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions op lhs rhs useCond with
+      | some coreStmt => some coreStmt
+      | none => do
+          match Expr.binaryToCoreWithEnv? storageNames env op lhs rhs with
+          | some condCore => some (useCond condCore)
+          | none => do
+              let condCore ← Expr.toCore? storageNames cond
+              some (useCond condCore)
+  | Expr.call (Expr.ident name) args =>
+      match
+          FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args useCond with
+      | some coreStmt => some coreStmt
+      | none => do
+          let condCore ← Expr.toCore? storageNames cond
+          some (useCond condCore)
+  | Expr.call (Expr.member _ _) _ =>
+      match
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv Ty.bool cond useCond with
+      | some coreStmt => some coreStmt
+      | none => do
+          let condCore ← Expr.toCore? storageNames cond
+          some (useCond condCore)
+  | Expr.callWithOptions (Expr.member _ _) _ _ =>
+      match
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv Ty.bool cond useCond with
+      | some coreStmt => some coreStmt
+      | none => do
+          let condCore ← Expr.toCore? storageNames cond
+          some (useCond condCore)
+  | Expr.unary op inner =>
+      match
+          FunctionDecl.internalUnarySingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions op inner useCond with
+      | some coreStmt => some coreStmt
+      | none => do
+          let condCore ← Expr.toCore? storageNames cond
+          some (useCond condCore)
+  | _ => do
+      let condCore ← Expr.toCore? storageNames cond
+      some (useCond condCore)
+termination_by (internalFuel, sizeOf cond, 6)
+
+def assignmentCoreWithEnv? (storageNames : List Name)
+    (env : TypeEnv) (lhs rhs : Expr) : Option CoreStmt := do
+  let lhsCore ← Expr.toCoreLValue? storageNames lhs
+  let targetTy ← Expr.abiTyWithEnv? env lhs
+  let rhsCore ← Expr.toCoreAsWithEnv? storageNames env targetTy rhs
+  some
+    (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
+
+def varDeclCoreWithEnv? (storageNames : List Name)
+    (env : TypeEnv) (binding : VarBinding) (expr : Expr) :
+    Option CoreStmt := do
+  match binding.name, binding.ty, binding.location with
+  | some _, some _, some DataLocation.storage =>
+      Stmt.toCore? storageNames (Stmt.varDecl [binding] (some expr))
+  | some name, some ty, _ => do
+      let coreTy ← Ty.toCore? ty
+      let initCore ← Expr.toCoreAsWithEnv? storageNames env ty expr
+      if binding.location == some DataLocation.memory then
+        some
+          (SolidCore.Solidity.Source.Stmt.memoryVarDecl
+            coreTy name (some initCore))
+      else
+        some
+          (SolidCore.Solidity.Source.Stmt.varDecl
+            coreTy name (some initCore))
+  | _, _, _ => none
+
+def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (fallbackPrefix : String) :
+    Nat -> List Ty -> List TupleItem -> (List CoreExpr -> CoreStmt) ->
+      Option CoreStmt
+  | _, [], [], useItems => some (useItems [])
+  | index, targetTy :: targetTys, TupleItem.value expr :: rest, useItems => do
+      let tmp := internalCallArgTempName fallbackPrefix index
+      let tmpTy ← Ty.toCore? targetTy
+      let assignCore ←
+        match Expr.toCoreAsWithEnv? storageNames env targetTy expr with
+        | some coreExpr =>
+            some
+              (SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var tmp)
+                coreExpr)
+        | none =>
+            FunctionDecl.internalExprSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions expr
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var tmp)
+                  (Ty.implicitCleanupCore targetTy resultExpr))
+      let restCore ←
+        FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions fallbackPrefix
+          (index + 1) targetTys rest
+          (fun coreExprs =>
+            useItems
+              (SolidCore.Solidity.Source.Expr.var tmp :: coreExprs))
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          [ SolidCore.Solidity.Source.Stmt.varDecl tmpTy tmp none
+          , assignCore
+          , restCore ])
+  | _, _, _, _ => none
+termination_by _ _ items _ =>
+  (internalFuel, sizeOf (Expr.tuple items), 5)
+
+def FunctionDecl.tupleReturnValuesCoreWithInternalCalls?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (returnTys : List Ty) (items : List TupleItem) : Option CoreStmt :=
+  match returnTys with
+  | [Ty.tuple tupleTys] =>
+      FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions "_sol_return_tuple_item"
+        0 tupleTys items
+        (fun coreExprs =>
+          SolidCore.Solidity.Source.Stmt.returnValues
+            [SolidCore.Solidity.Source.Expr.tuple coreExprs])
+  | [Ty.struct _ tupleTys] =>
+      FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions "_sol_return_struct_item"
+        0 tupleTys items
+        (fun coreExprs =>
+          SolidCore.Solidity.Source.Stmt.returnValues
+            [SolidCore.Solidity.Source.Expr.tuple coreExprs])
+  | _ :: _ :: _ =>
+      match TupleItems.toCoreExprsAsWithEnv? storageNames env returnTys items with
+      | some coreExprs =>
+          some (SolidCore.Solidity.Source.Stmt.returnValues coreExprs)
+      | none =>
+          FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions "_sol_return_item"
+            0 returnTys items
+            (fun coreExprs =>
+              SolidCore.Solidity.Source.Stmt.returnValues coreExprs)
+  | _ => none
+termination_by (internalFuel, sizeOf (Expr.tuple items) + 1, 5)
+
+def returnValuesCoreWithReturnTys? (storageNames : List Name)
+    (env : TypeEnv) (returnTys : List Ty) (expr : Expr) : Option CoreStmt :=
+  match returnTys, expr with
+  | [returnTy], _ => do
+      match Expr.toCoreAsWithEnv? storageNames env returnTy expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
+      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | _ :: _ :: _, Expr.tuple items => do
+      let coreExprs ←
+        TupleItems.toCoreExprsAsWithEnv? storageNames env returnTys items
+      some (SolidCore.Solidity.Source.Stmt.returnValues coreExprs)
+  | _, _ => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+
+def Expr.isLowLevelCallExpr : Expr -> Bool
+  | Expr.call (Expr.member _ "call") [Arg.positional _] => true
+  | Expr.callWithOptions (Expr.member _ "call") _ [Arg.positional _] => true
+  | Expr.call (Expr.member _ "staticcall") [Arg.positional _] => true
+  | Expr.callWithOptions (Expr.member _ "staticcall") _ [Arg.positional _] =>
+      true
+  | Expr.call (Expr.member _ "delegatecall") [Arg.positional _] => true
+  | Expr.callWithOptions (Expr.member _ "delegatecall") _ [Arg.positional _] =>
+      true
+  | _ => false
+
+def Expr.lowLevelTupleReturnCore? (storageNames : List Name)
+    (returnTys : List Ty) (expr : Expr) : Option CoreStmt := do
+  if returnTys == [Ty.bool, Ty.bytes] && Expr.isLowLevelCallExpr expr then
+    let returnTy ← Ty.toCore? lowLevelCallReturnTy
+    let coreExpr ← Expr.toCore? storageNames expr
+    let resultName := "__solidcore_low_level_return"
+    some
+      (SolidCore.Solidity.Source.Stmt.block
+        [ SolidCore.Solidity.Source.Stmt.varDecl
+            returnTy resultName (some coreExpr)
+        , SolidCore.Solidity.Source.Stmt.returnValues
+            [ SolidCore.Solidity.Source.Expr.index
+                (SolidCore.Solidity.Source.Expr.var resultName)
+                (SolidCore.Solidity.Source.Expr.word 0)
+            , SolidCore.Solidity.Source.Expr.index
+                (SolidCore.Solidity.Source.Expr.var resultName)
+                (SolidCore.Solidity.Source.Expr.word 1) ] ])
+  else
+    none
+
+def VarBindings.lowLevelTupleReturnCompatible :
+    List VarBinding -> Bool
+  | [ { ty := some Ty.bool, .. }, { ty := some Ty.bytes, .. } ] => true
+  | [ { ty := some Ty.bool, .. }, { name := none, ty := none, .. } ] => true
+  | _ => false
+
+def Expr.lowLevelTupleVarDeclCorePieces? (storageNames : List Name)
+    (bindings : List VarBinding) (expr : Expr) :
+    Option (List CoreStmt) := do
+  if VarBindings.lowLevelTupleReturnCompatible bindings &&
+      Expr.isLowLevelCallExpr expr then
+    some ()
+  else
+    none
+  let decls ← VarBindings.toCoreTupleDecls? bindings
+  let targets ← VarBindings.toCoreTupleTargets? bindings
+  let returnTy ← Ty.toCore? lowLevelCallReturnTy
+  let coreExpr ← Expr.toCore? storageNames expr
+  let resultName := "__solidcore_low_level_return"
+  some
+    (decls ++
+      [ SolidCore.Solidity.Source.Stmt.varDecl
+          returnTy resultName (some coreExpr)
+      , SolidCore.Solidity.Source.Stmt.assignTuple
+          targets (SolidCore.Solidity.Source.Expr.var resultName) ])
 
 def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
@@ -8946,6 +12225,27 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions returnTys body
       some (SolidCore.Solidity.Source.Stmt.block coreBody)
+  | Stmt.expr expr@(Expr.unary UnaryOp.preIncrement _)
+  | Stmt.expr expr@(Expr.unary UnaryOp.preDecrement _)
+  | Stmt.expr expr@(Expr.unary UnaryOp.postIncrement _)
+  | Stmt.expr expr@(Expr.unary UnaryOp.postDecrement _) =>
+      match Expr.toCoreIncDecWithEnv? storageNames env expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+      | none => Stmt.toCore? storageNames (Stmt.expr expr)
+  | Stmt.expr
+      (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
+        (Expr.call (Expr.ident name) args)) => do
+      let fallback :=
+        Stmt.expr
+          (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
+            (Expr.call (Expr.ident name) args))
+      let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+      match FunctionDecl.internalTupleAssignReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args targets with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
       (Expr.call
         (Expr.member (Expr.call (Expr.ident name) args) "push")
@@ -9040,15 +12340,15 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             storageNames env externalCallKindEnv expr
   | Stmt.expr
       (Expr.assign
-        (Expr.call (Expr.member (Expr.ident name) "push") [])
+        (Expr.call (Expr.member target "push") [])
         AssignOp.assign rhs) =>
       match Expr.storageRefArrayPushAssignStmtCore?
-          storageRefEnv env storageNames name rhs with
+          storageRefEnv env storageNames target rhs with
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames
           (Stmt.expr
             (Expr.assign
-              (Expr.call (Expr.member (Expr.ident name) "push") [])
+              (Expr.call (Expr.member target "push") [])
               AssignOp.assign rhs))
   | Stmt.expr
       (Expr.call (Expr.ident "assert")
@@ -9092,6 +12392,24 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Expr.call (Expr.ident "require")
               [ Arg.positional (Expr.call (Expr.ident name) args)
               , Arg.positional (Expr.literal (Literal.string reason)) ]))
+  | Stmt.expr
+      (Expr.call (Expr.ident "require")
+        [Arg.positional cond]) =>
+      FunctionDecl.conditionUseCoreWithInternalCalls?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions cond
+        (fun condCore =>
+          SolidCore.Solidity.Source.Stmt.requireStmt condCore none)
+  | Stmt.expr
+      (Expr.call (Expr.ident "require")
+        [ Arg.positional cond
+        , Arg.positional (Expr.literal (Literal.string reason)) ]) =>
+      FunctionDecl.conditionUseCoreWithInternalCalls?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions cond
+        (fun condCore =>
+          SolidCore.Solidity.Source.Stmt.requireStmt
+            condCore (some reason))
   | Stmt.expr
       (Expr.call (Expr.ident "require")
         [ Arg.positional (Expr.call (Expr.ident name) args)
@@ -9228,16 +12546,88 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Expr.call (Expr.ident "require")
                 [ Arg.positional cond
                 , Arg.positional (Expr.call (Expr.ident name) args) ]))
+  | Stmt.expr
+      (Expr.call (Expr.ident name)
+        [ Arg.positional first
+        , Arg.positional (Expr.call (Expr.ident argName) argArgs) ]) => do
+      let (argCallee, _) ←
+        FunctionDecl.findInternalCalleeWithArgs?
+          functions env argName argArgs
+      match argCallee.returns with
+      | [retParam] => do
+          let argCoreTy ← Ty.toCore? retParam.ty
+          let argTmp := "_sol_call_arg1"
+          let argCore ←
+            FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions argName argArgs
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var argTmp) retExpr)
+          let callCore ←
+            FunctionDecl.internalStatementCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name
+              [Arg.positional first, Arg.positional (Expr.ident argTmp)]
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy argTmp none
+              , argCore
+              , callCore ])
+      | _ => none
   | Stmt.expr expr@(Expr.call (Expr.ident name) args) =>
-      match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
+      let fallback? :=
+        match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
+        | some coreStmt => some coreStmt
+        | none =>
+            match FunctionDecl.internalStatementCallCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions name args with
+            | some coreStmt => some coreStmt
+            | none => Stmt.toCore? storageNames
+                (Stmt.expr (Expr.call (Expr.ident name) args))
+      match Args.replaceDirectInternalCallArg? "_sol_call_arg" 0 args with
+      | some (argName, argArgs, argTmp, replacedArgs) =>
+          match FunctionDecl.findInternalCalleeWithArgs?
+              functions env argName argArgs with
+          | some (argCallee, _) =>
+              match argCallee.returns with
+              | [retParam] => do
+                  let argCoreTy ← Ty.toCore? retParam.ty
+                  let argCore ←
+                    FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions
+                      argName argArgs
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var argTmp)
+                          retExpr)
+                  let callCore ←
+                    FunctionDecl.internalStatementCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions
+                      name replacedArgs
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          argCoreTy argTmp none
+                      , argCore
+                      , callCore ])
+              | _ => fallback?
+          | none => fallback?
+      | none => fallback?
+  | Stmt.expr
+      (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) =>
+      match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions targetTy inner
+          (fun _ => SolidCore.Solidity.Source.Stmt.skip) with
       | some coreStmt => some coreStmt
       | none =>
-          match FunctionDecl.internalStatementCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args with
-          | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames
-              (Stmt.expr (Expr.call (Expr.ident name) args))
+          Stmt.toCore? storageNames
+            (Stmt.expr
+              (Expr.call (Expr.typeName targetTy) [Arg.positional inner]))
   | Stmt.expr expr@(Expr.callWithOptions (Expr.ident _) _ _) =>
       match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
       | some coreStmt => some coreStmt
@@ -9288,22 +12678,33 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       expr@(Expr.call (Expr.ident name) args)) =>
       match Expr.toCoreLValue? storageNames lhs with
       | some lhsCore =>
+          let lhsTy? := Expr.abiTyWithEnv? env lhs
           match Expr.externalFunctionValueCallSingleReturnCore?
               storageNames env expr
               (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
+                SolidCore.Solidity.Source.Stmt.assign lhsCore
+                  (match lhsTy? with
+                  | some lhsTy => Ty.implicitCleanupCore lhsTy retExpr
+                  | none => retExpr)) with
           | some coreStmt => some coreStmt
           | none =>
               match FunctionDecl.internalSingleReturnCallCore?
                   internalFuel storageRefEnv env externalCallKindEnv
                   storageNames modifiers functions freeFunctions name args
                   (fun retExpr =>
-                    SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
+                    SolidCore.Solidity.Source.Stmt.assign lhsCore
+                      (match lhsTy? with
+                      | some lhsTy => Ty.implicitCleanupCore lhsTy retExpr
+                      | none => retExpr)) with
               | some coreStmt => some coreStmt
-              | none => Stmt.toCore? storageNames
-                  (Stmt.expr
-                    (Expr.assign lhs AssignOp.assign
-                      (Expr.call (Expr.ident name) args)))
+              | none =>
+                  match assignmentCoreWithEnv? storageNames env lhs
+                      (Expr.call (Expr.ident name) args) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames
+                      (Stmt.expr
+                        (Expr.assign lhs AssignOp.assign
+                          (Expr.call (Expr.ident name) args)))
       | none => Stmt.toCore? storageNames
           (Stmt.expr
             (Expr.assign lhs AssignOp.assign
@@ -9312,13 +12713,20 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
       match Expr.toCoreLValue? storageNames lhs with
       | some lhsCore =>
+          let lhsTy? := Expr.abiTyWithEnv? env lhs
           match Expr.externalFunctionValueCallSingleReturnCore?
               storageNames env expr
               (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
+                SolidCore.Solidity.Source.Stmt.assign lhsCore
+                  (match lhsTy? with
+                  | some lhsTy => Ty.implicitCleanupCore lhsTy retExpr
+                  | none => retExpr)) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames
-              (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+          | none =>
+              match assignmentCoreWithEnv? storageNames env lhs expr with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames
+                  (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | none => Stmt.toCore? storageNames
           (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
   | Stmt.expr (Expr.assign lhs AssignOp.assign
@@ -9356,22 +12764,89 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Expr.ternary cond thenExpr elseExpr))
       match Expr.toCoreLValue? storageNames target with
       | some targetCore =>
-          match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+          let targetTy? := Expr.abiTyWithEnv? env target
+          let conditionBranchAssign? : Option CoreStmt := do
+            let targetTy ← targetTy?
+            let thenCore ←
+              match Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr with
+              | some branchCore =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.assign
+                      targetCore branchCore)
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions thenExpr
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        targetCore
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+            let elseCore ←
+              match Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr with
+              | some branchCore =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.assign
+                      targetCore branchCore)
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions elseExpr
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        targetCore
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+            FunctionDecl.conditionUseCoreWithInternalCalls?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond
+              (fun condCore =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  condCore thenCore elseCore)
+          let conditionAssign? : Option CoreStmt := do
+            let targetTy ← targetTy?
+            let thenCore ←
+              Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr
+            let elseCore ←
+              Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr
+            FunctionDecl.conditionUseCoreWithInternalCalls?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond
+              (fun condCore =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  targetCore
+                  (SolidCore.Solidity.Source.Expr.ternary
+                    condCore thenCore elseCore))
+          match conditionBranchAssign? with
+          | some coreStmt => some coreStmt
+          | none =>
+            match conditionAssign? with
+            | some coreStmt => some coreStmt
+            | none =>
+              match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions cond thenExpr elseExpr
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
-                  targetCore resultExpr) with
-          | some coreStmt => some coreStmt
-          | none =>
-              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions cond thenExpr elseExpr
-                  (fun resultExpr =>
-                    SolidCore.Solidity.Source.Stmt.assign
-                      targetCore resultExpr) with
+                  targetCore
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
               | some coreStmt => some coreStmt
-              | none => Stmt.toCore? storageNames fallback
+              | none =>
+                  match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                      internalFuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions cond thenExpr elseExpr
+                      (fun resultExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          targetCore
+                          (match targetTy? with
+                          | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                          | none => resultExpr)) with
+                  | some coreStmt => some coreStmt
+                  | none =>
+                      match assignmentCoreWithEnv? storageNames env target
+                          (Expr.ternary cond thenExpr elseExpr) with
+                      | some coreStmt => some coreStmt
+                      | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
       (Expr.assign target AssignOp.assign
@@ -9382,14 +12857,22 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Expr.unary op expr))
       match Expr.toCoreLValue? storageNames target with
       | some targetCore =>
+          let targetTy? := Expr.abiTyWithEnv? env target
           match FunctionDecl.internalUnarySingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions op expr
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
-                  targetCore resultExpr) with
+                  targetCore
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match assignmentCoreWithEnv? storageNames env target
+                  (Expr.unary op expr) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
       (Expr.assign target AssignOp.assign
@@ -9402,14 +12885,22 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               [Arg.positional inner]))
       match Expr.toCoreLValue? storageNames target with
       | some targetCore =>
+          let targetTy? := Expr.abiTyWithEnv? env target
           match FunctionDecl.internalTypeConversionSingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions targetTy inner
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
-                  targetCore resultExpr) with
+                  targetCore
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match assignmentCoreWithEnv? storageNames env target
+                  (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
       (Expr.assign target AssignOp.assign
@@ -9420,15 +12911,28 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Expr.binary op lhs rhs))
       match Expr.toCoreLValue? storageNames target with
       | some targetCore =>
+          let targetTy? := Expr.abiTyWithEnv? env target
           match FunctionDecl.internalBinarySingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions op lhs rhs
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
-                  targetCore resultExpr) with
+                  targetCore
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match assignmentCoreWithEnv? storageNames env target
+                  (Expr.binary op lhs rhs) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
+  | Stmt.expr (Expr.assign lhs AssignOp.assign rhs) =>
+      match assignmentCoreWithEnv? storageNames env lhs rhs with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames
+          (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
   | Stmt.varDecl [binding]
       (some (Expr.binary op lhs rhs)) =>
       let fallback :=
@@ -9436,20 +12940,27 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (some (Expr.binary op lhs rhs))
       match binding.name with
       | some localName =>
+          let targetTy? := binding.ty
           match FunctionDecl.internalBinarySingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions op lhs rhs
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
-                  resultExpr) with
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
           | some assignBlock => do
               let declCore ←
                 Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
               some
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match varDeclCoreWithEnv? storageNames env binding
+                  (Expr.binary op lhs rhs) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.varDecl [binding]
       (some (Expr.call (Expr.typeName targetTy)
@@ -9461,20 +12972,27 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               [Arg.positional inner]))
       match binding.name with
       | some localName =>
+          let targetTy? := binding.ty
           match FunctionDecl.internalTypeConversionSingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions targetTy inner
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
-                  resultExpr) with
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
           | some assignBlock => do
               let declCore ←
                 Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
               some
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match varDeclCoreWithEnv? storageNames env binding
+                  (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.varDecl [binding]
       (some (Expr.ternary cond thenExpr elseExpr)) =>
@@ -9483,13 +13001,60 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (some (Expr.ternary cond thenExpr elseExpr))
       match binding.name with
       | some localName =>
-          match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+          let targetTy? := binding.ty
+          let conditionBranchAssign? : Option CoreStmt := do
+            let targetTy ← targetTy?
+            let thenCore ←
+              match Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr with
+              | some branchCore =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      branchCore)
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions thenExpr
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        (SolidCore.Solidity.Source.LValue.var localName)
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+            let elseCore ←
+              match Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr with
+              | some branchCore =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      branchCore)
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions elseExpr
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        (SolidCore.Solidity.Source.LValue.var localName)
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+            FunctionDecl.conditionUseCoreWithInternalCalls?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions cond thenExpr elseExpr
-              (fun resultExpr =>
+              modifiers functions freeFunctions cond
+              (fun condCore =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  condCore thenCore elseCore)
+          let conditionAssign? : Option CoreStmt := do
+            let targetTy ← targetTy?
+            let thenCore ←
+              Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr
+            let elseCore ←
+              Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr
+            FunctionDecl.conditionUseCoreWithInternalCalls?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond
+              (fun condCore =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
-                  resultExpr) with
+                  (SolidCore.Solidity.Source.Expr.ternary
+                    condCore thenCore elseCore))
+          match conditionBranchAssign? with
           | some assignBlock => do
               let declCore ←
                 Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
@@ -9497,20 +13062,50 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
           | none =>
-              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions cond thenExpr elseExpr
-                  (fun resultExpr =>
-                    SolidCore.Solidity.Source.Stmt.assign
-                      (SolidCore.Solidity.Source.LValue.var localName)
-                      resultExpr) with
+            match conditionAssign? with
+            | some assignBlock => do
+                let declCore ←
+                  Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                some
+                  (SolidCore.Solidity.Source.Stmt.block
+                    [declCore, assignBlock])
+            | none =>
+              match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond thenExpr elseExpr
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
               | some assignBlock => do
                   let declCore ←
                     Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
                   some
                     (SolidCore.Solidity.Source.Stmt.block
                       [declCore, assignBlock])
-              | none => Stmt.toCore? storageNames fallback
+              | none =>
+                  match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                      internalFuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions cond thenExpr elseExpr
+                      (fun resultExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var localName)
+                          (match targetTy? with
+                          | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                          | none => resultExpr)) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      some
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [declCore, assignBlock])
+                  | none =>
+                      match varDeclCoreWithEnv? storageNames env binding
+                          (Expr.ternary cond thenExpr elseExpr) with
+                      | some coreStmt => some coreStmt
+                      | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.varDecl [binding]
       (some (Expr.unary op expr)) =>
@@ -9519,20 +13114,27 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (some (Expr.unary op expr))
       match binding.name with
       | some localName =>
+          let targetTy? := binding.ty
           match FunctionDecl.internalUnarySingleReturnUseCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions op expr
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
-                  resultExpr) with
+                  (match targetTy? with
+                  | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                  | none => resultExpr)) with
           | some assignBlock => do
               let declCore ←
                 Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
               some
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match varDeclCoreWithEnv? storageNames env binding
+                  (Expr.unary op expr) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
       | none => Stmt.toCore? storageNames fallback
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.member _ _) _)) =>
       match binding.name, binding.ty with
@@ -9615,9 +13217,18 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                       some
                         (SolidCore.Solidity.Source.Stmt.block
                           [declCore, assignBlock])
-                  | none => Stmt.toCore? storageNames
-                      (Stmt.varDecl [binding]
-                        (some (Expr.call (Expr.ident name) args)))
+                  | none =>
+                      match FunctionDecl.abiInternalSingleReturnUseCore?
+                          internalFuel storageRefEnv env externalCallKindEnv
+                          storageNames modifiers functions freeFunctions
+                          "_sol_vardecl_abi_arg" expr
+                          (fun replacedExpr =>
+                            varDeclCoreWithEnv? storageNames env binding
+                              replacedExpr) with
+                      | some coreStmt => some coreStmt
+                      | none => Stmt.toCore? storageNames
+                          (Stmt.varDecl [binding]
+                            (some (Expr.call (Expr.ident name) args)))
       | none => Stmt.toCore? storageNames
           (Stmt.varDecl [binding]
             (some (Expr.call (Expr.ident name) args)))
@@ -9681,49 +13292,87 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | _, _ => Stmt.toCore? storageNames
           (Stmt.varDecl [binding] (some expr))
   | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) => do
-      let names ← VarBindings.names? bindings
-      let returnTys ← VarBindings.sourceTys? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        Expr.externalCallAssignVarsCoreWithKindEnv?
-          storageNames env externalCallKindEnv returnTys names expr
-      some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+      let pieces ←
+        Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
+          storageNames env externalCallKindEnv bindings expr
+      some (SolidCore.Solidity.Source.Stmt.block pieces)
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) => do
-      let names ← VarBindings.names? bindings
-      let returnTys ← VarBindings.sourceTys? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        Expr.externalCallAssignVarsCoreWithKindEnv?
-          storageNames env externalCallKindEnv returnTys names expr
-      some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+      let pieces ←
+        Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
+          storageNames env externalCallKindEnv bindings expr
+      some (SolidCore.Solidity.Source.Stmt.block pieces)
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) => do
-      match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
-          internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions name args bindings with
-      | some pieces =>
-          some (SolidCore.Solidity.Source.Stmt.block pieces)
-      | none => do
-          let names ← VarBindings.names? bindings
-          let decls ← VarBindings.toCoreDecls? bindings
-          let callCore ←
-            match Expr.externalFunctionValueCallAssignVarsCore?
-                storageNames env names expr with
-            | some coreStmt => some coreStmt
-            | none =>
-                FunctionDecl.internalAssignReturnCallCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions name args names
-          some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+      let fallback? := do
+        match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args bindings with
+        | some pieces =>
+            some (SolidCore.Solidity.Source.Stmt.block pieces)
+        | none => do
+            match FunctionDecl.internalTupleVarDeclAssignReturnCallCorePieces?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions name args bindings with
+            | some pieces =>
+                some (SolidCore.Solidity.Source.Stmt.block pieces)
+            | none => do
+                match Expr.externalFunctionValueCallAssignBindingsCorePieces?
+                    storageNames env bindings expr with
+                | some pieces =>
+                    some (SolidCore.Solidity.Source.Stmt.block pieces)
+                | none => do
+                    let names ← VarBindings.names? bindings
+                    let decls ← VarBindings.toCoreDecls? bindings
+                    let callCore ←
+                      FunctionDecl.internalAssignReturnCallCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions name args
+                        names
+                    some
+                      (SolidCore.Solidity.Source.Stmt.block
+                        (decls ++ [callCore]))
+      match Args.replaceDirectInternalCallArg? "_sol_vardecl_arg" 0 args with
+      | some (argName, argArgs, argTmp, replacedArgs) =>
+          match FunctionDecl.findInternalCalleeWithArgs?
+              functions env argName argArgs with
+          | some (argCallee, _) =>
+              match argCallee.returns with
+              | [retParam] => do
+                  let argCoreTy ← Ty.toCore? retParam.ty
+                  let argCore ←
+                    FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions
+                      argName argArgs
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var argTmp)
+                          retExpr)
+                  let pieces ←
+                    FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions
+                      name replacedArgs bindings
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          argCoreTy argTmp none
+                      , argCore
+                      , SolidCore.Solidity.Source.Stmt.block pieces ])
+              | _ => fallback?
+          | none => fallback?
+      | none => fallback?
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) => do
-      let names ← VarBindings.names? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        Expr.externalFunctionValueCallAssignVarsCore?
-          storageNames env names expr
-      some (SolidCore.Solidity.Source.Stmt.block (decls ++ [callCore]))
+      let pieces ←
+        Expr.externalFunctionValueCallAssignBindingsCorePieces?
+          storageNames env bindings expr
+      some (SolidCore.Solidity.Source.Stmt.block pieces)
+  | Stmt.varDecl [binding] (some expr) =>
+      match varDeclCoreWithEnv? storageNames env binding expr with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames (Stmt.varDecl [binding] (some expr))
   | Stmt.emitEvent
       (Expr.call (Expr.ident eventName)
         [Arg.positional (Expr.call (Expr.ident name) args)]) =>
@@ -9812,6 +13461,42 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Stmt.emitEvent
               (Expr.call (Expr.ident eventName)
                 [ Arg.positional lhs
+                , Arg.positional (Expr.call (Expr.ident name) args) ]))
+  | Stmt.emitEvent
+      (Expr.call (Expr.ident eventName)
+        [ Arg.positional first
+        , Arg.positional second
+        , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
+      let firstCore ← Expr.toCore? storageNames first
+      let secondCore ← Expr.toCore? storageNames second
+      let firstTy ← Expr.abiTyWithEnv? env first
+      let secondTy ← Expr.abiTyWithEnv? env second
+      let firstCoreTy ← Ty.toCore? firstTy
+      let secondCoreTy ← Ty.toCore? secondTy
+      let firstTmp := "_sol_event_first"
+      let secondTmp := "_sol_event_second"
+      match FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions name args
+          (fun retExpr =>
+            SolidCore.Solidity.Source.Stmt.emitEvent eventName
+              [ SolidCore.Solidity.Source.Expr.var firstTmp
+              , SolidCore.Solidity.Source.Expr.var secondTmp
+              , retExpr ]) with
+      | some coreStmt =>
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl
+                  firstCoreTy firstTmp (some firstCore)
+              , SolidCore.Solidity.Source.Stmt.varDecl
+                  secondCoreTy secondTmp (some secondCore)
+              , coreStmt ])
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.emitEvent
+              (Expr.call (Expr.ident eventName)
+                [ Arg.positional first
+                , Arg.positional second
                 , Arg.positional (Expr.call (Expr.ident name) args) ]))
   | Stmt.revertCall
       (Expr.call (Expr.ident errorName)
@@ -9919,111 +13604,52 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (fun resultExpr =>
                 SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames fallback
+          | none =>
+              match returnTys with
+              | [] => Stmt.toCore? storageNames fallback
+              | _ :: _ =>
+                  match
+                      returnValuesCoreWithReturnTys? storageNames env
+                        returnTys thenExpr,
+                      returnValuesCoreWithReturnTys? storageNames env
+                        returnTys elseExpr with
+                  | some thenCore, some elseCore =>
+                      FunctionDecl.conditionUseCoreWithInternalCalls?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions cond
+                        (fun condCore =>
+                          SolidCore.Solidity.Source.Stmt.ifElse
+                            condCore thenCore elseCore)
+                  | _, _ => Stmt.toCore? storageNames fallback
   | Stmt.returnValues
       (some (Expr.unary op expr)) =>
-      let fallback :=
-        Stmt.returnValues (some (Expr.unary op expr))
       match FunctionDecl.internalUnarySingleReturnUseCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions op expr
           (fun resultExpr =>
             SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames fallback
-  | Stmt.returnValues
-      (some
-        (Expr.tuple
-          [ TupleItem.value
-              (Expr.call (Expr.ident firstName) firstArgs)
-          , TupleItem.value
-              (Expr.call (Expr.ident secondName) secondArgs) ])) =>
-      match FunctionDecl.internalTwoSingleReturnCallsCore?
+      | none =>
+          returnValuesCoreWithReturnTys? storageNames env returnTys
+            (Expr.unary op expr)
+  | Stmt.returnValues (some (Expr.tuple items)) =>
+      match FunctionDecl.tupleReturnValuesCoreWithInternalCalls?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions firstName firstArgs
-          secondName secondArgs "_sol_tuple_first"
-          (fun firstExpr secondExpr =>
-            SolidCore.Solidity.Source.Stmt.returnValues
-              [firstExpr, secondExpr]) with
-      | some coreStmt => some coreStmt
-      | none => do
-          let secondCore ←
-            Expr.toCore? storageNames
-              (Expr.call (Expr.ident secondName) secondArgs)
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions firstName firstArgs
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.returnValues
-                  [retExpr, secondCore]) with
-          | some coreStmt => some coreStmt
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.returnValues
-                  (some
-                    (Expr.tuple
-                      [ TupleItem.value
-                          (Expr.call (Expr.ident firstName) firstArgs)
-                      , TupleItem.value
-                          (Expr.call (Expr.ident secondName) secondArgs) ])))
-  | Stmt.returnValues
-      (some
-        (Expr.tuple
-          [ TupleItem.value (Expr.call (Expr.ident name) args)
-          , TupleItem.value rhs ])) => do
-      let rhsCore ← Expr.toCore? storageNames rhs
-      match FunctionDecl.internalSingleReturnCallCore?
-          internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions name args
-          (fun retExpr =>
-            SolidCore.Solidity.Source.Stmt.returnValues
-              [retExpr, rhsCore]) with
+          modifiers functions freeFunctions returnTys items with
       | some coreStmt => some coreStmt
       | none =>
           Stmt.toCore? storageNames
-            (Stmt.returnValues
-              (some
-                (Expr.tuple
-                  [ TupleItem.value (Expr.call (Expr.ident name) args)
-                  , TupleItem.value rhs ])))
-  | Stmt.returnValues
-      (some
-        (Expr.tuple
-          [ TupleItem.value lhs
-          , TupleItem.value (Expr.call (Expr.ident name) args) ])) => do
-      let lhsCore ← Expr.toCore? storageNames lhs
-      let lhsTy ← Expr.abiTyWithEnv? env lhs
-      let lhsCoreTy ← Ty.toCore? lhsTy
-      let lhsTmp := "_sol_tuple_lhs"
-      match FunctionDecl.internalSingleReturnCallCore?
-          internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions name args
-          (fun retExpr =>
-            SolidCore.Solidity.Source.Stmt.returnValues
-              [SolidCore.Solidity.Source.Expr.var lhsTmp, retExpr]) with
-      | some coreStmt =>
-          some
-            (SolidCore.Solidity.Source.Stmt.block
-              [ SolidCore.Solidity.Source.Stmt.varDecl
-                  lhsCoreTy lhsTmp (some lhsCore)
-              , coreStmt ])
-      | none =>
-          Stmt.toCore? storageNames
-            (Stmt.returnValues
-              (some
-                (Expr.tuple
-                  [ TupleItem.value lhs
-                  , TupleItem.value (Expr.call (Expr.ident name) args) ])))
+            (Stmt.returnValues (some (Expr.tuple items)))
   | Stmt.returnValues (some (Expr.binary op lhs rhs)) =>
-      let fallback :=
-        Stmt.returnValues (some (Expr.binary op lhs rhs))
       match FunctionDecl.internalBinarySingleReturnUseCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions op lhs rhs
           (fun resultExpr =>
             SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames fallback
+      | none =>
+          returnValuesCoreWithReturnTys? storageNames env returnTys
+            (Expr.binary op lhs rhs)
   | Stmt.returnValues
       (some (Expr.call (Expr.typeName targetTy)
         [Arg.positional inner])) =>
@@ -10040,30 +13666,115 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames fallback
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
-      match Expr.externalCallReturnCoreWithKindEnv?
-          storageNames env externalCallKindEnv returnTys expr with
-      | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
-  | Stmt.returnValues
-      (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
-      match Expr.externalCallReturnCoreWithKindEnv?
-          storageNames env externalCallKindEnv returnTys expr with
-      | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
-  | Stmt.returnValues (some expr@(Expr.call (Expr.ident name) args)) =>
-      match Expr.externalFunctionValueCallReturnCore?
-          storageNames env returnTys expr with
+      match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
       | some coreStmt => some coreStmt
       | none =>
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.returnValues [retExpr]) with
+        if returnTys.isEmpty then
+          match Expr.noReturnEffectStmtCoreWithStorageRefs?
+              storageRefEnv env storageNames expr with
+          | some coreStmt => some (CoreStmt.thenReturnEmpty coreStmt)
+          | none =>
+              match Expr.externalCallReturnCoreWithKindEnv?
+                  storageNames env externalCallKindEnv returnTys expr with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+        else
+          match Expr.externalCallReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv returnTys expr with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames
-              (Stmt.returnValues
-                (some (Expr.call (Expr.ident name) args)))
+          | none =>
+              Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.returnValues
+      (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
+      match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
+      | some coreStmt => some coreStmt
+      | none =>
+          match Expr.externalCallReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv returnTys expr with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.returnValues (some expr@(Expr.call (Expr.ident name) args)) =>
+      let fallback? :=
+        match Expr.externalFunctionValueCallReturnCore?
+            storageNames env returnTys expr with
+        | some coreStmt => some coreStmt
+        | none =>
+            if returnTys.isEmpty then
+              match FunctionDecl.internalStatementCallCore?
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions name args with
+              | some coreStmt => some (CoreStmt.thenReturnEmpty coreStmt)
+              | none => Stmt.toCore? storageNames
+                  (Stmt.returnValues
+                    (some (Expr.call (Expr.ident name) args)))
+            else
+              match FunctionDecl.internalReturnCallCore?
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions name args
+                  returnTys with
+              | some coreStmt => some coreStmt
+              | none =>
+                  match FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions name args
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.returnValues [retExpr]) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames
+                      (Stmt.returnValues
+                        (some (Expr.call (Expr.ident name) args)))
+      match Args.replaceDirectInternalCallArg? "_sol_return_arg" 0 args with
+      | some (argName, argArgs, argTmp, replacedArgs) =>
+          match FunctionDecl.findInternalCalleeWithArgs?
+              functions env argName argArgs with
+          | some (argCallee, _) =>
+              match argCallee.returns with
+              | [retParam] => do
+                  let argTy := retParam.ty
+                  let argCoreTy ← Ty.toCore? argTy
+                  let envWithArgTmp := (argTmp, argTy) :: env
+                  let argCore ←
+                    FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions
+                      argName argArgs
+                      (fun retExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var argTmp)
+                          retExpr)
+                  let callCore ←
+                    if returnTys.isEmpty then
+                      match FunctionDecl.internalStatementCallCore?
+                          internalFuel storageRefEnv envWithArgTmp externalCallKindEnv
+                          storageNames modifiers functions freeFunctions
+                          name replacedArgs with
+                      | some coreStmt =>
+                          some (CoreStmt.thenReturnEmpty coreStmt)
+                      | none => none
+                    else
+                      match FunctionDecl.internalReturnCallCore?
+                          internalFuel storageRefEnv envWithArgTmp externalCallKindEnv
+                          storageNames modifiers functions freeFunctions
+                          name replacedArgs returnTys with
+                      | some coreStmt => some coreStmt
+                      | none =>
+                          FunctionDecl.internalSingleReturnCallCore?
+                            internalFuel storageRefEnv envWithArgTmp externalCallKindEnv
+                            storageNames modifiers functions freeFunctions
+                            name replacedArgs
+                            (fun retExpr =>
+                              SolidCore.Solidity.Source.Stmt.returnValues
+                                [retExpr])
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          argCoreTy argTmp none
+                      , argCore
+                      , callCore ])
+              | _ => fallback?
+          | none => fallback?
+      | none => fallback?
   | Stmt.returnValues
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
       match Expr.externalFunctionValueCallReturnCore?
@@ -10084,6 +13795,10 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           storageNames externalCallKindEnv expr with
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
+      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.returnValues (some expr) =>
+      match returnValuesCoreWithReturnTys? storageNames env returnTys expr with
+      | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.ifElse (Expr.call (Expr.ident name) args)
       thenBranch elseBranch => do
@@ -10127,7 +13842,6 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           some (SolidCore.Solidity.Source.Stmt.ifElse
             condCore thenCore elseCore)
   | Stmt.ifElse cond thenBranch elseBranch => do
-      let condCore ← Expr.toCore? storageNames cond
       let thenCore ←
         Stmt.toCoreWithInternalCalls?
           (internalFuel := internalFuel)
@@ -10155,8 +13869,12 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (returnTys := returnTys)
               (stmt := stmt)
         | none => some SolidCore.Solidity.Source.Stmt.skip
-      some (SolidCore.Solidity.Source.Stmt.ifElse
-        condCore thenCore elseCore)
+      FunctionDecl.conditionUseCoreWithInternalCalls?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions cond
+        (fun condCore =>
+          SolidCore.Solidity.Source.Stmt.ifElse
+            condCore thenCore elseCore)
   | Stmt.whileLoop (Expr.call (Expr.ident name) args) body => do
       let bodyCore ←
         Stmt.toCoreWithInternalCalls?
@@ -10278,7 +13996,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode []
+              checkTargetCode [] []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
           match Expr.externalFunctionValueCallCore? storageNames env expr with
@@ -10291,7 +14009,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
-                  true []
+                  true [] []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
@@ -10307,6 +14025,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
+      let returnAbiCleanups ←
+        Tys.toCoreAbiCleanups? (returns.map Parameter.ty)
       let successEnv := Parameters.extendTypeEnv "_try" env returns
       match Expr.toExternalCallWithKindEnv?
           storageNames env externalCallKindEnv expr with
@@ -10333,7 +14053,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           some
             (SolidCore.Solidity.Source.Stmt.tryExternalCall
               kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode returnBindings successCore catchCore)
+              checkTargetCode returnBindings returnAbiCleanups
+              successCore catchCore)
       | none => do
           match Expr.externalFunctionValueCallCore? storageNames env expr with
           | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
@@ -10358,7 +14079,8 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
-                  checkTargetCode returnBindings successCore catchCore)
+                  checkTargetCode returnBindings returnAbiCleanups
+                  successCore catchCore)
           | none => do
               let (contractName, argsCore, valueCore, saltCore?) ←
                 Expr.toContractCreationWithKindEnv?
@@ -10441,6 +14163,40 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               storageRefEnv env externalCallKindEnv storageNames modifiers functions
               freeFunctions returnTys rest
           some (head :: tail)
+  | Stmt.varDecl [binding]
+      (some (Expr.call (Expr.member target "push") [])) :: rest =>
+      match storageArrayPushReturnAliasCore? storageNames binding target with
+      | some (pushStmt, aliasStmt) => do
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (pushStmt :: aliasStmt :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := Stmt.varDecl [binding]
+                (some (Expr.call (Expr.member target "push") [])))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
   | Stmt.varDecl [binding] (some (Expr.ident source)) :: rest =>
       match storageAliasDeclFromRefCore? storageRefEnv binding source with
       | some head => do
@@ -10473,6 +14229,74 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
+  | Stmt.varDecl [binding] (some source@(Expr.member _ _)) :: rest =>
+      match
+          storageAliasDeclFromRefPathCore?
+            storageRefEnv storageNames binding source with
+      | some head => do
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := Stmt.varDecl [binding] (some source))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+  | Stmt.varDecl [binding] (some source@(Expr.index _ _)) :: rest =>
+      match
+          storageAliasDeclFromRefPathCore?
+            storageRefEnv storageNames binding source with
+      | some head => do
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+      | none => do
+          let head ←
+            Stmt.toCoreWithInternalCalls?
+              (internalFuel := internalFuel)
+              (storageRefEnv := storageRefEnv)
+              (env := env)
+              (externalCallKindEnv := externalCallKindEnv)
+              (storageNames := storageNames)
+              (modifiers := modifiers)
+              (functions := functions)
+              (freeFunctions := freeFunctions)
+              (returnTys := returnTys)
+              (stmt := Stmt.varDecl [binding] (some source))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
       let (coreDecls, assigns) ←
         tupleVarDeclCorePieces? storageNames bindings items
@@ -10488,13 +14312,60 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       (some (Expr.ternary cond thenExpr elseExpr)) :: rest =>
       match binding.name with
       | some localName =>
-          match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+          let targetTy? := binding.ty
+          let conditionBranchAssign? : Option CoreStmt := do
+            let targetTy ← targetTy?
+            let thenCore ←
+              match Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr with
+              | some branchCore =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      branchCore)
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions thenExpr
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        (SolidCore.Solidity.Source.LValue.var localName)
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+            let elseCore ←
+              match Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr with
+              | some branchCore =>
+                  some
+                    (SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      branchCore)
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions elseExpr
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        (SolidCore.Solidity.Source.LValue.var localName)
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+            FunctionDecl.conditionUseCoreWithInternalCalls?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions cond thenExpr elseExpr
-              (fun resultExpr =>
+              modifiers functions freeFunctions cond
+              (fun condCore =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  condCore thenCore elseCore)
+          let conditionAssign? : Option CoreStmt := do
+            let targetTy ← targetTy?
+            let thenCore ←
+              Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr
+            let elseCore ←
+              Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr
+            FunctionDecl.conditionUseCoreWithInternalCalls?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond
+              (fun condCore =>
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var localName)
-                  resultExpr) with
+                  (SolidCore.Solidity.Source.Expr.ternary
+                    condCore thenCore elseCore))
+          match conditionBranchAssign? with
           | some assignBlock => do
               let declCore ←
                 Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
@@ -10507,13 +14378,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
           | none =>
-              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions cond thenExpr elseExpr
-                  (fun resultExpr =>
-                    SolidCore.Solidity.Source.Stmt.assign
-                      (SolidCore.Solidity.Source.LValue.var localName)
-                      resultExpr) with
+              match conditionAssign? with
               | some assignBlock => do
                   let declCore ←
                     Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
@@ -10525,20 +14390,19 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                       externalCallKindEnv
                       storageNames modifiers functions freeFunctions returnTys rest
                   some (declCore :: assignBlock :: tail)
-              | none => do
-                  let head ←
-                    Stmt.toCoreWithInternalCalls?
-                      (internalFuel := internalFuel)
-                      (storageRefEnv := storageRefEnv)
-                      (env := env)
-                      (externalCallKindEnv := externalCallKindEnv)
-                      (storageNames := storageNames)
-                      (modifiers := modifiers)
-                      (functions := functions)
-                      (freeFunctions := freeFunctions)
-                      (returnTys := returnTys)
-                      (stmt := Stmt.varDecl [binding]
-                        (some (Expr.ternary cond thenExpr elseExpr)))
+              | none =>
+              match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions cond thenExpr elseExpr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      (match targetTy? with
+                      | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                      | none => resultExpr)) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
                   let tail ←
                     Stmt.listToCoreWithInternalCallsWithRefs?
                       internalFuel
@@ -10546,7 +14410,50 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                       (VarBinding.extendTypeEnv env binding)
                       externalCallKindEnv
                       storageNames modifiers functions freeFunctions returnTys rest
-                  some (head :: tail)
+                  some (declCore :: assignBlock :: tail)
+              | none =>
+                  match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                      internalFuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions cond thenExpr elseExpr
+                      (fun resultExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var localName)
+                          (match targetTy? with
+                          | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                          | none => resultExpr)) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      let tail ←
+                        Stmt.listToCoreWithInternalCallsWithRefs?
+                          internalFuel
+                          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                          (VarBinding.extendTypeEnv env binding)
+                          externalCallKindEnv
+                          storageNames modifiers functions freeFunctions returnTys rest
+                      some (declCore :: assignBlock :: tail)
+                  | none => do
+                      let head ←
+                        Stmt.toCoreWithInternalCalls?
+                          (internalFuel := internalFuel)
+                          (storageRefEnv := storageRefEnv)
+                          (env := env)
+                          (externalCallKindEnv := externalCallKindEnv)
+                          (storageNames := storageNames)
+                          (modifiers := modifiers)
+                          (functions := functions)
+                          (freeFunctions := freeFunctions)
+                          (returnTys := returnTys)
+                          (stmt := Stmt.varDecl [binding]
+                            (some (Expr.ternary cond thenExpr elseExpr)))
+                      let tail ←
+                        Stmt.listToCoreWithInternalCallsWithRefs?
+                          internalFuel
+                          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                          (VarBinding.extendTypeEnv env binding)
+                          externalCallKindEnv
+                          storageNames modifiers functions freeFunctions returnTys rest
+                      some (head :: tail)
       | none => do
           let head ←
             Stmt.toCoreWithInternalCalls?
@@ -10968,9 +14875,18 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                       some (declCore :: assignBlock :: tail)
                   | none => do
                       let head ←
-                        Stmt.toCore? storageNames
-                          (Stmt.varDecl [binding]
-                            (some (Expr.call (Expr.ident name) args)))
+                        match FunctionDecl.abiInternalSingleReturnUseCore?
+                            internalFuel storageRefEnv env externalCallKindEnv
+                            storageNames modifiers functions freeFunctions
+                            "_sol_vardecl_abi_arg" expr
+                            (fun replacedExpr =>
+                              varDeclCoreWithEnv? storageNames env binding
+                                replacedExpr) with
+                        | some coreStmt => some coreStmt
+                        | none =>
+                            Stmt.toCore? storageNames
+                              (Stmt.varDecl [binding]
+                                (some (Expr.call (Expr.ident name) args)))
                       let tail ←
                         Stmt.listToCoreWithInternalCallsWithRefs?
                           internalFuel
@@ -11038,12 +14954,12 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) :: rest => do
-      let names ← VarBindings.names? bindings
-      let callReturnTys ← VarBindings.sourceTys? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        Expr.externalCallAssignVarsCoreWithKindEnv?
-          storageNames env externalCallKindEnv callReturnTys names expr
+      let callStmts ←
+        match Expr.lowLevelTupleVarDeclCorePieces? storageNames bindings expr with
+        | some pieces => some pieces
+        | none =>
+            Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
+              storageNames env externalCallKindEnv bindings expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -11051,15 +14967,15 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (VarBindings.extendTypeEnv env bindings)
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
-      some (decls ++ [callCore] ++ tail)
+      some (callStmts ++ tail)
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) :: rest => do
-      let names ← VarBindings.names? bindings
-      let callReturnTys ← VarBindings.sourceTys? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        Expr.externalCallAssignVarsCoreWithKindEnv?
-          storageNames env externalCallKindEnv callReturnTys names expr
+      let callStmts ←
+        match Expr.lowLevelTupleVarDeclCorePieces? storageNames bindings expr with
+        | some pieces => some pieces
+        | none =>
+            Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
+              storageNames env externalCallKindEnv bindings expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -11067,7 +14983,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (VarBindings.extendTypeEnv env bindings)
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
-      some (decls ++ [callCore] ++ tail)
+      some (callStmts ++ tail)
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) :: rest => do
       match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
@@ -11083,31 +14999,45 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               storageNames modifiers functions freeFunctions returnTys rest
           some (pieces ++ tail)
       | none => do
-          let names ← VarBindings.names? bindings
-          let decls ← VarBindings.toCoreDecls? bindings
-          let callCore ←
-            match Expr.externalFunctionValueCallAssignVarsCore?
-                storageNames env names expr with
-            | some coreStmt => some coreStmt
-            | none =>
-                FunctionDecl.internalAssignReturnCallCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions name args names
-          let tail ←
-            Stmt.listToCoreWithInternalCallsWithRefs?
-              internalFuel
-              (VarBindings.extendStorageRefEnv storageRefEnv bindings)
-              (VarBindings.extendTypeEnv env bindings)
-              externalCallKindEnv
-              storageNames modifiers functions freeFunctions returnTys rest
-          some (decls ++ [callCore] ++ tail)
+          match FunctionDecl.internalTupleVarDeclAssignReturnCallCorePieces?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args bindings with
+          | some pieces => do
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+                  (VarBindings.extendTypeEnv env bindings)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (pieces ++ tail)
+          | none => do
+              let callStmts ←
+                match Expr.externalFunctionValueCallAssignBindingsCorePieces?
+                    storageNames env bindings expr with
+                | some pieces => some pieces
+                | none => do
+                    let names ← VarBindings.names? bindings
+                    let decls ← VarBindings.toCoreDecls? bindings
+                    let callCore ←
+                      FunctionDecl.internalAssignReturnCallCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions name args
+                        names
+                    some (decls ++ [callCore])
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+                  (VarBindings.extendTypeEnv env bindings)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (callStmts ++ tail)
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) :: rest => do
-      let names ← VarBindings.names? bindings
-      let decls ← VarBindings.toCoreDecls? bindings
-      let callCore ←
-        Expr.externalFunctionValueCallAssignVarsCore?
-          storageNames env names expr
+      let callStmts ←
+        Expr.externalFunctionValueCallAssignBindingsCorePieces?
+          storageNames env bindings expr
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -11115,7 +15045,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (VarBindings.extendTypeEnv env bindings)
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
-      some (decls ++ [callCore] ++ tail)
+      some (callStmts ++ tail)
   | stmt :: rest => do
       let head ←
         Stmt.toCoreWithInternalCalls?
@@ -11194,6 +15124,737 @@ termination_by (internalFuel, sizeOf clauses, 4)
 
 end
 
+inductive HighLevelExternalCallObservationStatus where
+  | resolved
+  | notHighLevelCall
+  | reservedMember
+  | targetExpansionFailed
+  | abiFailure
+  | optionFailure
+  | returnBindingFailure
+  | coreExpansionFailed
+  deriving Repr, BEq
+
+structure HighLevelExternalCallObservation where
+  source : Expr
+  target? : Option Expr := none
+  functionName? : Option Name := none
+  argumentCount : Nat := 0
+  optionNames : List Name := []
+  returnTys : List Ty := []
+  targetContractName? : Option Name := none
+  sourceArgTys? : Option (List Ty) := none
+  coreArgTys? : Option (List CoreTy) := none
+  signature? : Option String := none
+  selector? : Option Word := none
+  kind? : Option CoreLowLevelCallKind := none
+  mutability? : Option StateMutability := none
+  targetNeedsCodeCheck : Bool := false
+  checkTargetCode : Bool := false
+  targetCore? : Option CoreExpr := none
+  calldataCore? : Option CoreExpr := none
+  valueCore? : Option CoreExpr := none
+  gasCore? : Option CoreExpr := none
+  gasFirst? : Option Bool := none
+  returnBindingNames : List Name := []
+  returnBindingTys : List CoreTy := []
+  successBodyCore? : Option CoreStmt := none
+  core? : Option CoreStmt := none
+  status : HighLevelExternalCallObservationStatus
+  deriving Repr
+
+def Expr.highLevelExternalCallParts? :
+    Expr -> Option (Expr × Name × List CallOption × List Arg)
+  | Expr.call (Expr.member target name) args => some (target, name, [], args)
+  | Expr.callWithOptions (Expr.member target name) options args =>
+      some (target, name, options, args)
+  | _ => none
+
+def highLevelExternalCallReservedMember
+    (env : TypeEnv) (target : Expr) (name : Name) : Bool :=
+  highLevelExternalCallReservedMemberWithEnv env target name
+
+def CallOptions.names : List CallOption -> List Name
+  | [] => []
+  | CallOption.named name _ :: rest => name :: CallOptions.names rest
+
+def Expr.observeHighLevelExternalCallWithReturns
+    (storageNames : List Name) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (namePrefix : String)
+    (returnTys : List Ty) (expr : Expr)
+    (successBody : List CoreBindingDecl -> CoreStmt) :
+    HighLevelExternalCallObservation :=
+  match Expr.highLevelExternalCallParts? expr with
+  | none =>
+      { source := expr
+        returnTys := returnTys
+        status := HighLevelExternalCallObservationStatus.notHighLevelCall }
+  | some (target, name, options, args) =>
+      let reserved := highLevelExternalCallReservedMember env target name
+      let abi? :=
+        Expr.externalCallAbiWithKindEnv?
+          storageNames env externalCallKindEnv target name args
+      let targetCore? := Expr.toCore? storageNames target
+      let signature? :=
+        match abi? with
+        | some (sourceTys, _, _) =>
+            externalFunctionSignature? name sourceTys
+        | none => none
+      let selector? :=
+        signature?.map
+          (fun signature =>
+            SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
+      let kind? :=
+        match abi? with
+        | some (sourceTys, _, _) =>
+            some
+              (Expr.externalCallKindForTargetWithEnv
+                env externalCallKindEnv target name sourceTys)
+        | none => none
+      let mutability? :=
+        match abi? with
+        | some (sourceTys, _, _) =>
+            Expr.externalCallMutabilityForTargetWithEnv
+              env externalCallKindEnv target name sourceTys
+        | none => none
+      let optionCore? :=
+        match kind? with
+        | some kind =>
+            StateMutability.externalCallOptionsCore?
+              storageNames mutability? kind options
+        | none => none
+      let callCoreParts? :=
+        Expr.toExternalCallWithKindEnv?
+          storageNames env externalCallKindEnv expr
+      let returnBindings? := Tys.toExternalReturnBindings? namePrefix returnTys
+      let successBodyCore? := returnBindings?.map successBody
+      let core? :=
+        Expr.externalCallWithReturnsCoreWithKindEnv?
+          storageNames env externalCallKindEnv namePrefix returnTys expr
+          successBody
+      let status :=
+        if reserved then
+          HighLevelExternalCallObservationStatus.reservedMember
+        else
+          match targetCore?, abi?, optionCore?, returnBindings?, core? with
+          | none, _, _, _, _ =>
+              HighLevelExternalCallObservationStatus.targetExpansionFailed
+          | _, none, _, _, _ =>
+              HighLevelExternalCallObservationStatus.abiFailure
+          | _, _, none, _, _ =>
+              HighLevelExternalCallObservationStatus.optionFailure
+          | _, _, _, none, _ =>
+              HighLevelExternalCallObservationStatus.returnBindingFailure
+          | some _, some _, some _, some _, some _ =>
+              HighLevelExternalCallObservationStatus.resolved
+          | some _, some _, some _, some _, none =>
+              HighLevelExternalCallObservationStatus.coreExpansionFailed
+      { source := expr
+        target? := some target
+        functionName? := some name
+        argumentCount := args.length
+        optionNames := CallOptions.names options
+        returnTys := returnTys
+        targetContractName? :=
+          Expr.externalCallTargetContractNameWithEnv? env target
+        sourceArgTys? :=
+          match abi? with
+          | some (sourceTys, _, _) => some sourceTys
+          | none => none
+        coreArgTys? :=
+          match abi? with
+          | some (_, coreTys, _) => some coreTys
+          | none => none
+        signature? := signature?
+        selector? := selector?
+        kind? := kind?
+        mutability? := mutability?
+        targetNeedsCodeCheck :=
+          Expr.externalCallTargetNeedsCodeCheckWithEnv env target
+        checkTargetCode :=
+          Expr.externalCallNeedsCodeCheckWithEnv env returnTys expr
+        targetCore? := targetCore?
+        calldataCore? :=
+          match callCoreParts? with
+          | some (_, _, calldataCore, _, _, _) => some calldataCore
+          | none => none
+        valueCore? :=
+          match optionCore? with
+          | some (valueCore, _, _) => some valueCore
+          | none => none
+        gasCore? :=
+          match optionCore? with
+          | some (_, gasCore?, _) => gasCore?
+          | none => none
+        gasFirst? :=
+          match optionCore? with
+          | some (_, _, gasFirst) => some gasFirst
+          | none => none
+        returnBindingNames :=
+          match returnBindings? with
+          | some bindings => bindings.map (fun binding => binding.name)
+          | none => []
+        returnBindingTys :=
+          match returnBindings? with
+          | some bindings => bindings.map (fun binding => binding.ty)
+          | none => []
+        successBodyCore? := successBodyCore?
+        core? := core?
+        status := status }
+
+def Expr.observeHighLevelExternalReturnCall
+    (storageNames : List Name) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (returnTys : List Ty)
+    (expr : Expr) : HighLevelExternalCallObservation :=
+  Expr.observeHighLevelExternalCallWithReturns
+    storageNames env externalCallKindEnv "__extret" returnTys expr
+    (fun bindings =>
+      SolidCore.Solidity.Source.Stmt.returnValues
+        (CoreBindingDecls.toVarExprsAs returnTys bindings))
+
+inductive ExternalFunctionValueCallObservationStatus where
+  | resolved
+  | notFunctionValueCall
+  | typeFailure
+  | argumentFailure
+  | optionFailure
+  | functionExpansionFailed
+  | returnBindingFailure
+  | coreExpansionFailed
+  deriving Repr, BEq
+
+structure ExternalFunctionValueCallObservation where
+  source : Expr
+  functionExpr? : Option Expr := none
+  argumentCount : Nat := 0
+  optionNames : List Name := []
+  paramTys? : Option (List Ty) := none
+  returnTys? : Option (List Ty) := none
+  coreArgTys? : Option (List CoreTy) := none
+  kind? : Option CoreLowLevelCallKind := none
+  mutability? : Option StateMutability := none
+  checkTargetCode : Bool := false
+  functionCore? : Option CoreExpr := none
+  targetCore? : Option CoreExpr := none
+  calldataCore? : Option CoreExpr := none
+  valueCore? : Option CoreExpr := none
+  gasCore? : Option CoreExpr := none
+  gasFirst? : Option Bool := none
+  returnBindingNames : List Name := []
+  returnBindingTys : List CoreTy := []
+  successBodyCore? : Option CoreStmt := none
+  core? : Option CoreStmt := none
+  status : ExternalFunctionValueCallObservationStatus
+  deriving Repr
+
+def Expr.externalFunctionValueCallParts? :
+    Expr -> Option (Expr × List CallOption × List Arg)
+  | Expr.call fn args => some (fn, [], args)
+  | Expr.callWithOptions fn options args => some (fn, options, args)
+  | _ => none
+
+def externalFunctionValueTypeParts? (ty : Ty) :
+    Option (List Ty × List Ty × StateMutability) :=
+  match ty with
+  | Ty.functionWithLocations paramTys _ returnTys _ mutability
+      Visibility.external_ =>
+      some (paramTys, returnTys, mutability)
+  | _ => none
+
+def externalFunctionValueOptionsCore? (storageNames : List Name)
+    (mutability : StateMutability) (options : List CallOption) :
+    Option (CoreExpr × Option CoreExpr × Bool) :=
+  let kind := StateMutability.externalFunctionCallKind mutability
+  StateMutability.externalCallOptionsCore?
+    storageNames (some mutability) kind options
+
+def Expr.observeExternalFunctionValueCallWithReturns
+    (storageNames : List Name) (env : TypeEnv) (namePrefix : String)
+    (expr : Expr) (successBody : List CoreBindingDecl -> CoreStmt) :
+    ExternalFunctionValueCallObservation :=
+  match Expr.externalFunctionValueCallParts? expr with
+  | none =>
+      { source := expr
+        status :=
+          ExternalFunctionValueCallObservationStatus.notFunctionValueCall }
+  | some (fn, options, args) =>
+      let fnTy? := Expr.abiTyWithEnv? env fn
+      let parts? :=
+        match fnTy? with
+        | some ty => externalFunctionValueTypeParts? ty
+        | none => none
+      let functionCore? := Expr.toCore? storageNames fn
+      let coreArgTys? :=
+        match parts? with
+        | some (paramTys, _, _) =>
+            if paramTys.length == args.length then
+              Ty.listToCore? paramTys
+            else
+              none
+        | none => none
+      let optionCore? :=
+        match parts? with
+        | some (paramTys, _, mutability) =>
+            if paramTys.length == args.length then
+              externalFunctionValueOptionsCore?
+                storageNames mutability options
+            else
+              none
+        | none => none
+      let callCoreParts? :=
+        Expr.externalFunctionValueCallCore? storageNames env expr
+      let returnBindings? :=
+        match parts? with
+        | some (_, returnTys, _) =>
+            Tys.toExternalReturnBindings? namePrefix returnTys
+        | none => none
+      let successBodyCore? := returnBindings?.map successBody
+      let core? :=
+        Expr.externalFunctionValueCallWithReturnsCore?
+          storageNames env namePrefix expr successBody
+      let status :=
+        match parts? with
+        | none =>
+            ExternalFunctionValueCallObservationStatus.typeFailure
+        | some (paramTys, _, _) =>
+            if !(paramTys.length == args.length) then
+              ExternalFunctionValueCallObservationStatus.argumentFailure
+            else
+              match optionCore?, functionCore?, callCoreParts?,
+                  returnBindings?, core? with
+              | none, _, _, _, _ =>
+                  ExternalFunctionValueCallObservationStatus.optionFailure
+              | _, none, _, _, _ =>
+                  ExternalFunctionValueCallObservationStatus.functionExpansionFailed
+              | _, _, none, _, _ =>
+                  ExternalFunctionValueCallObservationStatus.coreExpansionFailed
+              | _, _, _, none, _ =>
+                  ExternalFunctionValueCallObservationStatus.returnBindingFailure
+              | some _, some _, some _, some _, some _ =>
+                  ExternalFunctionValueCallObservationStatus.resolved
+              | some _, some _, some _, some _, none =>
+                  ExternalFunctionValueCallObservationStatus.coreExpansionFailed
+      { source := expr
+        functionExpr? := some fn
+        argumentCount := args.length
+        optionNames := CallOptions.names options
+        paramTys? :=
+          match parts? with
+          | some (paramTys, _, _) => some paramTys
+          | none => none
+        returnTys? :=
+          match parts? with
+          | some (_, returnTys, _) => some returnTys
+          | none => none
+        coreArgTys? := coreArgTys?
+        kind? :=
+          match parts? with
+          | some (_, _, mutability) =>
+              some (StateMutability.externalFunctionCallKind mutability)
+          | none => none
+        mutability? :=
+          match parts? with
+          | some (_, _, mutability) => some mutability
+          | none => none
+        checkTargetCode :=
+          match parts? with
+          | some (_, returnTys, _) => returnTys.isEmpty
+          | none => false
+        functionCore? := functionCore?
+        targetCore? :=
+          match callCoreParts? with
+          | some (_, _, targetCore, _, _, _, _) => some targetCore
+          | none => none
+        calldataCore? :=
+          match callCoreParts? with
+          | some (_, _, _, calldataCore, _, _, _) => some calldataCore
+          | none => none
+        valueCore? :=
+          match optionCore? with
+          | some (valueCore, _, _) => some valueCore
+          | none => none
+        gasCore? :=
+          match optionCore? with
+          | some (_, gasCore?, _) => gasCore?
+          | none => none
+        gasFirst? :=
+          match optionCore? with
+          | some (_, _, gasFirst) => some gasFirst
+          | none => none
+        returnBindingNames :=
+          match returnBindings? with
+          | some bindings => bindings.map (fun binding => binding.name)
+          | none => []
+        returnBindingTys :=
+          match returnBindings? with
+          | some bindings => bindings.map (fun binding => binding.ty)
+          | none => []
+        successBodyCore? := successBodyCore?
+        core? := core?
+        status := status }
+
+def Expr.observeExternalFunctionValueReturnCall
+    (storageNames : List Name) (env : TypeEnv) (expr : Expr) :
+    ExternalFunctionValueCallObservation :=
+  Expr.observeExternalFunctionValueCallWithReturns
+    storageNames env "__extfnret" expr
+    (fun bindings =>
+      SolidCore.Solidity.Source.Stmt.returnValues
+        (CoreBindingDecls.toVarExprs bindings))
+
+inductive ContractCreationExpressionObservationStatus where
+  | resolved
+  | notContractCreation
+  | typeFailure
+  | abiFailure
+  | optionFailure
+  | coreExpansionFailed
+  deriving Repr, BEq
+
+structure ContractCreationExpressionObservation where
+  source : Expr
+  contractTy? : Option Ty := none
+  contractName? : Option Name := none
+  argumentCount : Nat := 0
+  optionNames : List Name := []
+  constructorParamTys? : Option (List Ty) := none
+  coreArgTys? : Option (List CoreTy) := none
+  constructorArgsCore? : Option CoreExpr := none
+  valueCore? : Option CoreExpr := none
+  saltCore? : Option CoreExpr := none
+  core? : Option CoreExpr := none
+  status : ContractCreationExpressionObservationStatus
+  deriving Repr
+
+def Expr.contractCreationParts? :
+    Expr -> Option (Ty × List CallOption × List Arg)
+  | Expr.newExpr ty args => some (ty, [], args)
+  | Expr.callWithOptions (Expr.newExpr ty []) options args =>
+      some (ty, options, args)
+  | _ => none
+
+def ContractCreation.abiSource? (storageNames : List Name)
+    (externalCallKindEnv : ExternalCallKindEnv) (contractName : Name)
+    (args : List Arg) : Option (List Ty × List CoreTy × List CoreExpr) :=
+  match ExternalCallKindEnv.lookupConstructorEntry?
+      externalCallKindEnv contractName with
+  | some entry =>
+      ExternalCallKindEntry.toAbiCallSource? storageNames entry args
+  | none =>
+      Args.toAbiEncodeSource? storageNames args
+
+def ContractCreation.optionsCore? (storageNames : List Name)
+    (options : List CallOption) :
+    Option (CoreExpr × Option CoreExpr) := do
+  let (value?, salt?) ← CallOptions.contractCreationValueSalt? options
+  let valueCore ←
+    match value? with
+    | some value => Expr.toCore? storageNames value
+    | none => some (SolidCore.Solidity.Source.Expr.word 0)
+  let saltCore? ←
+    match salt? with
+    | some salt => do
+        let saltCore ← Expr.toCore? storageNames salt
+        some (some saltCore)
+    | none => some none
+  some (valueCore, saltCore?)
+
+def Expr.observeContractCreationExpression
+    (storageNames : List Name)
+    (externalCallKindEnv : ExternalCallKindEnv) (expr : Expr) :
+    ContractCreationExpressionObservation :=
+  match Expr.contractCreationParts? expr with
+  | none =>
+      { source := expr
+        status :=
+          ContractCreationExpressionObservationStatus.notContractCreation }
+  | some (ty, options, args) =>
+      let contractName? := Ty.contractName? ty
+      let abi? :=
+        contractName?.bind
+          (fun contractName =>
+            ContractCreation.abiSource?
+              storageNames externalCallKindEnv contractName args)
+      let optionCore? := ContractCreation.optionsCore? storageNames options
+      let core? :=
+        Expr.toContractCreationCoreWithKindEnv?
+          storageNames externalCallKindEnv expr
+      let status :=
+        match contractName?, abi?, optionCore?, core? with
+        | none, _, _, _ =>
+            ContractCreationExpressionObservationStatus.typeFailure
+        | _, none, _, _ =>
+            ContractCreationExpressionObservationStatus.abiFailure
+        | _, _, none, _ =>
+            ContractCreationExpressionObservationStatus.optionFailure
+        | some _, some _, some _, some _ =>
+            ContractCreationExpressionObservationStatus.resolved
+        | some _, some _, some _, none =>
+            ContractCreationExpressionObservationStatus.coreExpansionFailed
+      { source := expr
+        contractTy? := some ty
+        contractName? := contractName?
+        argumentCount := args.length
+        optionNames := CallOptions.names options
+        constructorParamTys? :=
+          match abi? with
+          | some (sourceTys, _, _) => some sourceTys
+          | none => none
+        coreArgTys? :=
+          match abi? with
+          | some (_, coreTys, _) => some coreTys
+          | none => none
+        constructorArgsCore? :=
+          match abi? with
+          | some (_, coreTys, coreExprs) =>
+              some
+                (SolidCore.Solidity.Source.Expr.abiEncode
+                  coreTys coreExprs)
+          | none => none
+        valueCore? :=
+          match optionCore? with
+          | some (valueCore, _) => some valueCore
+          | none => none
+        saltCore? :=
+          match optionCore? with
+          | some (_, saltCore?) => saltCore?
+          | none => none
+        core? := core?
+        status := status }
+
+inductive InternalCallTargetKind where
+  | contractFunction
+  | freeFunction
+  deriving Repr, BEq
+
+inductive InternalCallObservationStatus where
+  | resolved
+  | missingCallee
+  | expansionFailed
+  deriving Repr, BEq
+
+structure InternalCallObservation where
+  name : Name
+  argumentCount : Nat
+  selectedKind? : Option InternalCallTargetKind := none
+  selectedFunctionName? : Option Name := none
+  sourceArgs? : Option (List Expr) := none
+  parameterCount? : Option Nat := none
+  returnCount? : Option Nat := none
+  returnNames : List Name := []
+  returnStorageRefs : List Bool := []
+  prefixCore? : Option (List CoreStmt) := none
+  bodyCore? : Option CoreStmt := none
+  statementCore? : Option CoreStmt := none
+  status : InternalCallObservationStatus
+  deriving Repr
+
+inductive InternalExpressionElaborationKind where
+  | directCore
+  | singleReturnInternalCall
+  | unaryWrapper
+  | typeConversionWrapper
+  | ternaryConditionWrapper
+  | ternaryBranchWrapper
+  | unsupported
+  deriving Repr, BEq
+
+inductive InternalBinaryExpressionElaborationStatus where
+  | resolved
+  | notBinaryExpression
+  | unsupportedOperator
+  | coreExpansionFailed
+  deriving Repr, BEq
+
+structure InternalBinaryExpressionElaborationObservation where
+  source : Expr
+  operator? : Option BinaryOp := none
+  lhs? : Option Expr := none
+  rhs? : Option Expr := none
+  lhsKind? : Option InternalExpressionElaborationKind := none
+  rhsKind? : Option InternalExpressionElaborationKind := none
+  evaluationOrder : List Expr := []
+  rightOperandMayBeSkipped : Bool := false
+  leftTemporary? : Option Name := none
+  core? : Option CoreStmt := none
+  status : InternalBinaryExpressionElaborationStatus
+  deriving Repr
+
+def FunctionDecl.internalExpressionElaborationKind
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (expr : Expr) : InternalExpressionElaborationKind :=
+  let useResult : CoreExpr -> CoreStmt :=
+    fun resultExpr =>
+      SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]
+  match Expr.toCore? storageNames expr with
+  | some _ => InternalExpressionElaborationKind.directCore
+  | none =>
+      match expr with
+      | Expr.call (Expr.ident name) args =>
+          match FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions name args useResult with
+          | some _ =>
+              InternalExpressionElaborationKind.singleReturnInternalCall
+          | none => InternalExpressionElaborationKind.unsupported
+      | Expr.unary op inner =>
+          match FunctionDecl.internalUnarySingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions op inner useResult with
+          | some _ => InternalExpressionElaborationKind.unaryWrapper
+          | none => InternalExpressionElaborationKind.unsupported
+      | Expr.call (Expr.typeName targetTy) [Arg.positional inner] =>
+          match FunctionDecl.internalTypeConversionSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions targetTy inner useResult with
+          | some _ => InternalExpressionElaborationKind.typeConversionWrapper
+          | none => InternalExpressionElaborationKind.unsupported
+      | Expr.ternary cond thenExpr elseExpr =>
+          match FunctionDecl.internalTernaryConditionSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions cond thenExpr elseExpr
+              useResult with
+          | some _ =>
+              InternalExpressionElaborationKind.ternaryConditionWrapper
+          | none =>
+              match FunctionDecl.internalTernaryBranchSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions cond thenExpr elseExpr
+                  useResult with
+              | some _ =>
+                  InternalExpressionElaborationKind.ternaryBranchWrapper
+              | none => InternalExpressionElaborationKind.unsupported
+      | _ => InternalExpressionElaborationKind.unsupported
+
+def FunctionDecl.observeInternalCall
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name)
+    (args : List Arg) : InternalCallObservation :=
+  let selected? :
+      Option (InternalCallTargetKind × FunctionDecl × List Expr) :=
+    match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
+    | some (callee, sourceArgs) =>
+        some (InternalCallTargetKind.contractFunction, callee, sourceArgs)
+    | none =>
+        match
+            FunctionDecl.findInternalCalleeWithArgs?
+              freeFunctions env name args with
+        | some (callee, sourceArgs) =>
+            some (InternalCallTargetKind.freeFunction, callee, sourceArgs)
+        | none => none
+  let parts? :=
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  let statementCore? :=
+    FunctionDecl.internalStatementCallCore?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions name args
+  let status :=
+    match selected?, parts? with
+    | none, _ => InternalCallObservationStatus.missingCallee
+    | some _, some _ => InternalCallObservationStatus.resolved
+    | some _, none => InternalCallObservationStatus.expansionFailed
+  { name := name
+    argumentCount := args.length
+    selectedKind? :=
+      match selected? with
+      | some (kind, _, _) => some kind
+      | none => none
+    selectedFunctionName? :=
+      match selected? with
+      | some (_, callee, _) => callee.name
+      | none => none
+    sourceArgs? :=
+      match selected? with
+      | some (_, _, sourceArgs) => some sourceArgs
+      | none => none
+    parameterCount? :=
+      match selected? with
+      | some (_, callee, _) => some callee.params.length
+      | none => none
+    returnCount? :=
+      match selected? with
+      | some (_, callee, _) => some callee.returns.length
+      | none => none
+    returnNames :=
+      match parts? with
+      | some (returnBindings, _, _, _) =>
+          returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+      | none => []
+    returnStorageRefs :=
+      match parts? with
+      | some (_, returnStorageRefs, _, _) => returnStorageRefs
+      | none => []
+    prefixCore? :=
+      match parts? with
+      | some (_, _, prefixCore, _) => some prefixCore
+      | none => none
+    bodyCore? :=
+      match parts? with
+      | some (_, _, _, bodyCore) => some bodyCore
+      | none => none
+    statementCore? := statementCore?
+    status := status }
+
+def FunctionDecl.observeInternalBinaryExpressionElaboration
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (expr : Expr)
+    (useResult : CoreExpr -> CoreStmt) :
+    InternalBinaryExpressionElaborationObservation :=
+  match expr with
+  | Expr.binary op lhs rhs =>
+      let core? :=
+        FunctionDecl.internalBinarySingleReturnUseCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions op lhs rhs useResult
+      let status :=
+        match BinaryOp.toCore? op, core? with
+        | none, _ =>
+            InternalBinaryExpressionElaborationStatus.unsupportedOperator
+        | some _, some _ =>
+            InternalBinaryExpressionElaborationStatus.resolved
+        | some _, none =>
+            InternalBinaryExpressionElaborationStatus.coreExpansionFailed
+      { source := expr
+        operator? := some op
+        lhs? := some lhs
+        rhs? := some rhs
+        lhsKind? :=
+          some
+            (FunctionDecl.internalExpressionElaborationKind
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions lhs)
+        rhsKind? :=
+          some
+            (FunctionDecl.internalExpressionElaborationKind
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions rhs)
+        evaluationOrder := [lhs, rhs]
+        rightOperandMayBeSkipped :=
+          match op with
+          | BinaryOp.boolAnd => true
+          | BinaryOp.boolOr => true
+          | _ => false
+        leftTemporary? :=
+          if core?.isSome then some "_sol_bin_lhs" else none
+        core? := core?
+        status := status }
+  | _ =>
+      { source := expr
+        status :=
+          InternalBinaryExpressionElaborationStatus.notBinaryExpression }
+
 def Stmt.listToCoreWithInternalCalls? (env : TypeEnv) (storageNames : List Name)
     (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty) (stmts : List Stmt) :
@@ -11271,7 +15932,6 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replacement body
           some (SolidCore.Solidity.Source.Stmt.block coreBody)
       | Stmt.ifElse cond thenBranch elseBranch => do
-          let condCore ← Expr.toCore? storageNames cond
           let thenCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -11285,8 +15945,12 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   modifiers functions freeFunctions returnTys returnNames
                   replacement stmt
             | none => some SolidCore.Solidity.Source.Stmt.skip
-          some (SolidCore.Solidity.Source.Stmt.ifElse
-            condCore thenCore elseCore)
+          FunctionDecl.conditionUseCoreWithInternalCalls?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions cond
+            (fun condCore =>
+              SolidCore.Solidity.Source.Stmt.ifElse
+                condCore thenCore elseCore)
       | Stmt.whileLoop cond body => do
           let condCore ← Expr.toCore? storageNames cond
           let bodyCore ←
@@ -11341,7 +16005,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
-                  checkTargetCode []
+                  checkTargetCode [] []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
               match Expr.externalFunctionValueCallCore? storageNames env expr with
@@ -11350,7 +16014,7 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   some
                     (SolidCore.Solidity.Source.Stmt.tryExternalCall
                       kind targetCore calldataCore valueCore gasCore? gasFirst
-                      true []
+                      true [] []
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
@@ -11362,6 +16026,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
       | Stmt.tryCatchReturns expr returns success clauses => do
           let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
+          let returnAbiCleanups ←
+            Tys.toCoreAbiCleanups? (returns.map Parameter.ty)
           let successEnv := Parameters.extendTypeEnv "_try" env returns
           let successCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
@@ -11382,7 +16048,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               some
                 (SolidCore.Solidity.Source.Stmt.tryExternalCall
                   kind targetCore calldataCore valueCore gasCore? gasFirst
-                  checkTargetCode returnBindings successCore catchCore)
+                  checkTargetCode returnBindings returnAbiCleanups
+                  successCore catchCore)
           | none => do
               match Expr.externalFunctionValueCallCore? storageNames env expr with
               | some (kind, _, targetCore, calldataCore, valueCore, gasCore?,
@@ -11391,7 +16058,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   some
                     (SolidCore.Solidity.Source.Stmt.tryExternalCall
                       kind targetCore calldataCore valueCore gasCore? gasFirst
-                      checkTargetCode returnBindings successCore catchCore)
+                      checkTargetCode returnBindings returnAbiCleanups
+                      successCore catchCore)
               | none => do
                   let (contractName, argsCore, valueCore, saltCore?) ←
                     Expr.toContractCreationWithKindEnv?
@@ -11538,14 +16206,16 @@ def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
     (invocation : SourceModifierInvocation) (inner : CoreStmt) :
     Option CoreStmt := do
   let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
   let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
   let prefixCore ←
     Stmt.listToCoreWithInternalCallsWithRefs?
       internalFuel storageRefEnv env externalCallKindEnv storageNames available functions
       freeFunctions returnTys prefixStmts
-  let modifierEnv := Parameters.extendTypeEnv "_mod" env decl.params
+  let modifierParams := ModifierDecl.aliasedParams decl
+  let modifierEnv := Parameters.extendTypeEnv "_mod" env modifierParams
   let modifierStorageRefEnv :=
-    Parameters.extendStorageRefEnv "_mod" storageRefEnv decl.params
+    Parameters.extendStorageRefEnv "_mod" storageRefEnv modifierParams
   let body := Stmt.annotateAbi modifierEnv body
   let bodyCore ←
     Stmt.toCoreWithInternalCallsReplacingModifierPlaceholder?
@@ -11590,6 +16260,13 @@ termination_by invocations.length
 
 def libraryHelperName (libraryName functionName : Name) : Name :=
   "__library_" ++ libraryName ++ "_" ++ functionName
+
+def libraryHelperNameForIndex (libraryName functionName : Name)
+    (index : Nat) : Name :=
+  if index == 0 then
+    libraryHelperName libraryName functionName
+  else
+    libraryHelperName libraryName functionName ++ "_overload_" ++ toString index
 
 def ContractDecl.isLibrary (decl : ContractDecl) : Bool :=
   match decl.kind with
@@ -11640,6 +16317,23 @@ def ContractDecl.findOrdinaryFunctionByName? (decl : ContractDecl)
     (name : Name) : Option FunctionDecl :=
   ContractItems.findOrdinaryFunctionByName? decl.items name
 
+def ContractItems.ordinaryFunctionsByName (items : List ContractItem)
+    (name : Name) : List FunctionDecl :=
+  items.filterMap (fun item =>
+    match item with
+    | ContractItem.function fn =>
+        if FunctionDecl.isInlineLibraryFunction fn then
+          match fn.name with
+          | some fnName => if fnName == name then some fn else none
+          | none => none
+        else
+          none
+    | _ => none)
+
+def ContractDecl.ordinaryFunctionsByName (decl : ContractDecl)
+    (name : Name) : List FunctionDecl :=
+  ContractItems.ordinaryFunctionsByName decl.items name
+
 def ContractItems.findExternalLibraryFunctionByName?
     (items : List ContractItem) (name : Name) : Option FunctionDecl :=
   match items with
@@ -11664,6 +16358,23 @@ def ContractDecl.findExternalLibraryFunctionByName? (decl : ContractDecl)
     (name : Name) : Option FunctionDecl :=
   ContractItems.findExternalLibraryFunctionByName? decl.items name
 
+def ContractItems.externalLibraryFunctionsByName (items : List ContractItem)
+    (name : Name) : List FunctionDecl :=
+  items.filterMap (fun item =>
+    match item with
+    | ContractItem.function fn =>
+        if FunctionDecl.isExternalLibraryFunction fn then
+          match fn.name with
+          | some fnName => if fnName == name then some fn else none
+          | none => none
+        else
+          none
+    | _ => none)
+
+def ContractDecl.externalLibraryFunctionsByName (decl : ContractDecl)
+    (name : Name) : List FunctionDecl :=
+  ContractItems.externalLibraryFunctionsByName decl.items name
+
 def FunctionDecl.firstParamMatches? (env : TypeEnv)
     (receiver : Expr) (decl : FunctionDecl) : Option Bool := do
   match decl.params with
@@ -11672,11 +16383,42 @@ def FunctionDecl.firstParamMatches? (env : TypeEnv)
       some (Ty.matchesShape receiverTy first.ty)
   | [] => some false
 
+def FunctionDecl.firstParamMatchesWithInternalFunctions?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (receiver : Expr) (decl : FunctionDecl) : Option Bool := do
+  match decl.params with
+  | first :: _ =>
+      let receiverTy ←
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env receiver
+      some (Ty.matchesShape receiverTy first.ty)
+  | [] => some false
+
+def FunctionDecl.annotateSingleCoreReturn (decl : FunctionDecl)
+    (expr : Expr) : Expr :=
+  match decl.returns with
+  | [ret] =>
+      match Ty.internalCallConversionCore? ret.ty with
+      | some _ => Expr.call (Expr.typeName ret.ty) [Arg.positional expr]
+      | none => expr
+  | _ => expr
+
 def UsingDecl.targetMatches? (env : TypeEnv)
     (receiver : Expr) (decl : UsingDecl) : Option Bool :=
   match decl.target with
   | some targetTy => do
       let receiverTy ← Expr.abiTyWithEnv? env receiver
+      some (Ty.matchesShape receiverTy targetTy)
+  | none => some true
+
+def UsingDecl.targetMatchesWithInternalFunctions?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (receiver : Expr) (decl : UsingDecl) : Option Bool :=
+  match decl.target with
+  | some targetTy => do
+      let receiverTy ←
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env receiver
       some (Ty.matchesShape receiverTy targetTy)
   | none => some true
 
@@ -11695,7 +16437,28 @@ def UsingDecl.targetMatchesBinary? (env : TypeEnv)
       | none, none => none
   | none => some true
 
-def FunctionDecl.usingFreeFunctionArgs? (freeFunctions : List FunctionDecl)
+def UsingDecl.targetMatchesBinaryWithInternalFunctions?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (lhs rhs : Expr) (decl : UsingDecl) : Option Bool :=
+  match decl.target with
+  | some targetTy => do
+      let lhsTy? :=
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env lhs
+      let rhsTy? :=
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env rhs
+      match lhsTy?, rhsTy? with
+      | some lhsTy, some rhsTy =>
+          some (Ty.matchesShape lhsTy targetTy ||
+            Ty.matchesShape rhsTy targetTy)
+      | some lhsTy, none => some (Ty.matchesShape lhsTy targetTy)
+      | none, some rhsTy => some (Ty.matchesShape rhsTy targetTy)
+      | none, none => none
+  | none => some true
+
+def FunctionDecl.usingFreeFunctionArgs?
+    (functions freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (functionName : Name)
     (args : List Arg) : Option (List Expr) := do
   let candidates :=
@@ -11711,8 +16474,8 @@ def FunctionDecl.usingFreeFunctionArgs? (freeFunctions : List FunctionDecl)
       match Args.toExprsForParams? (fn.params.drop 1) args with
       | some orderedArgs =>
           match
-              Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
-                env fn.params
+              Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+                functions freeFunctions env fn.params
               (receiver :: orderedArgs) with
           | some true => true
           | _ => false
@@ -11720,7 +16483,8 @@ def FunctionDecl.usingFreeFunctionArgs? (freeFunctions : List FunctionDecl)
   let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
   some (receiver :: orderedArgs)
 
-def FunctionDecl.usingFreeFunctionOperands? (freeFunctions : List FunctionDecl)
+def FunctionDecl.usingFreeFunctionOperands?
+    (functions freeFunctions : List FunctionDecl)
     (env : TypeEnv) (functionName : Name) (operands : List Expr) :
     Option (List Expr) := do
   let candidates :=
@@ -11733,10 +16497,170 @@ def FunctionDecl.usingFreeFunctionOperands? (freeFunctions : List FunctionDecl)
       | none => false)
   let _ ←
     candidates.find? (fun fn =>
-      match Parameters.matchArgsWithEnv? env fn.params operands with
+      match
+          Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+            functions freeFunctions env fn.params operands with
       | some true => true
       | _ => false)
   some operands
+
+def Path.qualifyIfUnqualified (scope : Name) (path : Path) : Path :=
+  match path.segments with
+  | [name] => { segments := [scope, name] }
+  | _ => path
+
+mutual
+
+def Ty.qualifyUnqualifiedUserTypes (scope : Name) : Ty -> Ty
+  | Ty.array element size =>
+      Ty.array (Ty.qualifyUnqualifiedUserTypes scope element) size
+  | Ty.mapping key value =>
+      Ty.mapping
+        (Ty.qualifyUnqualifiedUserTypes scope key)
+        (Ty.qualifyUnqualifiedUserTypes scope value)
+  | Ty.tuple tys =>
+      Ty.tuple (tys.map (Ty.qualifyUnqualifiedUserTypes scope))
+  | Ty.struct path tys =>
+      Ty.struct
+        (Path.qualifyIfUnqualified scope path)
+        (tys.map (Ty.qualifyUnqualifiedUserTypes scope))
+  | Ty.user path =>
+      Ty.user (Path.qualifyIfUnqualified scope path)
+  | Ty.functionWithLocations params paramLocations returns returnLocations
+      mutability visibility =>
+      Ty.functionWithLocations
+        (params.map (Ty.qualifyUnqualifiedUserTypes scope))
+        paramLocations
+        (returns.map (Ty.qualifyUnqualifiedUserTypes scope))
+        returnLocations mutability visibility
+  | other => other
+
+end
+
+def Parameter.qualifyUnqualifiedUserTypes (scope : Name)
+    (param : Parameter) : Parameter :=
+  { param with ty := Ty.qualifyUnqualifiedUserTypes scope param.ty }
+
+def FunctionDecl.qualifyUnqualifiedUserTypes (scope : Name)
+    (decl : FunctionDecl) : FunctionDecl :=
+  { decl with
+    params := decl.params.map (Parameter.qualifyUnqualifiedUserTypes scope)
+    returns := decl.returns.map (Parameter.qualifyUnqualifiedUserTypes scope) }
+
+def FunctionDecl.rewriteUsingLibraryCandidateWithSignature?
+    (_libraryName _method : Name) (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg)
+    (helperName : Name) (sourceFn matchFn : FunctionDecl) : Option Expr := do
+  let firstMatches ←
+    FunctionDecl.firstParamMatchesWithInternalFunctions?
+      functions freeFunctions env receiver matchFn
+  if firstMatches then
+    some ()
+  else
+    none
+  let orderedArgs ← Args.toExprsForParams? (matchFn.params.drop 1) args
+  match
+      Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+        functions freeFunctions env matchFn.params
+        (receiver :: orderedArgs) with
+  | some true =>
+      some <|
+        FunctionDecl.annotateSingleCoreReturn sourceFn
+          (Expr.call
+            (Expr.ident helperName)
+            ((receiver :: orderedArgs).map Arg.positional))
+  | _ => none
+
+def FunctionDecl.rewriteUsingLibraryCandidate? (libraryName _method : Name)
+    (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg)
+    (helperName : Name) (fn : FunctionDecl) : Option Expr :=
+  match
+      FunctionDecl.rewriteUsingLibraryCandidateWithSignature?
+        libraryName _method functions freeFunctions env receiver args
+        helperName fn fn with
+  | some rewritten => some rewritten
+  | none =>
+      let matchFn := FunctionDecl.qualifyUnqualifiedUserTypes libraryName fn
+      FunctionDecl.rewriteUsingLibraryCandidateWithSignature?
+        libraryName _method functions freeFunctions env receiver args
+        helperName fn matchFn
+
+def FunctionDecl.rewriteUsingExternalLibraryCandidateWithSignature?
+    (_libraryName method : Name) (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg)
+    (sourceFn matchFn : FunctionDecl) : Option Expr := do
+  let firstMatches ←
+    FunctionDecl.firstParamMatchesWithInternalFunctions?
+      functions freeFunctions env receiver matchFn
+  if firstMatches then
+    some ()
+  else
+    none
+  let orderedArgs ← Args.toExprsForParams? (matchFn.params.drop 1) args
+  match
+      Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+        functions freeFunctions env matchFn.params
+        (receiver :: orderedArgs) with
+  | some true =>
+      some <|
+        FunctionDecl.annotateSingleCoreReturn sourceFn
+          (Expr.call
+            (Expr.member (Expr.ident (generatedLibraryAddressIdent _libraryName))
+              method)
+            ((receiver :: orderedArgs).map Arg.positional))
+  | _ => none
+
+def FunctionDecl.rewriteUsingExternalLibraryCandidate? (libraryName method : Name)
+    (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg)
+    (fn : FunctionDecl) : Option Expr :=
+  match
+      FunctionDecl.rewriteUsingExternalLibraryCandidateWithSignature?
+        libraryName method functions freeFunctions env receiver args fn fn with
+  | some rewritten => some rewritten
+  | none =>
+      let matchFn := FunctionDecl.qualifyUnqualifiedUserTypes libraryName fn
+      FunctionDecl.rewriteUsingExternalLibraryCandidateWithSignature?
+        libraryName method functions freeFunctions env receiver args fn matchFn
+
+def FunctionDecls.rewriteUsingLibraryCandidateFrom? (libraryName method : Name)
+    (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg) (index : Nat) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      let helperName := libraryHelperNameForIndex libraryName method index
+      match
+          FunctionDecl.rewriteUsingLibraryCandidate?
+            libraryName method functions freeFunctions env receiver args
+            helperName fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteUsingLibraryCandidateFrom?
+            libraryName method functions freeFunctions env receiver args
+            (index + 1) rest
+
+def FunctionDecls.rewriteUsingLibraryCandidate? (libraryName method : Name)
+    (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg)
+    (candidates : List FunctionDecl) : Option Expr :=
+  FunctionDecls.rewriteUsingLibraryCandidateFrom?
+    libraryName method functions freeFunctions env receiver args 0 candidates
+
+def FunctionDecls.rewriteUsingExternalLibraryCandidate?
+    (libraryName method : Name) (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      match
+          FunctionDecl.rewriteUsingExternalLibraryCandidate?
+            libraryName method functions freeFunctions env receiver args fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteUsingExternalLibraryCandidate?
+            libraryName method functions freeFunctions env receiver args rest
 
 def UsingFunction.rewriteCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
@@ -11753,28 +16677,16 @@ def UsingFunction.rewriteCall? (contracts : List ContractDecl)
   if libraryPath.segments.isEmpty then
     let orderedArgs ←
       FunctionDecl.usingFreeFunctionArgs?
-        freeFunctions env receiver functionName args
+        freeFunctions freeFunctions env receiver functionName args
     some
       (Expr.call (Expr.ident functionName)
         (orderedArgs.map Arg.positional))
   else
     let libraryName ← pathLast? libraryPath
     let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-    let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl functionName
-    let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
-    if firstMatches then
-      some ()
-    else
-      none
-    let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-    match Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
-        env fn.params
-        (receiver :: orderedArgs) with
-    | some true =>
-        some
-          (Expr.call (Expr.ident (libraryHelperName libraryName functionName))
-            ((receiver :: orderedArgs).map Arg.positional))
-    | _ => none
+    FunctionDecls.rewriteUsingLibraryCandidate?
+      libraryName functionName freeFunctions freeFunctions env receiver args
+      (ContractDecl.ordinaryFunctionsByName libraryDecl functionName)
 
 def UsingFunction.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (op : BinaryOp) (lhs rhs : Expr)
@@ -11790,7 +16702,7 @@ def UsingFunction.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
     none
   let orderedArgs ←
     FunctionDecl.usingFreeFunctionOperands?
-      freeFunctions env functionName [lhs, rhs]
+      freeFunctions freeFunctions env functionName [lhs, rhs]
   some
     (Expr.call (Expr.ident functionName)
       (orderedArgs.map Arg.positional))
@@ -11809,7 +16721,7 @@ def UsingFunction.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
     none
   let orderedArgs ←
     FunctionDecl.usingFreeFunctionOperands?
-      freeFunctions env functionName [operand]
+      freeFunctions freeFunctions env functionName [operand]
   some
     (Expr.call (Expr.ident functionName)
       (orderedArgs.map Arg.positional))
@@ -11858,7 +16770,9 @@ def UsingDecl.rewriteCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) (decl : UsingDecl) : Option Expr :=
-  match UsingDecl.targetMatches? env receiver decl with
+  match
+      UsingDecl.targetMatchesWithInternalFunctions?
+        freeFunctions freeFunctions env receiver decl with
   | some true =>
       if !decl.functions.isEmpty then
         UsingFunctions.rewriteCall?
@@ -11867,27 +16781,17 @@ def UsingDecl.rewriteCall? (contracts : List ContractDecl)
         do
         let libraryName ← pathLast? decl.library
         let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-        let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
-        let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
-        if firstMatches then
-          some ()
-        else
-          none
-        let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-        match Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
-            env fn.params
-            (receiver :: orderedArgs) with
-        | some true =>
-            some
-              (Expr.call (Expr.ident (libraryHelperName libraryName method))
-                ((receiver :: orderedArgs).map Arg.positional))
-        | _ => none
+        FunctionDecls.rewriteUsingLibraryCandidate?
+          libraryName method freeFunctions freeFunctions env receiver args
+          (ContractDecl.ordinaryFunctionsByName libraryDecl method)
   | _ => none
 
 def UsingDecl.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (op : BinaryOp) (lhs rhs : Expr)
     (decl : UsingDecl) : Option Expr :=
-  match UsingDecl.targetMatchesBinary? env lhs rhs decl with
+  match
+      UsingDecl.targetMatchesBinaryWithInternalFunctions?
+        freeFunctions freeFunctions env lhs rhs decl with
   | some true =>
       UsingFunctions.rewriteBinaryOperator?
         freeFunctions env op lhs rhs decl.functions
@@ -11896,7 +16800,9 @@ def UsingDecl.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
 def UsingDecl.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (op : UnaryOp) (operand : Expr)
     (decl : UsingDecl) : Option Expr :=
-  match UsingDecl.targetMatches? env operand decl with
+  match
+      UsingDecl.targetMatchesWithInternalFunctions?
+        freeFunctions freeFunctions env operand decl with
   | some true =>
       UsingFunctions.rewriteUnaryOperator?
         freeFunctions env op operand decl.functions
@@ -11906,6 +16812,7 @@ def libraryExternalCallTarget (libraryName method : Name) : Expr :=
   Expr.member (Expr.ident (generatedLibraryAddressIdent libraryName)) method
 
 def UsingFunction.rewriteExternalCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) (binding : UsingFunction) : Option Expr := do
   match binding.operator? with
@@ -11918,61 +16825,42 @@ def UsingFunction.rewriteExternalCall? (contracts : List ContractDecl)
     none
   let libraryName ← pathLast? libraryPath
   let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-  let fn ←
-    ContractDecl.findExternalLibraryFunctionByName? libraryDecl functionName
-  let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
-  if firstMatches then
-    some ()
-  else
-    none
-  let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-  match Parameters.matchArgsWithEnv? env fn.params (receiver :: orderedArgs) with
-  | some true =>
-      some
-        (Expr.call (libraryExternalCallTarget libraryName functionName)
-          ((receiver :: orderedArgs).map Arg.positional))
-  | _ => none
+  FunctionDecls.rewriteUsingExternalLibraryCandidate?
+    libraryName functionName freeFunctions freeFunctions env receiver args
+    (ContractDecl.externalLibraryFunctionsByName libraryDecl functionName)
 
 def UsingFunctions.rewriteExternalCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) : List UsingFunction -> Option Expr
   | [] => none
   | binding :: rest =>
       match
           UsingFunction.rewriteExternalCall?
-            contracts env receiver method args binding with
+            contracts freeFunctions env receiver method args binding with
       | some rewritten => some rewritten
       | none =>
           UsingFunctions.rewriteExternalCall?
-            contracts env receiver method args rest
+            contracts freeFunctions env receiver method args rest
 
 def UsingDecl.rewriteExternalCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) (decl : UsingDecl) : Option Expr :=
-  match UsingDecl.targetMatches? env receiver decl with
+  match
+      UsingDecl.targetMatchesWithInternalFunctions?
+        freeFunctions freeFunctions env receiver decl with
   | some true =>
       if !decl.functions.isEmpty then
         UsingFunctions.rewriteExternalCall?
-          contracts env receiver method args decl.functions
+          contracts freeFunctions env receiver method args decl.functions
       else
         do
         let libraryName ← pathLast? decl.library
         let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-        let fn ←
-          ContractDecl.findExternalLibraryFunctionByName? libraryDecl method
-        let firstMatches ← FunctionDecl.firstParamMatches? env receiver fn
-        if firstMatches then
-          some ()
-        else
-          none
-        let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-        match Parameters.matchArgsWithEnv? env fn.params
-            (receiver :: orderedArgs) with
-        | some true =>
-            some
-              (Expr.call (libraryExternalCallTarget libraryName method)
-                ((receiver :: orderedArgs).map Arg.positional))
-        | _ => none
+        FunctionDecls.rewriteUsingExternalLibraryCandidate?
+          libraryName method freeFunctions freeFunctions env receiver args
+          (ContractDecl.externalLibraryFunctionsByName libraryDecl method)
   | _ => none
 
 def UsingDecls.rewriteCall? (contracts : List ContractDecl)
@@ -12014,17 +16902,65 @@ def UsingDecls.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
             freeFunctions env op operand rest
 
 def UsingDecls.rewriteExternalCall? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
     (args : List Arg) : List UsingDecl -> Option Expr
   | [] => none
   | decl :: rest =>
       match
           UsingDecl.rewriteExternalCall?
-            contracts env receiver method args decl with
+            contracts freeFunctions env receiver method args decl with
       | some rewritten => some rewritten
       | none =>
           UsingDecls.rewriteExternalCall?
-            contracts env receiver method args rest
+            contracts freeFunctions env receiver method args rest
+
+def FunctionDecl.rewriteLibraryDirectCallCandidateWithSignature?
+    (_libraryName _method : Name)
+    (env : TypeEnv) (args : List Arg) (helperName : Name)
+    (sourceFn matchFn : FunctionDecl) : Option Expr := do
+  let orderedArgs ← Args.toExprsForParams? matchFn.params args
+  match
+      Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
+        env matchFn.params orderedArgs with
+  | some true =>
+      some <|
+        FunctionDecl.annotateSingleCoreReturn sourceFn
+          (Expr.call (Expr.ident helperName)
+            (orderedArgs.map Arg.positional))
+  | _ => none
+
+def FunctionDecl.rewriteLibraryDirectCallCandidate? (libraryName _method : Name)
+    (env : TypeEnv) (args : List Arg) (helperName : Name)
+    (fn : FunctionDecl) : Option Expr :=
+  match
+      FunctionDecl.rewriteLibraryDirectCallCandidateWithSignature?
+        libraryName _method env args helperName fn fn with
+  | some rewritten => some rewritten
+  | none =>
+      let matchFn := FunctionDecl.qualifyUnqualifiedUserTypes libraryName fn
+      FunctionDecl.rewriteLibraryDirectCallCandidateWithSignature?
+        libraryName _method env args helperName fn matchFn
+
+def FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
+    (index : Nat) : List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      let helperName := libraryHelperNameForIndex libraryName method index
+      match
+          FunctionDecl.rewriteLibraryDirectCallCandidate?
+            libraryName method env args helperName fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
+            libraryName method env args (index + 1) rest
+
+def FunctionDecls.rewriteLibraryDirectCallCandidate?
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
+    (candidates : List FunctionDecl) : Option Expr :=
+  FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
+    libraryName method env args 0 candidates
 
 def libraryDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -12032,18 +16968,50 @@ def libraryDirectCallRewrite? (contracts : List ContractDecl)
   let libraryName ←
     match receiver with
     | Expr.ident name => some name
+    | Expr.typeName (Ty.user path) => pathLast? path
     | _ => none
   let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-  let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
-  let orderedArgs ← Args.toExprsForParams? fn.params args
-  match
-      Parameters.matchArgsAllowingInternalFunctionNamesWithEnv?
-        env fn.params orderedArgs with
+  let candidates := ContractDecl.ordinaryFunctionsByName libraryDecl method
+  FunctionDecls.rewriteLibraryDirectCallCandidate?
+    libraryName method env args candidates
+
+def FunctionDecl.rewriteLibraryExternalDirectCallCandidateWithSignature?
+    (libraryName method : Name)
+    (env : TypeEnv) (args : List Arg)
+    (sourceFn matchFn : FunctionDecl) : Option Expr := do
+  let orderedArgs ← Args.toExprsForParams? matchFn.params args
+  match Parameters.matchArgsWithEnv? env matchFn.params orderedArgs with
   | some true =>
-      some
-        (Expr.call (Expr.ident (libraryHelperName libraryName method))
-          (orderedArgs.map Arg.positional))
+      some <|
+        FunctionDecl.annotateSingleCoreReturn sourceFn
+          (Expr.call (libraryExternalCallTarget libraryName method)
+            (orderedArgs.map Arg.positional))
   | _ => none
+
+def FunctionDecl.rewriteLibraryExternalDirectCallCandidate?
+    (libraryName method : Name)
+    (env : TypeEnv) (args : List Arg) (fn : FunctionDecl) : Option Expr :=
+  match
+      FunctionDecl.rewriteLibraryExternalDirectCallCandidateWithSignature?
+        libraryName method env args fn fn with
+  | some rewritten => some rewritten
+  | none =>
+      let matchFn := FunctionDecl.qualifyUnqualifiedUserTypes libraryName fn
+      FunctionDecl.rewriteLibraryExternalDirectCallCandidateWithSignature?
+        libraryName method env args fn matchFn
+
+def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      match
+          FunctionDecl.rewriteLibraryExternalDirectCallCandidate?
+            libraryName method env args fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
+            libraryName method env args rest
 
 def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -12051,16 +17019,12 @@ def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
   let libraryName ←
     match receiver with
     | Expr.ident name => some name
+    | Expr.typeName (Ty.user path) => pathLast? path
     | _ => none
   let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
-  let fn ← ContractDecl.findExternalLibraryFunctionByName? libraryDecl method
-  let orderedArgs ← Args.toExprsForParams? fn.params args
-  match Parameters.matchArgsWithEnv? env fn.params orderedArgs with
-  | some true =>
-      some
-        (Expr.call (libraryExternalCallTarget libraryName method)
-          (orderedArgs.map Arg.positional))
-  | _ => none
+  let candidates := ContractDecl.externalLibraryFunctionsByName libraryDecl method
+  FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
+    libraryName method env args candidates
 
 mutual
 
@@ -12112,7 +17076,8 @@ def Expr.expandUsingFuel :
                   | some rewritten => rewritten
                   | none =>
                       match UsingDecls.rewriteExternalCall?
-                          contracts env receiver' method args' usingDecls with
+                          contracts freeFunctions env receiver' method args'
+                          usingDecls with
                       | some rewritten => rewritten
                       | none => Expr.call (Expr.member receiver' method) args'
       | Expr.call fn args =>
@@ -12145,7 +17110,8 @@ def Expr.expandUsingFuel :
                       | other => other
                   | none =>
                       match UsingDecls.rewriteExternalCall?
-                          contracts env receiver' method args' usingDecls with
+                          contracts freeFunctions env receiver' method args'
+                          usingDecls with
                       | some rewritten =>
                           match rewritten with
                           | Expr.call fn args =>
@@ -12227,6 +17193,255 @@ def Arg.expandUsing (contracts : List ContractDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv) (arg : Arg) : Arg :=
   Arg.expandUsingFuel
     defaultExpandUsingFuel contracts freeFunctions usingDecls env arg
+
+inductive UsingExpansionKind where
+  | unchanged
+  | libraryHelper
+  | externalLibrary
+  | freeFunction
+  | binaryOperator
+  | unaryOperator
+  deriving Repr, BEq
+
+structure UsingExpansionObservation where
+  contractNames : List Name
+  freeFunctionNames : List Name
+  usingCount : Nat
+  globalUsingCount : Nat
+  env : TypeEnv
+  source : Expr
+  expanded : Expr
+  kind : UsingExpansionKind
+  receiver? : Option Expr := none
+  method? : Option Name := none
+  operator? : Option UsingOperator := none
+  selectedFunction? : Option Name := none
+  libraryName? : Option Name := none
+  helperName? : Option Name := none
+  argumentCount? : Option Nat := none
+  deriving Repr
+
+def Expr.callIdentName? : Expr -> Option Name
+  | Expr.call (Expr.ident name) _ => some name
+  | Expr.callWithOptions (Expr.ident name) _ _ => some name
+  | Expr.call (Expr.typeName _) [Arg.positional inner] =>
+      Expr.callIdentName? inner
+  | _ => none
+
+def Expr.callArgumentCount? : Expr -> Option Nat
+  | Expr.call (Expr.typeName _) [Arg.positional inner] =>
+      Expr.callArgumentCount? inner
+  | Expr.call _ args => some args.length
+  | Expr.callWithOptions _ _ args => some args.length
+  | _ => none
+
+def ContractItems.libraryHelperSourceFor? (libraryName helperName : Name) :
+    List ContractItem -> Option (Name × Name)
+  | [] => none
+  | ContractItem.function fn :: rest =>
+      match fn.name with
+      | some functionName =>
+          if FunctionDecl.isInlineLibraryFunction fn &&
+              libraryHelperName libraryName functionName == helperName then
+            some (libraryName, functionName)
+          else
+            ContractItems.libraryHelperSourceFor? libraryName helperName rest
+      | none =>
+          ContractItems.libraryHelperSourceFor? libraryName helperName rest
+  | _ :: rest =>
+      ContractItems.libraryHelperSourceFor? libraryName helperName rest
+
+def ContractDecls.libraryHelperSourceFor?
+    (contracts : List ContractDecl) (helperName : Name) :
+    Option (Name × Name) :=
+  match contracts with
+  | [] => none
+  | decl :: rest =>
+      if ContractDecl.isLibrary decl then
+        match ContractItems.libraryHelperSourceFor?
+            decl.name helperName decl.items with
+        | some source => some source
+        | none => ContractDecls.libraryHelperSourceFor? rest helperName
+      else
+        ContractDecls.libraryHelperSourceFor? rest helperName
+
+def ContractDecls.generatedLibraryAddressSourceFor?
+    (contracts : List ContractDecl) (generatedName : Name) :
+    Option Name :=
+  match contracts with
+  | [] => none
+  | decl :: rest =>
+      if ContractDecl.isLibrary decl &&
+          generatedLibraryAddressIdent decl.name == generatedName then
+        some decl.name
+      else
+        ContractDecls.generatedLibraryAddressSourceFor? rest generatedName
+
+def Expr.externalLibraryCallSourceFor? (contracts : List ContractDecl) :
+    Expr -> Option (Name × Name)
+  | Expr.call (Expr.member (Expr.ident generatedName) method) _ => do
+      let libraryName ←
+        ContractDecls.generatedLibraryAddressSourceFor? contracts generatedName
+      some (libraryName, method)
+  | Expr.callWithOptions
+      (Expr.member (Expr.ident generatedName) method) _ _ => do
+      let libraryName ←
+        ContractDecls.generatedLibraryAddressSourceFor? contracts generatedName
+      some (libraryName, method)
+  | Expr.call (Expr.typeName _) [Arg.positional inner] =>
+      Expr.externalLibraryCallSourceFor? contracts inner
+  | _ => none
+
+def FunctionDecl.freeFunctionNames (functions : List FunctionDecl) :
+    List Name :=
+  functions.filterMap (fun fn => fn.name)
+
+def UsingDecls.globalCount : List UsingDecl -> Nat
+  | [] => 0
+  | decl :: rest =>
+      (if decl.global then 1 else 0) + UsingDecls.globalCount rest
+
+def UsingExpansionObservation.fromRewrittenCall
+    (contracts : List ContractDecl) (base : UsingExpansionObservation)
+    (receiver? : Option Expr) (method? : Option Name)
+    (rewritten : Expr) : UsingExpansionObservation :=
+  match Expr.externalLibraryCallSourceFor? contracts rewritten with
+  | some (libraryName, functionName) =>
+      { base with
+        kind := UsingExpansionKind.externalLibrary
+        receiver? := receiver?
+        method? := method?
+        selectedFunction? := some functionName
+        libraryName? := some libraryName
+        argumentCount? := Expr.callArgumentCount? rewritten }
+  | none =>
+      match Expr.callIdentName? rewritten with
+      | some callName =>
+          match ContractDecls.libraryHelperSourceFor? contracts callName with
+          | some (libraryName, functionName) =>
+              { base with
+                kind := UsingExpansionKind.libraryHelper
+                receiver? := receiver?
+                method? := method?
+                selectedFunction? := some functionName
+                libraryName? := some libraryName
+                helperName? := some callName
+                argumentCount? := Expr.callArgumentCount? rewritten }
+          | none =>
+              { base with
+                kind := UsingExpansionKind.freeFunction
+                receiver? := receiver?
+                method? := method?
+                selectedFunction? := some callName
+                argumentCount? := Expr.callArgumentCount? rewritten }
+      | none => base
+
+def Expr.observeUsingExpansion (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (usingDecls : List UsingDecl)
+    (env : TypeEnv) (expr : Expr) : UsingExpansionObservation :=
+  let expandExpr := Expr.expandUsing contracts freeFunctions usingDecls env
+  let expandArg := Arg.expandUsing contracts freeFunctions usingDecls env
+  let expandOption :=
+    CallOption.expandUsingFuel
+      defaultExpandUsingFuel contracts freeFunctions usingDecls env
+  let base : UsingExpansionObservation :=
+    { contractNames := contracts.map ContractDecl.name
+      freeFunctionNames := FunctionDecl.freeFunctionNames freeFunctions
+      usingCount := usingDecls.length
+      globalUsingCount := UsingDecls.globalCount usingDecls
+      env := env
+      source := expr
+      expanded := expandExpr expr
+      kind := UsingExpansionKind.unchanged }
+  match expr with
+  | Expr.call (Expr.member receiver method) args =>
+      let receiver' := expandExpr receiver
+      let args' := args.map expandArg
+      match libraryDirectCallRewrite? contracts env receiver' method args' with
+      | some rewritten =>
+          UsingExpansionObservation.fromRewrittenCall contracts base
+            (some receiver') (some method) rewritten
+      | none =>
+          match
+              libraryExternalDirectCallRewrite?
+                contracts env receiver' method args' with
+          | some rewritten =>
+              UsingExpansionObservation.fromRewrittenCall contracts base
+                (some receiver') (some method) rewritten
+          | none =>
+              match UsingDecls.rewriteCall?
+                  contracts freeFunctions env receiver' method args'
+                  usingDecls with
+              | some rewritten =>
+                  UsingExpansionObservation.fromRewrittenCall contracts base
+                    (some receiver') (some method) rewritten
+              | none =>
+                  match UsingDecls.rewriteExternalCall?
+                      contracts freeFunctions env receiver' method args'
+                      usingDecls with
+                  | some rewritten =>
+                      UsingExpansionObservation.fromRewrittenCall contracts base
+                        (some receiver') (some method) rewritten
+                  | none => base
+  | Expr.callWithOptions (Expr.member receiver method) options args =>
+      let receiver' := expandExpr receiver
+      let options' := options.map expandOption
+      let args' := args.map expandArg
+      let withOptions (rewritten : Expr) : Expr :=
+        match rewritten with
+        | Expr.call fn rewrittenArgs =>
+            Expr.callWithOptions fn options' rewrittenArgs
+        | other => other
+      match libraryDirectCallRewrite? contracts env receiver' method args' with
+      | some rewritten =>
+          UsingExpansionObservation.fromRewrittenCall contracts base
+            (some receiver') (some method) (withOptions rewritten)
+      | none =>
+          match
+              libraryExternalDirectCallRewrite?
+                contracts env receiver' method args' with
+          | some rewritten =>
+              UsingExpansionObservation.fromRewrittenCall contracts base
+                (some receiver') (some method) (withOptions rewritten)
+          | none =>
+              match UsingDecls.rewriteCall?
+                  contracts freeFunctions env receiver' method args'
+                  usingDecls with
+              | some rewritten =>
+                  UsingExpansionObservation.fromRewrittenCall contracts base
+                    (some receiver') (some method) (withOptions rewritten)
+              | none =>
+                  match UsingDecls.rewriteExternalCall?
+                      contracts freeFunctions env receiver' method args'
+                      usingDecls with
+                  | some rewritten =>
+                      UsingExpansionObservation.fromRewrittenCall contracts base
+                        (some receiver') (some method) (withOptions rewritten)
+                  | none => base
+  | Expr.binary op lhs rhs =>
+      let lhs' := expandExpr lhs
+      let rhs' := expandExpr rhs
+      match
+          UsingDecls.rewriteBinaryOperator?
+            freeFunctions env op lhs' rhs' usingDecls with
+      | some rewritten =>
+          { (UsingExpansionObservation.fromRewrittenCall contracts base
+              none none rewritten) with
+            kind := UsingExpansionKind.binaryOperator
+            operator? := some (UsingOperator.binary op) }
+      | none => base
+  | Expr.unary op operand =>
+      let operand' := expandExpr operand
+      match
+          UsingDecls.rewriteUnaryOperator?
+            freeFunctions env op operand' usingDecls with
+      | some rewritten =>
+          { (UsingExpansionObservation.fromRewrittenCall contracts base
+              (some operand') none rewritten) with
+            kind := UsingExpansionKind.unaryOperator
+            operator? := some (UsingOperator.unary op) }
+      | none => base
+  | _ => base
 
 def ModifierInvocation.expandUsing (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
@@ -12325,6 +17540,281 @@ def Stmt.expandUsing (contracts : List ContractDecl)
   (Stmt.expandUsingInSeqFuel
     defaultExpandUsingFuel contracts freeFunctions usingDecls env stmt).fst
 
+def FunctionDecl.internalLibraryCallMatches? (libraryFunctions : List FunctionDecl)
+    (env : TypeEnv) (args : List Arg) (decl : FunctionDecl) : Bool :=
+  match FunctionDecl.orderedArgs? decl args with
+  | some orderedArgs =>
+      match
+          Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+            libraryFunctions libraryFunctions env decl.params orderedArgs with
+      | some true => true
+      | _ => false
+  | none => false
+
+def FunctionDecls.libraryInternalHelperCallByMatchFrom?
+    (libraryName functionName : Name) (libraryFunctions : List FunctionDecl)
+    (env : TypeEnv) (args : List Arg) (index : Nat) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      match fn.name with
+      | some fnName =>
+          if FunctionDecl.isInlineLibraryFunction fn && fnName == functionName then
+            if FunctionDecl.internalLibraryCallMatches?
+                libraryFunctions env args fn then
+              some
+                (Expr.ident
+                  (libraryHelperNameForIndex libraryName functionName index))
+            else
+              FunctionDecls.libraryInternalHelperCallByMatchFrom?
+                libraryName functionName libraryFunctions env args
+                (index + 1) rest
+          else
+            FunctionDecls.libraryInternalHelperCallByMatchFrom?
+              libraryName functionName libraryFunctions env args index rest
+      | none =>
+          FunctionDecls.libraryInternalHelperCallByMatchFrom?
+            libraryName functionName libraryFunctions env args index rest
+
+def FunctionDecls.libraryInternalHelperCallByArityFrom?
+    (libraryName functionName : Name) (args : List Arg) (index : Nat) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      match fn.name with
+      | some fnName =>
+          if FunctionDecl.isInlineLibraryFunction fn && fnName == functionName then
+            if fn.params.length == args.length then
+              some
+                (Expr.ident
+                  (libraryHelperNameForIndex libraryName functionName index))
+            else
+              FunctionDecls.libraryInternalHelperCallByArityFrom?
+                libraryName functionName args (index + 1) rest
+          else
+            FunctionDecls.libraryInternalHelperCallByArityFrom?
+              libraryName functionName args index rest
+      | none =>
+          FunctionDecls.libraryInternalHelperCallByArityFrom?
+            libraryName functionName args index rest
+
+def libraryInternalHelperCall? (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv)
+    (name : Name) (args : List Arg) : Option Expr :=
+  match
+      FunctionDecls.libraryInternalHelperCallByMatchFrom?
+        libraryName name libraryFunctions env args 0 libraryFunctions with
+  | some helper => some helper
+  | none =>
+      FunctionDecls.libraryInternalHelperCallByArityFrom?
+        libraryName name args 0 libraryFunctions
+
+mutual
+
+def Expr.rewriteLibraryInternalCallsFuel (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv) : Nat -> Expr -> Expr
+  | 0, expr => expr
+  | fuel + 1, expr =>
+      let rewrite :=
+        Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel
+      let rewriteArg :=
+        Arg.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel
+      let rewriteOption :=
+        CallOption.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel
+      let rewriteTupleItem :=
+        TupleItem.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel
+      match expr with
+      | Expr.literal literal => Expr.literal literal
+      | Expr.ident name => Expr.ident name
+      | Expr.typeName ty => Expr.typeName ty
+      | Expr.member base member => Expr.member (rewrite base) member
+      | Expr.index base index => Expr.index (rewrite base) (rewrite index)
+      | Expr.slice base start stop =>
+          Expr.slice (rewrite base) (start.map rewrite) (stop.map rewrite)
+      | Expr.call (Expr.ident name) args =>
+          let args' := args.map rewriteArg
+          match
+              libraryInternalHelperCall?
+                libraryName libraryFunctions env name args' with
+          | some helper => Expr.call helper args'
+          | none => Expr.call (Expr.ident name) args'
+      | Expr.call fn args => Expr.call (rewrite fn) (args.map rewriteArg)
+      | Expr.callWithOptions (Expr.ident name) options args =>
+          let options' := options.map rewriteOption
+          let args' := args.map rewriteArg
+          match
+              libraryInternalHelperCall?
+                libraryName libraryFunctions env name args' with
+          | some helper =>
+              Expr.callWithOptions helper options' args'
+          | none => Expr.callWithOptions (Expr.ident name) options' args'
+      | Expr.callWithOptions fn options args =>
+          Expr.callWithOptions (rewrite fn)
+            (options.map rewriteOption) (args.map rewriteArg)
+      | Expr.newExpr ty args => Expr.newExpr ty (args.map rewriteArg)
+      | Expr.tuple items => Expr.tuple (items.map rewriteTupleItem)
+      | Expr.array exprs => Expr.array (exprs.map rewrite)
+      | Expr.enumFromUInt maxValue inner =>
+          Expr.enumFromUInt maxValue (rewrite inner)
+      | Expr.unary op inner => Expr.unary op (rewrite inner)
+      | Expr.binary op lhs rhs => Expr.binary op (rewrite lhs) (rewrite rhs)
+      | Expr.ternary cond thenExpr elseExpr =>
+          Expr.ternary (rewrite cond) (rewrite thenExpr) (rewrite elseExpr)
+      | Expr.assign lhs op rhs => Expr.assign (rewrite lhs) op (rewrite rhs)
+      | Expr.payableConversion inner => Expr.payableConversion (rewrite inner)
+termination_by fuel _ => fuel
+
+def Arg.rewriteLibraryInternalCallsFuel (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv) : Nat -> Arg -> Arg
+  | 0, arg => arg
+  | fuel + 1, Arg.positional expr =>
+      Arg.positional
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+  | fuel + 1, Arg.named name expr =>
+      Arg.named name
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+termination_by fuel _ => fuel
+
+def CallOption.rewriteLibraryInternalCallsFuel (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv) :
+    Nat -> CallOption -> CallOption
+  | 0, option => option
+  | fuel + 1, CallOption.named name expr =>
+      CallOption.named name
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+termination_by fuel _ => fuel
+
+def TupleItem.rewriteLibraryInternalCallsFuel (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv) :
+    Nat -> TupleItem -> TupleItem
+  | 0, item => item
+  | _ + 1, TupleItem.hole => TupleItem.hole
+  | fuel + 1, TupleItem.value expr =>
+      TupleItem.value
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+termination_by fuel _ => fuel
+
+def Stmt.rewriteLibraryInternalCallsFuel (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv) : Nat -> Stmt -> Stmt
+  | 0, stmt => stmt
+  | _ + 1, Stmt.empty => Stmt.empty
+  | fuel + 1, Stmt.block body =>
+      Stmt.block
+        (body.map
+          (Stmt.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+  | fuel + 1, Stmt.varDecl bindings init =>
+      Stmt.varDecl bindings
+        (init.map
+          (Expr.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+  | fuel + 1, Stmt.expr expr =>
+      Stmt.expr
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+  | fuel + 1, Stmt.ifElse cond thenBranch elseBranch =>
+      Stmt.ifElse
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel cond)
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel thenBranch)
+        (elseBranch.map
+          (Stmt.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+  | fuel + 1, Stmt.whileLoop cond body =>
+      Stmt.whileLoop
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel cond)
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel body)
+  | fuel + 1, Stmt.doWhile body cond =>
+      Stmt.doWhile
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel body)
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel cond)
+  | fuel + 1, Stmt.forLoop init cond post body =>
+      Stmt.forLoop
+        (init.map
+          (Stmt.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+        (cond.map
+          (Expr.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+        (post.map
+          (Expr.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel body)
+  | fuel + 1, Stmt.tryCatch expr clauses =>
+      Stmt.tryCatch
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+        (clauses.map
+          (CatchClause.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+  | fuel + 1, Stmt.tryCatchReturns expr returns success clauses =>
+      Stmt.tryCatchReturns
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+        returns
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel success)
+        (clauses.map
+          (CatchClause.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+  | fuel + 1, Stmt.emitEvent expr =>
+      Stmt.emitEvent
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+  | fuel + 1, Stmt.revertCall expr =>
+      Stmt.revertCall
+        (Expr.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel expr)
+  | fuel + 1, Stmt.returnValues expr? =>
+      Stmt.returnValues
+        (expr?.map
+          (Expr.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions env fuel))
+  | _ + 1, Stmt.break => Stmt.break
+  | _ + 1, Stmt.continue => Stmt.continue
+  | fuel + 1, Stmt.unchecked body =>
+      Stmt.unchecked
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel body)
+  | _ + 1, Stmt.inlineAssembly code => Stmt.inlineAssembly code
+  | _ + 1, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+termination_by fuel _ => fuel
+
+def CatchClause.rewriteLibraryInternalCallsFuel (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (env : TypeEnv) :
+    Nat -> CatchClause -> CatchClause
+  | 0, clause => clause
+  | fuel + 1, CatchClause.clause name params body =>
+      CatchClause.clause name params
+        (Stmt.rewriteLibraryInternalCallsFuel
+          libraryName libraryFunctions env fuel body)
+termination_by fuel _ => fuel
+
+end
+
+def FunctionDecl.rewriteLibraryInternalCalls
+    (libraryName : Name) (libraryFunctions : List FunctionDecl)
+    (decl : FunctionDecl) : FunctionDecl :=
+  let env := FunctionDecl.typeEnv [] decl
+  { decl with
+    body := decl.body.map
+      (Stmt.rewriteLibraryInternalCallsFuel
+        libraryName libraryFunctions env defaultExpandUsingFuel) }
+
 def ModifierDecl.expandUsing (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
     (usingDecls : List UsingDecl) (env : TypeEnv)
@@ -12354,27 +17844,31 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   let decl := FunctionDecl.resolveSelectors selectorEnv decl
   let name ← FunctionDecl.coreName? decl
   let params ← Parameters.toCoreBindings? "_arg" decl.params
+  let paramAbiCleanups ←
+    Tys.toCoreAbiCleanups? (decl.params.map Parameter.ty)
   let returns ← Parameters.toCoreBindings? "_ret" decl.returns
   let body ← decl.body
   let env := FunctionDecl.typeEnv
     (TypeEnv.extendThis extraEnv contractName?) decl
+  let usingFunctionScope := functions ++ freeFunctions
   let body :=
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       body
     else
-      Stmt.expandUsing contracts freeFunctions usingDecls env body
+      Stmt.expandUsing contracts usingFunctionScope usingDecls env body
   let modifiers :=
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       modifiers
     else
       modifiers.map
-        (ModifierDecl.expandUsing contracts freeFunctions usingDecls env)
+        (ModifierDecl.expandUsing contracts usingFunctionScope usingDecls env)
   let modifierInvocations :=
     if usingDecls.isEmpty && !ContractDecls.hasLibrary contracts then
       decl.modifiers
     else
       decl.modifiers.map
-        (ModifierInvocation.expandUsing contracts freeFunctions usingDecls env)
+        (ModifierInvocation.expandUsing
+          contracts usingFunctionScope usingDecls env)
   let body :=
     match contractName? with
     | some contractName => Stmt.rewriteSuperCalls contractName body
@@ -12401,11 +17895,18 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
       storageNames (returns.map SolidCore.Solidity.Source.BindingDecl.name)
       modifiers functions freeFunctions (decl.returns.map Parameter.ty)
       modifierInvocations body
+  let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" decl.params
+  let returnMemoryLocalizes ←
+    Parameters.toCoreMemoryLocalizeStmts? "_ret" decl.returns
+  let bodyCore :=
+    SolidCore.Solidity.Source.Stmt.block
+      (paramCleanups ++ returnMemoryLocalizes ++ [bodyCore])
   some
     { name := name
       selector? := FunctionDecl.abiSelector? decl
       payable := FunctionDecl.isPayable decl
       params := params
+      paramAbiCleanups := paramAbiCleanups
       returns := returns
       body := bodyCore }
 
@@ -12459,6 +17960,125 @@ def StateVarDecl.hasRequiredConstantInit (decl : StateVarDecl) : Bool :=
 
 def StateVars.constantEnv (decls : List StateVarDecl) : ConstantEnv :=
   decls.filterMap StateVarDecl.constantEntry?
+
+structure ConstantInliningObservation where
+  constants : ConstantEnv
+  constantNames : List Name
+  source : Expr
+  inlined : Expr
+  directName? : Option Name := none
+  directReplacement? : Option Expr := none
+  deriving Repr
+
+def Expr.observeConstantInlining
+    (constants : ConstantEnv) (expr : Expr) :
+    ConstantInliningObservation :=
+  let directName? :=
+    match expr with
+    | Expr.ident name => some name
+    | _ => none
+  { constants := constants
+    constantNames := constants.map Prod.fst
+    source := expr
+    inlined := Expr.inlineConstants constants expr
+    directName? := directName?
+    directReplacement? :=
+      match directName? with
+      | some name => ConstantEnv.lookup? constants name
+      | none => none }
+
+inductive StateVarSourceClass where
+  | storage
+  | transient
+  | constant
+  | immutable
+  deriving Repr, BEq
+
+structure StateVarSourceObservation where
+  name : Name
+  ty : Ty
+  visibility : Option Visibility
+  mutability : VarMutability
+  sourceClass : StateVarSourceClass
+  init? : Option Expr := none
+  inlinedInit? : Option Expr := none
+  constantEntry? : Option (Name × Expr) := none
+  stateName? : Option Name := none
+  immutableTag? : Option Name := none
+  deriving Repr
+
+def StateVarDecl.sourceClass (decl : StateVarDecl) : StateVarSourceClass :=
+  match decl.mutability with
+  | VarMutability.mutable => StateVarSourceClass.storage
+  | VarMutability.transient => StateVarSourceClass.transient
+  | VarMutability.constant => StateVarSourceClass.constant
+  | VarMutability.immutable => StateVarSourceClass.immutable
+
+def StateVarDecl.sourceStateName? (decl : StateVarDecl) :
+    Option Name :=
+  match decl.mutability with
+  | VarMutability.constant => none
+  | VarMutability.immutable => some (immutableNameTag decl.name)
+  | _ => some decl.name
+
+def StateVarDecl.observeSource
+    (constants : ConstantEnv) (decl : StateVarDecl) :
+    StateVarSourceObservation :=
+  { name := decl.name
+    ty := decl.ty
+    visibility := decl.visibility
+    mutability := decl.mutability
+    sourceClass := StateVarDecl.sourceClass decl
+    init? := decl.init
+    inlinedInit? := decl.init.map (Expr.inlineConstants constants)
+    constantEntry? := StateVarDecl.constantEntry? decl
+    stateName? := StateVarDecl.sourceStateName? decl
+    immutableTag? :=
+      if StateVarDecl.isImmutable decl then
+        some (immutableNameTag decl.name)
+      else
+        none }
+
+structure ConstantImmutableEnvironmentObservation where
+  sourceConstantEnv : ConstantEnv
+  stateConstantEnv : ConstantEnv
+  constants : ConstantEnv
+  sourceConstantNames : List Name
+  stateConstantNames : List Name
+  storageNames : List Name
+  transientNames : List Name
+  immutableNames : List Name
+  immutableTags : List Name
+  runtimeStateNames : List Name
+  sourceConstantObservations : List StateVarSourceObservation
+  stateVarObservations : List StateVarSourceObservation
+  deriving Repr
+
+def StateVars.observeConstantImmutableEnvironment
+    (sourceConstants stateVars : List StateVarDecl) :
+    ConstantImmutableEnvironmentObservation :=
+  let sourceConstantEnv := StateVars.constantEnv sourceConstants
+  let stateConstantEnv := StateVars.constantEnv stateVars
+  let constants := stateConstantEnv ++ sourceConstantEnv
+  let storageStateVars := stateVars.filter StateVarDecl.isStorageBacked
+  let transientStateVars := stateVars.filter StateVarDecl.isTransient
+  let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
+  { sourceConstantEnv := sourceConstantEnv
+    stateConstantEnv := stateConstantEnv
+    constants := constants
+    sourceConstantNames := sourceConstantEnv.map Prod.fst
+    stateConstantNames := stateConstantEnv.map Prod.fst
+    storageNames := storageStateVars.map StateVarDecl.name
+    transientNames := transientStateVars.map StateVarDecl.name
+    immutableNames := immutableStateVars.map StateVarDecl.name
+    immutableTags := immutableStateVars.map (fun decl => immutableNameTag decl.name)
+    runtimeStateNames :=
+      stateNamesFrom (storageStateVars ++ transientStateVars)
+        immutableStateVars
+    sourceConstantObservations :=
+      sourceConstants.map (StateVarDecl.observeSource sourceConstantEnv)
+    stateVarObservations :=
+      stateVars.map (StateVarDecl.observeSource constants) }
 
 def StateVars.constantsHaveInits : List StateVarDecl -> Bool
   | [] => true
@@ -12533,6 +18153,7 @@ def FunctionDecl.externalCallKindEntry? (contractName : Name)
           functionName := functionName
           paramTys := decl.params.map Parameter.ty
           paramNames := decl.params.map Parameter.name
+          returnTys := decl.returns.map Parameter.ty
           mutability := decl.mutability }
   | _, _, _ => none
 
@@ -12574,12 +18195,18 @@ def StateVarDecl.externalGetterParamTys? (decl : StateVarDecl) :
 
 def StateVarDecl.externalCallKindEntry? (contractName : Name)
     (decl : StateVarDecl) : Option ExternalCallKindEntry := do
-  let params ← StateVarDecl.externalGetterParamTys? decl
+  if decl.visibility != some Visibility.public_ then
+    none
+  else
+    some ()
+  let shape ← Ty.publicGetterShape? 64 decl.ty
+  let params := shape.fst
   some
     { contractName := contractName
       functionName := decl.name
       paramTys := params
       paramNames := List.replicate params.length none
+      returnTys := shape.snd.map Prod.snd
       mutability := StateMutability.view }
 
 def ContractDecl.directExternalCallKindEntriesAs
@@ -12656,24 +18283,291 @@ def ContractDecl.directUsingDecls (decl : ContractDecl) : List UsingDecl :=
     | ContractItem.usingDecl usingDecl => some usingDecl
     | _ => none)
 
-def FunctionDecl.asLibraryHelper? (libraryName : Name)
+def StateVarDecl.expandUsingSurface (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (usingDecls : List UsingDecl)
+    (env : TypeEnv) (decl : StateVarDecl) : StateVarDecl :=
+  { decl with
+    init := decl.init.map
+      (Expr.expandUsing contracts freeFunctions usingDecls env) }
+
+def FunctionDecl.expandUsingSurface (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (usingDecls : List UsingDecl)
+    (extraEnv : TypeEnv) (contractName? : Option Name)
+    (decl : FunctionDecl) : FunctionDecl :=
+  let env :=
+    FunctionDecl.typeEnv (TypeEnv.extendThis extraEnv contractName?) decl
+  { decl with
+    modifiers :=
+      decl.modifiers.map
+        (ModifierInvocation.expandUsing contracts freeFunctions usingDecls env)
+    body := decl.body.map
+      (Stmt.expandUsing contracts freeFunctions usingDecls env) }
+
+def ContractItem.expandUsingSurface (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (usingDecls : List UsingDecl)
+    (stateEnv : TypeEnv) (contractName : Name) :
+    ContractItem -> Option ContractItem
+  | ContractItem.stateVar decl =>
+      some (ContractItem.stateVar
+        (StateVarDecl.expandUsingSurface
+          contracts freeFunctions usingDecls stateEnv decl))
+  | ContractItem.function decl =>
+      some (ContractItem.function
+        (FunctionDecl.expandUsingSurface contracts freeFunctions usingDecls
+          stateEnv (some contractName) decl))
+  | ContractItem.modifierDecl decl =>
+      some (ContractItem.modifierDecl
+        (ModifierDecl.expandUsing contracts freeFunctions usingDecls stateEnv decl))
+  | ContractItem.usingDecl decl => some (ContractItem.usingDecl decl)
+  | other => some other
+
+def ContractDecl.expandUsingSurface (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (sourceUsingDecls : List UsingDecl)
+    (decl : ContractDecl) : ContractDecl :=
+  let usingDecls := ContractDecl.directUsingDecls decl ++ sourceUsingDecls
+  let usingFunctionScope :=
+    freeFunctions ++ concatMapList ContractDecl.directOrdinaryFunctions contracts
+  let stateEnv := StateVars.extendTypeEnv [] (ContractDecl.directStateVars decl)
+  { decl with
+    items :=
+      decl.items.filterMap
+        (ContractItem.expandUsingSurface contracts usingFunctionScope usingDecls
+          stateEnv decl.name) }
+
+def ContractDecl.expandDirectUsingSurface (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (decl : ContractDecl) : ContractDecl :=
+  if (ContractDecl.directUsingDecls decl).isEmpty then
+    decl
+  else
+    ContractDecl.expandUsingSurface contracts freeFunctions [] decl
+
+def namesCount (target : Name) : List Name -> Nat
+  | [] => 0
+  | name :: rest =>
+      (if name == target then 1 else 0) + namesCount target rest
+
+def duplicateNames (names : List Name) : List Name :=
+  names.filter (fun name => namesCount name names > 1)
+
+structure ScopedStateVarDecl where
+  contractName : Name
+  decl : StateVarDecl
+  deriving Repr
+
+def ContractDecl.scopedDirectStateVars (decl : ContractDecl) :
+    List ScopedStateVarDecl :=
+  (ContractDecl.directStateVars decl).map
+    (fun stateVar => { contractName := decl.name, decl := stateVar })
+
+def ContractDecls.scopedStateVars :
+    List ContractDecl -> List ScopedStateVarDecl
+  | [] => []
+  | decl :: rest =>
+      ContractDecl.scopedDirectStateVars decl ++
+        ContractDecls.scopedStateVars rest
+
+def StateVarDecl.visibleFromDerived (decl : StateVarDecl) : Bool :=
+  decl.visibility != some Visibility.private_
+
+def ScopedStateVarDecl.visibleFrom (contractName : Name)
+    (scopedVar : ScopedStateVarDecl) : Bool :=
+  scopedVar.contractName == contractName ||
+    StateVarDecl.visibleFromDerived scopedVar.decl
+
+def ScopedStateVarDecl.coreName (duplicateSourceNames : List Name)
+    (scopedVar : ScopedStateVarDecl) : Name :=
+  if nameIn scopedVar.decl.name duplicateSourceNames then
+    scopedVar.contractName ++ "." ++ scopedVar.decl.name
+  else
+    scopedVar.decl.name
+
+def ScopedStateVarDecl.coreDecl (duplicateSourceNames : List Name)
+    (scopedVar : ScopedStateVarDecl) : StateVarDecl :=
+  { scopedVar.decl with
+    name := ScopedStateVarDecl.coreName duplicateSourceNames scopedVar }
+
+def ScopedStateVarDecl.runtimeAlias? (duplicateSourceNames : List Name)
+    (scopedVar : ScopedStateVarDecl) : Option (Name × Name) :=
+  let key := ScopedStateVarDecl.coreName duplicateSourceNames scopedVar
+  if key == scopedVar.decl.name then
+    none
+  else
+    some (scopedVar.decl.name, key)
+
+def ScopedStateVarDecl.runtimeNameAliasEntry?
+    (duplicateSourceNames : List Name)
+    (scopedVar : ScopedStateVarDecl) : Option Name := do
+  let (source, key) ←
+    ScopedStateVarDecl.runtimeAlias? duplicateSourceNames scopedVar
+  match scopedVar.decl.mutability with
+  | VarMutability.immutable =>
+      some (stateNameAliasEntry (immutableNameTag source) (immutableNameTag key))
+  | VarMutability.mutable | VarMutability.transient =>
+      some (stateNameAliasEntry source key)
+  | VarMutability.constant => none
+
+def ScopedStateVarDecl.nameAliasEntry?
+    (duplicateSourceNames : List Name)
+    (scopedVar : ScopedStateVarDecl) : Option (Name × Name) :=
+  ScopedStateVarDecl.runtimeAlias? duplicateSourceNames scopedVar
+
+def ScopedStateVarDecls.coreDecls (duplicateSourceNames : List Name) :
+    List ScopedStateVarDecl -> List StateVarDecl
+  | [] => []
+  | scopedVar :: rest =>
+      ScopedStateVarDecl.coreDecl duplicateSourceNames scopedVar ::
+        ScopedStateVarDecls.coreDecls duplicateSourceNames rest
+
+def ScopedStateVarDecls.runtimeNameAliasEntries
+    (duplicateSourceNames : List Name) :
+    List ScopedStateVarDecl -> List Name
+  | [] => []
+  | scopedVar :: rest =>
+      match ScopedStateVarDecl.runtimeNameAliasEntry?
+          duplicateSourceNames scopedVar with
+      | some entry =>
+          entry ::
+            ScopedStateVarDecls.runtimeNameAliasEntries
+              duplicateSourceNames rest
+      | none =>
+          ScopedStateVarDecls.runtimeNameAliasEntries
+            duplicateSourceNames rest
+
+def ScopedStateVarDecls.nameAliasEnv (duplicateSourceNames : List Name) :
+    List ScopedStateVarDecl -> NameAliasEnv
+  | [] => []
+  | scopedVar :: rest =>
+      match ScopedStateVarDecl.nameAliasEntry?
+          duplicateSourceNames scopedVar with
+      | some entry =>
+          entry ::
+            ScopedStateVarDecls.nameAliasEnv duplicateSourceNames rest
+      | none =>
+          ScopedStateVarDecls.nameAliasEnv duplicateSourceNames rest
+
+def ScopedStateVarDecls.visibleFrom (contractName : Name) :
+    List ScopedStateVarDecl -> List ScopedStateVarDecl
+  | [] => []
+  | scopedVar :: rest =>
+      let tail := ScopedStateVarDecls.visibleFrom contractName rest
+      if ScopedStateVarDecl.visibleFrom contractName scopedVar then
+        scopedVar :: tail
+      else
+        tail
+
+def FunctionDecl.rewriteStateAliases (aliases : NameAliasEnv)
+    (decl : FunctionDecl) : FunctionDecl :=
+  let aliases := Parameters.removeNameAliases aliases decl.params
+  let aliases := Parameters.removeNameAliases aliases decl.returns
+  { decl with
+    modifiers :=
+      decl.modifiers.map (ModifierInvocation.renameIdents aliases)
+    body := decl.body.map (Stmt.renameIdents aliases) }
+
+def ModifierDecl.rewriteStateAliases (aliases : NameAliasEnv)
+    (decl : ModifierDecl) : ModifierDecl :=
+  let aliases := Parameters.removeNameAliases aliases decl.params
+  { decl with body := decl.body.map (Stmt.renameIdents aliases) }
+
+def StateVarDecl.rewriteStateAliases (aliases : NameAliasEnv)
+    (decl : StateVarDecl) : StateVarDecl :=
+  { decl with
+    name := NameAliasEnv.resolve aliases decl.name
+    init := decl.init.map (Expr.renameIdents aliases) }
+
+def ContractItem.rewriteStateAliases (aliases : NameAliasEnv) :
+    ContractItem -> ContractItem
+  | ContractItem.stateVar decl =>
+      ContractItem.stateVar (StateVarDecl.rewriteStateAliases aliases decl)
+  | ContractItem.function decl =>
+      ContractItem.function (FunctionDecl.rewriteStateAliases aliases decl)
+  | ContractItem.modifierDecl decl =>
+      ContractItem.modifierDecl (ModifierDecl.rewriteStateAliases aliases decl)
+  | item => item
+
+def ContractDecl.rewriteStateAliases
+    (duplicateSourceNames : List Name)
+    (visibleScoped : List ScopedStateVarDecl)
+    (decl : ContractDecl) : ContractDecl :=
+  let aliases :=
+    ScopedStateVarDecls.nameAliasEnv duplicateSourceNames visibleScoped
+  { decl with items := decl.items.map (ContractItem.rewriteStateAliases aliases) }
+
+def ContractDecls.rewriteStateAliases
+    (duplicateSourceNames : List Name)
+    (scopedStateVars : List ScopedStateVarDecl) :
+    List ContractDecl -> List ContractDecl
+  | [] => []
+  | decl :: rest =>
+      let visibleScoped :=
+        ScopedStateVarDecls.visibleFrom decl.name scopedStateVars
+      ContractDecl.rewriteStateAliases duplicateSourceNames visibleScoped decl ::
+        ContractDecls.rewriteStateAliases
+          duplicateSourceNames scopedStateVars rest
+
+def FunctionDecl.asLibraryHelper? (libraryName helperName : Name)
+    (libraryFunctions : List FunctionDecl)
     (decl : FunctionDecl) : Option FunctionDecl :=
   if !FunctionDecl.isInlineLibraryFunction decl then
     none
   else
     match decl.name with
-    | some functionName =>
+    | some _ =>
+        let decl :=
+          FunctionDecl.rewriteLibraryInternalCalls
+            libraryName libraryFunctions decl
         some { decl with
-          name := some (libraryHelperName libraryName functionName) }
+          name := some helperName }
     | none => none
 
+def FunctionDecls.libraryHelperFunctionsFor (libraryName : Name)
+    (libraryFunctions : List FunctionDecl) (constants : ConstantEnv)
+    (seen : List Name) : List FunctionDecl -> List FunctionDecl
+  | [] => []
+  | fn :: rest =>
+      let seen' :=
+        match fn.name with
+        | some functionName =>
+            if FunctionDecl.isInlineLibraryFunction fn then
+              functionName :: seen
+            else
+              seen
+        | none => seen
+      let tail :=
+        FunctionDecls.libraryHelperFunctionsFor
+          libraryName libraryFunctions constants seen' rest
+      match fn.name with
+      | some functionName =>
+          let helperName :=
+            libraryHelperNameForIndex libraryName functionName
+              (namesCount functionName seen)
+          match
+              FunctionDecl.asLibraryHelper?
+                libraryName helperName libraryFunctions fn with
+          | some helper =>
+              FunctionDecl.inlineConstants constants helper :: tail
+          | none => tail
+      | none => tail
+
 def ContractDecl.libraryHelperFunctions
-    (contracts : List ContractDecl) : List FunctionDecl :=
+    (sourceConstants : ConstantEnv) (contracts : List ContractDecl) :
+    List FunctionDecl :=
   concatMapList
     (fun decl =>
       if ContractDecl.isLibrary decl then
-        (ContractDecl.directOrdinaryFunctions decl).filterMap
-          (FunctionDecl.asLibraryHelper? decl.name)
+        let functions := ContractDecl.directOrdinaryFunctions decl
+        let usingDecls := ContractDecl.directUsingDecls decl
+        let usingFunctionScope :=
+          concatMapList ContractDecl.directOrdinaryFunctions contracts
+        let functions :=
+          functions.map
+            (FunctionDecl.expandUsingSurface
+              contracts usingFunctionScope usingDecls [] (some decl.name))
+        let constants :=
+          StateVars.constantEnv (ContractDecl.directStateVars decl) ++
+            sourceConstants
+        FunctionDecls.libraryHelperFunctionsFor
+          decl.name functions constants [] functions
       else
         [])
     contracts
@@ -12748,6 +18642,177 @@ def ContractDecl.directUserValueTypes
     match item with
     | ContractItem.userValueTypeDecl userTy => some userTy
     | _ => none)
+
+structure ParameterInterfaceObservation where
+  name : Option Name
+  ty : Ty
+  location : Option DataLocation
+  deriving Repr, BEq
+
+def Parameter.observeInterface (param : Parameter) :
+    ParameterInterfaceObservation :=
+  { name := param.name
+    ty := param.ty
+    location := param.location }
+
+structure EventParamInterfaceObservation where
+  name : Option Name
+  ty : Ty
+  indexed : Bool
+  deriving Repr, BEq
+
+def EventParam.observeInterface (param : EventParam) :
+    EventParamInterfaceObservation :=
+  { name := param.name
+    ty := param.ty
+    indexed := param.indexed }
+
+structure FunctionInterfaceObservation where
+  kind : FunctionKind
+  coreName? : Option Name
+  name : Option Name
+  signature? : Option String
+  selector? : Option Word
+  params : List ParameterInterfaceObservation
+  returns : List ParameterInterfaceObservation
+  visibility : Option Visibility
+  mutability : StateMutability
+  payable : Bool
+  hasBody : Bool
+  isCoreEntrypoint : Bool
+  deriving Repr, BEq
+
+def FunctionDecl.observeInterface (decl : FunctionDecl) :
+    FunctionInterfaceObservation :=
+  { kind := decl.kind
+    coreName? := FunctionDecl.coreName? decl
+    name := decl.name
+    signature? := FunctionDecl.abiSignature? decl
+    selector? := FunctionDecl.abiSelector? decl
+    params := decl.params.map Parameter.observeInterface
+    returns := decl.returns.map Parameter.observeInterface
+    visibility := decl.visibility
+    mutability := decl.mutability
+    payable := FunctionDecl.isPayable decl
+    hasBody := decl.body.isSome
+    isCoreEntrypoint := FunctionDecl.isCoreEntrypoint decl }
+
+structure GetterInterfaceObservation where
+  name : Name
+  sourceTy : Ty
+  mutability : VarMutability
+  signature : String
+  selector : Word
+  paramTys : List Ty
+  returnFields : List (List Nat × Ty)
+  deriving Repr, BEq
+
+def StateVarDecl.observeGetter? (decl : StateVarDecl) :
+    Option GetterInterfaceObservation := do
+  let signature ← StateVarDecl.publicGetterSignature? decl
+  let shape ← Ty.publicGetterShape? 64 decl.ty
+  some
+    { name := decl.name
+      sourceTy := decl.ty
+      mutability := decl.mutability
+      signature := signature
+      selector :=
+        SolidCore.Solidity.Source.ABI.selectorFromSignature signature
+      paramTys := shape.fst
+      returnFields := shape.snd }
+
+structure StateVarInterfaceObservation where
+  name : Name
+  ty : Ty
+  visibility : Option Visibility
+  mutability : VarMutability
+  getter? : Option GetterInterfaceObservation
+  deriving Repr, BEq
+
+def StateVarDecl.observeInterface (decl : StateVarDecl) :
+    StateVarInterfaceObservation :=
+  { name := decl.name
+    ty := decl.ty
+    visibility := decl.visibility
+    mutability := decl.mutability
+    getter? := StateVarDecl.observeGetter? decl }
+
+structure EventInterfaceObservation where
+  name : Name
+  signature? : Option String
+  topic? : Option Word
+  anonymous : Bool
+  params : List EventParamInterfaceObservation
+  deriving Repr, BEq
+
+def EventDecl.observeInterface (decl : EventDecl) :
+    EventInterfaceObservation :=
+  { name := decl.name
+    signature? := EventDecl.abiSignature? decl
+    topic? :=
+      if decl.anonymous then
+        none
+      else
+        EventDecl.abiSelector? decl
+    anonymous := decl.anonymous
+    params := decl.params.map EventParam.observeInterface }
+
+structure ErrorInterfaceObservation where
+  name : Name
+  signature? : Option String
+  selector? : Option Word
+  params : List ParameterInterfaceObservation
+  deriving Repr, BEq
+
+def ErrorDecl.observeInterface (decl : ErrorDecl) :
+    ErrorInterfaceObservation :=
+  { name := decl.name
+    signature? := ErrorDecl.abiSignature? decl
+    selector? := ErrorDecl.abiSelector? decl
+    params := decl.params.map Parameter.observeInterface }
+
+structure ContractInterfaceObservation where
+  kind : ContractKind
+  name : Name
+  abstract : Bool
+  baseNames : List Path
+  stateVars : List StateVarInterfaceObservation
+  constructors : List FunctionInterfaceObservation
+  abiFunctions : List FunctionInterfaceObservation
+  specialFunctions : List FunctionInterfaceObservation
+  publicGetters : List GetterInterfaceObservation
+  events : List EventInterfaceObservation
+  errors : List ErrorInterfaceObservation
+  interfaceId? : Option Word
+  deriving Repr, BEq
+
+def ContractDecl.observeInterface (decl : ContractDecl) :
+    ContractInterfaceObservation :=
+  let functions := ContractDecl.directFunctions decl
+  let constructors := ContractDecl.directConstructors decl
+  let ordinaryFunctions :=
+    (ContractDecl.directOrdinaryFunctions decl).filter
+      (fun fn => fn.kind == FunctionKind.function)
+  { kind := decl.kind
+    name := decl.name
+    abstract := decl.abstract
+    baseNames := decl.bases.map BaseSpecifier.base
+    stateVars :=
+      (ContractDecl.directStateVars decl).map StateVarDecl.observeInterface
+    constructors := constructors.map FunctionDecl.observeInterface
+    abiFunctions :=
+      (ordinaryFunctions.filter FunctionDecl.isCoreEntrypoint).map
+        FunctionDecl.observeInterface
+    specialFunctions :=
+      (functions.filter (fun fn =>
+        fn.kind == FunctionKind.receive || fn.kind == FunctionKind.fallback)).map
+        FunctionDecl.observeInterface
+    publicGetters :=
+      (ContractDecl.directStateVars decl).filterMap
+        StateVarDecl.observeGetter?
+    events := (ContractDecl.directEvents decl).map EventDecl.observeInterface
+    errors := (ContractDecl.directErrors decl).map ErrorDecl.observeInterface
+    interfaceId? := ContractDecl.interfaceId? decl }
 
 def UserTypeEnv.extendDecls (env : UserTypeEnv) :
     List UserValueTypeDecl -> UserTypeEnv
@@ -12982,7 +19047,7 @@ def ContractDecl.storageOrderWithFuel?
         mapOption
           (fun base => ContractDecl.storageOrderWithFuel? fuel contracts base)
           bases
-      some (appendUniqueContracts (concatLists baseOrders) [decl])
+      some (appendUniqueContracts [] (concatLists baseOrders ++ [decl]))
 
 def ContractDecl.storageOrder? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
@@ -13071,6 +19136,38 @@ def ContractDecl.dispatchOrder? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
   ContractDecl.dispatchOrderWithFuel? (contracts.length + 1) contracts decl
 
+def FunctionDecl.names (functions : List FunctionDecl) : List Name :=
+  functions.filterMap (fun function => function.name)
+
+structure InheritanceDispatchObservation where
+  targetName : Name
+  contractNames : List Name
+  dispatchOrder? : Option (List Name) := none
+  ordinaryFunctionNames : List Name := []
+  superHelperNames : List Name := []
+  baseHelperNames : List Name := []
+  deriving Repr
+
+def ContractDecl.observeInheritanceDispatch? (constants : ConstantEnv)
+    (contracts : List ContractDecl) (target : ContractDecl) :
+    Option InheritanceDispatchObservation := do
+  let dispatchOrder ← ContractDecl.dispatchOrder? contracts target
+  let baseNames := dispatchOrder.map ContractDecl.name
+  let ordinaryFunctions :=
+    ContractDecls.contextualOrdinaryFunctions constants baseNames
+      dispatchOrder
+  let superHelpers ←
+    ContractDecls.contextualSuperHelpers? constants baseNames dispatchOrder
+  let baseHelpers :=
+    ContractDecls.contextualBaseHelpers constants baseNames dispatchOrder
+  some
+    { targetName := target.name
+      contractNames := contracts.map ContractDecl.name
+      dispatchOrder? := some baseNames
+      ordinaryFunctionNames := FunctionDecl.names ordinaryFunctions
+      superHelperNames := FunctionDecl.names superHelpers
+      baseHelperNames := FunctionDecl.names baseHelpers }
+
 def ContractDecl.externalCallKindEntries? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ExternalCallKindEntry) :=
   let entriesFrom (decls : List ContractDecl) :=
@@ -13089,16 +19186,86 @@ def ExternalCallKindEnv.fromContracts? (contracts : List ContractDecl) :
     mapOption ContractDecl.constructorCallKindEntry? contracts
   some (concatLists groups ++ constructors)
 
+structure StoragePackingCursor where
+  slot : Nat
+  offset : Nat := 0
+  deriving Repr
+
+def StoragePackingCursor.finishSlot (cursor : StoragePackingCursor) : Nat :=
+  if cursor.offset == 0 then cursor.slot else cursor.slot + 1
+
+def StoragePackingCursor.align (cursor : StoragePackingCursor) :
+    StoragePackingCursor :=
+  if cursor.offset == 0 then cursor
+  else { slot := cursor.slot + 1, offset := 0 }
+
+def ContractDecl.storageFieldAndNext (transient : Bool)
+    (cursor : StoragePackingCursor) (stateVar : StateVarDecl) :
+    CoreStorageField × StoragePackingCursor :=
+  let layout? := Ty.toCoreStorageLayout? stateVar.ty
+  let ty? := Ty.toCoreStorageWord? stateVar.ty
+  match layout?, Ty.storagePackedBytes? stateVar.ty with
+  | some (SolidCore.Solidity.Source.StorageLayout.scalar _), some bytes =>
+      let fits :=
+        cursor.offset + bytes <= SolidCore.Solidity.Source.wordBytes
+      let slot := if fits then cursor.slot else cursor.slot + 1
+      let offset := if fits then cursor.offset else 0
+      let nextOffset := offset + bytes
+      let next :=
+        if nextOffset == SolidCore.Solidity.Source.wordBytes then
+          { slot := slot + 1, offset := 0 }
+        else
+          { slot := slot, offset := nextOffset }
+      ( { name := stateVar.name
+          slot := slot
+          ty? := ty?
+          layout? := layout?
+          transient := transient
+          packedOffset := offset
+          packedBytes := bytes
+          packedSigned := Ty.storagePackedSigned stateVar.ty }
+      , next )
+  | _, _ =>
+      let aligned := cursor.align
+      let span :=
+        match layout? with
+        | some layout =>
+            max 1 (SolidCore.Solidity.Source.StorageLayout.slotSpan layout)
+        | none => 1
+      ( { name := stateVar.name
+          slot := aligned.slot
+          ty? := ty?
+          layout? := layout?
+          transient := transient }
+      , { slot := aligned.slot + span, offset := 0 } )
+
+def ContractDecl.storageFieldsPackedFrom (transient : Bool)
+    (cursor : StoragePackingCursor) :
+    List StateVarDecl -> List CoreStorageField × StoragePackingCursor
+  | [] => ([], cursor)
+  | stateVar :: rest =>
+      let (field, next) :=
+        ContractDecl.storageFieldAndNext transient cursor stateVar
+      let (tail, finalCursor) :=
+        ContractDecl.storageFieldsPackedFrom transient next rest
+      (field :: tail, finalCursor)
+
 def ContractDecl.storageFieldsFrom (transient : Bool) (slot : Nat) :
     List StateVarDecl -> List CoreStorageField
-  | [] => []
-  | stateVar :: rest =>
-      { name := stateVar.name
-        slot := slot
-        ty? := Ty.toCoreStorageWord? stateVar.ty
-        layout? := Ty.toCoreStorageLayout? stateVar.ty
-        transient := transient } ::
-        ContractDecl.storageFieldsFrom transient (slot + 1) rest
+  | stateVars =>
+      (ContractDecl.storageFieldsPackedFrom transient
+        { slot := slot, offset := 0 } stateVars).fst
+
+def ContractDecl.storageFieldsSlotSpanFrom (slot : Nat)
+    (stateVars : List StateVarDecl) : Nat :=
+  let finalCursor :=
+    (ContractDecl.storageFieldsPackedFrom false
+      { slot := slot, offset := 0 } stateVars).snd
+  finalCursor.finishSlot - slot
+
+def ContractDecl.storageFieldsSlotSpan :
+    List StateVarDecl -> Nat
+  | stateVars => ContractDecl.storageFieldsSlotSpanFrom 0 stateVars
 
 def ContractDecl.toCoreStorageFieldsFromSlot (transient : Bool) (slot : Word)
     (stateVars : List StateVarDecl) : List CoreStorageField :=
@@ -13108,23 +19275,58 @@ def ContractDecl.toCoreStorageFieldsFrom (transient : Bool)
     (stateVars : List StateVarDecl) : List CoreStorageField :=
   ContractDecl.toCoreStorageFieldsFromSlot transient 0 stateVars
 
+def BinaryOp.storageLayoutBaseEvalAllowed : BinaryOp -> Bool
+  | BinaryOp.add
+  | BinaryOp.sub
+  | BinaryOp.mul
+  | BinaryOp.div
+  | BinaryOp.mod
+  | BinaryOp.exp
+  | BinaryOp.bitAnd
+  | BinaryOp.bitOr
+  | BinaryOp.bitXor
+  | BinaryOp.shl
+  | BinaryOp.shr
+  | BinaryOp.sar => true
+  | _ => false
+
+def Expr.storageLayoutBaseErc7201IdAllowed : Expr -> Bool
+  | Expr.literal (Literal.string _) => true
+  | Expr.literal (Literal.unicodeString _) => true
+  | _ => false
+
+def Expr.storageLayoutBaseEvalAllowed : Expr -> Bool
+  | Expr.literal (Literal.number _) => true
+  | Expr.literal (Literal.unitNumber _ _) => true
+  | Expr.ident _ => true
+  | Expr.call (Expr.ident "erc7201") [Arg.positional id] =>
+      Expr.storageLayoutBaseErc7201IdAllowed id
+  | Expr.unary UnaryOp.neg inner =>
+      Expr.storageLayoutBaseEvalAllowed inner
+  | Expr.binary op lhs rhs =>
+      BinaryOp.storageLayoutBaseEvalAllowed op &&
+        Expr.storageLayoutBaseEvalAllowed lhs &&
+          Expr.storageLayoutBaseEvalAllowed rhs
+  | _ => false
+
+def Expr.evalLayoutBaseCore? (expr : Expr) : Option Word := do
+  if Expr.storageLayoutBaseEvalAllowed expr then
+    let core ← Expr.toCore? [] expr
+    match SolidCore.Solidity.Source.Expr.eval
+        SolidCore.Solidity.Source.Context.empty
+        (SolidCore.Solidity.Source.Runtime.ofState
+          SolidCore.Solidity.Source.State.empty)
+        core with
+    | Except.ok (SolidCore.Solidity.Source.Value.word value) => some value
+    | _ => none
+  else
+    none
+
 def Expr.layoutBaseSlotValue? : Expr -> Option Word
   | expr =>
       match Expr.numberLiteralNat? expr with
       | some value => some value
-      | none =>
-          match expr with
-          | Expr.call (Expr.ident "erc7201") [Arg.positional _] => do
-              let core ← Expr.toCore? [] expr
-              match SolidCore.Solidity.Source.Expr.eval
-                  SolidCore.Solidity.Source.Context.empty
-                  (SolidCore.Solidity.Source.Runtime.ofState
-                    SolidCore.Solidity.Source.State.empty)
-                  core with
-              | Except.ok (SolidCore.Solidity.Source.Value.word value) =>
-                  some value
-              | _ => none
-          | _ => none
+      | none => Expr.evalLayoutBaseCore? expr
 
 def ContractDecl.layoutBaseSlot? (constants : ConstantEnv)
     (decl : ContractDecl) : Option Word :=
@@ -13140,7 +19342,8 @@ def ContractDecl.layoutBaseSlot? (constants : ConstantEnv)
 
 def storageLayoutBaseFits (baseSlot : Word)
     (stateVars : List StateVarDecl) : Bool :=
-  baseSlot + stateVars.length <= SharedSemantics.wordModulus
+  baseSlot + ContractDecl.storageFieldsSlotSpan stateVars <=
+    SharedSemantics.wordModulus
 
 def ContractDecl.hasLayoutBase (decl : ContractDecl) : Bool :=
   decl.layoutBase.isSome
@@ -13188,11 +19391,6 @@ def EventParam.toCoreField? (param : EventParam) :
     Option SolidCore.Solidity.Source.EventField := do
   let ty ← Ty.toCore? param.ty
   some { ty := ty, indexed := param.indexed }
-
-def EventDecl.abiSignature? (decl : EventDecl) : Option String := do
-  let paramTypes ←
-    mapOption (fun param => Ty.abiCanonical? param.ty) decl.params
-  some (decl.name ++ "(" ++ joinStringsWith "," paramTypes ++ ")")
 
 def EventDecl.toCore (decl : EventDecl) : Option CoreEventDecl := do
   let fields ← mapOption EventParam.toCoreField? decl.params
@@ -13262,13 +19460,16 @@ def StateVarDecl.publicGetterBodyExprs (name : Name)
     StateVarDecl.publicGetterBodyExpr name entry.snd indexes entry.fst)
 
 def StateVarDecl.toCoreRecursiveGetterIfPublic?
-    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+    (storageNames : List Name) (decl : StateVarDecl) :
+    Option (Option CoreFunctionDef) :=
   match decl.visibility with
   | some Visibility.public_ => do
+      let storageName ← stateNameRuntimeKey? decl.name storageNames
       let shape ← Ty.publicGetterShape? 64 decl.ty
       let (paramTys, returnsWithPaths) := shape
       let (params, indexes) ←
         StateVarDecl.publicGetterParamsCore? paramTys
+      let paramAbiCleanups ← Tys.toCoreAbiCleanups? paramTys
       let returns ←
         StateVarDecl.publicGetterReturnsCore? returnsWithPaths
       let signature ←
@@ -13281,17 +19482,20 @@ def StateVarDecl.toCoreRecursiveGetterIfPublic?
                 (SolidCore.Solidity.Source.ABI.selectorFromSignature
                   signature)
             params := params
+            paramAbiCleanups := paramAbiCleanups
             returns := returns
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
                 (StateVarDecl.publicGetterBodyExprs
-                  decl.name indexes returnsWithPaths) })
+                  storageName indexes returnsWithPaths) })
   | _ => some none
 
 def StateVarDecl.toCoreMappingGetterIfPublic?
-    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+    (storageNames : List Name) (decl : StateVarDecl) :
+    Option (Option CoreFunctionDef) :=
   match decl.visibility, decl.ty with
   | some Visibility.public_, Ty.mapping keyTy valueTy => do
+      let storageName ← stateNameRuntimeKey? decl.name storageNames
       let keyCoreTy ← Ty.toCoreMappingKey? keyTy
       let valueCoreTy ← Ty.toCoreStorageWord? valueTy
       let keyCanonical ← Ty.abiCanonical? keyTy
@@ -13309,15 +19513,17 @@ def StateVarDecl.toCoreMappingGetterIfPublic?
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
                 [SolidCore.Solidity.Source.Expr.storageIndex
-                  decl.name
+                  storageName
                   (SolidCore.Solidity.Source.Expr.var keyName)] })
   | some Visibility.public_, _ => some none
   | _, _ => some none
 
 def StateVarDecl.toCoreArrayGetterIfPublic?
-    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+    (storageNames : List Name) (decl : StateVarDecl) :
+    Option (Option CoreFunctionDef) :=
   match decl.visibility, decl.ty with
   | some Visibility.public_, Ty.array elementTy _ => do
+      let storageName ← stateNameRuntimeKey? decl.name storageNames
       let elementCoreTy ← Ty.toCoreStorageWord? elementTy
       let indexName := "_index0"
       some
@@ -13334,15 +19540,17 @@ def StateVarDecl.toCoreArrayGetterIfPublic?
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
                 [SolidCore.Solidity.Source.Expr.storageIndex
-                  decl.name
+                  storageName
                   (SolidCore.Solidity.Source.Expr.var indexName)] })
   | some Visibility.public_, _ => some none
   | _, _ => some none
 
 def StateVarDecl.toCoreByteStringGetterIfPublic?
-    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+    (storageNames : List Name) (decl : StateVarDecl) :
+    Option (Option CoreFunctionDef) :=
   match decl.visibility, decl.ty with
   | some Visibility.public_, Ty.bytes =>
+      let storageName := (stateNameRuntimeKey? decl.name storageNames).getD decl.name
       some
         (some
           { name := decl.name
@@ -13356,8 +19564,9 @@ def StateVarDecl.toCoreByteStringGetterIfPublic?
                  ty := SolidCore.Solidity.Source.Ty.bytesCalldata }]
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
-                [SolidCore.Solidity.Source.Expr.storageBytes decl.name] })
+                [SolidCore.Solidity.Source.Expr.storageBytes storageName] })
   | some Visibility.public_, Ty.string =>
+      let storageName := (stateNameRuntimeKey? decl.name storageNames).getD decl.name
       some
         (some
           { name := decl.name
@@ -13371,14 +19580,16 @@ def StateVarDecl.toCoreByteStringGetterIfPublic?
                  ty := SolidCore.Solidity.Source.Ty.bytesCalldata }]
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
-                [SolidCore.Solidity.Source.Expr.storageBytes decl.name] })
+                [SolidCore.Solidity.Source.Expr.storageBytes storageName] })
   | some Visibility.public_, _ => some none
   | _, _ => some none
 
 def StateVarDecl.toCoreStructGetterIfPublic?
-    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+    (storageNames : List Name) (decl : StateVarDecl) :
+    Option (Option CoreFunctionDef) :=
   match decl.visibility, decl.ty with
   | some Visibility.public_, Ty.tuple _ => do
+      let storageName ← stateNameRuntimeKey? decl.name storageNames
       let ty ← Ty.toCore? decl.ty
       some
         (some
@@ -13391,7 +19602,7 @@ def StateVarDecl.toCoreStructGetterIfPublic?
             returns := [{ name := "_value", ty := ty }]
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
-                [SolidCore.Solidity.Source.Expr.storage decl.name] })
+                [SolidCore.Solidity.Source.Expr.storage storageName] })
   | some Visibility.public_, _ => some none
   | _, _ => some none
 
@@ -13419,9 +19630,11 @@ def StateVarDecl.toCoreConstantGetterIfPublic?
   | _, _, _ => some none
 
 def StateVarDecl.toCoreImmutableGetterIfPublic?
-    (decl : StateVarDecl) : Option (Option CoreFunctionDef) :=
+    (storageNames : List Name) (decl : StateVarDecl) :
+    Option (Option CoreFunctionDef) :=
   match decl.visibility, decl.mutability with
   | some Visibility.public_, VarMutability.immutable => do
+      let immutableName ← stateNameImmutableKey? decl.name storageNames
       let ty ← Ty.toCoreStorageWord? decl.ty
       some
         (some
@@ -13434,7 +19647,7 @@ def StateVarDecl.toCoreImmutableGetterIfPublic?
             returns := [{ name := "_value", ty := ty }]
             body :=
               SolidCore.Solidity.Source.Stmt.returnValues
-                [SolidCore.Solidity.Source.Expr.immutable decl.name] })
+                [SolidCore.Solidity.Source.Expr.immutable immutableName] })
   | some Visibility.public_, _ => some none
   | _, _ => some none
 
@@ -13446,10 +19659,10 @@ def StateVarDecl.toCoreGetterIfPublic? (storageNames : List Name)
       StateVarDecl.toCoreConstantGetterIfPublic?
         storageNames constants decl
   | some Visibility.public_, VarMutability.immutable =>
-      StateVarDecl.toCoreImmutableGetterIfPublic? decl
+      StateVarDecl.toCoreImmutableGetterIfPublic? storageNames decl
   | some Visibility.public_, VarMutability.mutable
   | some Visibility.public_, VarMutability.transient =>
-      StateVarDecl.toCoreRecursiveGetterIfPublic? decl
+      StateVarDecl.toCoreRecursiveGetterIfPublic? storageNames decl
   | _, _ => some none
 
 def StateVarDecl.toCoreInit? (storageNames : List Name)
@@ -13457,22 +19670,25 @@ def StateVarDecl.toCoreInit? (storageNames : List Name)
     (decl : StateVarDecl) : Option CoreStmt :=
   match decl.mutability, decl.init with
   | VarMutability.mutable, some expr => do
+      let storageName ← stateNameRuntimeKey? decl.name storageNames
       let expr := Expr.inlineConstants constants expr
       let initCore ← Expr.toCore? storageNames expr
       some (SolidCore.Solidity.Source.Stmt.assign
-        (SolidCore.Solidity.Source.LValue.storage decl.name)
+        (SolidCore.Solidity.Source.LValue.storage storageName)
         initCore)
   | VarMutability.transient, some expr => do
+      let storageName ← stateNameRuntimeKey? decl.name storageNames
       let expr := Expr.inlineConstants constants expr
       let initCore ← Expr.toCore? storageNames expr
       some (SolidCore.Solidity.Source.Stmt.assign
-        (SolidCore.Solidity.Source.LValue.storage decl.name)
+        (SolidCore.Solidity.Source.LValue.storage storageName)
         initCore)
   | VarMutability.immutable, some expr => do
+      let immutableName ← stateNameImmutableKey? decl.name storageNames
       let expr := Expr.inlineConstants constants expr
       let initCore ← Expr.toCore? storageNames expr
       some (SolidCore.Solidity.Source.Stmt.assign
-        (SolidCore.Solidity.Source.LValue.immutable decl.name)
+        (SolidCore.Solidity.Source.LValue.immutable immutableName)
         initCore)
   | _, _ => some SolidCore.Solidity.Source.Stmt.skip
 
@@ -13501,12 +19717,52 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
           (some decl.name) (dispatchOrder.map ContractDecl.name)
           externalCallKindEnv eventArgEnv errorArgEnv)
       ((ContractDecl.directOrdinaryFunctions decl).filter
-        FunctionDecl.isCoreEntrypoint)
+        (fun fn => FunctionDecl.isCoreEntrypoint fn && fn.body.isSome))
   some (getters ++ functions)
+
+def Parameters.baseConstructorArgCoreDecls?
+    (internalFuel : Nat) (allContracts : List ContractDecl)
+    (sourceUsingDecls : List UsingDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) :
+    Nat -> List Parameter -> List Expr -> Option (List CoreStmt)
+  | _, [], [] => some []
+  | index, param :: params, arg :: args => do
+      let evalName := "#solidcore_base_arg_eval_" ++ toString index
+      let coreTy ← Ty.toCore? param.ty
+      let evalDecl :=
+        if param.location == some DataLocation.memory then
+          SolidCore.Solidity.Source.Stmt.memoryVarDecl coreTy evalName none
+        else
+          SolidCore.Solidity.Source.Stmt.varDecl coreTy evalName none
+      let evalEnv := TypeEnv.extend? env (some evalName) (some param.ty)
+      let sourceStmt :=
+        Stmt.expr
+          (Expr.assign (Expr.ident evalName) AssignOp.assign arg)
+      let sourceStmt :=
+        Stmt.expandUsing allContracts (functions ++ freeFunctions)
+          sourceUsingDecls evalEnv sourceStmt
+      let sourceStmt := Stmt.annotateAbi evalEnv sourceStmt
+      let evalCore ←
+        Stmt.toCoreWithInternalCalls?
+          internalFuel [] evalEnv externalCallKindEnv storageNames modifiers
+          functions freeFunctions [] sourceStmt
+      let paramDecl ←
+        Parameter.toStorageAwareCoreArgDecl?
+          [] storageNames evalEnv "_arg" index param (Expr.ident evalName)
+      let rest ←
+        Parameters.baseConstructorArgCoreDecls?
+          internalFuel allContracts sourceUsingDecls env externalCallKindEnv
+          storageNames modifiers functions freeFunctions (index + 1)
+          params args
+      some (evalDecl :: evalCore :: paramDecl :: rest)
+  | _, _, _ => none
 
 def ContractDecl.constructorBodyForDeployment?
     (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
+    (baseArgUsingDecls : List UsingDecl)
     (storageNames : List Name) (constants : ConstantEnv)
     (stateEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (modifiers : List SourceModifierDecl)
@@ -13519,19 +19775,28 @@ def ContractDecl.constructorBodyForDeployment?
       (StateVarDecl.toCoreInit? storageNames constants)
       (ContractDecl.directStateVars decl)
   let baseArgs := baseArgs.map (Expr.inlineConstants constants)
+  let targetDecl ← ContractDecl.findByName? allContracts targetName
+  let targetCtor? ← ContractDecl.directConstructor? targetDecl
+  let baseArgEnv := TypeEnv.extendThis stateEnv (some targetName)
+  let baseArgEnv :=
+    match targetCtor? with
+    | some targetCtor => FunctionDecl.typeEnv baseArgEnv targetCtor
+    | none => baseArgEnv
   match ContractDecl.directConstructors decl with
   | [] => some ([], initStmts)
   | [ctor] => do
       let ctor := FunctionDecl.inlineConstants constants ctor
-      let (params, baseArgStmts) ←
+      let (params, baseArgCore) ←
         if decl.name == targetName then
           let params ← Parameters.toCoreBindings? "_arg" ctor.params
           some (params, [])
         else
           let argDecls ←
-            Parameters.toVarDeclsWithArgs? "_arg" ctor.params baseArgs
+            Parameters.baseConstructorArgCoreDecls?
+              defaultInternalCallInlineFuel allContracts baseArgUsingDecls
+              baseArgEnv externalCallKindEnv storageNames modifiers functions
+              freeFunctions 0 ctor.params baseArgs
           some ([], argDecls)
-      let baseArgCore ← Stmt.listToCore? storageNames baseArgStmts
       let body :=
         match ctor.body with
         | some stmt => stmt
@@ -13539,17 +19804,19 @@ def ContractDecl.constructorBodyForDeployment?
       let body := Stmt.inlineConstants constants body
       let usingDecls := ContractDecl.directUsingDecls decl ++ sourceUsingDecls
       let env := FunctionDecl.typeEnv stateEnv ctor
+      let usingFunctionScope := functions ++ freeFunctions
       let body :=
         if usingDecls.isEmpty && !ContractDecls.hasLibrary allContracts then
           body
         else
-          Stmt.expandUsing allContracts freeFunctions usingDecls env body
+          Stmt.expandUsing allContracts usingFunctionScope usingDecls env body
       let modifiers :=
         if usingDecls.isEmpty && !ContractDecls.hasLibrary allContracts then
           modifiers
         else
           modifiers.map
-            (ModifierDecl.expandUsing allContracts freeFunctions usingDecls env)
+            (ModifierDecl.expandUsing
+              allContracts usingFunctionScope usingDecls env)
       let body := Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv body
       let modifiers :=
         modifiers.map
@@ -13573,8 +19840,9 @@ def ContractDecl.constructorBodyForDeployment?
         functionExpandModifiersToCoreWithInternalCallsFull?
           defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
           storageNames [] modifiers functions freeFunctions [] ctorModifiers body
+      let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" ctor.params
       if decl.name == targetName then
-        some (params, initStmts ++ [bodyCore])
+        some (params, paramCleanups ++ initStmts ++ [bodyCore])
       else
         some
           (params,
@@ -13588,45 +19856,100 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     (sourceFunctions : List FunctionDecl) (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
     (storageOrder dispatchOrder : List ContractDecl) :
     Option CoreContract := do
   let allContracts :=
     appendUniqueContracts allContracts
       (appendUniqueContracts storageOrder dispatchOrder)
   let userEnv :=
-    ContractDecl.userTypeEnvFromContracts allContracts
+    let freeEnv := UserTypeEnv.extendDecls [] sourceUserValueTypes
+    ContractDecl.userTypeEnvFromContractsInScope
+      (ContractDecl.userTypeEnvWithQualifiedContracts freeEnv allContracts)
+      allContracts
   let enumEnv :=
-    ContractDecl.enumEnvFromContracts allContracts
+    let freeEnv := EnumEnv.extendDecls [] sourceEnums
+    ContractDecl.enumEnvFromContractsInScope
+      (ContractDecl.enumEnvWithQualifiedContracts freeEnv allContracts)
+      allContracts
   let allContracts :=
-    (allContracts.map (ContractDecl.resolveUserTypes userEnv)).map
-      (ContractDecl.resolveEnums enumEnv)
+    allContracts.map (ContractDecl.resolveEnums enumEnv)
   let sourceUsingDecls :=
-    (sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)).map
-      (UsingDecl.resolveEnums enumEnv)
+    sourceUsingDecls.map (UsingDecl.resolveEnums enumEnv)
+  let sourceFunctions :=
+    sourceFunctions.map (FunctionDecl.resolveEnums enumEnv)
   let sourceEvents :=
-    (sourceEvents.map (EventDecl.resolveUserTypes userEnv)).map
-      (EventDecl.resolveEnums enumEnv)
+    sourceEvents.map (EventDecl.resolveEnums enumEnv)
   let sourceErrors :=
-    (sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)).map
-      (ErrorDecl.resolveEnums enumEnv)
+    sourceErrors.map (ErrorDecl.resolveEnums enumEnv)
   let sourceConstants :=
-    (sourceConstants.map (StateVarDecl.resolveUserTypes userEnv)).map
-      (StateVarDecl.resolveEnums enumEnv)
+    sourceConstants.map (StateVarDecl.resolveEnums enumEnv)
   let storageOrder :=
-    (storageOrder.map (ContractDecl.resolveUserTypes userEnv)).map
-      (ContractDecl.resolveEnums enumEnv)
+    storageOrder.map (ContractDecl.resolveEnums enumEnv)
   let dispatchOrder :=
-    (dispatchOrder.map (ContractDecl.resolveUserTypes userEnv)).map
-      (ContractDecl.resolveEnums enumEnv)
-  let structEnv := ContractDecl.structEnvFromContracts allContracts
+    dispatchOrder.map (ContractDecl.resolveEnums enumEnv)
+  let structEnv :=
+    let freeEnv := StructEnv.extendDecls [] sourceStructs
+    ContractDecl.structEnvFromContractsInScope
+      (ContractDecl.structEnvWithQualifiedContracts freeEnv allContracts)
+      allContracts
+  let usingContracts := allContracts
+  let usingFreeFunctions :=
+    sourceFunctions ++
+      concatMapList ContractDecl.directOrdinaryFunctions usingContracts
+  let usingSourceDecls := sourceUsingDecls
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls)
+  let sourceConstants :=
+    sourceConstants.map
+      (StateVarDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls [])
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls)
+  let sourceUsingDecls := []
   let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
+  let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveStructs structEnv)
   let sourceEvents := sourceEvents.map (EventDecl.resolveStructs structEnv)
   let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
   let storageOrder := storageOrder.map (ContractDecl.resolveStructs structEnv)
   let dispatchOrder := dispatchOrder.map (ContractDecl.resolveStructs structEnv)
+  let postStructUsingContracts := allContracts
+  let postStructUsingFreeFunctions :=
+    sourceFunctions ++
+      concatMapList ContractDecl.directOrdinaryFunctions postStructUsingContracts
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.expandDirectUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.expandDirectUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.expandDirectUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions)
+  let allContracts := allContracts.map (ContractDecl.resolveUserTypes userEnv)
+  let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)
+  let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveUserTypes userEnv)
+  let sourceEvents := sourceEvents.map (EventDecl.resolveUserTypes userEnv)
+  let sourceErrors := sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)
+  let sourceConstants :=
+    sourceConstants.map (StateVarDecl.resolveUserTypes userEnv)
+  let storageOrder := storageOrder.map (ContractDecl.resolveUserTypes userEnv)
+  let dispatchOrder := dispatchOrder.map (ContractDecl.resolveUserTypes userEnv)
   let interfaceIdEnv ← ContractDecls.interfaceIdEnv allContracts
   let allContracts := allContracts.map (ContractDecl.resolveInterfaceIds interfaceIdEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveInterfaceIds interfaceIdEnv)
@@ -13649,20 +19972,39 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     none
   else
     some ()
-  if !namesUnique (stateVars.map StateVarDecl.name) then
-    none
-  else
-    some ()
   if !StateVars.constantsHaveInits stateVars then
     none
   else
     some ()
+  let allContractFunctions :=
+    concatMapList ContractDecl.directOrdinaryFunctions allContracts
+  let allContractErrors := concatMapList ContractDecl.directErrors allContracts
+  let allContractStateVars :=
+    concatMapList ContractDecl.directStateVars allContracts
+  let qualifiedSelectorEnv :=
+    concatMapList
+      (fun decl =>
+        FunctionDecls.qualifiedSelectorEntries decl.name
+          (ContractDecl.directOrdinaryFunctions decl))
+      allContracts
   let selectorEnv :=
+    qualifiedSelectorEnv ++
     FunctionDecls.selectorEntries
-      (sourceFunctions ++ concatMapList ContractDecl.directOrdinaryFunctions dispatchOrder) ++
+      (sourceFunctions ++ allContractFunctions) ++
     ErrorDecls.selectorEntries
-      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder) ++
-    StateVarDecls.selectorEntries stateVars
+      (sourceErrors ++ allContractErrors) ++
+    StateVarDecls.selectorEntries allContractStateVars
+  let unqualifiedSelectorEnv :=
+    qualifiedSelectorEnv ++
+    FunctionDecls.selectorEntries
+      (sourceFunctions ++ allContractFunctions) ++
+    ErrorDecls.selectorEntries
+      (sourceErrors ++ allContractErrors)
+  let eventSelectorEnv :=
+    let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
+    let visibleSourceEvents :=
+      EventDecls.withoutNamesOf contractEvents sourceEvents
+    EventDecls.selectorEntries (contractEvents ++ visibleSourceEvents)
   let functionAddressEnv :=
     FunctionDecls.selectorEntries
       (sourceFunctions ++ concatMapList ContractDecl.directOrdinaryFunctions dispatchOrder) ++
@@ -13677,20 +20019,61 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     storageOrder.map (ContractDecl.resolveFunctionAddresses functionAddressEnv)
   let dispatchOrder :=
     dispatchOrder.map (ContractDecl.resolveFunctionAddresses functionAddressEnv)
-  let allContracts := allContracts.map (ContractDecl.resolveSelectors selectorEnv)
-  let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveSelectors selectorEnv)
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let sourceFunctions :=
+    sourceFunctions.map
+      (FunctionDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
   let sourceConstants :=
-    sourceConstants.map (StateVarDecl.resolveSelectors selectorEnv)
-  let storageOrder := storageOrder.map (ContractDecl.resolveSelectors selectorEnv)
-  let dispatchOrder := dispatchOrder.map (ContractDecl.resolveSelectors selectorEnv)
-  let stateVars := concatMapList ContractDecl.directStateVars storageOrder
+    sourceConstants.map
+      (StateVarDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let allContracts :=
+    allContracts.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
+  let sourceFunctions :=
+    sourceFunctions.map (FunctionDecl.resolveEventSelectors eventSelectorEnv)
+  let sourceConstants :=
+    sourceConstants.map (StateVarDecl.resolveEventSelectors eventSelectorEnv)
+  let storageOrder :=
+    storageOrder.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
+  let dispatchOrder :=
+    dispatchOrder.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
+  let scopedStateVars := ContractDecls.scopedStateVars storageOrder
+  let duplicateStateNames :=
+    duplicateNames
+      ((scopedStateVars.filter
+        (fun scopedVar => !StateVarDecl.isConstant scopedVar.decl)).map
+          (fun scopedVar => scopedVar.decl.name))
+  let storageOrder :=
+    ContractDecls.rewriteStateAliases
+      duplicateStateNames scopedStateVars storageOrder
+  let dispatchOrder :=
+    ContractDecls.rewriteStateAliases
+      duplicateStateNames scopedStateVars dispatchOrder
+  let stateVars :=
+    ScopedStateVarDecls.coreDecls duplicateStateNames scopedStateVars
   let sourceConstantEnv := StateVars.constantEnv sourceConstants
   let constants := StateVars.constantEnv stateVars ++ sourceConstantEnv
   let storageStateVars := stateVars.filter StateVarDecl.isStorageBacked
   let transientStateVars := stateVars.filter StateVarDecl.isTransient
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
+  let storageAliases :=
+    ScopedStateVarDecls.runtimeNameAliasEntries
+      duplicateStateNames scopedStateVars
   let storageNames :=
-    stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
+    storageAliases ++
+      stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
   let targetDecl ← dispatchOrder.head?
   if !ContractDecl.layoutBaseAllowed targetDecl then
     none
@@ -13715,8 +20098,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let ordinaryFunctions :=
     ContractDecls.contextualOrdinaryFunctions constants baseNames dispatchOrder
   let libraryHelpers :=
-    (ContractDecl.libraryHelperFunctions allContracts).map
-      (FunctionDecl.inlineConstants constants)
+    ContractDecl.libraryHelperFunctions sourceConstantEnv allContracts
   let baseHelpers :=
     ContractDecls.contextualBaseHelpers constants baseNames dispatchOrder
   let superHelpers ←
@@ -13766,42 +20148,70 @@ def ContractDecl.constructorFunctionFromOrders?
     (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
     (storageOrder dispatchOrder : List ContractDecl)
     (targetName : Name) : Option CoreFunctionDef := do
   let allContracts :=
     appendUniqueContracts allContracts
       (appendUniqueContracts storageOrder dispatchOrder)
   let userEnv :=
-    ContractDecl.userTypeEnvFromContracts allContracts
+    let freeEnv := UserTypeEnv.extendDecls [] sourceUserValueTypes
+    ContractDecl.userTypeEnvFromContractsInScope
+      (ContractDecl.userTypeEnvWithQualifiedContracts freeEnv allContracts)
+      allContracts
   let enumEnv :=
-    ContractDecl.enumEnvFromContracts allContracts
+    let freeEnv := EnumEnv.extendDecls [] sourceEnums
+    ContractDecl.enumEnvFromContractsInScope
+      (ContractDecl.enumEnvWithQualifiedContracts freeEnv allContracts)
+      allContracts
   let allContracts :=
-    (allContracts.map (ContractDecl.resolveUserTypes userEnv)).map
-      (ContractDecl.resolveEnums enumEnv)
+    allContracts.map (ContractDecl.resolveEnums enumEnv)
   let storageOrder :=
-    (storageOrder.map (ContractDecl.resolveUserTypes userEnv)).map
-      (ContractDecl.resolveEnums enumEnv)
+    storageOrder.map (ContractDecl.resolveEnums enumEnv)
   let dispatchOrder :=
-    (dispatchOrder.map (ContractDecl.resolveUserTypes userEnv)).map
-      (ContractDecl.resolveEnums enumEnv)
+    dispatchOrder.map (ContractDecl.resolveEnums enumEnv)
   let sourceUsingDecls :=
-    (sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)).map
-      (UsingDecl.resolveEnums enumEnv)
+    sourceUsingDecls.map (UsingDecl.resolveEnums enumEnv)
   let sourceFunctions :=
-    (sourceFunctions.map (FunctionDecl.resolveUserTypes userEnv)).map
-      (FunctionDecl.resolveEnums enumEnv)
+    sourceFunctions.map (FunctionDecl.resolveEnums enumEnv)
   let sourceEvents :=
-    (sourceEvents.map (EventDecl.resolveUserTypes userEnv)).map
-      (EventDecl.resolveEnums enumEnv)
+    sourceEvents.map (EventDecl.resolveEnums enumEnv)
   let sourceErrors :=
-    (sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)).map
-      (ErrorDecl.resolveEnums enumEnv)
+    sourceErrors.map (ErrorDecl.resolveEnums enumEnv)
   let sourceConstants :=
-    (sourceConstants.map (StateVarDecl.resolveUserTypes userEnv)).map
-      (StateVarDecl.resolveEnums enumEnv)
+    sourceConstants.map (StateVarDecl.resolveEnums enumEnv)
   let structEnv :=
-    ContractDecl.structEnvFromContracts allContracts
+    let freeEnv := StructEnv.extendDecls [] sourceStructs
+    ContractDecl.structEnvFromContractsInScope
+      (ContractDecl.structEnvWithQualifiedContracts freeEnv allContracts)
+      allContracts
+  let usingContracts := allContracts
+  let usingFreeFunctions :=
+    sourceFunctions ++
+      concatMapList ContractDecl.directOrdinaryFunctions usingContracts
+  let usingSourceDecls := sourceUsingDecls
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls)
+  let sourceConstants :=
+    sourceConstants.map
+      (StateVarDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls [])
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.expandUsingSurface
+        usingContracts usingFreeFunctions usingSourceDecls)
+  let constructorUsingDecls := sourceUsingDecls
+  let sourceUsingDecls := []
   let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
+  let constructorUsingDecls :=
+    constructorUsingDecls.map (UsingDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveStructs structEnv)
   let sourceEvents := sourceEvents.map (EventDecl.resolveStructs structEnv)
@@ -13810,6 +20220,33 @@ def ContractDecl.constructorFunctionFromOrders?
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
   let storageOrder := storageOrder.map (ContractDecl.resolveStructs structEnv)
   let dispatchOrder := dispatchOrder.map (ContractDecl.resolveStructs structEnv)
+  let postStructUsingContracts := allContracts
+  let postStructUsingFreeFunctions :=
+    sourceFunctions ++
+      concatMapList ContractDecl.directOrdinaryFunctions postStructUsingContracts
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.expandDirectUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.expandDirectUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.expandDirectUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions)
+  let allContracts := allContracts.map (ContractDecl.resolveUserTypes userEnv)
+  let constructorUsingDecls :=
+    constructorUsingDecls.map (UsingDecl.resolveUserTypes userEnv)
+  let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)
+  let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveUserTypes userEnv)
+  let sourceEvents := sourceEvents.map (EventDecl.resolveUserTypes userEnv)
+  let sourceErrors := sourceErrors.map (ErrorDecl.resolveUserTypes userEnv)
+  let sourceConstants :=
+    sourceConstants.map (StateVarDecl.resolveUserTypes userEnv)
+  let storageOrder := storageOrder.map (ContractDecl.resolveUserTypes userEnv)
+  let dispatchOrder := dispatchOrder.map (ContractDecl.resolveUserTypes userEnv)
   let interfaceIdEnv ← ContractDecls.interfaceIdEnv allContracts
   let allContracts := allContracts.map (ContractDecl.resolveInterfaceIds interfaceIdEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveInterfaceIds interfaceIdEnv)
@@ -13832,20 +20269,39 @@ def ContractDecl.constructorFunctionFromOrders?
     none
   else
     some ()
-  if !namesUnique (stateVars.map StateVarDecl.name) then
-    none
-  else
-    some ()
   if !StateVars.constantsHaveInits stateVars then
     none
   else
     some ()
+  let allContractFunctions :=
+    concatMapList ContractDecl.directOrdinaryFunctions allContracts
+  let allContractErrors := concatMapList ContractDecl.directErrors allContracts
+  let allContractStateVars :=
+    concatMapList ContractDecl.directStateVars allContracts
+  let qualifiedSelectorEnv :=
+    concatMapList
+      (fun decl =>
+        FunctionDecls.qualifiedSelectorEntries decl.name
+          (ContractDecl.directOrdinaryFunctions decl))
+      allContracts
   let selectorEnv :=
+    qualifiedSelectorEnv ++
     FunctionDecls.selectorEntries
-      (sourceFunctions ++ concatMapList ContractDecl.directOrdinaryFunctions dispatchOrder) ++
+      (sourceFunctions ++ allContractFunctions) ++
     ErrorDecls.selectorEntries
-      (sourceErrors ++ concatMapList ContractDecl.directErrors dispatchOrder) ++
-    StateVarDecls.selectorEntries stateVars
+      (sourceErrors ++ allContractErrors) ++
+    StateVarDecls.selectorEntries allContractStateVars
+  let unqualifiedSelectorEnv :=
+    qualifiedSelectorEnv ++
+    FunctionDecls.selectorEntries
+      (sourceFunctions ++ allContractFunctions) ++
+    ErrorDecls.selectorEntries
+      (sourceErrors ++ allContractErrors)
+  let eventSelectorEnv :=
+    let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
+    let visibleSourceEvents :=
+      EventDecls.withoutNamesOf contractEvents sourceEvents
+    EventDecls.selectorEntries (contractEvents ++ visibleSourceEvents)
   let functionAddressEnv :=
     FunctionDecls.selectorEntries
       (sourceFunctions ++ concatMapList ContractDecl.directOrdinaryFunctions dispatchOrder) ++
@@ -13860,20 +20316,61 @@ def ContractDecl.constructorFunctionFromOrders?
     storageOrder.map (ContractDecl.resolveFunctionAddresses functionAddressEnv)
   let dispatchOrder :=
     dispatchOrder.map (ContractDecl.resolveFunctionAddresses functionAddressEnv)
-  let allContracts := allContracts.map (ContractDecl.resolveSelectors selectorEnv)
-  let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveSelectors selectorEnv)
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let sourceFunctions :=
+    sourceFunctions.map
+      (FunctionDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
   let sourceConstants :=
-    sourceConstants.map (StateVarDecl.resolveSelectors selectorEnv)
-  let storageOrder := storageOrder.map (ContractDecl.resolveSelectors selectorEnv)
-  let dispatchOrder := dispatchOrder.map (ContractDecl.resolveSelectors selectorEnv)
-  let stateVars := concatMapList ContractDecl.directStateVars storageOrder
+    sourceConstants.map
+      (StateVarDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.resolveSelectorsWithUnqualified
+        selectorEnv unqualifiedSelectorEnv)
+  let allContracts :=
+    allContracts.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
+  let sourceFunctions :=
+    sourceFunctions.map (FunctionDecl.resolveEventSelectors eventSelectorEnv)
+  let sourceConstants :=
+    sourceConstants.map (StateVarDecl.resolveEventSelectors eventSelectorEnv)
+  let storageOrder :=
+    storageOrder.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
+  let dispatchOrder :=
+    dispatchOrder.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
+  let scopedStateVars := ContractDecls.scopedStateVars storageOrder
+  let duplicateStateNames :=
+    duplicateNames
+      ((scopedStateVars.filter
+        (fun scopedVar => !StateVarDecl.isConstant scopedVar.decl)).map
+          (fun scopedVar => scopedVar.decl.name))
+  let storageOrder :=
+    ContractDecls.rewriteStateAliases
+      duplicateStateNames scopedStateVars storageOrder
+  let dispatchOrder :=
+    ContractDecls.rewriteStateAliases
+      duplicateStateNames scopedStateVars dispatchOrder
+  let stateVars :=
+    ScopedStateVarDecls.coreDecls duplicateStateNames scopedStateVars
   let sourceConstantEnv := StateVars.constantEnv sourceConstants
   let constants := StateVars.constantEnv stateVars ++ sourceConstantEnv
   let storageStateVars := stateVars.filter StateVarDecl.isStorageBacked
   let transientStateVars := stateVars.filter StateVarDecl.isTransient
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
+  let storageAliases :=
+    ScopedStateVarDecls.runtimeNameAliasEntries
+      duplicateStateNames scopedStateVars
   let storageNames :=
-    stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
+    storageAliases ++
+      stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
   let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
@@ -13884,8 +20381,7 @@ def ContractDecl.constructorFunctionFromOrders?
   let ordinaryFunctions :=
     ContractDecls.contextualOrdinaryFunctions constants baseNames dispatchOrder
   let libraryHelpers :=
-    (ContractDecl.libraryHelperFunctions allContracts).map
-      (FunctionDecl.inlineConstants constants)
+    ContractDecl.libraryHelperFunctions sourceConstantEnv allContracts
   let baseHelpers :=
     ContractDecls.contextualBaseHelpers constants baseNames dispatchOrder
   let superHelpers ←
@@ -13904,22 +20400,35 @@ def ContractDecl.constructorFunctionFromOrders?
     ErrorDecls.namedArgEnv (contractErrors ++ visibleSourceErrors)
   let targetDecl ← ContractDecl.findByName? dispatchOrder targetName
   let payable ← ContractDecl.constructorPayable? targetDecl
+  let constructorParamTys ←
+    match ContractDecl.directConstructors targetDecl with
+    | [] => some []
+    | [ctor] =>
+        some (ctor.params.map
+          (fun param => Ty.resolveStructs structEnv param.ty))
+    | _ => none
+  let paramAbiCleanups ← Tys.toCoreAbiCleanups? constructorParamTys
   let pieces ←
     mapOption
       (fun decl => do
-        let baseArgs ←
+        let baseArgsAndUsing ←
           if decl.name == targetName then
-            some []
+            some ([], constructorUsingDecls)
           else
             let derived ←
               ContractDecl.findImmediateDerivedInOrder?
                 storageOrder decl
-            ContractDecl.baseConstructorArgsForDeployment?
-              targetDecl derived decl
+            let baseArgs ←
+              ContractDecl.baseConstructorArgsForDeployment?
+                targetDecl derived decl
+            let baseArgUsingDecls :=
+              ContractDecl.directUsingDecls derived ++ constructorUsingDecls
+            some (baseArgs, baseArgUsingDecls)
+        let (baseArgs, baseArgUsingDecls) := baseArgsAndUsing
         ContractDecl.constructorBodyForDeployment?
-          allContracts sourceUsingDecls storageNames constants stateEnv
-          externalCallKindEnv modifiers availableFunctions sourceFunctions
-          eventArgEnv errorArgEnv targetName baseArgs decl)
+          allContracts sourceUsingDecls baseArgUsingDecls storageNames
+          constants stateEnv externalCallKindEnv modifiers availableFunctions
+          sourceFunctions eventArgEnv errorArgEnv targetName baseArgs decl)
       storageOrder
   let params := concatLists (pieces.map Prod.fst)
   let stmts := concatLists (pieces.map Prod.snd)
@@ -13928,27 +20437,31 @@ def ContractDecl.constructorFunctionFromOrders?
       selector? := none
       payable := payable
       params := params
+      paramAbiCleanups := paramAbiCleanups
       returns := []
       body := SolidCore.Solidity.Source.Stmt.block stmts }
 
 def ContractDecl.toCore? (decl : ContractDecl) : Option CoreContract :=
-  ContractDecl.toCoreFromOrders? [decl] [] [] [] [] [] [decl] [decl]
+  ContractDecl.toCoreFromOrders? [decl] [] [] [] [] [] [] [] [] [decl] [decl]
 
 def ContractDecl.toCoreWithBasesAndUsing? (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl) (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreContract := do
   let storageOrder ← ContractDecl.storageOrder? contracts decl
   let dispatchOrder ← ContractDecl.dispatchOrder? contracts decl
   ContractDecl.toCoreFromOrders?
-    contracts sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
+    contracts sourceUsingDecls sourceFunctions sourceEvents sourceErrors
+    sourceConstants sourceUserValueTypes sourceEnums sourceStructs
     storageOrder dispatchOrder
 
 def ContractDecl.toCoreWithBases? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option CoreContract := do
-  ContractDecl.toCoreWithBasesAndUsing? [] [] [] [] [] contracts decl
+  ContractDecl.toCoreWithBasesAndUsing? [] [] [] [] [] [] [] [] contracts decl
 
 def ContractDecl.constructorFunctionWithBasesAndSource?
     (sourceUsingDecls : List UsingDecl)
@@ -13956,18 +20469,52 @@ def ContractDecl.constructorFunctionWithBasesAndSource?
     (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreFunctionDef := do
   let storageOrder ← ContractDecl.storageOrder? contracts decl
   let dispatchOrder ← ContractDecl.dispatchOrder? contracts decl
   ContractDecl.constructorFunctionFromOrders?
-    contracts sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
+    contracts sourceUsingDecls sourceFunctions sourceEvents sourceErrors
+    sourceConstants sourceUserValueTypes sourceEnums sourceStructs
     storageOrder dispatchOrder decl.name
 
 def ContractDecl.constructorFunctionWithBases?
     (contracts : List ContractDecl) (decl : ContractDecl) :
     Option CoreFunctionDef :=
-  ContractDecl.constructorFunctionWithBasesAndSource? [] [] [] [] [] contracts decl
+  ContractDecl.constructorFunctionWithBasesAndSource? [] [] [] [] [] [] [] []
+    contracts decl
+
+def ContractDecl.constructWithBasesAndSourceAtFrom? (fuel : Nat)
+    (sourceUsingDecls : List UsingDecl)
+    (sourceFunctions : List FunctionDecl)
+    (sourceEvents : List EventDecl)
+    (sourceErrors : List ErrorDecl)
+    (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
+    (contracts : List ContractDecl) (decl : ContractDecl)
+    (state : CoreState) (self sender value : Word)
+    (args : List CoreValue) :
+    Option CoreCallResult := do
+  let contract ←
+    ContractDecl.toCoreWithBasesAndUsing?
+      sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
+      sourceUserValueTypes sourceEnums sourceStructs
+      contracts decl
+  let constructor ←
+    ContractDecl.constructorFunctionWithBasesAndSource?
+      sourceUsingDecls sourceFunctions sourceEvents sourceErrors
+      sourceConstants sourceUserValueTypes sourceEnums sourceStructs contracts decl
+  SolidCore.Solidity.Source.FunctionDef.call?
+    fuel
+    { contract.context with
+      self := self
+      sender := sender
+      value := value
+      construction := true }
+    constructor state args
 
 def ContractDecl.constructWithBasesAndSourceFrom? (fuel : Nat)
     (sourceUsingDecls : List UsingDecl)
@@ -13975,31 +20522,22 @@ def ContractDecl.constructWithBasesAndSourceFrom? (fuel : Nat)
     (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
     (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
     (contracts : List ContractDecl) (decl : ContractDecl)
     (state : CoreState) (sender value : Word) (args : List CoreValue) :
-    Option CoreCallResult := do
-  let contract ←
-    ContractDecl.toCoreWithBasesAndUsing?
-      sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
-      contracts decl
-  let constructor ←
-    ContractDecl.constructorFunctionWithBasesAndSource?
-      sourceUsingDecls sourceFunctions sourceEvents sourceErrors
-      sourceConstants contracts decl
-  SolidCore.Solidity.Source.FunctionDef.call?
-    fuel
-    { contract.context with
-      sender := sender
-      value := value
-      construction := true }
-    constructor state args
+    Option CoreCallResult :=
+  ContractDecl.constructWithBasesAndSourceAtFrom? fuel
+    sourceUsingDecls sourceFunctions sourceEvents sourceErrors
+    sourceConstants sourceUserValueTypes sourceEnums sourceStructs
+    contracts decl state 0 sender value args
 
 def ContractDecl.constructWithBasesFrom? (fuel : Nat)
     (contracts : List ContractDecl) (decl : ContractDecl)
     (state : CoreState) (sender value : Word) (args : List CoreValue) :
     Option CoreCallResult :=
   ContractDecl.constructWithBasesAndSourceFrom?
-    fuel [] [] [] [] [] contracts decl state sender value args
+    fuel [] [] [] [] [] [] [] [] contracts decl state sender value args
 
 def ContractDecl.constructWithBases? (fuel : Nat)
     (contracts : List ContractDecl) (decl : ContractDecl)
@@ -14248,41 +20786,297 @@ def SourceUnit.usingDecls (unit : SourceUnit) : List UsingDecl :=
     | SourceItem.usingDecl usingDecl => some usingDecl
     | _ => none)
 
+structure StructFieldInterfaceObservation where
+  name : Name
+  ty : Ty
+  deriving Repr, BEq
+
+def StructField.observeInterface (field : StructField) :
+    StructFieldInterfaceObservation :=
+  { name := field.name
+    ty := field.ty }
+
+structure StructInterfaceObservation where
+  name : Name
+  fields : List StructFieldInterfaceObservation
+  deriving Repr, BEq
+
+def StructDecl.observeInterface (decl : StructDecl) :
+    StructInterfaceObservation :=
+  { name := decl.name
+    fields := decl.fields.map StructField.observeInterface }
+
+structure EnumInterfaceObservation where
+  name : Name
+  cases : List Name
+  deriving Repr, BEq
+
+def EnumDecl.observeInterface (decl : EnumDecl) :
+    EnumInterfaceObservation :=
+  { name := decl.name
+    cases := decl.cases }
+
+structure UserValueTypeInterfaceObservation where
+  name : Name
+  underlying : Ty
+  deriving Repr, BEq
+
+def UserValueTypeDecl.observeInterface (decl : UserValueTypeDecl) :
+    UserValueTypeInterfaceObservation :=
+  { name := decl.name
+    underlying := decl.underlying }
+
+structure UsingFunctionInterfaceObservation where
+  function : Path
+  operator? : Option UsingOperator
+  deriving Repr, BEq
+
+def UsingFunction.observeInterface (decl : UsingFunction) :
+    UsingFunctionInterfaceObservation :=
+  { function := decl.function
+    operator? := decl.operator? }
+
+structure UsingInterfaceObservation where
+  library : Path
+  functions : List UsingFunctionInterfaceObservation
+  target? : Option Ty
+  global : Bool
+  deriving Repr, BEq
+
+def UsingDecl.observeInterface (decl : UsingDecl) :
+    UsingInterfaceObservation :=
+  { library := decl.library
+    functions := decl.functions.map UsingFunction.observeInterface
+    target? := decl.target
+    global := decl.global }
+
+structure SourceUnitInterfaceObservation where
+  contractNames : List Name
+  contracts : List ContractInterfaceObservation
+  freeFunctions : List FunctionInterfaceObservation
+  freeEvents : List EventInterfaceObservation
+  freeErrors : List ErrorInterfaceObservation
+  freeConstants : List StateVarInterfaceObservation
+  freeStructs : List StructInterfaceObservation
+  freeEnums : List EnumInterfaceObservation
+  freeUserValueTypes : List UserValueTypeInterfaceObservation
+  usingDecls : List UsingInterfaceObservation
+  deriving Repr, BEq
+
+def SourceUnit.observeInterface (unit : SourceUnit) :
+    SourceUnitInterfaceObservation :=
+  let contracts := SourceUnit.contracts unit
+  { contractNames := contracts.map ContractDecl.name
+    contracts := contracts.map ContractDecl.observeInterface
+    freeFunctions :=
+      (SourceUnit.freeFunctions unit).map FunctionDecl.observeInterface
+    freeEvents := (SourceUnit.freeEvents unit).map EventDecl.observeInterface
+    freeErrors := (SourceUnit.freeErrors unit).map ErrorDecl.observeInterface
+    freeConstants :=
+      (SourceUnit.freeConstants unit).map StateVarDecl.observeInterface
+    freeStructs := (SourceUnit.freeStructs unit).map StructDecl.observeInterface
+    freeEnums := (SourceUnit.freeEnums unit).map EnumDecl.observeInterface
+    freeUserValueTypes :=
+      (SourceUnit.freeUserValueTypes unit).map
+        UserValueTypeDecl.observeInterface
+    usingDecls := (SourceUnit.usingDecls unit).map UsingDecl.observeInterface }
+
+def SourceUnit.observeInterfaceResolved? (unit : SourceUnit) :
+    Option SourceUnitInterfaceObservation := do
+  let unit ← SourceUnit.resolveSourceTypesContextual? unit
+  some (SourceUnit.observeInterface unit)
+
 def SourceUnit.findContract? (unit : SourceUnit)
     (name : Name) : Option ContractDecl :=
   ContractDecl.findByName? (SourceUnit.contracts unit) name
 
 def SourceUnit.toCoreContract? (unit : SourceUnit)
     (name : Name) : Option CoreContract := do
-  let unit ← SourceUnit.resolveSourceTypesContextual? unit
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.toCoreWithBasesAndUsing?
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
     (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
     (SourceUnit.freeConstants unit)
+    (SourceUnit.freeUserValueTypes unit)
+    (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
     (SourceUnit.contracts unit) decl
 
 def SourceUnit.constructContract? (fuel : Nat) (unit : SourceUnit)
     (name : Name) (state : CoreState) (args : List CoreValue) :
     Option CoreCallResult := do
-  let unit ← SourceUnit.resolveSourceTypesContextual? unit
   let decl ← SourceUnit.findContract? unit name
   ContractDecl.constructWithBasesAndSourceFrom? fuel
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
     (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
     (SourceUnit.freeConstants unit)
+    (SourceUnit.freeUserValueTypes unit)
+    (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
     (SourceUnit.contracts unit) decl state 0 0 args
+
+def SourceUnit.constructContractAtFrom? (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (args : List CoreValue) : Option CoreCallResult := do
+  let decl ← SourceUnit.findContract? unit name
+  ContractDecl.constructWithBasesAndSourceAtFrom? fuel
+    (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
+    (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+    (SourceUnit.freeConstants unit)
+    (SourceUnit.freeUserValueTypes unit)
+    (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
+    (SourceUnit.contracts unit) decl state self sender value args
 
 def SourceUnit.constructContractFrom? (fuel : Nat) (unit : SourceUnit)
     (name : Name) (state : CoreState) (sender value : Word)
-    (args : List CoreValue) : Option CoreCallResult := do
-  let unit ← SourceUnit.resolveSourceTypesContextual? unit
+    (args : List CoreValue) : Option CoreCallResult :=
+  SourceUnit.constructContractAtFrom? fuel unit name state 0 sender value args
+
+def SourceUnit.constructorFunctionFor? (unit : SourceUnit) (name : Name) :
+    Option CoreFunctionDef := do
   let decl ← SourceUnit.findContract? unit name
-  ContractDecl.constructWithBasesAndSourceFrom? fuel
+  ContractDecl.constructorFunctionWithBasesAndSource?
     (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
     (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
     (SourceUnit.freeConstants unit)
-    (SourceUnit.contracts unit) decl state sender value args
+    (SourceUnit.freeUserValueTypes unit)
+    (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
+    (SourceUnit.contracts unit) decl
+
+def SourceUnit.constructorParamTys? (unit : SourceUnit) (name : Name) :
+    Option (List CoreTy) := do
+  let constructor ← SourceUnit.constructorFunctionFor? unit name
+  some (constructor.params.map SolidCore.Solidity.Source.BindingDecl.ty)
+
+def SourceUnit.constructorParamAbiCleanups? (unit : SourceUnit)
+    (name : Name) : Option (List CoreAbiCleanup) := do
+  let constructor ← SourceUnit.constructorFunctionFor? unit name
+  some constructor.paramAbiCleanups
+
+structure SourceUnitDeploymentObservation where
+  fuel : Nat
+  interface? : Option SourceUnitInterfaceObservation
+  contractName : Name
+  self : Word
+  sender : Word
+  value : Word
+  context : SolidCore.Solidity.Source.ContextObservation
+  submittedState : SolidCore.Solidity.Source.StateObservation
+  args : List CoreValue
+  constructorEntry : SolidCore.Solidity.Source.FunctionEntryObservation
+  result? : Option SolidCore.Solidity.Source.CallObservation
+  deriving Repr
+
+def SourceUnit.observeDeploymentAtFrom? (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (args : List CoreValue) : Option SourceUnitDeploymentObservation := do
+  let interface? := SourceUnit.observeInterfaceResolved? unit
+  let decl ← SourceUnit.findContract? unit name
+  let contract ←
+    ContractDecl.toCoreWithBasesAndUsing?
+      (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
+      (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+      (SourceUnit.freeConstants unit)
+      (SourceUnit.freeUserValueTypes unit)
+      (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
+      (SourceUnit.contracts unit) decl
+  let constructor ←
+    ContractDecl.constructorFunctionWithBasesAndSource?
+      (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
+      (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+      (SourceUnit.freeConstants unit)
+      (SourceUnit.freeUserValueTypes unit)
+      (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
+      (SourceUnit.contracts unit) decl
+  let context : CoreContext :=
+    { contract.context with
+      self := self
+      sender := sender
+      value := value
+      construction := true }
+  let constructorEntry :=
+    constructor.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.construction
+      fuel context state args self
+  some
+    { fuel := fuel
+      interface? := interface?
+      contractName := name
+      self := self
+      sender := sender
+      value := value
+      context := context.observe
+      submittedState := state.observe self
+      args := args
+      constructorEntry := constructorEntry
+      result? := constructorEntry.result? }
+
+def SourceUnit.observeDeploymentFrom? (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Option SourceUnitDeploymentObservation :=
+  SourceUnit.observeDeploymentAtFrom? fuel unit name state 0 sender value args
+
+structure SourceUnitDeploymentAbiObservation where
+  fuel : Nat
+  interface? : Option SourceUnitInterfaceObservation
+  contractName : Name
+  self : Word
+  sender : Word
+  value : Word
+  constructorCalldata : List Byte
+  constructorParamTys? : Option (List CoreTy)
+  constructorParamAbiCleanups? : Option (List CoreAbiCleanup)
+  decodedArgs? : Option (List CoreValue)
+  deployment? : Option SourceUnitDeploymentObservation
+  result? : Option SolidCore.Solidity.Source.CallObservation
+  deriving Repr
+
+def SourceUnit.observeDeploymentAbiAtFrom (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (constructorCalldata : List Byte) :
+    SourceUnitDeploymentAbiObservation :=
+  let constructor? := SourceUnit.constructorFunctionFor? unit name
+  let constructorParamTys? :=
+    constructor?.map
+      (fun constructor =>
+        constructor.params.map SolidCore.Solidity.Source.BindingDecl.ty)
+  let constructorParamAbiCleanups? :=
+    constructor?.map (fun constructor => constructor.paramAbiCleanups)
+  let decodedArgs? :=
+    constructor?.bind
+      (fun constructor =>
+        SolidCore.Solidity.Source.ABI.decodeFunctionArgsStrict?
+          constructor constructorCalldata)
+  let deployment? :=
+    decodedArgs?.bind
+      (fun args =>
+        SourceUnit.observeDeploymentAtFrom? fuel unit name state self sender
+          value args)
+  { fuel := fuel
+    interface? := SourceUnit.observeInterfaceResolved? unit
+    contractName := name
+    self := self
+    sender := sender
+    value := value
+    constructorCalldata :=
+      SolidCore.Solidity.Source.ABI.normalizeBytes constructorCalldata
+    constructorParamTys? := constructorParamTys?
+    decodedArgs? := decodedArgs?
+    deployment? := deployment?
+    result? :=
+      match deployment?, constructor? with
+      | some deployment, _ => deployment.result?
+      | none, some _ =>
+          some
+            ((SolidCore.Solidity.Source.CallResult.reverted
+              state SolidCore.Solidity.Source.RevertData.empty).observe self)
+      | none, none => none
+    constructorParamAbiCleanups? := constructorParamAbiCleanups? }
+
+def SourceUnit.observeDeploymentAbiFrom (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (constructorCalldata : List Byte) :
+    SourceUnitDeploymentAbiObservation :=
+  SourceUnit.observeDeploymentAbiAtFrom fuel unit name state 0 sender value
+    constructorCalldata
 
 def SourceUnit.toCoreContracts? (unit : SourceUnit) :
     Option (List CoreContract) :=
@@ -14294,6 +21088,8 @@ def SourceUnit.toCoreContracts? (unit : SourceUnit) :
             (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
             (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
             (SourceUnit.freeConstants unit)
+            (SourceUnit.freeUserValueTypes unit)
+            (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
             (SourceUnit.contracts unit) decl)
         (SourceUnit.contracts unit)
   | none => none
@@ -14409,13 +21205,21 @@ def SourceUnit.entryNames? (unit : SourceUnit) :
       | _ => none
   | _ => none
 
+def SourceUnit.entryCallResult? (fuel : Nat) (unit : SourceUnit) :
+    Option CoreCallResult := do
+  let (contractName, functionName) ← SourceUnit.entryNames? unit
+  SourceUnit.callContract? fuel unit contractName
+    (SolidCore.Solidity.Source.CallTarget.name functionName)
+    SolidCore.Solidity.Source.State.empty []
+
+def SourceUnit.entryCallObservation? (fuel : Nat) (unit : SourceUnit) :
+    Option SolidCore.Solidity.Source.CallObservation := do
+  let result ← SourceUnit.entryCallResult? fuel unit
+  some (result.observe 0)
+
 def SourceUnit.entryBehavior? (fuel : Nat) (unit : SourceUnit) :
     Option Behavior := do
-  let (contractName, functionName) ← SourceUnit.entryNames? unit
-  let result ←
-    SourceUnit.callContract? fuel unit contractName
-      (SolidCore.Solidity.Source.CallTarget.name functionName)
-      SolidCore.Solidity.Source.State.empty []
+  let result ← SourceUnit.entryCallResult? fuel unit
   CoreCallResult.behavior? result
 
 def SourceUnit.defaultEntryFuel : Nat := 32
@@ -14423,6 +21227,26 @@ def SourceUnit.defaultEntryFuel : Nat := 32
 def SourceUnit.defaultEntryBehavior? (unit : SourceUnit) :
     Option Behavior :=
   SourceUnit.entryBehavior? SourceUnit.defaultEntryFuel unit
+
+structure SourceUnitEntryObservation where
+  fuel : Nat
+  interface? : Option SourceUnitInterfaceObservation
+  entryNames? : Option (Name × Name)
+  behavior? : Option Behavior
+  callResult? : Option SolidCore.Solidity.Source.CallObservation
+  deriving Repr
+
+def SourceUnit.observeEntry (fuel : Nat) (unit : SourceUnit) :
+    SourceUnitEntryObservation :=
+  { fuel := fuel
+    interface? := SourceUnit.observeInterfaceResolved? unit
+    entryNames? := SourceUnit.entryNames? unit
+    behavior? := SourceUnit.entryBehavior? fuel unit
+    callResult? := SourceUnit.entryCallObservation? fuel unit }
+
+def SourceUnit.observeDefaultEntry (unit : SourceUnit) :
+    SourceUnitEntryObservation :=
+  SourceUnit.observeEntry SourceUnit.defaultEntryFuel unit
 
 inductive Semantics : SourceUnit -> Behavior -> Prop where
   | empty {source : SourceUnit} :
@@ -14433,6 +21257,68 @@ inductive Semantics : SourceUnit -> Behavior -> Prop where
       Semantics source behavior
 
 namespace Examples
+
+def sourceUnitEntryObservationFunction : FunctionDecl :=
+  { name := some "run"
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some (Expr.literal (Literal.number "7")))) }
+
+def sourceUnitEntryObservationUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "EntryObservation"
+            items :=
+              [ContractItem.function sourceUnitEntryObservationFunction] } ] }
+
+def sourceUnitEntryObservationBoundaryMatches : Bool :=
+  let observation :=
+    SourceUnit.observeEntry 16 sourceUnitEntryObservationUnit
+  let interfaceMatches :=
+    match observation.interface? with
+    | some interface =>
+        interface.contractNames == ["EntryObservation"] &&
+          (match interface.contracts with
+          | [contract] =>
+              contract.name == "EntryObservation" &&
+                (match contract.abiFunctions with
+                | [fn] =>
+                    fn.name == some "run" &&
+                      fn.isCoreEntrypoint &&
+                      fn.returns.length == 1
+                | _ => false)
+          | _ => false)
+    | none => false
+  let entryMatches :=
+    match observation.entryNames? with
+    | some (contractName, functionName) =>
+        contractName == "EntryObservation" && functionName == "run"
+    | none => false
+  let behaviorMatches :=
+    match observation.behavior? with
+    | some (Behavior.returnedWord value) =>
+        SolidCore.Solidity.Source.wordEq value 7
+    | _ => false
+  let callResultMatches :=
+    match observation.callResult? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          (match result.returnValues with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              SolidCore.Solidity.Source.wordEq value 7
+          | _ => false) &&
+          result.state.storage == [] &&
+          result.state.transient == [] &&
+          result.state.effects.logs.isEmpty &&
+          result.state.effects.externalInteractions.isEmpty
+    | none => false
+  observation.fuel == 16 &&
+    interfaceMatches && entryMatches && behaviorMatches &&
+    callResultMatches
 
 def uncheckedSub : Stmt :=
   Stmt.unchecked
@@ -14694,16 +21580,16 @@ def assignmentExpressionVarDeclMatches : Option Bool := do
 
 def assignmentExpressionReturnStatement : Stmt :=
   Stmt.block
-    [ Stmt.varDecl
-        [{ name := some "x", ty := some (Ty.uint 256) }]
-        (some (Expr.literal (Literal.number "1")))
-    , Stmt.returnValues
-        (some
-          (Expr.tuple
-            [ TupleItem.value
-                (Expr.assign (Expr.ident "x") AssignOp.assign
-                  (Expr.literal (Literal.number "9")))
-            , TupleItem.value (Expr.ident "x") ])) ]
+  [ Stmt.varDecl
+      [{ name := some "x", ty := some (Ty.uint 256) }]
+      (some (Expr.literal (Literal.number "1")))
+  , Stmt.returnValues
+      (some
+        (Expr.tuple
+          [ TupleItem.value
+              (Expr.assign (Expr.ident "x") AssignOp.assign
+                (Expr.literal (Literal.number "9")))
+          , TupleItem.value (Expr.ident "x") ])) ]
 
 def assignmentExpressionReturnMatches : Option Bool := do
   let result ←
@@ -14715,7 +21601,7 @@ def assignmentExpressionReturnMatches : Option Bool := do
   | SolidCore.Solidity.Source.Result.returned _
       [ SolidCore.Solidity.Source.Value.word assigned
       , SolidCore.Solidity.Source.Value.word final ] =>
-      some (assigned == 9 && final == 9)
+      some (assigned == 9 && final == 1)
   | _ => some false
 
 def indexedAssignmentTargetEffectsStatement : Stmt :=
@@ -15235,6 +22121,158 @@ def addressAbiIdentityContract : ContractDecl :=
   { name := "AddressAbi"
     items := [ContractItem.function addressIdentityFunction] }
 
+def ordinaryFunctionEntryObservationBoundaryMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? addressAbiIdentityContract
+  let function ← contract.findFunctionByName? "idAddress"
+  let expectedSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "idAddress(address)"
+  let state : SolidCore.Solidity.Source.State :=
+    { SolidCore.Solidity.Source.State.empty with
+      storage := [(3, 4)] }
+  let context : SolidCore.Solidity.Source.Context :=
+    { contract.context with
+      self := 0xabcd
+      sender := 0xcafe
+      value := 0 }
+  let observation :=
+    function.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      8 context state [SolidCore.Solidity.Source.Value.word 0x1234] 0xabcd
+  let input := observation.input
+  let frameMatches :=
+    match input.initialFrame? with
+    | some frame =>
+        match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+        | some (SolidCore.Solidity.Source.Value.word value) =>
+            SolidCore.Solidity.Source.wordEq value 0x1234
+        | _ => false
+    | none => false
+  let returnMatches :=
+    match observation.result? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.state.storage == [(3, 4)] &&
+          (match result.returnValues with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              SolidCore.Solidity.Source.wordEq value 0x1234
+          | _ => false)
+    | none => false
+  some
+    (input.kind == SolidCore.Solidity.Source.FunctionEntryKind.ordinary &&
+      input.fuel == 8 &&
+      input.functionName == "idAddress" &&
+      (match input.selector? with
+      | some selector =>
+          SolidCore.Solidity.Source.wordEq selector expectedSelector
+      | none => false) &&
+      !input.payable &&
+      !input.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.value 0 &&
+      input.submittedState.storage == [(3, 4)] &&
+      frameMatches && returnMatches)
+
+def contractCallObservationBoundaryMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? addressAbiIdentityContract
+  let selector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "idAddress(address)"
+  let target := SolidCore.Solidity.Source.CallTarget.selector selector
+  let args := [SolidCore.Solidity.Source.Value.word 0x1234]
+  let state : SolidCore.Solidity.Source.State :=
+    { SolidCore.Solidity.Source.State.empty with
+      storage := [(3, 4)]
+      transient := [(9, 10)] }
+  let messageObservation :=
+    contract.observeCallEntry
+      SolidCore.Solidity.Source.ContractCallKind.messageCall
+      8 target state args
+  let transactionObservation :=
+    contract.observeCallEntry
+      SolidCore.Solidity.Source.ContractCallKind.transaction
+      8 target state args
+  let entryFrameMatches :=
+    fun (entry : SolidCore.Solidity.Source.FunctionEntryObservation) =>
+      match entry.input.initialFrame? with
+      | some frame =>
+          match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+          | some (SolidCore.Solidity.Source.Value.word value) =>
+              SolidCore.Solidity.Source.wordEq value 0x1234
+          | _ => false
+      | none => false
+  let entryResultMatches :=
+    fun (entry : SolidCore.Solidity.Source.FunctionEntryObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match entry.result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+            result.state.storage == [(3, 4)] &&
+            result.state.transient == expectedTransient &&
+            (match result.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value 0x1234
+            | _ => false)
+      | none => false
+  let functionEntryMatches :=
+    fun (observation : SolidCore.Solidity.Source.ContractCallObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match observation.functionEntry? with
+      | some entry =>
+          entry.input.kind ==
+              SolidCore.Solidity.Source.FunctionEntryKind.ordinary &&
+            entry.input.functionName == "idAddress" &&
+            (match entry.input.selector? with
+            | some selected =>
+                SolidCore.Solidity.Source.wordEq selected selector
+            | none => false) &&
+            entryFrameMatches entry &&
+            entryResultMatches entry expectedTransient
+      | none => false
+  let finalResultMatches :=
+    fun (observation : SolidCore.Solidity.Source.ContractCallObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match observation.result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+            result.state.storage == [(3, 4)] &&
+            result.state.transient == expectedTransient &&
+            (match result.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value 0x1234
+            | _ => false)
+      | none => false
+  let messageInput := messageObservation.input
+  let transactionInput := transactionObservation.input
+  let messageMatches :=
+    messageInput.kind ==
+        SolidCore.Solidity.Source.ContractCallKind.messageCall &&
+      messageInput.fuel == 8 &&
+      messageInput.selectedFunctionName? == some "idAddress" &&
+      (match messageInput.selectedSelector? with
+      | some selected => SolidCore.Solidity.Source.wordEq selected selector
+      | none => false) &&
+      messageInput.submittedState.storage == [(3, 4)] &&
+      messageInput.submittedState.transient == [(9, 10)] &&
+      messageInput.executionState.storage == [(3, 4)] &&
+      messageInput.executionState.transient == [(9, 10)] &&
+      functionEntryMatches messageObservation [(9, 10)] &&
+      finalResultMatches messageObservation [(9, 10)]
+  let transactionMatches :=
+    transactionInput.kind ==
+        SolidCore.Solidity.Source.ContractCallKind.transaction &&
+      transactionInput.fuel == 8 &&
+      transactionInput.selectedFunctionName? == some "idAddress" &&
+      (match transactionInput.selectedSelector? with
+      | some selected => SolidCore.Solidity.Source.wordEq selected selector
+      | none => false) &&
+      transactionInput.submittedState.storage == [(3, 4)] &&
+      transactionInput.submittedState.transient == [(9, 10)] &&
+      transactionInput.executionState.storage == [(3, 4)] &&
+      transactionInput.executionState.transient == [] &&
+      functionEntryMatches transactionObservation [] &&
+      finalResultMatches transactionObservation []
+  some (messageMatches && transactionMatches)
+
 def addressAbiCalldataAccepted : Option Bool := do
   let contract ← ContractDecl.toCore? addressAbiIdentityContract
   let function ← contract.findFunctionByName? "idAddress"
@@ -15249,6 +22287,240 @@ def addressAbiCalldataAccepted : Option Bool := do
       [SolidCore.Solidity.Source.Ty.address]
       [SolidCore.Solidity.Source.Value.word 0x1234]
   some (result.success && result.output == expected)
+
+def addressAbiObservationMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? addressAbiIdentityContract
+  let function ← contract.findFunctionByName? "idAddress"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let result ←
+    SolidCore.Solidity.Source.ABI.Contract.callCalldata?
+      8 contract SolidCore.Solidity.Source.State.empty calldata
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let observation := result.observe 0
+  some
+    (observation.success &&
+      observation.output == expected &&
+      observation.state.storage == [] &&
+      observation.state.transient == [] &&
+      observation.state.logs == [])
+
+def abiEntryObservationBoundaryMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? addressAbiIdentityContract
+  let function ← contract.findFunctionByName? "idAddress"
+  let calldata ←
+    SolidCore.Solidity.Source.ABI.calldataFor? function
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let expected ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.address]
+      [SolidCore.Solidity.Source.Value.word 0x1234]
+  let state : SolidCore.Solidity.Source.State :=
+    { SolidCore.Solidity.Source.State.empty with
+      storage := [(5, 6)]
+      transient := [(1, 2)] }
+  let base : SolidCore.Solidity.Source.Context :=
+    { contract.context with
+      gasleft := 999
+      accountBalances := [(0xcafe, 42)] }
+  let callObservation :=
+    SolidCore.Solidity.Source.ABI.Contract.observeCalldataCallAtFromWithContext
+      8 contract base state 0xabcd 0xcafe 0 calldata
+  let transactionObservation :=
+    SolidCore.Solidity.Source.ABI.Contract.observeCalldataTransactionAtFromWithContext
+      8 contract base state 0xabcd 0xcafe 0 calldata
+  let callInput := callObservation.input
+  let callAmbient := callInput.callContext.ambient
+  let dispatchMatches :=
+    fun (input : SolidCore.Solidity.Source.ABI.AbiEntryInputObservation) =>
+      input.dispatch.kind ==
+          SolidCore.Solidity.Source.ABI.AbiDispatchKind.functionSelector &&
+        input.dispatch.selectedFunctionName? == some "idAddress" &&
+        match input.dispatch.selector?, function.selector?,
+            input.dispatch.selectedSelector?, input.dispatch.decodedArgs? with
+        | some submittedSelector, some expectedSelector,
+            some selectedSelector,
+            some [SolidCore.Solidity.Source.Value.word arg] =>
+            SolidCore.Solidity.Source.wordEq
+              submittedSelector expectedSelector &&
+              SolidCore.Solidity.Source.wordEq
+                selectedSelector expectedSelector &&
+              SolidCore.Solidity.Source.wordEq arg 0x1234
+        | _, _, _, _ => false
+  let functionEntryMatches :=
+    fun (observation : SolidCore.Solidity.Source.ABI.AbiEntryObservation)
+        (expectedTransient : SolidCore.Solidity.Source.WordMap) =>
+      match observation.functionEntry? with
+      | some entry =>
+          entry.input.kind ==
+              SolidCore.Solidity.Source.FunctionEntryKind.ordinary &&
+            entry.input.functionName == "idAddress" &&
+            (match entry.input.selector?, function.selector? with
+            | some selectedSelector, some expectedSelector =>
+                SolidCore.Solidity.Source.wordEq
+                  selectedSelector expectedSelector
+            | _, _ => false) &&
+            entry.input.context.ambient.calldata == calldata &&
+            SolidCore.Solidity.Source.wordEq
+              entry.input.context.ambient.self 0xabcd &&
+            SolidCore.Solidity.Source.wordEq
+              entry.input.context.ambient.sender 0xcafe &&
+            SolidCore.Solidity.Source.wordEq
+              entry.input.context.ambient.value 0 &&
+            entry.input.submittedState.storage == [(5, 6)] &&
+            entry.input.submittedState.transient == expectedTransient &&
+            (match entry.input.args with
+            | [SolidCore.Solidity.Source.Value.word arg] =>
+                SolidCore.Solidity.Source.wordEq arg 0x1234
+            | _ => false) &&
+            (match entry.result? with
+            | some result =>
+                result.mode ==
+                    SolidCore.Solidity.Source.CallExitMode.returned &&
+                  result.state.storage == [(5, 6)] &&
+                  result.state.transient == expectedTransient &&
+                  (match result.returnValues with
+                  | [SolidCore.Solidity.Source.Value.word value] =>
+                      SolidCore.Solidity.Source.wordEq value 0x1234
+                  | _ => false)
+            | none => false)
+      | none => false
+  let callMatches :=
+    let encodingMatches :=
+      match callObservation.resultEncoding? with
+      | some encoding =>
+          encoding.mode ==
+              SolidCore.Solidity.Source.ABI.AbiResultEncodingMode.returned &&
+            encoding.expectedSuccess &&
+            encoding.abiResult.success &&
+            encoding.encodedOutput == expected &&
+            encoding.abiResult.output == expected &&
+            (match encoding.returnTys with
+            | [SolidCore.Solidity.Source.Ty.address] => true
+            | _ => false) &&
+            encoding.sourceResult.mode ==
+              SolidCore.Solidity.Source.CallExitMode.returned &&
+            (match encoding.sourceResult.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value 0x1234
+            | _ => false)
+      | none => false
+    callInput.kind ==
+        SolidCore.Solidity.Source.ABI.AbiEntryKind.messageCall &&
+      callInput.fuel == 8 &&
+      SolidCore.Solidity.Source.wordEq callInput.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq callInput.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq callInput.value 0 &&
+      callInput.calldata == calldata &&
+      callInput.baseContext.ambient.gasleft == 999 &&
+      callInput.baseContext.accounts.accountBalances == [(0xcafe, 42)] &&
+      callAmbient.checked &&
+      !callAmbient.construction &&
+      callAmbient.calldata == calldata &&
+      SolidCore.Solidity.Source.wordEq callAmbient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq callAmbient.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq callAmbient.value 0 &&
+      dispatchMatches callInput &&
+      functionEntryMatches callObservation [(1, 2)] &&
+      encodingMatches &&
+      callInput.submittedState.storage == [(5, 6)] &&
+      callInput.submittedState.transient == [(1, 2)] &&
+      callInput.executionState.storage == [(5, 6)] &&
+      callInput.executionState.transient == [(1, 2)] &&
+      (match callObservation.result? with
+      | some result =>
+          result.success &&
+            result.output == expected &&
+            result.state.storage == [(5, 6)] &&
+            result.state.transient == [(1, 2)]
+      | none => false)
+  let txInput := transactionObservation.input
+  let transactionMatches :=
+      let encodingMatches :=
+        match transactionObservation.resultEncoding? with
+        | some encoding =>
+            encoding.mode ==
+                SolidCore.Solidity.Source.ABI.AbiResultEncodingMode.returned &&
+              encoding.expectedSuccess &&
+              encoding.abiResult.success &&
+              encoding.encodedOutput == expected &&
+              encoding.abiResult.output == expected &&
+              (match encoding.sourceResult.returnValues with
+              | [SolidCore.Solidity.Source.Value.word value] =>
+                  SolidCore.Solidity.Source.wordEq value 0x1234
+              | _ => false)
+        | none => false
+      txInput.kind ==
+        SolidCore.Solidity.Source.ABI.AbiEntryKind.transaction &&
+      dispatchMatches txInput &&
+      functionEntryMatches transactionObservation [] &&
+      encodingMatches &&
+      txInput.submittedState.storage == [(5, 6)] &&
+      txInput.submittedState.transient == [(1, 2)] &&
+      txInput.executionState.storage == [(5, 6)] &&
+      txInput.executionState.transient == [] &&
+      (match transactionObservation.result? with
+      | some result =>
+          result.success &&
+            result.output == expected &&
+            result.state.storage == [(5, 6)] &&
+            result.state.transient == []
+      | none => false)
+  some (callMatches && transactionMatches)
+
+def abiPanicFunction : CoreFunctionDef :=
+  { name := "panicNow"
+    selector? :=
+      some
+        (SolidCore.Solidity.Source.ABI.selectorFromSignature
+          "panicNow()")
+    payable := false
+    params := []
+    returns :=
+      [{ name := "out", ty := SolidCore.Solidity.Source.Ty.uint256 }]
+    body := SolidCore.Solidity.Source.Stmt.panic 0x12 }
+
+def abiPanicContract : CoreContract :=
+  { functions := [abiPanicFunction] }
+
+def abiResultEncodingRevertBoundaryMatches : Option Bool := do
+  let selector :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      (SolidCore.Solidity.Source.ABI.selectorFromSignature
+        "panicNow()")
+  let expectedPayload ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 0x12]
+  let expected :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      SolidCore.Solidity.Source.ABI.panicSelector ++ expectedPayload
+  let observation :=
+    SolidCore.Solidity.Source.ABI.Contract.observeCalldataCallAtFromWithContext
+      8 abiPanicContract abiPanicContract.context
+      SolidCore.Solidity.Source.State.empty 0 0 0 selector
+  match observation.resultEncoding?, observation.result? with
+  | some encoding, some result =>
+      some
+        (encoding.mode ==
+            SolidCore.Solidity.Source.ABI.AbiResultEncodingMode.reverted &&
+          !encoding.expectedSuccess &&
+          !encoding.abiResult.success &&
+          !result.success &&
+          encoding.encodedOutput == expected &&
+          encoding.abiResult.output == expected &&
+          result.output == expected &&
+          encoding.sourceResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.reverted &&
+          (match encoding.sourceResult.revertData? with
+          | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+              SolidCore.Solidity.Source.wordEq code 0x12
+          | _ => false))
+  | _, _ => some false
 
 def addressAbiRejectsWideEncode : Bool :=
   match
@@ -15802,6 +23074,21 @@ def memoryArrayAllocationOutOfBoundsPanics : Option Bool := do
       some (code == 0x32)
   | _ => some false
 
+def memoryAllocationLimitedContext : CoreContext :=
+  { SolidCore.Solidity.Source.Context.empty with
+    memoryAllocationLimit? := some 3 }
+
+def memoryArrayAllocationTooLargePanics : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 [] [] memoryAllocationLimitedContext
+      SolidCore.Solidity.Source.State.empty memoryArrayAllocationFunction
+      [SolidCore.Solidity.Source.Value.word 4]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x41)
+  | _ => some false
+
 def memoryArrayAllocationRejected : Bool :=
   (match
       Expr.toCore? []
@@ -15908,6 +23195,17 @@ def memoryBytesAllocationOutOfBoundsPanics : Option Bool := do
       some (code == 0x32)
   | _ => some false
 
+def memoryBytesAllocationTooLargePanics : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 [] [] memoryAllocationLimitedContext
+      SolidCore.Solidity.Source.State.empty memoryBytesAllocationFunction
+      [SolidCore.Solidity.Source.Value.word 4]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x41)
+  | _ => some false
+
 def memoryStringAllocationFunction : FunctionDecl :=
   { name := some "allocateString"
     params := [{ name := some "len", ty := Ty.uint 256 }]
@@ -15931,6 +23229,2336 @@ def memoryStringAllocationMatchesExpected : Option Bool := do
       [SolidCore.Solidity.Source.Value.bytes data] =>
       some (data == [0, 0, 0])
   | _ => some false
+
+def memoryStringAllocationTooLargePanics : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 [] [] memoryAllocationLimitedContext
+      SolidCore.Solidity.Source.State.empty memoryStringAllocationFunction
+      [SolidCore.Solidity.Source.Value.word 4]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.reverted _
+      (SolidCore.Solidity.Source.RevertData.panic code) =>
+      some (code == 0x41)
+  | _ => some false
+
+def memoryAllocationFootprintBody : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl
+        [ { name := some "xs"
+            ty := some (Ty.array (Ty.uint 256) none)
+            location := some DataLocation.memory } ]
+        (some
+          (Expr.newExpr (Ty.array (Ty.uint 256) none)
+            [Arg.positional (Expr.literal (Literal.number "3"))]))
+    , Stmt.varDecl
+        [ { name := some "buf"
+            ty := some Ty.bytes
+            location := some DataLocation.memory } ]
+        (some
+          (Expr.newExpr Ty.bytes
+            [Arg.positional (Expr.literal (Literal.number "5"))]))
+    , Stmt.varDecl
+        [ { name := some "text"
+            ty := some Ty.string
+            location := some DataLocation.memory } ]
+        (some
+          (Expr.newExpr Ty.string
+            [Arg.positional (Expr.literal (Literal.number "2"))]))
+    , Stmt.returnValues
+        (some (Expr.literal (Literal.number "1"))) ]
+
+def memoryAllocationFootprintFunction : FunctionDecl :=
+  { name := some "memoryFootprint"
+    returns := [{ name := some "ok", ty := Ty.uint 256 }]
+    body := some memoryAllocationFootprintBody }
+
+def memoryAllocationFootprintExpected : Nat :=
+  SolidCore.Solidity.Source.dynamicArrayMemoryFootprint
+      SolidCore.Solidity.Source.Ty.uint256 3 +
+    SolidCore.Solidity.Source.dynamicBytesMemoryFootprint 5 +
+    SolidCore.Solidity.Source.dynamicBytesMemoryFootprint 2
+
+def memoryAllocationFootprintExpectedFreePointer : Nat :=
+  SolidCore.Solidity.Source.initialFreeMemoryPointer +
+    memoryAllocationFootprintExpected
+
+def memoryAllocationFootprintExpectedRegions :
+    List SolidCore.Solidity.Source.MemoryAllocation :=
+  [ { start := 128, sizeBytes := 128 }
+  , { start := 256, sizeBytes := 64 }
+  , { start := 320, sizeBytes := 64 } ]
+
+def memoryAllocationFootprintExpectedBytes : List Byte :=
+  SolidCore.Solidity.Source.dynamicArrayMemoryContent
+      SolidCore.Solidity.Source.Ty.uint256 3 ++
+    SolidCore.Solidity.Source.dynamicBytesMemoryContent 5 ++
+    SolidCore.Solidity.Source.dynamicBytesMemoryContent 2
+
+def memoryAllocationFootprintMatches : Option Bool := do
+  let result ←
+    Stmt.eval? 32 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      memoryAllocationFootprintBody
+  match result with
+  | SolidCore.Solidity.Source.Result.returned runtime
+      [SolidCore.Solidity.Source.Value.word ok] =>
+      some
+        (ok == 1 &&
+          runtime.memoryBytesUsed == memoryAllocationFootprintExpected &&
+          runtime.memoryFreePointer ==
+            memoryAllocationFootprintExpectedFreePointer &&
+          runtime.memoryAllocations ==
+            memoryAllocationFootprintExpectedRegions &&
+          runtime.readMemoryBytes?
+              SolidCore.Solidity.Source.initialFreeMemoryPointer
+              memoryAllocationFootprintExpected ==
+            some memoryAllocationFootprintExpectedBytes &&
+          runtime.readMemoryBytes? 128
+              SolidCore.Solidity.Source.wordBytes ==
+            some
+              (SolidCore.Solidity.Source.wordToBytesBE
+                SolidCore.Solidity.Source.wordBytes 3) &&
+          runtime.readMemoryBytes? 256
+              SolidCore.Solidity.Source.wordBytes ==
+            some
+              (SolidCore.Solidity.Source.wordToBytesBE
+                SolidCore.Solidity.Source.wordBytes 5) &&
+          runtime.readMemoryBytes? 320
+              SolidCore.Solidity.Source.wordBytes ==
+            some
+              (SolidCore.Solidity.Source.wordToBytesBE
+                SolidCore.Solidity.Source.wordBytes 2) &&
+          runtime.loadMemoryByte? 127 == none &&
+          runtime.loadMemoryByte? 384 == none &&
+          memoryAllocationFootprintExpected == 256 &&
+          memoryAllocationFootprintExpectedFreePointer == 384)
+  | _ => some false
+
+def memoryAllocationObservationMatches : Option Bool := do
+  let result ←
+    Stmt.eval? 32 [] SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      memoryAllocationFootprintBody
+  match result with
+  | SolidCore.Solidity.Source.Result.returned runtime
+      [SolidCore.Solidity.Source.Value.word ok] => do
+      let observation := runtime.observe 0
+      let memory := observation.memory
+      let xs ←
+        SolidCore.Solidity.Source.MemoryMap.lookup?
+          memory.objects 0
+      let buf ←
+        SolidCore.Solidity.Source.MemoryMap.lookup?
+          memory.objects 1
+      let text ←
+        SolidCore.Solidity.Source.MemoryMap.lookup?
+          memory.objects 2
+      let xsLen ← xs.length?
+      let bufLen ← buf.length?
+      let textLen ← text.length?
+      some
+        (ok == 1 &&
+          observation.locals.frames.length == 1 &&
+          memory.nextObject == 3 &&
+          memory.allocationSizes == [128, 64, 64] &&
+          memory.allocatedBytes == memoryAllocationFootprintExpected &&
+          xsLen == 3 &&
+          bufLen == 5 &&
+          textLen == 2)
+  | _ => some false
+
+def storageLayoutObservationBoundaryMatches : Bool :=
+  let structLayout :=
+    SolidCore.Solidity.Source.StorageLayout.struct
+      [ SolidCore.Solidity.Source.StorageLayout.packedScalar
+          0 1 false SolidCore.Solidity.Source.Ty.bool
+      , SolidCore.Solidity.Source.StorageLayout.dynamicArray
+          (SolidCore.Solidity.Source.StorageLayout.scalar
+            SolidCore.Solidity.Source.Ty.uint256) ]
+  let fields : List SolidCore.Solidity.Source.StorageField :=
+    [ { name := "packed"
+        slot := 5
+        ty? := some SolidCore.Solidity.Source.Ty.bool
+        layout? :=
+          some
+            (SolidCore.Solidity.Source.StorageLayout.packedScalar
+              0 1 false SolidCore.Solidity.Source.Ty.bool)
+        packedOffset := 0
+        packedBytes := 1 }
+    , { name := "items"
+        slot := 6
+        ty? :=
+          some
+            (SolidCore.Solidity.Source.Ty.dynamicArray
+              SolidCore.Solidity.Source.Ty.uint256)
+        layout? := some structLayout } ]
+  let context : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      storageFields := fields }
+  match context.observe.declarations.storageFieldObservations with
+  | [packed, items] =>
+      let packedMatches :=
+        packed.name == "packed" &&
+          SolidCore.Solidity.Source.wordEq packed.slot 5 &&
+          packed.packedBytes == 1 &&
+          !packed.transient &&
+          (match packed.layout? with
+          | some
+              (SolidCore.Solidity.Source.StorageLayoutObservation.packedScalar
+                0 1 false SolidCore.Solidity.Source.Ty.bool 1) => true
+          | _ => false)
+      let itemsMatches :=
+        items.name == "items" &&
+          SolidCore.Solidity.Source.wordEq items.slot 6 &&
+          !items.transient &&
+          (match items.layout? with
+          | some
+              (SolidCore.Solidity.Source.StorageLayoutObservation.struct
+                [ SolidCore.Solidity.Source.StorageLayoutObservation.packedScalar
+                    0 1 false
+                      SolidCore.Solidity.Source.Ty.bool 1
+                , SolidCore.Solidity.Source.StorageLayoutObservation.dynamicArray
+                      (SolidCore.Solidity.Source.StorageLayoutObservation.scalar
+                        SolidCore.Solidity.Source.Ty.uint256 1)
+                      1 ] 2) => true
+          | _ => false)
+      packedMatches && itemsMatches
+  | _ => false
+
+def localObservationLookupWordMatches
+    (value? : Option SolidCore.Solidity.Source.Value)
+    (expected : Word) : Bool :=
+  match value? with
+  | some (SolidCore.Solidity.Source.Value.word value) =>
+      SolidCore.Solidity.Source.wordEq value expected
+  | _ => false
+
+def sourceWordValuesMatch :
+    List SolidCore.Solidity.Source.Value -> List Word -> Bool
+  | [], [] => true
+  | SolidCore.Solidity.Source.Value.word value :: values,
+      expected :: expectedValues =>
+      SolidCore.Solidity.Source.wordEq value expected &&
+        sourceWordValuesMatch values expectedValues
+  | _, _ => false
+
+def sourceValueWordMatches
+    (value? : Option SolidCore.Solidity.Source.Value)
+    (expected : Word) : Bool :=
+  match value? with
+  | some (SolidCore.Solidity.Source.Value.word value) =>
+      SolidCore.Solidity.Source.wordEq value expected
+  | _ => false
+
+def localObservationFrameMatches
+    (frame : SolidCore.Solidity.Source.Frame)
+    (expected : List (String × Word)) : Bool :=
+  match frame, expected with
+  | [], [] => true
+  | (name, SolidCore.Solidity.Source.Value.word value) :: rest,
+      (expectedName, expectedValue) :: expectedRest =>
+      name == expectedName &&
+          SolidCore.Solidity.Source.wordEq value expectedValue &&
+        localObservationFrameMatches rest expectedRest
+  | _, _ => false
+
+def tryCatchMatchObservationMatches : Option Bool := do
+  let errorBytes ← errorStringBytes? "bad"
+  let panicPayload ←
+    SolidCore.Solidity.Source.abiEncodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 0x11]
+  let panicBytes :=
+    SolidCore.Solidity.Source.ABI.encodeSelector
+      SolidCore.Solidity.Source.ABI.panicSelector ++ panicPayload
+  let errorClause : CoreTryCatchClause :=
+    SolidCore.Solidity.Source.TryCatchClause.clause (some "Error")
+      [{ name := "reason", ty := SolidCore.Solidity.Source.Ty.bytesCalldata }]
+      SolidCore.Solidity.Source.Stmt.skip
+  let panicClause : CoreTryCatchClause :=
+    SolidCore.Solidity.Source.TryCatchClause.clause (some "Panic")
+      [{ name := "code", ty := SolidCore.Solidity.Source.Ty.uint256 }]
+      SolidCore.Solidity.Source.Stmt.skip
+  let lowLevelClause : CoreTryCatchClause :=
+    SolidCore.Solidity.Source.TryCatchClause.clause none
+      [{ name := "data", ty := SolidCore.Solidity.Source.Ty.bytesCalldata }]
+      SolidCore.Solidity.Source.Stmt.skip
+  let errorObservation :=
+    SolidCore.Solidity.Source.TryCatchClause.observeFindMatch
+      errorBytes [panicClause, errorClause, lowLevelClause]
+  let panicObservation :=
+    SolidCore.Solidity.Source.TryCatchClause.observeFindMatch
+      panicBytes [errorClause, panicClause, lowLevelClause]
+  let rawObservation :=
+    SolidCore.Solidity.Source.TryCatchClause.observeFindMatch
+      [0xaa, 0xbb, 0xcc] [errorClause, panicClause, lowLevelClause]
+  let unmatchedObservation :=
+    SolidCore.Solidity.Source.TryCatchClause.observeFindMatch
+      [0xaa, 0xbb, 0xcc] [errorClause, panicClause]
+  let frameBytesMatches :=
+    fun (frame? : Option SolidCore.Solidity.Source.Frame)
+        (name : String) (expected : List Byte) =>
+      match frame? with
+      | some [(frameName, SolidCore.Solidity.Source.Value.bytes bytes)] =>
+          frameName == name && bytes == expected
+      | _ => false
+  let frameWordMatches :=
+    fun (frame? : Option SolidCore.Solidity.Source.Frame)
+        (name : String) (expected : Word) =>
+      match frame? with
+      | some [(frameName, SolidCore.Solidity.Source.Value.word value)] =>
+          frameName == name &&
+            SolidCore.Solidity.Source.wordEq value expected
+      | _ => false
+  some
+    (errorObservation.raw == errorBytes &&
+      errorObservation.clauseCount == 3 &&
+      errorObservation.selectedIndex? == some 1 &&
+      errorObservation.selectedKind? ==
+        some SolidCore.Solidity.Source.TryCatchMatchKind.errorString &&
+      errorObservation.selectedName? == some "Error" &&
+      frameBytesMatches errorObservation.frame? "reason" [98, 97, 100] &&
+      errorObservation.body?.isSome &&
+      panicObservation.clauseCount == 3 &&
+      panicObservation.selectedIndex? == some 1 &&
+      panicObservation.selectedKind? ==
+        some SolidCore.Solidity.Source.TryCatchMatchKind.panic &&
+      panicObservation.selectedName? == some "Panic" &&
+      frameWordMatches panicObservation.frame? "code" 0x11 &&
+      rawObservation.clauseCount == 3 &&
+      rawObservation.selectedIndex? == some 2 &&
+      rawObservation.selectedKind? ==
+        some SolidCore.Solidity.Source.TryCatchMatchKind.lowLevel &&
+      rawObservation.selectedName?.isNone &&
+      frameBytesMatches rawObservation.frame? "data" [0xaa, 0xbb, 0xcc] &&
+      unmatchedObservation.clauseCount == 2 &&
+      unmatchedObservation.selectedIndex?.isNone &&
+      unmatchedObservation.selectedKind?.isNone &&
+      unmatchedObservation.selectedName?.isNone &&
+      unmatchedObservation.frame?.isNone &&
+      unmatchedObservation.body?.isNone)
+
+def localObservationShadowingMatches : Bool :=
+  let locals : SolidCore.Solidity.Source.LocalEnv :=
+    [ [ ("x", SolidCore.Solidity.Source.Value.word 2)
+      , ("y", SolidCore.Solidity.Source.Value.word 3) ]
+    , [ ("x", SolidCore.Solidity.Source.Value.word 1)
+      , ("z", SolidCore.Solidity.Source.Value.word 4) ] ]
+  let observation := SolidCore.Solidity.Source.LocalEnv.observe locals
+  match observation.frames with
+  | [inner, outer] =>
+      localObservationFrameMatches inner [("x", 2), ("y", 3)] &&
+        localObservationFrameMatches outer [("x", 1), ("z", 4)] &&
+        localObservationFrameMatches observation.currentFrame
+          [("x", 2), ("y", 3)] &&
+        localObservationFrameMatches observation.visibleBindings
+          [("x", 2), ("y", 3), ("z", 4)] &&
+        localObservationLookupWordMatches (observation.lookup? "x") 2 &&
+        localObservationLookupWordMatches (observation.lookup? "z") 4 &&
+        (observation.lookup? "missing").isNone
+  | _ => false
+
+def localDeclarationObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("z", SolidCore.Solidity.Source.Value.word 0)]] }
+  let defaultObservation :=
+    SolidCore.Solidity.Source.Stmt.observeLocalDeclaration
+      SolidCore.Solidity.Source.Context.empty runtime
+      SolidCore.Solidity.Source.Ty.uint256 "x" none 0
+  let initObservation :=
+    SolidCore.Solidity.Source.Stmt.observeLocalDeclaration
+      SolidCore.Solidity.Source.Context.empty runtime
+      SolidCore.Solidity.Source.Ty.uint256 "y"
+      (some
+        (SolidCore.Solidity.Source.Expr.assignExpr
+          (SolidCore.Solidity.Source.Expr.var "z")
+          (SolidCore.Solidity.Source.Expr.word 5))) 0
+  let mismatchObservation :=
+    SolidCore.Solidity.Source.Stmt.observeLocalDeclaration
+      SolidCore.Solidity.Source.Context.empty runtime
+      SolidCore.Solidity.Source.Ty.uint256 "bad"
+      (some (SolidCore.Solidity.Source.Expr.byteArray [1])) 0
+  let valueWordMatches :=
+    fun (value? : Option SolidCore.Solidity.Source.Value)
+        (expected : Word) =>
+      match value? with
+      | some (SolidCore.Solidity.Source.Value.word value) =>
+          SolidCore.Solidity.Source.wordEq value expected
+      | _ => false
+  let resultLocalMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (name : String) (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? name) expected
+      | none => false
+  let typeMismatchRevertMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData) =>
+      match data? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  defaultObservation.name == "x" &&
+    (match defaultObservation.ty with
+    | SolidCore.Solidity.Source.Ty.uint256 => true
+    | _ => false) &&
+    defaultObservation.initializerValue?.isNone &&
+    defaultObservation.initializerRuntime?.isNone &&
+    valueWordMatches defaultObservation.declaredValue? 0 &&
+    resultLocalMatches defaultObservation.result? "x" 0 &&
+    localObservationLookupWordMatches
+      (defaultObservation.inputRuntime.locals.lookup? "z") 0 &&
+    initObservation.name == "y" &&
+    valueWordMatches initObservation.initializerValue? 5 &&
+    (match initObservation.initializerRuntime? with
+    | some initRuntime =>
+        localObservationLookupWordMatches
+          (initRuntime.locals.lookup? "z") 5
+    | none => false) &&
+    valueWordMatches initObservation.declaredValue? 5 &&
+    resultLocalMatches initObservation.result? "y" 5 &&
+    (match initObservation.result? with
+    | some result =>
+        localObservationLookupWordMatches
+          (result.runtime.locals.lookup? "z") 5
+    | none => false) &&
+    (match mismatchObservation.initializerValue? with
+    | some (SolidCore.Solidity.Source.Value.bytes [1]) => true
+    | _ => false) &&
+    mismatchObservation.declaredValue?.isNone &&
+    typeMismatchRevertMatches mismatchObservation.revertData? &&
+    (match mismatchObservation.result? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.ResultMode.reverted &&
+          localObservationLookupWordMatches
+            (result.runtime.locals.lookup? "z") 0 &&
+          (result.runtime.locals.lookup? "bad").isNone
+    | none => false)
+
+def localAssignmentObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals :=
+        [[ ("x", SolidCore.Solidity.Source.Value.word 1)
+         , ("z", SolidCore.Solidity.Source.Value.word 0) ]] }
+  let missingRuntime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("z", SolidCore.Solidity.Source.Value.word 0)]] }
+  let assignmentObservation :=
+    SolidCore.Solidity.Source.Stmt.observeLocalAssignment
+      SolidCore.Solidity.Source.Context.empty runtime "x"
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "z")
+        (SolidCore.Solidity.Source.Expr.word 5)) 0
+  let missingObservation :=
+    SolidCore.Solidity.Source.Stmt.observeLocalAssignment
+      SolidCore.Solidity.Source.Context.empty missingRuntime "missing"
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "z")
+        (SolidCore.Solidity.Source.Expr.word 4)) 0
+  let valueWordMatches :=
+    fun (value? : Option SolidCore.Solidity.Source.Value)
+        (expected : Word) =>
+      match value? with
+      | some (SolidCore.Solidity.Source.Value.word value) =>
+          SolidCore.Solidity.Source.wordEq value expected
+      | _ => false
+  let runtimeLocalMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation)
+        (name : String) (expected : Word) =>
+      match runtime? with
+      | some observed =>
+          localObservationLookupWordMatches
+            (observed.locals.lookup? name) expected
+      | none => false
+  let resultLocalPairMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (mode : SolidCore.Solidity.Source.ResultMode)
+        (first : String × Word) (second : String × Word) =>
+      match result? with
+      | some result =>
+          result.mode == mode &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? first.fst) first.snd &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? second.fst) second.snd
+      | none => false
+  assignmentObservation.name == "x" &&
+    assignmentObservation.order ==
+      SolidCore.Solidity.Source.ChildEvalOrder.yulCompatible &&
+    valueWordMatches assignmentObservation.previousValue? 1 &&
+    valueWordMatches assignmentObservation.rhsValue? 5 &&
+    runtimeLocalMatches assignmentObservation.rhsRuntime? "z" 5 &&
+    runtimeLocalMatches assignmentObservation.targetRuntime? "z" 5 &&
+    valueWordMatches assignmentObservation.assignedValue? 5 &&
+    resultLocalPairMatches assignmentObservation.result?
+      SolidCore.Solidity.Source.ResultMode.normal ("x", 5) ("z", 5) &&
+    missingObservation.name == "missing" &&
+    missingObservation.previousValue?.isNone &&
+    valueWordMatches missingObservation.rhsValue? 4 &&
+    runtimeLocalMatches missingObservation.rhsRuntime? "z" 4 &&
+    missingObservation.targetRuntime?.isNone &&
+    missingObservation.assignedValue?.isNone &&
+    (match missingObservation.revertData? with
+    | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+        SolidCore.Solidity.Source.wordEq code 0
+    | _ => false) &&
+    resultLocalPairMatches missingObservation.result?
+      SolidCore.Solidity.Source.ResultMode.reverted
+      ("z", 0) ("z", 0) &&
+    (match missingObservation.result? with
+    | some result => (result.runtime.locals.lookup? "missing").isNone
+    | none => false)
+
+def blockScopeObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals :=
+        [[ ("x", SolidCore.Solidity.Source.Value.word 1)
+         , ("z", SolidCore.Solidity.Source.Value.word 4) ]] }
+  let body :=
+    [ SolidCore.Solidity.Source.Stmt.varDecl
+        SolidCore.Solidity.Source.Ty.uint256 "x"
+        (some (SolidCore.Solidity.Source.Expr.word 2))
+    , SolidCore.Solidity.Source.Stmt.varDecl
+        SolidCore.Solidity.Source.Ty.uint256 "y"
+        (some (SolidCore.Solidity.Source.Expr.word 3))
+    , SolidCore.Solidity.Source.Stmt.assign
+        (SolidCore.Solidity.Source.LValue.var "z")
+        (SolidCore.Solidity.Source.Expr.word 5) ]
+  let observation :=
+    SolidCore.Solidity.Source.Stmt.observeBlockScope
+      16 SolidCore.Solidity.Source.Context.empty runtime body 0
+  match observation.beforeScope.locals.frames,
+      observation.enteredScope.locals.frames,
+      observation.bodyResult?, observation.finalResult? with
+  | [outerBefore], [entered, outerEntered], some bodyResult,
+      some finalResult =>
+      match bodyResult.runtime.locals.frames,
+          finalResult.runtime.locals.frames with
+      | [innerAfter, outerAfter], [finalOuter] =>
+          bodyResult.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+            finalResult.mode ==
+              SolidCore.Solidity.Source.ResultMode.normal &&
+            localObservationFrameMatches outerBefore
+              [("x", 1), ("z", 4)] &&
+            localObservationFrameMatches entered [] &&
+            localObservationFrameMatches outerEntered
+              [("x", 1), ("z", 4)] &&
+            localObservationFrameMatches innerAfter
+              [("y", 3), ("x", 2)] &&
+            localObservationFrameMatches outerAfter
+              [("x", 1), ("z", 5)] &&
+            localObservationFrameMatches
+              bodyResult.runtime.locals.visibleBindings
+              [("y", 3), ("x", 2), ("z", 5)] &&
+            localObservationFrameMatches finalOuter
+              [("x", 1), ("z", 5)] &&
+            localObservationFrameMatches
+              finalResult.runtime.locals.visibleBindings
+              [("x", 1), ("z", 5)] &&
+            (finalResult.runtime.locals.lookup? "y").isNone &&
+            localObservationLookupWordMatches
+              (finalResult.runtime.locals.lookup? "x") 1 &&
+            localObservationLookupWordMatches
+              (finalResult.runtime.locals.lookup? "z") 5
+      | _, _ => false
+  | _, _, _, _ => false
+
+def expressionListEvaluationObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let exprs :=
+    [ SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "x")
+        (SolidCore.Solidity.Source.Expr.word 5)
+    , SolidCore.Solidity.Source.Expr.var "x" ]
+  let defaultObservation :=
+    SolidCore.Solidity.Source.Expr.observeListEvaluation
+      SolidCore.Solidity.Source.Context.empty runtime exprs 0
+  let leftObservation :=
+    SolidCore.Solidity.Source.Expr.observeListEvaluation
+      (SolidCore.Solidity.Source.Context.empty.withChildEvalOrder
+        SolidCore.Solidity.Source.ChildEvalOrder.leftToRight)
+      runtime exprs 0
+  let outputLocalMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation)
+        (expected : Word) =>
+      match runtime? with
+      | some output =>
+          localObservationLookupWordMatches
+            (output.locals.lookup? "x") expected
+      | none => false
+  defaultObservation.order ==
+      SolidCore.Solidity.Source.ChildEvalOrder.yulCompatible &&
+    defaultObservation.context.ambient.childEvalOrder?.isNone &&
+    defaultObservation.expressionCount == 2 &&
+    localObservationLookupWordMatches
+      (defaultObservation.inputRuntime.locals.lookup? "x") 0 &&
+    (match defaultObservation.values? with
+    | some values => sourceWordValuesMatch values [5, 0]
+    | none => false) &&
+    outputLocalMatches defaultObservation.outputRuntime? 5 &&
+    leftObservation.order ==
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight &&
+    leftObservation.context.ambient.childEvalOrder? ==
+      some SolidCore.Solidity.Source.ChildEvalOrder.leftToRight &&
+    leftObservation.expressionCount == 2 &&
+    (match leftObservation.values? with
+    | some values => sourceWordValuesMatch values [5, 5]
+    | none => false) &&
+    outputLocalMatches leftObservation.outputRuntime? 5
+
+def childEvaluationPolicyObservationMatches : Bool :=
+  let defaultPolicy :=
+    SolidCore.Solidity.Source.Context.empty.observeChildEvaluationPolicy
+  let leftPolicy :=
+    (SolidCore.Solidity.Source.Context.empty.withChildEvalOrder
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight)
+        |>.observeChildEvaluationPolicy
+  let rightPolicy :=
+    (SolidCore.Solidity.Source.Context.empty.withChildEvalOrder
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft)
+        |>.observeChildEvaluationPolicy
+  defaultPolicy.requested?.isNone &&
+    defaultPolicy.effective ==
+      SolidCore.Solidity.Source.ChildEvalOrder.yulCompatible &&
+    defaultPolicy.yulCompatible ==
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft &&
+    defaultPolicy.unspecifiedOrders ==
+      [SolidCore.Solidity.Source.ChildEvalOrder.yulCompatible] &&
+    defaultPolicy.usesYulCompatibleDefault &&
+    leftPolicy.requested? ==
+      some SolidCore.Solidity.Source.ChildEvalOrder.leftToRight &&
+    leftPolicy.effective ==
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight &&
+    !leftPolicy.usesYulCompatibleDefault &&
+    rightPolicy.requested? ==
+      some SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft &&
+    rightPolicy.effective ==
+      SolidCore.Solidity.Source.ChildEvalOrder.yulCompatible &&
+    !rightPolicy.usesYulCompatibleDefault
+
+def expressionControlEvaluationObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let context := SolidCore.Solidity.Source.Context.empty
+  let assignX (value : Word) :=
+    SolidCore.Solidity.Source.Expr.assignExpr
+      (SolidCore.Solidity.Source.Expr.var "x")
+      (SolidCore.Solidity.Source.Expr.word value)
+  let localMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation)
+        (expected : Word) =>
+      match runtime? with
+      | some observed =>
+          localObservationLookupWordMatches
+            (observed.locals.lookup? "x") expected
+      | none => false
+  let andSkip :=
+    SolidCore.Solidity.Source.Expr.observeShortCircuitEvaluation
+      context runtime SolidCore.Solidity.Source.BinaryOp.boolAnd
+      (SolidCore.Solidity.Source.Expr.word 0) (assignX 1) 0
+  let andCall :=
+    SolidCore.Solidity.Source.Expr.observeShortCircuitEvaluation
+      context runtime SolidCore.Solidity.Source.BinaryOp.boolAnd
+      (SolidCore.Solidity.Source.Expr.word 1) (assignX 1) 0
+  let orSkip :=
+    SolidCore.Solidity.Source.Expr.observeShortCircuitEvaluation
+      context runtime SolidCore.Solidity.Source.BinaryOp.boolOr
+      (SolidCore.Solidity.Source.Expr.word 1) (assignX 1) 0
+  let orCall :=
+    SolidCore.Solidity.Source.Expr.observeShortCircuitEvaluation
+      context runtime SolidCore.Solidity.Source.BinaryOp.boolOr
+      (SolidCore.Solidity.Source.Expr.word 0) (assignX 1) 0
+  let ternaryThen :=
+    SolidCore.Solidity.Source.Expr.observeTernaryEvaluation
+      context runtime
+      (assignX 1) (assignX 21) (assignX 22) 0
+  let ternaryElse :=
+    SolidCore.Solidity.Source.Expr.observeTernaryEvaluation
+      context runtime
+      (assignX 0) (assignX 21) (assignX 22) 0
+  andSkip.decision? ==
+      some SolidCore.Solidity.Source.ShortCircuitDecision.skippedRight &&
+    sourceValueWordMatches andSkip.outputValue? 0 &&
+    localMatches andSkip.outputRuntime? 0 &&
+    andSkip.rhsValue?.isNone &&
+    andCall.decision? ==
+      some SolidCore.Solidity.Source.ShortCircuitDecision.evaluatedRight &&
+    sourceValueWordMatches andCall.outputValue? 1 &&
+    sourceValueWordMatches andCall.rhsValue? 1 &&
+    localMatches andCall.outputRuntime? 1 &&
+    orSkip.decision? ==
+      some SolidCore.Solidity.Source.ShortCircuitDecision.skippedRight &&
+    sourceValueWordMatches orSkip.outputValue? 1 &&
+    localMatches orSkip.outputRuntime? 0 &&
+    orSkip.rhsValue?.isNone &&
+    orCall.decision? ==
+      some SolidCore.Solidity.Source.ShortCircuitDecision.evaluatedRight &&
+    sourceValueWordMatches orCall.outputValue? 1 &&
+    sourceValueWordMatches orCall.rhsValue? 1 &&
+    localMatches orCall.outputRuntime? 1 &&
+    ternaryThen.selectedBranch? ==
+      some SolidCore.Solidity.Source.TernaryBranch.thenBranch &&
+    sourceValueWordMatches ternaryThen.conditionValue? 1 &&
+    localMatches ternaryThen.conditionRuntime? 1 &&
+    sourceValueWordMatches ternaryThen.branchValue? 21 &&
+    localMatches ternaryThen.outputRuntime? 21 &&
+    ternaryElse.selectedBranch? ==
+      some SolidCore.Solidity.Source.TernaryBranch.elseBranch &&
+    sourceValueWordMatches ternaryElse.conditionValue? 0 &&
+    localMatches ternaryElse.conditionRuntime? 0 &&
+    sourceValueWordMatches ternaryElse.branchValue? 22 &&
+    localMatches ternaryElse.outputRuntime? 22
+
+def requireCheckObservationMatchesWithContext
+    (context : CoreContext) : Option Bool := do
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let assignX (value : Word) :=
+    SolidCore.Solidity.Source.Expr.assignExpr
+      (SolidCore.Solidity.Source.Expr.var "x")
+      (SolidCore.Solidity.Source.Expr.word value)
+  let customArgs :=
+    [ assignX 5
+    , SolidCore.Solidity.Source.Expr.var "x" ]
+  let assertFalse :=
+    SolidCore.Solidity.Source.Stmt.observeRequireCheck
+      context runtime
+      (SolidCore.Solidity.Source.RequireCheckSource.assert
+        (SolidCore.Solidity.Source.Expr.word 0)) 0
+  let requireStringFalse :=
+    SolidCore.Solidity.Source.Stmt.observeRequireCheck
+      context runtime
+      (SolidCore.Solidity.Source.RequireCheckSource.requireString
+        (SolidCore.Solidity.Source.Expr.word 0) "bad") 0
+  let customTrue :=
+    SolidCore.Solidity.Source.Stmt.observeRequireCheck
+      context runtime
+      (SolidCore.Solidity.Source.RequireCheckSource.requireCustom
+        (assignX 1) "NeedsEval" customArgs) 0
+  let customFalse :=
+    SolidCore.Solidity.Source.Stmt.observeRequireCheck
+      context runtime
+      (SolidCore.Solidity.Source.RequireCheckSource.requireCustom
+        (assignX 0) "NeedsEval" customArgs) 0
+  let dynamicExpected ←
+    SolidCore.Solidity.Source.errorStringBytesRevert?
+      (SolidCore.Solidity.Source.Value.bytes [65])
+  let dynamicFalse :=
+    SolidCore.Solidity.Source.Stmt.observeRequireCheck
+      context runtime
+      (SolidCore.Solidity.Source.RequireCheckSource.requireBytesExpression
+        (SolidCore.Solidity.Source.Expr.word 0)
+        (SolidCore.Solidity.Source.Expr.byteArray [65])) 0
+  let conditionTypeMismatch :=
+    SolidCore.Solidity.Source.Stmt.observeRequireCheck
+      context runtime
+      (SolidCore.Solidity.Source.RequireCheckSource.assert
+        (SolidCore.Solidity.Source.Expr.byteArray [1])) 0
+  let panicMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData)
+        (expected : Word) =>
+      match data? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code expected
+      | _ => false
+  let rawMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData)
+        (expected : SolidCore.Solidity.Source.RevertData) =>
+      match data?, expected with
+      | some (SolidCore.Solidity.Source.RevertData.raw bytes),
+          SolidCore.Solidity.Source.RevertData.raw expectedBytes =>
+          bytes == expectedBytes
+      | _, _ => false
+  let customMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData)
+        (expected : List Word) =>
+      match data? with
+      | some
+          (SolidCore.Solidity.Source.RevertData.custom "NeedsEval"
+            values) =>
+          sourceWordValuesMatch values expected
+      | _ => false
+  let resultMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (mode : SolidCore.Solidity.Source.ResultMode)
+        (dataMatches : Option SolidCore.Solidity.Source.RevertData -> Bool)
+        (localExpected? : Option Word) =>
+      match result? with
+      | some result =>
+          result.mode == mode &&
+            dataMatches result.revertData? &&
+            (match localExpected? with
+            | some expected =>
+                localObservationLookupWordMatches
+                  (result.runtime.locals.lookup? "x") expected
+            | none => true)
+      | none => false
+  let payloadCustomMatches :=
+    fun (payload? :
+        Option SolidCore.Solidity.Source.RevertPayloadObservation)
+        (expected : List Word) =>
+      match payload? with
+      | some payload =>
+          payload.kind ==
+              SolidCore.Solidity.Source.RevertPayloadKind.customError &&
+            payload.name? == some "NeedsEval" &&
+            (match payload.values? with
+            | some values => sourceWordValuesMatch values expected
+            | none => false)
+      | none => false
+  some
+    (assertFalse.kind ==
+        SolidCore.Solidity.Source.RequireCheckKind.assert &&
+      assertFalse.conditionWord? == some 0 &&
+      resultMatches assertFalse.result?
+        SolidCore.Solidity.Source.ResultMode.reverted
+        (fun data? => panicMatches data? 0x01) (some 0) &&
+      requireStringFalse.kind ==
+        SolidCore.Solidity.Source.RequireCheckKind.requireString &&
+      requireStringFalse.conditionWord? == some 0 &&
+      resultMatches requireStringFalse.result?
+        SolidCore.Solidity.Source.ResultMode.reverted
+        (fun data? =>
+          match data? with
+          | some (SolidCore.Solidity.Source.RevertData.error "bad") =>
+              true
+          | _ => false) (some 0) &&
+      customTrue.kind ==
+        SolidCore.Solidity.Source.RequireCheckKind.requireCustom &&
+      customTrue.conditionWord? == some 1 &&
+      (match customTrue.conditionRuntime? with
+      | some observed =>
+          localObservationLookupWordMatches
+            (observed.locals.lookup? "x") 1
+      | none => false) &&
+      payloadCustomMatches customTrue.payloadObservation? [5, 1] &&
+      resultMatches customTrue.result?
+        SolidCore.Solidity.Source.ResultMode.normal
+        (fun data? => data?.isNone) (some 5) &&
+      customFalse.conditionWord? == some 0 &&
+      payloadCustomMatches customFalse.payloadObservation? [5, 0] &&
+      resultMatches customFalse.result?
+        SolidCore.Solidity.Source.ResultMode.reverted
+        (fun data? => customMatches data? [5, 0]) (some 5) &&
+      dynamicFalse.kind ==
+        SolidCore.Solidity.Source.RequireCheckKind.requireBytesExpression &&
+      dynamicFalse.conditionWord? == some 0 &&
+      (match dynamicFalse.payloadObservation? with
+      | some payload =>
+          payload.kind ==
+              SolidCore.Solidity.Source.RevertPayloadKind.errorBytesExpression &&
+            rawMatches payload.revertData? dynamicExpected
+      | none => false) &&
+      resultMatches dynamicFalse.result?
+        SolidCore.Solidity.Source.ResultMode.reverted
+        (fun data? => rawMatches data? dynamicExpected) (some 0) &&
+      conditionTypeMismatch.conditionWord?.isNone &&
+      resultMatches conditionTypeMismatch.result?
+        SolidCore.Solidity.Source.ResultMode.reverted
+        (fun data? => panicMatches data? 0) (some 0) &&
+      (match conditionTypeMismatch.error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false))
+
+def requireCheckObservationMatches : Option Bool :=
+  requireCheckObservationMatchesWithContext
+    SolidCore.Solidity.Source.Context.empty
+
+def ifBranchObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let thenBranch :=
+    SolidCore.Solidity.Source.Stmt.assign
+      (SolidCore.Solidity.Source.LValue.var "x")
+      (SolidCore.Solidity.Source.Expr.word 2)
+  let elseBranch :=
+    SolidCore.Solidity.Source.Stmt.assign
+      (SolidCore.Solidity.Source.LValue.var "x")
+      (SolidCore.Solidity.Source.Expr.word 3)
+  let thenObservation :=
+    SolidCore.Solidity.Source.Stmt.observeIfBranch
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "x")
+        (SolidCore.Solidity.Source.Expr.word 1))
+      thenBranch elseBranch 0
+  let elseObservation :=
+    SolidCore.Solidity.Source.Stmt.observeIfBranch
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.word 0)
+      thenBranch elseBranch 0
+  let resultLocalMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? "x") expected
+      | none => false
+  thenObservation.selected? ==
+      some SolidCore.Solidity.Source.IfBranchSelection.thenBranch &&
+    (match thenObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 1
+    | none => false) &&
+    (match thenObservation.conditionRuntime? with
+    | some conditionRuntime =>
+        localObservationLookupWordMatches
+          (conditionRuntime.locals.lookup? "x") 1
+    | none => false) &&
+    resultLocalMatches thenObservation.result? 2 &&
+    elseObservation.selected? ==
+      some SolidCore.Solidity.Source.IfBranchSelection.elseBranch &&
+    (match elseObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 0
+    | none => false) &&
+    (match elseObservation.conditionRuntime? with
+    | some conditionRuntime =>
+        localObservationLookupWordMatches
+          (conditionRuntime.locals.lookup? "x") 0
+    | none => false) &&
+    resultLocalMatches elseObservation.result? 3
+
+def switchBranchObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let assignX (value : Word) :=
+    SolidCore.Solidity.Source.Stmt.assign
+      (SolidCore.Solidity.Source.LValue.var "x")
+      (SolidCore.Solidity.Source.Expr.word value)
+  let cases :=
+    [ (1, assignX 11), (2, assignX 22) ]
+  let defaultBranch := some (assignX 33)
+  let caseObservation :=
+    SolidCore.Solidity.Source.Stmt.observeSwitchBranch
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "x")
+        (SolidCore.Solidity.Source.Expr.word 2))
+      cases defaultBranch 0
+  let defaultObservation :=
+    SolidCore.Solidity.Source.Stmt.observeSwitchBranch
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.word 9)
+      cases defaultBranch 0
+  let noDefaultObservation :=
+    SolidCore.Solidity.Source.Stmt.observeSwitchBranch
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.word 9)
+      cases none 0
+  let resultLocalMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? "x") expected
+      | none => false
+  let selectedCaseMatches :=
+    match caseObservation.selected? with
+    | some
+        (SolidCore.Solidity.Source.SwitchBranchSelection.caseBranch
+          label) =>
+        SolidCore.Solidity.Source.wordEq label 2
+    | _ => false
+  selectedCaseMatches &&
+    (match caseObservation.discriminantValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 2
+    | none => false) &&
+    (match caseObservation.discriminantRuntime? with
+    | some discrRuntime =>
+        localObservationLookupWordMatches
+          (discrRuntime.locals.lookup? "x") 2
+    | none => false) &&
+    resultLocalMatches caseObservation.result? 22 &&
+    defaultObservation.selected? ==
+      some SolidCore.Solidity.Source.SwitchBranchSelection.defaultBranch &&
+    (match defaultObservation.discriminantValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 9
+    | none => false) &&
+    (match defaultObservation.discriminantRuntime? with
+    | some discrRuntime =>
+        localObservationLookupWordMatches
+          (discrRuntime.locals.lookup? "x") 0
+    | none => false) &&
+    resultLocalMatches defaultObservation.result? 33 &&
+    noDefaultObservation.selected? ==
+      some SolidCore.Solidity.Source.SwitchBranchSelection.noBranch &&
+    (match noDefaultObservation.discriminantValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 9
+    | none => false) &&
+    (match noDefaultObservation.discriminantRuntime? with
+    | some discrRuntime =>
+        localObservationLookupWordMatches
+          (discrRuntime.locals.lookup? "x") 0
+    | none => false) &&
+    resultLocalMatches noDefaultObservation.result? 0
+
+def whileLoopObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let assignX (value : Word) :=
+    SolidCore.Solidity.Source.Stmt.assign
+      (SolidCore.Solidity.Source.LValue.var "x")
+      (SolidCore.Solidity.Source.Expr.word value)
+  let lessThan (limit : Word) :=
+    SolidCore.Solidity.Source.Expr.binary
+      SolidCore.Solidity.Source.BinaryOp.lt
+      (SolidCore.Solidity.Source.Expr.var "x")
+      (SolidCore.Solidity.Source.Expr.word limit)
+  let normalObservation :=
+    SolidCore.Solidity.Source.Stmt.observeWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (lessThan 1) (assignX 2) 0
+  let continueBody :=
+    SolidCore.Solidity.Source.Stmt.block
+      [ assignX 2
+      , SolidCore.Solidity.Source.Stmt.continue ]
+  let continueObservation :=
+    SolidCore.Solidity.Source.Stmt.observeWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (lessThan 2) continueBody 0
+  let breakObservation :=
+    SolidCore.Solidity.Source.Stmt.observeWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "x")
+        (SolidCore.Solidity.Source.Expr.word 1))
+      SolidCore.Solidity.Source.Stmt.break 0
+  let falseObservation :=
+    SolidCore.Solidity.Source.Stmt.observeWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Expr.word 0)
+      SolidCore.Solidity.Source.Stmt.skip 0
+  let resultModeLocalMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (mode : SolidCore.Solidity.Source.ResultMode)
+        (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode == mode &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? "x") expected
+      | none => false
+  let conditionLocalMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation)
+        (expected : Word) =>
+      match runtime? with
+      | some conditionRuntime =>
+          localObservationLookupWordMatches
+            (conditionRuntime.locals.lookup? "x") expected
+      | none => false
+  normalObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.bodyNormal &&
+    (match normalObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 1
+    | none => false) &&
+    conditionLocalMatches normalObservation.conditionRuntime? 0 &&
+    resultModeLocalMatches normalObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.normal 2 &&
+    resultModeLocalMatches normalObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 2 &&
+    continueObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.bodyContinue &&
+    (match continueObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 1
+    | none => false) &&
+    resultModeLocalMatches continueObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.continued 2 &&
+    resultModeLocalMatches continueObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 2 &&
+    breakObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.bodyBreak &&
+    (match breakObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 1
+    | none => false) &&
+    conditionLocalMatches breakObservation.conditionRuntime? 1 &&
+    resultModeLocalMatches breakObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.broke 1 &&
+    resultModeLocalMatches breakObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 1 &&
+    falseObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.conditionFalse &&
+    (match falseObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 0
+    | none => false) &&
+    resultModeLocalMatches falseObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 0
+
+def doWhileLoopObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let assignX (value : Word) :=
+    SolidCore.Solidity.Source.Stmt.assign
+      (SolidCore.Solidity.Source.LValue.var "x")
+      (SolidCore.Solidity.Source.Expr.word value)
+  let incrementX :=
+    SolidCore.Solidity.Source.Stmt.assignOp
+      (SolidCore.Solidity.Source.LValue.var "x")
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Expr.word 1)
+  let lessThan (limit : Word) :=
+    SolidCore.Solidity.Source.Expr.binary
+      SolidCore.Solidity.Source.BinaryOp.lt
+      (SolidCore.Solidity.Source.Expr.var "x")
+      (SolidCore.Solidity.Source.Expr.word limit)
+  let normalObservation :=
+    SolidCore.Solidity.Source.Stmt.observeDoWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      incrementX (lessThan 2) 0
+  let continueBody :=
+    SolidCore.Solidity.Source.Stmt.block
+      [ assignX 2
+      , SolidCore.Solidity.Source.Stmt.continue ]
+  let continueObservation :=
+    SolidCore.Solidity.Source.Stmt.observeDoWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      continueBody (lessThan 2) 0
+  let breakBody :=
+    SolidCore.Solidity.Source.Stmt.block
+      [ assignX 3
+      , SolidCore.Solidity.Source.Stmt.break ]
+  let breakObservation :=
+    SolidCore.Solidity.Source.Stmt.observeDoWhileLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      breakBody (lessThan 10) 0
+  let resultModeLocalMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (mode : SolidCore.Solidity.Source.ResultMode)
+        (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode == mode &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? "x") expected
+      | none => false
+  let conditionLocalMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation)
+        (expected : Word) =>
+      match runtime? with
+      | some conditionRuntime =>
+          localObservationLookupWordMatches
+            (conditionRuntime.locals.lookup? "x") expected
+      | none => false
+  normalObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.bodyNormal &&
+    resultModeLocalMatches normalObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.normal 1 &&
+    (match normalObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 1
+    | none => false) &&
+    conditionLocalMatches normalObservation.conditionRuntime? 1 &&
+    resultModeLocalMatches normalObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 2 &&
+    continueObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.bodyContinue &&
+    resultModeLocalMatches continueObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.continued 2 &&
+    (match continueObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 0
+    | none => false) &&
+    conditionLocalMatches continueObservation.conditionRuntime? 2 &&
+    resultModeLocalMatches continueObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 2 &&
+    breakObservation.step? ==
+      some SolidCore.Solidity.Source.WhileLoopStep.bodyBreak &&
+    resultModeLocalMatches breakObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.broke 3 &&
+    breakObservation.conditionValue?.isNone &&
+    breakObservation.conditionRuntime?.isNone &&
+    resultModeLocalMatches breakObservation.finalResult?
+      SolidCore.Solidity.Source.ResultMode.normal 3
+
+def forLoopObservationMatches : Bool :=
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("z", SolidCore.Solidity.Source.Value.word 7)]] }
+  let init :=
+    SolidCore.Solidity.Source.Stmt.varDecl
+      SolidCore.Solidity.Source.Ty.uint256 "x"
+      (some (SolidCore.Solidity.Source.Expr.word 0))
+  let assignX (value : Word) :=
+    SolidCore.Solidity.Source.Stmt.assign
+      (SolidCore.Solidity.Source.LValue.var "x")
+      (SolidCore.Solidity.Source.Expr.word value)
+  let post :=
+    SolidCore.Solidity.Source.Stmt.assignOp
+      (SolidCore.Solidity.Source.LValue.var "x")
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Expr.word 1)
+  let lessThan (limit : Word) :=
+    SolidCore.Solidity.Source.Expr.binary
+      SolidCore.Solidity.Source.BinaryOp.lt
+      (SolidCore.Solidity.Source.Expr.var "x")
+      (SolidCore.Solidity.Source.Expr.word limit)
+  let normalObservation :=
+    SolidCore.Solidity.Source.Stmt.observeForLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      init (lessThan 2) post
+      SolidCore.Solidity.Source.Stmt.skip 0
+  let continueObservation :=
+    SolidCore.Solidity.Source.Stmt.observeForLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      init (lessThan 1) post
+      SolidCore.Solidity.Source.Stmt.continue 0
+  let breakBody :=
+    SolidCore.Solidity.Source.Stmt.block
+      [ assignX 5
+      , SolidCore.Solidity.Source.Stmt.break ]
+  let breakObservation :=
+    SolidCore.Solidity.Source.Stmt.observeForLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      init (lessThan 10) post breakBody 0
+  let falseObservation :=
+    SolidCore.Solidity.Source.Stmt.observeForLoop
+      8 SolidCore.Solidity.Source.Context.empty runtime
+      init (SolidCore.Solidity.Source.Expr.word 0) post
+      SolidCore.Solidity.Source.Stmt.skip 0
+  let resultLocalMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (mode : SolidCore.Solidity.Source.ResultMode)
+        (name : String) (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode == mode &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? name) expected
+      | none => false
+  let resultDropsLoopLocal :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation) =>
+      match result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+            (result.runtime.locals.lookup? "x").isNone &&
+            localObservationLookupWordMatches
+              (result.runtime.locals.lookup? "z") 7
+      | none => false
+  let conditionLocalMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation)
+        (expected : Word) =>
+      match runtime? with
+      | some conditionRuntime =>
+          localObservationLookupWordMatches
+            (conditionRuntime.locals.lookup? "x") expected
+      | none => false
+  let enteredScopeMatches :=
+    fun (runtime? : Option SolidCore.Solidity.Source.RuntimeObservation) =>
+      match runtime? with
+      | some entered =>
+          match entered.locals.frames with
+          | [loopFrame, outerFrame] =>
+              localObservationFrameMatches loopFrame [] &&
+                localObservationFrameMatches outerFrame [("z", 7)]
+          | _ => false
+      | none => false
+  enteredScopeMatches normalObservation.enteredScope? &&
+    normalObservation.step? ==
+      some SolidCore.Solidity.Source.ForLoopStep.bodyNormal &&
+    resultLocalMatches normalObservation.initResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 0 &&
+    (match normalObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 1
+    | none => false) &&
+    conditionLocalMatches normalObservation.conditionRuntime? 0 &&
+    resultLocalMatches normalObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 0 &&
+    resultLocalMatches normalObservation.postResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 1 &&
+    resultLocalMatches normalObservation.loopResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 2 &&
+    resultDropsLoopLocal normalObservation.finalResult? &&
+    continueObservation.step? ==
+      some SolidCore.Solidity.Source.ForLoopStep.bodyContinue &&
+    resultLocalMatches continueObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.continued "x" 0 &&
+    resultLocalMatches continueObservation.postResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 1 &&
+    resultLocalMatches continueObservation.loopResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 1 &&
+    resultDropsLoopLocal continueObservation.finalResult? &&
+    breakObservation.step? ==
+      some SolidCore.Solidity.Source.ForLoopStep.bodyBreak &&
+    resultLocalMatches breakObservation.bodyResult?
+      SolidCore.Solidity.Source.ResultMode.broke "x" 5 &&
+    breakObservation.postResult?.isNone &&
+    resultLocalMatches breakObservation.loopResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 5 &&
+    resultDropsLoopLocal breakObservation.finalResult? &&
+    falseObservation.step? ==
+      some SolidCore.Solidity.Source.ForLoopStep.conditionFalse &&
+    resultLocalMatches falseObservation.initResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 0 &&
+    (match falseObservation.conditionValue? with
+    | some value => SolidCore.Solidity.Source.wordEq value 0
+    | none => false) &&
+    falseObservation.bodyResult?.isNone &&
+    falseObservation.postResult?.isNone &&
+    resultLocalMatches falseObservation.loopResult?
+      SolidCore.Solidity.Source.ResultMode.normal "x" 0 &&
+    resultDropsLoopLocal falseObservation.finalResult?
+
+def evalObservationFuelBoundaryMatches : Bool :=
+  let runtime :=
+    SolidCore.Solidity.Source.Runtime.ofState
+      SolidCore.Solidity.Source.State.empty
+  let outOfFuel :=
+    SolidCore.Solidity.Source.OptionResult.observe 0
+      (SolidCore.Solidity.Source.Stmt.eval
+        0 SolidCore.Solidity.Source.Context.empty runtime
+        SolidCore.Solidity.Source.Stmt.skip)
+  let completed :=
+    SolidCore.Solidity.Source.OptionResult.observe 0
+      (SolidCore.Solidity.Source.Stmt.eval
+        1 SolidCore.Solidity.Source.Context.empty runtime
+        SolidCore.Solidity.Source.Stmt.skip)
+  outOfFuel.mode == SolidCore.Solidity.Source.EvalMode.outOfFuel &&
+    outOfFuel.result?.isNone &&
+    completed.mode == SolidCore.Solidity.Source.EvalMode.completed &&
+    match completed.result? with
+    | some observation =>
+        observation.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+          observation.runtime.locals.frames.length == 1
+    | none => false
+
+def contextObservationSourceBoundaryMatches : Bool :=
+  let lowLevelResult : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+      target := 0xbeef
+      calldata := [1, 2, 3]
+      value := 5
+      gas? := some 99
+      success := true
+      output := [8] }
+  let creationResult : SolidCore.Solidity.Source.ContractCreationResult :=
+    { contractName := "Child"
+      constructorArgs := [7, 8]
+      value := 3
+      salt? := some 11
+      success := true
+      address := 0xcafe
+      output := [1] }
+  let context : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      storageFields := [{ name := "slot0", slot := 17 }]
+      immutableFields :=
+        [ { name := "owner"
+            ty := SolidCore.Solidity.Source.Ty.address } ]
+      eventDecls :=
+        [ { name := "Observed"
+            indexedCount := 1
+            topic? := some 0x1234 } ]
+      checked := false
+      construction := true
+      calldata := [0xde, 0xad, 0xbe, 0xef]
+      sender := 0xabc
+      value := 55
+      self := 0xc0de
+      accountBalances := [(0xbeef, 9)]
+      accountCodes := [(0xbeef, [0x60, 0x00])]
+      accountCodehashes := [(0xbeef, 0x123)]
+      contractAddresses := [("Lib", 0x777)]
+      contractCreationCodes := [("Child", [1])]
+      contractRuntimeCodes := [("Child", [2])]
+      lowLevelCallResults := [lowLevelResult]
+      contractCreationResults := [creationResult]
+      blockEnv :=
+        { SolidCore.Solidity.Source.BlockEnv.empty with
+          timestamp := 100
+          number := 7
+          basefee := 11 }
+      txEnv :=
+        { SolidCore.Solidity.Source.TxEnv.empty with
+          origin := 0xabc
+          gasprice := 50
+          blobHashes := [0x99] }
+      evmVersion := SolidCore.Solidity.Source.EvmVersion.paris
+      createdInTransactionAccounts := [0xc0de]
+      gasleft := 999
+      memoryAllocationLimit? := some 1024
+      childEvalOrder? :=
+        some SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft }
+  let observation := context.observe
+  let declarationsMatch :=
+    match observation.declarations.storageFields,
+        observation.declarations.immutableFields,
+        observation.declarations.eventDecls with
+    | [storage], [immutable], [event] =>
+        storage.name == "slot0" &&
+          storage.slot == 17 &&
+          immutable.name == "owner" &&
+          event.name == "Observed" &&
+          event.indexedCount == 1 &&
+          event.topic? == some 0x1234
+    | _, _, _ => false
+  let ambient := observation.ambient
+  let ambientMatches :=
+    !ambient.checked &&
+      ambient.construction &&
+      ambient.calldata == [0xde, 0xad, 0xbe, 0xef] &&
+      ambient.sender == 0xabc &&
+      ambient.value == 55 &&
+      ambient.self == 0xc0de &&
+      ambient.blockEnv.timestamp == 100 &&
+      ambient.blockEnv.number == 7 &&
+      ambient.blockEnv.basefee == 11 &&
+      ambient.txEnv.origin == 0xabc &&
+      ambient.txEnv.gasprice == 50 &&
+      ambient.txEnv.blobHashes == [0x99] &&
+      ambient.evmVersion == SolidCore.Solidity.Source.EvmVersion.paris &&
+      ambient.gasleft == 999 &&
+      ambient.memoryAllocationLimit? == some 1024 &&
+      ambient.childEvalOrder? ==
+        some SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  let accountOracleMatches :=
+    observation.accounts.accountBalances == [(0xbeef, 9)] &&
+      observation.accounts.accountCodes == [(0xbeef, [0x60, 0x00])] &&
+      observation.accounts.accountCodehashes == [(0xbeef, 0x123)] &&
+      observation.accounts.createdInTransactionAccounts == [0xc0de]
+  let codeOracleMatches :=
+    observation.code.contractAddresses == [("Lib", 0x777)] &&
+      observation.code.contractCreationCodes == [("Child", [1])] &&
+      observation.code.contractRuntimeCodes == [("Child", [2])]
+  let externalOracleMatches :=
+    match observation.externalOracles.lowLevelCallResults,
+        observation.externalOracles.contractCreationResults with
+    | [call], [creation] =>
+        SolidCore.Solidity.Source.LowLevelCallResult.matches call
+          SolidCore.Solidity.Source.LowLevelCallKind.call
+          0xbeef [1, 2, 3] 5 (some 99) &&
+          call.success &&
+          call.output == [8] &&
+          SolidCore.Solidity.Source.ContractCreationResult.matches
+            creation "Child" [7, 8] 3 (some 11) &&
+          creation.success &&
+          creation.address == 0xcafe &&
+          creation.output == [1]
+    | _, _ => false
+  declarationsMatch && ambientMatches && accountOracleMatches &&
+    codeOracleMatches && externalOracleMatches
+
+def sharedPrimitiveObservationMatches : Bool :=
+  let lowLevelResult : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+      target := 0xbeef
+      calldata := [1, 2, 3]
+      value := 5
+      gas? := some 99
+      success := true
+      output := [8] }
+  let creationResult : SolidCore.Solidity.Source.ContractCreationResult :=
+    { contractName := "Child"
+      constructorArgs := [7, 8]
+      value := 3
+      salt? := some 11
+      success := true
+      address := 0xcafe
+      output := [1] }
+  let shaResult : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      target :=
+        SharedSemantics.Precompile.address
+          SharedSemantics.Precompile.Kind.sha256
+      calldata := [1, 2]
+      value := 0
+      gas? := none
+      success := true
+      output := SolidCore.Solidity.Source.wordToBytesBE
+        SolidCore.Solidity.Source.wordBytes 0xaaaa }
+  let ecrecoverInput :=
+    SharedSemantics.Precompile.ecrecoverInput 17 27 34 51
+  let ecrecoverResult : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      target :=
+        SharedSemantics.Precompile.address
+          SharedSemantics.Precompile.Kind.ecrecover
+      calldata := ecrecoverInput
+      value := 0
+      gas? := none
+      success := true
+      output := SolidCore.Solidity.Source.wordToBytesBE
+        SolidCore.Solidity.Source.wordBytes 0x1234 }
+  let context : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      accountBalances := [(0xbeef, 9)]
+      accountCodes := [(0xbeef, [0x60, 0x00])]
+      accountCodehashes := [(0xbeef, 0x123)]
+      lowLevelCallResults :=
+        [lowLevelResult, shaResult, ecrecoverResult]
+      contractCreationResults := [creationResult]
+      blockEnv :=
+        { SolidCore.Solidity.Source.BlockEnv.empty with
+          timestamp := 100
+          number := 100
+          blockHashes := [(95, 0xabcd)] }
+      txEnv :=
+        { SolidCore.Solidity.Source.TxEnv.empty with
+          blobHashes := [0xbb] }
+      evmVersion := SolidCore.Solidity.Source.EvmVersion.cancun
+      gasleft := 777 }
+  let observe :=
+    SolidCore.Solidity.Source.Context.observeSharedPrimitive context
+  let wordMatches :=
+    fun request expected =>
+      match (observe request).result with
+      | SolidCore.Solidity.Source.SharedPrimitiveResult.word value =>
+          SolidCore.Solidity.Source.wordEq value expected
+      | _ => false
+  let optionalWordMatches :=
+    fun request expected =>
+      match (observe request).result with
+      | SolidCore.Solidity.Source.SharedPrimitiveResult.word? value? =>
+          match value?, expected with
+          | some value, some expected =>
+              SolidCore.Solidity.Source.wordEq value expected
+          | none, none => true
+          | _, _ => false
+      | _ => false
+  let bytesMatches :=
+    fun request expected =>
+      match (observe request).result with
+      | SolidCore.Solidity.Source.SharedPrimitiveResult.bytes bytes =>
+          bytes == expected
+      | _ => false
+  let lowLevelMatches :=
+    match
+        (observe
+          (SolidCore.Solidity.Source.SharedPrimitiveRequest.lowLevelCall
+            SolidCore.Solidity.Source.LowLevelCallKind.call
+            0xbeef [1, 2, 3] 5 (some 99))).result with
+    | SolidCore.Solidity.Source.SharedPrimitiveResult.lowLevelCall result =>
+        SolidCore.Solidity.Source.LowLevelCallResult.matches result
+          SolidCore.Solidity.Source.LowLevelCallKind.call
+          0xbeef [1, 2, 3] 5 (some 99) &&
+          result.success &&
+          result.output == [8]
+    | _ => false
+  let missingLowLevelMatches :=
+    match
+        (observe
+          (SolidCore.Solidity.Source.SharedPrimitiveRequest.lowLevelCall
+            SolidCore.Solidity.Source.LowLevelCallKind.call
+            0xdead [9] 0 none)).result with
+    | SolidCore.Solidity.Source.SharedPrimitiveResult.lowLevelCall result =>
+        SolidCore.Solidity.Source.LowLevelCallResult.matches result
+          SolidCore.Solidity.Source.LowLevelCallKind.call
+          0xdead [9] 0 none &&
+          !result.success &&
+          result.output == []
+    | _ => false
+  let creationMatches :=
+    match
+        (observe
+          (SolidCore.Solidity.Source.SharedPrimitiveRequest.contractCreation
+            "Child" [7, 8] 3 (some 11))).result with
+    | SolidCore.Solidity.Source.SharedPrimitiveResult.contractCreation result =>
+        SolidCore.Solidity.Source.ContractCreationResult.matches result
+          "Child" [7, 8] 3 (some 11) &&
+          result.success &&
+          result.address == 0xcafe
+    | _ => false
+  let missingCreationMatches :=
+    match
+        (observe
+          (SolidCore.Solidity.Source.SharedPrimitiveRequest.contractCreation
+            "Missing" [] 0 none)).result with
+    | SolidCore.Solidity.Source.SharedPrimitiveResult.contractCreation result =>
+        SolidCore.Solidity.Source.ContractCreationResult.matches result
+          "Missing" [] 0 none &&
+          !result.success &&
+          result.address == 0
+    | _ => false
+  wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.keccak [1, 2, 3])
+      (SolidCore.Solidity.Source.keccakWord [1, 2, 3]) &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envWord
+        SolidCore.Solidity.Source.EnvWord.blockTimestamp)
+      100 &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envWord
+        SolidCore.Solidity.Source.EnvWord.gasleft)
+      777 &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envLookup
+        SolidCore.Solidity.Source.EnvLookup.blockhash 95)
+      0xabcd &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envLookup
+        SolidCore.Solidity.Source.EnvLookup.blobhash 0)
+      0xbb &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envLookup
+        SolidCore.Solidity.Source.EnvLookup.accountBalance 0xbeef)
+      9 &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envLookup
+        SolidCore.Solidity.Source.EnvLookup.accountCodehash 0xbeef)
+      0x123 &&
+    bytesMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.envBytesLookup
+        SolidCore.Solidity.Source.EnvBytesLookup.accountCode 0xbeef)
+      [0x60, 0x00] &&
+    optionalWordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.externalHash
+        SolidCore.Solidity.Source.ExternalHashKind.sha256 [1, 2])
+      (some 0xaaaa) &&
+    optionalWordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.externalHash
+        SolidCore.Solidity.Source.ExternalHashKind.ripemd160 [3])
+      none &&
+    wordMatches
+      (SolidCore.Solidity.Source.SharedPrimitiveRequest.ecrecover
+        17 27 34 51)
+      0x1234 &&
+    lowLevelMatches && missingLowLevelMatches &&
+    creationMatches && missingCreationMatches
+
+def externalResolutionObservationMatches : Bool :=
+  let explicitCall : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+      target := 0xbeef
+      calldata := [1]
+      value := 7
+      gas? := some 333
+      success := false
+      output := [0xfa, 0xce] }
+  let explicitCreation : SolidCore.Solidity.Source.ContractCreationResult :=
+    { contractName := "Child"
+      constructorArgs := [2, 3]
+      value := 5
+      salt? := some 11
+      success := false
+      address := 0
+      output := [0xee] }
+  let context : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      lowLevelCallResults := [explicitCall]
+      contractCreationResults := [explicitCreation] }
+  let explicitCallObservation :=
+    context.observeLowLevelCallResolution
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      0xbeef [1] 7 (some 333)
+  let builtinCallObservation :=
+    context.observeLowLevelCallResolution
+      SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      (SharedSemantics.Precompile.address
+        SharedSemantics.Precompile.Kind.identity)
+      [0xaa, 0xbb] 0 none
+  let missingCallObservation :=
+    context.observeLowLevelCallResolution
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      0xcafe [9] 0 none
+  let explicitCreationObservation :=
+    context.observeContractCreationResolution "Child" [2, 3] 5 (some 11)
+  let missingCreationObservation :=
+    context.observeContractCreationResolution "Missing" [] 0 none
+  let explicitCallMatches :=
+    explicitCallObservation.resolution ==
+      SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+    explicitCallObservation.context.externalOracles.lowLevelCallResults.length ==
+      1 &&
+    SolidCore.Solidity.Source.LowLevelCallResult.matches
+      explicitCallObservation.result
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      0xbeef [1] 7 (some 333) &&
+    !explicitCallObservation.result.success &&
+    explicitCallObservation.result.output == [0xfa, 0xce]
+  let builtinCallMatches :=
+    builtinCallObservation.resolution ==
+      SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+    SolidCore.Solidity.Source.LowLevelCallResult.matches
+      builtinCallObservation.result
+      SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+      (SharedSemantics.Precompile.address
+        SharedSemantics.Precompile.Kind.identity)
+      [0xaa, 0xbb] 0 none &&
+    builtinCallObservation.result.success &&
+    builtinCallObservation.result.output == [0xaa, 0xbb]
+  let missingCallMatches :=
+    missingCallObservation.resolution ==
+      SolidCore.Solidity.Source.ExternalResolutionKind.failedFallback &&
+    SolidCore.Solidity.Source.LowLevelCallResult.matches
+      missingCallObservation.result
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      0xcafe [9] 0 none &&
+    !missingCallObservation.result.success &&
+    missingCallObservation.result.output == []
+  let explicitCreationMatches :=
+    explicitCreationObservation.resolution ==
+      SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+    explicitCreationObservation.context.externalOracles.contractCreationResults.length ==
+      1 &&
+    SolidCore.Solidity.Source.ContractCreationResult.matches
+      explicitCreationObservation.result "Child" [2, 3] 5 (some 11) &&
+    !explicitCreationObservation.result.success &&
+    explicitCreationObservation.result.output == [0xee]
+  let missingCreationMatches :=
+    missingCreationObservation.resolution ==
+      SolidCore.Solidity.Source.ExternalResolutionKind.failedFallback &&
+    SolidCore.Solidity.Source.ContractCreationResult.matches
+      missingCreationObservation.result "Missing" [] 0 none &&
+    !missingCreationObservation.result.success &&
+    SolidCore.Solidity.Source.wordEq
+      missingCreationObservation.result.address 0 &&
+    missingCreationObservation.result.output == []
+  explicitCallMatches && builtinCallMatches && missingCallMatches &&
+    explicitCreationMatches && missingCreationMatches
+
+def stateEffectsObservationBoundaryMatches : Bool :=
+  let call : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+      target := 0xbeef
+      calldata := [1, 2]
+      value := 4
+      gas? := some 5000
+      success := true
+      output := [9, 8] }
+  let creation : SolidCore.Solidity.Source.ContractCreationResult :=
+    { contractName := "Child"
+      constructorArgs := [3, 4]
+      value := 5
+      salt? := some 7
+      success := true
+      address := 0xcafe
+      output := [6] }
+  let event : SolidCore.Solidity.Source.Event :=
+    { name := "Seen"
+      indexed := []
+      data := []
+      topics := [0x11, 0x22]
+      dataBytes := [1, 2, 257] }
+  let state0 : CoreState :=
+    { SolidCore.Solidity.Source.State.empty with events := [event] }
+  let state1 :=
+    state0.recordSelfdestruct
+      SolidCore.Solidity.Source.EvmVersion.cancun [] 0xabcd 0xdddd
+  let state2 : CoreState :=
+    { state1 with
+      externalInteractions :=
+        [ SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call
+        , SolidCore.Solidity.Source.ExternalInteraction.contractCreation
+            creation ] }
+  let observation := state2.observe 0xabcd
+  let effects := observation.effects
+  let recordMatches :=
+    fun (record : SharedSemantics.Account.SelfdestructRecord) =>
+      SolidCore.Solidity.Source.wordEq record.fromAddress 0xabcd &&
+        SolidCore.Solidity.Source.wordEq record.recipient 0xdddd &&
+        record.deletesAccount == false
+  let callMatches :=
+    fun (observed : SolidCore.Solidity.Source.LowLevelCallResult) =>
+      SolidCore.Solidity.Source.LowLevelCallResult.matches observed
+        SolidCore.Solidity.Source.LowLevelCallKind.call
+        0xbeef [1, 2] 4 (some 5000) &&
+        observed.success &&
+        observed.output == [9, 8]
+  let creationMatches :=
+    fun (observed : SolidCore.Solidity.Source.ContractCreationResult) =>
+      SolidCore.Solidity.Source.ContractCreationResult.matches
+        observed "Child" [3, 4] 5 (some 7) &&
+        observed.success &&
+        SolidCore.Solidity.Source.wordEq observed.address 0xcafe &&
+        observed.output == [6]
+  let logMatches :=
+    fun (entry : SharedSemantics.Log.Entry) =>
+      SolidCore.Solidity.Source.wordEq entry.address 0xabcd &&
+        entry.topics == [0x11, 0x22] &&
+        entry.data == [1, 2, 1]
+  let effectPayloadMatches :=
+    match effects.selfdestructs, effects.selfdestructEffects,
+        effects.externalInteractions, effects.logs with
+    | [(fromAddress, recipient)], [record],
+        [ SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall
+            observedCall
+        , SolidCore.Solidity.Source.ExternalInteraction.contractCreation
+            observedCreation ], [entry] =>
+        SolidCore.Solidity.Source.wordEq fromAddress 0xabcd &&
+          SolidCore.Solidity.Source.wordEq recipient 0xdddd &&
+          recordMatches record &&
+          callMatches observedCall &&
+          creationMatches observedCreation &&
+          logMatches entry
+    | _, _, _, _ => false
+  let legacyMirrorMatches :=
+    match observation.selfdestructs, observation.selfdestructEffects,
+        observation.externalInteractions, observation.logs with
+    | [(fromAddress, recipient)], [record],
+        [ SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall
+            observedCall
+        , SolidCore.Solidity.Source.ExternalInteraction.contractCreation
+            observedCreation ], [entry] =>
+        SolidCore.Solidity.Source.wordEq fromAddress 0xabcd &&
+          SolidCore.Solidity.Source.wordEq recipient 0xdddd &&
+          recordMatches record &&
+          callMatches observedCall &&
+          creationMatches observedCreation &&
+          logMatches entry
+    | _, _, _, _ => false
+  effectPayloadMatches && legacyMirrorMatches
+
+def memoryArrayAliasFunction : FunctionDecl :=
+  { name := some "memoryArrayAlias"
+    returns :=
+      [ { name := some "fromOriginal", ty := Ty.uint 256 }
+      , { name := some "fromAlias", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "xs"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional (Expr.literal (Literal.number "2"))]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "xs")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "1")))
+          , Stmt.varDecl
+              [ { name := some "alias"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some (Expr.ident "xs"))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "alias")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "7")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index (Expr.ident "xs")
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "alias")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def memoryArrayAliasMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 32 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty memoryArrayAliasFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word fromOriginal
+      , SolidCore.Solidity.Source.Value.word fromAlias ] =>
+      some (fromOriginal == 7 && fromAlias == 7)
+  | _ => some false
+
+def memoryBytesAliasFunction : FunctionDecl :=
+  { name := some "memoryBytesAlias"
+    returns :=
+      [ { name := some "fromOriginal", ty := Ty.bytesN 1 }
+      , { name := some "fromAlias", ty := Ty.bytesN 1 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "buf"
+                  ty := some Ty.bytes
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr Ty.bytes
+                  [Arg.positional (Expr.literal (Literal.number "2"))]))
+          , Stmt.varDecl
+              [ { name := some "alias"
+                  ty := some Ty.bytes
+                  location := some DataLocation.memory } ]
+              (some (Expr.ident "buf"))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "alias")
+                  (Expr.literal (Literal.number "1")))
+                AssignOp.assign
+                (Expr.call (Expr.typeName (Ty.bytesN 1))
+                  [Arg.positional
+                    (Expr.literal (Literal.bytes [0xab]))]))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index (Expr.ident "buf")
+                        (Expr.literal (Literal.number "1")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "alias")
+                        (Expr.literal (Literal.number "1"))) ])) ]) }
+
+def memoryBytesAliasMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 32 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty memoryBytesAliasFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word fromOriginal
+      , SolidCore.Solidity.Source.Value.word fromAlias ] =>
+      some (fromOriginal == 0xab && fromAlias == 0xab)
+  | _ => some false
+
+def calldataCopyThenMemoryAliasFunction : FunctionDecl :=
+  { name := some "calldataCopyThenMemoryAlias"
+    params :=
+      [ { name := some "input"
+          ty := Ty.array (Ty.uint 256) none
+          location := some DataLocation.calldata } ]
+    returns :=
+      [ { name := some "fromCalldata", ty := Ty.uint 256 }
+      , { name := some "fromMemory", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "local"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some (Expr.ident "input"))
+          , Stmt.varDecl
+              [ { name := some "alias"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some (Expr.ident "local"))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "alias")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "9")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index (Expr.ident "input")
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "local")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def calldataCopyThenMemoryAliasMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 32 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      calldataCopyThenMemoryAliasFunction
+      [ SolidCore.Solidity.Source.Value.dynamicArray
+          [ SolidCore.Solidity.Source.Value.word 4
+          , SolidCore.Solidity.Source.Value.word 5 ] ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word fromCalldata
+      , SolidCore.Solidity.Source.Value.word fromMemory ] =>
+      some (fromCalldata == 4 && fromMemory == 9)
+  | _ => some false
+
+def nestedMemoryArrayTy : Ty :=
+  Ty.array (Ty.array (Ty.uint 256) none) none
+
+def nestedMemoryArrayAliasFunction : FunctionDecl :=
+  { name := some "nestedMemoryArrayAlias"
+    returns :=
+      [ { name := some "fromOuter", ty := Ty.uint 256 }
+      , { name := some "fromInner", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "outer"
+                  ty := some nestedMemoryArrayTy
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr nestedMemoryArrayTy
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.varDecl
+              [ { name := some "inner"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "inner")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "42")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.index (Expr.ident "outer")
+                          (Expr.literal (Literal.number "0")))
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "inner")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def nestedMemoryArrayAliasMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 48 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      nestedMemoryArrayAliasFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word fromOuter
+      , SolidCore.Solidity.Source.Value.word fromInner ] =>
+      some (fromOuter == 42 && fromInner == 42)
+  | _ => some false
+
+def nestedMemoryArrayPathAliasFunction : FunctionDecl :=
+  { name := some "nestedMemoryArrayPathAlias"
+    returns :=
+      [ { name := some "fromOuter", ty := Ty.uint 256 }
+      , { name := some "fromInner", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "outer"
+                  ty := some nestedMemoryArrayTy
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr nestedMemoryArrayTy
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.varDecl
+              [ { name := some "inner"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index
+                  (Expr.index (Expr.ident "outer")
+                    (Expr.literal (Literal.number "0")))
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "42")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.index (Expr.ident "outer")
+                          (Expr.literal (Literal.number "0")))
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "inner")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def nestedMemoryArrayPathAliasMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 48 [] [] SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
+      nestedMemoryArrayPathAliasFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word fromOuter
+      , SolidCore.Solidity.Source.Value.word fromInner ] =>
+      some (fromOuter == 42 && fromInner == 42)
+  | _ => some false
+
+def nestedMemoryArrayCompoundAliasFunction : FunctionDecl :=
+  { name := some "nestedMemoryArrayCompoundAlias"
+    returns :=
+      [ { name := some "fromOuter", ty := Ty.uint 256 }
+      , { name := some "fromInner", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "outer"
+                  ty := some nestedMemoryArrayTy
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr nestedMemoryArrayTy
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.varDecl
+              [ { name := some "inner"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index
+                  (Expr.index (Expr.ident "outer")
+                    (Expr.literal (Literal.number "0")))
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "40")))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index
+                  (Expr.index (Expr.ident "outer")
+                    (Expr.literal (Literal.number "0")))
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.addAssign
+                (Expr.literal (Literal.number "2")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.index (Expr.ident "outer")
+                          (Expr.literal (Literal.number "0")))
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "inner")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def nestedMemoryArrayDeleteAliasFunction : FunctionDecl :=
+  { name := some "nestedMemoryArrayDeleteAlias"
+    returns :=
+      [ { name := some "fromOuter", ty := Ty.uint 256 }
+      , { name := some "fromInner", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "outer"
+                  ty := some nestedMemoryArrayTy
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr nestedMemoryArrayTy
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.varDecl
+              [ { name := some "inner"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "inner")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "13")))
+          , Stmt.expr
+              (Expr.unary UnaryOp.delete
+                (Expr.index
+                  (Expr.index (Expr.ident "outer")
+                    (Expr.literal (Literal.number "0")))
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.index (Expr.ident "outer")
+                          (Expr.literal (Literal.number "0")))
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "inner")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def nestedMemoryArrayIncAliasFunction : FunctionDecl :=
+  { name := some "nestedMemoryArrayIncAlias"
+    returns :=
+      [ { name := some "fromOuter", ty := Ty.uint 256 }
+      , { name := some "fromInner", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "outer"
+                  ty := some nestedMemoryArrayTy
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.newExpr nestedMemoryArrayTy
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional (Expr.literal (Literal.number "1"))]))
+          , Stmt.varDecl
+              [ { name := some "inner"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some
+                (Expr.index (Expr.ident "outer")
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index (Expr.ident "inner")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "6")))
+          , Stmt.expr
+              (Expr.unary UnaryOp.postIncrement
+                (Expr.index
+                  (Expr.index (Expr.ident "outer")
+                    (Expr.literal (Literal.number "0")))
+                  (Expr.literal (Literal.number "0"))))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.index (Expr.ident "outer")
+                          (Expr.literal (Literal.number "0")))
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "inner")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def memoryAliasHolderTy : Ty :=
+  Ty.user (pathOfName "MemoryAliasHolder")
+
+def memoryAliasHolderStructDecl : StructDecl :=
+  { name := "MemoryAliasHolder"
+    fields :=
+      [{ name := "data", ty := Ty.array (Ty.uint 256) none }] }
+
+def memoryStructArrayFieldAliasFunction : FunctionDecl :=
+  { name := some "memoryStructArrayFieldAlias"
+    returns :=
+      [ { name := some "fromHolder", ty := Ty.uint 256 }
+      , { name := some "fromAlias", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "holder"
+                  ty := some memoryAliasHolderTy
+                  location := some DataLocation.memory } ] none
+          , Stmt.expr
+              (Expr.assign
+                (Expr.member (Expr.ident "holder") "data")
+                AssignOp.assign
+                (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                  [Arg.positional
+                    (Expr.literal (Literal.number "1"))]))
+          , Stmt.varDecl
+              [ { name := some "alias"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some (Expr.member (Expr.ident "holder") "data"))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index
+                  (Expr.member (Expr.ident "holder") "data")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "77")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.member (Expr.ident "holder") "data")
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "alias")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
+
+def memoryStructWholeAssignArrayFieldAliasFunction : FunctionDecl :=
+  { name := some "memoryStructWholeAssignArrayFieldAlias"
+    returns :=
+      [ { name := some "fromHolder", ty := Ty.uint 256 }
+      , { name := some "fromAlias", ty := Ty.uint 256 } ]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "holder"
+                  ty := some memoryAliasHolderTy
+                  location := some DataLocation.memory } ] none
+          , Stmt.expr
+              (Expr.assign
+                (Expr.ident "holder")
+                AssignOp.assign
+                (Expr.call (Expr.typeName memoryAliasHolderTy)
+                  [ Arg.positional
+                      (Expr.newExpr (Ty.array (Ty.uint 256) none)
+                        [Arg.positional
+                          (Expr.literal (Literal.number "1"))]) ]))
+          , Stmt.varDecl
+              [ { name := some "alias"
+                  ty := some (Ty.array (Ty.uint 256) none)
+                  location := some DataLocation.memory } ]
+              (some (Expr.member (Expr.ident "holder") "data"))
+          , Stmt.expr
+              (Expr.assign
+                (Expr.index
+                  (Expr.member (Expr.ident "holder") "data")
+                  (Expr.literal (Literal.number "0")))
+                AssignOp.assign
+                (Expr.literal (Literal.number "88")))
+          , Stmt.returnValues
+              (some
+                (Expr.tuple
+                  [ TupleItem.value
+                      (Expr.index
+                        (Expr.member (Expr.ident "holder") "data")
+                        (Expr.literal (Literal.number "0")))
+                  , TupleItem.value
+                      (Expr.index (Expr.ident "alias")
+                        (Expr.literal (Literal.number "0"))) ])) ]) }
 
 def memoryBytesAllocationRejected : Bool :=
   (match
@@ -16742,6 +26370,44 @@ def checkedMemoryStringAllocationFunction : FunctionDecl :=
           ty := Ty.string
           location := some DataLocation.memory } ] }
 
+def checkedMemoryArrayAliasFunction : FunctionDecl :=
+  { memoryArrayAliasFunction with visibility := some Visibility.public_ }
+
+def checkedMemoryBytesAliasFunction : FunctionDecl :=
+  { memoryBytesAliasFunction with visibility := some Visibility.public_ }
+
+def checkedCalldataCopyThenMemoryAliasFunction : FunctionDecl :=
+  { calldataCopyThenMemoryAliasFunction with
+    visibility := some Visibility.public_ }
+
+def checkedNestedMemoryArrayAliasFunction : FunctionDecl :=
+  { nestedMemoryArrayAliasFunction with visibility := some Visibility.public_ }
+
+def checkedNestedMemoryArrayPathAliasFunction : FunctionDecl :=
+  { nestedMemoryArrayPathAliasFunction with
+    visibility := some Visibility.public_ }
+
+def checkedNestedMemoryArrayCompoundAliasFunction : FunctionDecl :=
+  { nestedMemoryArrayCompoundAliasFunction with
+    visibility := some Visibility.public_ }
+
+def checkedNestedMemoryArrayDeleteAliasFunction : FunctionDecl :=
+  { nestedMemoryArrayDeleteAliasFunction with
+    visibility := some Visibility.public_ }
+
+def checkedNestedMemoryArrayIncAliasFunction : FunctionDecl :=
+  { nestedMemoryArrayIncAliasFunction with
+    visibility := some Visibility.public_ }
+
+def checkedMemoryStructArrayFieldAliasFunction : FunctionDecl :=
+  { memoryStructArrayFieldAliasFunction with
+    visibility := some Visibility.public_ }
+
+def checkedMemoryStructWholeAssignArrayFieldAliasFunction :
+    FunctionDecl :=
+  { memoryStructWholeAssignArrayFieldAliasFunction with
+    visibility := some Visibility.public_ }
+
 def checkedCalldataArraySliceFunction : FunctionDecl :=
   { calldataArraySliceFunction with
     visibility := some Visibility.public_ }
@@ -16762,15 +26428,32 @@ def checkedCalldataArraySliceOutOfBoundsFunction : FunctionDecl :=
           ty := Ty.array (Ty.uint 256) none
           location := some DataLocation.memory } ] }
 
+def checkedMemoryAllocationFootprintFunction : FunctionDecl :=
+  { memoryAllocationFootprintFunction with
+    visibility := some Visibility.public_ }
+
 def checkedMemoryAndCalldataContract : ContractDecl :=
   { name := "CheckedMemoryAndCalldata"
     items :=
-      [ ContractItem.function checkedArrayLiteralLocalFunction
+      [ ContractItem.structDecl memoryAliasHolderStructDecl
+      , ContractItem.function checkedArrayLiteralLocalFunction
       , ContractItem.function checkedArrayLiteralAbiEncodeFunction
       , ContractItem.function checkedArrayLiteralFixedBytesWidenFunction
       , ContractItem.function checkedMemoryArrayAllocationFunction
       , ContractItem.function checkedMemoryBytesAllocationFunction
       , ContractItem.function checkedMemoryStringAllocationFunction
+      , ContractItem.function checkedMemoryAllocationFootprintFunction
+      , ContractItem.function checkedMemoryArrayAliasFunction
+      , ContractItem.function checkedMemoryBytesAliasFunction
+      , ContractItem.function checkedCalldataCopyThenMemoryAliasFunction
+      , ContractItem.function checkedNestedMemoryArrayAliasFunction
+      , ContractItem.function checkedNestedMemoryArrayPathAliasFunction
+      , ContractItem.function checkedNestedMemoryArrayCompoundAliasFunction
+      , ContractItem.function checkedNestedMemoryArrayDeleteAliasFunction
+      , ContractItem.function checkedNestedMemoryArrayIncAliasFunction
+      , ContractItem.function checkedMemoryStructArrayFieldAliasFunction
+      , ContractItem.function
+          checkedMemoryStructWholeAssignArrayFieldAliasFunction
       , ContractItem.function checkedCalldataArraySliceFunction
       , ContractItem.function checkedCalldataArraySliceAbiEncodeFunction
       , ContractItem.function checkedCalldataArraySliceOutOfBoundsFunction ] }
@@ -16943,11 +26626,58 @@ def environmentGlobalsMatch : Option Bool := do
           blobbasefee == 12 &&
           chainid == 1 &&
           coinbase == 0xcb &&
+            gaslimit == 30000000 &&
+            origin == 0xabc &&
+            gasprice == 50 &&
+            remaining == 999)
+  | _ => some false
+
+def environmentGlobalsVersionedMatch
+    (context : CoreContext) (expectedBasefee expectedBlobbasefee
+      expectedChainid : SolidCore.Solidity.Source.Word) :
+    Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] context
+      SolidCore.Solidity.Source.State.empty environmentGlobalsFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word timestamp
+      , SolidCore.Solidity.Source.Value.word number
+      , SolidCore.Solidity.Source.Value.word basefee
+      , SolidCore.Solidity.Source.Value.word blobbasefee
+      , SolidCore.Solidity.Source.Value.word chainid
+      , SolidCore.Solidity.Source.Value.word coinbase
+      , SolidCore.Solidity.Source.Value.word gaslimit
+      , SolidCore.Solidity.Source.Value.word origin
+      , SolidCore.Solidity.Source.Value.word gasprice
+      , SolidCore.Solidity.Source.Value.word remaining ] =>
+      some
+        (timestamp == 100 &&
+          number == 7 &&
+          SolidCore.Solidity.Source.wordEq basefee expectedBasefee &&
+          SolidCore.Solidity.Source.wordEq blobbasefee
+            expectedBlobbasefee &&
+          SolidCore.Solidity.Source.wordEq chainid expectedChainid &&
+          coinbase == 0xcb &&
           gaslimit == 30000000 &&
           origin == 0xabc &&
           gasprice == 50 &&
           remaining == 999)
   | _ => some false
+
+def environmentGlobalsPreLondonContext : CoreContext :=
+  { environmentGlobalsContext with
+    evmVersion := SolidCore.Solidity.Source.EvmVersion.berlin }
+
+def environmentGlobalsPreIstanbulContext : CoreContext :=
+  { environmentGlobalsContext with
+    evmVersion := SolidCore.Solidity.Source.EvmVersion.petersburg }
+
+def environmentPreLondonBasefeeZeroMatches : Option Bool :=
+  environmentGlobalsVersionedMatch environmentGlobalsPreLondonContext 0 0 1
+
+def environmentPreIstanbulChainidZeroMatches : Option Bool :=
+  environmentGlobalsVersionedMatch environmentGlobalsPreIstanbulContext 0 0 0
 
 def environmentRandaoAliasFunction : FunctionDecl :=
   { name := some "randaoAlias"
@@ -16971,6 +26701,10 @@ def environmentRandaoAliasContext : CoreContext :=
         difficulty := 0x1111
         prevrandao := 0x2222 } }
 
+def environmentRandaoPreParisContext : CoreContext :=
+  { environmentRandaoAliasContext with
+    evmVersion := SolidCore.Solidity.Source.EvmVersion.london }
+
 def environmentDifficultyAliasesPrevrandao : Option Bool := do
   let result ←
     FunctionDecl.call? 8 [] [] environmentRandaoAliasContext
@@ -16980,6 +26714,17 @@ def environmentDifficultyAliasesPrevrandao : Option Bool := do
       [ SolidCore.Solidity.Source.Value.word difficulty
       , SolidCore.Solidity.Source.Value.word prevrandao ] =>
       some (difficulty == 0x2222 && prevrandao == 0x2222)
+  | _ => some false
+
+def environmentPreParisPrevrandaoUsesDifficulty : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] environmentRandaoPreParisContext
+      SolidCore.Solidity.Source.State.empty environmentRandaoAliasFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word difficulty
+      , SolidCore.Solidity.Source.Value.word prevrandao ] =>
+      some (difficulty == 0x1111 && prevrandao == 0x1111)
   | _ => some false
 
 def environmentHashFunction : FunctionDecl :=
@@ -17035,6 +26780,10 @@ def environmentHashContext : CoreContext :=
       { SolidCore.Solidity.Source.TxEnv.empty with
         blobHashes := [0, 0x5678] } }
 
+def environmentHashPreCancunContext : CoreContext :=
+  { environmentHashContext with
+    evmVersion := SolidCore.Solidity.Source.EvmVersion.shanghai }
+
 def environmentHashCallResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] environmentHashContext
     SolidCore.Solidity.Source.State.empty environmentHashFunction []
@@ -17049,6 +26798,21 @@ def environmentHashMatches : Option Bool := do
       some
         (SolidCore.Solidity.Source.wordEq blockHash 0x1234 &&
           SolidCore.Solidity.Source.wordEq blobHash 0x5678 &&
+          SolidCore.Solidity.Source.wordEq missingHash 0)
+  | _ => some false
+
+def environmentHashPreCancunBlobhashZeroMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] environmentHashPreCancunContext
+      SolidCore.Solidity.Source.State.empty environmentHashFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word blockHash
+      , SolidCore.Solidity.Source.Value.word blobHash
+      , SolidCore.Solidity.Source.Value.word missingHash ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq blockHash 0x1234 &&
+          SolidCore.Solidity.Source.wordEq blobHash 0 &&
           SolidCore.Solidity.Source.wordEq missingHash 0)
   | _ => some false
 
@@ -17347,6 +27111,105 @@ def precompileBuiltinStaticcallSharedResultMatches : Option Bool := do
           output == expectedOutput)
   | _ => some false
 
+def canonicalPrecompileAddressesMatch : Bool :=
+  SharedSemantics.Precompile.mainnetKinds.map
+      SharedSemantics.Precompile.address ==
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+def identityPrecompilePayload : List Byte :=
+  [1, 2, 3, 4]
+
+def identityPrecompileStaticcallFunction : FunctionDecl :=
+  { name := some "identityPrecompile"
+    returns := [{ name := some "probe", ty := lowLevelCallReturnTy }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.call
+              (Expr.member
+                (Expr.literal
+                  (Literal.address
+                    (SharedSemantics.Precompile.address
+                      SharedSemantics.Precompile.Kind.identity)))
+                "staticcall")
+              [Arg.positional
+                (Expr.literal (Literal.bytes identityPrecompilePayload))]))) }
+
+def identityPrecompileStaticcallCallResult : Option CoreCallResult :=
+  FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty
+    identityPrecompileStaticcallFunction []
+
+def identityPrecompileStaticcallMatches : Option Bool := do
+  let result ← identityPrecompileStaticcallCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [probe] => do
+      let (success, output) ← CoreValue.asLowLevelReturn? probe
+      some
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == identityPrecompilePayload)
+  | _ => some false
+
+def modexpPrecompileInput : List Byte :=
+  SharedSemantics.Precompile.modexpInput [2] [5] [13]
+
+def modexpPrecompileZeroModulusInput : List Byte :=
+  SharedSemantics.Precompile.modexpInput [2] [5] [0]
+
+def modexpPrecompileStaticcallFunction : FunctionDecl :=
+  { name := some "modexpPrecompile"
+    returns :=
+      [ { name := some "probe", ty := lowLevelCallReturnTy }
+      , { name := some "zeroProbe", ty := lowLevelCallReturnTy } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.modexp)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal (Literal.bytes modexpPrecompileInput))])
+              , TupleItem.value
+                  (Expr.call
+                    (Expr.member
+                      (Expr.literal
+                        (Literal.address
+                          (SharedSemantics.Precompile.address
+                            SharedSemantics.Precompile.Kind.modexp)))
+                      "staticcall")
+                    [Arg.positional
+                      (Expr.literal
+                        (Literal.bytes
+                          modexpPrecompileZeroModulusInput))]) ]))) }
+
+def modexpPrecompileStaticcallCallResult : Option CoreCallResult :=
+  FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty
+    modexpPrecompileStaticcallFunction []
+
+def modexpPrecompileStaticcallMatches : Option Bool := do
+  let result ← modexpPrecompileStaticcallCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [probe, zeroProbe] => do
+      let (success, output) ← CoreValue.asLowLevelReturn? probe
+      let (zeroSuccess, zeroOutput) ←
+        CoreValue.asLowLevelReturn? zeroProbe
+      some
+        (SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [6] &&
+          SolidCore.Solidity.Source.wordEq zeroSuccess 1 &&
+          zeroOutput == [0])
+  | _ => some false
+
 def externalCryptoHashMissingFunction : FunctionDecl :=
   { name := some "missingHash"
     returns := [{ name := some "out", ty := Ty.bytesN 32 }]
@@ -17377,6 +27240,27 @@ def checkedExternalCryptoHashMissingFunction : FunctionDecl :=
   { externalCryptoHashMissingFunction with
     visibility := some Visibility.public_
     mutability := StateMutability.view }
+
+def checkedIdentityPrecompileStaticcallFunction : FunctionDecl :=
+  { identityPrecompileStaticcallFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view
+    returns :=
+      [ { name := some "probe"
+          ty := lowLevelCallReturnTy
+          location := some DataLocation.memory } ] }
+
+def checkedModexpPrecompileStaticcallFunction : FunctionDecl :=
+  { modexpPrecompileStaticcallFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.view
+    returns :=
+      [ { name := some "probe"
+          ty := lowLevelCallReturnTy
+          location := some DataLocation.memory }
+      , { name := some "zeroProbe"
+          ty := lowLevelCallReturnTy
+          location := some DataLocation.memory } ] }
 
 def externalCryptoHashMissingResult : Option CoreCallResult :=
   FunctionDecl.call? 8 [] [] SolidCore.Solidity.Source.Context.empty
@@ -17683,6 +27567,8 @@ def checkedHashBuiltinContract : ContractDecl :=
       , ContractItem.function checkedExternalCryptoHashFunction
       , ContractItem.function checkedExternalCryptoHashMissingFunction
       , ContractItem.function checkedEcrecoverBuiltinFunction
+      , ContractItem.function checkedIdentityPrecompileStaticcallFunction
+      , ContractItem.function checkedModexpPrecompileStaticcallFunction
       , ContractItem.function
           checkedPrecompileBuiltinsStaticcallSharedResultsFunction ] }
 
@@ -18123,6 +28009,63 @@ def externalFunctionMembersMatch : Option Bool := do
       some (selector == selectorEncodingSelector && target == 0xbeef)
   | _ => some false
 
+def externalFunctionPointerOtherSelector : Word :=
+  selectorEncodingSelector + 1
+
+def externalFunctionPointerEqualityFunction : FunctionDecl :=
+  { name := some "externalFunctionEquality"
+    params :=
+      [ { name := some "lhs", ty := externalUintSetterTy }
+      , { name := some "rhs", ty := externalUintSetterTy } ]
+    returns :=
+      [ { name := some "same", ty := Ty.bool }
+      , { name := some "different", ty := Ty.bool } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.tuple
+              [ TupleItem.value
+                  (Expr.binary BinaryOp.eq
+                    (Expr.ident "lhs") (Expr.ident "rhs"))
+              , TupleItem.value
+                  (Expr.binary BinaryOp.ne
+                    (Expr.ident "lhs") (Expr.ident "rhs")) ]))) }
+
+def externalFunctionPointerEqualityResult
+    (lhs rhs : SolidCore.Solidity.Source.Value) :
+    Option CoreCallResult :=
+  FunctionDecl.call? 12 [] [] SolidCore.Solidity.Source.Context.empty
+    SolidCore.Solidity.Source.State.empty
+    externalFunctionPointerEqualityFunction [lhs, rhs]
+
+def externalFunctionPointerEqualitySameMatches : Option Bool := do
+  let pointer :=
+    SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef selectorEncodingSelector
+  let result ← externalFunctionPointerEqualityResult pointer pointer
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word same
+      , SolidCore.Solidity.Source.Value.word different ] =>
+      some (same == 1 && different == 0)
+  | _ => some false
+
+def externalFunctionPointerEqualityDifferentMatches : Option Bool := do
+  let lhs :=
+    SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef selectorEncodingSelector
+  let rhs :=
+    SolidCore.Solidity.Source.Value.externalFunction
+      0xbeef externalFunctionPointerOtherSelector
+  let result ← externalFunctionPointerEqualityResult lhs rhs
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word same
+      , SolidCore.Solidity.Source.Value.word different ] =>
+      some (same == 0 && different == 1)
+  | _ => some false
+
 def externalFunctionAbiCleanDecodeMatches : Option Bool := do
   let encoded ←
     SolidCore.Solidity.Source.ABI.encodeValues?
@@ -18376,6 +28319,140 @@ def externalFunctionPointerTryCatchCatchMatches : Option Bool := do
       some (value == 7)
   | _ => some false
 
+def externalFunctionValueCallObservationEnv : TypeEnv :=
+  [ ("getter", externalUintGetterTy)
+  , ("setter", externalPayableUintSetterTy)
+  , ("nonpaySetter", externalNonpayableUintSetterTy)
+  , ("x", Ty.uint 256) ]
+
+def externalFunctionValueTryCallCoreMatches
+    (expectedKind : CoreLowLevelCallKind) (expectedCheckTargetCode : Bool)
+    (observation : ExternalFunctionValueCallObservation) : Bool :=
+  match observation.core? with
+  | some
+      (SolidCore.Solidity.Source.Stmt.tryExternalCall kind _ _ _ _ _
+        checkTargetCode _ _ _ _) =>
+      kind == expectedKind && checkTargetCode == expectedCheckTargetCode
+  | _ => false
+
+def externalFunctionValueTargetCoreUses
+    (expectedName : Name)
+    (observation : ExternalFunctionValueCallObservation) : Bool :=
+  match observation.targetCore? with
+  | some
+      (SolidCore.Solidity.Source.Expr.externalFunctionAddress
+        (SolidCore.Solidity.Source.Expr.var actualName)) =>
+      actualName == expectedName
+  | _ => false
+
+def externalFunctionValueCalldataCoreUses
+    (expectedName : Name)
+    (observation : ExternalFunctionValueCallObservation) : Bool :=
+  match observation.calldataCore? with
+  | some
+      (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
+        (SolidCore.Solidity.Source.Expr.externalFunctionSelector
+          (SolidCore.Solidity.Source.Expr.var actualName))
+        _ _) =>
+      actualName == expectedName
+  | _ => false
+
+def externalFunctionValueCallObservationMatches : Option Bool :=
+  let getterObservation :=
+    Expr.observeExternalFunctionValueReturnCall []
+      externalFunctionValueCallObservationEnv
+      (Expr.call (Expr.ident "getter") [])
+  let payableSetterObservation :=
+    Expr.observeExternalFunctionValueCallWithReturns []
+      externalFunctionValueCallObservationEnv "__extfn"
+      (Expr.callWithOptions
+        (Expr.ident "setter")
+        [ CallOption.named "value" (Expr.literal (Literal.number "5"))
+        , CallOption.named "gas" (Expr.literal (Literal.number "1000")) ]
+        [Arg.positional (Expr.ident "x")])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let nonpayableGasObservation :=
+    Expr.observeExternalFunctionValueCallWithReturns []
+      externalFunctionValueCallObservationEnv "__extfn"
+      (Expr.callWithOptions
+        (Expr.ident "nonpaySetter")
+        [CallOption.named "gas" (Expr.literal (Literal.number "777"))]
+        [Arg.positional (Expr.ident "x")])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let badValueObservation :=
+    Expr.observeExternalFunctionValueCallWithReturns []
+      externalFunctionValueCallObservationEnv "__extfn"
+      (Expr.callWithOptions
+        (Expr.ident "nonpaySetter")
+        [CallOption.named "value" (Expr.literal (Literal.number "1"))]
+        [Arg.positional (Expr.literal (Literal.number "1"))])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let badArityObservation :=
+    Expr.observeExternalFunctionValueCallWithReturns []
+      externalFunctionValueCallObservationEnv "__extfn"
+      (Expr.call (Expr.ident "setter") [])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let typeFailureObservation :=
+    Expr.observeExternalFunctionValueCallWithReturns []
+      externalFunctionValueCallObservationEnv "__extfn"
+      (Expr.call (Expr.ident "x") [])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let notCallObservation :=
+    Expr.observeExternalFunctionValueCallWithReturns []
+      externalFunctionValueCallObservationEnv "__extfn"
+      (Expr.ident "getter")
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  some
+    (getterObservation.status ==
+        ExternalFunctionValueCallObservationStatus.resolved &&
+      getterObservation.paramTys? == some [] &&
+      getterObservation.returnTys? == some [Ty.uint 256] &&
+      getterObservation.kind? ==
+        some SolidCore.Solidity.Source.LowLevelCallKind.staticcall &&
+      getterObservation.mutability? == some StateMutability.view &&
+      !getterObservation.checkTargetCode &&
+      getterObservation.returnBindingNames == ["__extfnret0"] &&
+      getterObservation.returnBindingTys.length == 1 &&
+      externalFunctionValueTargetCoreUses "getter" getterObservation &&
+      externalFunctionValueCalldataCoreUses "getter" getterObservation &&
+      externalFunctionValueTryCallCoreMatches
+        SolidCore.Solidity.Source.LowLevelCallKind.staticcall false
+        getterObservation &&
+      payableSetterObservation.status ==
+        ExternalFunctionValueCallObservationStatus.resolved &&
+      payableSetterObservation.paramTys? == some [Ty.uint 256] &&
+      payableSetterObservation.returnTys? == some [] &&
+      payableSetterObservation.kind? ==
+        some SolidCore.Solidity.Source.LowLevelCallKind.call &&
+      payableSetterObservation.mutability? ==
+        some StateMutability.payable &&
+      payableSetterObservation.checkTargetCode &&
+      payableSetterObservation.optionNames == ["value", "gas"] &&
+      payableSetterObservation.gasCore?.isSome &&
+      payableSetterObservation.gasFirst? == some false &&
+      payableSetterObservation.returnBindingNames == [] &&
+      externalFunctionValueTargetCoreUses "setter" payableSetterObservation &&
+      externalFunctionValueCalldataCoreUses "setter"
+        payableSetterObservation &&
+      externalFunctionValueTryCallCoreMatches
+        SolidCore.Solidity.Source.LowLevelCallKind.call true
+        payableSetterObservation &&
+      nonpayableGasObservation.status ==
+        ExternalFunctionValueCallObservationStatus.resolved &&
+      nonpayableGasObservation.mutability? ==
+        some StateMutability.nonpayable &&
+      nonpayableGasObservation.optionNames == ["gas"] &&
+      nonpayableGasObservation.gasCore?.isSome &&
+      nonpayableGasObservation.gasFirst? == some true &&
+      badValueObservation.status ==
+        ExternalFunctionValueCallObservationStatus.optionFailure &&
+      badArityObservation.status ==
+        ExternalFunctionValueCallObservationStatus.argumentFailure &&
+      typeFailureObservation.status ==
+        ExternalFunctionValueCallObservationStatus.typeFailure &&
+      notCallObservation.status ==
+        ExternalFunctionValueCallObservationStatus.notFunctionValueCall)
+
 def checkedAbiEncodeCallTargetFunction : FunctionDecl :=
   { name := some "set"
     params :=
@@ -18426,6 +28503,11 @@ def checkedExternalFunctionMembersFunction : FunctionDecl :=
     visibility := some Visibility.public_
     mutability := StateMutability.pure }
 
+def checkedExternalFunctionPointerEqualityFunction : FunctionDecl :=
+  { externalFunctionPointerEqualityFunction with
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure }
+
 def checkedExternalFunctionPointerCallFunction : FunctionDecl :=
   { externalFunctionPointerCallFunction with
     visibility := some Visibility.public_
@@ -18452,6 +28534,8 @@ def checkedExternalFunctionPointerContract : ContractDecl :=
     items :=
       [ ContractItem.function checkedAbiEncodeCallExternalPointerFunction
       , ContractItem.function checkedExternalFunctionMembersFunction
+      , ContractItem.function
+          checkedExternalFunctionPointerEqualityFunction
       , ContractItem.function checkedExternalFunctionPointerCallFunction
       , ContractItem.function
           checkedExternalFunctionPointerPayableCallFunction
@@ -19079,6 +29163,229 @@ def selectorInfoMatches : Option Bool := do
           targetSetAddress == 0xbeef)
   | _ => some false
 
+def interfaceObservationContract : ContractDecl :=
+  { name := "InterfaceObservation"
+    items :=
+      [ ContractItem.stateVar
+          { name := "stored"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_ }
+      , ContractItem.eventDecl
+          { name := "Observed"
+            params :=
+              [ { name := some "who"
+                  ty := Ty.address false
+                  indexed := true }
+              , { name := some "amount", ty := Ty.uint 256 } ] }
+      , ContractItem.errorDecl
+          { name := "Bad"
+            params := [{ name := some "value", ty := Ty.uint 256 }] }
+      , ContractItem.function
+          { kind := FunctionKind.constructor
+            params := [{ name := some "seed", ty := Ty.uint 256 }]
+            mutability := StateMutability.payable
+            body := some Stmt.empty }
+      , ContractItem.function
+          { name := some "set"
+            visibility := some Visibility.external_
+            params := [{ name := some "value", ty := Ty.uint 256 }]
+            body := some Stmt.empty }
+      , ContractItem.function
+          { kind := FunctionKind.receive
+            visibility := some Visibility.external_
+            mutability := StateMutability.payable
+            body := some Stmt.empty }
+      , ContractItem.function
+          { kind := FunctionKind.fallback
+            visibility := some Visibility.external_
+            body := some Stmt.empty } ] }
+
+def interfaceObservationMatches : Bool :=
+  let observation : ContractInterfaceObservation :=
+    SolidCore.Spine.L00_SourceSolidity.Executable.ContractDecl.observeInterface
+      interfaceObservationContract
+  let setSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "set(uint256)"
+  let getterSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "stored()"
+  let eventTopic :=
+    SolidCore.Solidity.Source.Keccak.digestWord
+      "Observed(address,uint256)"
+  let errorSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "Bad(uint256)"
+  observation.kind == ContractKind.contract &&
+    observation.name == "InterfaceObservation" &&
+    observation.stateVars.length == 1 &&
+    (match observation.publicGetters with
+    | [getter] =>
+        getter.name == "stored" &&
+          getter.signature == "stored()" &&
+          getter.selector == getterSelector &&
+          getter.paramTys == [] &&
+          getter.returnFields == [([], Ty.uint 256)]
+    | _ => false) &&
+    (match observation.constructors with
+    | [ctor] =>
+        ctor.kind == FunctionKind.constructor &&
+          ctor.selector? == none &&
+          ctor.payable &&
+          ctor.params ==
+            [{ name := some "seed"
+               ty := Ty.uint 256
+               location := none }]
+    | _ => false) &&
+    (match observation.abiFunctions with
+    | [setFn] =>
+        setFn.kind == FunctionKind.function &&
+          setFn.name == some "set" &&
+          setFn.signature? == some "set(uint256)" &&
+          setFn.selector? == some setSelector &&
+          setFn.visibility == some Visibility.external_ &&
+          !setFn.payable &&
+          setFn.isCoreEntrypoint
+    | _ => false) &&
+    (match observation.specialFunctions with
+    | [receiveFn, fallbackFn] =>
+        receiveFn.kind == FunctionKind.receive &&
+          receiveFn.coreName? == some "__receive" &&
+          receiveFn.payable &&
+          fallbackFn.kind == FunctionKind.fallback &&
+          fallbackFn.coreName? == some "__fallback" &&
+          !fallbackFn.payable
+    | _ => false) &&
+    (match observation.events with
+    | [event] =>
+        event.name == "Observed" &&
+          event.signature? == some "Observed(address,uint256)" &&
+          event.topic? == some eventTopic &&
+          event.params ==
+            [ { name := some "who"
+                ty := Ty.address false
+                indexed := true }
+            , { name := some "amount"
+                ty := Ty.uint 256
+                indexed := false } ]
+    | _ => false) &&
+    (match observation.errors with
+    | [err] =>
+        err.name == "Bad" &&
+          err.signature? == some "Bad(uint256)" &&
+          err.selector? == some errorSelector
+    | _ => false) &&
+    observation.interfaceId? == none
+
+def sourceUnitObservationFreeFunction : FunctionDecl :=
+  { name := some "topDouble"
+    params := [{ name := some "value", ty := Ty.uint 256 }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    mutability := StateMutability.pure
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.binary BinaryOp.mul
+              (Expr.ident "value")
+              (Expr.literal (Literal.number "2"))))) }
+
+def sourceUnitObservationUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeStruct
+          { name := "TopStruct"
+            fields :=
+              [ { name := "amount", ty := Ty.uint 256 }
+              , { name := "owner", ty := Ty.address false } ] }
+      , SourceItem.freeEnum
+          { name := "TopMode"
+            cases := ["Off", "On"] }
+      , SourceItem.freeUserValueType
+          { name := "TopPrice"
+            underlying := Ty.uint 256 }
+      , SourceItem.freeConstant
+          { name := "TOP_CONSTANT"
+            ty := Ty.uint 256
+            mutability := VarMutability.constant
+            init := some (Expr.literal (Literal.number "7")) }
+      , SourceItem.freeFunction sourceUnitObservationFreeFunction
+      , SourceItem.freeEvent
+          { name := "TopObserved"
+            params :=
+              [ { name := some "value"
+                  ty := Ty.uint 256
+                  indexed := true } ] }
+      , SourceItem.freeError
+          { name := "TopBad"
+            params := [{ name := some "value", ty := Ty.uint 256 }] }
+      , SourceItem.contract interfaceObservationContract ] }
+
+def sourceUnitObservationMatches : Option Bool := do
+  let observation ←
+    SolidCore.Spine.L00_SourceSolidity.Executable.SourceUnit.observeInterfaceResolved?
+      sourceUnitObservationUnit
+  let functionSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature
+      "topDouble(uint256)"
+  let eventTopic :=
+    SolidCore.Solidity.Source.Keccak.digestWord "TopObserved(uint256)"
+  let errorSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature "TopBad(uint256)"
+  some
+    (observation.contractNames == ["InterfaceObservation"] &&
+      (match observation.contracts with
+      | [contract] =>
+          contract.name == "InterfaceObservation" &&
+            contract.publicGetters.length == 1 &&
+            contract.specialFunctions.length == 2
+      | _ => false) &&
+      (match observation.freeFunctions with
+      | [fn] =>
+          fn.name == some "topDouble" &&
+            fn.signature? == some "topDouble(uint256)" &&
+            fn.selector? == some functionSelector &&
+            fn.mutability == StateMutability.pure &&
+            fn.isCoreEntrypoint
+      | _ => false) &&
+      (match observation.freeConstants with
+      | [constant] =>
+          constant.name == "TOP_CONSTANT" &&
+            constant.ty == Ty.uint 256 &&
+            constant.mutability == VarMutability.constant &&
+            constant.getter? == none
+      | _ => false) &&
+      (match observation.freeEvents with
+      | [event] =>
+          event.name == "TopObserved" &&
+            event.signature? == some "TopObserved(uint256)" &&
+            event.topic? == some eventTopic &&
+            event.params ==
+              [{ name := some "value"
+                 ty := Ty.uint 256
+                 indexed := true }]
+      | _ => false) &&
+      (match observation.freeErrors with
+      | [err] =>
+          err.name == "TopBad" &&
+            err.signature? == some "TopBad(uint256)" &&
+            err.selector? == some errorSelector
+      | _ => false) &&
+      (match observation.freeStructs with
+      | [structObs] =>
+          structObs.name == "TopStruct" &&
+            structObs.fields ==
+              [ { name := "amount", ty := Ty.uint 256 }
+              , { name := "owner", ty := Ty.address false } ]
+      | _ => false) &&
+      (match observation.freeEnums with
+      | [enumObs] =>
+          enumObs.name == "TopMode" &&
+            enumObs.cases == ["Off", "On"]
+      | _ => false) &&
+      (match observation.freeUserValueTypes with
+      | [userTy] =>
+          userTy.name == "TopPrice" &&
+            userTy.underlying == Ty.uint 256
+      | _ => false) &&
+      observation.usingDecls == [])
+
 def overloadedSelectorRejectedContract : ContractDecl :=
   { name := "OverloadedSelector"
     items :=
@@ -19640,6 +29947,97 @@ def eventAbiDataBytesMatchExpected : Option Bool := do
   let event ← eventAbiEmittedLog
   some (event.dataBytes == eventAbiExpectedDataBytes)
 
+def eventAbiLogEntryMatchesExpected : Option Bool := do
+  let result ← eventAbiCallResult
+  let expectedTopics ← eventAbiExpectedTopics
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [] =>
+      let observation :=
+        SolidCore.Solidity.Source.CallResult.observe 0 result
+      match observation.state.logs with
+      | [entry] =>
+          some
+            (observation.mode ==
+                SolidCore.Solidity.Source.CallExitMode.returned &&
+              entry.topics == expectedTopics &&
+              entry.data == eventAbiExpectedDataBytes &&
+              SolidCore.Solidity.Source.wordEq entry.address 0 &&
+              observation.returnValues.isEmpty)
+      | _ => some false
+  | _ => some false
+
+def eventEmissionObservationMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? eventAbiContract
+  let expectedTopics ← eventAbiExpectedTopics
+  let context : CoreContext := { contract.context with self := 0xabc }
+  let runtime :=
+    SolidCore.Solidity.Source.Runtime.ofState
+      SolidCore.Solidity.Source.State.empty
+  let values :=
+    [ SolidCore.Solidity.Source.Value.word 4
+    , SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.signedToWord (-2)) ]
+  let observation :=
+    runtime.observeEventEmission context "Set" values
+  let missingObservation :=
+    runtime.observeEventEmission context "Missing" values
+  let arityObservation :=
+    runtime.observeEventEmission context "Set"
+      [SolidCore.Solidity.Source.Value.word 4]
+  let logEntryMatches :=
+    fun (entry : SharedSemantics.Log.Entry) =>
+      entry.topics == expectedTopics &&
+        entry.data == eventAbiExpectedDataBytes &&
+        SolidCore.Solidity.Source.wordEq entry.address 0xabc
+  let emittedEventMatches :=
+    match observation.event? with
+    | some event =>
+        event.name == "Set" &&
+          event.topics == expectedTopics &&
+          event.dataBytes == eventAbiExpectedDataBytes &&
+          (match event.indexed, event.data with
+          | [SolidCore.Solidity.Source.Value.word key],
+              [SolidCore.Solidity.Source.Value.int value] =>
+              SolidCore.Solidity.Source.wordEq key 4 &&
+                SolidCore.Solidity.Source.wordEq value
+                  (SharedSemantics.signedToWord (-2))
+          | _, _ => false)
+    | none => false
+  let outputLogsMatch :=
+    match observation.outputRuntime? with
+    | some output =>
+        match output.state.logs, output.state.effects.logs with
+        | [entry], [effectEntry] =>
+            logEntryMatches entry && logEntryMatches effectEntry
+        | _, _ => false
+    | none => false
+  let typeMismatchMatches :=
+    fun (error? : Option SolidCore.Solidity.Source.RevertData) =>
+      match error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  some
+    (observation.name == "Set" &&
+      observation.values.length == 2 &&
+      SolidCore.Solidity.Source.wordEq
+        observation.context.ambient.self 0xabc &&
+      observation.inputRuntime.state.logs.isEmpty &&
+      emittedEventMatches &&
+      (match observation.logEntry? with
+      | some entry => logEntryMatches entry
+      | none => false) &&
+      outputLogsMatch &&
+      observation.error?.isNone &&
+      missingObservation.event?.isNone &&
+      missingObservation.logEntry?.isNone &&
+      missingObservation.outputRuntime?.isNone &&
+      typeMismatchMatches missingObservation.error? &&
+      arityObservation.event?.isNone &&
+      arityObservation.logEntry?.isNone &&
+      arityObservation.outputRuntime?.isNone &&
+      typeMismatchMatches arityObservation.error?)
+
 def anonymousEventAbiContract : ContractDecl :=
   { name := "AnonymousEvents"
     items :=
@@ -19827,6 +30225,57 @@ def selfdestructRecordsAndStopsMatches : Option Bool := do
       | _ => some false
   | _ => some false
 
+def selfdestructDefaultCancunNoDeleteMatches : Option Bool := do
+  let result ← selfdestructSourceCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.selfdestructEffects with
+      | [record] =>
+          some
+            (SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+              SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+              record.deletesAccount == false)
+      | _ => some false
+  | _ => some false
+
+def selfdestructPreCancunContext : CoreContext :=
+  { selfdestructSourceContext with
+    evmVersion := SolidCore.Solidity.Source.EvmVersion.shanghai }
+
+def selfdestructPreCancunDeletesMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 ["x"] [] selfdestructPreCancunContext
+      SolidCore.Solidity.Source.State.empty selfdestructSourceFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.selfdestructEffects with
+      | [record] =>
+          some
+            (SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+              SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+              record.deletesAccount == true)
+      | _ => some false
+  | _ => some false
+
+def selfdestructCancunCreatedAccountContext : CoreContext :=
+  { selfdestructSourceContext with
+    createdInTransactionAccounts := [0xcafe] }
+
+def selfdestructCancunCreatedAccountDeletesMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 16 ["x"] [] selfdestructCancunCreatedAccountContext
+      SolidCore.Solidity.Source.State.empty selfdestructSourceFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      match state.selfdestructEffects with
+      | [record] =>
+          some
+            (SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+              SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+              record.deletesAccount == true)
+      | _ => some false
+  | _ => some false
+
 def dynamicEventAbiContract : ContractDecl :=
   { name := "DynamicEvents"
     items :=
@@ -19938,6 +30387,27 @@ def addressMembersCallMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq selfBalance 1000 &&
           SolidCore.Solidity.Source.wordEq otherBalance 77 &&
           SolidCore.Solidity.Source.wordEq otherCodehash 0x123456)
+  | _ => some false
+
+def addressMembersPreConstantinopleContext : CoreContext :=
+  { addressMembersContext with
+    evmVersion := SolidCore.Solidity.Source.EvmVersion.byzantium }
+
+def addressMembersPreConstantinopleCodehashZeroMatches : Option Bool := do
+  let result ←
+    FunctionDecl.call? 8 [] [] addressMembersPreConstantinopleContext
+      SolidCore.Solidity.Source.State.empty addressMembersFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word selfAddress
+      , SolidCore.Solidity.Source.Value.word selfBalance
+      , SolidCore.Solidity.Source.Value.word otherBalance
+      , SolidCore.Solidity.Source.Value.word otherCodehash ] =>
+      some
+        (SolidCore.Solidity.Source.wordEq selfAddress 0xcafe &&
+          SolidCore.Solidity.Source.wordEq selfBalance 1000 &&
+          SolidCore.Solidity.Source.wordEq otherBalance 77 &&
+          SolidCore.Solidity.Source.wordEq otherCodehash 0)
   | _ => some false
 
 def addressCodeMemberFunction : FunctionDecl :=
@@ -20108,6 +30578,42 @@ def checkedAddressEnvironmentContract : ContractDecl :=
       , ContractItem.function checkedAddressCodeMemberFunction
       , ContractItem.function checkedSelfdestructFunction ] }
 
+def selfdestructFunctionEntryBodyObservationMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? checkedAddressEnvironmentContract
+  let function ← contract.findFunctionByName? "destroy"
+  let context : CoreContext := { contract.context with self := 0xcafe }
+  let observation :=
+    function.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      16 context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0xbeef] 0xcafe
+  let effectMatches :=
+    fun (state : SolidCore.Solidity.Source.StateObservation) =>
+      match state.effects.selfdestructs with
+      | [(fromAddress, recipient)] =>
+          SolidCore.Solidity.Source.wordEq fromAddress 0xcafe &&
+            SolidCore.Solidity.Source.wordEq recipient 0xbeef
+      | _ => false
+  match observation.bodyResult?, observation.exit?, observation.result? with
+  | some body, some exit, some result =>
+      some
+        (body.mode ==
+            SolidCore.Solidity.Source.ResultMode.selfdestructed &&
+          effectMatches body.runtime.state &&
+          exit.kind ==
+            SolidCore.Solidity.Source.FunctionExitKind.selfdestructReturnsEmpty &&
+          exit.bodyResult.mode ==
+            SolidCore.Solidity.Source.ResultMode.selfdestructed &&
+          exit.callResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.returned &&
+          exit.callResult.returnValues.isEmpty &&
+          effectMatches exit.callResult.state &&
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.returnValues.isEmpty &&
+          effectMatches result.state &&
+          result.state.storage == [])
+  | _, _, _ => some false
+
 def lowLevelCallFunction : FunctionDecl :=
   { name := some "probe"
     params :=
@@ -20146,6 +30652,120 @@ def lowLevelCallMatches : Option Bool := do
           output == [9, 8])
   | SolidCore.Solidity.Source.CallResult.reverted _ _ => some false
   | _ => none
+
+def lowLevelCallObservedInteractionMatches : Option Bool := do
+  let result ← lowLevelCallResult
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
+      let (success, output) ← CoreValue.asLowLevelReturn? value
+      let observation :=
+        SolidCore.Solidity.Source.CallResult.observe 0 result
+      match observation.state.externalInteractions with
+      | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+          some
+            (SolidCore.Solidity.Source.wordEq success 1 &&
+              output == [9, 8] &&
+              SolidCore.Solidity.Source.LowLevelCallResult.matches call
+                SolidCore.Solidity.Source.LowLevelCallKind.call
+                0xbeef [1, 2, 3] 0 none &&
+              call.success &&
+              call.output == [9, 8])
+      | _ => some false
+  | _ => some false
+
+def lowLevelCallEvaluationObservationMatches : Bool :=
+  let callResult : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+      target := 0xbeef
+      calldata := [1]
+      value := 7
+      gas? := some 11
+      success := true
+      output := [9] }
+  let context : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      lowLevelCallResults := [callResult] }
+  let runtime : CoreRuntime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let expr :=
+    SolidCore.Solidity.Source.Expr.lowLevelCall
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      (SolidCore.Solidity.Source.Expr.word 0xbeef)
+      (SolidCore.Solidity.Source.Expr.byteArray [1])
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "x")
+        (SolidCore.Solidity.Source.Expr.word 7))
+      (some
+        (SolidCore.Solidity.Source.Expr.assignExpr
+          (SolidCore.Solidity.Source.Expr.var "x")
+          (SolidCore.Solidity.Source.Expr.word 11)))
+      false
+  let observation :=
+    SolidCore.Solidity.Source.Expr.observeLowLevelCallEvaluation
+      context runtime expr 0
+  let resolvedMatches :=
+    match observation.resolution? with
+    | some resolution =>
+        resolution.resolution ==
+          SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+        SolidCore.Solidity.Source.LowLevelCallResult.matches
+          resolution.result SolidCore.Solidity.Source.LowLevelCallKind.call
+          0xbeef [1] 7 (some 11) &&
+        resolution.result.success &&
+        resolution.result.output == [9]
+    | none => false
+  let operandRuntimeMatches :=
+    match observation.operandEvaluation? with
+    | some operands =>
+        operands.order == SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft &&
+        operands.expressionCount == 4 &&
+        match operands.outputRuntime? with
+        | some outputRuntime =>
+            match outputRuntime.locals.lookup? "x" with
+            | some (SolidCore.Solidity.Source.Value.word x) =>
+                SolidCore.Solidity.Source.wordEq x 7
+            | _ => false
+        | none => false
+    | none => false
+  let outputValueMatches :=
+    match observation.outputValue? with
+    | some
+        (SolidCore.Solidity.Source.Value.tuple
+          [ SolidCore.Solidity.Source.Value.word success
+          , SolidCore.Solidity.Source.Value.bytes output ]) =>
+        SolidCore.Solidity.Source.wordEq success 1 &&
+          output == [9]
+    | _ => false
+  let outputRuntimeMatches :=
+    match observation.outputRuntime? with
+    | some outputRuntime =>
+        match outputRuntime.state.externalInteractions,
+            outputRuntime.locals.lookup? "x" with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call],
+            some (SolidCore.Solidity.Source.Value.word x) =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches call
+              SolidCore.Solidity.Source.LowLevelCallKind.call
+              0xbeef [1] 7 (some 11) &&
+            call.success &&
+            call.output == [9] &&
+            SolidCore.Solidity.Source.wordEq x 7
+        | _, _ => false
+    | none => false
+  observation.status ==
+      SolidCore.Solidity.Source.LowLevelCallEvaluationStatus.resolved &&
+    observation.policy.usesYulCompatibleDefault &&
+    observation.policy.effective ==
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft &&
+    observation.hasGas &&
+    observation.gasFirst? == some false &&
+    observation.target? == some 0xbeef &&
+    observation.calldata? == some [1] &&
+    observation.value? == some 7 &&
+    observation.gas? == some 11 &&
+    operandRuntimeMatches && resolvedMatches &&
+    outputValueMatches && outputRuntimeMatches
 
 def lowLevelCallValueFunction : FunctionDecl :=
   { name := some "pay"
@@ -20210,8 +30830,7 @@ def lowLevelCallGasMismatchReturnsFalse : Option Bool := do
 def lowLevelCallOptionGasEffectsFunction : FunctionDecl :=
   { name := some "payWithGasExpr"
     returns :=
-      [ { name := some "out", ty := lowLevelCallReturnTy }
-      , { name := some "gasSeen", ty := Ty.uint 256 }
+      [ { name := some "gasSeen", ty := Ty.uint 256 }
       , { name := some "sent", ty := Ty.uint 256 } ]
     body :=
       some
@@ -20222,24 +30841,24 @@ def lowLevelCallOptionGasEffectsFunction : FunctionDecl :=
           , Stmt.varDecl
               [{ name := some "sent", ty := some (Ty.uint 256) }]
               (some (Expr.literal (Literal.number "0")))
+          , Stmt.expr
+              (Expr.callWithOptions
+                (Expr.member
+                  (Expr.literal (Literal.address 0xbeef)) "call")
+                [ CallOption.named "gas"
+                    (Expr.assign (Expr.ident "gasSeen")
+                      AssignOp.assign
+                      (Expr.literal (Literal.number "11")))
+                , CallOption.named "value"
+                    (Expr.assign (Expr.ident "sent")
+                      AssignOp.assign
+                      (Expr.literal (Literal.number "5"))) ]
+                [Arg.positional
+                  (Expr.literal (Literal.bytes [1, 2]))])
           , Stmt.returnValues
               (some
                 (Expr.tuple
-                  [ TupleItem.value
-                      (Expr.callWithOptions
-                        (Expr.member
-                          (Expr.literal (Literal.address 0xbeef)) "call")
-                        [ CallOption.named "gas"
-                            (Expr.assign (Expr.ident "gasSeen")
-                              AssignOp.assign
-                              (Expr.literal (Literal.number "11")))
-                        , CallOption.named "value"
-                            (Expr.assign (Expr.ident "sent")
-                              AssignOp.assign
-                              (Expr.literal (Literal.number "5"))) ]
-                        [Arg.positional
-                          (Expr.literal (Literal.bytes [1, 2]))])
-                  , TupleItem.value (Expr.ident "gasSeen")
+                  [ TupleItem.value (Expr.ident "gasSeen")
                   , TupleItem.value (Expr.ident "sent") ])) ]) }
 
 def lowLevelCallOptionGasEffectsContext : CoreContext :=
@@ -20261,13 +30880,19 @@ def lowLevelCallOptionGasEffectsResult : Option CoreCallResult :=
 def lowLevelCallOptionGasEffectsMatches : Option Bool := do
   let result ← lowLevelCallOptionGasEffectsResult
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [value, SolidCore.Solidity.Source.Value.word gasSeen,
-        SolidCore.Solidity.Source.Value.word sent] => do
-      let (success, output) ← CoreValue.asLowLevelReturn? value
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [ SolidCore.Solidity.Source.Value.word gasSeen
+      , SolidCore.Solidity.Source.Value.word sent] =>
+      let observed :=
+        match state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches call
+              SolidCore.Solidity.Source.LowLevelCallKind.call
+              0xbeef [1, 2] 5 (some 11) &&
+              call.success && call.output == [4, 5, 6]
+        | _ => false
       some
-        (SolidCore.Solidity.Source.wordEq success 1 &&
-          output == [4, 5, 6] &&
+        (observed &&
           gasSeen == 11 &&
           sent == 5)
   | SolidCore.Solidity.Source.CallResult.reverted _ _ => some false
@@ -20340,26 +30965,23 @@ def lowLevelStaticCallOptionGasEffectsFunction : FunctionDecl :=
       [ { name := some "target", ty := Ty.address false }
       , { name := some "payload", ty := Ty.bytes } ]
     returns :=
-      [ { name := some "out", ty := lowLevelCallReturnTy }
-      , { name := some "gasSeen", ty := Ty.uint 256 } ]
+      [{ name := some "gasSeen", ty := Ty.uint 256 }]
     body :=
       some
         (Stmt.block
           [ Stmt.varDecl
               [{ name := some "gasSeen", ty := some (Ty.uint 256) }]
               (some (Expr.literal (Literal.number "0")))
+          , Stmt.expr
+              (Expr.callWithOptions
+                (Expr.member (Expr.ident "target") "staticcall")
+                [CallOption.named "gas"
+                  (Expr.assign (Expr.ident "gasSeen")
+                    AssignOp.assign
+                    (Expr.literal (Literal.number "12")))]
+                [Arg.positional (Expr.ident "payload")])
           , Stmt.returnValues
-              (some
-                (Expr.tuple
-                  [ TupleItem.value
-                      (Expr.callWithOptions
-                        (Expr.member (Expr.ident "target") "staticcall")
-                        [CallOption.named "gas"
-                          (Expr.assign (Expr.ident "gasSeen")
-                            AssignOp.assign
-                            (Expr.literal (Literal.number "12")))]
-                        [Arg.positional (Expr.ident "payload")])
-                  , TupleItem.value (Expr.ident "gasSeen") ])) ]) }
+              (some (Expr.ident "gasSeen")) ]) }
 
 def lowLevelStaticCallOptionGasEffectsContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
@@ -20383,12 +31005,18 @@ def lowLevelStaticCallOptionGasEffectsResult : Option CoreCallResult :=
 def lowLevelStaticCallOptionGasEffectsMatches : Option Bool := do
   let result ← lowLevelStaticCallOptionGasEffectsResult
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [value, SolidCore.Solidity.Source.Value.word gasSeen] => do
-      let (success, output) ← CoreValue.asLowLevelReturn? value
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word gasSeen] =>
+      let observed :=
+        match state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches call
+              SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              0xcafe [7, 7] 0 (some 12) &&
+              call.success && call.output == [1]
+        | _ => false
       some
-        (SolidCore.Solidity.Source.wordEq success 1 &&
-          output == [1] &&
+        (observed &&
           gasSeen == 12)
   | SolidCore.Solidity.Source.CallResult.reverted _ _ => some false
   | _ => none
@@ -22017,6 +32645,12 @@ def checkedUintReturn : List Parameter :=
 def checkedIntReturn : List Parameter :=
   [{ name := some "out", ty := Ty.int 256 }]
 
+def checkedUint8Param (name : Name) : Parameter :=
+  { name := some name, ty := Ty.uint 8 }
+
+def checkedUint8Return : List Parameter :=
+  [{ name := some "out", ty := Ty.uint 8 }]
+
 def checkedAddOverflowFunction : FunctionDecl :=
   checkedPureStatementFunction "addOverflow"
     [checkedUintParam "x"] checkedUintReturn
@@ -22188,6 +32822,88 @@ def checkedUncheckedInternalCallWrappedArgFunction : FunctionDecl :=
           (Expr.call (Expr.ident "id")
             [Arg.positional uncheckedInternalUintMaxPlusOne]))))
 
+def checkedNarrowParamEchoFunction : FunctionDecl :=
+  checkedPureStatementFunction "echoUint8"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.returnValues (some (Expr.ident "x")))
+
+def checkedNarrowReturnOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowReturnOverflow"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.returnValues
+      (some
+        (Expr.binary BinaryOp.add
+          (Expr.ident "x") (Expr.literal (Literal.number "1")))))
+
+def checkedNarrowUncheckedReturnWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowUncheckedReturnWrap"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some
+          (Expr.binary BinaryOp.add
+            (Expr.ident "x") (Expr.literal (Literal.number "1"))))))
+
+def checkedNarrowLocalOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowLocalOverflow"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.block
+      [ Stmt.varDecl
+          [{ name := some "y", ty := some (Ty.uint 8), location := none }]
+          (some
+            (Expr.binary BinaryOp.add
+              (Expr.ident "x") (Expr.literal (Literal.number "1"))))
+      , Stmt.returnValues (some (Expr.ident "y")) ])
+
+def checkedNarrowUncheckedLocalWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowUncheckedLocalWrap"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.block
+      [ Stmt.varDecl
+          [{ name := some "y", ty := some (Ty.uint 8), location := none }]
+          none
+      , Stmt.unchecked
+          (Stmt.expr
+            (Expr.assign (Expr.ident "y") AssignOp.assign
+              (Expr.binary BinaryOp.add
+                (Expr.ident "x") (Expr.literal (Literal.number "1")))))
+      , Stmt.returnValues (some (Expr.ident "y")) ])
+
+def checkedNarrowPreIncrementOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowPreIncrementOverflow"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.returnValues
+      (some (Expr.unary UnaryOp.preIncrement (Expr.ident "x"))))
+
+def checkedNarrowUncheckedPreIncrementWrapFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowUncheckedPreIncrementWrap"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.unchecked
+      (Stmt.returnValues
+        (some (Expr.unary UnaryOp.preIncrement (Expr.ident "x")))))
+
+def checkedNarrowPostIncrementOverflowFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowPostIncrementOverflow"
+    [checkedUint8Param "x"] checkedUint8Return
+    (Stmt.returnValues
+      (some (Expr.unary UnaryOp.postIncrement (Expr.ident "x"))))
+
+def checkedNarrowUncheckedPostIncrementFunction : FunctionDecl :=
+  checkedPureStatementFunction "narrowUncheckedPostIncrement"
+    [checkedUint8Param "x"]
+    [ { name := some "old", ty := Ty.uint 8 }
+    , { name := some "next", ty := Ty.uint 8 } ]
+    (Stmt.unchecked
+      (Stmt.block
+        [ Stmt.varDecl
+            [{ name := some "old", ty := some (Ty.uint 8), location := none }]
+            (some (Expr.unary UnaryOp.postIncrement (Expr.ident "x")))
+        , Stmt.returnValues
+            (some
+              (Expr.tuple
+                [TupleItem.value (Expr.ident "old")
+                , TupleItem.value (Expr.ident "x")])) ]))
+
 def checkedArithmeticContract : ContractDecl :=
   { name := "CheckedArithmetic"
     items :=
@@ -22214,7 +32930,99 @@ def checkedArithmeticContract : ContractDecl :=
       , ContractItem.function checkedUncheckedInternalIdFunction
       , ContractItem.function checkedUncheckedInternalCallOverflowFunction
       , ContractItem.function
-          checkedUncheckedInternalCallWrappedArgFunction ] }
+          checkedUncheckedInternalCallWrappedArgFunction
+      , ContractItem.function checkedNarrowParamEchoFunction
+      , ContractItem.function checkedNarrowReturnOverflowFunction
+      , ContractItem.function checkedNarrowUncheckedReturnWrapFunction
+      , ContractItem.function checkedNarrowLocalOverflowFunction
+      , ContractItem.function checkedNarrowUncheckedLocalWrapFunction
+      , ContractItem.function checkedNarrowPreIncrementOverflowFunction
+      , ContractItem.function checkedNarrowUncheckedPreIncrementWrapFunction
+      , ContractItem.function checkedNarrowPostIncrementOverflowFunction
+      , ContractItem.function checkedNarrowUncheckedPostIncrementFunction ] }
+
+def binaryArithmeticObservationWord? :
+    SolidCore.Solidity.Source.BinaryArithmeticObservation ->
+      Option Word
+  | observation =>
+      match observation.result? with
+      | some (SolidCore.Solidity.Source.Value.word value) => some value
+      | _ => none
+
+def binaryArithmeticObservationInt? :
+    SolidCore.Solidity.Source.BinaryArithmeticObservation ->
+      Option Word
+  | observation =>
+      match observation.result? with
+      | some (SolidCore.Solidity.Source.Value.int value) => some value
+      | _ => none
+
+def binaryArithmeticObservationPanic? :
+    SolidCore.Solidity.Source.BinaryArithmeticObservation ->
+      Option Word
+  | observation =>
+      match observation.revertData? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          some code
+      | _ => none
+
+def binaryArithmeticObservationMatches : Bool :=
+  let max := SolidCore.Solidity.Source.wordModulus - 1
+  let checkedOverflow :=
+    SolidCore.Solidity.Source.BinaryOp.observeApply true
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Value.word max)
+      (SolidCore.Solidity.Source.Value.word 1)
+  let uncheckedWrap :=
+    SolidCore.Solidity.Source.BinaryOp.observeApply false
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Value.word max)
+      (SolidCore.Solidity.Source.Value.word 1)
+  let signedOverflow :=
+    SolidCore.Solidity.Source.BinaryOp.observeApply true
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.halfWordModulus - 1))
+      (SolidCore.Solidity.Source.Value.int 1)
+  let signedUnchecked :=
+    SolidCore.Solidity.Source.BinaryOp.observeApply false
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Value.int
+        (SharedSemantics.halfWordModulus - 1))
+      (SolidCore.Solidity.Source.Value.int 1)
+  let divByZero :=
+    SolidCore.Solidity.Source.BinaryOp.observeApply false
+      SolidCore.Solidity.Source.BinaryOp.div
+      (SolidCore.Solidity.Source.Value.word 7)
+      (SolidCore.Solidity.Source.Value.word 0)
+  let typeMismatch :=
+    SolidCore.Solidity.Source.BinaryOp.observeApply true
+      SolidCore.Solidity.Source.BinaryOp.add
+      (SolidCore.Solidity.Source.Value.bytes [])
+      (SolidCore.Solidity.Source.Value.word 1)
+  checkedOverflow.checked &&
+    checkedOverflow.operandMode ==
+      SolidCore.Solidity.Source.BinaryArithmeticOperandMode.unsignedWord &&
+    checkedOverflow.lhsWord? == some max &&
+    checkedOverflow.rhsWord? == some 1 &&
+    checkedOverflow.result?.isNone &&
+    binaryArithmeticObservationPanic? checkedOverflow == some 0x11 &&
+    !uncheckedWrap.checked &&
+    binaryArithmeticObservationWord? uncheckedWrap == some 0 &&
+    uncheckedWrap.revertData?.isNone &&
+    signedOverflow.operandMode ==
+      SolidCore.Solidity.Source.BinaryArithmeticOperandMode.signedWord &&
+    signedOverflow.result?.isNone &&
+    binaryArithmeticObservationPanic? signedOverflow == some 0x11 &&
+    binaryArithmeticObservationInt? signedUnchecked ==
+      some SharedSemantics.halfWordModulus &&
+    signedUnchecked.revertData?.isNone &&
+    divByZero.operandMode ==
+      SolidCore.Solidity.Source.BinaryArithmeticOperandMode.unsignedWord &&
+    binaryArithmeticObservationPanic? divByZero == some 0x12 &&
+    typeMismatch.operandMode ==
+      SolidCore.Solidity.Source.BinaryArithmeticOperandMode.unsupported &&
+    binaryArithmeticObservationPanic? typeMismatch == some 0
 
 def stringEchoFunction : FunctionDecl :=
   { name := some "echo"
@@ -22952,6 +33760,278 @@ def tryCatchLowLevelMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 3)
   | _ => some false
+
+def tryExternalCallEvaluationObservationMatches : Option Bool := do
+  let output ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 99]
+  let successCall : SolidCore.Solidity.Source.LowLevelCallResult :=
+    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+      target := 0xbeef
+      calldata := [1]
+      value := 7
+      gas? := some 11
+      success := true
+      output := output }
+  let successContext : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      accountCodes := [(0xbeef, [0x60, 0x00])]
+      lowLevelCallResults := [successCall] }
+  let successStmt :=
+    SolidCore.Solidity.Source.Stmt.tryExternalCall
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      (SolidCore.Solidity.Source.Expr.word 0xbeef)
+      (SolidCore.Solidity.Source.Expr.byteArray [1])
+      (SolidCore.Solidity.Source.Expr.word 7)
+      (some (SolidCore.Solidity.Source.Expr.word 11))
+      false true
+      [{ name := "out", ty := SolidCore.Solidity.Source.Ty.uint256 }]
+      []
+      (SolidCore.Solidity.Source.Stmt.returnValues
+        [SolidCore.Solidity.Source.Expr.var "out"])
+      [ SolidCore.Solidity.Source.TryCatchClause.clause none []
+          (SolidCore.Solidity.Source.Stmt.returnValues
+            [SolidCore.Solidity.Source.Expr.word 44]) ]
+  let successObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTryExternalCallEvaluation
+      8 successContext
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      successStmt 0
+  let successResolved :=
+    match successObservation.resolution? with
+    | some resolution =>
+        resolution.resolution ==
+          SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+        SolidCore.Solidity.Source.LowLevelCallResult.matches
+          resolution.result SolidCore.Solidity.Source.LowLevelCallKind.call
+          0xbeef [1] 7 (some 11) &&
+        resolution.result.success &&
+        resolution.result.output == output
+    | none => false
+  let successFrame :=
+    match successObservation.successFrame? with
+    | some [("out", SolidCore.Solidity.Source.Value.word value)] =>
+        SolidCore.Solidity.Source.wordEq value 99
+    | _ => false
+  let returnedWordMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode ==
+              SolidCore.Solidity.Source.ResultMode.returned &&
+            match result.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value expected
+            | _ => false
+      | none => false
+  let successInteraction :=
+    match successObservation.interactionRuntime? with
+    | some runtime =>
+        match runtime.state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>
+            SolidCore.Solidity.Source.LowLevelCallResult.matches
+              call SolidCore.Solidity.Source.LowLevelCallKind.call
+              0xbeef [1] 7 (some 11) &&
+            call.success && call.output == output
+        | _ => false
+    | none => false
+  let catchStmt :=
+    SolidCore.Solidity.Source.Stmt.tryExternalCall
+      SolidCore.Solidity.Source.LowLevelCallKind.call
+      (SolidCore.Solidity.Source.Expr.word 0xbeef)
+      (SolidCore.Solidity.Source.Expr.byteArray [1])
+      (SolidCore.Solidity.Source.Expr.word 7)
+      none false true
+      [{ name := "out", ty := SolidCore.Solidity.Source.Ty.uint256 }]
+      []
+      (SolidCore.Solidity.Source.Stmt.returnValues
+        [SolidCore.Solidity.Source.Expr.var "out"])
+      [ SolidCore.Solidity.Source.TryCatchClause.clause none []
+          (SolidCore.Solidity.Source.Stmt.returnValues
+            [SolidCore.Solidity.Source.Expr.word 44]) ]
+  let catchObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTryExternalCallEvaluation
+      8 SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      catchStmt 0
+  let catchMatches :=
+    match catchObservation.callResult?, catchObservation.catchMatch? with
+    | some call, some matchObservation =>
+        SolidCore.Solidity.Source.LowLevelCallResult.matches
+          call SolidCore.Solidity.Source.LowLevelCallKind.call
+          0xbeef [1] 7 none &&
+        !call.success &&
+        call.output == [] &&
+        matchObservation.raw == [] &&
+        matchObservation.selectedIndex? == some 0 &&
+        matchObservation.selectedKind? ==
+          some SolidCore.Solidity.Source.TryCatchMatchKind.lowLevel
+    | _, _ => false
+  let decodedReturnsMatch :=
+    match successObservation.decodedReturns? with
+    | some [SolidCore.Solidity.Source.Value.word value] =>
+        SolidCore.Solidity.Source.wordEq value 99
+    | _ => false
+  some
+    (successObservation.status ==
+        SolidCore.Solidity.Source.TryExternalCallEvaluationStatus.successBodyEvaluated &&
+      successObservation.policy.usesYulCompatibleDefault &&
+      successObservation.sourceOperands.length == 4 &&
+      successObservation.gasFirst? == some false &&
+      successObservation.hasGas &&
+      successObservation.checkTargetCode &&
+      !successObservation.missingCode &&
+      successObservation.target? == some 0xbeef &&
+      successObservation.calldata? == some [1] &&
+      successObservation.value? == some 7 &&
+      successObservation.gas? == some 11 &&
+      decodedReturnsMatch &&
+      successResolved && successFrame && successInteraction &&
+      returnedWordMatches successObservation.bodyResult? 99 &&
+      returnedWordMatches successObservation.finalResult? 99 &&
+      catchObservation.status ==
+        SolidCore.Solidity.Source.TryExternalCallEvaluationStatus.catchBodyEvaluated &&
+      catchObservation.checkTargetCode &&
+      catchObservation.missingCode &&
+      catchObservation.resolution?.isNone &&
+      catchMatches &&
+      returnedWordMatches catchObservation.finalResult? 44)
+
+def tryContractCreateEvaluationObservationMatches : Option Bool := do
+  let creationResult : SolidCore.Solidity.Source.ContractCreationResult :=
+    { contractName := "Child"
+      constructorArgs := [1]
+      value := 7
+      salt? := some 11
+      success := true
+      address := 0xc0de
+      output := [9] }
+  let successContext : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      contractCreationResults := [creationResult] }
+  let successStmt :=
+    SolidCore.Solidity.Source.Stmt.tryContractCreate
+      "Child"
+      (SolidCore.Solidity.Source.Expr.byteArray [1])
+      (SolidCore.Solidity.Source.Expr.word 7)
+      (some (SolidCore.Solidity.Source.Expr.word 11))
+      [{ name := "made", ty := SolidCore.Solidity.Source.Ty.address }]
+      (SolidCore.Solidity.Source.Stmt.returnValues
+        [SolidCore.Solidity.Source.Expr.var "made"])
+      [ SolidCore.Solidity.Source.TryCatchClause.clause none []
+          (SolidCore.Solidity.Source.Stmt.returnValues
+            [SolidCore.Solidity.Source.Expr.word 44]) ]
+  let successObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTryContractCreateEvaluation
+      8 successContext
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      successStmt 0
+  let successResolved :=
+    match successObservation.resolution? with
+    | some resolution =>
+        resolution.resolution ==
+          SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+        SolidCore.Solidity.Source.ContractCreationResult.matches
+          resolution.result "Child" [1] 7 (some 11) &&
+        resolution.result.success &&
+        SolidCore.Solidity.Source.wordEq resolution.result.address 0xc0de &&
+        resolution.result.output == [9]
+    | none => false
+  let successFrame :=
+    match successObservation.successFrame? with
+    | some [("made", SolidCore.Solidity.Source.Value.word value)] =>
+        SolidCore.Solidity.Source.wordEq value 0xc0de
+    | _ => false
+  let returnedWordMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (expected : Word) =>
+      match result? with
+      | some result =>
+          result.mode ==
+              SolidCore.Solidity.Source.ResultMode.returned &&
+            match result.returnValues with
+            | [SolidCore.Solidity.Source.Value.word value] =>
+                SolidCore.Solidity.Source.wordEq value expected
+            | _ => false
+      | none => false
+  let successInteraction :=
+    match successObservation.interactionRuntime? with
+    | some runtime =>
+        match runtime.state.externalInteractions with
+        | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>
+            SolidCore.Solidity.Source.ContractCreationResult.matches
+              create "Child" [1] 7 (some 11) &&
+            create.success &&
+            SolidCore.Solidity.Source.wordEq create.address 0xc0de &&
+            create.output == [9]
+        | _ => false
+    | none => false
+  let catchStmt :=
+    SolidCore.Solidity.Source.Stmt.tryContractCreate
+      "Child"
+      (SolidCore.Solidity.Source.Expr.byteArray [1])
+      (SolidCore.Solidity.Source.Expr.word 7)
+      none
+      [{ name := "made", ty := SolidCore.Solidity.Source.Ty.address }]
+      (SolidCore.Solidity.Source.Stmt.returnValues
+        [SolidCore.Solidity.Source.Expr.var "made"])
+      [ SolidCore.Solidity.Source.TryCatchClause.clause none []
+          (SolidCore.Solidity.Source.Stmt.returnValues
+            [SolidCore.Solidity.Source.Expr.word 44]) ]
+  let catchObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTryContractCreateEvaluation
+      8 SolidCore.Solidity.Source.Context.empty
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      catchStmt 0
+  let catchResolutionMatches :=
+    match catchObservation.resolution? with
+    | some resolution =>
+        resolution.resolution ==
+          SolidCore.Solidity.Source.ExternalResolutionKind.failedFallback &&
+        SolidCore.Solidity.Source.ContractCreationResult.matches
+          resolution.result "Child" [1] 7 none &&
+        !resolution.result.success &&
+        resolution.result.output == []
+    | none => false
+  let catchMatches :=
+    match catchObservation.creationResult?, catchObservation.catchMatch? with
+    | some create, some matchObservation =>
+        SolidCore.Solidity.Source.ContractCreationResult.matches
+          create "Child" [1] 7 none &&
+        !create.success &&
+        create.output == [] &&
+        matchObservation.raw == [] &&
+        matchObservation.selectedIndex? == some 0 &&
+        matchObservation.selectedKind? ==
+          some SolidCore.Solidity.Source.TryCatchMatchKind.lowLevel
+    | _, _ => false
+  some
+    (successObservation.status ==
+        SolidCore.Solidity.Source.TryContractCreateEvaluationStatus.successBodyEvaluated &&
+      successObservation.policy.usesYulCompatibleDefault &&
+      successObservation.contractName? == some "Child" &&
+      successObservation.sourceOperands.length == 3 &&
+      successObservation.hasSalt &&
+      successObservation.constructorArgs? == some [1] &&
+      successObservation.value? == some 7 &&
+      successObservation.salt? == some 11 &&
+      successObservation.address? == some 0xc0de &&
+      successResolved && successFrame && successInteraction &&
+      returnedWordMatches successObservation.bodyResult? 0xc0de &&
+      returnedWordMatches successObservation.finalResult? 0xc0de &&
+      catchObservation.status ==
+        SolidCore.Solidity.Source.TryContractCreateEvaluationStatus.catchBodyEvaluated &&
+      catchObservation.contractName? == some "Child" &&
+      !catchObservation.hasSalt &&
+      catchResolutionMatches &&
+      catchMatches &&
+      returnedWordMatches catchObservation.finalResult? 44)
 
 def tryCatchUnmatchedPropagatesRaw : Option Bool := do
   let callData ← externalCalldata? "get()" [] []
@@ -24244,6 +35324,123 @@ def checkedHighLevelExternalSource : SourceUnit :=
       , SourceItem.contract checkedHighLevelExternalCallerContract
       , SourceItem.contract checkedHighLevelThisStaticcallContract ] }
 
+def highLevelExternalObservationTypeEnv : TypeEnv :=
+  [ ("target", checkedHighLevelExternalTargetTy)
+  , ("amount", Ty.uint 256)
+  , ("bonus", Ty.uint 256) ]
+
+def highLevelExternalObservationKindEnv? : Option ExternalCallKindEnv :=
+  ExternalCallKindEnv.fromContracts?
+    (SourceUnit.contracts checkedHighLevelExternalSource)
+
+def highLevelExternalTryCallCoreMatches
+    (expectedKind : CoreLowLevelCallKind) (expectedCheckTargetCode : Bool)
+    (observation : HighLevelExternalCallObservation) : Bool :=
+  match observation.core? with
+  | some
+      (SolidCore.Solidity.Source.Stmt.tryExternalCall kind _ _ _ _ _
+        checkTargetCode _ _ _ _) =>
+      kind == expectedKind && checkTargetCode == expectedCheckTargetCode
+  | _ => false
+
+def highLevelExternalCallObservationMatches : Option Bool := do
+  let externalCallKindEnv ← highLevelExternalObservationKindEnv?
+  let namedObservation :=
+    Expr.observeHighLevelExternalReturnCall []
+      highLevelExternalObservationTypeEnv externalCallKindEnv
+      [Ty.uint 256]
+      (Expr.call
+        (Expr.member (Expr.ident "target") "quote")
+        [ Arg.named "bonus" (Expr.literal (Literal.number "2"))
+        , Arg.named "amount" (Expr.literal (Literal.number "40")) ])
+  let viewObservation :=
+    Expr.observeHighLevelExternalReturnCall []
+      highLevelExternalObservationTypeEnv externalCallKindEnv
+      [Ty.uint 256]
+      (Expr.call (Expr.member (Expr.ident "target") "viewGet") [])
+  let notifyObservation :=
+    Expr.observeHighLevelExternalCallWithReturns []
+      highLevelExternalObservationTypeEnv externalCallKindEnv "__ext" []
+      (Expr.call (Expr.member (Expr.ident "target") "notify") [])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let valueGasObservation :=
+    Expr.observeHighLevelExternalReturnCall []
+      highLevelExternalObservationTypeEnv externalCallKindEnv
+      [Ty.uint 256]
+      (Expr.callWithOptions
+        (Expr.member (Expr.ident "target") "payQuote")
+        [ CallOption.named "value" (Expr.ident "amount")
+        , CallOption.named "gas" (Expr.literal (Literal.number "1234")) ]
+        [])
+  let badOptionObservation :=
+    Expr.observeHighLevelExternalReturnCall []
+      highLevelExternalObservationTypeEnv externalCallKindEnv
+      [Ty.uint 256]
+      (Expr.callWithOptions
+        (Expr.member (Expr.ident "target") "plainQuote")
+        [CallOption.named "value" (Expr.literal (Literal.number "1"))]
+        [])
+  let duplicateNamedObservation :=
+    Expr.observeHighLevelExternalReturnCall []
+      highLevelExternalObservationTypeEnv externalCallKindEnv
+      [Ty.uint 256]
+      (Expr.call
+        (Expr.member (Expr.ident "target") "quote")
+        [ Arg.named "amount" (Expr.literal (Literal.number "40"))
+        , Arg.named "amount" (Expr.literal (Literal.number "2")) ])
+  let reservedObservation :=
+    Expr.observeHighLevelExternalCallWithReturns []
+      highLevelExternalObservationTypeEnv externalCallKindEnv "__ext" []
+      (Expr.call (Expr.member (Expr.ident "target") "call")
+        [Arg.positional (Expr.literal (Literal.hexString "dead"))])
+      (fun _ => SolidCore.Solidity.Source.Stmt.skip)
+  let quoteSelector :=
+    SolidCore.Solidity.Source.ABI.selectorFromSignature
+      "quote(uint256,uint256)"
+  some
+    (namedObservation.status ==
+        HighLevelExternalCallObservationStatus.resolved &&
+      namedObservation.targetContractName? ==
+        some "CheckedHighLevelTarget" &&
+      namedObservation.sourceArgTys? ==
+        some [Ty.uint 256, Ty.uint 256] &&
+      namedObservation.signature? == some "quote(uint256,uint256)" &&
+      namedObservation.selector? == some quoteSelector &&
+      namedObservation.kind? ==
+        some SolidCore.Solidity.Source.LowLevelCallKind.call &&
+      namedObservation.mutability? == some StateMutability.nonpayable &&
+      namedObservation.targetNeedsCodeCheck &&
+      !namedObservation.checkTargetCode &&
+      namedObservation.returnBindingNames == ["__extret0"] &&
+      namedObservation.returnBindingTys.length == 1 &&
+      namedObservation.calldataCore?.isSome &&
+      highLevelExternalTryCallCoreMatches
+        SolidCore.Solidity.Source.LowLevelCallKind.call false
+        namedObservation &&
+      viewObservation.status ==
+        HighLevelExternalCallObservationStatus.resolved &&
+      viewObservation.kind? ==
+        some SolidCore.Solidity.Source.LowLevelCallKind.staticcall &&
+      viewObservation.mutability? == some StateMutability.view &&
+      notifyObservation.status ==
+        HighLevelExternalCallObservationStatus.resolved &&
+      notifyObservation.checkTargetCode &&
+      notifyObservation.returnBindingNames == [] &&
+      highLevelExternalTryCallCoreMatches
+        SolidCore.Solidity.Source.LowLevelCallKind.call true
+        notifyObservation &&
+      valueGasObservation.status ==
+        HighLevelExternalCallObservationStatus.resolved &&
+      valueGasObservation.optionNames == ["value", "gas"] &&
+      valueGasObservation.gasCore?.isSome &&
+      valueGasObservation.gasFirst? == some false &&
+      badOptionObservation.status ==
+        HighLevelExternalCallObservationStatus.optionFailure &&
+      duplicateNamedObservation.status ==
+        HighLevelExternalCallObservationStatus.abiFailure &&
+      reservedObservation.status ==
+        HighLevelExternalCallObservationStatus.reservedMember)
+
 def checkedHighLevelExternalDuplicateNamedArgsCallerContract :
     ContractDecl :=
   { name := "CheckedDuplicateNamedArgsCaller"
@@ -24480,6 +35677,124 @@ def contractCreationSuccessMatches : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq address 0xc0de)
   | _ => some false
 
+def contractCreationObservedInteractionMatches : Option Bool := do
+  let constructorArgs ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 7]
+  let result ←
+    FunctionDecl.call? 16 [] []
+      { SolidCore.Solidity.Source.Context.empty with
+        contractCreationResults :=
+          [ { contractName := "Child"
+              constructorArgs := constructorArgs
+              success := true
+              address := 0xc0de } ] }
+      SolidCore.Solidity.Source.State.empty
+      contractCreationFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word address] =>
+      let observation :=
+        SolidCore.Solidity.Source.CallResult.observe 0 result
+      match observation.state.externalInteractions with
+      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>
+          some
+            (SolidCore.Solidity.Source.wordEq address 0xc0de &&
+              SolidCore.Solidity.Source.ContractCreationResult.matches
+                create "Child" constructorArgs 0 none &&
+              create.success &&
+              SolidCore.Solidity.Source.wordEq create.address 0xc0de)
+      | _ => some false
+  | _ => some false
+
+def contractCreationEvaluationObservationMatches : Bool :=
+  let creationResult : SolidCore.Solidity.Source.ContractCreationResult :=
+    { contractName := "Child"
+      constructorArgs := [1]
+      value := 7
+      salt? := some 11
+      success := true
+      address := 0xc0de
+      output := [9] }
+  let context : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      contractCreationResults := [creationResult] }
+  let runtime : CoreRuntime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let expr :=
+    SolidCore.Solidity.Source.Expr.contractCreate
+      "Child"
+      (SolidCore.Solidity.Source.Expr.byteArray [1])
+      (SolidCore.Solidity.Source.Expr.assignExpr
+        (SolidCore.Solidity.Source.Expr.var "x")
+        (SolidCore.Solidity.Source.Expr.word 7))
+      (some
+        (SolidCore.Solidity.Source.Expr.assignExpr
+          (SolidCore.Solidity.Source.Expr.var "x")
+          (SolidCore.Solidity.Source.Expr.word 11)))
+  let observation :=
+    SolidCore.Solidity.Source.Expr.observeContractCreationEvaluation
+      context runtime expr 0
+  let resolvedMatches :=
+    match observation.resolution? with
+    | some resolution =>
+        resolution.resolution ==
+          SolidCore.Solidity.Source.ExternalResolutionKind.resolved &&
+        SolidCore.Solidity.Source.ContractCreationResult.matches
+          resolution.result "Child" [1] 7 (some 11) &&
+        resolution.result.success &&
+        SolidCore.Solidity.Source.wordEq resolution.result.address 0xc0de &&
+        resolution.result.output == [9]
+    | none => false
+  let operandRuntimeMatches :=
+    match observation.operandEvaluation? with
+    | some operands =>
+        operands.order == SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft &&
+        operands.expressionCount == 3 &&
+        match operands.outputRuntime? with
+        | some outputRuntime =>
+            match outputRuntime.locals.lookup? "x" with
+            | some (SolidCore.Solidity.Source.Value.word x) =>
+                SolidCore.Solidity.Source.wordEq x 7
+            | _ => false
+        | none => false
+    | none => false
+  let outputValueMatches :=
+    match observation.outputValue? with
+    | some (SolidCore.Solidity.Source.Value.word address) =>
+        SolidCore.Solidity.Source.wordEq address 0xc0de
+    | _ => false
+  let outputRuntimeMatches :=
+    match observation.outputRuntime? with
+    | some outputRuntime =>
+        match outputRuntime.state.externalInteractions,
+            outputRuntime.locals.lookup? "x" with
+        | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create],
+            some (SolidCore.Solidity.Source.Value.word x) =>
+            SolidCore.Solidity.Source.ContractCreationResult.matches
+              create "Child" [1] 7 (some 11) &&
+            create.success &&
+            SolidCore.Solidity.Source.wordEq create.address 0xc0de &&
+            create.output == [9] &&
+            SolidCore.Solidity.Source.wordEq x 7
+        | _, _ => false
+    | none => false
+  observation.status ==
+      SolidCore.Solidity.Source.ContractCreationEvaluationStatus.deployed &&
+    observation.contractName? == some "Child" &&
+    observation.policy.usesYulCompatibleDefault &&
+    observation.policy.effective ==
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft &&
+    observation.hasSalt &&
+    observation.constructorArgs? == some [1] &&
+    observation.value? == some 7 &&
+    observation.salt? == some 11 &&
+    operandRuntimeMatches && resolvedMatches &&
+    outputValueMatches && outputRuntimeMatches
+
 def namedCreatedChildTy : Ty :=
   Ty.user { segments := ["NamedChild"] }
 
@@ -24608,6 +35923,96 @@ def contractCreationNamedArgsWithOptionsMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word address] =>
       some (SolidCore.Solidity.Source.wordEq address 0xcafe)
   | _ => some false
+
+def contractCreationObservationSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract contractCreationNamedChildContract
+      , SourceItem.contract contractCreationNamedCallerContract ] }
+
+def contractCreationObservationKindEnv? :
+    Option ExternalCallKindEnv :=
+  ExternalCallKindEnv.fromContracts?
+    (SourceUnit.contracts contractCreationObservationSource)
+
+def contractCreationExpressionCoreMatches
+    (expectedName : Name) (expectSalt : Bool)
+    (observation : ContractCreationExpressionObservation) : Bool :=
+  match observation.core? with
+  | some
+      (SolidCore.Solidity.Source.Expr.contractCreate
+        name _ _ salt?) =>
+      name == expectedName && salt?.isSome == expectSalt
+  | _ => false
+
+def contractCreationExpressionObservationMatches : Option Bool := do
+  let externalCallKindEnv ← contractCreationObservationKindEnv?
+  let namedObservation :=
+    Expr.observeContractCreationExpression [] externalCallKindEnv
+      (Expr.newExpr namedCreatedChildTy
+        [ Arg.named "bonus" (Expr.literal (Literal.number "2"))
+        , Arg.named "amount" (Expr.literal (Literal.number "40")) ])
+  let saltedObservation :=
+    Expr.observeContractCreationExpression [] externalCallKindEnv
+      (Expr.callWithOptions
+        (Expr.newExpr namedCreatedChildTy [])
+        [ CallOption.named "value" (Expr.literal (Literal.number "5"))
+        , CallOption.named "salt" (Expr.literal (Literal.number "1234")) ]
+        [ Arg.named "bonus" (Expr.literal (Literal.number "2"))
+        , Arg.named "amount" (Expr.literal (Literal.number "40")) ])
+  let duplicateNamedObservation :=
+    Expr.observeContractCreationExpression [] externalCallKindEnv
+      (Expr.newExpr namedCreatedChildTy
+        [ Arg.named "amount" (Expr.literal (Literal.number "40"))
+        , Arg.named "amount" (Expr.literal (Literal.number "2")) ])
+  let badOptionObservation :=
+    Expr.observeContractCreationExpression [] externalCallKindEnv
+      (Expr.callWithOptions
+        (Expr.newExpr namedCreatedChildTy [])
+        [CallOption.named "gas" (Expr.literal (Literal.number "1"))]
+        [ Arg.named "bonus" (Expr.literal (Literal.number "2"))
+        , Arg.named "amount" (Expr.literal (Literal.number "40")) ])
+  let badTypeObservation :=
+    Expr.observeContractCreationExpression [] externalCallKindEnv
+      (Expr.newExpr (Ty.uint 256) [])
+  let notCreationObservation :=
+    Expr.observeContractCreationExpression [] externalCallKindEnv
+      (Expr.ident "x")
+  some
+    (namedObservation.status ==
+        ContractCreationExpressionObservationStatus.resolved &&
+      namedObservation.contractTy? == some namedCreatedChildTy &&
+      namedObservation.contractName? == some "NamedChild" &&
+      namedObservation.argumentCount == 2 &&
+      namedObservation.optionNames == [] &&
+      namedObservation.constructorParamTys? ==
+        some [Ty.uint 256, Ty.uint 256] &&
+      (match namedObservation.coreArgTys? with
+       | some tys => tys.length == 2
+       | none => false) &&
+      namedObservation.constructorArgsCore?.isSome &&
+      namedObservation.valueCore?.isSome &&
+      namedObservation.saltCore?.isNone &&
+      contractCreationExpressionCoreMatches "NamedChild" false
+        namedObservation &&
+      saltedObservation.status ==
+        ContractCreationExpressionObservationStatus.resolved &&
+      saltedObservation.contractName? == some "NamedChild" &&
+      saltedObservation.argumentCount == 2 &&
+      saltedObservation.optionNames == ["value", "salt"] &&
+      saltedObservation.constructorParamTys? ==
+        some [Ty.uint 256, Ty.uint 256] &&
+      saltedObservation.valueCore?.isSome &&
+      saltedObservation.saltCore?.isSome &&
+      contractCreationExpressionCoreMatches "NamedChild" true
+        saltedObservation &&
+      duplicateNamedObservation.status ==
+        ContractCreationExpressionObservationStatus.abiFailure &&
+      badOptionObservation.status ==
+        ContractCreationExpressionObservationStatus.optionFailure &&
+      badTypeObservation.status ==
+        ContractCreationExpressionObservationStatus.typeFailure &&
+      notCreationObservation.status ==
+        ContractCreationExpressionObservationStatus.notContractCreation)
 
 def contractCreationDuplicateNamedArgsRejected : Option Bool :=
   match
@@ -24915,6 +36320,158 @@ def revertedTransientWritePreservesPriorValue : Option Bool := do
               revertedState.transient == state.transient)
       | _ => some false
   | _ => some false
+
+def packedTransientStorageContract : ContractDecl :=
+  { name := "PackedTransientStorage"
+    items :=
+      [ ContractItem.stateVar
+          { name := "persistent"
+            ty := Ty.uint 256 }
+      , ContractItem.stateVar
+          { name := "a"
+            ty := Ty.uint 8
+            mutability := VarMutability.transient
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "b"
+            ty := Ty.uint 16
+            mutability := VarMutability.transient
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "c"
+            ty := Ty.bool
+            mutability := VarMutability.transient
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "s"
+            ty := Ty.int 8
+            mutability := VarMutability.transient
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "d"
+            ty := Ty.uint 256
+            mutability := VarMutability.transient
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "setAll"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "persistent")
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "7")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "a") AssignOp.assign
+                        (Expr.literal (Literal.number "0x12")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "b") AssignOp.assign
+                        (Expr.literal (Literal.number "0x3456")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "c") AssignOp.assign
+                        (Expr.literal (Literal.bool true)))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "s") AssignOp.assign
+                        (Expr.unary UnaryOp.neg
+                          (Expr.literal (Literal.number "1"))))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "d") AssignOp.assign
+                        (Expr.literal (Literal.number "9")))
+                  , Stmt.returnValues (some (Expr.ident "d")) ]) } ] }
+
+def packedTransientStorageFieldsMatch : Option Bool := do
+  let contract ← ContractDecl.toCore? packedTransientStorageContract
+  match contract.storageFields with
+  | [persistent, a, b, c, s, d] =>
+      some
+        (persistent.name == "persistent" &&
+          SolidCore.Solidity.Source.wordEq persistent.slot 0 &&
+          !persistent.transient &&
+          a.name == "a" &&
+          SolidCore.Solidity.Source.wordEq a.slot 0 &&
+          a.transient &&
+          a.packedOffset == 0 && a.packedBytes == 1 &&
+          b.name == "b" &&
+          SolidCore.Solidity.Source.wordEq b.slot 0 &&
+          b.transient &&
+          b.packedOffset == 1 && b.packedBytes == 2 &&
+          c.name == "c" &&
+          SolidCore.Solidity.Source.wordEq c.slot 0 &&
+          c.transient &&
+          c.packedOffset == 3 && c.packedBytes == 1 &&
+          s.name == "s" &&
+          SolidCore.Solidity.Source.wordEq s.slot 0 &&
+          s.transient &&
+          s.packedOffset == 4 && s.packedBytes == 1 &&
+          s.packedSigned &&
+          d.name == "d" &&
+          SolidCore.Solidity.Source.wordEq d.slot 1 &&
+          d.transient &&
+          d.packedOffset == 0 &&
+          d.packedBytes == SolidCore.Solidity.Source.wordBytes)
+  | _ => some false
+
+def packedTransientStorageState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "setAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      if SolidCore.Solidity.Source.wordEq value 9 then
+        some state
+      else
+        none
+  | _ => none
+
+def packedTransientStorageRawSlotMatches : Option Bool := do
+  let state ← packedTransientStorageState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadTransientSlot 0) 0xff01345612 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadTransientSlot 1) 9)
+
+def packedTransientStorageGetterMatches : Option Bool := do
+  let state ← packedTransientStorageState
+  let aResult ←
+    ContractDecl.call? 16 packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "a") state []
+  let bResult ←
+    ContractDecl.call? 16 packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "b") state []
+  let cResult ←
+    ContractDecl.call? 16 packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "c") state []
+  let sResult ←
+    ContractDecl.call? 16 packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "s") state []
+  let dResult ←
+    ContractDecl.call? 16 packedTransientStorageContract
+      (SolidCore.Solidity.Source.CallTarget.name "d") state []
+  match aResult, bResult, cResult, sResult, dResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word a],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word b],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word c],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int s],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word d] =>
+      some
+        (SolidCore.Solidity.Source.wordEq a 0x12 &&
+          SolidCore.Solidity.Source.wordEq b 0x3456 &&
+          SolidCore.Solidity.Source.wordEq c 1 &&
+          SolidCore.Solidity.Source.wordEq s
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq d 9)
+  | _, _, _, _, _ => some false
 
 def mappingContract : ContractDecl :=
   { name := "Map"
@@ -28184,14 +39741,123 @@ def structStoragePathScoreSlot (key : Word) : Word :=
     structStoragePathScoresSlot key
 
 def structStoragePathInitialState : CoreState :=
-  SolidCore.Solidity.Source.State.empty
-    |>.storeSlot structStoragePathEntrySlot 10
-    |>.storeSlot structStoragePathValuesSlot 2
-    |>.storeSlot (structStoragePathValueSlot 0) 4
-    |>.storeSlot (structStoragePathValueSlot 1) 9
-    |>.storeSlot structStoragePathBlobSlot 2
-    |>.storeSlot (structStoragePathBlobValueSlot 0) 30
-    |>.storeSlot (structStoragePathBlobValueSlot 1) 40
+  (SolidCore.Solidity.Source.State.empty
+      |>.storeSlot structStoragePathEntrySlot 10
+      |>.storeSlot structStoragePathValuesSlot 2
+      |>.storeSlot (structStoragePathValueSlot 0) 4
+      |>.storeSlot (structStoragePathValueSlot 1) 9)
+    |>.storeStorageBytesAt structStoragePathBlobSlot [30, 40]
+
+def structStoragePathBlobBytesMatch
+    (state : CoreState) (expected : List Byte) : Bool :=
+  match
+      SolidCore.Solidity.Source.State.loadStorageBytesAt
+        state structStoragePathBlobSlot with
+  | Except.ok bytes => bytes == expected
+  | Except.error _ => false
+
+def storagePathResolutionObservationMatches : Option Bool := do
+  let contract ←
+    SourceUnit.toCoreContract? structStoragePathSourceUnit
+      "StructStoragePath"
+  let field ← contract.context.storageField? "entries"
+  let layout ← field.layout?
+  let valuePath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 1
+    , SolidCore.Solidity.Source.Value.word 1 ]
+  let blobPath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 2
+    , SolidCore.Solidity.Source.Value.word 1 ]
+  let scorePath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 3
+    , SolidCore.Solidity.Source.Value.word 21 ]
+  let outOfBoundsPath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 1
+    , SolidCore.Solidity.Source.Value.word 2 ]
+  let typeMismatchPath :=
+    [ SolidCore.Solidity.Source.Value.word 7
+    , SolidCore.Solidity.Source.Value.word 0
+    , SolidCore.Solidity.Source.Value.word 0 ]
+  let valueObservation :=
+    structStoragePathInitialState.observeStoragePathResolution
+      0 field.slot layout valuePath
+  let blobObservation :=
+    structStoragePathInitialState.observeStoragePathResolution
+      0 field.slot layout blobPath
+  let scoreObservation :=
+    structStoragePathInitialState.observeStoragePathResolution
+      0 field.slot layout scorePath
+  let outOfBoundsObservation :=
+    structStoragePathInitialState.observeStoragePathResolution
+      0 field.slot layout outOfBoundsPath
+  let typeMismatchObservation :=
+    structStoragePathInitialState.observeStoragePathResolution
+      0 field.slot layout typeMismatchPath
+  let pathWordsMatch :=
+    fun indexes expected =>
+      let rec go : List SolidCore.Solidity.Source.Value ->
+          List Word -> Bool
+        | [], [] => true
+        | SolidCore.Solidity.Source.Value.word word :: rest,
+            expected :: expectedRest =>
+            SolidCore.Solidity.Source.wordEq word expected &&
+              go rest expectedRest
+        | _, _ => false
+      go indexes expected
+  let resolvedScalarMatches :=
+    fun observation expectedSlot =>
+      observation.resolvedSlot? == some expectedSlot &&
+        match observation.resolvedLayout? with
+        | some
+            (SolidCore.Solidity.Source.StorageLayoutObservation.scalar
+              SolidCore.Solidity.Source.Ty.uint256 1) => true
+        | some
+            (SolidCore.Solidity.Source.StorageLayoutObservation.packedScalar
+              0 32 false SolidCore.Solidity.Source.Ty.uint256 1) => true
+        | _ => false
+  let valueMatches :=
+    valueObservation.baseSlot == field.slot &&
+      pathWordsMatch valueObservation.indexes [7, 1, 1] &&
+      resolvedScalarMatches valueObservation
+        (structStoragePathValueSlot 1) &&
+      valueObservation.error?.isNone &&
+      SolidCore.Solidity.Source.WordMap.lookup?
+        valueObservation.inputState.storage
+          structStoragePathValuesSlot == some 2
+  let blobMatches :=
+    blobObservation.resolvedSlot? == some structStoragePathBlobSlot &&
+      blobObservation.error?.isNone &&
+      match blobObservation.resolvedLayout? with
+      | some
+          (SolidCore.Solidity.Source.StorageLayoutObservation.packedScalar
+            30 1 false (SolidCore.Solidity.Source.Ty.fixedBytes 1) 1) =>
+          true
+      | _ => false
+  let scoreMatches :=
+    resolvedScalarMatches scoreObservation
+      (structStoragePathScoreSlot 21) &&
+      scoreObservation.error?.isNone
+  let outOfBoundsMatches :=
+    outOfBoundsObservation.resolvedSlot?.isNone &&
+      outOfBoundsObservation.resolvedLayout?.isNone &&
+      match outOfBoundsObservation.error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0x32
+      | _ => false
+  let typeMismatchMatches :=
+    typeMismatchObservation.resolvedSlot?.isNone &&
+      typeMismatchObservation.resolvedLayout?.isNone &&
+      match typeMismatchObservation.error? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  some
+    (valueMatches && blobMatches && scoreMatches &&
+      outOfBoundsMatches && typeMismatchMatches)
 
 def structStoragePathCountAddState : Option CoreState := do
   let result ←
@@ -28326,11 +39992,7 @@ def structStoragePathDirectBlobPushState : Option CoreState := do
 
 def structStoragePathDirectBlobPushMatches : Option Bool := do
   let state ← structStoragePathDirectBlobPushState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 2)) 18)
+  some (structStoragePathBlobBytesMatch state [30, 40, 18])
 
 def structStoragePathDirectBlobPushAssignState : Option CoreState := do
   let result ←
@@ -28347,11 +40009,7 @@ def structStoragePathDirectBlobPushAssignState : Option CoreState := do
 
 def structStoragePathDirectBlobPushAssignMatches : Option Bool := do
   let state ← structStoragePathDirectBlobPushAssignState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 2)) 19)
+  some (structStoragePathBlobBytesMatch state [30, 40, 19])
 
 def structStoragePathDirectBlobPopState : Option CoreState := do
   let result ←
@@ -28366,11 +40024,7 @@ def structStoragePathDirectBlobPopState : Option CoreState := do
 
 def structStoragePathDirectBlobPopMatches : Option Bool := do
   let state ← structStoragePathDirectBlobPopState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 1 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 1)) 0)
+  some (structStoragePathBlobBytesMatch state [30])
 
 def structStoragePathAliasCountAddState : Option CoreState := do
   let result ←
@@ -28482,11 +40136,7 @@ def structStoragePathAliasBlobPushState : Option CoreState := do
 
 def structStoragePathAliasBlobPushMatches : Option Bool := do
   let state ← structStoragePathAliasBlobPushState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 2)) 5)
+  some (structStoragePathBlobBytesMatch state [30, 40, 5])
 
 def structStoragePathAliasBlobPushAssignState : Option CoreState := do
   let result ←
@@ -28502,11 +40152,7 @@ def structStoragePathAliasBlobPushAssignState : Option CoreState := do
 
 def structStoragePathAliasBlobPushAssignMatches : Option Bool := do
   let state ← structStoragePathAliasBlobPushAssignState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 2)) 20)
+  some (structStoragePathBlobBytesMatch state [30, 40, 20])
 
 def structStoragePathAliasBlobPopState : Option CoreState := do
   let result ←
@@ -28521,11 +40167,7 @@ def structStoragePathAliasBlobPopState : Option CoreState := do
 
 def structStoragePathAliasBlobPopMatches : Option Bool := do
   let state ← structStoragePathAliasBlobPopState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 1 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 1)) 0)
+  some (structStoragePathBlobBytesMatch state [30])
 
 def structStoragePathAliasScoreSetState : Option CoreState := do
   let result ←
@@ -28580,11 +40222,7 @@ def structStoragePathInternalBlobPushState : Option CoreState := do
 
 def structStoragePathInternalBlobPushMatches : Option Bool := do
   let state ← structStoragePathInternalBlobPushState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 2)) 13)
+  some (structStoragePathBlobBytesMatch state [30, 40, 13])
 
 def structStoragePathInternalScoreSetState : Option CoreState := do
   let result ←
@@ -28639,11 +40277,7 @@ def structStoragePathModifierBlobPushState : Option CoreState := do
 
 def structStoragePathModifierBlobPushMatches : Option Bool := do
   let state ← structStoragePathModifierBlobPushState
-  some
-    (SolidCore.Solidity.Source.wordEq
-      (state.loadSlot structStoragePathBlobSlot) 3 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot (structStoragePathBlobValueSlot 2)) 15)
+  some (structStoragePathBlobBytesMatch state [30, 40, 15])
 
 def structStoragePathModifierScoreSetState : Option CoreState := do
   let result ←
@@ -28723,15 +40357,8 @@ def nestedBytesStoragePathContract : ContractDecl :=
 def nestedBytesStoragePathInitialState : CoreState :=
   let elementSlot :=
     SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
-  SolidCore.Solidity.Source.State.empty
-    |>.storeSlot 0 1
-    |>.storeSlot elementSlot 2
-    |>.storeSlot
-        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-          elementSlot 0) 10
-    |>.storeSlot
-        (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-          elementSlot 1) 20
+  (SolidCore.Solidity.Source.State.empty.storeSlot 0 1)
+    |>.storeStorageBytesAt elementSlot [10, 20]
 
 def nestedBytesStoragePathSetState : Option CoreState := do
   let result ←
@@ -28749,6 +40376,11 @@ def nestedBytesStoragePathSetMatches : Option Bool := do
   let state ← nestedBytesStoragePathSetState
   let elementSlot :=
     SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
+  let bytesMatch :=
+    match SolidCore.Solidity.Source.State.loadStorageBytesAt
+        state elementSlot with
+    | Except.ok bytes => bytes == [10, 90]
+    | Except.error _ => false
   let result ←
     ContractDecl.call? 64 nestedBytesStoragePathContract
       (SolidCore.Solidity.Source.CallTarget.name "readByte")
@@ -28760,11 +40392,7 @@ def nestedBytesStoragePathSetMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       some
         (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
-          SolidCore.Solidity.Source.wordEq (state.loadSlot elementSlot) 2 &&
-          SolidCore.Solidity.Source.wordEq
-            (state.loadSlot
-              (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-                elementSlot 1)) 90 &&
+          bytesMatch &&
           SolidCore.Solidity.Source.wordEq value 90)
   | _ => some false
 
@@ -28783,17 +40411,14 @@ def nestedBytesStoragePathClearMatches : Option Bool := do
   let state ← nestedBytesStoragePathClearState
   let elementSlot :=
     SolidCore.Solidity.Source.dynamicArrayStorageSlot 0 0
+  let bytesMatch :=
+    match SolidCore.Solidity.Source.State.loadStorageBytesAt
+        state elementSlot with
+    | Except.ok bytes => bytes == [10, 0]
+    | Except.error _ => false
   some
     (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
-      SolidCore.Solidity.Source.wordEq (state.loadSlot elementSlot) 2 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-            elementSlot 0)) 10 &&
-      SolidCore.Solidity.Source.wordEq
-        (state.loadSlot
-          (SolidCore.Solidity.Source.dynamicArrayStorageSlot
-            elementSlot 1)) 0)
+      bytesMatch)
 
 def pushNestedDynamicArrayContract : ContractDecl :=
   { name := "PushNestedDynamicArray"
@@ -29023,13 +40648,6 @@ def storageDeleteContract : ContractDecl :=
                 (Stmt.expr
                   (Expr.unary UnaryOp.delete (Expr.ident "fixedItems"))) }
       , ContractItem.function
-          { name := some "deleteMapping"
-            visibility := some Visibility.public_
-            body :=
-              some
-                (Stmt.expr
-                  (Expr.unary UnaryOp.delete (Expr.ident "m"))) }
-      , ContractItem.function
           { name := some "deleteMappingKey"
             visibility := some Visibility.public_
             body :=
@@ -29148,28 +40766,6 @@ def storageDeleteFixedClearsElement : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
       some (value == 0)
-  | _ => some false
-
-def storageDeleteMappingState : Option CoreState := do
-  let state ← storageDeleteWrittenState
-  let result ←
-    ContractDecl.call? 24 storageDeleteContract
-      (SolidCore.Solidity.Source.CallTarget.name "deleteMapping")
-      state []
-  match result with
-  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
-  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
-
-def storageDeleteMappingKeepsEntry : Option Bool := do
-  let state ← storageDeleteMappingState
-  let result ←
-    ContractDecl.call? 16 storageDeleteContract
-      (SolidCore.Solidity.Source.CallTarget.name "readMap")
-      state []
-  match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word value] =>
-      some (value == 9)
   | _ => some false
 
 def storageDeleteMappingKeyState : Option CoreState := do
@@ -30905,6 +42501,200 @@ def storageBytesClearIndexReverts : Option Bool := do
       some (code == 0x32)
   | _ => some false
 
+def storageBytesShortRawSlotMatches : Option Bool := do
+  let state ← storageBytesSetState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [10, 20]))
+
+def storageBytesShortWriteRawSlotMatches : Option Bool := do
+  let state ← storageBytesWriteState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [10, 9]))
+
+def storageBytesShortPushRawSlotMatches : Option Bool := do
+  let state ← storageBytesPushFourState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [10, 20, 4]))
+
+def storageBytesLongBytes : List Byte :=
+  (List.range 33).map (fun index => index + 1)
+
+def storageBytesSixtyFiveBytes : List Byte :=
+  (List.range 65).map (fun index => index + 1)
+
+def storageBytesThirtyOneBytes : List Byte :=
+  (List.range 31).map (fun index => index + 1)
+
+def storageBytesLongChunkWord (bytes : List Byte) : Word :=
+  SolidCore.Solidity.Source.bytesToWordBE
+    (SolidCore.Solidity.Source.bytesPrefixRightPadded
+      SolidCore.Solidity.Source.wordBytes bytes)
+
+def storageBytesLongSetState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 32 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes storageBytesLongBytes]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def storageBytesLongRawSlotMatches : Option Bool := do
+  let state ← storageBytesLongSetState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 33) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (storageBytesLongChunkWord
+          (storageBytesLongBytes.take 32)) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        (storageBytesLongChunkWord [33]))
+
+def storageBytesLongReadMatches : Option Bool := do
+  let state ← storageBytesLongSetState
+  let lengthResult ←
+    ContractDecl.call? 16 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "length")
+      state []
+  let valueResult ←
+    ContractDecl.call? 16 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "at")
+      state [SolidCore.Solidity.Source.Value.word 32]
+  match lengthResult, valueResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word length],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some (length == 33 && value == 33)
+  | _, _ => some false
+
+def storageBytesShortToLongPushState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 32 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes storageBytesThirtyOneBytes]
+  let state ←
+    match result with
+    | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+    | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+  let pushResult ←
+    ContractDecl.call? 16 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "pushFour")
+      state []
+  match pushResult with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def storageBytesShortToLongPushRawSlotMatches : Option Bool := do
+  let state ← storageBytesShortToLongPushState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 32) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (storageBytesLongChunkWord
+          (storageBytesThirtyOneBytes ++ [4])))
+
+def storageBytesLongToShortSetState : Option CoreState := do
+  let state ← storageBytesLongSetState
+  let result ←
+    ContractDecl.call? 32 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      state
+      [SolidCore.Solidity.Source.Value.bytes [7, 8]]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def storageBytesLongToShortCleanupMatches : Option Bool := do
+  let state ← storageBytesLongToShortSetState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesShortWord [7, 8]) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        0 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        0)
+
+def storageBytesLongPopToThirtyTwoState : Option CoreState := do
+  let state ← storageBytesLongSetState
+  let result ←
+    ContractDecl.call? 16 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "popOne")
+      state []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def storageBytesLongPopClearsTailMatches : Option Bool := do
+  let state ← storageBytesLongPopToThirtyTwoState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 32) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (storageBytesLongChunkWord
+          (storageBytesLongBytes.take 32)) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        0)
+
+def storageBytesSixtyFiveSetState : Option CoreState := do
+  let result ←
+    ContractDecl.call? 64 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.bytes storageBytesSixtyFiveBytes]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def storageBytesLongShrinkSetState : Option CoreState := do
+  let state ← storageBytesSixtyFiveSetState
+  let result ←
+    ContractDecl.call? 64 storageBytesContract
+      (SolidCore.Solidity.Source.CallTarget.name "set")
+      state
+      [SolidCore.Solidity.Source.Value.bytes storageBytesLongBytes]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ => some state
+  | SolidCore.Solidity.Source.CallResult.reverted _ _ => none
+
+def storageBytesLongShrinkCleanupMatches : Option Bool := do
+  let state ← storageBytesLongShrinkSetState
+  some
+    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0)
+      (SolidCore.Solidity.Source.storageBytesLongHeader 33) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 0))
+        (storageBytesLongChunkWord
+          (storageBytesLongBytes.take 32)) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 1))
+        (storageBytesLongChunkWord [33]) &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot
+          (SolidCore.Solidity.Source.storageBytesLongDataSlot 0 2))
+        0)
+
 def storageStringGetterContract : ContractDecl :=
   { name := "StorageStringGetter"
     items :=
@@ -31965,6 +43755,549 @@ def storageStructSourceUnit : SourceUnit :=
       [ SourceItem.freeStruct pointStructDecl
       , SourceItem.contract storageStructContract ] }
 
+def aggregateStorageSlotContract : ContractDecl :=
+  { name := "AggregateStorageSlots"
+    items :=
+      [ ContractItem.stateVar
+          { name := "origin"
+            ty := pointTy }
+      , ContractItem.stateVar
+          { name := "tail"
+            ty := Ty.uint 256 }
+      , ContractItem.stateVar
+          { name := "fixeds"
+            ty := Ty.array (Ty.uint 256) (some 3) }
+      , ContractItem.stateVar
+          { name := "afterFixed"
+            ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "writeAll"
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "origin") AssignOp.assign
+                        (pointConstructorNamed
+                          (Expr.literal (Literal.number "1"))
+                          (Expr.literal (Literal.number "2"))))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "tail") AssignOp.assign
+                        (Expr.literal (Literal.number "3")))
+                  , Stmt.expr
+                      (Expr.assign
+                        (Expr.index (Expr.ident "fixeds")
+                          (Expr.literal (Literal.number "2")))
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "4")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "afterFixed")
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "5")))
+                  , Stmt.returnValues
+                      (some (Expr.ident "afterFixed")) ]) } ] }
+
+def aggregateStorageSlotSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeStruct pointStructDecl
+      , SourceItem.contract aggregateStorageSlotContract ] }
+
+def aggregateStorageSlotFieldsMatch : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? aggregateStorageSlotSourceUnit
+    "AggregateStorageSlots"
+  match contract.storageFields with
+  | [origin, tail, fixeds, afterFixed] =>
+      some
+        (origin.name == "origin" &&
+          SolidCore.Solidity.Source.wordEq origin.slot 0 &&
+          tail.name == "tail" &&
+          SolidCore.Solidity.Source.wordEq tail.slot 2 &&
+          fixeds.name == "fixeds" &&
+          SolidCore.Solidity.Source.wordEq fixeds.slot 3 &&
+          afterFixed.name == "afterFixed" &&
+          SolidCore.Solidity.Source.wordEq afterFixed.slot 6)
+  | _ => some false
+
+def aggregateStorageSlotWriteMatches : Option Bool := do
+  let result ←
+    SourceUnit.callContract? 96 aggregateStorageSlotSourceUnit
+      "AggregateStorageSlots"
+      (SolidCore.Solidity.Source.CallTarget.name "writeAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      some
+        (SolidCore.Solidity.Source.wordEq value 5 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 2 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 3 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 5) 4 &&
+          SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 5)
+  | _ => some false
+
+def packedTopLevelStorageContract : ContractDecl :=
+  { name := "PackedTopLevelStorage"
+    items :=
+      [ ContractItem.stateVar
+          { name := "a"
+            ty := Ty.uint 8
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "b"
+            ty := Ty.uint 16
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "c"
+            ty := Ty.bool
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "s"
+            ty := Ty.int 8
+            visibility := some Visibility.public_ }
+      , ContractItem.stateVar
+          { name := "d"
+            ty := Ty.uint 256
+            visibility := some Visibility.public_ }
+      , ContractItem.function
+          { name := some "setAll"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "a") AssignOp.assign
+                        (Expr.literal (Literal.number "0x12")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "b") AssignOp.assign
+                        (Expr.literal (Literal.number "0x3456")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "c") AssignOp.assign
+                        (Expr.literal (Literal.bool true)))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "s") AssignOp.assign
+                        (Expr.unary UnaryOp.neg
+                          (Expr.literal (Literal.number "1"))))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "d") AssignOp.assign
+                        (Expr.literal (Literal.number "9")))
+                  , Stmt.returnValues (some (Expr.ident "d")) ]) } ] }
+
+def packedTopLevelStorageSourceUnit : SourceUnit :=
+  { items := [SourceItem.contract packedTopLevelStorageContract] }
+
+def packedTopLevelStorageFieldsMatch : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? packedTopLevelStorageSourceUnit
+    "PackedTopLevelStorage"
+  match contract.storageFields with
+  | [a, b, c, s, d] =>
+      some
+        (a.name == "a" &&
+          SolidCore.Solidity.Source.wordEq a.slot 0 &&
+          a.packedOffset == 0 && a.packedBytes == 1 &&
+          b.name == "b" &&
+          SolidCore.Solidity.Source.wordEq b.slot 0 &&
+          b.packedOffset == 1 && b.packedBytes == 2 &&
+          c.name == "c" &&
+          SolidCore.Solidity.Source.wordEq c.slot 0 &&
+          c.packedOffset == 3 && c.packedBytes == 1 &&
+          s.name == "s" &&
+          SolidCore.Solidity.Source.wordEq s.slot 0 &&
+          s.packedOffset == 4 && s.packedBytes == 1 &&
+          s.packedSigned &&
+          d.name == "d" &&
+          SolidCore.Solidity.Source.wordEq d.slot 1 &&
+          d.packedOffset == 0 &&
+          d.packedBytes == SolidCore.Solidity.Source.wordBytes)
+  | _ => some false
+
+def packedTopLevelStorageState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 96 packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "setAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      if SolidCore.Solidity.Source.wordEq value 9 then some state else none
+  | _ => none
+
+def packedTopLevelStorageSlotMatches : Option Bool := do
+  let state ← packedTopLevelStorageState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot 0) 0xff01345612 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9)
+
+def packedTopLevelStorageGetterMatches : Option Bool := do
+  let state ← packedTopLevelStorageState
+  let aResult ←
+    SourceUnit.callContract? 32 packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "a") state []
+  let bResult ←
+    SourceUnit.callContract? 32 packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "b") state []
+  let cResult ←
+    SourceUnit.callContract? 32 packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "c") state []
+  let sResult ←
+    SourceUnit.callContract? 32 packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "s") state []
+  let dResult ←
+    SourceUnit.callContract? 32 packedTopLevelStorageSourceUnit
+      "PackedTopLevelStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "d") state []
+  match aResult, bResult, cResult, sResult, dResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word a],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word b],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word c],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int s],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word d] =>
+      some
+        (SolidCore.Solidity.Source.wordEq a 0x12 &&
+          SolidCore.Solidity.Source.wordEq b 0x3456 &&
+          SolidCore.Solidity.Source.wordEq c 1 &&
+          SolidCore.Solidity.Source.wordEq s
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq d 9)
+  | _, _, _, _, _ => some false
+
+def storageFieldWordObservationBoundaryMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? packedTopLevelStorageSourceUnit
+    "PackedTopLevelStorage"
+  let state ← packedTopLevelStorageState
+  match contract.storageFields with
+  | [_a, b, _c, _s, _d] =>
+      let bLoad := state.observeStorageFieldWordLoad 0 b
+      let bStore := state.observeStorageFieldWordStore 0 b 0xabcd
+      let transientField : SolidCore.Solidity.Source.StorageField :=
+        { name := "tmp"
+          slot := 7
+          ty? := some SolidCore.Solidity.Source.Ty.uint256
+          transient := true }
+      let transientState : CoreState :=
+        { SolidCore.Solidity.Source.State.empty with
+          storage := [(7, 99)]
+          transient := [(7, 5)] }
+      let transientLoad :=
+        transientState.observeStorageFieldWordLoad 0xabc transientField
+      let transientStore :=
+        transientState.observeStorageFieldWordStore 0xabc transientField 7
+      let bLoadMatches :=
+        bLoad.access ==
+          SolidCore.Solidity.Source.StorageFieldAccessKind.load &&
+        bLoad.field.name == "b" &&
+        bLoad.field.packedOffset == 1 &&
+        bLoad.field.packedBytes == 2 &&
+        SolidCore.Solidity.Source.wordEq
+          bLoad.slotWordBefore 0xff01345612 &&
+        SolidCore.Solidity.Source.wordEq bLoad.fieldWordBefore 0x3456 &&
+        bLoad.outputState?.isNone
+      let bStoreMatches :=
+        match bStore.outputState?, bStore.slotWordAfter?,
+            bStore.fieldWordAfter? with
+        | some output, some slotAfter, some fieldAfter =>
+            bStore.access ==
+              SolidCore.Solidity.Source.StorageFieldAccessKind.store &&
+            bStore.value? == some 0xabcd &&
+            SolidCore.Solidity.Source.wordEq
+              bStore.slotWordBefore 0xff01345612 &&
+            SolidCore.Solidity.Source.wordEq
+              bStore.fieldWordBefore 0x3456 &&
+            SolidCore.Solidity.Source.wordEq slotAfter 0xff01abcd12 &&
+            SolidCore.Solidity.Source.wordEq fieldAfter 0xabcd &&
+            SolidCore.Solidity.Source.WordMap.lookup?
+              output.storage 0 == some 0xff01abcd12
+        | _, _, _ => false
+      let transientMatches :=
+        match transientStore.outputState?, transientStore.slotWordAfter?,
+            transientStore.fieldWordAfter? with
+        | some output, some slotAfter, some fieldAfter =>
+            transientLoad.field.transient &&
+            SolidCore.Solidity.Source.wordEq transientLoad.self 0xabc &&
+            SolidCore.Solidity.Source.wordEq
+              transientLoad.slotWordBefore 5 &&
+            SolidCore.Solidity.Source.wordEq
+              transientLoad.fieldWordBefore 5 &&
+            SolidCore.Solidity.Source.wordEq slotAfter 7 &&
+            SolidCore.Solidity.Source.wordEq fieldAfter 7 &&
+            output.storage == [(7, 99)] &&
+            output.transient == [(7, 7)]
+        | _, _, _ => false
+      some (bLoadMatches && bStoreMatches && transientMatches)
+  | _ => some false
+
+def packedStructPath : Path := { segments := ["PackedPair"] }
+
+def packedStructTy : Ty := Ty.user packedStructPath
+
+def packedStructDecl : StructDecl :=
+  { name := "PackedPair"
+    fields :=
+      [ { name := "a", ty := Ty.uint 8 }
+      , { name := "b", ty := Ty.uint 16 }
+      , { name := "c", ty := Ty.bool }
+      , { name := "s", ty := Ty.int 8 }
+      , { name := "d", ty := Ty.uint 256 } ] }
+
+def packedStructConstructorNamed
+    (a b c s d : Expr) : Expr :=
+  Expr.call (Expr.typeName packedStructTy)
+    [ Arg.named "a" a
+    , Arg.named "b" b
+    , Arg.named "c" c
+    , Arg.named "s" s
+    , Arg.named "d" d ]
+
+def packedUintLayoutMatches
+    (offset width : Nat) : CoreStorageLayout -> Bool
+  | SolidCore.Solidity.Source.StorageLayout.packedScalar
+      offset' width' false SolidCore.Solidity.Source.Ty.uint256 =>
+      offset' == offset && width' == width
+  | _ => false
+
+def packedBoolLayoutMatches
+    (offset width : Nat) : CoreStorageLayout -> Bool
+  | SolidCore.Solidity.Source.StorageLayout.packedScalar
+      offset' width' false SolidCore.Solidity.Source.Ty.bool =>
+      offset' == offset && width' == width
+  | _ => false
+
+def packedIntLayoutMatches
+    (offset width : Nat) : CoreStorageLayout -> Bool
+  | SolidCore.Solidity.Source.StorageLayout.packedScalar
+      offset' width' true SolidCore.Solidity.Source.Ty.int256 =>
+      offset' == offset && width' == width
+  | _ => false
+
+def packedStructAndArrayStorageContract : ContractDecl :=
+  { name := "PackedStructAndArrayStorage"
+    items :=
+      [ ContractItem.stateVar
+          { name := "pair"
+            ty := packedStructTy }
+      , ContractItem.stateVar
+          { name := "tail"
+            ty := Ty.uint 256 }
+      , ContractItem.stateVar
+          { name := "fixeds"
+            ty := Ty.array (Ty.uint 8) (some 4) }
+      , ContractItem.stateVar
+          { name := "afterFixed"
+            ty := Ty.uint 256 }
+      , ContractItem.function
+          { name := some "setAll"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "pair") AssignOp.assign
+                        (packedStructConstructorNamed
+                          (Expr.literal (Literal.number "0x12"))
+                          (Expr.literal (Literal.number "0x3456"))
+                          (Expr.literal (Literal.bool true))
+                          (Expr.unary UnaryOp.neg
+                            (Expr.literal (Literal.number "1")))
+                          (Expr.literal (Literal.number "9"))))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "tail") AssignOp.assign
+                        (Expr.literal (Literal.number "10")))
+                  , Stmt.expr
+                      (Expr.assign
+                        (Expr.index (Expr.ident "fixeds")
+                          (Expr.literal (Literal.number "0")))
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "0xaa")))
+                  , Stmt.expr
+                      (Expr.assign
+                        (Expr.index (Expr.ident "fixeds")
+                          (Expr.literal (Literal.number "1")))
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "0xbb")))
+                  , Stmt.expr
+                      (Expr.assign
+                        (Expr.index (Expr.ident "fixeds")
+                          (Expr.literal (Literal.number "2")))
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "0xcc")))
+                  , Stmt.expr
+                      (Expr.assign
+                        (Expr.index (Expr.ident "fixeds")
+                          (Expr.literal (Literal.number "3")))
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "0xdd")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "afterFixed")
+                        AssignOp.assign
+                        (Expr.literal (Literal.number "11")))
+                  , Stmt.returnValues (some (Expr.ident "afterFixed")) ]) }
+      , ContractItem.function
+          { name := some "readA"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 8 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.member (Expr.ident "pair") "a"))) }
+      , ContractItem.function
+          { name := some "readB"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 16 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.member (Expr.ident "pair") "b"))) }
+      , ContractItem.function
+          { name := some "readC"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.bool }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.member (Expr.ident "pair") "c"))) }
+      , ContractItem.function
+          { name := some "readS"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.int 8 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some (Expr.member (Expr.ident "pair") "s"))) }
+      , ContractItem.function
+          { name := some "readFixed2"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 8 }]
+            body :=
+              some
+                (Stmt.returnValues
+                  (some
+                    (Expr.index (Expr.ident "fixeds")
+                      (Expr.literal (Literal.number "2"))))) } ] }
+
+def packedStructAndArrayStorageSourceUnit : SourceUnit :=
+  { items :=
+      [ SourceItem.freeStruct packedStructDecl
+      , SourceItem.contract packedStructAndArrayStorageContract ] }
+
+def packedStructAndArrayStorageFieldsMatch : Option Bool := do
+  let contract ←
+    SourceUnit.toCoreContract? packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+  match contract.storageFields with
+  | [pair, tail, fixeds, afterFixed] =>
+      let pairLayoutMatches :=
+        match pair.layout? with
+        | some (SolidCore.Solidity.Source.StorageLayout.struct
+            [a, b, c, s, d]) =>
+            packedUintLayoutMatches 0 1 a &&
+              packedUintLayoutMatches 1 2 b &&
+              packedBoolLayoutMatches 3 1 c &&
+              packedIntLayoutMatches 4 1 s &&
+              match d with
+              | SolidCore.Solidity.Source.StorageLayout.packedScalar
+                  0 32 false SolidCore.Solidity.Source.Ty.uint256 =>
+                  true
+              | _ => false
+        | _ => false
+      let fixedLayoutMatches :=
+        match fixeds.layout? with
+        | some
+            (SolidCore.Solidity.Source.StorageLayout.fixedArray 4
+              elementLayout) =>
+            packedUintLayoutMatches 0 1 elementLayout
+        | _ => false
+      some
+        (pair.name == "pair" &&
+          SolidCore.Solidity.Source.wordEq pair.slot 0 &&
+          pairLayoutMatches &&
+          tail.name == "tail" &&
+          SolidCore.Solidity.Source.wordEq tail.slot 2 &&
+          fixeds.name == "fixeds" &&
+          SolidCore.Solidity.Source.wordEq fixeds.slot 3 &&
+          fixedLayoutMatches &&
+          afterFixed.name == "afterFixed" &&
+          SolidCore.Solidity.Source.wordEq afterFixed.slot 4)
+  | _ => some false
+
+def packedStructAndArrayStorageState : Option CoreState := do
+  let result ←
+    SourceUnit.callContract? 128 packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "setAll")
+      SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state
+      [SolidCore.Solidity.Source.Value.word value] =>
+      if SolidCore.Solidity.Source.wordEq value 11 then some state else none
+  | _ => none
+
+def packedStructAndArrayStorageSlotMatches : Option Bool := do
+  let state ← packedStructAndArrayStorageState
+  some
+    (SolidCore.Solidity.Source.wordEq
+      (state.loadSlot 0) 0xff01345612 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 9 &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 10 &&
+      SolidCore.Solidity.Source.wordEq
+        (state.loadSlot 3) 0xddccbbaa &&
+      SolidCore.Solidity.Source.wordEq (state.loadSlot 4) 11)
+
+def packedStructAndArrayStorageReadMatches : Option Bool := do
+  let state ← packedStructAndArrayStorageState
+  let aResult ←
+    SourceUnit.callContract? 32 packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readA") state []
+  let bResult ←
+    SourceUnit.callContract? 32 packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readB") state []
+  let cResult ←
+    SourceUnit.callContract? 32 packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readC") state []
+  let sResult ←
+    SourceUnit.callContract? 32 packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readS") state []
+  let fixedResult ←
+    SourceUnit.callContract? 32 packedStructAndArrayStorageSourceUnit
+      "PackedStructAndArrayStorage"
+      (SolidCore.Solidity.Source.CallTarget.name "readFixed2") state []
+  match aResult, bResult, cResult, sResult, fixedResult with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word a],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word b],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word c],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.int s],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word fixed] =>
+      some
+        (SolidCore.Solidity.Source.wordEq a 0x12 &&
+          SolidCore.Solidity.Source.wordEq b 0x3456 &&
+          SolidCore.Solidity.Source.wordEq c 1 &&
+          SolidCore.Solidity.Source.wordEq s
+            (SharedSemantics.signedToWord (-1)) &&
+          SolidCore.Solidity.Source.wordEq fixed 0xcc)
+  | _, _, _, _, _ => some false
+
 def storageStructSetState : Option CoreState := do
   let result ←
     SourceUnit.callContract? 48 storageStructSourceUnit "StorageStructDemo"
@@ -32746,6 +45079,124 @@ def internalFunctionPointerParamUninitializedCallPanics : Option Bool := do
         code internalFunctionPointerPanicCode)
   | _ => some false
 
+def internalFunctionPointerValueTy : Ty :=
+  Ty.function [Ty.uint 256] [Ty.uint 256]
+    StateMutability.pure Visibility.internal_
+
+def internalFunctionPointerAliasEnvDouble :
+    InternalFunctionAliasEnv :=
+  [ { alias := "fp"
+      expected := internalFunctionPointerValueTy
+      target := some "double" } ]
+
+def internalFunctionPointerAliasEnvUnbound :
+    InternalFunctionAliasEnv :=
+  [ { alias := "fp"
+      expected := internalFunctionPointerValueTy
+      target := none } ]
+
+def internalFunctionPointerRunBody?
+    (contract : ContractDecl) : Option (List Stmt) := do
+  let fn ←
+    (ContractDecl.directFunctions contract).find?
+      (fun fn => fn.name == some "run")
+  match fn.body with
+  | some (Stmt.block body) => some body
+  | _ => none
+
+def internalFunctionPointerSingleReturnCallName?
+    (body : List Stmt) : Option Name :=
+  match body with
+  | [Stmt.returnValues
+      (some (Expr.call (Expr.ident name) [_]))] =>
+      some name
+  | _ => none
+
+def internalFunctionPointerPanicReturn?
+    (body : List Stmt) : Bool :=
+  match body with
+  | [Stmt.returnValues
+      (some (Expr.call (Expr.ident name) []))] =>
+      name == internalFunctionPointerPanicName
+  | _ => false
+
+def internalFunctionPointerRewriteObservationMatches :
+    Option Bool := do
+  let aliasBody ←
+    internalFunctionPointerRunBody? internalFunctionPointerAliasContract
+  let reassignBody ←
+    internalFunctionPointerRunBody? internalFunctionPointerReassignContract
+  let unboundBody ←
+    internalFunctionPointerRunBody?
+      internalFunctionPointerUninitializedCallContract
+  let deletedBody ←
+    internalFunctionPointerRunBody?
+      internalFunctionPointerDeletedCallContract
+  let aliasObservation :=
+    Stmt.observeInternalFunctionPointerRewrite
+      (ContractDecl.directOrdinaryFunctions
+        internalFunctionPointerAliasContract)
+      [] aliasBody
+  let reassignObservation :=
+    Stmt.observeInternalFunctionPointerRewrite
+      (ContractDecl.directOrdinaryFunctions
+        internalFunctionPointerReassignContract)
+      [] reassignBody
+  let unboundObservation :=
+    Stmt.observeInternalFunctionPointerRewrite
+      (ContractDecl.directOrdinaryFunctions
+        internalFunctionPointerUninitializedCallContract)
+      [] unboundBody
+  let deletedObservation :=
+    Stmt.observeInternalFunctionPointerRewrite
+      (ContractDecl.directOrdinaryFunctions
+        internalFunctionPointerDeletedCallContract)
+      [] deletedBody
+  let resolvedCallObservation :=
+    Expr.observeInternalFunctionPointerCallRewrite
+      internalFunctionPointerAliasEnvDouble
+      (Expr.call (Expr.ident "fp")
+        [Arg.positional (Expr.ident "value")])
+  let panicCallObservation :=
+    Expr.observeInternalFunctionPointerCallRewrite
+      internalFunctionPointerAliasEnvUnbound
+      (Expr.call (Expr.ident "fp")
+        [Arg.positional (Expr.ident "value")])
+  let directCallObservation :=
+    Expr.observeInternalFunctionPointerCallRewrite
+      internalFunctionPointerAliasEnvDouble
+      (Expr.call (Expr.ident "double")
+        [Arg.positional (Expr.ident "value")])
+  some
+    (aliasObservation.finalAliasTargets == [("fp", some "double")] &&
+      internalFunctionPointerSingleReturnCallName?
+        aliasObservation.rewrittenBody == some "double" &&
+      reassignObservation.finalAliasTargets == [("fp", some "triple")] &&
+      internalFunctionPointerSingleReturnCallName?
+        reassignObservation.rewrittenBody == some "triple" &&
+      unboundObservation.finalAliasTargets == [("fp", none)] &&
+      internalFunctionPointerPanicReturn?
+        unboundObservation.rewrittenBody &&
+      deletedObservation.finalAliasTargets == [("fp", none)] &&
+      internalFunctionPointerPanicReturn?
+        deletedObservation.rewrittenBody &&
+      resolvedCallObservation.status ==
+        InternalFunctionPointerCallRewriteStatus.resolved &&
+      resolvedCallObservation.aliasName? == some "fp" &&
+      resolvedCallObservation.targetName? == some "double" &&
+      resolvedCallObservation.argumentCount == 1 &&
+      internalFunctionPointerSingleReturnCallName?
+        [Stmt.returnValues resolvedCallObservation.rewritten?] ==
+          some "double" &&
+      panicCallObservation.status ==
+        InternalFunctionPointerCallRewriteStatus.panic &&
+      panicCallObservation.targetName?.isNone &&
+      internalFunctionPointerPanicReturn?
+        [Stmt.returnValues panicCallObservation.rewritten?] &&
+      directCallObservation.status ==
+        InternalFunctionPointerCallRewriteStatus.notFunctionPointerCall &&
+      directCallObservation.rewritten?.isNone)
+
 def internalReturnSubexpressionContract : ContractDecl :=
   { name := "InternalReturnSubexpression"
     items :=
@@ -33226,6 +45677,492 @@ def internalBinaryLocalCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot
               runAssignShortBothCallState 0) 1)
   | _, _, _, _, _, _, _, _, _ => some false
+
+def unspecifiedBinaryOrderExpr : Expr :=
+  Expr.binary BinaryOp.add
+    (Expr.assign (Expr.ident "x") AssignOp.assign
+      (Expr.literal (Literal.number "5")))
+    (Expr.ident "x")
+
+def unspecifiedBinaryOrderCoreExpr? : Option CoreExpr :=
+  Expr.toCore? ["x"] unspecifiedBinaryOrderExpr
+
+def unspecifiedBinaryOrderContext : CoreContext :=
+  { SolidCore.Solidity.Source.Context.empty with
+    storageFields := [{ name := "x", slot := 0 }] }
+
+def unspecifiedBinaryOrderEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Option (Word × Word) := do
+  let core ← unspecifiedBinaryOrderCoreExpr?
+  match core with
+  | SolidCore.Solidity.Source.Expr.binary op lhs rhs =>
+      match
+        SolidCore.Solidity.Source.Expr.evalBinaryWithRuntimeOrder
+          order unspecifiedBinaryOrderContext
+          (SolidCore.Solidity.Source.Runtime.ofState
+            SolidCore.Solidity.Source.State.empty)
+          op lhs rhs
+      with
+      | Except.ok (SolidCore.Solidity.Source.Value.word value, runtime) =>
+          some (value, runtime.state.loadSlot 0)
+      | _ => none
+  | _ => none
+
+def unspecifiedBinaryOrderLeftToRightMatches : Option Bool := do
+  let (value, slot) ←
+    unspecifiedBinaryOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  some
+    (SolidCore.Solidity.Source.wordEq value 10 &&
+      SolidCore.Solidity.Source.wordEq slot 5)
+
+def unspecifiedBinaryOrderRightToLeftMatches : Option Bool := do
+  let (value, slot) ←
+    unspecifiedBinaryOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  some
+    (SolidCore.Solidity.Source.wordEq value 5 &&
+      SolidCore.Solidity.Source.wordEq slot 5)
+
+def unspecifiedBinaryEvaluationOrderMatches : Option Bool := do
+  let left ← unspecifiedBinaryOrderLeftToRightMatches
+  let right ← unspecifiedBinaryOrderRightToLeftMatches
+  some (left && right)
+
+def unspecifiedBinaryOrderRunFunction : FunctionDecl :=
+  { name := some "run"
+    visibility := some Visibility.public_
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body := some (Stmt.returnValues (some unspecifiedBinaryOrderExpr)) }
+
+def unspecifiedBinaryOrderContract : ContractDecl :=
+  { name := "UnspecifiedBinaryOrder"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function unspecifiedBinaryOrderRunFunction ] }
+
+def unspecifiedTupleOrderExpr : Expr :=
+  Expr.tuple
+    [ TupleItem.value
+        (Expr.assign (Expr.ident "x") AssignOp.assign
+          (Expr.literal (Literal.number "5")))
+    , TupleItem.value (Expr.ident "x") ]
+
+def unspecifiedTupleOrderCoreExpr? : Option CoreExpr :=
+  Expr.toCore? ["x"] unspecifiedTupleOrderExpr
+
+def unspecifiedTupleOrderEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Option (Word × Word × Word) := do
+  let core ← unspecifiedTupleOrderCoreExpr?
+  match
+    SolidCore.Solidity.Source.Expr.evalWithRuntimeOrder
+      order unspecifiedBinaryOrderContext
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      core
+  with
+  | Except.ok
+      (SolidCore.Solidity.Source.Value.tuple
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ], runtime) =>
+      some (first, second, runtime.state.loadSlot 0)
+  | _ => none
+
+def unspecifiedTupleOrderLeftToRightMatches : Option Bool := do
+  let (first, second, slot) ←
+    unspecifiedTupleOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  some
+    (SolidCore.Solidity.Source.wordEq first 5 &&
+      SolidCore.Solidity.Source.wordEq second 5 &&
+      SolidCore.Solidity.Source.wordEq slot 5)
+
+def unspecifiedTupleOrderRightToLeftMatches : Option Bool := do
+  let (first, second, slot) ←
+    unspecifiedTupleOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  some
+    (SolidCore.Solidity.Source.wordEq first 5 &&
+      SolidCore.Solidity.Source.wordEq second 0 &&
+      SolidCore.Solidity.Source.wordEq slot 5)
+
+def unspecifiedTupleEvaluationOrderMatches : Option Bool := do
+  let left ← unspecifiedTupleOrderLeftToRightMatches
+  let right ← unspecifiedTupleOrderRightToLeftMatches
+  some (left && right)
+
+def unspecifiedTupleOrderReturnStmt? : Option CoreStmt :=
+  Stmt.toCore? ["x"] (Stmt.returnValues (some unspecifiedTupleOrderExpr))
+
+def unspecifiedTupleOrderStmtEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Option (Word × Word × Word) := do
+  let core ← unspecifiedTupleOrderReturnStmt?
+  let context :=
+    unspecifiedBinaryOrderContext.withChildEvalOrder order
+  match
+    SolidCore.Solidity.Source.Stmt.eval 16 context
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      core
+  with
+  | some
+      (SolidCore.Solidity.Source.Result.returned runtime
+        [ SolidCore.Solidity.Source.Value.word first
+        , SolidCore.Solidity.Source.Value.word second ]) =>
+      some (first, second, runtime.state.loadSlot 0)
+  | _ => none
+
+def unspecifiedTupleStatementOrderLeftToRightMatches : Option Bool := do
+  let (first, second, slot) ←
+    unspecifiedTupleOrderStmtEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  some
+    (SolidCore.Solidity.Source.wordEq first 5 &&
+      SolidCore.Solidity.Source.wordEq second 5 &&
+      SolidCore.Solidity.Source.wordEq slot 5)
+
+def unspecifiedTupleStatementOrderRightToLeftMatches : Option Bool := do
+  let (first, second, slot) ←
+    unspecifiedTupleOrderStmtEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  some
+    (SolidCore.Solidity.Source.wordEq first 5 &&
+      SolidCore.Solidity.Source.wordEq second 0 &&
+      SolidCore.Solidity.Source.wordEq slot 5)
+
+def unspecifiedTupleStatementEvaluationOrderMatches : Option Bool := do
+  let left ← unspecifiedTupleStatementOrderLeftToRightMatches
+  let right ← unspecifiedTupleStatementOrderRightToLeftMatches
+  some (left && right)
+
+def unspecifiedTupleOrderRunFunction : FunctionDecl :=
+  { name := some "runTuple"
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "first", ty := Ty.uint 256 }
+      , { name := some "second", ty := Ty.uint 256 } ]
+    body := some (Stmt.returnValues (some unspecifiedTupleOrderExpr)) }
+
+def unspecifiedTupleOrderContract : ContractDecl :=
+  { name := "UnspecifiedTupleOrder"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.function unspecifiedTupleOrderRunFunction ] }
+
+def unspecifiedLValueIndexOrderTarget : Expr :=
+  Expr.index
+    (Expr.index
+      (Expr.ident "matrix")
+      (Expr.assign (Expr.ident "x") AssignOp.assign
+        (Expr.literal (Literal.number "1"))))
+    (Expr.ident "x")
+
+def unspecifiedLValueIndexOrderStatement : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl
+        [{ name := some "x", ty := some (Ty.uint 256) }]
+        (some (Expr.literal (Literal.number "0")))
+    , Stmt.varDecl
+        [ { name := some "matrix"
+            ty :=
+              some
+                (Ty.array
+                  (Ty.array (Ty.uint 256) (some 2)) (some 2))
+            location := some DataLocation.memory } ]
+        none
+    , Stmt.expr
+        (Expr.assign unspecifiedLValueIndexOrderTarget AssignOp.assign
+          (Expr.literal (Literal.number "9")))
+    , Stmt.returnValues
+        (some
+          (Expr.tuple
+            [ TupleItem.value
+                (Expr.index
+                  (Expr.index (Expr.ident "matrix")
+                    (Expr.literal (Literal.number "1")))
+                  (Expr.literal (Literal.number "0")))
+            , TupleItem.value
+                (Expr.index
+                  (Expr.index (Expr.ident "matrix")
+                    (Expr.literal (Literal.number "1")))
+                  (Expr.literal (Literal.number "1")))
+            , TupleItem.value (Expr.ident "x") ])) ]
+
+def unspecifiedLValueIndexOrderEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Option (Word × Word × Word) := do
+  let context :=
+    SolidCore.Solidity.Source.Context.empty.withChildEvalOrder order
+  let result ←
+    Stmt.eval? 48 [] context
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      unspecifiedLValueIndexOrderStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.returned _
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second
+      , SolidCore.Solidity.Source.Value.word seen ] =>
+      some (first, second, seen)
+  | _ => none
+
+def unspecifiedLValueIndexOrderLeftToRightMatches : Option Bool := do
+  let (first, second, seen) ←
+    unspecifiedLValueIndexOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  some
+    (SolidCore.Solidity.Source.wordEq first 0 &&
+      SolidCore.Solidity.Source.wordEq second 9 &&
+      SolidCore.Solidity.Source.wordEq seen 1)
+
+def unspecifiedLValueIndexOrderRightToLeftMatches : Option Bool := do
+  let (first, second, seen) ←
+    unspecifiedLValueIndexOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  some
+    (SolidCore.Solidity.Source.wordEq first 9 &&
+      SolidCore.Solidity.Source.wordEq second 0 &&
+      SolidCore.Solidity.Source.wordEq seen 1)
+
+def unspecifiedLValueIndexEvaluationOrderMatches : Option Bool := do
+  let left ← unspecifiedLValueIndexOrderLeftToRightMatches
+  let right ← unspecifiedLValueIndexOrderRightToLeftMatches
+  some (left && right)
+
+def unspecifiedLValueIndexOrderRunFunction : FunctionDecl :=
+  { name := some "runLValueIndex"
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "first", ty := Ty.uint 256 }
+      , { name := some "second", ty := Ty.uint 256 }
+      , { name := some "seen", ty := Ty.uint 256 } ]
+    body := some unspecifiedLValueIndexOrderStatement }
+
+def unspecifiedLValueIndexOrderContract : ContractDecl :=
+  { name := "UnspecifiedLValueIndexOrder"
+    items :=
+      [ ContractItem.function unspecifiedLValueIndexOrderRunFunction ] }
+
+def unspecifiedStatementAssignOrderStatement : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl
+        [{ name := some "i", ty := some (Ty.uint 256) }]
+        (some (Expr.literal (Literal.number "0")))
+    , Stmt.varDecl
+        [ { name := some "xs"
+            ty := some (Ty.array (Ty.uint 256) (some 2))
+            location := some DataLocation.memory } ]
+        none
+    , Stmt.expr
+        (Expr.assign
+          (Expr.index (Expr.ident "xs") (Expr.ident "i"))
+          AssignOp.assign
+          (Expr.assign (Expr.ident "i") AssignOp.assign
+            (Expr.literal (Literal.number "1"))))
+    , Stmt.returnValues
+        (some
+          (Expr.tuple
+            [ TupleItem.value
+                (Expr.index (Expr.ident "xs")
+                  (Expr.literal (Literal.number "0")))
+            , TupleItem.value
+                (Expr.index (Expr.ident "xs")
+                  (Expr.literal (Literal.number "1")))
+            , TupleItem.value (Expr.ident "i") ])) ]
+
+def unspecifiedStatementAssignOrderEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Option (Word × Word × Word) := do
+  let context :=
+    SolidCore.Solidity.Source.Context.empty.withChildEvalOrder order
+  let result ←
+    Stmt.eval? 48 [] context
+      (SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty)
+      unspecifiedStatementAssignOrderStatement
+  match result with
+  | SolidCore.Solidity.Source.Result.returned _
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second
+      , SolidCore.Solidity.Source.Value.word seen ] =>
+      some (first, second, seen)
+  | _ => none
+
+def unspecifiedStatementAssignOrderLeftToRightMatches : Option Bool := do
+  let (first, second, seen) ←
+    unspecifiedStatementAssignOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  some
+    (SolidCore.Solidity.Source.wordEq first 1 &&
+      SolidCore.Solidity.Source.wordEq second 0 &&
+      SolidCore.Solidity.Source.wordEq seen 1)
+
+def unspecifiedStatementAssignOrderRightToLeftMatches : Option Bool := do
+  let (first, second, seen) ←
+    unspecifiedStatementAssignOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  some
+    (SolidCore.Solidity.Source.wordEq first 0 &&
+      SolidCore.Solidity.Source.wordEq second 1 &&
+      SolidCore.Solidity.Source.wordEq seen 1)
+
+def unspecifiedStatementAssignmentEvaluationOrderMatches : Option Bool := do
+  let left ← unspecifiedStatementAssignOrderLeftToRightMatches
+  let right ← unspecifiedStatementAssignOrderRightToLeftMatches
+  some (left && right)
+
+def unspecifiedStatementAssignOrderRunFunction : FunctionDecl :=
+  { name := some "runStatementAssign"
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "first", ty := Ty.uint 256 }
+      , { name := some "second", ty := Ty.uint 256 }
+      , { name := some "seen", ty := Ty.uint 256 } ]
+    body := some unspecifiedStatementAssignOrderStatement }
+
+def unspecifiedStatementAssignOrderContract : ContractDecl :=
+  { name := "UnspecifiedStatementAssignOrder"
+    items :=
+      [ ContractItem.function unspecifiedStatementAssignOrderRunFunction ] }
+
+def unspecifiedMemoryRefInnerArrayTy : Ty :=
+  Ty.array (Ty.uint 256) none
+
+def unspecifiedMemoryRefMiddleArrayTy : Ty :=
+  Ty.array unspecifiedMemoryRefInnerArrayTy none
+
+def unspecifiedMemoryRefOuterArrayTy : Ty :=
+  Ty.array unspecifiedMemoryRefMiddleArrayTy none
+
+def unspecifiedMemoryRefOrderInitStatement : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl
+        [{ name := some "x", ty := some (Ty.uint 256) }]
+        (some (Expr.literal (Literal.number "0")))
+    , Stmt.varDecl
+        [ { name := some "matrix"
+            ty := some unspecifiedMemoryRefOuterArrayTy
+            location := some DataLocation.memory } ]
+        (some
+          (Expr.newExpr unspecifiedMemoryRefOuterArrayTy
+            [Arg.positional (Expr.literal (Literal.number "2"))]))
+    , Stmt.expr
+        (Expr.assign
+          (Expr.index (Expr.ident "matrix")
+            (Expr.literal (Literal.number "1")))
+          AssignOp.assign
+          (Expr.newExpr unspecifiedMemoryRefMiddleArrayTy
+            [Arg.positional (Expr.literal (Literal.number "2"))]))
+    , Stmt.expr
+        (Expr.assign
+          (Expr.index
+            (Expr.index (Expr.ident "matrix")
+              (Expr.literal (Literal.number "1")))
+            (Expr.literal (Literal.number "0")))
+          AssignOp.assign
+          (Expr.newExpr unspecifiedMemoryRefInnerArrayTy
+            [Arg.positional (Expr.literal (Literal.number "1"))]))
+    , Stmt.expr
+        (Expr.assign
+          (Expr.index
+            (Expr.index (Expr.ident "matrix")
+              (Expr.literal (Literal.number "1")))
+            (Expr.literal (Literal.number "1")))
+          AssignOp.assign
+          (Expr.newExpr unspecifiedMemoryRefInnerArrayTy
+            [Arg.positional (Expr.literal (Literal.number "1"))]))
+    , Stmt.varDecl
+        [ { name := some "alias"
+            ty := some unspecifiedMemoryRefInnerArrayTy
+            location := some DataLocation.memory } ]
+        (some
+          (Expr.index
+            (Expr.index
+              (Expr.ident "matrix")
+              (Expr.assign (Expr.ident "x") AssignOp.assign
+                (Expr.literal (Literal.number "1"))))
+            (Expr.ident "x")))
+    , Stmt.expr
+        (Expr.assign
+          (Expr.index (Expr.ident "alias")
+            (Expr.literal (Literal.number "0")))
+          AssignOp.assign
+          (Expr.literal (Literal.number "7")))
+    , Stmt.returnValues
+        (some
+          (Expr.tuple
+            [ TupleItem.value
+                (Expr.index
+                  (Expr.index
+                    (Expr.index (Expr.ident "matrix")
+                      (Expr.literal (Literal.number "1")))
+                    (Expr.literal (Literal.number "0")))
+                  (Expr.literal (Literal.number "0")))
+              , TupleItem.value
+                  (Expr.index
+                    (Expr.index
+                      (Expr.index (Expr.ident "matrix")
+                        (Expr.literal (Literal.number "1")))
+                      (Expr.literal (Literal.number "1")))
+                    (Expr.literal (Literal.number "0")))
+              , TupleItem.value (Expr.ident "x") ])) ]
+
+def unspecifiedMemoryRefOrderRunFunction : FunctionDecl :=
+  { name := some "runMemoryRefOrder"
+    visibility := some Visibility.public_
+    returns :=
+      [ { name := some "first", ty := Ty.uint 256 }
+      , { name := some "second", ty := Ty.uint 256 }
+      , { name := some "seen", ty := Ty.uint 256 } ]
+    body := some unspecifiedMemoryRefOrderInitStatement }
+
+def unspecifiedMemoryRefOrderEval
+    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+    Option (Word × Word × Word) := do
+  let context :=
+    SolidCore.Solidity.Source.Context.empty.withChildEvalOrder order
+  let result ←
+    FunctionDecl.call? 96 [] [] context
+      SolidCore.Solidity.Source.State.empty
+      unspecifiedMemoryRefOrderRunFunction []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.word first
+      , SolidCore.Solidity.Source.Value.word second
+      , SolidCore.Solidity.Source.Value.word seen ] =>
+      some (first, second, seen)
+  | _ => none
+
+def unspecifiedMemoryRefOrderLeftToRightMatches : Option Bool := do
+  let (first, second, seen) ←
+    unspecifiedMemoryRefOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  some
+    (SolidCore.Solidity.Source.wordEq first 0 &&
+      SolidCore.Solidity.Source.wordEq second 7 &&
+      SolidCore.Solidity.Source.wordEq seen 1)
+
+def unspecifiedMemoryRefOrderRightToLeftMatches : Option Bool := do
+  let (first, second, seen) ←
+    unspecifiedMemoryRefOrderEval
+      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  some
+    (SolidCore.Solidity.Source.wordEq first 7 &&
+      SolidCore.Solidity.Source.wordEq second 0 &&
+      SolidCore.Solidity.Source.wordEq seen 1)
+
+def unspecifiedMemoryReferenceEvaluationOrderMatches : Option Bool := do
+  let left ← unspecifiedMemoryRefOrderLeftToRightMatches
+  let right ← unspecifiedMemoryRefOrderRightToLeftMatches
+  some (left && right)
+
+def unspecifiedMemoryRefOrderContract : ContractDecl :=
+  { name := "UnspecifiedMemoryRefOrder"
+    items :=
+      [ ContractItem.function unspecifiedMemoryRefOrderRunFunction ] }
 
 def internalUnaryLocalCallContract : ContractDecl :=
   { name := "InternalUnaryLocalCall"
@@ -33955,6 +46892,20 @@ def namedReturnContract : ContractDecl :=
                   (Expr.assign (Expr.ident "out") AssignOp.assign
                     (Expr.literal (Literal.number "9")))) }
       , ContractItem.function
+          { name := some "runBare"
+            visibility := some Visibility.public_
+            returns := [{ name := some "out", ty := Ty.uint 256 }]
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "out") AssignOp.assign
+                        (Expr.literal (Literal.number "11")))
+                  , Stmt.returnValues none
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "out") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
           { name := some "runDefault"
             visibility := some Visibility.public_
             returns := [{ name := some "out", ty := Ty.uint 256 }]
@@ -33969,22 +46920,403 @@ def namedReturnMatches : Option Bool := do
     ContractDecl.call? 32 namedReturnContract
       (SolidCore.Solidity.Source.CallTarget.name "runFallthrough")
       SolidCore.Solidity.Source.State.empty []
+  let runBare ←
+    ContractDecl.call? 32 namedReturnContract
+      (SolidCore.Solidity.Source.CallTarget.name "runBare")
+      SolidCore.Solidity.Source.State.empty []
   let runDefault ←
     ContractDecl.call? 32 namedReturnContract
       (SolidCore.Solidity.Source.CallTarget.name "runDefault")
       SolidCore.Solidity.Source.State.empty []
-  match stop, runFallthrough, runDefault with
+  match stop, runFallthrough, runBare, runDefault with
   | SolidCore.Solidity.Source.CallResult.returned stopState [],
     SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word runFallthroughValue],
+    SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word runBareValue],
     SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word runDefaultValue] =>
       some
         (SolidCore.Solidity.Source.wordEq
           (SolidCore.Solidity.Source.State.loadSlot stopState 0) 1 &&
           SolidCore.Solidity.Source.wordEq runFallthroughValue 9 &&
+          SolidCore.Solidity.Source.wordEq runBareValue 11 &&
           SolidCore.Solidity.Source.wordEq runDefaultValue 0)
-  | _, _, _ => some false
+  | _, _, _, _ => some false
+
+def functionExitNormalizationObservationMatches : Option Bool := do
+  let namedContract ← ContractDecl.toCore? namedReturnContract
+  let idContract ← ContractDecl.toCore? addressAbiIdentityContract
+  let runDefault ← namedContract.findFunctionByName? "runDefault"
+  let runBare ← namedContract.findFunctionByName? "runBare"
+  let idAddress ← idContract.findFunctionByName? "idAddress"
+  let defaultObservation :=
+    runDefault.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 namedContract.context SolidCore.Solidity.Source.State.empty [] 0
+  let bareObservation :=
+    runBare.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 namedContract.context SolidCore.Solidity.Source.State.empty [] 0
+  let explicitObservation :=
+    idAddress.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      8 idContract.context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0x1234] 0
+  let returnsWord :=
+    fun (values : List SolidCore.Solidity.Source.Value)
+        (expected : SolidCore.Solidity.Source.Word) =>
+      match values with
+      | [SolidCore.Solidity.Source.Value.word value] =>
+          SolidCore.Solidity.Source.wordEq value expected
+      | _ => false
+  let exitMatches :=
+    fun (observation : SolidCore.Solidity.Source.FunctionEntryObservation)
+        (expectedKind : SolidCore.Solidity.Source.FunctionExitKind)
+        (expectedBodyMode : SolidCore.Solidity.Source.ResultMode)
+        (expectedValue : SolidCore.Solidity.Source.Word) =>
+      match observation.exit? with
+      | some exit =>
+          exit.kind == expectedKind &&
+            exit.bodyResult.mode == expectedBodyMode &&
+            exit.callResult.mode ==
+              SolidCore.Solidity.Source.CallExitMode.returned &&
+            returnsWord exit.callResult.returnValues expectedValue
+      | none => false
+  let defaultMatches :=
+    exitMatches defaultObservation
+      SolidCore.Solidity.Source.FunctionExitKind.fallthroughNamedReturns
+      SolidCore.Solidity.Source.ResultMode.normal 0
+  let bareMatches :=
+    match bareObservation.exit? with
+    | some exit =>
+        exit.kind ==
+            SolidCore.Solidity.Source.FunctionExitKind.bareReturnCollectsNamedReturns &&
+          exit.bodyResult.mode ==
+            SolidCore.Solidity.Source.ResultMode.returned &&
+          exit.bodyResult.returnValues.isEmpty &&
+          exit.callResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.returned &&
+          returnsWord exit.callResult.returnValues 11
+    | none => false
+  let explicitMatches :=
+    match explicitObservation.exit? with
+    | some exit =>
+        exit.kind ==
+            SolidCore.Solidity.Source.FunctionExitKind.explicitReturnValues &&
+          exit.bodyResult.mode ==
+            SolidCore.Solidity.Source.ResultMode.returned &&
+          returnsWord exit.bodyResult.returnValues 0x1234 &&
+          exit.callResult.mode ==
+            SolidCore.Solidity.Source.CallExitMode.returned &&
+          returnsWord exit.callResult.returnValues 0x1234
+    | none => false
+  some (defaultMatches && bareMatches && explicitMatches)
+
+def functionReturnInitializationObservationMatches : Option Bool := do
+  let namedContract ← ContractDecl.toCore? namedReturnContract
+  let runDefault ← namedContract.findFunctionByName? "runDefault"
+  let defaultObservation :=
+    runDefault.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 namedContract.context SolidCore.Solidity.Source.State.empty [] 0
+  let rejectedObservation :=
+    runDefault.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.ordinary
+      32 { namedContract.context with value := 1 }
+      SolidCore.Solidity.Source.State.empty [] 0
+  let returnDeclMatches :=
+    fun (returns : List SolidCore.Solidity.Source.BindingDecl) =>
+      match returns with
+      | [decl] =>
+          decl.name == "out" &&
+            match decl.ty with
+            | SolidCore.Solidity.Source.Ty.uint256 => true
+            | _ => false
+      | _ => false
+  let bindingMatches :=
+    fun (frame : SolidCore.Solidity.Source.Frame) =>
+      match frame with
+      | [("out", SolidCore.Solidity.Source.Value.word value)] =>
+          SolidCore.Solidity.Source.wordEq value 0
+      | _ => false
+  let returnInitMatches :=
+    match defaultObservation.returnInitialization? with
+    | some init =>
+        returnDeclMatches init.returns &&
+          bindingMatches init.defaultBindings &&
+          (match init.initialFrame? with
+          | some frame => bindingMatches frame
+          | none => false) &&
+          (match init.initialRuntime? with
+          | some runtime =>
+              localObservationLookupWordMatches
+                (runtime.locals.lookup? "out") 0
+          | none => false)
+    | none => false
+  let inputFrameMatches :=
+    match defaultObservation.input.initialFrame? with
+    | some frame => bindingMatches frame
+    | none => false
+  let bodyFrameMatches :=
+    match defaultObservation.bodyResult? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.ResultMode.normal &&
+          localObservationLookupWordMatches
+            (result.runtime.locals.lookup? "out") 0
+    | none => false
+  let rejectedMatches :=
+    rejectedObservation.input.initialFrame?.isNone &&
+      rejectedObservation.returnInitialization?.isNone &&
+      (match rejectedObservation.bodyResult?,
+          rejectedObservation.result? with
+      | some body, some result =>
+          body.mode == SolidCore.Solidity.Source.ResultMode.reverted &&
+            result.mode == SolidCore.Solidity.Source.CallExitMode.reverted &&
+            (body.runtime.locals.lookup? "out").isNone
+      | _, _ => false)
+  some
+    (returnInitMatches && inputFrameMatches && bodyFrameMatches &&
+      rejectedMatches)
+
+def noReturnEffectReturnContract : ContractDecl :=
+  { name := "NoReturnEffectReturn"
+    items :=
+      [ ContractItem.stateVar { name := "x", ty := Ty.uint 256 }
+      , ContractItem.stateVar
+          { name := "items", ty := Ty.array (Ty.uint 256) none }
+      , ContractItem.function
+          { name := some "helper"
+            visibility := some Visibility.internal_
+            body :=
+              some
+                (Stmt.expr
+                  (Expr.assign (Expr.ident "x") AssignOp.assign
+                    (Expr.literal (Literal.number "9")))) }
+      , ContractItem.function
+          { name := some "returnRequire"
+            params := [{ name := some "ok", ty := Ty.bool }]
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "require")
+                          [ Arg.positional (Expr.ident "ok")
+                          , Arg.positional
+                              (Expr.literal (Literal.string "bad")) ]))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "returnRevert"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call (Expr.ident "revert")
+                          [Arg.positional
+                            (Expr.literal (Literal.string "bad"))]))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "returnDelete"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "7")))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.unary UnaryOp.delete (Expr.ident "x")))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "returnPop"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.call (Expr.member (Expr.ident "items") "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "11"))])
+                  , Stmt.expr
+                      (Expr.call (Expr.member (Expr.ident "items") "push")
+                        [Arg.positional
+                          (Expr.literal (Literal.number "12"))])
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.ident "items") "pop") []))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "returnPushValue"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.returnValues
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.ident "items") "push")
+                          [Arg.positional
+                            (Expr.literal (Literal.number "13"))]))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "returnInternal"
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.returnValues
+                      (some (Expr.call (Expr.ident "helper") []))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) }
+      , ContractItem.function
+          { name := some "returnTransfer"
+            params :=
+              [ { name := some "target", ty := Ty.address true }
+              , { name := some "amount", ty := Ty.uint 256 } ]
+            visibility := some Visibility.public_
+            body :=
+              some
+                (Stmt.block
+                  [ Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "1")))
+                  , Stmt.returnValues
+                      (some
+                        (Expr.call
+                          (Expr.member (Expr.ident "target") "transfer")
+                          [Arg.positional (Expr.ident "amount")]))
+                  , Stmt.expr
+                      (Expr.assign (Expr.ident "x") AssignOp.assign
+                        (Expr.literal (Literal.number "99"))) ]) } ] }
+
+def noReturnEffectReturnSourceUnit : SourceUnit :=
+  { items := [SourceItem.contract noReturnEffectReturnContract] }
+
+def noReturnEffectDynamicArraySlot : Word := 1
+
+def noReturnEffectReturnMatches : Option Bool := do
+  let requireTrue ←
+    SourceUnit.callContract? 64 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnRequire")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 1]
+  let requireFalse ←
+    SourceUnit.callContract? 64 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnRequire")
+      SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 0]
+  let revertResult ←
+    SourceUnit.callContract? 64 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnRevert")
+      SolidCore.Solidity.Source.State.empty []
+  let deleteResult ←
+    SourceUnit.callContract? 64 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnDelete")
+      SolidCore.Solidity.Source.State.empty []
+  let popResult ←
+    SourceUnit.callContract? 96 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnPop")
+      SolidCore.Solidity.Source.State.empty []
+  let pushResult ←
+    SourceUnit.callContract? 96 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnPushValue")
+      SolidCore.Solidity.Source.State.empty []
+  let internalResult ←
+    SourceUnit.callContract? 64 noReturnEffectReturnSourceUnit
+      "NoReturnEffectReturn"
+      (SolidCore.Solidity.Source.CallTarget.name "returnInternal")
+      SolidCore.Solidity.Source.State.empty []
+  match requireTrue, requireFalse, revertResult, deleteResult,
+      popResult, pushResult, internalResult with
+  | SolidCore.Solidity.Source.CallResult.returned requireState [],
+    SolidCore.Solidity.Source.CallResult.reverted requireFailState
+      (SolidCore.Solidity.Source.RevertData.error "bad"),
+    SolidCore.Solidity.Source.CallResult.reverted revertState
+      (SolidCore.Solidity.Source.RevertData.error "bad"),
+    SolidCore.Solidity.Source.CallResult.returned deleteState [],
+    SolidCore.Solidity.Source.CallResult.returned popState [],
+    SolidCore.Solidity.Source.CallResult.returned pushState [],
+    SolidCore.Solidity.Source.CallResult.returned internalState [] =>
+      let firstSlot :=
+        SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          noReturnEffectDynamicArraySlot 0
+      let secondSlot :=
+        SolidCore.Solidity.Source.dynamicArrayStorageSlot
+          noReturnEffectDynamicArraySlot 1
+      some
+        (SolidCore.Solidity.Source.wordEq
+          (requireState.loadSlot 0) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (requireFailState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (revertState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (deleteState.loadSlot 0) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (popState.loadSlot noReturnEffectDynamicArraySlot) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (popState.loadSlot firstSlot) 11 &&
+          SolidCore.Solidity.Source.wordEq
+            (popState.loadSlot secondSlot) 0 &&
+          SolidCore.Solidity.Source.wordEq
+            (pushState.loadSlot noReturnEffectDynamicArraySlot) 1 &&
+          SolidCore.Solidity.Source.wordEq
+            (pushState.loadSlot firstSlot) 13 &&
+          SolidCore.Solidity.Source.wordEq
+            (internalState.loadSlot 0) 9)
+  | _, _, _, _, _, _, _ => some false
+
+def noReturnEffectReturnTransferMatches : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? noReturnEffectReturnSourceUnit
+    "NoReturnEffectReturn"
+  let function ← contract.findFunctionByName? "returnTransfer"
+  let result ←
+    SolidCore.Solidity.Source.FunctionDef.call? 64
+      { contract.context with
+        lowLevelCallResults :=
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+              target := 0xbeef
+              calldata := []
+              value := 5
+              gas? := some 2300
+              success := true
+              output := [] } ] }
+      function SolidCore.Solidity.Source.State.empty
+      [ SolidCore.Solidity.Source.Value.word 0xbeef
+      , SolidCore.Solidity.Source.Value.word 5 ]
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state [] =>
+      some (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1)
+  | _ => some false
 
 def internalRequireConditionCallContract : ContractDecl :=
   { name := "InternalRequireConditionCall"
@@ -34764,6 +48096,245 @@ def namedErrorArgumentOrderMatches : Option Bool := do
           SolidCore.Solidity.Source.wordEq second 2)
   | _ => some false
 
+def revertPayloadObservationMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? namedErrorArgumentOrderContract
+  let runtime : SolidCore.Solidity.Source.Runtime :=
+    { SolidCore.Solidity.Source.Runtime.ofState
+        SolidCore.Solidity.Source.State.empty with
+      locals := [[("x", SolidCore.Solidity.Source.Value.word 0)]] }
+  let customObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.customError
+        "Bad"
+        [ SolidCore.Solidity.Source.Expr.assignExpr
+            (SolidCore.Solidity.Source.Expr.var "x")
+            (SolidCore.Solidity.Source.Expr.word 5)
+        , SolidCore.Solidity.Source.Expr.var "x" ])
+      0
+  let emptyObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.context runtime
+      SolidCore.Solidity.Source.RevertPayloadSource.empty 0
+  let stringObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.errorString "bad")
+      0
+  let expectedDynamic ←
+    SolidCore.Solidity.Source.errorStringBytesRevert?
+      (SolidCore.Solidity.Source.Value.bytes [65])
+  let dynamicObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.errorBytesExpression
+        (SolidCore.Solidity.Source.Expr.byteArray [65]))
+      0
+  let mismatchObservation :=
+    SolidCore.Solidity.Source.Stmt.observeRevertPayload
+      contract.context runtime
+      (SolidCore.Solidity.Source.RevertPayloadSource.errorBytesExpression
+        (SolidCore.Solidity.Source.Expr.word 1))
+      0
+  let customDataMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData) =>
+      match data? with
+      | some (SolidCore.Solidity.Source.RevertData.custom "Bad" values) =>
+          sourceWordValuesMatch values [5, 0]
+      | _ => false
+  let rawDataMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData)
+        (expected : SolidCore.Solidity.Source.RevertData) =>
+      match data?, expected with
+      | some (SolidCore.Solidity.Source.RevertData.raw bytes),
+          SolidCore.Solidity.Source.RevertData.raw expectedBytes =>
+          bytes == expectedBytes
+      | _, _ => false
+  let typeMismatchMatches :=
+    fun (data? : Option SolidCore.Solidity.Source.RevertData) =>
+      match data? with
+      | some (SolidCore.Solidity.Source.RevertData.panic code) =>
+          SolidCore.Solidity.Source.wordEq code 0
+      | _ => false
+  let resultRevertDataMatches :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (dataMatches : Option SolidCore.Solidity.Source.RevertData -> Bool) =>
+      match result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.ResultMode.reverted &&
+            dataMatches result.revertData?
+      | none => false
+  some
+    (customObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.customError &&
+      customObservation.name? == some "Bad" &&
+      customObservation.expressionCount == 2 &&
+      (match customObservation.values? with
+      | some values => sourceWordValuesMatch values [5, 0]
+      | none => false) &&
+      (match customObservation.expressionRuntime? with
+      | some observed =>
+          localObservationLookupWordMatches
+            (observed.locals.lookup? "x") 5
+      | none => false) &&
+      customDataMatches customObservation.revertData? &&
+      resultRevertDataMatches customObservation.result? customDataMatches &&
+      emptyObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.empty &&
+      (match emptyObservation.revertData? with
+      | some SolidCore.Solidity.Source.RevertData.empty => true
+      | _ => false) &&
+      resultRevertDataMatches emptyObservation.result?
+        (fun data? =>
+          match data? with
+          | some SolidCore.Solidity.Source.RevertData.empty => true
+          | _ => false) &&
+      stringObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.errorString &&
+      (match stringObservation.revertData? with
+      | some (SolidCore.Solidity.Source.RevertData.error "bad") => true
+      | _ => false) &&
+      rawDataMatches dynamicObservation.revertData? expectedDynamic &&
+      resultRevertDataMatches dynamicObservation.result?
+        (fun data? => rawDataMatches data? expectedDynamic) &&
+      dynamicObservation.expressionCount == 1 &&
+      (match dynamicObservation.values? with
+      | some [SolidCore.Solidity.Source.Value.bytes [65]] => true
+      | _ => false) &&
+      mismatchObservation.kind ==
+        SolidCore.Solidity.Source.RevertPayloadKind.errorBytesExpression &&
+      mismatchObservation.expressionCount == 1 &&
+      typeMismatchMatches mismatchObservation.error? &&
+      typeMismatchMatches mismatchObservation.revertData? &&
+      resultRevertDataMatches mismatchObservation.result?
+        typeMismatchMatches)
+
+def terminalEvaluationObservationMatches : Option Bool := do
+  let runtime :=
+    SolidCore.Solidity.Source.Runtime.ofState
+      SolidCore.Solidity.Source.State.empty
+  let returnObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTerminalEvaluation
+      SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Stmt.returnValues
+        [ SolidCore.Solidity.Source.Expr.word 7
+        , SolidCore.Solidity.Source.Expr.word 8 ])
+      0
+  let customObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTerminalEvaluation
+      SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Stmt.revert "Bad"
+        [SolidCore.Solidity.Source.Expr.word 9])
+      0
+  let expectedDynamic ←
+    SolidCore.Solidity.Source.errorStringBytesRevert?
+      (SolidCore.Solidity.Source.Value.bytes [65])
+  let dynamicObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTerminalEvaluation
+      SolidCore.Solidity.Source.Context.empty runtime
+      (SolidCore.Solidity.Source.Stmt.revertErrorExpr
+        (SolidCore.Solidity.Source.Expr.byteArray [65]))
+      0
+  let selfContext : CoreContext :=
+    { SolidCore.Solidity.Source.Context.empty with
+      self := 0xcafe
+      createdInTransactionAccounts := [0xcafe] }
+  let selfObservation :=
+    SolidCore.Solidity.Source.Stmt.observeTerminalEvaluation
+      selfContext runtime
+      (SolidCore.Solidity.Source.Stmt.selfdestruct
+        (SolidCore.Solidity.Source.Expr.word 0xbeef))
+      0xcafe
+  let returnedWordsMatch :=
+    fun (result? : Option SolidCore.Solidity.Source.ResultObservation)
+        (expected : List Word) =>
+      match result? with
+      | some result =>
+          result.mode ==
+              SolidCore.Solidity.Source.ResultMode.returned &&
+            sourceWordValuesMatch result.returnValues expected
+      | none => false
+  let customPayloadMatches :=
+    match customObservation.payloadObservation? with
+    | some payload =>
+        payload.kind ==
+            SolidCore.Solidity.Source.RevertPayloadKind.customError &&
+          payload.name? == some "Bad" &&
+          payload.expressionCount == 1 &&
+          (match payload.values? with
+          | some values => sourceWordValuesMatch values [9]
+          | none => false) &&
+          match payload.revertData? with
+          | some (SolidCore.Solidity.Source.RevertData.custom "Bad" values) =>
+              sourceWordValuesMatch values [9]
+          | _ => false
+    | none => false
+  let dynamicPayloadMatches :=
+    match dynamicObservation.payloadObservation? with
+    | some payload =>
+        payload.kind ==
+            SolidCore.Solidity.Source.RevertPayloadKind.errorBytesExpression &&
+          payload.expressionCount == 1 &&
+          (match payload.values? with
+          | some [SolidCore.Solidity.Source.Value.bytes [65]] => true
+          | _ => false) &&
+          match payload.revertData?, expectedDynamic with
+          | some (SolidCore.Solidity.Source.RevertData.raw bytes),
+              SolidCore.Solidity.Source.RevertData.raw expectedBytes =>
+              bytes == expectedBytes
+          | _, _ => false
+    | none => false
+  let selfResultMatches :=
+    match selfObservation.result? with
+    | some result =>
+        result.mode ==
+            SolidCore.Solidity.Source.ResultMode.selfdestructed &&
+          match result.runtime.state.selfdestructs,
+              result.runtime.state.selfdestructEffects with
+          | [(fromAddress, recipient)], [record] =>
+              SolidCore.Solidity.Source.wordEq fromAddress 0xcafe &&
+                SolidCore.Solidity.Source.wordEq recipient 0xbeef &&
+                SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+                SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+                record.deletesAccount == true
+          | _, _ => false
+    | none => false
+  let selfRecordMatches :=
+    match selfObservation.selfdestructRecord? with
+    | some record =>
+        SolidCore.Solidity.Source.wordEq record.fromAddress 0xcafe &&
+          SolidCore.Solidity.Source.wordEq record.recipient 0xbeef &&
+          record.deletesAccount == true
+    | none => false
+  some
+    (returnObservation.kind ==
+        SolidCore.Solidity.Source.TerminalEvaluationKind.returnValues &&
+      returnObservation.status ==
+        SolidCore.Solidity.Source.TerminalEvaluationStatus.returned &&
+      returnObservation.policy.usesYulCompatibleDefault &&
+      returnObservation.sourceOperands.length == 2 &&
+      (match returnObservation.values? with
+      | some values => sourceWordValuesMatch values [7, 8]
+      | none => false) &&
+      returnedWordsMatch returnObservation.result? [7, 8] &&
+      customObservation.kind ==
+        SolidCore.Solidity.Source.TerminalEvaluationKind.customError &&
+      customObservation.status ==
+        SolidCore.Solidity.Source.TerminalEvaluationStatus.reverted &&
+      customPayloadMatches &&
+      dynamicObservation.kind ==
+        SolidCore.Solidity.Source.TerminalEvaluationKind.revertBytesExpression &&
+      dynamicObservation.status ==
+        SolidCore.Solidity.Source.TerminalEvaluationStatus.reverted &&
+      dynamicPayloadMatches &&
+      selfObservation.kind ==
+        SolidCore.Solidity.Source.TerminalEvaluationKind.selfdestruct &&
+      selfObservation.status ==
+        SolidCore.Solidity.Source.TerminalEvaluationStatus.selfdestructed &&
+      selfObservation.recipient? == some 0xbeef &&
+      selfRecordMatches &&
+      selfResultMatches)
+
 def internalTupleReturnCallContract : ContractDecl :=
   { name := "InternalTupleReturnCall"
     items :=
@@ -34958,6 +48529,96 @@ def internalNamedArgsMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       some (SolidCore.Solidity.Source.wordEq value 42)
   | _ => some false
+
+def internalCallOrderedArgsMatch
+    (expectedLeft expectedRight : Name) : Option (List Expr) -> Bool
+  | some
+      [ Expr.literal (Literal.number left)
+      , Expr.literal (Literal.number right) ] =>
+      left == expectedLeft && right == expectedRight
+  | _ => false
+
+def internalFreeHelperFunction : FunctionDecl :=
+  { name := some "freeDouble"
+    params := [{ name := some "value", ty := Ty.uint 256 }]
+    returns := [{ name := some "out", ty := Ty.uint 256 }]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.binary BinaryOp.mul
+              (Expr.ident "value")
+              (Expr.literal (Literal.number "2"))))) }
+
+def internalCallObservationMatches : Option Bool :=
+  let functions := ContractDecl.directOrdinaryFunctions internalNamedArgsContract
+  let namedObservation :=
+    FunctionDecl.observeInternalCall defaultInternalCallInlineFuel
+      [] [] [] [] [] functions [] "combine"
+      [ Arg.named "right" (Expr.literal (Literal.number "2"))
+      , Arg.named "left" (Expr.literal (Literal.number "4")) ]
+  let freeObservation :=
+    FunctionDecl.observeInternalCall defaultInternalCallInlineFuel
+      [] [] [] [] [] [] [internalFreeHelperFunction] "freeDouble"
+      [Arg.positional (Expr.literal (Literal.number "21"))]
+  let missingObservation :=
+    FunctionDecl.observeInternalCall defaultInternalCallInlineFuel
+      [] [] [] [] [] functions [] "missing" []
+  some
+    (namedObservation.status == InternalCallObservationStatus.resolved &&
+      namedObservation.selectedKind? ==
+        some InternalCallTargetKind.contractFunction &&
+      namedObservation.selectedFunctionName? == some "combine" &&
+      namedObservation.parameterCount? == some 2 &&
+      namedObservation.returnCount? == some 1 &&
+      internalCallOrderedArgsMatch "4" "2" namedObservation.sourceArgs? &&
+      namedObservation.returnNames == ["out"] &&
+      namedObservation.returnStorageRefs == [false] &&
+      (match namedObservation.prefixCore? with
+      | some prefixCore => prefixCore.length == 3
+      | none => false) &&
+      namedObservation.bodyCore?.isSome &&
+      namedObservation.statementCore?.isSome &&
+      freeObservation.status == InternalCallObservationStatus.resolved &&
+      freeObservation.selectedKind? ==
+        some InternalCallTargetKind.freeFunction &&
+      freeObservation.selectedFunctionName? == some "freeDouble" &&
+      freeObservation.parameterCount? == some 1 &&
+      freeObservation.returnCount? == some 1 &&
+      freeObservation.returnNames == ["out"] &&
+      freeObservation.bodyCore?.isSome &&
+      missingObservation.status ==
+        InternalCallObservationStatus.missingCallee &&
+      missingObservation.selectedKind?.isNone &&
+      missingObservation.bodyCore?.isNone)
+
+def internalBinaryExpressionElaborationObservationMatches : Option Bool :=
+  let expr :=
+    Expr.binary BinaryOp.add
+      (Expr.call (Expr.typeName (Ty.uint 256))
+        [ Arg.positional
+            (Expr.call (Expr.ident "freeDouble")
+              [Arg.positional (Expr.literal (Literal.number "20"))]) ])
+      (Expr.call (Expr.ident "freeDouble")
+        [Arg.positional (Expr.literal (Literal.number "1"))])
+  let observation :=
+    FunctionDecl.observeInternalBinaryExpressionElaboration
+      defaultInternalCallInlineFuel [] [] [] [] [] []
+      [internalFreeHelperFunction] expr
+      (fun resultExpr =>
+        SolidCore.Solidity.Source.Stmt.returnValues [resultExpr])
+  some
+    (observation.status ==
+        InternalBinaryExpressionElaborationStatus.resolved &&
+      observation.operator? == some BinaryOp.add &&
+      observation.lhsKind? ==
+        some InternalExpressionElaborationKind.typeConversionWrapper &&
+      observation.rhsKind? ==
+        some InternalExpressionElaborationKind.singleReturnInternalCall &&
+      observation.evaluationOrder.length == 2 &&
+      !observation.rightOperandMayBeSkipped &&
+      observation.leftTemporary? == some "_sol_bin_lhs" &&
+      observation.core?.isSome)
 
 def tupleVarDeclContract : ContractDecl :=
   { name := "TupleVarDecl"
@@ -35938,6 +49599,103 @@ def immutableRuntimeWriteRejectsMatches : Option Bool := do
       | _ => some false
   | _ => some false
 
+def constantInlinedAddMatches (expr : Expr) (left right : Nat) : Bool :=
+  match expr with
+  | Expr.binary BinaryOp.add lhs rhs =>
+      Expr.numberLiteralNat? lhs == some left &&
+        Expr.numberLiteralNat? rhs == some right
+  | _ => false
+
+def constantImmutableObservationMatches : Option Bool := do
+  let layoutObservation :=
+    StateVars.observeConstantImmutableEnvironment []
+      (ContractDecl.directStateVars constantLayoutContract)
+  let initObservation :=
+    StateVars.observeConstantImmutableEnvironment []
+      (ContractDecl.directStateVars constantInitializerContract)
+  let fileUnit ←
+    SourceUnit.resolveSourceTypesContextual? fileConstantConstructorUnit
+  let fileContract ←
+    SourceUnit.findContract? fileUnit "FileConstantConstructor"
+  let fileObservation :=
+    StateVars.observeConstantImmutableEnvironment
+      (SourceUnit.freeConstants fileUnit)
+      (ContractDecl.directStateVars fileContract)
+  let immutableObservation :=
+    StateVars.observeConstantImmutableEnvironment []
+      (ContractDecl.directStateVars immutableConstructorContract)
+  let limitInlining :=
+    Expr.observeConstantInlining layoutObservation.constants
+      (Expr.ident "C")
+  let layoutMatches :=
+    layoutObservation.stateConstantNames == ["C"] &&
+      layoutObservation.storageNames == ["a", "b"] &&
+      layoutObservation.transientNames == [] &&
+      layoutObservation.immutableNames == ["I"] &&
+      layoutObservation.immutableTags == [immutableNameTag "I"] &&
+      layoutObservation.runtimeStateNames ==
+        ["a", "b", immutableNameTag "I"] &&
+      match layoutObservation.stateVarObservations with
+      | [c, a, i, b] =>
+          c.sourceClass == StateVarSourceClass.constant &&
+            c.stateName?.isNone &&
+            c.constantEntry?.isSome &&
+            a.sourceClass == StateVarSourceClass.storage &&
+            a.stateName? == some "a" &&
+            i.sourceClass == StateVarSourceClass.immutable &&
+            i.stateName? == some (immutableNameTag "I") &&
+            i.immutableTag? == some (immutableNameTag "I") &&
+            b.sourceClass == StateVarSourceClass.storage &&
+            b.stateName? == some "b"
+      | _ => false
+  let initializerMatches :=
+    initObservation.stateConstantNames == ["BASE"] &&
+      match initObservation.stateVarObservations with
+      | [base, x] =>
+          base.sourceClass == StateVarSourceClass.constant &&
+            base.stateName?.isNone &&
+            (match x.inlinedInit? with
+            | some inlined => constantInlinedAddMatches inlined 5 1
+            | none => false)
+      | _ => false
+  let fileMatches :=
+    fileObservation.sourceConstantNames == ["FILE_TOP"] &&
+      fileObservation.stateConstantNames == [] &&
+      match fileObservation.sourceConstantObservations,
+          fileObservation.stateVarObservations with
+      | [top], [x] =>
+          top.sourceClass == StateVarSourceClass.constant &&
+            top.stateName?.isNone &&
+            (match x.inlinedInit? with
+            | some inlined => constantInlinedAddMatches inlined 40 1
+            | none => false)
+      | _, _ => false
+  let immutableMatches :=
+    immutableObservation.stateConstantNames == [] &&
+      immutableObservation.storageNames == [] &&
+      immutableObservation.immutableNames == ["SEED", "x"] &&
+      immutableObservation.runtimeStateNames ==
+        [immutableNameTag "SEED", immutableNameTag "x"] &&
+      match immutableObservation.stateVarObservations with
+      | [seed, x] =>
+          seed.sourceClass == StateVarSourceClass.immutable &&
+            seed.stateName? == some (immutableNameTag "SEED") &&
+            (match seed.inlinedInit? with
+            | some init => Expr.numberLiteralNat? init == some 3
+            | none => false) &&
+            x.sourceClass == StateVarSourceClass.immutable &&
+            x.stateName? == some (immutableNameTag "x") &&
+            x.inlinedInit?.isNone
+      | _ => false
+  let directInliningMatches :=
+    limitInlining.constantNames == ["C"] &&
+      limitInlining.directName? == some "C" &&
+      limitInlining.directReplacement?.isSome &&
+      Expr.numberLiteralNat? limitInlining.inlined == some 1
+  some
+    (layoutMatches && initializerMatches && fileMatches &&
+      immutableMatches && directInliningMatches)
+
 def constructorContract : ContractDecl :=
   { name := "Constructed"
     items :=
@@ -35959,6 +49717,203 @@ def constructorDeployResult : Option CoreCallResult :=
   ContractDecl.construct? 16 constructorContract
     SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 42]
+
+def constructorEntryObservationBoundaryMatches : Option Bool := do
+  let contract ← ContractDecl.toCore? constructorContract
+  let constructor ←
+    ContractDecl.constructorFunctionWithBases? [constructorContract]
+      constructorContract
+  let context : SolidCore.Solidity.Source.Context :=
+    { contract.context with
+      sender := 0xcafe
+      value := 0
+      self := 0xabcd
+      construction := true }
+  let observation :=
+    constructor.observeCallEntry
+      SolidCore.Solidity.Source.FunctionEntryKind.construction
+      16 context SolidCore.Solidity.Source.State.empty
+      [SolidCore.Solidity.Source.Value.word 42] 0xabcd
+  let input := observation.input
+  let frameMatches :=
+    match input.initialFrame? with
+    | some frame =>
+        match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+        | some (SolidCore.Solidity.Source.Value.word value) =>
+            SolidCore.Solidity.Source.wordEq value 42
+        | _ => false
+    | none => false
+  let resultMatches :=
+    match observation.result? with
+    | some result =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.returnValues.isEmpty &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 1 ==
+            some 42
+    | none => false
+  let argsMatch :=
+    match input.args with
+    | [SolidCore.Solidity.Source.Value.word value] =>
+        SolidCore.Solidity.Source.wordEq value 42
+    | _ => false
+  some
+    (input.kind ==
+        SolidCore.Solidity.Source.FunctionEntryKind.construction &&
+      input.fuel == 16 &&
+      input.functionName == constructor.name &&
+      input.selector?.isNone &&
+      input.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.value 0 &&
+      input.submittedState.storage == [] &&
+      argsMatch &&
+      frameMatches && resultMatches)
+
+def constructorDeploymentObservationBoundaryMatches : Option Bool := do
+  let unit : SourceUnit :=
+    { items := [SourceItem.contract constructorContract] }
+  let observation ←
+    SourceUnit.observeDeploymentAtFrom? 16 unit "Constructed"
+      SolidCore.Solidity.Source.State.empty
+      0xabcd 0xcafe 0
+      [SolidCore.Solidity.Source.Value.word 42]
+  let interfaceMatches :=
+    match observation.interface? with
+    | some interface =>
+        interface.contractNames == ["Constructed"] &&
+          match interface.contracts with
+          | [contract] =>
+              contract.name == "Constructed" &&
+                match contract.constructors with
+                | [ctor] =>
+                    ctor.kind == FunctionKind.constructor &&
+                      ctor.params.length == 1 &&
+                      ctor.selector?.isNone
+                | _ => false
+          | _ => false
+    | none => false
+  let entry := observation.constructorEntry
+  let input := entry.input
+  let frameMatches :=
+    match input.initialFrame? with
+    | some frame =>
+        match SolidCore.Solidity.Source.Frame.lookup? frame "value" with
+        | some (SolidCore.Solidity.Source.Value.word value) =>
+            SolidCore.Solidity.Source.wordEq value 42
+        | _ => false
+    | none => false
+  let resultMatches :=
+    match observation.result?, entry.result? with
+    | some result, some entryResult =>
+        result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          entryResult.mode == result.mode &&
+          result.returnValues.isEmpty &&
+          entryResult.returnValues.isEmpty &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 1 ==
+            some 42 &&
+          SolidCore.Solidity.Source.WordMap.lookup? entryResult.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? entryResult.state.storage 1 ==
+            some 42
+    | _, _ => false
+  let argsMatch :=
+    match observation.args, input.args with
+    | [SolidCore.Solidity.Source.Value.word observed],
+        [SolidCore.Solidity.Source.Value.word entryArg] =>
+        SolidCore.Solidity.Source.wordEq observed 42 &&
+          SolidCore.Solidity.Source.wordEq entryArg 42
+    | _, _ => false
+  some
+    (observation.fuel == 16 &&
+      observation.contractName == "Constructed" &&
+      SolidCore.Solidity.Source.wordEq observation.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq observation.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq observation.value 0 &&
+      observation.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq observation.context.ambient.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq observation.context.ambient.sender
+        0xcafe &&
+      input.kind ==
+        SolidCore.Solidity.Source.FunctionEntryKind.construction &&
+      input.functionName == "__constructor" &&
+      input.selector?.isNone &&
+      input.context.ambient.construction &&
+      SolidCore.Solidity.Source.wordEq input.context.ambient.self 0xabcd &&
+      observation.submittedState.storage == [] &&
+      input.submittedState.storage == [] &&
+      interfaceMatches && argsMatch && frameMatches && resultMatches)
+
+def constructorDeploymentAbiObservationBoundaryMatches : Option Bool := do
+  let unit : SourceUnit :=
+    { items := [SourceItem.contract constructorContract] }
+  let constructorCalldata ←
+    SolidCore.Solidity.Source.ABI.encodeValues?
+      [SolidCore.Solidity.Source.Ty.uint256]
+      [SolidCore.Solidity.Source.Value.word 42]
+  let observation :=
+    SourceUnit.observeDeploymentAbiAtFrom 16 unit "Constructed"
+      SolidCore.Solidity.Source.State.empty 0xabcd 0xcafe 0
+      constructorCalldata
+  let badObservation :=
+    SourceUnit.observeDeploymentAbiAtFrom 16 unit "Constructed"
+      SolidCore.Solidity.Source.State.empty 0xabcd 0xcafe 0 [1]
+  let paramsMatch :=
+    match observation.constructorParamTys? with
+    | some [SolidCore.Solidity.Source.Ty.uint256] => true
+    | _ => false
+  let decodedMatches :=
+    match observation.decodedArgs? with
+    | some [SolidCore.Solidity.Source.Value.word value] =>
+        SolidCore.Solidity.Source.wordEq value 42
+    | _ => false
+  let deploymentMatches :=
+    match observation.deployment?, observation.result? with
+    | some deployment, some result =>
+        let deploymentArgsMatch :=
+          match deployment.args with
+          | [SolidCore.Solidity.Source.Value.word value] =>
+              SolidCore.Solidity.Source.wordEq value 42
+          | _ => false
+        deployment.contractName == "Constructed" &&
+          SolidCore.Solidity.Source.wordEq deployment.self 0xabcd &&
+          deploymentArgsMatch &&
+          deployment.constructorEntry.input.kind ==
+            SolidCore.Solidity.Source.FunctionEntryKind.construction &&
+          result.mode == SolidCore.Solidity.Source.CallExitMode.returned &&
+          result.returnValues.isEmpty &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 0 ==
+            some 1 &&
+          SolidCore.Solidity.Source.WordMap.lookup? result.state.storage 1 ==
+            some 42
+    | _, _ => false
+  let badDecodeMatches :=
+    (match badObservation.constructorParamTys? with
+    | some [SolidCore.Solidity.Source.Ty.uint256] => true
+    | _ => false) &&
+      badObservation.decodedArgs?.isNone &&
+      badObservation.deployment?.isNone &&
+      (match badObservation.result? with
+      | some result =>
+          result.mode == SolidCore.Solidity.Source.CallExitMode.reverted &&
+            match result.revertData? with
+            | some SolidCore.Solidity.Source.RevertData.empty => true
+            | _ => false
+      | none => false)
+  some
+    (observation.fuel == 16 &&
+      observation.contractName == "Constructed" &&
+      observation.constructorCalldata ==
+        SolidCore.Solidity.Source.ABI.normalizeBytes constructorCalldata &&
+      SolidCore.Solidity.Source.wordEq observation.self 0xabcd &&
+      SolidCore.Solidity.Source.wordEq observation.sender 0xcafe &&
+      SolidCore.Solidity.Source.wordEq observation.value 0 &&
+      paramsMatch && decodedMatches && deploymentMatches &&
+      badDecodeMatches)
 
 def revertingConstructorContract : ContractDecl :=
   { name := "Bad"
@@ -36156,25 +50111,48 @@ def inheritedNestedTypeUnit : SourceUnit :=
 def coreFunctionNamed? (name : Name) (fn : CoreFunctionDef) : Bool :=
   SolidCore.Solidity.Source.FunctionDef.name fn == name
 
+def inheritedNestedTypeExprIndexesFirstField :
+    SolidCore.Solidity.Source.Expr -> Bool
+  | SolidCore.Solidity.Source.Expr.index
+      (SolidCore.Solidity.Source.Expr.var "s")
+      (SolidCore.Solidity.Source.Expr.word index) =>
+      SolidCore.Solidity.Source.wordEq index 0
+  | SolidCore.Solidity.Source.Expr.uintCleanup _ expr =>
+      inheritedNestedTypeExprIndexesFirstField expr
+  | _ => false
+
+mutual
+
+def inheritedNestedTypeStmtReturnsFirstField :
+    SolidCore.Solidity.Source.Stmt -> Bool
+  | SolidCore.Solidity.Source.Stmt.returnValues [expr] =>
+      inheritedNestedTypeExprIndexesFirstField expr
+  | SolidCore.Solidity.Source.Stmt.block body =>
+      inheritedNestedTypeStmtListReturnsFirstField body
+  | _ => false
+
+def inheritedNestedTypeStmtListReturnsFirstField :
+    List SolidCore.Solidity.Source.Stmt -> Bool
+  | [] => false
+  | stmt :: rest =>
+      inheritedNestedTypeStmtReturnsFirstField stmt ||
+        inheritedNestedTypeStmtListReturnsFirstField rest
+
+end
+
 def inheritedNestedTypeFunctionReturnsFirstField?
     (name : Name) (contract : CoreContract) : Option Bool := do
   let fn ← contract.functions.find? (coreFunctionNamed? name)
-  match fn.body with
-  | SolidCore.Solidity.Source.Stmt.returnValues
-      [SolidCore.Solidity.Source.Expr.index
-        (SolidCore.Solidity.Source.Expr.var "s")
-        (SolidCore.Solidity.Source.Expr.word index)] =>
-      some (SolidCore.Solidity.Source.wordEq index 0)
-  | _ => some false
+  some (inheritedNestedTypeStmtReturnsFirstField fn.body)
 
-def inheritedNestedTypeShadowsUnrelatedLowering : Option Bool := do
+def inheritedNestedTypeShadowsUnrelatedSourceElaboration : Option Bool := do
   let contract ←
     SourceUnit.toCoreContract? inheritedNestedTypeUnit
       "NestedTypeDerived"
   inheritedNestedTypeFunctionReturnsFirstField? "readInheritedX"
     contract
 
-def qualifiedInheritedNestedTypeLowering : Option Bool := do
+def qualifiedInheritedNestedTypeSourceElaboration : Option Bool := do
   let contract ←
     SourceUnit.toCoreContract? inheritedNestedTypeUnit
       "NestedTypeDerived"
@@ -36448,6 +50426,71 @@ def erc7201StorageLayoutInitMatches : Option Bool := do
         (SolidCore.Solidity.Source.wordEq
           (state.loadSlot erc7201StorageLayoutSlot) 7)
   | _ => some false
+
+def erc7201MinusOneStorageLayoutContract : ContractDecl :=
+  { name := "Erc7201MinusOneLayout"
+    layoutBase :=
+      some
+        (Expr.binary BinaryOp.sub
+          (Expr.call (Expr.ident "erc7201")
+            [Arg.positional
+              (Expr.literal (Literal.string "example.main"))])
+          (Expr.literal (Literal.number "1")))
+    items :=
+      [ ContractItem.stateVar
+          { name := "x"
+            ty := Ty.uint 256
+            init := some (Expr.literal (Literal.number "7")) } ] }
+
+def erc7201MinusOneStorageLayoutUnit : SourceUnit :=
+  { items := [SourceItem.contract erc7201MinusOneStorageLayoutContract] }
+
+def erc7201MinusOneStorageLayoutSlot : Word :=
+  SharedSemantics.subWord erc7201StorageLayoutSlot 1
+
+def erc7201MinusOneStorageLayoutFieldsMatch : Option Bool := do
+  let contract ← SourceUnit.toCoreContract? erc7201MinusOneStorageLayoutUnit
+    "Erc7201MinusOneLayout"
+  match contract.storageFields with
+  | [x] =>
+      some
+        (x.name == "x" &&
+          SolidCore.Solidity.Source.wordEq x.slot
+            erc7201MinusOneStorageLayoutSlot)
+  | _ => some false
+
+def erc7201MinusOneStorageLayoutInitMatches : Option Bool := do
+  let result ←
+    SourceUnit.constructContract? 32 erc7201MinusOneStorageLayoutUnit
+      "Erc7201MinusOneLayout" SolidCore.Solidity.Source.State.empty []
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      some
+        (SolidCore.Solidity.Source.wordEq
+          (state.loadSlot erc7201MinusOneStorageLayoutSlot) 7)
+  | _ => some false
+
+def erc7201ConcatStorageLayoutRejected : Option Bool :=
+  match SourceUnit.toCoreContract?
+      { items :=
+          [ SourceItem.contract
+              { name := "Erc7201ConcatLayout"
+                layoutBase :=
+                  some
+                    (Expr.call (Expr.ident "erc7201")
+                      [Arg.positional
+                        (Expr.call
+                          (Expr.member (Expr.ident "string") "concat")
+                          [ Arg.positional
+                              (Expr.literal (Literal.string "example"))
+                          , Arg.positional
+                              (Expr.literal (Literal.string ".main")) ])])
+                items :=
+                  [ContractItem.stateVar
+                    { name := "x", ty := Ty.uint 256 }] } ] }
+      "Erc7201ConcatLayout" with
+  | none => some true
+  | some _ => some false
 
 def keccakStorageLayoutRejected : Option Bool :=
   match SourceUnit.toCoreContract?
@@ -36988,6 +51031,65 @@ def superChainValueMatches : Option Bool := do
       some (SolidCore.Solidity.Source.wordEq value 77)
   | _ => some false
 
+def dispatchRewriteCallName? (observation : DispatchCallRewriteObservation) :
+    Option Name :=
+  match observation.afterBase with
+  | Expr.call (Expr.ident name) [] => some name
+  | _ => none
+
+def inheritanceDispatchObservationMatches : Option Bool := do
+  let explicitContracts :=
+    [ explicitBaseLeftContract
+    , explicitBaseRightContract
+    , explicitBaseFinalContract ]
+  let explicitObservation ←
+    ContractDecl.observeInheritanceDispatch? []
+      explicitContracts explicitBaseFinalContract
+  let c3Observation ←
+    ContractDecl.observeInheritanceDispatch? [] c3Contracts c3FinalContract
+  let superObservation ←
+    ContractDecl.observeInheritanceDispatch? []
+      [ superChainRootContract
+      , superChainMidContract
+      , superChainTopContract ]
+      superChainTopContract
+  let superRewrite :=
+    Expr.observeDispatchCallRewrite "SuperChainTop"
+      ["SuperChainTop", "SuperChainMid", "SuperChainRoot"]
+      (Expr.call (Expr.member (Expr.ident "super") "value") [])
+  let baseRewrite :=
+    Expr.observeDispatchCallRewrite "ExplicitBaseFinal"
+      ["ExplicitBaseFinal", "ExplicitBaseRight", "ExplicitBaseLeft"]
+      (Expr.call
+        (Expr.member (Expr.ident "ExplicitBaseLeft") "value") [])
+  some
+    (explicitObservation.dispatchOrder? ==
+        some
+          [ "ExplicitBaseFinal"
+          , "ExplicitBaseRight"
+          , "ExplicitBaseLeft" ] &&
+      explicitObservation.ordinaryFunctionNames.contains "value" &&
+      explicitObservation.baseHelperNames.contains
+        (baseHelperName "ExplicitBaseLeft" "value") &&
+      explicitObservation.baseHelperNames.contains
+        (baseHelperName "ExplicitBaseRight" "value") &&
+      explicitObservation.superHelperNames.contains
+        (superHelperName "ExplicitBaseFinal" "value") &&
+      c3Observation.dispatchOrder? ==
+        some ["C3Final", "C3Right", "C3Left", "C3Root"] &&
+      superObservation.dispatchOrder? ==
+        some ["SuperChainTop", "SuperChainMid", "SuperChainRoot"] &&
+      superObservation.superHelperNames.contains
+        (superHelperName "SuperChainTop" "value") &&
+      superObservation.superHelperNames.contains
+        (superHelperName "SuperChainMid" "value") &&
+      superRewrite.kind == DispatchCallRewriteKind.superCall &&
+      dispatchRewriteCallName? superRewrite ==
+        some (superHelperName "SuperChainTop" "value") &&
+      baseRewrite.kind == DispatchCallRewriteKind.explicitBaseCall &&
+      dispatchRewriteCallName? baseRewrite ==
+        some (baseHelperName "ExplicitBaseLeft" "value"))
+
 def bumpModifier : ModifierDecl :=
   { name := "bump"
     body :=
@@ -37313,6 +51415,135 @@ def directExternalCallModifierMatches : Option Bool := do
         (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 7 &&
           SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 77)
   | _ => some false
+
+def modifierLiteralDeclMatches (expectedName expectedValue : Name)
+    (stmt : Stmt) : Bool :=
+  match stmt with
+  | Stmt.varDecl
+      [{ name := some actualName
+         ty := some (Ty.uint width)
+         location := none }]
+      (some (Expr.literal (Literal.number actualValue))) =>
+      actualName == expectedName && width == 256 &&
+      actualValue == expectedValue
+  | _ => false
+
+def modifierParamTempDeclMatches (expectedName : Name) (expectedIndex : Nat)
+    (stmt : Stmt) : Bool :=
+  match stmt with
+  | Stmt.varDecl
+      [{ name := some actualName
+         ty := some (Ty.uint width)
+         location := none }]
+      (some (Expr.ident actualTemp)) =>
+      actualName == expectedName && width == 256 &&
+        actualTemp == modifierArgTempName expectedIndex
+  | _ => false
+
+def modifierAddAssignLiteralMatches (expectedValue : Name)
+    (stmt : Stmt) : Bool :=
+  match stmt with
+  | Stmt.expr
+      (Expr.assign (Expr.ident "x") AssignOp.addAssign
+        (Expr.literal (Literal.number actualValue))) =>
+      actualValue == expectedValue
+  | _ => false
+
+def namedModifierExpandedSourceMatches (stmt : Stmt) : Bool :=
+  match stmt with
+  | Stmt.block
+      [ leftTemp
+      , leftDecl
+      , rightTemp
+      , rightDecl
+      , Stmt.block [Stmt.expr _, Stmt.empty] ] =>
+      modifierLiteralDeclMatches (modifierArgTempName 0) "4" leftTemp &&
+        modifierParamTempDeclMatches (modifierParamRuntimeName 0) 0 leftDecl &&
+        modifierLiteralDeclMatches (modifierArgTempName 1) "2" rightTemp &&
+        modifierParamTempDeclMatches (modifierParamRuntimeName 1) 1 rightDecl
+  | _ => false
+
+def multiModifierExpandedSourceMatches (stmt : Stmt) : Bool :=
+  match stmt with
+  | Stmt.block
+      [ Stmt.block [first, middle, second, last] ] =>
+      modifierAddAssignLiteralMatches "1" first &&
+        modifierAddAssignLiteralMatches "10" middle &&
+        modifierAddAssignLiteralMatches "1" second &&
+        modifierAddAssignLiteralMatches "100" last
+  | _ => false
+
+def modifierApplicationObservationMatches : Option Bool := do
+  let namedInvocation ← namedArgsModifierFunction.modifiers.head?
+  let namedObservation :=
+    ModifierInvocation.observeApplication ["x"] [] [namedArgsModifier]
+      namedInvocation Stmt.empty SolidCore.Solidity.Source.Stmt.skip
+  let namedPrefixMatches :=
+    match namedObservation.prefixStmts? with
+    | some [leftTemp, leftDecl, rightTemp, rightDecl] =>
+        modifierLiteralDeclMatches (modifierArgTempName 0) "4" leftTemp &&
+          modifierParamTempDeclMatches (modifierParamRuntimeName 0) 0 leftDecl &&
+          modifierLiteralDeclMatches (modifierArgTempName 1) "2" rightTemp &&
+          modifierParamTempDeclMatches (modifierParamRuntimeName 1) 1 rightDecl
+    | _ => false
+  let namedSourceMatches :=
+    match namedObservation.expandedSource? with
+    | some expanded => namedModifierExpandedSourceMatches expanded
+    | none => false
+  let namedFunctionObservation :=
+    FunctionDecl.observeModifierExpansion ["x"] [] [namedArgsModifier]
+      namedArgsModifierFunction
+  let namedFunctionMatches :=
+    match namedFunctionObservation.expandedSource? with
+    | some expanded =>
+        namedFunctionObservation.status ==
+            ModifierApplicationStatus.applied &&
+          namedFunctionObservation.modifierCount == 1 &&
+          namedFunctionObservation.expandedCore?.isSome &&
+          namedModifierExpandedSourceMatches expanded
+    | none => false
+  let multiInvocation ← multiPlaceholderModifierFunction.modifiers.head?
+  let multiInner ← multiPlaceholderModifierFunction.body
+  let multiObservation :=
+    ModifierInvocation.observeApplication ["x"] [] [multiPlaceholderModifier]
+      multiInvocation multiInner SolidCore.Solidity.Source.Stmt.skip
+  let multiSourceMatches :=
+    match multiObservation.expandedSource? with
+    | some expanded => multiModifierExpandedSourceMatches expanded
+    | none => false
+  let missingObservation :=
+    ModifierInvocation.observeApplication ["x"] [] [namedArgsModifier]
+      { target := { segments := ["missing"] } } Stmt.empty
+      SolidCore.Solidity.Source.Stmt.skip
+  let badArgsObservation :=
+    ModifierInvocation.observeApplication ["x"] [] [namedArgsModifier]
+      { target := { segments := ["bumpBy"] }
+        args :=
+          [ Arg.named "left" (Expr.literal (Literal.number "4")) ] }
+      Stmt.empty SolidCore.Solidity.Source.Stmt.skip
+  let bodylessObservation :=
+    ModifierInvocation.observeApplication ["x"] []
+      [{ name := "bodyless", virtual := true, body := none }]
+      { target := { segments := ["bodyless"] } } Stmt.empty
+      SolidCore.Solidity.Source.Stmt.skip
+  some
+    (namedObservation.status == ModifierApplicationStatus.applied &&
+      namedObservation.selectedName? == some "bumpBy" &&
+      namedObservation.modifierName? == some "bumpBy" &&
+      namedObservation.argumentCount == 2 &&
+      namedObservation.parameterNames == [some "left", some "right"] &&
+      namedPrefixMatches && namedSourceMatches &&
+      namedObservation.expandedCore?.isSome &&
+      namedFunctionMatches &&
+      multiObservation.status == ModifierApplicationStatus.applied &&
+      multiSourceMatches &&
+      missingObservation.status ==
+        ModifierApplicationStatus.missingModifier &&
+      missingObservation.selectedName? == some "missing" &&
+      badArgsObservation.status == ModifierApplicationStatus.badArguments &&
+      badArgsObservation.prefixStmts?.isNone &&
+      bodylessObservation.status == ModifierApplicationStatus.missingBody &&
+      bodylessObservation.modifierBody?.isNone)
 
 def usingMathLibrary : ContractDecl :=
   { name := "Math"
@@ -38282,6 +52513,90 @@ def usingConstructorMatches : Option Bool := do
   | SolidCore.Solidity.Source.CallResult.returned state _ =>
       some (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 42)
   | _ => some false
+
+def usingExpansionObservationMatches : Option Bool := do
+  let usingUnit ← SourceUnit.resolveSourceTypesContextual? usingLibraryUnit
+  let methodContract ← SourceUnit.findContract? usingUnit "UsingMethod"
+  let sourceContract ← SourceUnit.findContract? usingUnit "UsingSourceLevel"
+  let freeContract ←
+    SourceUnit.findContract? usingUnit "UsingExplicitFreeFunction"
+  let contracts := SourceUnit.contracts usingUnit
+  let freeFunctions := SourceUnit.freeFunctions usingUnit
+  let sourceUsing := SourceUnit.usingDecls usingUnit
+  let uintEnv : TypeEnv := [("x", Ty.uint 256)]
+  let methodUsing := ContractDecl.directUsingDecls methodContract ++ sourceUsing
+  let libraryMethod :=
+    Expr.observeUsingExpansion contracts freeFunctions methodUsing uintEnv
+      (Expr.call (Expr.member (Expr.ident "x") "inc") [])
+  let sourceLevel :=
+    Expr.observeUsingExpansion contracts freeFunctions sourceUsing uintEnv
+      (Expr.call (Expr.member (Expr.ident "x") "inc") [])
+  let freeFunction :=
+    Expr.observeUsingExpansion contracts freeFunctions
+      (ContractDecl.directUsingDecls freeContract ++ sourceUsing) uintEnv
+      (Expr.call (Expr.member (Expr.ident "x") "freeInc") [])
+  let noMatch :=
+    Expr.observeUsingExpansion contracts freeFunctions methodUsing uintEnv
+      (Expr.call (Expr.member (Expr.ident "x") "missing") [])
+  let operatorUnit ←
+    SourceUnit.resolveSourceTypesContextual? globalUsingPriceOperatorUnit
+  let operatorContracts := SourceUnit.contracts operatorUnit
+  let operatorFreeFunctions := SourceUnit.freeFunctions operatorUnit
+  let operatorUsing := SourceUnit.usingDecls operatorUnit
+  let priceEnv : TypeEnv := [("a", Ty.uint 256), ("b", Ty.uint 256)]
+  let binaryOperator :=
+    Expr.observeUsingExpansion
+      operatorContracts operatorFreeFunctions operatorUsing priceEnv
+      (Expr.binary BinaryOp.add (Expr.ident "a") (Expr.ident "b"))
+  let unaryOperator :=
+    Expr.observeUsingExpansion
+      operatorContracts operatorFreeFunctions operatorUsing priceEnv
+      (Expr.unary UnaryOp.neg (Expr.ident "a"))
+  let externalUnit ← SourceUnit.resolveSourceTypesContextual? externalLibraryUnit
+  let externalContract ←
+    SourceUnit.findContract? externalUnit "ExternalLibraryUsing"
+  let externalContracts := SourceUnit.contracts externalUnit
+  let externalUsing :=
+    ContractDecl.directUsingDecls externalContract ++
+      SourceUnit.usingDecls externalUnit
+  let externalLibrary :=
+    Expr.observeUsingExpansion
+      externalContracts (SourceUnit.freeFunctions externalUnit)
+      externalUsing uintEnv
+      (Expr.call (Expr.member (Expr.ident "x") "plusOne") [])
+  some
+    (libraryMethod.kind == UsingExpansionKind.libraryHelper &&
+      libraryMethod.usingCount == 2 &&
+      libraryMethod.method? == some "inc" &&
+      libraryMethod.selectedFunction? == some "inc" &&
+      libraryMethod.libraryName? == some "Math" &&
+      libraryMethod.helperName? == some (libraryHelperName "Math" "inc") &&
+      libraryMethod.argumentCount? == some 1 &&
+      sourceContract.name == "UsingSourceLevel" &&
+      sourceLevel.kind == UsingExpansionKind.libraryHelper &&
+      sourceLevel.usingCount == 1 &&
+      sourceLevel.libraryName? == some "Math" &&
+      sourceLevel.helperName? == some (libraryHelperName "Math" "inc") &&
+      freeFunction.kind == UsingExpansionKind.freeFunction &&
+      freeFunction.selectedFunction? == some "freeInc" &&
+      freeFunction.argumentCount? == some 1 &&
+      binaryOperator.kind == UsingExpansionKind.binaryOperator &&
+      binaryOperator.operator? ==
+        some (UsingOperator.binary BinaryOp.add) &&
+      binaryOperator.selectedFunction? == some "priceAdd" &&
+      binaryOperator.argumentCount? == some 2 &&
+      binaryOperator.globalUsingCount == 1 &&
+      unaryOperator.kind == UsingExpansionKind.unaryOperator &&
+      unaryOperator.operator? == some (UsingOperator.unary UnaryOp.neg) &&
+      unaryOperator.selectedFunction? == some "priceNeg" &&
+      unaryOperator.argumentCount? == some 1 &&
+      externalLibrary.kind == UsingExpansionKind.externalLibrary &&
+      externalLibrary.libraryName? == some "ExternalMath" &&
+      externalLibrary.selectedFunction? == some "plusOne" &&
+      externalLibrary.argumentCount? == some 1 &&
+      noMatch.kind == UsingExpansionKind.unchanged &&
+      noMatch.selectedFunction?.isNone &&
+      noMatch.argumentCount?.isNone)
 
 end Examples
 

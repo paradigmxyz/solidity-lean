@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/abi-encoding-helpers/out"
+cache_path = "../../.foundry-suites/abi-encoding-helpers/cache"
+evm_version = "cancun"

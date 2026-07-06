@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/custom-error-dynamic/out"
+cache_path = "../../.foundry-suites/custom-error-dynamic/cache"
+evm_version = "cancun"

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/reference-mapping-storage/out"
+cache_path = "../../.foundry-suites/reference-mapping-storage/cache"
+evm_version = "cancun"

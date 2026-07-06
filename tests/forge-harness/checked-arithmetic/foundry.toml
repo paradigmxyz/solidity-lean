@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/checked-arithmetic/out"
+cache_path = "../../.foundry-suites/checked-arithmetic/cache"
+evm_version = "cancun"

@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Target {
+    function viewGet() external view returns (uint256) {
+        return 1;
+    }
+}
+
+contract SignedGasOption {
+    function run(Target target, int256 gasAmount) external view returns (uint256) {
+        return target.viewGet{gas: gasAmount}();
+    }
+}

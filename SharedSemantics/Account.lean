@@ -1,3 +1,4 @@
+import SharedSemantics.Block
 import SharedSemantics.Word
 
 namespace SharedSemantics
@@ -49,6 +50,33 @@ def codehashAt (codehashes : WordMap) (address : Word) : Word :=
 
 def codeAt (codes : BytesMap) (address : Word) : Bytes :=
   (lookupBytes? codes address).getD []
+
+def addressIn (address : Word) : List Word -> Bool
+  | [] => false
+  | candidate :: rest =>
+      wordEq (addressWord candidate) (addressWord address) ||
+        addressIn address rest
+
+structure SelfdestructRecord where
+  fromAddress : Word
+  recipient : Word
+  deletesAccount : Bool := true
+  deriving Repr
+
+def selfdestructDeletesAccount
+    (evmVersion : Block.EvmVersion) (createdThisTransaction : Bool) :
+    Bool :=
+  !evmVersion.cancunOrLater || createdThisTransaction
+
+def selfdestructRecord (evmVersion : Block.EvmVersion)
+    (createdAccounts : List Word) (self recipient : Word) :
+    SelfdestructRecord :=
+  let selfAddress := addressWord self
+  { fromAddress := selfAddress
+    recipient := addressWord recipient
+    deletesAccount :=
+      selfdestructDeletesAccount evmVersion
+        (addressIn selfAddress createdAccounts) }
 
 end Account
 end SharedSemantics

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+solc_version = "0.8.20"
+optimizer = false
+evm_version = "shanghai"
