@@ -645,3 +645,66 @@ reworked:
 - `SolidCore/Solidity/Shared/Precompile.lean` computation — remove from the
   semantics (the open-world environment owns precompile results). Keep only the
   address constants needed to build the staticcall target.
+
+## 2026-07-06 — Phase 5 stage 2: scripted responders + precompile alignment + kind-dependent call requests
+
+Landed the stage-2 machinery. Manifest UNCHANGED (R5): the responder conversion
+of the manifest is deferred to stage 3; stage 2 adds the machinery and validates
+equivalence out-of-band.
+
+**Scripted responder (`SolI.runWith`, fail-closed).** `ScriptedResponder :=
+List OracleRow` (`OracleRow.call LowLevelCallResult | .create ContractCreationResult`).
+`SolI.runWith` folds a tree structurally (no fuel, like `SolI.run`), answering
+external call/create queries from the responder rows and **failing closed** on a
+total miss (`ResponderFailure.unmatched request`, carrying the request for a
+diff) instead of the old fail-open `failedRequest`. `ScriptedResponder.ofContext`
+derives the responder mechanically from a `Context`'s oracle fields. Matching
+mirrors `answerCall`/`answerCreate` keying **exactly** (target recovered from
+`codeAddress`; exact-gas-first then no-gas; create name/args/value/salt from the
+name-encoded initCode, fail-closed on malformed), so on any tree whose external
+requests all have a matching row the responder answers identically to
+`contextAnswer`.
+
+Design note — **find-first, not strict-ordered.** The plan floated an
+order-consuming responder (out-of-order ⇒ failure). We match `List.find?`-first
+(same as the retired `contextAnswer`) to *guarantee* behavioral equivalence:
+several fixtures list duplicate-key rows (e.g. uniswap
+`importedSafeTransferFromRejectsFalseAndFailedCall`) whose order a consuming
+responder would diverge on. The substantive win — a loud failure on any external
+request the fixture did not anticipate — is retained via fail-closed-on-miss.
+
+**Fail-open reliance: NONE.** Enumerated every intentional-failure witness in the
+corpus; all supply an explicit `success := false` row (uniswap failed-call,
+vesting/refund-escrow/payment-splitter rollbacks, multicall delegatecall
+failure). The one call-with-no-row case (dapphub-weth9 second withdraw) reverts
+on a `require` guard *before* issuing the call, so it never reaches the fail-open
+path. No positive assertion in the 98-case corpus exercises the fail-open miss,
+so making the responder fail-closed changes no expectation.
+
+**Precompile alignment (match evm-compiler).** Removed
+`Context.lookupLowLevelCall?`'s `builtinStaticcallResult?` fallback and deleted
+the in-semantics identity/modexp computation from `Shared/Precompile.lean`
+(`successfulStaticcall`/`identityStaticcall`/`expMod`/`expModAux`/`modexpOutput`/
+`modexpStaticcall`/`builtinStaticcallResult?`). `modexpInput` (calldata encoding,
+not computation) stays. Precompiles are now ordinary external calls answered by
+the environment/responder — no special-casing in the semantics. Corpus-safe: no
+case computes identity/modexp; the two now-unasserted `checked{Identity,Modexp}
+PrecompileStaticcallMatches` witness defs are dead (not referenced by manifest or
+any `#eval`/theorem). `keccak256` stays local (opcode).
+
+**Kind-dependent `buildCallRequest` (+ `answerCall` inversion).** delegatecall:
+`recipient := self`, `transferValue := 0`, `apparentValue := context.value`;
+staticcall: `transferValue := 0`; call/callcode unchanged. `codeAddress := target`
+for every kind, and `answerCall`/`ScriptedResponder.answerCall?` recover the
+callee from `codeAddress` (not `recipient`) so the oracle round-trips for
+delegatecall (whose recipient is now the caller). All corpus delegatecall/
+staticcall rows carry `value = 0`, so the round-trip is exact.
+
+**Validation (the stage-2 gate).** `scripts/check_responder_equivalence.py`
+regenerates every oracle-bearing witness (40 evals across 18 cases) with each
+tree-folding checked entry name-swapped to its `*RespCheck` twin (fold under
+`ScriptedResponder.ofContext` instead of `contextAnswer`) and asserts each still
+prints the case's expected value — equivalence of results AND the recorded
+external-interaction transcripts the assertions check. Result:
+`responder_equivalence_check=pass`, `oracle_cases=18 equivalent=18`. Plus
+`lake build SolidCore` + smoke (28 cases, `forge_interpreter_compare=pass`).

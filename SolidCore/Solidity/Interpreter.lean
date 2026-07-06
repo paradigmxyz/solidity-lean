@@ -1684,16 +1684,15 @@ def Context.eventDecl? (context : Context) (name : String) :
     Option EventDecl :=
   context.eventDecls.find? (fun event => event.name == name)
 
+/-- Look up a low-level call in the fixture oracle. Precompile-alignment
+    (2026-07-06 decision): precompiles are ordinary external calls answered by
+    the environment — the identity/modexp `builtinStaticcallResult?` in-semantics
+    computation is gone; no corpus case exercised it. -/
 def Context.lookupLowLevelCall? (context : Context)
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) (gas? : Option Word) : Option LowLevelCallResult :=
-  match
-      SolidCore.Solidity.Shared.Call.Result.lookup?
-        context.lowLevelCallResults kind target calldata value gas? with
-  | some result => some result
-  | none =>
-      SolidCore.Solidity.Shared.Precompile.builtinStaticcallResult?
-        kind target calldata value gas?
+  SolidCore.Solidity.Shared.Call.Result.lookup?
+    context.lowLevelCallResults kind target calldata value gas?
 
 def LowLevelCallResult.failedRequest
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
@@ -1907,15 +1906,45 @@ def callKindToLowLevel :
 def buildCallRequest (context : Context) (kind : LowLevelCallKind)
     (target : Word) (calldata : List Byte) (value : Word) (gas? : Option Word) :
     EvmCompiler.Simulation.CallRequest :=
-  { kind := lowLevelKindToCallKind kind
-    requestedGas := wordToU256 (gas?.getD context.gasleft)
-    caller := wordToAddress context.self
-    recipient := wordToAddress target
-    codeAddress := wordToAddress target
-    transferValue := wordToU256 value
-    apparentValue := wordToU256 value
-    calldata := bytesToByteArray calldata
-    permission := true }
+  -- Kind-dependent request fields (stage 2), matching EVM CALL/DELEGATECALL/
+  -- STATICCALL frame construction. `codeAddress := target` always, so the
+  -- oracle answerer recovers the real callee from `codeAddress` for every kind.
+  --   * delegatecall: executes callee code in the caller's frame — `recipient`
+  --     is the caller (`self`), no value is transferred (`transferValue := 0`),
+  --     and `apparentValue` is the inherited ambient `context.value`.
+  --   * staticcall: value transfer is forbidden (`transferValue := 0`).
+  --   * call/callcode: recipient is the target, value transfers.
+  match kind with
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.delegatecall =>
+      { kind := lowLevelKindToCallKind kind
+        requestedGas := wordToU256 (gas?.getD context.gasleft)
+        caller := wordToAddress context.self
+        recipient := wordToAddress context.self
+        codeAddress := wordToAddress target
+        transferValue := wordToU256 0
+        apparentValue := wordToU256 context.value
+        calldata := bytesToByteArray calldata
+        permission := true }
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.staticcall =>
+      { kind := lowLevelKindToCallKind kind
+        requestedGas := wordToU256 (gas?.getD context.gasleft)
+        caller := wordToAddress context.self
+        recipient := wordToAddress target
+        codeAddress := wordToAddress target
+        transferValue := wordToU256 0
+        apparentValue := wordToU256 value
+        calldata := bytesToByteArray calldata
+        permission := true }
+  | _ =>
+      { kind := lowLevelKindToCallKind kind
+        requestedGas := wordToU256 (gas?.getD context.gasleft)
+        caller := wordToAddress context.self
+        recipient := wordToAddress target
+        codeAddress := wordToAddress target
+        transferValue := wordToU256 value
+        apparentValue := wordToU256 value
+        calldata := bytesToByteArray calldata
+        permission := true }
 
 /-- Decode a shared `CallResponse` (answer) into the interpreter's
     `LowLevelCallResult`; the request params are carried through so the result
@@ -2055,7 +2084,9 @@ def answerCall (context : Context)
     (request : EvmCompiler.Simulation.CallRequest) :
     EvmCompiler.Simulation.CallResponse :=
   let kind := callKindToLowLevel request.kind
-  let target := addressToWord request.recipient
+  -- Recover the real callee from `codeAddress` (stable across kinds; for
+  -- delegatecall `recipient` is the caller, not the target — stage 2).
+  let target := addressToWord request.codeAddress
   let calldata := byteArrayToBytes request.calldata
   let value := u256ToWord request.transferValue
   -- Exact-gas-first: match a fixture row keyed on the sent gas, else fall to the
@@ -2122,6 +2153,115 @@ def SolI.run {α : Type} (context : Context) :
     SolI α → Except SolidityFailure α
   | .done r => r
   | .request q k => SolI.run context (k (contextAnswer context q))
+
+/-! ## Stage 2 — scripted responders (open-world, fail-closed).
+
+A `ScriptedResponder` is an ordered list of oracle rows (calls/creates) that
+answers external-call/create queries **fail-closed**: an external request with
+no matching row aborts the fold with `ResponderFailure.unmatched` (carrying the
+request for an expected-vs-actual diff) instead of the old fail-open
+`failedRequest`. Matching mirrors `answerCall`/`answerCreate` keying exactly
+(exact-gas-first then no-gas; target recovered from `codeAddress`), so on any
+tree whose every external request has a matching row the responder answers
+identically to `contextAnswer` — the stage-2 equivalence gate. The `OpenWorld`
+snapshot in the query is ignored (checkpoint-1); `postWorld := default`. -/
+
+inductive OracleRow where
+  | call : LowLevelCallResult → OracleRow
+  | create : ContractCreationResult → OracleRow
+  deriving Repr
+
+abbrev ScriptedResponder := List OracleRow
+
+def ScriptedResponder.callRows (responder : ScriptedResponder) :
+    List LowLevelCallResult :=
+  responder.filterMap (fun row =>
+    match row with | OracleRow.call c => some c | _ => none)
+
+def ScriptedResponder.createRows (responder : ScriptedResponder) :
+    List ContractCreationResult :=
+  responder.filterMap (fun row =>
+    match row with | OracleRow.create c => some c | _ => none)
+
+/-- Mechanical derivation of the responder from a `Context`'s oracle fields
+    (used by the manifest at stage 3 and by the stage-2 equivalence check). -/
+def ScriptedResponder.ofContext (context : Context) : ScriptedResponder :=
+  context.lowLevelCallResults.map OracleRow.call ++
+    context.contractCreationResults.map OracleRow.create
+
+/-- Answer a call request from the responder's call rows; `none` on a total
+    miss. Keying + gas fallback mirror `answerCall` exactly. -/
+def ScriptedResponder.answerCall? (responder : ScriptedResponder)
+    (request : EvmCompiler.Simulation.CallRequest) :
+    Option EvmCompiler.Simulation.CallResponse :=
+  let kind := callKindToLowLevel request.kind
+  let target := addressToWord request.codeAddress
+  let calldata := byteArrayToBytes request.calldata
+  let value := u256ToWord request.transferValue
+  let rows := responder.callRows
+  let result? :=
+    match SolidCore.Solidity.Shared.Call.Result.lookup? rows kind target calldata
+        value (some (u256ToWord request.requestedGas)) with
+    | some r => some r
+    | none =>
+        SolidCore.Solidity.Shared.Call.Result.lookup? rows kind target calldata
+          value none
+  result?.map (fun result =>
+    { success := result.success
+      returnData := bytesToByteArray result.output
+      postWorld := default
+      returnedGas := request.requestedGas })
+
+/-- Answer a create request from the responder's create rows; `none` on a total
+    miss OR a malformed name-encoded initCode (fail-closed — `answerCreate`
+    fail-opened on a malformed name). Keying mirrors `answerCreate`. -/
+def ScriptedResponder.answerCreate? (responder : ScriptedResponder)
+    (request : EvmCompiler.Simulation.CreateRequest) :
+    Option EvmCompiler.Simulation.CreateResponse := do
+  let (name, args) ← decodeCreationInitCode? request.initCode
+  let value := u256ToWord request.value
+  let salt? := request.salt.map u256ToWord
+  let result ←
+    SolidCore.Solidity.Shared.Call.CreationResult.lookup?
+      responder.createRows name args value salt?
+  some
+    { address := wordToU256 (if result.success then result.address else 0)
+      returnData := bytesToByteArray result.output
+      postWorld := default
+      returnedGas := wordToU256 0 }
+
+/-- Fold failure under a responder: a Solidity failure (revert/outOfFuel — for
+    `CallResult` trees only `outOfFuel` is reachable, reverts being caught into
+    values), or a fail-closed unmatched external request (carried for the diff). -/
+inductive ResponderFailure where
+  | solidity : SolidityFailure → ResponderFailure
+  | unmatched : EvmCompiler.Simulation.ExternalRequest → ResponderFailure
+
+/-- Fold a `SolI` tree against a scripted responder, fail-closed. Structural
+    recursion through the continuation (like `SolI.run`), no fuel. Non-external
+    (resource) queries take the canonical default answer (checkpoint-1). -/
+def SolI.runWith {α : Type} (responder : ScriptedResponder) :
+    SolI α → Except ResponderFailure α
+  | .done (.ok a) => .ok a
+  | .done (.error e) => .error (ResponderFailure.solidity e)
+  | .request
+      (EvmCompiler.Simulation.Query.external _
+        (EvmCompiler.Simulation.ExternalRequest.call request)) k =>
+      match responder.answerCall? request with
+      | some response => SolI.runWith responder (k response)
+      | none =>
+          .error (ResponderFailure.unmatched
+            (EvmCompiler.Simulation.ExternalRequest.call request))
+  | .request
+      (EvmCompiler.Simulation.Query.external _
+        (EvmCompiler.Simulation.ExternalRequest.create request)) k =>
+      match responder.answerCreate? request with
+      | some response => SolI.runWith responder (k response)
+      | none =>
+          .error (ResponderFailure.unmatched
+            (EvmCompiler.Simulation.ExternalRequest.create request))
+  | .request query k =>
+      SolI.runWith responder (k (EvmCompiler.Simulation.Query.defaultAnswer query))
 
 /-- Reify a (throw-revert) interaction tree's revert leaf into an
     `Except RevertData` *value*, while re-throwing `outOfFuel` (truncation must
