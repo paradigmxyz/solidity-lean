@@ -180,3 +180,53 @@ no leaf collisions. Pure rename, no behavior change: build green + one
 harness. Its full-corpus validation is folded into Phase 4's replay (which builds
 directly on this rename) rather than spending a separate ~20-min run on a
 pure-rename step.
+
+## 2026-07-06 — Run status and Phase 4 analysis (handoff point)
+
+Completed, each green (full `compare_forge_solc_interpreter.sh` =
+`forge_interpreter_compare=pass`, `cases=98`, `paired_cases_passed=yes`) and
+committed:
+- Phase 1 — substrate unification (Lean v4.28.0 + EVMYulLean @ 3c5c44a6).
+- Phase 2 — shared `evm-interaction` package + hash-check.
+- Phase 3a — witness corpus out to `SolidCore/Witness/`.
+- Phase 3b — `Spine/L00_SourceSolidity` → `SolidCore.Solidity` rename + `Ast.lean`.
+- Phase 3c — SharedSemantics folded into `SolidCore.Solidity.Shared`; single lib
+  (validation bundled into the pending Phase 4 replay).
+
+Phase 4 (delete observation layer) — analyzed, not yet executed. Findings that
+make it safe and cheap to resume:
+- The layer is **86 `*Observation` structures** (Interface 33, Interpreter 48,
+  ABI 5) and **~215 `observe*` walkers** (Interface 75, Interpreter 118, ABI 22),
+  interspersed with live code (not contiguous blocks).
+- It is a **parallel reporting layer**: the ONLY live (non-`observe`, non-witness)
+  caller of any `observe*` is `SharedPrimitiveRequest.eval`
+  (`Interpreter.lean:2184`), which calls `context.observeLowLevelCallResolution`
+  and `context.observeContractCreationResolution` **and takes only `.result`**.
+  These two are dual-use (they compute the real low-level-call / creation result,
+  not just report it) — exactly the roadmap's "changes what it computes" trap.
+  Resolution: extract the `.result`-computing core of each into a plain function
+  `SharedPrimitiveRequest.eval` calls, then delete the observation wrapper. (Note:
+  these are the very choke points Phase 5 rewrites into `Query.external` /
+  `Query`-create nodes, so the extracted cores feed directly into Phase 5.)
+- **Do NOT delete** the storage-layout machinery (`StorageLayout`,
+  `StorageLayoutCursor`, `slotSpan`, `Context.storageSlot?`, packing/path
+  resolution) — it is core semantics Phase 5 depends on, not observation code.
+- Manifest assertions referencing observations to reclassify (behavior →
+  re-express against `CallResult`/`State`/logs and keep; record-structure-only →
+  drop), recording each disposition in `docs/phase4-assertion-delta.md`:
+  `arrayObservation`, `checkedBinaryArithmeticObservation`,
+  `checkedTerminalEvaluationObservation`, `fixedObservation`, `pairObservation`,
+  `scalarObservation`, `SourceUnitDeploymentAbiObservation` /
+  `observeDeploymentAbiAtFrom`.
+
+Phase 3d (evaluator consolidation) — analyzed; deferred until after Phase 4 (its
+residual old-evaluator call sites are mostly inside `observe*` walkers). After
+Phase 4, port the 3 `Stmt.eval` + 2 `Interface.lean` (pure constant-eval) sites
+that use `Expr.eval`/`evalWithRuntime*` to `evalWithRuntimeByContext` and delete
+the three now-dead mutual blocks (`Interpreter.lean` ~5024–7279).
+
+Phase 5 (external world as the shared interaction monad) and Phase 6
+(documentation/freeze) — not started; Phase 5 depends on Phases 2–4.
+
+The repository is left green and committed at Phase 3c. `../evm-compiler` was
+never modified. `../evm-interaction` was created and committed.
