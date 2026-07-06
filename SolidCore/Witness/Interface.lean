@@ -623,7 +623,8 @@ def tryExternalCallOperandEffectsStatement : Stmt :=
               , TupleItem.value (Expr.ident "out") ])))
         [CatchClause.clause none [] (Stmt.returnValues none)] ]
 
-def tryExternalCallOperandEffectsContext? : Option CoreContext := do
+def tryExternalCallOperandEffectsResponder? :
+    Option SolidCore.Solidity.Source.ScriptedResponder := do
   let calldataArgs ←
     SolidCore.Solidity.Source.abiEncodeValues?
       [SolidCore.Solidity.Source.Ty.uint256]
@@ -638,19 +639,19 @@ def tryExternalCallOperandEffectsContext? : Option CoreContext := do
     SolidCore.Solidity.Source.wordToBytesBE
       SolidCore.Solidity.Source.selectorBytes selector ++ calldataArgs
   some
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
-            target := 51966
-            calldata := calldata
-            value := 7
-            success := true
-            output := output } ] }
+    (SolidCore.Solidity.Source.responderOfResults
+      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+          target := 51966
+          calldata := calldata
+          value := 7
+          success := true
+          output := output } ]
+      [])
 
 def tryExternalCallOperandEffectsMatches : Option Bool := do
-  let context ← tryExternalCallOperandEffectsContext?
+  let responder ← tryExternalCallOperandEffectsResponder?
   let result ←
-    Stmt.eval? 32 [] context
+    Stmt.evalFailOpen? 32 responder [] SolidCore.Solidity.Source.Context.empty
       (SolidCore.Solidity.Source.Runtime.ofState
         SolidCore.Solidity.Source.State.empty)
       tryExternalCallOperandEffectsStatement
@@ -698,26 +699,27 @@ def tryContractCreateOperandEffectsStatement : Stmt :=
               , TupleItem.value (Expr.ident "made") ])))
         [CatchClause.clause none [] (Stmt.returnValues none)] ]
 
-def tryContractCreateOperandEffectsContext? : Option CoreContext := do
+def tryContractCreateOperandEffectsResponder? :
+    Option SolidCore.Solidity.Source.ScriptedResponder := do
   let constructorArgs ←
     SolidCore.Solidity.Source.abiEncodeValues?
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 3]
   some
-    { SolidCore.Solidity.Source.Context.empty with
-      contractCreationResults :=
-        [ { contractName := "Made"
-            constructorArgs := constructorArgs
-            value := 7
-            salt? := some 5
-            success := true
-            address := 51966
-            output := [] } ] }
+    (SolidCore.Solidity.Source.responderOfResults
+      []
+      [ { contractName := "Made"
+          constructorArgs := constructorArgs
+          value := 7
+          salt? := some 5
+          success := true
+          address := 51966
+          output := [] } ])
 
 def tryContractCreateOperandEffectsMatches : Option Bool := do
-  let context ← tryContractCreateOperandEffectsContext?
+  let responder ← tryContractCreateOperandEffectsResponder?
   let result ←
-    Stmt.eval? 32 [] context
+    Stmt.evalFailOpen? 32 responder [] SolidCore.Solidity.Source.Context.empty
       (SolidCore.Solidity.Source.Runtime.ofState
         SolidCore.Solidity.Source.State.empty)
       tryContractCreateOperandEffectsStatement
@@ -3686,16 +3688,17 @@ def externalCryptoHashFunction : FunctionDecl :=
                     [Arg.positional
                       (Expr.literal (Literal.bytes [3, 4]))]) ]))) }
 
-def externalCryptoHashContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa
-      , successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.ripemd160 [3, 4] 0xbbbb ] }
+def externalCryptoHashResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa
+    , successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.ripemd160 [3, 4] 0xbbbb ]
+    []
 
 def externalCryptoHashCallResult : Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] externalCryptoHashContext
+  FunctionDecl.callFailOpen? 8 externalCryptoHashResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty externalCryptoHashFunction []
 
 def externalCryptoHashMatches : Option Bool := do
@@ -3734,15 +3737,17 @@ def precompileBuiltinStaticcallSharedResultFunction : FunctionDecl :=
                     [Arg.positional
                       (Expr.literal (Literal.bytes [1, 2]))]) ]))) }
 
-def precompileBuiltinStaticcallSharedResultContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
+def precompileBuiltinStaticcallSharedResultResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa ]
+    []
 
 def precompileBuiltinStaticcallSharedResultCallResult :
     Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] precompileBuiltinStaticcallSharedResultContext
+  FunctionDecl.callFailOpen? 8
+    precompileBuiltinStaticcallSharedResultResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     precompileBuiltinStaticcallSharedResultFunction []
 
@@ -3947,16 +3952,17 @@ def ecrecoverBuiltinFunction : FunctionDecl :=
                     , Arg.positional (Expr.literal (Literal.number "34"))
                     , Arg.positional (Expr.literal (Literal.number "51")) ]) ]))) }
 
-def ecrecoverBuiltinContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
-          (SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51)
-          0xcafe ] }
+def ecrecoverBuiltinResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+        (SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51)
+        0xcafe ]
+    []
 
 def ecrecoverBuiltinCallResult : Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] ecrecoverBuiltinContext
+  FunctionDecl.callFailOpen? 8 ecrecoverBuiltinResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty ecrecoverBuiltinFunction []
 
 def ecrecoverBuiltinMatches : Option Bool := do
@@ -4077,22 +4083,23 @@ def precompileBuiltinsStaticcallSharedResultsFunction : FunctionDecl :=
                           (SolidCore.Solidity.Shared.Precompile.ecrecoverInput
                             17 27 34 51)))]) ]))) }
 
-def precompileBuiltinsStaticcallSharedResultsContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa
-      , successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.ripemd160 [3, 4] 0xbbbb
-      , successfulPrecompileWordCall
-          SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
-          (SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51)
-          0xcafe ] }
+def precompileBuiltinsStaticcallSharedResultsResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa
+    , successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.ripemd160 [3, 4] 0xbbbb
+    , successfulPrecompileWordCall
+        SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+        (SolidCore.Solidity.Shared.Precompile.ecrecoverInput 17 27 34 51)
+        0xcafe ]
+    []
 
 def precompileBuiltinsStaticcallSharedResultsCallResult :
     Option CoreCallResult :=
-  FunctionDecl.call? 8 [] []
-    precompileBuiltinsStaticcallSharedResultsContext
+  FunctionDecl.callFailOpen? 8
+    precompileBuiltinsStaticcallSharedResultsResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     precompileBuiltinsStaticcallSharedResultsFunction []
 
@@ -4773,20 +4780,21 @@ def externalFunctionPointerCallFunction : FunctionDecl :=
         (Stmt.returnValues
           (some (Expr.call (Expr.ident "getter") []))) }
 
-def externalFunctionPointerCallContext : Option CoreContext := do
+def externalFunctionPointerCallResponder? :
+    Option SolidCore.Solidity.Source.ScriptedResponder := do
   let output ← externalFunctionPointerGetterOutput 99
   some
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-            target := 0xbeef
-            calldata := externalFunctionPointerGetterCalldata
-            success := true
-            output := output } ] }
+    (SolidCore.Solidity.Source.responderOfResults
+      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+          target := 0xbeef
+          calldata := externalFunctionPointerGetterCalldata
+          success := true
+          output := output } ]
+      [])
 
 def externalFunctionPointerCallResult : Option CoreCallResult := do
-  let context ← externalFunctionPointerCallContext
-  FunctionDecl.call? 16 [] [] context
+  let responder ← externalFunctionPointerCallResponder?
+  FunctionDecl.callFailOpen? 16 responder [] [] SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     externalFunctionPointerCallFunction
     [SolidCore.Solidity.Source.Value.externalFunction
@@ -4818,28 +4826,29 @@ def externalFunctionPointerPayableCallFunction : FunctionDecl :=
             , CallOption.named "gas" (Expr.literal (Literal.number "1000")) ]
             [Arg.positional (Expr.ident "x")])) }
 
-def externalFunctionPointerPayableCallContext : Option CoreContext := do
+def externalFunctionPointerPayableCallResponder? :
+    Option SolidCore.Solidity.Source.ScriptedResponder := do
   let encodedArgs ←
     SolidCore.Solidity.Source.abiEncodeValues?
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 7]
   some
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
-            target := 0xbeef
-            calldata :=
-              SolidCore.Solidity.Source.wordToBytesBE
-                SolidCore.Solidity.Source.selectorBytes
-                selectorEncodingSelector ++ encodedArgs
-            value := 5
-            gas? := some 1000
-            success := true
-            output := [] } ] }
+    (SolidCore.Solidity.Source.responderOfResults
+      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+          target := 0xbeef
+          calldata :=
+            SolidCore.Solidity.Source.wordToBytesBE
+              SolidCore.Solidity.Source.selectorBytes
+              selectorEncodingSelector ++ encodedArgs
+          value := 5
+          gas? := some 1000
+          success := true
+          output := [] } ]
+      [])
 
 def externalFunctionPointerPayableCallResult : Option CoreCallResult := do
-  let context ← externalFunctionPointerPayableCallContext
-  FunctionDecl.call? 16 [] [] context
+  let responder ← externalFunctionPointerPayableCallResponder?
+  FunctionDecl.callFailOpen? 16 responder [] [] SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     externalFunctionPointerPayableCallFunction
     [ SolidCore.Solidity.Source.Value.externalFunction
@@ -4875,9 +4884,8 @@ def externalFunctionPointerNonpayableGasMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 11]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata :=
@@ -4886,7 +4894,9 @@ def externalFunctionPointerNonpayableGasMatches : Option Bool := do
                   selectorEncodingSelector ++ encodedArgs
               gas? := some 777
               success := true
-              output := [] } ] }
+              output := [] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       externalFunctionPointerNonpayableGasFunction
       [ SolidCore.Solidity.Source.Value.externalFunction
@@ -4933,28 +4943,31 @@ def externalFunctionPointerTryCatchFunction : FunctionDecl :=
               (Stmt.returnValues
                 (some (Expr.literal (Literal.number "7")))) ]) }
 
-def externalFunctionPointerTryCatchSuccessContext : Option CoreContext := do
+def externalFunctionPointerTryCatchSuccessResponder? :
+    Option SolidCore.Solidity.Source.ScriptedResponder := do
   let output ← externalFunctionPointerGetterOutput 55
   some
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-            target := 0xbeef
-            calldata := externalFunctionPointerGetterCalldata
-            success := true
-            output := output } ] }
+    (SolidCore.Solidity.Source.responderOfResults
+      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+          target := 0xbeef
+          calldata := externalFunctionPointerGetterCalldata
+          success := true
+          output := output } ]
+      [])
 
 def externalFunctionPointerTryCatchResult
-    (context : CoreContext) : Option CoreCallResult :=
-  FunctionDecl.call? 16 [] [] context
+    (context : CoreContext)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder := []) : Option CoreCallResult :=
+  FunctionDecl.callFailOpen? 16 responder [] [] context
     SolidCore.Solidity.Source.State.empty
     externalFunctionPointerTryCatchFunction
     [SolidCore.Solidity.Source.Value.externalFunction
       0xbeef externalFunctionPointerGetterSelector]
 
 def externalFunctionPointerTryCatchSuccessMatches : Option Bool := do
-  let context ← externalFunctionPointerTryCatchSuccessContext
-  let result ← externalFunctionPointerTryCatchResult context
+  let responder ← externalFunctionPointerTryCatchSuccessResponder?
+  let result ←
+    externalFunctionPointerTryCatchResult SolidCore.Solidity.Source.Context.empty responder
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
@@ -6795,17 +6808,18 @@ def lowLevelCallFunction : FunctionDecl :=
             (Expr.call (Expr.member (Expr.ident "target") "call")
               [Arg.positional (Expr.ident "payload")]))) }
 
-def lowLevelCallContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
-          target := 0xbeef
-          calldata := [1, 2, 3]
-          success := true
-          output := [9, 8] } ] }
+def lowLevelCallResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+        target := 0xbeef
+        calldata := [1, 2, 3]
+        success := true
+        output := [9, 8] } ]
+    []
 
 def lowLevelCallResult : Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] lowLevelCallContext
+  FunctionDecl.callFailOpen? 8 lowLevelCallResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty lowLevelCallFunction
     [ SolidCore.Solidity.Source.Value.word 0xbeef
     , SolidCore.Solidity.Source.Value.bytes [1, 2, 3] ]
@@ -6834,19 +6848,20 @@ def lowLevelCallValueFunction : FunctionDecl :=
               , CallOption.named "value" (Expr.literal (Literal.number "5")) ]
               [Arg.positional (Expr.literal (Literal.bytes [1, 2]))]))) }
 
-def lowLevelCallValueContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
-          target := 0xbeef
-          calldata := [1, 2]
-          value := 5
-          gas? := some 1000000
-          success := true
-          output := [4, 5, 6] } ] }
+def lowLevelCallValueResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+        target := 0xbeef
+        calldata := [1, 2]
+        value := 5
+        gas? := some 1000000
+        success := true
+        output := [4, 5, 6] } ]
+    []
 
 def lowLevelCallValueResult : Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] lowLevelCallValueContext
+  FunctionDecl.callFailOpen? 8 lowLevelCallValueResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty lowLevelCallValueFunction []
 
 def lowLevelCallValueMatches : Option Bool := do
@@ -6862,16 +6877,17 @@ def lowLevelCallValueMatches : Option Bool := do
 
 def lowLevelCallGasMismatchReturnsFalse : Option Bool := do
   let result ←
-    FunctionDecl.call? 8 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 8
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := [1, 2]
               value := 5
               gas? := some 999999
               success := true
-              output := [4, 5, 6] } ] }
+              output := [4, 5, 6] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty lowLevelCallValueFunction []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
@@ -6915,19 +6931,20 @@ def lowLevelCallOptionGasEffectsFunction : FunctionDecl :=
                   [ TupleItem.value (Expr.ident "gasSeen")
                   , TupleItem.value (Expr.ident "sent") ])) ]) }
 
-def lowLevelCallOptionGasEffectsContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
-          target := 0xbeef
-          calldata := [1, 2]
-          value := 5
-          gas? := some 11
-          success := true
-          output := [4, 5, 6] } ] }
+def lowLevelCallOptionGasEffectsResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+        target := 0xbeef
+        calldata := [1, 2]
+        value := 5
+        gas? := some 11
+        success := true
+        output := [4, 5, 6] } ]
+    []
 
 def lowLevelCallOptionGasEffectsResult : Option CoreCallResult :=
-  FunctionDecl.call? 16 [] [] lowLevelCallOptionGasEffectsContext
+  FunctionDecl.callFailOpen? 16 lowLevelCallOptionGasEffectsResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     lowLevelCallOptionGasEffectsFunction []
 
@@ -6976,23 +6993,24 @@ def lowLevelStaticDelegateFunction : FunctionDecl :=
                     (Expr.member (Expr.ident "target") "delegatecall")
                     [Arg.positional (Expr.ident "payload")]) ]))) }
 
-def lowLevelStaticDelegateContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-          target := 0xcafe
-          calldata := [7, 7]
-          gas? := some 50000
-          success := true
-          output := [1] }
-      , { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
-          target := 0xcafe
-          calldata := [7, 7]
-          success := false
-          output := [2, 3] } ] }
+def lowLevelStaticDelegateResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+        target := 0xcafe
+        calldata := [7, 7]
+        gas? := some 50000
+        success := true
+        output := [1] }
+    , { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
+        target := 0xcafe
+        calldata := [7, 7]
+        success := false
+        output := [2, 3] } ]
+    []
 
 def lowLevelStaticDelegateResult : Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] lowLevelStaticDelegateContext
+  FunctionDecl.callFailOpen? 8 lowLevelStaticDelegateResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty lowLevelStaticDelegateFunction
     [ SolidCore.Solidity.Source.Value.word 0xcafe
     , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
@@ -7037,20 +7055,21 @@ def lowLevelStaticCallOptionGasEffectsFunction : FunctionDecl :=
           , Stmt.returnValues
               (some (Expr.ident "gasSeen")) ]) }
 
-def lowLevelStaticCallOptionGasEffectsContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-          target := 0xcafe
-          calldata := [7, 7]
-          value := 0
-          gas? := some 12
-          success := true
-          output := [1] } ] }
+def lowLevelStaticCallOptionGasEffectsResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+        target := 0xcafe
+        calldata := [7, 7]
+        value := 0
+        gas? := some 12
+        success := true
+        output := [1] } ]
+    []
 
 def lowLevelStaticCallOptionGasEffectsResult : Option CoreCallResult :=
-  FunctionDecl.call? 16 [] []
-    lowLevelStaticCallOptionGasEffectsContext
+  FunctionDecl.callFailOpen? 16
+    lowLevelStaticCallOptionGasEffectsResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     lowLevelStaticCallOptionGasEffectsFunction
     [ SolidCore.Solidity.Source.Value.word 0xcafe
@@ -7118,19 +7137,20 @@ def lowLevelDelegateCallOptionGasFunction : FunctionDecl :=
                 (Expr.literal (Literal.number "900"))]
               [Arg.positional (Expr.ident "payload")]))) }
 
-def lowLevelDelegateCallOptionGasContext : CoreContext :=
-  { SolidCore.Solidity.Source.Context.empty with
-    lowLevelCallResults :=
-      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
-          target := 0xcafe
-          calldata := [7, 7]
-          value := 0
-          gas? := some 900
-          success := true
-          output := [9, 0] } ] }
+def lowLevelDelegateCallOptionGasResponder : SolidCore.Solidity.Source.ScriptedResponder :=
+  SolidCore.Solidity.Source.responderOfResults
+    [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
+        target := 0xcafe
+        calldata := [7, 7]
+        value := 0
+        gas? := some 900
+        success := true
+        output := [9, 0] } ]
+    []
 
 def lowLevelDelegateCallOptionGasResult : Option CoreCallResult :=
-  FunctionDecl.call? 8 [] [] lowLevelDelegateCallOptionGasContext
+  FunctionDecl.callFailOpen? 8 lowLevelDelegateCallOptionGasResponder [] []
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty
     lowLevelDelegateCallOptionGasFunction
     [ SolidCore.Solidity.Source.Value.word 0xcafe
@@ -9582,7 +9602,8 @@ def tryCatchSuccessFunction : FunctionDecl :=
               (Stmt.returnValues
                 (some (Expr.literal (Literal.number "0")))) ]) }
 
-def tryCatchSuccessContext : Option CoreContext := do
+def tryCatchSuccessResponder? :
+    Option SolidCore.Solidity.Source.ScriptedResponder := do
   let callData ←
     externalCalldata? "get(uint256)"
       [SolidCore.Solidity.Source.Ty.uint256]
@@ -9592,17 +9613,17 @@ def tryCatchSuccessContext : Option CoreContext := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 41]
   some
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
-        [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
-            target := 0xbeef
-            calldata := callData
-            success := true
-            output := output } ] }
+    (SolidCore.Solidity.Source.responderOfResults
+      [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
+          target := 0xbeef
+          calldata := callData
+          success := true
+          output := output } ]
+      [])
 
 def tryCatchSuccessResult : Option CoreCallResult := do
-  let context ← tryCatchSuccessContext
-  FunctionDecl.call? 16 [] [] context
+  let responder ← tryCatchSuccessResponder?
+  FunctionDecl.callFailOpen? 16 responder [] [] SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty tryCatchSuccessFunction
     [ SolidCore.Solidity.Source.Value.word 0xbeef
     , SolidCore.Solidity.Source.Value.word 7 ]
@@ -9639,14 +9660,15 @@ def tryCatchErrorFunction : FunctionDecl :=
 def tryCatchErrorResult : Option CoreCallResult := do
   let callData ← externalCalldata? "get()" [] []
   let errorBytes ← externalErrorBytes? "bad"
-  FunctionDecl.call? 16 [] []
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
+  FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
         [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
             target := 0xbeef
             calldata := callData
             success := false
-            output := errorBytes } ] }
+            output := errorBytes } ]
+      []) [] []
+    (SolidCore.Solidity.Source.Context.empty)
     SolidCore.Solidity.Source.State.empty tryCatchErrorFunction
     [SolidCore.Solidity.Source.Value.word 0xbeef]
 
@@ -9675,14 +9697,15 @@ def tryCatchPanicFunction : FunctionDecl :=
 def tryCatchPanicResult : Option CoreCallResult := do
   let callData ← externalCalldata? "get()" [] []
   let panicBytes ← externalPanicBytes? 0x11
-  FunctionDecl.call? 16 [] []
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
+  FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
         [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
             target := 0xbeef
             calldata := callData
             success := false
-            output := panicBytes } ] }
+            output := panicBytes } ]
+      []) [] []
+    (SolidCore.Solidity.Source.Context.empty)
     SolidCore.Solidity.Source.State.empty tryCatchPanicFunction
     [SolidCore.Solidity.Source.Value.word 0xbeef]
 
@@ -9713,14 +9736,15 @@ def tryCatchLowLevelFunction : FunctionDecl :=
 
 def tryCatchLowLevelResult : Option CoreCallResult := do
   let callData ← externalCalldata? "get()" [] []
-  FunctionDecl.call? 16 [] []
-    { SolidCore.Solidity.Source.Context.empty with
-      lowLevelCallResults :=
+  FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
         [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
             target := 0xbeef
             calldata := callData
             success := false
-            output := [0xaa, 0xbb, 0xcc] } ] }
+            output := [0xaa, 0xbb, 0xcc] } ]
+      []) [] []
+    (SolidCore.Solidity.Source.Context.empty)
     SolidCore.Solidity.Source.State.empty tryCatchLowLevelFunction
     [SolidCore.Solidity.Source.Value.word 0xbeef]
 
@@ -9735,14 +9759,15 @@ def tryCatchLowLevelMatches : Option Bool := do
 def tryCatchUnmatchedPropagatesRaw : Option Bool := do
   let callData ← externalCalldata? "get()" [] []
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := false
-              output := [0xaa, 0xbb] } ] }
+              output := [0xaa, 0xbb] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       { tryCatchPanicFunction with name := some "unmatched" }
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -9781,14 +9806,15 @@ def tryCatchMalformedErrorFallsThroughMatches : Option Bool := do
     SolidCore.Solidity.Source.ABI.encodeSelector
       SolidCore.Solidity.Source.ABI.errorSelector
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := false
-              output := malformedError } ] }
+              output := malformedError } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       tryCatchMalformedErrorFallsThroughFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -9815,14 +9841,15 @@ def tryCatchReturnDecodeFailureFunction : FunctionDecl :=
 def tryCatchReturnDecodeFailureNotCaught : Option Bool := do
   let callData ← externalCalldata? "get()" [] []
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := [0xaa, 0xbb] } ] }
+              output := [0xaa, 0xbb] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       tryCatchReturnDecodeFailureFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -9850,14 +9877,15 @@ def highLevelExternalReturnMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 77]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalReturnFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -9939,14 +9967,15 @@ def highLevelExternalNamedArgsReorderedMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 42]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 40
@@ -9990,14 +10019,15 @@ def highLevelExternalVarDeclMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 40]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalVarDeclFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -10034,14 +10064,15 @@ def highLevelExternalMultiVarDeclMatches : Option Bool := do
       [ SolidCore.Solidity.Source.Value.word 20
       , SolidCore.Solidity.Source.Value.word 22 ]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalMultiVarDeclFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -10073,15 +10104,16 @@ def highLevelExternalValueMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 9]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               value := 5
               success := true
-              output := output } ] }
+              output := output } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalValueFunction
       [ SolidCore.Solidity.Source.Value.word 0xbeef
@@ -10116,16 +10148,17 @@ def highLevelExternalGasValueMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 9]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               value := 5
               gas? := some 12345
               success := true
-              output := output } ] }
+              output := output } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalGasValueFunction
       [ SolidCore.Solidity.Source.Value.word 0xbeef
@@ -10160,14 +10193,15 @@ def highLevelExternalAssignMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 12]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10186,14 +10220,15 @@ def highLevelExternalDiscardFunction : FunctionDecl :=
 def highLevelExternalDiscardMatches : Option Bool := do
   let callData ← externalCalldata? "notify()" [] []
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := [] } ] }
+              output := [] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalDiscardFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -10256,14 +10291,15 @@ def highLevelExternalNoReturnMissingCodeCaught : Option Bool := do
   let function ← contract.findFunctionByName? "notifyOrCatch"
   let callData ← externalCalldata? "notify()" [] []
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := [] } ] }
+              output := [] } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10279,15 +10315,16 @@ def highLevelExternalNoReturnCodePresentSucceeds : Option Bool := do
   let function ← contract.findFunctionByName? "notifyOrCatch"
   let callData ← externalCalldata? "notify()" [] []
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        accountCodes := [(0xbeef, [1])]
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := [] } ] }
+              output := [] } ]
+      [])
+      { contract.context with
+        accountCodes := [(0xbeef, [1])] }
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10307,14 +10344,15 @@ def highLevelExternalReturnNoCodeUsesReturndata : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 5]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10326,14 +10364,15 @@ def highLevelExternalReturnNoCodeUsesReturndata : Option Bool := do
 def highLevelExternalFailureBubblesRaw : Option Bool := do
   let callData ← externalCalldata? "get()" [] []
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               success := false
-              output := [0xdd, 0xee] } ] }
+              output := [0xdd, 0xee] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       highLevelExternalReturnFunction
       [SolidCore.Solidity.Source.Value.word 0xbeef]
@@ -10437,14 +10476,15 @@ def highLevelExternalViewStaticcallMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 77]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10464,15 +10504,16 @@ def highLevelExternalPureGasStaticcallMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 88]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xbeef
               calldata := callData
               gas? := some 4321
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10492,14 +10533,15 @@ def highLevelExternalGetterStaticcallMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 99]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xbeef
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10600,16 +10642,17 @@ def highLevelExternalPayableValueMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 22]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               value := 9
               gas? := some 1234
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 9 ]
@@ -10631,15 +10674,16 @@ def highLevelExternalNonpayableGasMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 33]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := callData
               gas? := some 5678
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10701,15 +10745,16 @@ def highLevelThisViewStaticcallMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 123]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        self := 0xcafe
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xcafe
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      { contract.context with
+        self := 0xcafe }
       function SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -10726,15 +10771,16 @@ def highLevelThisGetterStaticcallMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 456]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        self := 0xcafe
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xcafe
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      { contract.context with
+        self := 0xcafe }
       function SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -11113,16 +11159,17 @@ def sendValueFunction : FunctionDecl :=
 
 def sendValueMatches : Option Bool := do
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := true
-              output := [] } ] }
+              output := [] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       sendValueFunction
       [ SolidCore.Solidity.Source.Value.word 0xbeef
@@ -11135,16 +11182,17 @@ def sendValueMatches : Option Bool := do
 
 def sendValueFailureReturnsFalse : Option Bool := do
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := false
-              output := [0xde, 0xad] } ] }
+              output := [0xde, 0xad] } ]
+      []) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       sendValueFunction
       [ SolidCore.Solidity.Source.Value.word 0xbeef
@@ -11182,16 +11230,17 @@ def transferValueSuccessMatches : Option Bool := do
   let contract ← ContractDecl.toCore? transferValueContract
   let function ← contract.findFunctionByName? "pay"
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := true
-              output := [] } ] }
+              output := [] } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 5 ]
@@ -11204,16 +11253,17 @@ def transferValueFailureReverts : Option Bool := do
   let contract ← ContractDecl.toCore? transferValueContract
   let function ← contract.findFunctionByName? "pay"
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := false
-              output := [0xba, 0xad] } ] }
+              output := [0xba, 0xad] } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 5 ]
@@ -11244,13 +11294,14 @@ def contractCreationSuccessMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 7]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        contractCreationResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "Child"
               constructorArgs := constructorArgs
               success := true
-              address := 0xc0de } ] }
+              address := 0xc0de } ]) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       contractCreationFunction []
   match result with
@@ -11338,13 +11389,14 @@ def contractCreationNamedArgsReorderedMatches : Option Bool := do
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2 ]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        contractCreationResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "NamedChild"
               constructorArgs := constructorArgs
               success := true
-              address := 0xc0de } ] }
+              address := 0xc0de } ])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2 ]
@@ -11368,15 +11420,16 @@ def contractCreationNamedArgsWithOptionsMatches : Option Bool := do
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2 ]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        contractCreationResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "NamedChild"
               constructorArgs := constructorArgs
               value := 5
               salt? := some 0x1234
               success := true
-              address := 0xcafe } ] }
+              address := 0xcafe } ])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2
@@ -11419,15 +11472,16 @@ def contractCreationWithValueSaltMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 9]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        contractCreationResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "Child"
               constructorArgs := constructorArgs
               value := 5
               salt? := some 0x1234
               success := true
-              address := 0xcafe } ] }
+              address := 0xcafe } ]) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       contractCreationWithOptionsFunction
       [ SolidCore.Solidity.Source.Value.word 5
@@ -11466,13 +11520,14 @@ def contractCreationFailureBubblesRaw : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 7]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 16
-      { contract.context with
-        contractCreationResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "Child"
               constructorArgs := constructorArgs
               success := false
-              output := [0xca, 0xfe] } ] }
+              output := [0xca, 0xfe] } ])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.reverted state
@@ -11502,13 +11557,14 @@ def tryCatchCreationSuccessMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 7]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        contractCreationResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "Child"
               constructorArgs := constructorArgs
               success := true
-              address := 0xc0de } ] }
+              address := 0xc0de } ]) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       tryCatchCreationFunction []
   match result with
@@ -11523,13 +11579,14 @@ def tryCatchCreationFailureMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 7]
   let result ←
-    FunctionDecl.call? 16 [] []
-      { SolidCore.Solidity.Source.Context.empty with
-        contractCreationResults :=
+    FunctionDecl.callFailOpen? 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "Child"
               constructorArgs := constructorArgs
               success := false
-              output := [0xca, 0xfe] } ] }
+              output := [0xca, 0xfe] } ]) [] []
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       tryCatchCreationFunction []
   match result with
@@ -12377,15 +12434,16 @@ def nestedPublicGetterThisCallStaticcallMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 77]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 24
-      { contract.context with
-        self := 0xcafe
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 24
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xcafe
               calldata := callData
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      { contract.context with
+        self := 0xcafe }
       function SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -22301,16 +22359,17 @@ def noReturnEffectReturnTransferMatches : Option Bool := do
     "NoReturnEffectReturn"
   let function ← contract.findFunctionByName? "returnTransfer"
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 64
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := true
-              output := [] } ] }
+              output := [] } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 5 ]
@@ -25657,15 +25716,16 @@ def tryCatchAroundModifierSuccessMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 42]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 64
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := calldata
               value := 0
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -25680,15 +25740,16 @@ def tryCatchAroundModifierCatchMatches : Option Bool := do
   let function ← contract.findFunctionByName? "run"
   let calldata ← externalCalldata? "ping()" [] []
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 64
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := calldata
               value := 0
               success := false
-              output := [0xca, 0xfe] } ] }
+              output := [0xca, 0xfe] } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -25744,15 +25805,16 @@ def directExternalCallModifierMatches : Option Bool := do
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 77]
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 64
-      { contract.context with
-        lowLevelCallResults :=
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := calldata
               value := 0
               success := true
-              output := output } ] }
+              output := output } ]
+      [])
+      (contract.context)
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -26679,10 +26741,12 @@ def externalLibraryDirectDelegateCallMatches : Option Bool := do
   let function ← contract.findFunctionByName? "run"
   let callResult ← externalLibraryCallResult? 41 42
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 64
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
+                               [callResult]
+      [])
       { contract.context with
-        contractAddresses := [("ExternalMath", 0xbeef)]
-        lowLevelCallResults := [callResult] }
+        contractAddresses := [("ExternalMath", 0xbeef)] }
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 41]
   match result with
@@ -26697,10 +26761,12 @@ def externalLibraryUsingDelegateCallMatches : Option Bool := do
   let function ← contract.findFunctionByName? "run"
   let callResult ← externalLibraryCallResult? 6 7
   let result ←
-    SolidCore.Solidity.Source.FunctionDef.call? 64
+    SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
+                               [callResult]
+      [])
       { contract.context with
-        contractAddresses := [("ExternalMath", 0xbeef)]
-        lowLevelCallResults := [callResult] }
+        contractAddresses := [("ExternalMath", 0xbeef)] }
       function SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 6]
   match result with

@@ -23,6 +23,16 @@ def checkedSourceFunctionCallWithContext (fuel : Nat)
   SourceUnit.checkedCallFunctionWithContext
     fuel source contractName functionName context state args
 
+/-- Witness fail-open twin (responder after fuel; see `foldFailOpen`). -/
+def checkedSourceFunctionCallWithContextFailOpen (fuel : Nat)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder)
+    (source : Solidity.SourceUnit) (contractName functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  SourceUnit.checkedCallFunctionWithContextFailOpen
+    fuel responder source contractName functionName context state args
+
 def checkedStorageReturnConditionalMatches : Except TypeError Bool := do
   let result ←
     ContractDecl.checkedCall 128
@@ -2961,16 +2971,17 @@ def checkedNoReturnEffectReturnTransferMatches :
       (contract.core.findFunctionByName? "returnTransfer")
   let result ←
     match
-      SolidCore.Solidity.Source.FunctionDef.call? 64
-        { contract.core.context with
-          lowLevelCallResults :=
+      SolidCore.Solidity.Source.FunctionDef.callFailOpen? 64
+      (SolidCore.Solidity.Source.responderOfResults
             [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
                 target := 0xbeef
                 calldata := []
                 value := 5
                 gas? := some 2300
                 success := true
-                output := [] } ] }
+                output := [] } ]
+      [])
+        (contract.core.context)
         function SolidCore.Solidity.Source.State.empty
         [ SolidCore.Solidity.Source.Value.word 0xbeef
         , SolidCore.Solidity.Source.Value.word 5 ] with
@@ -6825,13 +6836,14 @@ def checkedExternalFunctionAbiRejectsDirtyPadding : Bool :=
 
 def checkedExternalFunctionPointerCallMatches :
     Except TypeError Bool := do
-  let context ←
-    optionToExcept "external function pointer call context"
-      Executable.Examples.externalFunctionPointerCallContext
+  let responder ←
+    optionToExcept "external function pointer call responder"
+      Executable.Examples.externalFunctionPointerCallResponder?
   let result ←
-    ContractDecl.checkedCallFunctionWithContext 16
+    ContractDecl.checkedCallFunctionWithContextFailOpen 16 responder
       Executable.Examples.checkedExternalFunctionPointerContract
-      "callGetter" context SolidCore.Solidity.Source.State.empty
+      "callGetter" SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.externalFunction
         0xbeef Executable.Examples.externalFunctionPointerGetterSelector]
   match result with
@@ -6842,12 +6854,14 @@ def checkedExternalFunctionPointerCallMatches :
 
 def checkedExternalFunctionPointerPayableCallMatches :
     Except TypeError Bool := do
-  let context ←
-    optionToExcept "external function pointer payable call context"
-      Executable.Examples.externalFunctionPointerPayableCallContext
-  let context := { context with accountCodes := [(0xbeef, [1])] }
+  let responder ←
+    optionToExcept "external function pointer payable call responder"
+      Executable.Examples.externalFunctionPointerPayableCallResponder?
+  let context :=
+    { SolidCore.Solidity.Source.Context.empty with
+      accountCodes := [(0xbeef, [1])] }
   let result ←
-    ContractDecl.checkedCallFunctionWithContext 16
+    ContractDecl.checkedCallFunctionWithContextFailOpen 16 responder
       Executable.Examples.checkedExternalFunctionPointerContract
       "callSetter" context SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.externalFunction
@@ -6866,8 +6880,10 @@ def checkedExternalFunctionPointerNonpayableGasMatches :
       [SolidCore.Solidity.Source.Value.word 11]
   let context :=
     { SolidCore.Solidity.Source.Context.empty with
-      accountCodes := [(0xbeef, [1])]
-      lowLevelCallResults :=
+      accountCodes := [(0xbeef, [1])] }
+  let result ←
+    ContractDecl.checkedCallFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
         [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
             target := 0xbeef
             calldata :=
@@ -6876,9 +6892,8 @@ def checkedExternalFunctionPointerNonpayableGasMatches :
                 Executable.Examples.selectorEncodingSelector ++ encodedArgs
             gas? := some 777
             success := true
-            output := [] } ] }
-  let result ←
-    ContractDecl.checkedCallFunctionWithContext 16
+            output := [] } ]
+      [])
       Executable.Examples.checkedExternalFunctionPointerContract
       "callSetterWithGas" context
       SolidCore.Solidity.Source.State.empty
@@ -6898,13 +6913,14 @@ def checkedExternalFunctionPointerNonpayableValueRejected :
 
 def checkedExternalFunctionPointerTryCatchSuccessMatches :
     Except TypeError Bool := do
-  let context ←
-    optionToExcept "external function pointer try/catch context"
-      Executable.Examples.externalFunctionPointerTryCatchSuccessContext
+  let responder ←
+    optionToExcept "external function pointer try/catch responder"
+      Executable.Examples.externalFunctionPointerTryCatchSuccessResponder?
   let result ←
-    ContractDecl.checkedCallFunctionWithContext 16
+    ContractDecl.checkedCallFunctionWithContextFailOpen 16 responder
       Executable.Examples.checkedExternalFunctionPointerContract
-      "tryGetter" context SolidCore.Solidity.Source.State.empty
+      "tryGetter" SolidCore.Solidity.Source.Context.empty
+      SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.externalFunction
         0xbeef Executable.Examples.externalFunctionPointerGetterSelector]
   match result with
@@ -6973,16 +6989,17 @@ def checkedHighLevelExternalResult
 
 def checkedHighLevelExternalCall
     (functionName : Name) (context : CoreContext)
-    (args : List CoreValue) : Except TypeError CoreCallResult := do
+    (args : List CoreValue)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder := []) : Except TypeError CoreCallResult := do
   let contract ←
     CheckedInput.contract
       Executable.Examples.checkedHighLevelExternalSource
       "CheckedHighLevelCaller"
-  CheckedContract.callFunctionWithContext 32 contract functionName
+  CheckedContract.callFunctionWithContextFailOpen 32 responder
+    contract functionName
     context SolidCore.Solidity.Source.State.empty args
 
 def checkedHighLevelExternalContext
-    (results : List SolidCore.Solidity.Source.LowLevelCallResult)
     (accountCodes : List (Word × List Byte) := []) :
     Except TypeError CoreContext := do
   let contract ←
@@ -6991,15 +7008,15 @@ def checkedHighLevelExternalContext
       "CheckedHighLevelCaller"
   Except.ok
     { contract.core.context with
-      accountCodes := accountCodes
-      lowLevelCallResults := results }
+      accountCodes := accountCodes }
 
 def checkedHighLevelExternalWordCallMatches
     (functionName : Name) (context : CoreContext)
-    (args : List CoreValue) (expected : Word) :
+    (args : List CoreValue) (expected : Word)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder := []) :
     Except TypeError Bool := do
   let result ←
-    checkedHighLevelExternalCall functionName context args
+    checkedHighLevelExternalCall functionName context args responder
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [SolidCore.Solidity.Source.Value.word value] =>
@@ -7013,9 +7030,11 @@ def checkedHighLevelExternalReturnMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "get()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "read" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 77
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 77 responder
 
 def checkedHighLevelExternalNamedArgsReorderedMatches :
     Except TypeError Bool := do
@@ -7028,11 +7047,13 @@ def checkedHighLevelExternalNamedArgsReorderedMatches :
       , SolidCore.Solidity.Source.Ty.uint256 ]
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2 ] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readNamed" context
     [ SolidCore.Solidity.Source.Value.word 0xbeef
     , SolidCore.Solidity.Source.Value.word 40
-    , SolidCore.Solidity.Source.Value.word 2 ] 42
+    , SolidCore.Solidity.Source.Value.word 2 ] 42 responder
 
 def checkedHighLevelExternalVarDeclMatches :
     Except TypeError Bool := do
@@ -7041,9 +7062,11 @@ def checkedHighLevelExternalVarDeclMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "get()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readViaLocal" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 41
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 41 responder
 
 def checkedHighLevelExternalMultiVarDeclMatches :
     Except TypeError Bool := do
@@ -7052,9 +7075,11 @@ def checkedHighLevelExternalMultiVarDeclMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "pair()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readPairViaLocals" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 42
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 42 responder
 
 def checkedHighLevelExternalPayableValueMatches :
     Except TypeError Bool := do
@@ -7063,10 +7088,12 @@ def checkedHighLevelExternalPayableValueMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "payQuote()" [] [] output 9 (some 1234)
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "payKnown" context
     [ SolidCore.Solidity.Source.Value.word 0xbeef
-    , SolidCore.Solidity.Source.Value.word 9 ] 22
+    , SolidCore.Solidity.Source.Value.word 9 ] 22 responder
 
 def checkedHighLevelExternalNonpayableGasMatches :
     Except TypeError Bool := do
@@ -7075,9 +7102,11 @@ def checkedHighLevelExternalNonpayableGasMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "plainQuote()" [] [] output 0 (some 5678)
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "nonpayableGas" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 33
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 33 responder
 
 def checkedHighLevelExternalAssignMatches :
     Except TypeError Bool := do
@@ -7086,10 +7115,12 @@ def checkedHighLevelExternalAssignMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "get()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   let callResult ←
     checkedHighLevelExternalCall "assignFromExternal" context
-      [SolidCore.Solidity.Source.Value.word 0xbeef]
+      [SolidCore.Solidity.Source.Value.word 0xbeef] responder
   match callResult with
   | SolidCore.Solidity.Source.CallResult.returned state [] =>
       Except.ok (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 12)
@@ -7101,10 +7132,12 @@ def checkedHighLevelExternalDiscardMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "notify()" [] [] []
-  let context ← checkedHighLevelExternalContext [result] [(0xbeef, [1])]
+  let context ← checkedHighLevelExternalContext [(0xbeef, [1])]
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   let callResult ←
     checkedHighLevelExternalCall "notifyExternal" context
-      [SolidCore.Solidity.Source.Value.word 0xbeef]
+      [SolidCore.Solidity.Source.Value.word 0xbeef] responder
   match callResult with
   | SolidCore.Solidity.Source.CallResult.returned _ [] =>
       Except.ok true
@@ -7116,9 +7149,11 @@ def checkedHighLevelExternalNoReturnMissingCodeCaught :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "notify()" [] [] []
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "notifyOrCatch" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 2
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 2 responder
 
 def checkedHighLevelExternalNoReturnCodePresentSucceeds :
     Except TypeError Bool := do
@@ -7126,9 +7161,11 @@ def checkedHighLevelExternalNoReturnCodePresentSucceeds :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "notify()" [] [] []
-  let context ← checkedHighLevelExternalContext [result] [(0xbeef, [1])]
+  let context ← checkedHighLevelExternalContext [(0xbeef, [1])]
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "notifyOrCatch" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 1
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 1 responder
 
 def checkedHighLevelExternalReturnNoCodeUsesReturndata :
     Except TypeError Bool := do
@@ -7137,9 +7174,11 @@ def checkedHighLevelExternalReturnNoCodeUsesReturndata :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "get()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readNoCodeReturn" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 5
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 5 responder
 
 def checkedHighLevelExternalFailureBubblesRaw :
     Except TypeError Bool := do
@@ -7147,10 +7186,12 @@ def checkedHighLevelExternalFailureBubblesRaw :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.call
       "get()" [] [] [0xdd, 0xee] 0 none false
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   let callResult ←
     checkedHighLevelExternalCall "read" context
-      [SolidCore.Solidity.Source.Value.word 0xbeef]
+      [SolidCore.Solidity.Source.Value.word 0xbeef] responder
   match callResult with
   | SolidCore.Solidity.Source.CallResult.reverted _
       (SolidCore.Solidity.Source.RevertData.raw bytes) =>
@@ -7164,9 +7205,11 @@ def checkedHighLevelExternalViewStaticcallMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.staticcall
       "viewGet()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readView" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 77
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 77 responder
 
 def checkedHighLevelExternalPureGasStaticcallMatches :
     Except TypeError Bool := do
@@ -7175,9 +7218,11 @@ def checkedHighLevelExternalPureGasStaticcallMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.staticcall
       "pureGet()" [] [] output 0 (some 4321)
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readPureWithGas" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 88
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 88 responder
 
 def checkedHighLevelExternalGetterStaticcallMatches :
     Except TypeError Bool := do
@@ -7186,9 +7231,11 @@ def checkedHighLevelExternalGetterStaticcallMatches :
     checkedHighLevelExternalResult
       SolidCore.Solidity.Source.LowLevelCallKind.staticcall
       "x()" [] [] output
-  let context ← checkedHighLevelExternalContext [result]
+  let context ← checkedHighLevelExternalContext
+  let responder :=
+    SolidCore.Solidity.Source.responderOfResults [result] []
   checkedHighLevelExternalWordCallMatches "readGetter" context
-    [SolidCore.Solidity.Source.Value.word 0xbeef] 99
+    [SolidCore.Solidity.Source.Value.word 0xbeef] 99 responder
 
 def checkedHighLevelThisStaticcallMatches
     (functionName signature : Name) (expected : Word) :
@@ -7200,15 +7247,16 @@ def checkedHighLevelThisStaticcallMatches
       Executable.Examples.checkedHighLevelExternalSource
       "CheckedThisStatic"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract functionName
-      { contract.core.context with
-        self := 0xcafe
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xcafe
               calldata := calldata
               success := true
-              output := output } ] }
+              output := output } ]
+      []) contract functionName
+      { contract.core.context with
+        self := 0xcafe }
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -7300,10 +7348,11 @@ def checkedCallFunctionWithContextWordPairMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
     (context : SolidCore.Solidity.Source.Context)
     (state : CoreState) (args : List CoreValue)
-    (expectedA expectedB : Word) : Except TypeError Bool := do
+    (expectedA expectedB : Word)
+    (responder : SolidCore.Solidity.Source.ScriptedResponder := []) : Except TypeError Bool := do
   let result ←
-    ContractDecl.checkedCallFunctionWithContext
-      fuel decl functionName context state args
+    ContractDecl.checkedCallFunctionWithContextFailOpen
+      fuel responder decl functionName context state args
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
       [ SolidCore.Solidity.Source.Value.word a
@@ -7535,8 +7584,9 @@ def checkedExternalCryptoHashMatches : Except TypeError Bool :=
   checkedCallFunctionWithContextWordPairMatches 16
     Executable.Examples.checkedHashBuiltinContract
     "externalHashes"
-    Executable.Examples.externalCryptoHashContext
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty [] 0xaaaa 0xbbbb
+    Executable.Examples.externalCryptoHashResponder
 
 def checkedExternalCryptoHashMissingPanics :
     Except TypeError Bool := do
@@ -7555,16 +7605,18 @@ def checkedEcrecoverBuiltinMatches : Except TypeError Bool :=
   checkedCallFunctionWithContextWordPairMatches 16
     Executable.Examples.checkedHashBuiltinContract
     "recover"
-    Executable.Examples.ecrecoverBuiltinContext
+    SolidCore.Solidity.Source.Context.empty
     SolidCore.Solidity.Source.State.empty [] 0xcafe 0
+    Executable.Examples.ecrecoverBuiltinResponder
 
 def checkedPrecompileBuiltinsStaticcallSharedResultsMatches :
     Except TypeError Bool := do
   let result ←
-    ContractDecl.checkedCallFunctionWithContext 16
+    ContractDecl.checkedCallFunctionWithContextFailOpen 16
+      Executable.Examples.precompileBuiltinsStaticcallSharedResultsResponder
       Executable.Examples.checkedHashBuiltinContract
       "precompileBuiltinsAndCalls"
-      Executable.Examples.precompileBuiltinsStaticcallSharedResultsContext
+      SolidCore.Solidity.Source.Context.empty
       SolidCore.Solidity.Source.State.empty []
   let shaExpected :=
     SolidCore.Solidity.Source.wordToBytesBE
@@ -9580,11 +9632,13 @@ def checkedCanonicalExternalLibraryDelegateCallMatches
     optionToExcept "canonical external library call result"
       (Executable.Examples.externalLibraryCallResult? input output)
   let result ←
-    CheckedInput.callFunctionWithContext 64
+    CheckedInput.callFunctionWithContextFailOpen 64
+      (SolidCore.Solidity.Source.responderOfResults
+                               [callResult]
+      [])
       Executable.Examples.externalLibraryUnit contractName "run"
       { contract.core.context with
-        contractAddresses := [("ExternalMath", 0xbeef)]
-        lowLevelCallResults := [callResult] }
+        contractAddresses := [("ExternalMath", 0xbeef)] }
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word input]
   match result with
@@ -9906,11 +9960,13 @@ def checkedExternalLibraryDelegateCallMatches
     optionToExcept "external library call result"
       (Executable.Examples.externalLibraryCallResult? input output)
   let result ←
-    CheckedInput.callFunctionWithContext 64 checkedExternalLibraryUnit
+    CheckedInput.callFunctionWithContextFailOpen 64
+      (SolidCore.Solidity.Source.responderOfResults
+                               [callResult]
+      []) checkedExternalLibraryUnit
       contractName "run"
       { contract.core.context with
-        contractAddresses := [("CheckedExternalMath", 0xbeef)]
-        lowLevelCallResults := [callResult] }
+        contractAddresses := [("CheckedExternalMath", 0xbeef)] }
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word input]
   match result with
@@ -10140,15 +10196,16 @@ def checkedTryCatchAroundModifierSuccessMatches :
     CheckedInput.contract checkedTryCatchAroundModifierUnit
       "CheckedTryCatchModifier"
   let result ←
-    CheckedContract.callFunctionWithContext 64 contract "run"
-      { contract.core.context with
-        accountCodes := [(0xbeef, [1])]
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xbeef
               calldata := calldata
               success := true
-              output := output } ] }
+              output := output } ]
+      []) contract "run"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1])] }
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10167,15 +10224,16 @@ def checkedTryCatchAroundModifierCatchMatches :
     CheckedInput.contract checkedTryCatchAroundModifierUnit
       "CheckedTryCatchModifier"
   let result ←
-    CheckedContract.callFunctionWithContext 64 contract "run"
-      { contract.core.context with
-        accountCodes := [(0xbeef, [1])]
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xbeef
               calldata := calldata
               success := false
-              output := [0xca, 0xfe] } ] }
+              output := [0xca, 0xfe] } ]
+      []) contract "run"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1])] }
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -10234,15 +10292,16 @@ def checkedDirectExternalCallModifierMatches :
     CheckedInput.contract checkedDirectExternalCallModifierUnit
       "CheckedDirectExternalModifier"
   let result ←
-    CheckedContract.callFunctionWithContext 64 contract "run"
-      { contract.core.context with
-        accountCodes := [(0xbeef, [1])]
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 64
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xbeef
               calldata := calldata
               success := true
-              output := output } ] }
+              output := output } ]
+      []) contract "run"
+      { contract.core.context with
+        accountCodes := [(0xbeef, [1])] }
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -12947,14 +13006,15 @@ def checkedLowLevelDelegateCallValueOptionContract :
 def checkedLowLevelCallMatches : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "probe"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := [1, 2, 3]
               success := true
-              output := [9, 8] } ] }
+              output := [9, 8] } ]
+      []) contract "probe"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.bytes [1, 2, 3] ]
@@ -12969,16 +13029,17 @@ def checkedLowLevelCallMatches : Except TypeError Bool := do
 def checkedLowLevelCallValueMatches : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "payWithOptions"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := [1, 2]
               value := 5
               gas? := some 1000000
               success := true
-              output := [4, 5, 6] } ] }
+              output := [4, 5, 6] } ]
+      []) contract "payWithOptions"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
@@ -12992,16 +13053,17 @@ def checkedLowLevelCallGasMismatchReturnsFalse :
     Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "payWithOptions"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := [1, 2]
               value := 5
               gas? := some 999999
               success := true
-              output := [4, 5, 6] } ] }
+              output := [4, 5, 6] } ]
+      []) contract "payWithOptions"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _ [value] => do
@@ -13015,16 +13077,17 @@ def checkedLowLevelCallOptionEffectsMatches :
     Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 32 contract "payWithOptionEffects"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 32
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := [1, 2]
               value := 5
               gas? := some 11
               success := true
-              output := [4, 5, 6] } ] }
+              output := [4, 5, 6] } ]
+      []) contract "payWithOptionEffects"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned state
@@ -13048,9 +13111,8 @@ def checkedLowLevelStaticDelegateMatches :
     Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "probeBoth"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xcafe
               calldata := [7, 7]
@@ -13061,7 +13123,9 @@ def checkedLowLevelStaticDelegateMatches :
               target := 0xcafe
               calldata := [7, 7]
               success := false
-              output := [2, 3] } ] }
+              output := [2, 3] } ]
+      []) contract "probeBoth"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xcafe
       , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
@@ -13083,15 +13147,16 @@ def checkedLowLevelDelegateCallGasOptionMatches :
     Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "delegateGas"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall
               target := 0xcafe
               calldata := [7, 7]
               gas? := some 900
               success := true
-              output := [9, 0] } ] }
+              output := [9, 0] } ]
+      []) contract "delegateGas"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xcafe
       , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
@@ -13107,15 +13172,16 @@ def checkedLowLevelStaticCallOptionGasEffectsMatches :
     Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedLowLevelCallContract
   let result ←
-    CheckedContract.callFunctionWithContext 32 contract "staticGasExpr"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 32
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
               target := 0xcafe
               calldata := [7, 7]
               gas? := some 12
               success := true
-              output := [1] } ] }
+              output := [1] } ]
+      []) contract "staticGasExpr"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xcafe
       , SolidCore.Solidity.Source.Value.bytes [7, 7] ]
@@ -13176,16 +13242,17 @@ def checkedLowLevelSendMatches : Except TypeError Bool := do
   let program ← SourceUnit.checkedProgram lowLevelSendSource
   let contract ← CheckedProgram.contract program "LowLevelSend"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "sendIt"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 1
               gas? := some 2300
               success := true
-              output := [] } ] }
+              output := [] } ]
+      []) contract "sendIt"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -13199,16 +13266,17 @@ def checkedLowLevelSendFailureReturnsFalse :
   let program ← SourceUnit.checkedProgram lowLevelSendSource
   let contract ← CheckedProgram.contract program "LowLevelSend"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "sendIt"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 1
               gas? := some 2300
               success := false
-              output := [0xde, 0xad] } ] }
+              output := [0xde, 0xad] } ]
+      []) contract "sendIt"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -13266,16 +13334,17 @@ def checkedTransferValueContract : Solidity.ContractDecl :=
 def checkedTransferValueSuccessMatches : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedTransferValueContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "pay"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := true
-              output := [] } ] }
+              output := [] } ]
+      []) contract "pay"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 5 ]
@@ -13287,16 +13356,17 @@ def checkedTransferValueSuccessMatches : Except TypeError Bool := do
 def checkedTransferValueFailureReverts : Except TypeError Bool := do
   let contract ← ContractDecl.checkedContract checkedTransferValueContract
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "pay"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 0xbeef
               calldata := []
               value := 5
               gas? := some 2300
               success := false
-              output := [0xba, 0xad] } ] }
+              output := [0xba, 0xad] } ]
+      []) contract "pay"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xbeef
       , SolidCore.Solidity.Source.Value.word 5 ]
@@ -13354,11 +13424,12 @@ def checkedPrecompileStaticcallMatches :
     SolidCore.Solidity.Source.wordToBytesBE
       SolidCore.Solidity.Source.wordBytes 0xaaaa
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "hashAndProbe"
-      { contract.core.context with
-        lowLevelCallResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
           [ Executable.Examples.successfulPrecompileWordCall
-              SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa ] }
+              SolidCore.Solidity.Shared.Precompile.Kind.sha256 [1, 2] 0xaaaa ]
+      []) contract "hashAndProbe"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -13545,13 +13616,14 @@ def checkedContractCreationMatches : Except TypeError Bool := do
   let program ← SourceUnit.checkedProgram checkedContractCreationSource
   let contract ← CheckedProgram.contract program "CheckedCreateCaller"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "make"
-      { contract.core.context with
-        contractCreationResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedCreatedChild"
               constructorArgs := constructorArgs
               success := true
-              address := 0xc0de } ] }
+              address := 0xc0de } ]) contract "make"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 7]
   match result with
@@ -13574,13 +13646,14 @@ def checkedContractCreationNamedArgsMatches :
   let program ← SourceUnit.checkedProgram checkedContractCreationSource
   let contract ← CheckedProgram.contract program "CheckedCreateCaller"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "makeNamed"
-      { contract.core.context with
-        contractCreationResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedNamedCreatedChild"
               constructorArgs := constructorArgs
               success := true
-              address := 0xc0de } ] }
+              address := 0xc0de } ]) contract "makeNamed"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2 ]
@@ -13605,15 +13678,16 @@ def checkedContractCreationValueSaltMatches :
   let program ← SourceUnit.checkedProgram checkedContractCreationSource
   let contract ← CheckedProgram.contract program "CheckedCreateCaller"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "makeNamedSalted"
-      { contract.core.context with
-        contractCreationResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedNamedCreatedChild"
               constructorArgs := constructorArgs
               value := 5
               salt? := some 0x1234
               success := true
-              address := 0xcafe } ] }
+              address := 0xcafe } ]) contract "makeNamedSalted"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 40
       , SolidCore.Solidity.Source.Value.word 2
@@ -13647,13 +13721,14 @@ def checkedContractCreationFailureReverts :
   let program ← SourceUnit.checkedProgram checkedContractCreationSource
   let contract ← CheckedProgram.contract program "CheckedCreateCaller"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "makeFailure"
-      { contract.core.context with
-        contractCreationResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedCreatedChild"
               constructorArgs := constructorArgs
               success := false
-              output := [0xca, 0xfe] } ] }
+              output := [0xca, 0xfe] } ]) contract "makeFailure"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.reverted state
@@ -13687,13 +13762,14 @@ def checkedTryCatchContractCreationSuccessMatches :
   let program ← SourceUnit.checkedProgram checkedContractCreationSource
   let contract ← CheckedProgram.contract program "CheckedCreateCaller"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "tryMake"
-      { contract.core.context with
-        contractCreationResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedCreatedChild"
               constructorArgs := constructorArgs
               success := true
-              address := 0xc0de } ] }
+              address := 0xc0de } ]) contract "tryMake"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -13710,13 +13786,14 @@ def checkedTryCatchContractCreationFailureMatches :
   let program ← SourceUnit.checkedProgram checkedContractCreationSource
   let contract ← CheckedProgram.contract program "CheckedCreateCaller"
   let result ←
-    CheckedContract.callFunctionWithContext 16 contract "tryMake"
-      { contract.core.context with
-        contractCreationResults :=
+    CheckedContract.callFunctionWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedCreatedChild"
               constructorArgs := constructorArgs
               success := false
-              output := [0xca, 0xfe] } ] }
+              output := [0xca, 0xfe] } ]) contract "tryMake"
+      (contract.core.context)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned _
@@ -13988,16 +14065,17 @@ def checkedTryExternalCallOperandEffectsMatches :
       [SolidCore.Solidity.Source.Value.word 3]
   let output ← checkedHighLevelExternalWordOutput 99
   let result ←
-    checkedSourceFunctionCallWithContext 32 checkedTryOperandEffectsUnit
-      "CheckedTryExternalCallOperandEffects" "run"
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
+    checkedSourceFunctionCallWithContextFailOpen 32
+      (SolidCore.Solidity.Source.responderOfResults
           [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.call
               target := 51966
               calldata := callData
               value := 7
               success := true
-              output := output } ] }
+              output := output } ]
+      []) checkedTryOperandEffectsUnit
+      "CheckedTryExternalCallOperandEffects" "run"
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned state
@@ -14028,17 +14106,18 @@ def checkedTryContractCreateOperandEffectsMatches :
       [SolidCore.Solidity.Source.Ty.uint256]
       [SolidCore.Solidity.Source.Value.word 3]
   let result ←
-    checkedSourceFunctionCallWithContext 32 checkedTryOperandEffectsUnit
-      "CheckedTryContractCreateOperandEffects" "run"
-      { SolidCore.Solidity.Source.Context.empty with
-        contractCreationResults :=
+    checkedSourceFunctionCallWithContextFailOpen 32
+      (SolidCore.Solidity.Source.responderOfResults
+      []
           [ { contractName := "CheckedTryOperandMade"
               constructorArgs := constructorArgs
               value := 7
               salt? := some 5
               success := true
               address := 51966
-              output := [] } ] }
+              output := [] } ]) checkedTryOperandEffectsUnit
+      "CheckedTryContractCreateOperandEffects" "run"
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty []
   match result with
   | SolidCore.Solidity.Source.CallResult.returned state
@@ -14490,7 +14569,14 @@ def checkedTryCatchErrorMatches : Except TypeError Bool := do
     optionToExcept "try/catch Error(string)"
       (Executable.Examples.externalErrorBytes? "bad")
   let result ←
-    checkedSourceFunctionCallWithContext 16
+    checkedSourceFunctionCallWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := errorBytes } ]
+      [])
       (checkedTryCatchSource "CheckedTryCatchError" "readError"
         [ Solidity.CatchClause.clause (some "Error")
             [{ name := some "reason"
@@ -14506,13 +14592,7 @@ def checkedTryCatchErrorMatches : Except TypeError Bool := do
                 (Solidity.Expr.literal
                   (Solidity.Literal.number "999")))) ])
       "CheckedTryCatchError" "readError"
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
-          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-              target := 0xbeef
-              calldata := callData
-              success := false
-              output := errorBytes } ] }
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -14529,7 +14609,14 @@ def checkedTryCatchPanicMatches : Except TypeError Bool := do
     optionToExcept "try/catch Panic(uint256)"
       (Executable.Examples.externalPanicBytes? 0x11)
   let result ←
-    checkedSourceFunctionCallWithContext 16
+    checkedSourceFunctionCallWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := panicBytes } ]
+      [])
       (checkedTryCatchSource "CheckedTryCatchPanic" "readPanic"
         [ Solidity.CatchClause.clause (some "Panic")
             [{ name := some "code"
@@ -14538,13 +14625,7 @@ def checkedTryCatchPanicMatches : Except TypeError Bool := do
             (Solidity.Stmt.returnValues
               (some (Solidity.Expr.ident "code"))) ])
       "CheckedTryCatchPanic" "readPanic"
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
-          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-              target := 0xbeef
-              calldata := callData
-              success := false
-              output := panicBytes } ] }
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
@@ -14558,7 +14639,14 @@ def checkedTryCatchLowLevelMatches : Except TypeError Bool := do
     optionToExcept "try/catch calldata"
       (Executable.Examples.externalCalldata? "read()" [] [])
   let result ←
-    checkedSourceFunctionCallWithContext 16
+    checkedSourceFunctionCallWithContextFailOpen 16
+      (SolidCore.Solidity.Source.responderOfResults
+          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
+              target := 0xbeef
+              calldata := callData
+              success := false
+              output := [0xaa, 0xbb, 0xcc] } ]
+      [])
       (checkedTryCatchSource "CheckedTryCatchLowLevel" "readRaw"
         [ Solidity.CatchClause.clause none
             [{ name := some "data"
@@ -14569,13 +14657,7 @@ def checkedTryCatchLowLevelMatches : Except TypeError Bool := do
                 (Solidity.Expr.literal
                   (Solidity.Literal.number "3")))) ])
       "CheckedTryCatchLowLevel" "readRaw"
-      { SolidCore.Solidity.Source.Context.empty with
-        lowLevelCallResults :=
-          [ { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall
-              target := 0xbeef
-              calldata := callData
-              success := false
-              output := [0xaa, 0xbb, 0xcc] } ] }
+      (SolidCore.Solidity.Source.Context.empty)
       SolidCore.Solidity.Source.State.empty
       [SolidCore.Solidity.Source.Value.word 0xbeef]
   match result with
