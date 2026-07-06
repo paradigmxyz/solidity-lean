@@ -831,6 +831,213 @@ def Contract.callCalldataEntryAtFromWithContext? (kind : AbiEntryKind)
       Contract.callCalldataTransactionAtFromWithContext?
         fuel contract base state self sender value calldata
 
+/-! ## Stage 1e — `SolI`-tree-returning twins of the ABI dispatch.
+
+These mirror the `?`/`Option`-returning entry points above, but return the
+execution as an interaction tree (`Option (SolI AbiCallResult)`).  The static
+decode of the *entry* calldata stays outside the tree (the outer `Option`
+encodes static absence); the result-encode is applied inside the tree via
+`bind`.  A post-execution *output-encode* failure (which the `?` versions turn
+into `none`) is lifted into the tree as a throw — folding the tree through
+`SolI.run` in the frozen `?` adapters reproduces `none` exactly, so behavior is
+preserved.  The `?` entry points above are left untouched (they already fold at
+`FunctionDef.call?`); these twins are what the manifest consumes at stage 3. -/
+
+/-- Wrap a static `Option AbiCallResult` result as a degenerate `pure` tree. -/
+def pureAbi (r : AbiCallResult) : SolI AbiCallResult := pure r
+
+/-- Lift an output-encode `Option AbiCallResult` into the tree: `none` (encode
+    failure) becomes a throw so the frozen `?` adapter folds it back to `none`. -/
+def liftAbiEncode : Option AbiCallResult → SolI AbiCallResult
+  | some r => pure r
+  | none => .done (.error SolidityFailure.outOfFuel)
+
+def Contract.encodeCalldataResult? (contract : Contract) (function : FunctionDef) :
+    CallResult → Option AbiCallResult
+  | CallResult.returned state' values => do
+      let output ← encodeValues? (function.returns.map BindingDecl.ty) values
+      some { success := true, output, state := state' }
+  | CallResult.reverted state' revert => do
+      let output ← Contract.encodeRevertData? contract revert
+      some { success := false, output, state := state' }
+
+def Contract.encodeFallbackResult? (contract : Contract) (function : FunctionDef) :
+    CallResult → Option AbiCallResult
+  | CallResult.returned state' values => do
+      let output ← FunctionDef.encodeFallbackOutput? function values
+      some { success := true, output, state := state' }
+  | CallResult.reverted state' revert => do
+      let output ← Contract.encodeRevertData? contract revert
+      some { success := false, output, state := state' }
+
+def Contract.callFallbackAtFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  match Contract.findFallback? contract with
+  | some function => do
+      let args ← FunctionDef.fallbackArgs? function calldata
+      let context :=
+        Contract.callContextAtWithBase contract base self sender value calldata
+      if function.acceptsValue value then
+        (FunctionDef.call fuel context function state args).map fun tree =>
+          tree.bind fun cr =>
+            liftAbiEncode (Contract.encodeFallbackResult? contract function cr)
+      else
+        (Contract.rejectedValueCall? contract state).map pureAbi
+  | none =>
+      (Contract.missingFallbackCall? contract state).map pureAbi
+
+def Contract.callReceiveOrFallbackAtFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  if calldata.isEmpty then
+    match Contract.findReceive? contract with
+    | some function =>
+        let context :=
+          Contract.callContextAtWithBase contract base self sender value []
+        if function.acceptsValue value then
+          (FunctionDef.call fuel context function state []).map fun tree =>
+            tree.bind fun cr =>
+              liftAbiEncode (Contract.encodeCalldataResult? contract function cr)
+        else
+          (Contract.rejectedValueCall? contract state).map pureAbi
+    | none =>
+        Contract.callFallbackAtFromWithContext fuel contract base state
+          self sender value calldata
+  else
+    Contract.callFallbackAtFromWithContext fuel contract base state
+      self sender value calldata
+
+def Contract.callCalldataAtFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) := do
+  match readSelector? calldata with
+  | some selector =>
+      match contract.findFunctionBySelector? selector with
+      | some function =>
+          match
+            decodeFunctionArgs? function (calldata.drop selectorBytes)
+          with
+          | some args =>
+              let context :=
+                Contract.callContextAtWithBase contract base self sender value
+                  calldata
+              if function.acceptsValue value then
+                (function.call fuel context state args).map fun tree =>
+                  tree.bind fun cr =>
+                    liftAbiEncode
+                      (Contract.encodeCalldataResult? contract function cr)
+              else
+                (Contract.rejectedValueCall? contract state).map pureAbi
+          | none => (Contract.revertedEmptyCall? contract state).map pureAbi
+      | none =>
+          Contract.callFallbackAtFromWithContext fuel contract base state
+            self sender value calldata
+  | none =>
+      Contract.callReceiveOrFallbackAtFromWithContext fuel contract base state
+        self sender value calldata
+
+def Contract.callCalldataAtFrom (fuel : Nat) (contract : Contract)
+    (state : State) (self sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataAtFromWithContext
+    fuel contract contract.context state self sender value calldata
+
+def Contract.callCalldataFromWithContext (fuel : Nat) (contract : Contract)
+    (base : Context) (state : State) (sender value : Word)
+    (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataAtFromWithContext
+    fuel contract base state 0 sender value calldata
+
+def Contract.callCalldataFrom (fuel : Nat) (contract : Contract)
+    (state : State) (sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataAtFrom fuel contract state 0 sender value calldata
+
+def Contract.callCalldataAtWithContext (fuel : Nat) (contract : Contract)
+    (base : Context) (state : State) (self : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataAtFromWithContext
+    fuel contract base state self 0 0 calldata
+
+def Contract.callCalldataAt (fuel : Nat) (contract : Contract)
+    (state : State) (self : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataAtFrom fuel contract state self 0 0 calldata
+
+def Contract.callCalldataWithContext (fuel : Nat) (contract : Contract)
+    (base : Context) (state : State) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataFromWithContext fuel contract base state 0 0 calldata
+
+def Contract.callCalldata (fuel : Nat) (contract : Contract)
+    (state : State) (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataFrom fuel contract state 0 0 calldata
+
+/-- Transaction-scoped calldata dispatch as a tree: clear transient state
+    before, and `.clearTransient` mapped over the result inside the tree. -/
+def Contract.callCalldataTransactionAtFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  (Contract.callCalldataAtFromWithContext
+      fuel contract base state.clearTransient self sender value calldata).map
+    (Functor.map AbiCallResult.clearTransient)
+
+def Contract.callCalldataTransactionAtFrom (fuel : Nat)
+    (contract : Contract) (state : State) (self sender value : Word)
+    (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionAtFromWithContext
+    fuel contract contract.context state self sender value calldata
+
+def Contract.callCalldataTransactionFromWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (sender value : Word) (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionAtFromWithContext
+    fuel contract base state 0 sender value calldata
+
+def Contract.callCalldataTransactionFrom (fuel : Nat) (contract : Contract)
+    (state : State) (sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionAtFrom fuel contract state 0 sender value
+    calldata
+
+def Contract.callCalldataTransactionAtWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (self : Word) (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionAtFromWithContext
+    fuel contract base state self 0 0 calldata
+
+def Contract.callCalldataTransactionAt (fuel : Nat) (contract : Contract)
+    (state : State) (self : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionAtFrom fuel contract state self 0 0
+    calldata
+
+def Contract.callCalldataTransactionWithContext (fuel : Nat)
+    (contract : Contract) (base : Context) (state : State)
+    (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionFromWithContext
+    fuel contract base state 0 0 calldata
+
+def Contract.callCalldataTransaction (fuel : Nat) (contract : Contract)
+    (state : State) (calldata : Bytes) : Option (SolI AbiCallResult) :=
+  Contract.callCalldataTransactionFrom fuel contract state 0 0 calldata
+
+def Contract.callCalldataEntryAtFromWithContext (kind : AbiEntryKind)
+    (fuel : Nat) (contract : Contract) (base : Context) (state : State)
+    (self sender value : Word) (calldata : Bytes) :
+    Option (SolI AbiCallResult) :=
+  match kind with
+  | AbiEntryKind.messageCall =>
+      Contract.callCalldataAtFromWithContext
+        fuel contract base state self sender value calldata
+  | AbiEntryKind.transaction =>
+      Contract.callCalldataTransactionAtFromWithContext
+        fuel contract base state self sender value calldata
+
 end ABI
 end Source
 end Solidity

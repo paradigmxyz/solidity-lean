@@ -12,6 +12,7 @@ abbrev CoreCallResult := Solidity.Executable.CoreCallResult
 abbrev CoreFunctionDef := Solidity.Executable.CoreFunctionDef
 abbrev CoreAbiCallResult := SolidCore.Solidity.Source.ABI.AbiCallResult
 abbrev CallTarget := SolidCore.Solidity.Source.CallTarget
+abbrev SolI := SolidCore.Solidity.Source.SolI
 
 def executableFailure (what : String) : TypeError :=
   TypeError.unsupported ("checked executable " ++ what)
@@ -463,6 +464,104 @@ def callCalldataTransaction (fuel : Nat)
     (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
   callCalldataTransactionFrom fuel contract state 0 0 calldata
 
+/-! ### Stage 1e — `SolI`-tree-returning twins of the checked entry points.
+
+Additive: the `?`/`Except TypeError` entries above are unchanged (they already
+fold at `FunctionDef.call?`).  These twins return the execution as an
+interaction tree for the manifest to consume at stage 3. -/
+
+def constructFromTree (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (sender value : Word) (args : List CoreValue) :
+    Option (SolI CoreCallResult) := do
+  let constructor ←
+    CheckedProgram.constructorFunctionFor? contract.program contract.decl
+  SolidCore.Solidity.Source.FunctionDef.call
+    fuel
+    { contract.core.context with
+      sender := sender
+      value := value
+      construction := true }
+    constructor state args
+
+def constructWithContextTree (fuel : Nat) (contract : CheckedContract)
+    (context : CoreContext) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Option (SolI CoreCallResult) := do
+  let constructor ←
+    CheckedProgram.constructorFunctionFor? contract.program contract.decl
+  SolidCore.Solidity.Source.FunctionDef.call
+    fuel
+    { context with
+      sender := sender
+      value := value
+      construction := true }
+    constructor state args
+
+def constructTree (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (args : List CoreValue) :
+    Option (SolI CoreCallResult) :=
+  constructFromTree fuel contract state 0 0 args
+
+def callTree (fuel : Nat) (contract : CheckedContract)
+    (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option (SolI CoreCallResult) :=
+  SolidCore.Solidity.Source.Contract.call
+    fuel contract.core target state args
+
+def callTransactionTree (fuel : Nat) (contract : CheckedContract)
+    (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option (SolI CoreCallResult) :=
+  SolidCore.Solidity.Source.Contract.callTransaction
+    fuel contract.core target state args
+
+def callFunctionWithContextTree (fuel : Nat)
+    (contract : CheckedContract) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option (SolI CoreCallResult) := do
+  let function ← coreFunction? contract functionName
+  SolidCore.Solidity.Source.FunctionDef.call
+    fuel context function state args
+
+def callTargetWithContextTree (fuel : Nat)
+    (contract : CheckedContract) (target : CallTarget)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option (SolI CoreCallResult) :=
+  match contract.core.resolveCallFunction? target args with
+  | some function =>
+      SolidCore.Solidity.Source.FunctionDef.call
+        fuel context function state args
+  | none => none
+
+def callCalldataFromTree (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (sender value : Word) (calldata : List Byte) :
+    Option (SolI CoreAbiCallResult) :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataFrom
+    fuel contract.core state sender value calldata
+
+def callCalldataAtFromTree (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option (SolI CoreAbiCallResult) :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFrom
+    fuel contract.core state self sender value calldata
+
+def callCalldataAtFromWithContextTree (fuel : Nat)
+    (contract : CheckedContract) (context : CoreContext)
+    (state : CoreState) (self sender value : Word)
+    (calldata : List Byte) : Option (SolI CoreAbiCallResult) :=
+  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFromWithContext
+    fuel contract.core context state self sender value calldata
+
+def callCalldataAtTree (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (self : Word) (calldata : List Byte) :
+    Option (SolI CoreAbiCallResult) :=
+  callCalldataAtFromTree fuel contract state self 0 0 calldata
+
+def callCalldataTree (fuel : Nat) (contract : CheckedContract)
+    (state : CoreState) (calldata : List Byte) :
+    Option (SolI CoreAbiCallResult) :=
+  callCalldataFromTree fuel contract state 0 0 calldata
+
 end CheckedContract
 
 namespace CheckedProgram
@@ -672,6 +771,42 @@ def callCalldataTransaction (fuel : Nat)
     (state : CoreState) (calldata : List Byte) :
     Except TypeError CoreAbiCallResult :=
   callCalldataTransactionFrom fuel program name state 0 0 calldata
+
+/-! ### Stage 1e — program-level `SolI`-tree twins (additive). -/
+
+def constructContractFromTree (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Option (SolI CoreCallResult) := do
+  let contract ← contract? program name
+  CheckedContract.constructFromTree fuel contract state sender value args
+
+def constructContractWithContextTree (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (context : CoreContext) (state : CoreState)
+    (sender value : Word) (args : List CoreValue) :
+    Option (SolI CoreCallResult) := do
+  let contract ← contract? program name
+  CheckedContract.constructWithContextTree
+    fuel contract context state sender value args
+
+def constructContractTree (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (state : CoreState) (args : List CoreValue) :
+    Option (SolI CoreCallResult) :=
+  constructContractFromTree fuel program name state 0 0 args
+
+def callContractTree (fuel : Nat) (program : CheckedProgram)
+    (name : Name) (target : CallTarget) (state : CoreState)
+    (args : List CoreValue) : Option (SolI CoreCallResult) := do
+  let contract ← contract? program name
+  CheckedContract.callTree fuel contract target state args
+
+def callFunctionWithContextTree (fuel : Nat)
+    (program : CheckedProgram) (name functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Option (SolI CoreCallResult) := do
+  let contract ← contract? program name
+  CheckedContract.callFunctionWithContextTree
+    fuel contract functionName context state args
 
 end CheckedProgram
 

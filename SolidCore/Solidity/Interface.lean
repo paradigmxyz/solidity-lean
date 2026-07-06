@@ -19171,6 +19171,61 @@ def SourceUnit.constructContractFrom? (fuel : Nat) (unit : SourceUnit)
     (args : List CoreValue) : Option CoreCallResult :=
   SourceUnit.constructContractAtFrom? fuel unit name state 0 sender value args
 
+/-- Stage 1e — tree-returning twin of `constructWithBasesAndSourceAtFrom?`. -/
+def ContractDecl.constructWithBasesAndSourceAtFromTree (fuel : Nat)
+    (sourceUsingDecls : List UsingDecl)
+    (sourceFunctions : List FunctionDecl)
+    (sourceEvents : List EventDecl)
+    (sourceErrors : List ErrorDecl)
+    (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
+    (contracts : List ContractDecl) (decl : ContractDecl)
+    (state : CoreState) (self sender value : Word)
+    (args : List CoreValue) :
+    Option (SolidCore.Solidity.Source.SolI CoreCallResult) := do
+  let contract ←
+    ContractDecl.toCoreWithBasesAndUsing?
+      sourceUsingDecls sourceFunctions sourceEvents sourceErrors sourceConstants
+      sourceUserValueTypes sourceEnums sourceStructs
+      contracts decl
+  let constructor ←
+    ContractDecl.constructorFunctionWithBasesAndSource?
+      sourceUsingDecls sourceFunctions sourceEvents sourceErrors
+      sourceConstants sourceUserValueTypes sourceEnums sourceStructs contracts decl
+  SolidCore.Solidity.Source.FunctionDef.call
+    fuel
+    { contract.context with
+      self := self
+      sender := sender
+      value := value
+      construction := true }
+    constructor state args
+
+def SourceUnit.constructContractAtFromTree (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (self sender value : Word)
+    (args : List CoreValue) :
+    Option (SolidCore.Solidity.Source.SolI CoreCallResult) := do
+  let decl ← SourceUnit.findContract? unit name
+  ContractDecl.constructWithBasesAndSourceAtFromTree fuel
+    (SourceUnit.usingDecls unit) (SourceUnit.freeFunctions unit)
+    (SourceUnit.freeEvents unit) (SourceUnit.freeErrors unit)
+    (SourceUnit.freeConstants unit)
+    (SourceUnit.freeUserValueTypes unit)
+    (SourceUnit.freeEnums unit) (SourceUnit.freeStructs unit)
+    (SourceUnit.contracts unit) decl state self sender value args
+
+def SourceUnit.constructContractFromTree (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) :
+    Option (SolidCore.Solidity.Source.SolI CoreCallResult) :=
+  SourceUnit.constructContractAtFromTree fuel unit name state 0 sender value args
+
+def SourceUnit.constructContractTree (fuel : Nat) (unit : SourceUnit)
+    (name : Name) (state : CoreState) (args : List CoreValue) :
+    Option (SolidCore.Solidity.Source.SolI CoreCallResult) :=
+  SourceUnit.constructContractAtFromTree fuel unit name state 0 0 0 args
+
 def SourceUnit.constructorFunctionFor? (unit : SourceUnit) (name : Name) :
     Option CoreFunctionDef := do
   let decl ← SourceUnit.findContract? unit name
