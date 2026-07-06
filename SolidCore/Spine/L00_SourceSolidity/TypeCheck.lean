@@ -123,8 +123,8 @@ def pathIsAdjacentAliasIn {α : Type} (short qualified : Path) :
   | [_] => false
   | (candidate, _) :: tail =>
       match tail with
-      | (alias, _) :: _ =>
-          (candidate == short && alias == qualified) ||
+      | («alias», _) :: _ =>
+          (candidate == short && «alias» == qualified) ||
             pathIsAdjacentAliasIn short qualified tail
       | [] => false
 
@@ -7385,7 +7385,7 @@ termination_by 1 + sizeOf target + sizeOf args
 decreasing_by
   all_goals
     simp_wf
-    omega
+    try omega
 
 def checkCallOption (env : CheckEnv) :
     L00_SourceSolidity.CallOption -> Except TypeError Unit

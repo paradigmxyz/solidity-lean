@@ -9509,7 +9509,7 @@ def Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
   | _, _ => some false
 
 structure InternalFunctionAliasBinding where
-  alias : Name
+  «alias» : Name
   expected : Ty
   target : Option Name
   deriving Repr
@@ -9521,7 +9521,7 @@ def InternalFunctionAliasEnv.lookup? (env : InternalFunctionAliasEnv)
   match env with
   | [] => none
   | binding :: rest =>
-      if binding.alias == name then
+      if binding.«alias» == name then
         some binding
       else
         InternalFunctionAliasEnv.lookup? rest name
@@ -9534,12 +9534,12 @@ def InternalFunctionAliasEnv.target? (env : InternalFunctionAliasEnv)
 
 def InternalFunctionAliasEnv.remove (env : InternalFunctionAliasEnv)
     (name : Name) : InternalFunctionAliasEnv :=
-  env.filter (fun binding => binding.alias != name)
+  env.filter (fun binding => binding.«alias» != name)
 
 def InternalFunctionAliasEnv.extend (env : InternalFunctionAliasEnv)
     (binding : InternalFunctionAliasBinding) :
     InternalFunctionAliasEnv :=
-  binding :: InternalFunctionAliasEnv.remove env binding.alias
+  binding :: InternalFunctionAliasEnv.remove env binding.«alias»
 
 def InternalFunctionAliasEnv.resolveFuel :
     Nat -> InternalFunctionAliasEnv -> Name -> Name
@@ -9616,7 +9616,7 @@ def VarBinding.internalFunctionAliasTarget?
         InternalFunctionAliasEnv.aliasTarget?
           aliasEnv functions freeFunctions expected sourceName
       some
-        { alias := aliasName
+        { «alias» := aliasName
           expected := expected
           target := some target }
   | _ => none
@@ -9628,7 +9628,7 @@ def VarBinding.internalFunctionAliasDecl?
   match expected with
   | Ty.functionWithLocations _ _ _ _ _ Visibility.internal_ =>
       some
-        { alias := aliasName
+        { «alias» := aliasName
           expected := expected
           target := none }
   | _ => none
@@ -9677,7 +9677,7 @@ def Parameter.internalFunctionAliasArg?
       let aliasName := param.name.getD (fallbackPrefix ++ toString index)
       if sourceName == internalFunctionPointerPanicName then
         some
-          { alias := aliasName
+          { «alias» := aliasName
             expected := expected
             target := none }
       else
@@ -9685,7 +9685,7 @@ def Parameter.internalFunctionAliasArg?
           InternalFunctionAliasEnv.aliasTarget?
             aliasEnv functions freeFunctions expected sourceName
         some
-          { alias := aliasName
+          { «alias» := aliasName
             expected := expected
             target := some target }
   | _, _ => none
@@ -10218,7 +10218,7 @@ def Expr.observeInternalFunctionPointerCallRewrite
 def InternalFunctionAliasBinding.targetPair
     (binding : InternalFunctionAliasBinding) :
     Name × Option Name :=
-  (binding.alias, binding.target)
+  (binding.«alias», binding.target)
 
 def InternalFunctionAliasEnv.targetPairs
     (env : InternalFunctionAliasEnv) :
@@ -45085,13 +45085,13 @@ def internalFunctionPointerValueTy : Ty :=
 
 def internalFunctionPointerAliasEnvDouble :
     InternalFunctionAliasEnv :=
-  [ { alias := "fp"
+  [ { «alias» := "fp"
       expected := internalFunctionPointerValueTy
       target := some "double" } ]
 
 def internalFunctionPointerAliasEnvUnbound :
     InternalFunctionAliasEnv :=
-  [ { alias := "fp"
+  [ { «alias» := "fp"
       expected := internalFunctionPointerValueTy
       target := none } ]
 

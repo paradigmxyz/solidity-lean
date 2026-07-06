@@ -5049,7 +5049,7 @@ def checkedInternalFunctionPointerRewriteObservationMatches :
 
 def checkedInternalFunctionPointerSemanticsMatch :
     Except TypeError Bool := do
-  let alias ← checkedInternalFunctionPointerAliasMatches
+  let «alias» ← checkedInternalFunctionPointerAliasMatches
   let reassign ← checkedInternalFunctionPointerReassignMatches
   let assignAfterDecl ←
     checkedInternalFunctionPointerAssignAfterDeclMatches
@@ -5067,7 +5067,7 @@ def checkedInternalFunctionPointerSemanticsMatch :
     checkedInternalFunctionPointerRewriteObservationMatches
   Except.ok
     (checkedInternalFunctionPointerContractsAccepted &&
-      alias && reassign && assignAfterDecl && deleteThenAssign &&
+      «alias» && reassign && assignAfterDecl && deleteThenAssign &&
       uninitialized && deleted && copy &&
       param && paramDirect && paramUninitialized && rewriteObservation)
 
