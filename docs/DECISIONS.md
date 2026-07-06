@@ -708,3 +708,54 @@ prints the case's expected value — equivalence of results AND the recorded
 external-interaction transcripts the assertions check. Result:
 `responder_equivalence_check=pass`, `oracle_cases=18 equivalent=18`. Plus
 `lake build SolidCore` + smoke (28 cases, `forge_interpreter_compare=pass`).
+
+## 2026-07-06 — Phase 5 stage 3: oracle Context fields deleted; manifest + witnesses fold under scripted responders
+
+The fixture oracle left `Context`. `Context.lowLevelCallResults`/
+`contractCreationResults` are gone (fields, both initializers), together with
+every reader: `lookupLowLevelCall?`, `resolveLowLevelCall`,
+`lookupContractCreation?`, `resolveContractCreation`, `lookupPrecompileCall?`,
+`lookupPrecompileOutputWord?`, `Context.ecrecoverAt`, `ExternalHashKind.lookup?`,
+`answerCall`, `answerCreate`, and `ScriptedResponder.ofContext`. In
+`Shared/Precompile.lean` the row-lookup family (`request`/`callKind`/`lookup?`/
+`lookupOutputWord?`/`ecrecover?`/`ecrecoverAt`) is deleted; only `address`,
+`ecrecoverInput`, `outputWord?`, `modexpInput` (encodings, not lookups) remain.
+
+**`contextAnswer` collapses to `Query.defaultAnswer`.** `defaultAnswer`'s
+call/create shapes decode to exactly the old fail-open `failedRequest`
+(success = false / address = 0, empty output), and `decodeCallResponse`/
+`decodeCreateResponse` rebuild results from the original emit params — so the
+frozen `?` adapters are bit-identical on the row-less contexts that remain.
+`SolI.runFromContext` likewise answers everything with `defaultAnswer` (kept
+fuel-bounded for `foldExpr`/transcript utilities).
+
+**Two responder folds, by design:**
+- Corpus manifest: fail-closed `SolI.runWith` via `*UnderResponder` wrappers
+  (responder right after fuel). All 40 oracle evals across 18 cases converted;
+  rows moved verbatim from context literals into `responderOfResults` args;
+  eval count unchanged (419). Direct-literal sites, let-bound-context sites
+  (every consuming entry of the context var swapped), and locally-bound `call`/
+  `construct`/`wordOk` lambdas (responder threaded as a lambda parameter,
+  row-less sites pass `[]`) — validated by the stage-2 equivalence check
+  re-run just before the flip (18/18); the full replay gates the follow-up entry.
+- Witness sentinels: fail-open `SolI.runFailOpen` via `*FailOpen` twins — rows
+  answer find-first with the retired `contextAnswer`'s exact keying; misses take
+  `defaultAnswer` (≡ the old fail-open `failedRequest`). Several sentinels
+  deliberately exercise the miss path (`lowLevelCallGasMismatchReturnsFalse`,
+  `externalFunctionPointerTryCatchCatchMatches`, …), so fail-open preserves
+  every recorded truth value by construction; verified — 138 witness evals
+  byte-identical to the pre-stage-3 baseline (including three pre-existing
+  `some false` and one `none`).
+
+Stage-2 scaffolding removed with the fields: the `*RespCheck` twins and
+`scripts/check_responder_equivalence.py` (its job — proving responder ≡ context
+answers on the corpus — was done; final run 18/18 pass).
+
+Zero `lowLevelCallResults`/`contractCreationResults` references remain in
+SolidCore/, scripts/, tests/. Gates: build green; smoke 28 cases pass (+ the two
+oracle cases outside the smoke set, `openzeppelin-ecdsa` and
+`typechecker-calldata-origins`, pass via `--only`); witness baseline identical;
+the full sequential 98-case replay + AST audit gate run was IN PROGRESS at
+commit time (committed early at the user's request, on the strength of
+build/smoke/equivalence/baseline gates and an independent review of the diff);
+its result and wall-clock are recorded in a follow-up entry.

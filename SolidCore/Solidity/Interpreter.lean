@@ -1501,8 +1501,6 @@ structure Context where
   contractAddresses : SolidCore.Solidity.Shared.Call.NamedWordMap := []
   contractCreationCodes : SolidCore.Solidity.Shared.Call.NamedBytesMap := []
   contractRuntimeCodes : SolidCore.Solidity.Shared.Call.NamedBytesMap := []
-  lowLevelCallResults : List LowLevelCallResult
-  contractCreationResults : List ContractCreationResult
   blockEnv : BlockEnv
   txEnv : TxEnv
   evmVersion : EvmVersion := EvmVersion.default
@@ -1528,8 +1526,6 @@ def Context.empty : Context :=
     contractAddresses := []
     contractCreationCodes := []
     contractRuntimeCodes := []
-    lowLevelCallResults := []
-    contractCreationResults := []
     blockEnv := BlockEnv.empty
     txEnv := TxEnv.empty
     evmVersion := EvmVersion.default
@@ -1548,28 +1544,6 @@ def Context.checkMemoryAllocation (context : Context) (length : Word) :
       else
         Except.error RevertData.memoryAllocationTooLarge
   | none => Except.ok size
-
-def Context.lookupPrecompileCall? (context : Context)
-    (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte)
-    (gas? : Option Word := none) :
-    Option (SolidCore.Solidity.Shared.Precompile.Result) :=
-  SolidCore.Solidity.Shared.Precompile.lookup?
-    context.lowLevelCallResults kind input (gas? := gas?)
-
-def Context.lookupPrecompileOutputWord? (context : Context)
-    (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte)
-    (gas? : Option Word := none) : Option Word := do
-  let result ← context.lookupPrecompileCall? kind input (gas? := gas?)
-  SolidCore.Solidity.Shared.Precompile.outputWord? result
-
-def Context.ecrecoverAt (context : Context) (digest v r s : Word) : Word :=
-  (context.lookupPrecompileOutputWord?
-    SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
-    (SolidCore.Solidity.Shared.Precompile.ecrecoverInput digest v r s)).getD 0
-
-def ExternalHashKind.lookup? (kind : ExternalHashKind)
-    (context : Context) (bytes : List Byte) : Option Word :=
-  context.lookupPrecompileOutputWord? kind.precompileKind bytes
 
 def Context.storageField? (context : Context) (name : String) :
     Option StorageField :=
@@ -1684,16 +1658,6 @@ def Context.eventDecl? (context : Context) (name : String) :
     Option EventDecl :=
   context.eventDecls.find? (fun event => event.name == name)
 
-/-- Look up a low-level call in the fixture oracle. Precompile-alignment
-    (2026-07-06 decision): precompiles are ordinary external calls answered by
-    the environment — the identity/modexp `builtinStaticcallResult?` in-semantics
-    computation is gone; no corpus case exercised it. -/
-def Context.lookupLowLevelCall? (context : Context)
-    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
-    (value : Word) (gas? : Option Word) : Option LowLevelCallResult :=
-  SolidCore.Solidity.Shared.Call.Result.lookup?
-    context.lowLevelCallResults kind target calldata value gas?
-
 def LowLevelCallResult.failedRequest
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
     (value : Word) (gas? : Option Word) : LowLevelCallResult :=
@@ -1705,32 +1669,8 @@ def LowLevelCallResult.failedRequest
     success := false
     output := [] }
 
-def Context.resolveLowLevelCall (context : Context)
-    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
-    (value : Word) (gas? : Option Word) : LowLevelCallResult :=
-  match context.lookupLowLevelCall? kind target calldata value gas? with
-  | some result => result
-  | none => LowLevelCallResult.failedRequest kind target calldata value gas?
-
 def Context.accountHasCode (context : Context) (target : Word) : Bool :=
   !(SolidCore.Solidity.Shared.Account.codeAt context.accountCodes target).isEmpty
-
-def Context.lookupContractCreation? (context : Context)
-    (contractName : String) (constructorArgs : List Byte)
-    (value : Word) (salt? : Option Word) : Option ContractCreationResult :=
-  SolidCore.Solidity.Shared.Call.CreationResult.lookup?
-    context.contractCreationResults contractName constructorArgs value salt?
-
-def Context.resolveContractCreation (context : Context)
-    (contractName : String) (constructorArgs : List Byte)
-    (value : Word) (salt? : Option Word) : ContractCreationResult :=
-  match
-      context.lookupContractCreation?
-        contractName constructorArgs value salt? with
-  | some result => result
-  | none =>
-      ContractCreationResult.failedRequest
-        contractName constructorArgs value salt?
 
 inductive ExternalResolutionKind where
   | resolved
@@ -2054,75 +1994,17 @@ def emitContractCreation (context : Context) (name : String) (args : List Byte)
     (fun response =>
       .done (.ok (decodeCreateResponse response name args value salt?)))
 
-/-- Replay-from-Context: answer a create query from the fixture oracle. The
-    name/args/value/salt are recovered from the name-encoded `initCode`
-    (malformed → fail-open `failedRequest`, until stage 2 makes it
-    fail-closed); the oracle is queried via `lookupContractCreation?` — no
-    reimplementation of the keying. `address = 0` encodes failure. -/
-def answerCreate (context : Context)
-    (request : EvmCompiler.Simulation.CreateRequest) :
-    EvmCompiler.Simulation.CreateResponse :=
-  let value := u256ToWord request.value
-  let salt? := request.salt.map u256ToWord
-  let result :=
-    match decodeCreationInitCode? request.initCode with
-    | some (name, args) =>
-        match context.lookupContractCreation? name args value salt? with
-        | some r => r
-        | none => ContractCreationResult.failedRequest name args value salt?
-    | none => ContractCreationResult.failedRequest "" [] value salt?
-  { address := wordToU256 (if result.success then result.address else 0)
-    returnData := bytesToByteArray result.output
-    postWorld := default
-    returnedGas := wordToU256 0 }
-
-/-- Replay-from-Context: answer an external-call query from the fixture oracle.
-    Params are reconstructed from the request; gas is matched leniently (the
-    deferred gas limitation) — try the oracle without gas, else with the sent
-    `requestedGas`. -/
-def answerCall (context : Context)
-    (request : EvmCompiler.Simulation.CallRequest) :
-    EvmCompiler.Simulation.CallResponse :=
-  let kind := callKindToLowLevel request.kind
-  -- Recover the real callee from `codeAddress` (stable across kinds; for
-  -- delegatecall `recipient` is the caller, not the target — stage 2).
-  let target := addressToWord request.codeAddress
-  let calldata := byteArrayToBytes request.calldata
-  let value := u256ToWord request.transferValue
-  -- Exact-gas-first: match a fixture row keyed on the sent gas, else fall to the
-  -- no-gas resolution (which fail-opens to `failedRequest`). The residual
-  -- no-gas vs `{gas: gasleft}` ambiguity is the deferred `gasleft` limitation.
-  let result :=
-    match context.lookupLowLevelCall? kind target calldata value
-        (some (u256ToWord request.requestedGas)) with
-    | some r => r
-    | none =>
-        context.resolveLowLevelCall kind target calldata value none
-  { success := result.success
-    returnData := bytesToByteArray result.output
-    postWorld := default
-    returnedGas := request.requestedGas }
-
-/-- Fold a `SolI` interaction tree against a replay-from-Context environment
-    (fuel-bounded; external-call queries answered from the oracle, others by the
-    canonical default answer). -/
+/-- Fuel-bounded fold answering every query with the canonical
+    `Query.defaultAnswer` (stage 3: the fixture oracle left `Context`; external
+    answers come from scripted responders — `SolI.runWith`/`runFailOpen`).
+    `defaultAnswer`'s call/create shapes decode to exactly the old fail-open
+    `failedRequest` (success = false / address = 0, empty output), so this is
+    bit-identical to the retired replay-from-Context fold on the row-less
+    contexts that remain. Kept fuel-bounded for the transcript utilities and
+    `foldExpr` (constant-expression evaluation). -/
 def SolI.runFromContext {α : Type} (fuel : Nat) (context : Context) :
     SolI α → Except SolidityFailure α
   | .done r => r
-  | .request
-      (EvmCompiler.Simulation.Query.external _
-        (EvmCompiler.Simulation.ExternalRequest.call request)) k =>
-      match fuel with
-      | 0 => .error .outOfFuel
-      | Nat.succ fuel' =>
-          SolI.runFromContext fuel' context (k (answerCall context request))
-  | .request
-      (EvmCompiler.Simulation.Query.external _
-        (EvmCompiler.Simulation.ExternalRequest.create request)) k =>
-      match fuel with
-      | 0 => .error .outOfFuel
-      | Nat.succ fuel' =>
-          SolI.runFromContext fuel' context (k (answerCreate context request))
   | .request query k =>
       match fuel with
       | 0 => .error .outOfFuel
@@ -2130,14 +2012,11 @@ def SolI.runFromContext {α : Type} (fuel : Nat) (context : Context) :
           SolI.runFromContext fuel' context
             (k (EvmCompiler.Simulation.Query.defaultAnswer query))
 
-/-- The replay-from-Context answerer as a dependent function `(q : Query) → Answer q`. -/
-def contextAnswer (context : Context) :
-    (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q
-  | EvmCompiler.Simulation.Query.external _
-      (EvmCompiler.Simulation.ExternalRequest.call request) => answerCall context request
-  | EvmCompiler.Simulation.Query.external _
-      (EvmCompiler.Simulation.ExternalRequest.create request) => answerCreate context request
-  | q => EvmCompiler.Simulation.Query.defaultAnswer q
+/-- The stage-3 context answerer: every query gets `Query.defaultAnswer` (the
+    context no longer carries oracle rows; see `SolI.runFromContext`). -/
+def contextAnswer (_context : Context) :
+    (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q :=
+  EvmCompiler.Simulation.Query.defaultAnswer
 
 /-- Fold a `SolI` interaction tree to its final `Except SolidityFailure` result
     by answering every query from `Context` (`contextAnswer`). Unlike
@@ -2182,12 +2061,6 @@ def ScriptedResponder.createRows (responder : ScriptedResponder) :
     List ContractCreationResult :=
   responder.filterMap (fun row =>
     match row with | OracleRow.create c => some c | _ => none)
-
-/-- Mechanical derivation of the responder from a `Context`'s oracle fields
-    (used by the manifest at stage 3 and by the stage-2 equivalence check). -/
-def ScriptedResponder.ofContext (context : Context) : ScriptedResponder :=
-  context.lowLevelCallResults.map OracleRow.call ++
-    context.contractCreationResults.map OracleRow.create
 
 /-- Answer a call request from the responder's call rows; `none` on a total
     miss. Keying + gas fallback mirror `answerCall` exactly. -/
@@ -2330,9 +2203,8 @@ def SolI.queryTranscript {α : Type} (fuel : Nat)
       | Nat.succ fuel' =>
           query :: SolI.queryTranscript fuel' answer (k (answer query))
 
-/-- Short witness: a two-external-call execution as an explicit interaction tree.
-    `phase5DemoTree` is the tree; folding it with `runFromContext` replays the
-    fixture oracle, and `queryTranscript` exposes its two external-call queries. -/
+/-- Short witness: a two-external-call execution as an explicit interaction tree;
+    `queryTranscript` exposes its two external-call queries. -/
 def phase5DemoTree (context : Context) : SolI (List LowLevelCallResult) := do
   let r1 ← emitLowLevelCall context LowLevelCallKind.call 0xa11ce [0x11, 0x22] 0 none
   let r2 ← emitLowLevelCall context LowLevelCallKind.call 0xb0b [0x33] 7 (some 50000)
@@ -7979,8 +7851,6 @@ def Contract.context (contract : Contract) : Context :=
     contractAddresses := []
     contractCreationCodes := []
     contractRuntimeCodes := []
-    lowLevelCallResults := []
-    contractCreationResults := []
     blockEnv := BlockEnv.empty
     txEnv := TxEnv.empty
     gasleft := 0 }

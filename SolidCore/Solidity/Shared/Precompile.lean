@@ -78,23 +78,6 @@ def mainnetKinds : List Kind :=
   , Kind.blake2f
   , Kind.pointEvaluation ]
 
-def callKind : Call.ExternalCallKind :=
-  Call.ExternalCallKind.staticcall
-
-def request (kind : Kind) (input : Bytes) (gas? : Option Word := none) :
-    Call.Request Call.ExternalCallKind :=
-  { kind := callKind
-    target := address kind
-    calldata := normalizeBytes input
-    value := 0
-    gas? := gas? }
-
-def lookup? (results : List Result) (kind : Kind) (input : Bytes)
-    (gas? : Option Word := none) :
-    Option Result :=
-  let req := request kind input (gas? := gas?)
-  Call.Result.lookup? results req.kind req.target req.calldata req.value req.gas?
-
 -- Precompile-alignment (2026-07-06 decision): the identity/modexp *computation*
 -- (`successfulStaticcall`/`identityStaticcall`/`expMod`/`modexpOutput`/
 -- `modexpStaticcall`/`builtinStaticcallResult?`) has been removed from the
@@ -118,20 +101,8 @@ def outputWord? (result : Result) : Option Word :=
   else
     none
 
-def lookupOutputWord? (results : List Result) (kind : Kind)
-    (input : Bytes) (gas? : Option Word := none) : Option Word := do
-  let result ← lookup? results kind input (gas? := gas?)
-  outputWord? result
-
 def ecrecoverInput (digest v r s : Word) : Bytes :=
   wordBytesBE digest ++ wordBytesBE v ++ wordBytesBE r ++ wordBytesBE s
-
-def ecrecover? (results : List Result) (digest v r s : Word) :
-    Option Word :=
-  lookupOutputWord? results Kind.ecrecover (ecrecoverInput digest v r s)
-
-def ecrecoverAt (results : List Result) (digest v r s : Word) : Word :=
-  (ecrecover? results digest v r s).getD 0
 
 end Precompile
 end SolidCore.Solidity.Shared

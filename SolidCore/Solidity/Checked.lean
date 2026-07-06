@@ -674,20 +674,6 @@ def callCalldataResponder (fuel : Nat) (contract : CheckedContract)
     Except TypeError CoreAbiCallResult :=
   callCalldataFromResponder fuel contract state 0 0 calldata responder
 
-/-! ### Stage 2 equivalence-check twins (`*RespCheck`).
-
-Same argument shape as the `contextAnswer`-folding entry points, but fold the
-tree under `ScriptedResponder.ofContext` of the same context — a pure name swap
-lets the equivalence-check driver validate that `runWith (responder-of-rows)`
-answers identically to `run (context-with-rows)` on every corpus witness. -/
-
-def callFunctionWithContextRespCheck (fuel : Nat)
-    (contract : CheckedContract) (functionName : Name)
-    (context : SolidCore.Solidity.Source.Context)
-    (state : CoreState) (args : List CoreValue) : Except TypeError CoreCallResult :=
-  callFunctionWithContextResponder fuel contract functionName context state args
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext context)
-
 /-- Witness fail-open twin of `callFunctionWithContext` (responder after fuel;
     see `foldFailOpen`). -/
 def callFunctionWithContextFailOpen (fuel : Nat)
@@ -699,36 +685,49 @@ def callFunctionWithContextFailOpen (fuel : Nat)
   foldFailOpen responder ("function call " ++ functionName)
     (callFunctionWithContextTree fuel contract functionName context state args)
 
-def callTargetWithContextRespCheck (fuel : Nat)
+/-! ### Manifest wrappers (`*UnderResponder`) — fail-closed fold, responder
+after fuel so the manifest's oracle rows sit where the old context rows did. -/
+
+def callFunctionWithContextUnderResponder (fuel : Nat)
+    (responder : ScriptedResponder)
+    (contract : CheckedContract) (functionName : Name)
+    (context : SolidCore.Solidity.Source.Context)
+    (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  callFunctionWithContextResponder
+    fuel contract functionName context state args responder
+
+def callTargetWithContextUnderResponder (fuel : Nat)
+    (responder : ScriptedResponder)
     (contract : CheckedContract) (target : CallTarget)
     (context : SolidCore.Solidity.Source.Context)
-    (state : CoreState) (args : List CoreValue) : Except TypeError CoreCallResult :=
-  callTargetWithContextResponder fuel contract target context state args
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext context)
-
-def constructRespCheck (fuel : Nat) (contract : CheckedContract)
-    (state : CoreState) (args : List CoreValue) : Except TypeError CoreCallResult :=
-  constructResponder fuel contract state args
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext contract.core.context)
-
-def constructFromRespCheck (fuel : Nat) (contract : CheckedContract)
-    (state : CoreState) (sender value : Word) (args : List CoreValue) :
+    (state : CoreState) (args : List CoreValue) :
     Except TypeError CoreCallResult :=
-  constructFromResponder fuel contract state sender value args
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext contract.core.context)
+  callTargetWithContextResponder
+    fuel contract target context state args responder
 
-def callCalldataAtFromWithContextRespCheck (fuel : Nat)
+def constructUnderResponder (fuel : Nat) (responder : ScriptedResponder)
+    (contract : CheckedContract) (state : CoreState) (args : List CoreValue) :
+    Except TypeError CoreCallResult :=
+  constructResponder fuel contract state args responder
+
+def constructFromUnderResponder (fuel : Nat) (responder : ScriptedResponder)
+    (contract : CheckedContract) (state : CoreState) (sender value : Word)
+    (args : List CoreValue) : Except TypeError CoreCallResult :=
+  constructFromResponder fuel contract state sender value args responder
+
+def callCalldataAtFromWithContextUnderResponder (fuel : Nat)
+    (responder : ScriptedResponder)
     (contract : CheckedContract) (context : CoreContext)
     (state : CoreState) (self sender value : Word) (calldata : List Byte) :
     Except TypeError CoreAbiCallResult :=
   callCalldataAtFromWithContextResponder
-    fuel contract context state self sender value calldata
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext context)
+    fuel contract context state self sender value calldata responder
 
-def callCalldataRespCheck (fuel : Nat) (contract : CheckedContract)
-    (state : CoreState) (calldata : List Byte) : Except TypeError CoreAbiCallResult :=
-  callCalldataResponder fuel contract state calldata
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext contract.core.context)
+def callCalldataUnderResponder (fuel : Nat) (responder : ScriptedResponder)
+    (contract : CheckedContract) (state : CoreState) (calldata : List Byte) :
+    Except TypeError CoreAbiCallResult :=
+  callCalldataResponder fuel contract state calldata responder
 
 end CheckedContract
 
@@ -1017,14 +1016,14 @@ def callFunctionWithContextFailOpen (fuel : Nat)
   CheckedContract.callFunctionWithContextFailOpen
     fuel responder contract functionName context state args
 
-/-- Stage 2 equivalence-check twin (see CheckedContract `*RespCheck`). -/
-def constructContractWithContextRespCheck (fuel : Nat) (program : CheckedProgram)
-    (name : Name) (context : CoreContext) (state : CoreState)
-    (sender value : Word) (args : List CoreValue) :
+/-- Manifest wrapper — fail-closed fold, responder after fuel. -/
+def constructContractWithContextUnderResponder (fuel : Nat)
+    (responder : ScriptedResponder)
+    (program : CheckedProgram) (name : Name) (context : CoreContext)
+    (state : CoreState) (sender value : Word) (args : List CoreValue) :
     Except TypeError CoreCallResult :=
   constructContractWithContextResponder
-    fuel program name context state sender value args
-    (SolidCore.Solidity.Source.ScriptedResponder.ofContext context)
+    fuel program name context state sender value args responder
 
 end CheckedProgram
 
