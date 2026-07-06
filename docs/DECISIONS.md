@@ -89,3 +89,40 @@ inputs (empty, real ABI selectors, event-topic signatures, and byte ranges
 crossing the 136-byte rate boundary). `lake exe keccakParity` prints
 `keccak parity: OK` and exits 0, discharging the roadmap's byte-parity
 requirement directly rather than leaving it as an assumption.
+
+## 2026-07-06 — Phase 2: shared package separates cleanly; no vendoring needed
+
+The extraction closure is exactly the three files
+`EvmCompiler/Simulation/{Interaction,OpenWorld,Outcome}.lean`. Their only imports
+are the pinned `evmyul` package (`EvmYul.SharedState`, `EvmYul.StateOps`,
+`EvmYul.Data.Stack`, `EvmYul.MachineStateOps`, `EvmYul.Operations`), Mathlib, and
+each other — **no** other `EvmCompiler.*` module, and nothing Yul/EVM-semantics
+shaped beyond what `evmyul` already provides. So the roadmap's entanglement
+fallbacks (vendor-in-repo, or give up on the sibling) were not needed: a real
+sibling package separates cleanly.
+
+- Sibling repo created at `/Users/dan/Projects/evm-interaction` (own git repo,
+  first commit), consumed here via `require «evm-interaction» from "../evm-interaction"`.
+- The three files are byte-identical verbatim copies (same `EvmCompiler.Simulation.*`
+  namespaces and declaration names), so evm-compiler's frozen theorem statements
+  stay textually unchanged when it later adopts the package.
+- All composition-critical vocabulary is present: `Interaction`/`Transcript`,
+  `Query`/`Answer`/`ResourceQuery`, `ExternalRequest` + `Call/CreateRequest` +
+  `Call/CreateResponse`, `OpenWorld` (+ `ofYulShared`/`ofEVMShared`), and
+  `ForwardRel` with `strengthen_right`/`bind_right`/`mono`/`trans`
+  (in `namespace …Simulation.Interaction.ForwardRel`).
+- `ForwardRel` is nested under `namespace Interaction`, so its full name is
+  `EvmCompiler.Simulation.Interaction.ForwardRel` (not `…Simulation.ForwardRel`);
+  the bridge module aliases it accordingly.
+- The sibling lakefile mirrors evm-compiler's `moreLeanArgs` (the same set of
+  disabled linters) so the verbatim files compile under identical conditions.
+- `scripts/check_shared_interaction_hashes.py` sha256-compares the sibling's
+  three files against `../evm-compiler`'s live sources (read-only); it currently
+  reports `shared_interaction_hashes=pass`. If the reference checkout is absent it
+  reports `skip` rather than failing, so the check is enforceable in CI where the
+  reference is present without blocking here when it is not.
+- `SolidCore/Solidity/Interaction.lean` is the in-repo bridge: it imports the
+  package and aliases `Interaction`/`Query`/`Answer`/`OpenWorld`/`ForwardRel`
+  under `SolidCore.Solidity.Shared`. It is reachable from the `SolidCore.lean`
+  root (so `lake build` verifies linkage) but not from the corpus build path, so
+  Phase 2 is corpus-neutral (full replay green, cases=98, paired_cases_passed=yes).
