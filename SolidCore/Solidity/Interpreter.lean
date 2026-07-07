@@ -807,9 +807,11 @@ structure State where
   -- A2 (intra-frame balance accounting): the dynamic balance of `self` (this
   -- contract) during a call. Re-based at each external entry to the environment
   -- fact `balanceAt accountBalances self` plus the credited `msg.value`
-  -- (`FunctionDef.evalBodyEntry`), debited by successful value-carrying sends
-  -- (`Runtime.recordExternalInteraction`), and read by `address(this).balance` /
-  -- `selfbalance`. Other addresses stay environment facts (static oracle).
+  -- (`FunctionDef.evalBodyEntry`), and read by `address(this).balance` /
+  -- `selfbalance`. openworld/postworld Stage 3: the outgoing-call debit is
+  -- folded into the responder's echo answer and arrives through `adoptWorld`
+  -- — balance flows only through adoption. Other addresses are adopted-world
+  -- facts (`State.env*`), seeded from the Context maps.
   selfBalance : Word := 0
   -- openworld/postworld: the self-account nonce. Nothing in the interpreter
   -- reads it (create addresses come from `CreateResponse.address`); it is
@@ -989,25 +991,18 @@ def ExternalInteraction.selfBalanceDebit : ExternalInteraction → Word
 
 def Runtime.recordExternalInteraction
     (runtime : Runtime) (interaction : ExternalInteraction) : Runtime :=
-  -- A2: a successful value-carrying effect debits `self`'s dynamic balance
-  -- (floored at 0 — an open-world `success` implies the environment accepted the
-  -- transfer, so we never fabricate a wrapped-huge balance on an inconsistent
-  -- oracle). The debit is centralized here so every emit site (low-level call
-  -- arms, `tryExternalCall`, both create arms) accounts uniformly.
-  let debit := interaction.selfBalanceDebit
-  let balance := runtime.state.selfBalance
-  let balance' :=
-    if balance >= debit then
-      SolidCore.Solidity.Shared.subWord balance debit
-    else
-      0
+  -- openworld/postworld Stage 3: the A2 value-transfer debit no longer lives
+  -- here — it is folded into the responder's echo answer
+  -- (`ScriptedResponder.answerCall?`/`answerCreate?` debit the sent world's
+  -- self account by `interaction.selfBalanceDebit`), and the debited balance
+  -- arrives through `adoptWorld`. Balance flows ONLY through adoption; this
+  -- helper only records the interaction transcript (not world-observable, so
+  -- it does not touch `worldMutatedSinceAdoption`).
   { runtime with
     state :=
       { runtime.state with
-        selfBalance := balance'
         externalInteractions :=
-          runtime.state.externalInteractions ++ [interaction]
-        worldMutatedSinceAdoption := true } }
+          runtime.state.externalInteractions ++ [interaction] } }
 
 def Runtime.pushScope (runtime : Runtime) : Runtime :=
   { runtime with locals := [] :: runtime.locals }
@@ -2382,27 +2377,142 @@ the ANSWER: rows without a world delta answer `postWorld := sent world` — the
 echo convention, exactly `Query.defaultAnswer`'s shape — so echo adoption is
 the identity on every carried field (openworld/postworld Stage 2). -/
 
+/-- Per-account world delta for responder rows: overrides of environment-fact
+    fields of OTHER accounts (we never model their storage — risk R6). -/
+structure OpenAccountDelta where
+  balance? : Option Word := none
+  code? : Option (List Byte) := none
+  deriving Repr
+
+/-- Optional `postWorld` delta on a responder row (openworld/postworld
+    Stage 3). Deltas are MODEL-LEVEL: ordinary slot-keyed writes into the same
+    maps the interpreter uses (ruling #1 — no new representation). A row
+    without a delta answers the echo world with the A2 value-transfer debit
+    folded in (§3.1); `selfBalance?` is absolute and REPLACES the debit
+    entirely (no double-count). Deltas are derived from what Forge's real
+    reentering callee actually does (Forge is ground truth). -/
+structure PostDelta where
+  selfStorageWrites : List (Word × Word) := []
+  selfTransientWrites : List (Word × Word) := []
+  selfBalance? : Option Word := none
+  selfNonce? : Option Word := none
+  otherAccounts : List (Word × OpenAccountDelta) := []
+  appendLogs : List SolidCore.Solidity.Shared.Log.Entry := []
+  createdAccounts : List Word := []
+  deriving Repr
+
+def PostDelta.isEmpty (delta : PostDelta) : Bool :=
+  delta.selfStorageWrites.isEmpty && delta.selfTransientWrites.isEmpty &&
+    delta.selfBalance?.isNone && delta.selfNonce?.isNone &&
+    delta.otherAccounts.isEmpty && delta.appendLogs.isEmpty &&
+    delta.createdAccounts.isEmpty
+
+/-- The A2 value-transfer debit applied to the echoed world's self (caller)
+    account — same success/kind table as `ExternalInteraction.selfBalanceDebit`,
+    floored at 0 like the retired record-side debit was. -/
+def debitWorldSelf (world : SolidCore.Solidity.Shared.OpenWorld)
+    (self : Word) (debit : Word) :
+    SolidCore.Solidity.Shared.OpenWorld :=
+  if debit == 0 then
+    world
+  else
+    let addr := wordToAddress self
+    let account := (world.accounts.find? addr).getD default
+    let balance := u256ToWord account.balance
+    let balance' :=
+      if balance >= debit then
+        SolidCore.Solidity.Shared.subWord balance debit
+      else
+        0
+    { world with
+      accounts :=
+        world.accounts.insert addr
+          { account with balance := wordToU256 balance' } }
+
+/-- Apply a responder row's delta to the (possibly debit-folded) echo world:
+    slot-keyed self storage/transient writes, absolute balance/nonce
+    overrides, other-account fact overrides, appended callee logs, and
+    created-accounts additions. -/
+def PostDelta.apply (delta : PostDelta) (self : Word)
+    (world : SolidCore.Solidity.Shared.OpenWorld) :
+    SolidCore.Solidity.Shared.OpenWorld :=
+  let selfAddr := wordToAddress self
+  let selfAccount := (world.accounts.find? selfAddr).getD default
+  let selfAccount :=
+    { selfAccount with
+      storage :=
+        delta.selfStorageWrites.foldl
+          (fun acc kv => acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
+          selfAccount.storage
+      transientStorage :=
+        delta.selfTransientWrites.foldl
+          (fun acc kv => acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
+          selfAccount.transientStorage
+      balance :=
+        match delta.selfBalance? with
+        | some b => wordToU256 b
+        | none => selfAccount.balance
+      nonce :=
+        match delta.selfNonce? with
+        | some n => wordToU256 n
+        | none => selfAccount.nonce }
+  let accounts :=
+    delta.otherAccounts.foldl
+      (fun (acc : EvmYul.AddrMap EvmCompiler.Simulation.OpenAccount) entry =>
+        let addr := wordToAddress entry.1
+        let account := (acc.find? addr).getD default
+        acc.insert addr
+          { account with
+            balance :=
+              match entry.2.balance? with
+              | some b => wordToU256 b
+              | none => account.balance
+            codeBytes :=
+              match entry.2.code? with
+              | some code => bytesToByteArray code
+              | none => account.codeBytes })
+      (world.accounts.insert selfAddr selfAccount)
+  { accounts := accounts
+    substate :=
+      { world.substate with
+        logSeries :=
+          world.substate.logSeries ++
+            (delta.appendLogs.map logEntryToEvm).toArray }
+    createdAccounts :=
+      delta.createdAccounts.foldl
+        (fun acc a => acc.insert (wordToAddress a))
+        world.createdAccounts }
+
 inductive OracleRow where
   | call : LowLevelCallResult → OracleRow
+  | callWithPost : LowLevelCallResult → PostDelta → OracleRow
   | create : ContractCreationResult → OracleRow
+  | createWithPost : ContractCreationResult → PostDelta → OracleRow
   deriving Repr
 
 abbrev ScriptedResponder := List OracleRow
 
 def ScriptedResponder.callRows (responder : ScriptedResponder) :
-    List LowLevelCallResult :=
+    List (LowLevelCallResult × Option PostDelta) :=
   responder.filterMap (fun row =>
-    match row with | OracleRow.call c => some c | _ => none)
+    match row with
+    | OracleRow.call c => some (c, none)
+    | OracleRow.callWithPost c post => some (c, some post)
+    | _ => none)
 
 def ScriptedResponder.createRows (responder : ScriptedResponder) :
-    List ContractCreationResult :=
+    List (ContractCreationResult × Option PostDelta) :=
   responder.filterMap (fun row =>
-    match row with | OracleRow.create c => some c | _ => none)
+    match row with
+    | OracleRow.create c => some (c, none)
+    | OracleRow.createWithPost c post => some (c, some post)
+    | _ => none)
 
 /-- Answer a call request from the responder's call rows; `none` on a total
-    miss. Keying + gas fallback mirror `answerCall` exactly. The sent world
-    never participates in matching; delta-less rows echo it back as
-    `postWorld`. -/
+    miss. Keying + gas fallback mirror `answerCall` exactly; the sent world
+    NEVER participates in matching. The answered `postWorld` is the echo world
+    with the A2 debit folded in (`selfBalance?` on the row replaces the debit
+    entirely), then the row's delta applied. -/
 def ScriptedResponder.answerCall? (responder : ScriptedResponder)
     (world : SolidCore.Solidity.Shared.OpenWorld)
     (request : EvmCompiler.Simulation.CallRequest) :
@@ -2412,22 +2522,37 @@ def ScriptedResponder.answerCall? (responder : ScriptedResponder)
   let calldata := byteArrayToBytes request.calldata
   let value := u256ToWord request.transferValue
   let rows := responder.callRows
-  let result? :=
-    match SolidCore.Solidity.Shared.Call.Result.lookup? rows kind target calldata
-        value (some (u256ToWord request.requestedGas)) with
+  let rowMatches := fun (row : LowLevelCallResult × Option PostDelta) gas? =>
+    row.1.matchesRequest kind target calldata value gas?
+  let row? :=
+    match rows.find? (fun row =>
+        rowMatches row (some (u256ToWord request.requestedGas))) with
     | some r => some r
-    | none =>
-        SolidCore.Solidity.Shared.Call.Result.lookup? rows kind target calldata
-          value none
-  result?.map (fun result =>
+    | none => rows.find? (fun row => rowMatches row none)
+  row?.map (fun (result, post?) =>
+    let self := addressToWord request.caller
+    let debit :=
+      ExternalInteraction.selfBalanceDebit
+        (ExternalInteraction.lowLevelCall result)
+    let base :=
+      -- An absolute `selfBalance?` replaces the debit entirely (§3.1).
+      if (post?.map (fun p => p.selfBalance?.isSome)).getD false then
+        world
+      else
+        debitWorldSelf world self debit
     { success := result.success
       returnData := bytesToByteArray result.output
-      postWorld := world
+      postWorld :=
+        match post? with
+        | some post => post.apply self base
+        | none => base
       returnedGas := request.requestedGas })
 
 /-- Answer a create request from the responder's create rows; `none` on a total
-    miss OR a malformed name-encoded initCode (fail-closed — `answerCreate`
-    fail-opened on a malformed name). Keying mirrors `answerCreate`. -/
+    miss OR a malformed name-encoded initCode (fail-closed) OR an ill-formed
+    row combining `address = 0` (failed create) with a nonempty delta
+    (risk R7: a failed create's postWorld is the echo world by revert
+    semantics; a delta on it is a fixture bug, rejected fail-closed). -/
 def ScriptedResponder.answerCreate? (responder : ScriptedResponder)
     (world : SolidCore.Solidity.Shared.OpenWorld)
     (request : EvmCompiler.Simulation.CreateRequest) :
@@ -2435,16 +2560,30 @@ def ScriptedResponder.answerCreate? (responder : ScriptedResponder)
   let (name, args) ← decodeCreationInitCode? request.initCode
   let value := u256ToWord request.value
   let salt? := request.salt.map u256ToWord
-  let result ←
-    SolidCore.Solidity.Shared.Call.CreationResult.lookup?
-      responder.createRows name args value salt?
-  some
-    { address := wordToU256 (if result.success then result.address else 0)
-      returnData := bytesToByteArray result.output
-      -- Echo convention; a failed create's postWorld is conventionally the
-      -- echo world (revert semantics, risk R7) — automatic here.
-      postWorld := world
-      returnedGas := wordToU256 0 }
+  let (result, post?) ←
+    responder.createRows.find? (fun row =>
+      row.1.toCreationRequest.matchesRequest name args value salt?)
+  let failed := !result.success || result.address == 0
+  if failed && !((post?.map PostDelta.isEmpty).getD true) then
+    none
+  else
+    let self := addressToWord request.creator
+    let debit :=
+      ExternalInteraction.selfBalanceDebit
+        (ExternalInteraction.contractCreation result)
+    let base :=
+      if (post?.map (fun p => p.selfBalance?.isSome)).getD false then
+        world
+      else
+        debitWorldSelf world self debit
+    some
+      { address := wordToU256 (if result.success then result.address else 0)
+        returnData := bytesToByteArray result.output
+        postWorld :=
+          match post? with
+          | some post => post.apply self base
+          | none => base
+        returnedGas := wordToU256 0 }
 
 /-- Fold failure under a responder: a Solidity failure (revert/outOfFuel — for
     `CallResult` trees only `outOfFuel` is reachable, reverts being caught into

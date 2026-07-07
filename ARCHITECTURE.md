@@ -125,6 +125,38 @@ expected-vs-actual diff) rather than silently continuing on a failed call. This
 makes "the fixture intends this call to fail" (an explicit `success := false`
 row) and "the fixture never anticipated this request" distinguishable.
 
+### Open-world `postWorld` adoption (arbitrary environment changes)
+
+The boundary is shape-identical to Yul's `installYulShared`. Every
+`Query.external` carries a **real** `OpenWorld` snapshot of the caller's state
+at emit (`snapshotWorld`, the mirror of `ofYulShared`): the self account from
+the live `State` (storage/transient verbatim, `selfBalance`, `selfNonce`, code
+from `Context`), other accounts from the environment-fact view, and the
+substate (log series, selfdestruct set). On resume the answered
+`CallResponse.postWorld`/`CreateResponse.postWorld` is adopted **wholesale**
+(`adoptWorld`): the self-account fields land on the existing `State` fields as
+ordinary slot-keyed writes (no new representation), and the answered world is
+retained verbatim in `State.envWorld?` as the live view of other accounts,
+substate extras, and created accounts. Env-fact reads (`.balance`/`.code`/
+`.codehash` of other addresses, created-accounts set) route through
+`State.env*`, consulting the adopted world first and the `Context` seed maps
+only pre-adoption. The **round-trip law**
+`snapshotWorld context (adoptWorld w context s) = w` (proved for every `w` in
+`SolidCore/Solidity/AdoptionLaws.lean`, the mirror of
+`ofYulShared_installYulShared`) is the algebraic heart: adoption loses nothing
+the environment said. Because typed reads of non-canonical adopted words are
+**total and solc-faithful** (bool truthiness on the low byte, enum
+mask-then-use-site-`Panic(0x21)`, address/bytesN masking, packed `intN`
+sign-extension — `Ty.storageValueFromWord?`), no environment well-formedness
+hypothesis is needed anywhere: a reentrant callee that rewrote our account is
+just one particular answer, and the quantifier already covers it. Responder
+rows carry an optional `PostDelta` (model-level slot-keyed writes) to express
+what a reentering callee did; the A2 value-transfer debit is folded into the
+responder's echo answer and arrives through adoption (balance flows only
+through adoption). A row that carries no delta answers the **echo** world
+(`postWorld := sent world`), which adoption maps to the identity — so the whole
+corpus is behavior-preserving.
+
 ## Boundary rules (updated for the interaction model)
 
 - **Storage layout is IN scope (spec-owned).** Unlike compiler memory layout,

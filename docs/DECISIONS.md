@@ -1863,3 +1863,53 @@ construction under the echo convention:
 Gate: `lake build SolidCore` green (laws included), full replay `--jobs 10`
 green with ZERO fixture edits (echo adoption is invisible to the corpus, as
 the laws predict).
+
+## 2026-07-07 — openworld/postworld Stage 3: PostDelta responder rows, reentrancy lanes, A2-debit fold
+
+The flip: responder rows can now carry real world changes, and the A2 debit
+moved into adoption. Behavior-preserving for delta-less rows.
+
+- **`PostDelta`** on responder rows (`OracleRow.callWithPost`/`createWithPost`):
+  model-level, ordinary slot-keyed writes into the same maps (ruling #1) —
+  `selfStorageWrites`, `selfTransientWrites`, `selfBalance?` (absolute),
+  `selfNonce?`, `otherAccounts` (balance/code of others), `appendLogs`,
+  `createdAccounts`. `PostDelta.apply self base` layers them onto the echo
+  world; `answerCall?`/`answerCreate?` compute
+  `postWorld := PostDelta.apply self (debit-folded echo) delta`.
+- **A2 debit fold**: the value-transfer debit left `recordExternalInteraction`
+  (which now only records the interaction transcript) and became
+  `OpenWorld.debitSelf` applied to the echoed world inside the responder,
+  gated by the same success/kind table (`ExternalInteraction.selfBalanceDebit`).
+  A row's explicit `selfBalance?` REPLACES the debit (no double-count) — this
+  is what lets the balance-refunding lane pin that adoption, not the debit, is
+  authoritative. Delta-less rows: debit-folded echo == the old
+  record-side debit + echo, so the full corpus is unchanged (verified by
+  replay: balance witnesses green, zero edits). `answerCreate?` also rejects an
+  ill-formed row (failed create + nonempty delta, risk R7) fail-closed.
+- **`reentrancy-adoption` lane** (corpus 102 → 103): the ReentrancyAdoption
+  Forge fixture runs REAL reentering callees and the deltas are derived from
+  its trace (Forge is ground truth):
+  1. reentrant-storage-write — attacker reenters `setX(42)`; `pull()` returns
+     42 and `x()` reads 42 after (`post.selfStorageWrites := [(0,42)]`).
+  2. reentrant-ill-encoded-then-read — the reentering world plants `flag=2`
+     (slot 1) / `choice=7` (slot 3); post-call the bool getter reads truthy
+     (1) and the enum getter Panics 0x21 — Stage 0 total reads exercised
+     THROUGH Stage 3 adoption (the marquee lane).
+  3. balance-changing-callee — victim funded 100, spends 40, callee refunds 20;
+     `post.selfBalance? := 80` overrides the naive 60 debit; `spend()` reads 80.
+  4. transient-storage-mutation — `tk:=1`, callee reenters `bump()`;
+     `post.selfTransientWrites := [(0,2)]`; observed `tk == 2`.
+  5. create-with-reentry — child constructor reenters `setX(7)`; create row +
+     `post.selfStorageWrites := [(0,7)]`; `deploy()` returns 7, `x()` reads 7.
+  All five Forge tests green; all five paired Lean evals green; storage layout
+  (flag/choice slot packing) and the missing `receive()` were both Forge
+  ground-truth corrections, not papered over.
+
+This **supersedes** the Phase 5 fail-closed re-projection policy of
+`docs/DECISIONS.md:310-319` and the ROADMAP self-storage "fail-closed
+re-projection" resolution: with Stage 0 total reads there is no layout-encoding
+inverse and no environment well-formedness hypothesis — the arbitrary-changes
+model is exact and the round-trip law is `=`.
+
+Gate: `lake build SolidCore` green, `--only reentrancy-adoption` green, full
+replay `--jobs 10` green (103 cases, zero pre-existing fixture edits).

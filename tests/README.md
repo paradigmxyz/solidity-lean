@@ -9,10 +9,12 @@ typechecker, elaboration) and `SolidCore.Witness.*` (the example corpus).
 
 The conformance corpus (`forge-harness/`) and the typechecker-acceptedness
 (`solc_rejects`) lanes are **frozen regression suites**, not a growing coverage
-target. As of this branch they are **102 paired cases** (99 + the
+target. As of this branch they are **103 paired cases** (99 + the
 recursion-gap and balance-accounting lanes + `storage-dirty-words`, which pins
 the Stage 0 total solc-faithful typed storage reads of
-`docs/openworld-postworld-plan.md` §2.6), **426+ Lean `#eval` assertions**, and
+`docs/openworld-postworld-plan.md` §2.6, + `reentrancy-adoption`, which pins
+the Stage 3 wholesale-`postWorld`-adoption model with five Forge-traced
+reentrancy lanes), **426+ Lean `#eval` assertions**, and
 **~311 pinned-solc rejection lanes**. New lanes are added
 **only to pin a discovered bug** — as `rational-constants` does (the A1
 over-reject) and the recursion/function-boundary lane does — and

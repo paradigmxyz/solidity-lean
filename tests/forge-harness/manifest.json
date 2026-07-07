@@ -366,6 +366,59 @@
       }
     },
     {
+      "name": "reentrancy-adoption",
+      "description": "Forge runs real reentering callees (attacker reenters the victim; a value-refunding callee; a child constructor calling back) and traces the victim's adopted self-account changes; Lean models each as a PostDelta on the outgoing-call/create responder row (openworld/postworld Stage 3) and checks the victim observes the adopted storage/balance/transient/create-callback change after the call, including a reentrant ill-encoded word read totally through Stage 0 (bool truthy, enum Panic 0x21) and the balance lane pinning that adoption, not the A2 debit, is authoritative.",
+      "forge": {
+        "root": "tests/forge-harness/reentrancy-adoption",
+        "match_contract": "ReentrancyAdoptionForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/reentrancy-adoption/src/ReentrancyAdoption.sol",
+        "contract": "ReentrancyAdoptionVictim",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ReentrancyAdoption"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ReentrancyAdoption.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "reentrantStorageWrite",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ReentrancyAdoption.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ReentrancyAdoptionVictim\"\n  let callRow : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := 0, calldata := (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature \"notify()\")), value := 0, gas? := none, success := true, output := [] }\n  let delta : SolidCore.Solidity.Source.PostDelta := { selfStorageWrites := [(0, 42)] }\n  let responder : SolidCore.Solidity.Source.ScriptedResponder := [SolidCore.Solidity.Source.OracleRow.callWithPost callRow delta]\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 responder contract \"pull\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st [SolidCore.Solidity.Source.Value.word v] =>\n      let read \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 [] contract \"x\" contract.core.context st []\n      (match read with\n       | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word xv] => Except.ok (SolidCore.Solidity.Source.wordEq v 42 && SolidCore.Solidity.Source.wordEq xv 42)\n       | _ => Except.ok false)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "reentrantIllEncodedThenRead",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ReentrancyAdoption.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ReentrancyAdoptionVictim\"\n  let callRow : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := 0, calldata := (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature \"notify()\")), value := 0, gas? := none, success := true, output := [] }\n  let delta : SolidCore.Solidity.Source.PostDelta := { selfStorageWrites := [(1, 2), (3, 7)] }\n  let responder : SolidCore.Solidity.Source.ScriptedResponder := [SolidCore.Solidity.Source.OracleRow.callWithPost callRow delta]\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 responder contract \"pull\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let flagRead \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 [] contract \"flag\" contract.core.context st []\n      let flagOk := (match flagRead with | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => SolidCore.Solidity.Source.wordEq v 1 | _ => false)\n      let choiceRead \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 [] contract \"choice\" contract.core.context st []\n      let choiceOk := (match choiceRead with | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => SolidCore.Solidity.Source.wordEq code 0x21 | _ => false)\n      Except.ok (flagOk && choiceOk)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "balanceChangingCalleeAdoptionAuthoritative",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ReentrancyAdoption.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ReentrancyAdoptionVictim\"\n  let ctx := { contract.core.context with self := 0xcafe, accountBalances := [(0xcafe, 100)] }\n  let callRow : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := 0, calldata := (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature \"takeAndRefund()\")), value := 40, gas? := none, success := true, output := [] }\n  let delta : SolidCore.Solidity.Source.PostDelta := { selfBalance? := some 80 }\n  let responder : SolidCore.Solidity.Source.ScriptedResponder := [SolidCore.Solidity.Source.OracleRow.callWithPost callRow delta]\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 responder contract \"spend\" ctx SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 40]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 80)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "transientMutationAcrossReentry",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ReentrancyAdoption.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ReentrancyAdoptionVictim\"\n  let callRow : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := 0, calldata := (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature \"notifyBump()\")), value := 0, gas? := none, success := true, output := [] }\n  let delta : SolidCore.Solidity.Source.PostDelta := { selfTransientWrites := [(0, 2)] }\n  let responder : SolidCore.Solidity.Source.ScriptedResponder := [SolidCore.Solidity.Source.OracleRow.callWithPost callRow delta]\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 responder contract \"transientRoundTrip\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 2)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "createWithReentry",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ReentrancyAdoption.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ReentrancyAdoptionVictim\"\n  let ctx := { contract.core.context with self := 0xcafe }\n  let argBytes \u2190 (match SolidCore.Solidity.Source.ABI.encodeValues? [SolidCore.Solidity.Source.Ty.address] [SolidCore.Solidity.Source.Value.word 0xcafe] with | some b => Except.ok b | none => Except.error (SolidCore.Solidity.TypeCheck.TypeError.unsupported \"encode\"))\n  let createRow : SolidCore.Solidity.Source.ContractCreationResult := { contractName := \"ReentrancyAdoptionChild\", constructorArgs := argBytes, value := 0, salt? := none, success := true, address := 0xc41d, output := [] }\n  let delta : SolidCore.Solidity.Source.PostDelta := { selfStorageWrites := [(0, 7)] }\n  let responder : SolidCore.Solidity.Source.ScriptedResponder := [SolidCore.Solidity.Source.OracleRow.createWithPost createRow delta]\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 responder contract \"deploy\" ctx SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st [SolidCore.Solidity.Source.Value.word v] =>\n      let read \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 [] contract \"x\" ctx st []\n      (match read with | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word xv] => Except.ok (SolidCore.Solidity.Source.wordEq v 7 && SolidCore.Solidity.Source.wordEq xv 7) | _ => Except.ok false)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "source-declarations",
       "description": "Forge checks solc/EVM source-unit and contract-local declarations; pinned solc and the common checker reject bad source-unit pragmas, modifier/error overloading, duplicate event ABI signatures, inherited declaration shadowing, event static-form errors, declaration data-location errors, deprecated constructor visibility errors, callable header/override errors, fallback/receive header errors, state-mutability violations, and same-block duplicate locals while accepting nested-block local shadowing; Lean imports the whole solc AST and checks free declarations, local declarations, using, enums, structs, arrays, constructors, fallback/receive overrides, event static forms, and public getters as source semantics.",
       "forge": {
