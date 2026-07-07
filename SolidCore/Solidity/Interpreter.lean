@@ -76,6 +76,14 @@ inductive Ty where
   | fixedArray : Nat -> Ty -> Ty
   | dynamicArray : Ty -> Ty
   | tuple : List Ty -> Ty
+  /-- Enum in a *storage layout* position (max valid member index attached).
+      solc reads enums from storage with `cleanup_from_storage = and(w,0xff)`
+      (never reverting) and validates only at use sites via
+      `validator_assert_t_enum` → `Panic(0x21)`. This constructor appears only
+      as a storage-layout element type (lowered from the AST `Ty.enum`); ABI
+      params/returns and locals stay `uint256` + `AbiCleanup.enum` exactly as
+      before. -/
+  | enumStorage : Word -> Ty
   deriving Repr
 
 inductive AbiCleanup where
@@ -83,6 +91,12 @@ inductive AbiCleanup where
   | uint : Nat -> AbiCleanup
   | int : Nat -> AbiCleanup
   | enum : Word -> AbiCleanup
+  /-- Use-site validator for an enum word loaded from storage. Same range
+      check as `enum`, but a forced rejection is `Panic(0x21)`
+      (solc `validator_assert_t_enum`), where the calldata-decode `enum`
+      cleanup rejects with the empty revert (solc `validator_revert_t_enum`).
+      Both are Forge-pinned (abi-malformed pins the empty calldata revert). -/
+  | enumStorage : Word -> AbiCleanup
   | fixedArray : Nat -> AbiCleanup -> AbiCleanup
   | dynamicArray : AbiCleanup -> AbiCleanup
   | tuple : List AbiCleanup -> AbiCleanup
@@ -115,6 +129,7 @@ def Ty.defaultValue : Ty -> Value
   | Ty.dynamicArray _ => Value.dynamicArray []
   | Ty.tuple elements =>
       Value.tuple (elements.map Ty.defaultValue)
+  | Ty.enumStorage _ => Value.word 0
 
 def externalFunctionSelectorModulus : Nat :=
   2 ^ (8 * selectorBytes)
@@ -277,6 +292,8 @@ def AbiCleanup.accepts : AbiCleanup -> Value -> Bool
         false
   | AbiCleanup.enum maxValue, Value.word value =>
       SolidCore.Solidity.Shared.norm value <= SolidCore.Solidity.Shared.norm maxValue
+  | AbiCleanup.enumStorage maxValue, Value.word value =>
+      SolidCore.Solidity.Shared.norm value <= SolidCore.Solidity.Shared.norm maxValue
   | AbiCleanup.fixedArray size cleanup, Value.fixedArray values =>
       values.length == size && AbiCleanup.acceptsAll cleanup values
   | AbiCleanup.dynamicArray cleanup, Value.dynamicArray values =>
@@ -304,7 +321,12 @@ def AbiCleanup.forceValue (cleanup : AbiCleanup)
   if cleanup.accepts value then
     Except.ok value
   else
-    Except.error RevertData.empty
+    match cleanup with
+    -- Storage-loaded enum use-site validator: solc `validator_assert_t_enum`
+    -- panics 0x21. The calldata-decode cleanups below keep the empty revert
+    -- (solc `validator_revert_*`), pinned by the abi-malformed Forge lanes.
+    | AbiCleanup.enumStorage _ => Except.error RevertData.enumConversion
+    | _ => Except.error RevertData.empty
 
 def Value.forceAbiLazy : Value -> Except RevertData Value
   | Value.abiLazy cleanup value => cleanup.forceValue value
@@ -337,6 +359,17 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.int256, Value.int value => some (Value.int value)
   | Ty.int256, Value.word value => some (Value.int value)
   | Ty.fixedBytes _, Value.word value => some (Value.word value)
+  | Ty.enumStorage maxValue, Value.word value =>
+      -- Storage-write coercion of an enum value: solc's
+      -- `update_storage_value_…_enum` routes through `cleanup_t_enum`
+      -- (validator). Typed sources are already validated (`enumFromUInt`);
+      -- lazily-wrapped dirty reads are forced (→ Panic 0x21) before this
+      -- coercion by `coerceStorageWordAs`.
+      if SolidCore.Solidity.Shared.norm value <=
+          SolidCore.Solidity.Shared.norm maxValue then
+        some (Value.word value)
+      else
+        none
   | Ty.bytesCalldata, Value.bytes bytes => some (Value.bytes bytes)
   | Ty.externalFunction, Value.externalFunction addr selector =>
       some (Value.externalFunction addr selector)
@@ -376,16 +409,46 @@ end
 
 def Ty.storageValueFromWord? : Ty -> Word -> Option Value
   | Ty.bool, value =>
-      if wordEq value 0 || wordEq value 1 then
-        some (Value.word value)
-      else
-        none
-  | Ty.address, value => some (Value.word value)
+      -- solc `cleanup_from_storage_t_bool = and(w, 0xff)`, then every observable
+      -- use applies `iszero(iszero(·))`. The read never reverts on a
+      -- non-canonical word (only reachable via inline-assembly `sstore` or an
+      -- adopted `postWorld`); truthiness depends solely on the low byte. We
+      -- canonicalize to {0,1} on read, which is observationally identical to
+      -- solc for every Solidity use site (a non-canonical bool is unobservable).
+      some (Value.word
+        (if SolidCore.Solidity.Shared.norm value % 256 == 0 then 0 else 1))
+  | Ty.address, value =>
+      -- solc `cleanup_from_storage_t_address = and(w, 2^160-1)`: the high 96
+      -- bits are silently dropped on read, never reverting. Canonical corpus
+      -- addresses already fit 160 bits, so this masks nothing there; it only
+      -- normalizes non-canonical adopted/assembly-planted words.
+      some (Value.word (SolidCore.Solidity.Shared.Account.addressWord value))
   | Ty.uint256, value => some (Value.word value)
   | Ty.int256, value => some (Value.int value)
-  | Ty.fixedBytes _, value => some (Value.word value)
+  | Ty.fixedBytes n, value =>
+      -- solc reads bytesN from storage as `shl(256-8N, w)` — the bits above
+      -- the 8N-bit lane are dropped, never reverting. Our internal bytesN
+      -- convention is right-aligned (meaningful bytes low; left-alignment
+      -- happens only at the ABI boundary), so the equivalent total read is a
+      -- mask to the low 8N bits. Canonical writes already fit, so this only
+      -- normalizes non-canonical adopted/assembly-planted words.
+      some (Value.word (SolidCore.Solidity.Shared.norm value % (2 ^ (8 * n))))
   | Ty.externalFunction, value =>
       some (externalFunctionValueFromStorageWord value)
+  | Ty.enumStorage maxValue, value =>
+      -- solc `cleanup_from_storage_t_enum = and(w, 0xff)`: read masks the lane
+      -- byte and never reverts. Range validation happens only at USE sites
+      -- (`validator_assert_t_enum` → Panic 0x21) — comparisons, conversions,
+      -- storage writes, ABI-encoding of returns; a bare load-and-drop stays
+      -- silent (verified against solc 0.8.35 --ir probes). In-range words stay
+      -- bare (identical to the pre-enumStorage representation); out-of-range
+      -- words carry the deferred use-site validator.
+      let masked := SolidCore.Solidity.Shared.norm value % 256
+      if masked <= SolidCore.Solidity.Shared.norm maxValue then
+        some (Value.word masked)
+      else
+        some (Value.abiLazy (AbiCleanup.enumStorage maxValue)
+          (Value.word masked))
   | _, _ => none
 
 mutual
@@ -501,7 +564,11 @@ def fixedBytesFromBytes? (targetSize : Nat) (bytes : List Byte) :
   else
     Except.error RevertData.typeMismatch
 
-def uintCast? (bits : Nat) (value : Value) : Except RevertData Value :=
+def uintCast? (bits : Nat) (value : Value) : Except RevertData Value := do
+  -- Conversion is a use site: force deferred cleanups (storage-loaded
+  -- out-of-range enum → Panic 0x21, matching solc `convert_t_enum_to_t_uintN`
+  -- routing through `cleanup_t_enum`).
+  let value ← value.forceAbiLazy
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
     | some word => Except.ok (Value.word (SolidCore.Solidity.Shared.norm word % (2 ^ bits)))
@@ -510,7 +577,8 @@ def uintCast? (bits : Nat) (value : Value) : Except RevertData Value :=
     Except.error RevertData.typeMismatch
 
 def uintCleanup? (checked : Bool) (bits : Nat) (value : Value) :
-    Except RevertData Value :=
+    Except RevertData Value := do
+  let value ← value.forceAbiLazy
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
     | some word =>
@@ -522,7 +590,8 @@ def uintCleanup? (checked : Bool) (bits : Nat) (value : Value) :
   else
     Except.error RevertData.typeMismatch
 
-def intCast? (bits : Nat) (value : Value) : Except RevertData Value :=
+def intCast? (bits : Nat) (value : Value) : Except RevertData Value := do
+  let value ← value.forceAbiLazy
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
     | some word =>
@@ -540,7 +609,8 @@ def intCast? (bits : Nat) (value : Value) : Except RevertData Value :=
     Except.error RevertData.typeMismatch
 
 def intCleanup? (checked : Bool) (bits : Nat) (value : Value) :
-    Except RevertData Value :=
+    Except RevertData Value := do
+  let value ← value.forceAbiLazy
   if 0 < bits && bits <= 256 then
     match value.asStorageWord? with
     | some word =>
@@ -2190,6 +2260,10 @@ def loadStorageWordAs (state : State) (slot : Word) (ty : Ty) :
 
 def coerceStorageWordAs (ty : Ty) (value : Value) :
     Except RevertData Word := do
+  -- A storage write is a use site: force any deferred cleanup first (a
+  -- storage-loaded out-of-range enum panics 0x21 here, matching solc's
+  -- `update_storage_value` → `cleanup_t_enum`).
+  let value ← value.forceAbiLazy
   let coerced ←
     match ty.coerceValue? value with
     | some coerced => Except.ok coerced
@@ -4189,6 +4263,9 @@ def abiDecodeValueAtWithFuel? :
         do
         let values ← decodeTupleValues? argData elementTys headIndex
         some (Value.tuple values)
+  -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
+  -- position (params/returns lower enums to `uint256` + `AbiCleanup.enum`).
+  | _fuel + 1, _, _, Ty.enumStorage _ => none
 
 def abiDecodeValueAt? (argData : List Byte) (headIndex : Nat)
     (ty : Ty) : Option Value :=
@@ -4822,7 +4899,12 @@ def BinaryOp.applySignedWord
 
 def BinaryOp.apply
     (checked : Bool) (op : BinaryOp) (lhs rhs : Value) :
-    Except RevertData Value :=
+    Except RevertData Value := do
+  -- Operators are use sites: force deferred cleanups first (a storage-loaded
+  -- out-of-range enum operand panics 0x21 here, matching solc routing both
+  -- comparison operands through `cleanup_t_enum`).
+  let lhs ← lhs.forceAbiLazy
+  let rhs ← rhs.forceAbiLazy
   match op with
   | BinaryOp.eq =>
       match lhs, rhs with
@@ -4919,7 +5001,12 @@ def UnaryOp.apply (checked : Bool) (op : UnaryOp) (value : Value) :
             Except.ok (Value.word (SolidCore.Solidity.Shared.subWord 0 word))
       | _ => Except.error RevertData.typeMismatch
 
-def enumFromUIntValue (maxValue : Word) : Value -> Except RevertData Value
+def enumFromUIntValue (maxValue : Word) (value : Value) :
+    Except RevertData Value := do
+  -- Conversion is a use site: force deferred cleanups first (a storage-loaded
+  -- out-of-range enum re-validated through `E(x)` panics 0x21 here).
+  let value ← value.forceAbiLazy
+  match value with
   | Value.word word =>
       if SolidCore.Solidity.Shared.norm word <= SolidCore.Solidity.Shared.norm maxValue then
         Except.ok (Value.word word)

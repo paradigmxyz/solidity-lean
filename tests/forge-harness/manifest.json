@@ -268,6 +268,104 @@
       }
     },
     {
+      "name": "storage-dirty-words",
+      "description": "Forge plants non-canonical storage words with vm.store and checks solc/EVM total typed reads (bool truthiness on the low byte, enum mask-then-use-site Panic 0x21, address/bytes4 lane masking, packed int8 sign extension); Lean plants the same words with State.storeSlot on the imported contract and checks identical outcomes.",
+      "forge": {
+        "root": "tests/forge-harness/storage-dirty-words",
+        "match_contract": "StorageDirtyWordsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-dirty-words/src/StorageDirtyWords.sol",
+        "contract": "StorageDirtyWordsHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageDirtyWords"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "dirtyBoolTruthyGetter",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"flag\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 2) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyBoolTruthyUse",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"flagIsTrue\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 2) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyBoolHighBitsFalseGetter",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"flag\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 (2 ^ 200)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyBoolHighBitsFalseUse",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"flagIsTrue\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 (2 ^ 200)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyEnumGetterPanics21",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"choice\") (SolidCore.Solidity.Source.State.empty.storeSlot 2 7) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x21)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyEnumComparePanics21",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"choiceIsB\") (SolidCore.Solidity.Source.State.empty.storeSlot 2 7) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x21)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyEnumToUintPanics21",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"choiceAsUint\") (SolidCore.Solidity.Source.State.empty.storeSlot 2 7) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x21)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "maskedEnumGetterReadsB",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"choice\") (SolidCore.Solidity.Source.State.empty.storeSlot 2 (2 ^ 200 + 1)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "maskedEnumComparesEqualToB",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"choiceIsB\") (SolidCore.Solidity.Source.State.empty.storeSlot 2 (2 ^ 200 + 1)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "maskedEnumConvertsToOne",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"choiceAsUint\") (SolidCore.Solidity.Source.State.empty.storeSlot 2 (2 ^ 200 + 1)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyAddressHighBitsDropped",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"who\") (SolidCore.Solidity.Source.State.empty.storeSlot 4 (2 ^ 160 + 0xabcd)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 0xabcd)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyFixedBytesLaneMasked",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"tag\") (SolidCore.Solidity.Source.State.empty.storeSlot 6 (2 ^ 200 + 0x11223344)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 0x11223344)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyPackedUint8LaneMasked",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"u8v\") (SolidCore.Solidity.Source.State.empty.storeSlot 8 (2 ^ 200 + 0x80ff)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 0xff)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyPackedInt8SignExtended",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageDirtyWords.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"i8v\") (SolidCore.Solidity.Source.State.empty.storeSlot 8 (2 ^ 200 + 0x80ff)) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int s] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq s (SolidCore.Solidity.Shared.signedToWord (-128)))\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "source-declarations",
       "description": "Forge checks solc/EVM source-unit and contract-local declarations; pinned solc and the common checker reject bad source-unit pragmas, modifier/error overloading, duplicate event ABI signatures, inherited declaration shadowing, event static-form errors, declaration data-location errors, deprecated constructor visibility errors, callable header/override errors, fallback/receive header errors, state-mutability violations, and same-block duplicate locals while accepting nested-block local shadowing; Lean imports the whole solc AST and checks free declarations, local declarations, using, enums, structs, arrays, constructors, fallback/receive overrides, event static forms, and public getters as source semantics.",
       "forge": {

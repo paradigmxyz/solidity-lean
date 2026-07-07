@@ -2214,6 +2214,11 @@ def Ty.storagePackedSigned : Ty -> Bool
   | Ty.int _ => true
   | _ => false
 
+/-- Enum member bound for storage-layout lowering (`none` for non-enums). -/
+def Ty.storageEnumMax? : Ty -> Option Nat
+  | Ty.enum maxValue => some maxValue
+  | _ => none
+
 def Ty.toCoreMappingKey? : Ty -> Option CoreTy
   | Ty.bytes => some SolidCore.Solidity.Source.Ty.bytesCalldata
   | Ty.string => some SolidCore.Solidity.Source.Ty.bytesCalldata
@@ -2276,18 +2281,34 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
       let key ← Ty.toCoreMappingKey? keyTy
       let value ← Ty.toCoreStorageLayout? valueTy
       some (SolidCore.Solidity.Source.StorageLayout.mapping key value)
+  | Ty.enum maxValue =>
+      -- Storage layout keeps the member bound: reads mask the lane byte and
+      -- defer range validation to use sites (Panic 0x21), matching solc's
+      -- `cleanup_from_storage_t_enum` / `validator_assert_t_enum` split.
+      -- ABI params/returns and locals keep the erased `uint256` +
+      -- `AbiCleanup.enum` lowering.
+      some
+        (SolidCore.Solidity.Source.StorageLayout.scalar
+          (SolidCore.Solidity.Source.Ty.enumStorage maxValue))
   | ty => do
       let scalar ← Ty.toCoreStorageWord? ty
       some (SolidCore.Solidity.Source.StorageLayout.scalar scalar)
 
 def Ty.toCoreStorageMemberLayout? (ty : Ty) :
     Option CoreStorageLayout :=
-  match Ty.storagePackedBytes? ty, Ty.toCoreStorageWord? ty with
-  | some widthBytes, some scalar =>
+  match Ty.storageEnumMax? ty,
+      Ty.storagePackedBytes? ty, Ty.toCoreStorageWord? ty with
+  | some maxValue, _, _ =>
+      -- Packed 1-byte enum lane, carrying the member bound (see
+      -- `toCoreStorageLayout?`).
+      some
+        (SolidCore.Solidity.Source.StorageLayout.packedScalar 0 1 false
+          (SolidCore.Solidity.Source.Ty.enumStorage maxValue))
+  | none, some widthBytes, some scalar =>
       some
         (SolidCore.Solidity.Source.StorageLayout.packedScalar
           0 widthBytes (Ty.storagePackedSigned ty) scalar)
-  | _, _ => Ty.toCoreStorageLayout? ty
+  | _, _, _ => Ty.toCoreStorageLayout? ty
 
 def Tys.toCoreStorageLayouts? : List Ty -> Option (List CoreStorageLayout)
   | [] => some []

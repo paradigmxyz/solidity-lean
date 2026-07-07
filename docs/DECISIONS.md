@@ -1715,3 +1715,60 @@ reproved), full replay `forge_interpreter_compare=pass`, `cases=101`,
 call chains (recursion-gap), balance accounting (balance-accounting), packed
 narrow-int hashing, shift truncation, signed exponentiation, rational constants,
 and the fail-closed ecdsa precompile rows.
+
+## 2026-07-07 — openworld/postworld Stage 0: total, solc-faithful typed storage reads
+
+Per `docs/openworld-postworld-plan.md` §2.6 (orchestrator ruling #2: typed reads
+of non-canonical storage words are TOTAL and solc-faithful, never fail-closed).
+Ground truth: solc 0.8.35 `--ir` probes (`/tmp/solc-probes/EnumUse.yul`) — the
+storage read pipeline `read_from_storage_split → cleanup_from_storage_t_X` never
+reverts for any type; validation happens at *use* sites via `cleanup_t_X`.
+
+Fixes landed (`Ty.storageValueFromWord?`, `Interpreter.lean`):
+
+- **bool**: fail-closed reject of w ∉ {0,1} → total `and(w,0xff)` +
+  truthiness; canonicalized to {0,1} on read (observationally identical to
+  solc's read-mask + use-site `iszero(iszero(·))`; a non-canonical bool is
+  unobservable).
+- **address**: no mask → `and(w, 2^160-1)` on read.
+- **bytesN**: identity → mask to the low 8N bits (our internal convention is
+  right-aligned; solc's `shl(256-8N,w)` drops the same bits above the lane).
+- **enum**: the big one. New Source-layer `Ty.enumStorage (maxValue)`, produced
+  ONLY in storage layouts (`Ty.toCoreStorageLayout?`/`toCoreStorageMemberLayout?`
+  lower AST `Ty.enum` to it; ABI params/returns/locals keep the erased
+  `uint256` + `AbiCleanup.enum` lowering). Read masks the lane byte and is
+  total; an in-range word stays a bare `Value.word` (zero representation change
+  on canonical data), an out-of-range word is wrapped
+  `Value.abiLazy (AbiCleanup.enumStorage max)` — a *deferred use-site
+  validator*. Forcing an `enumStorage` cleanup rejects with **Panic(0x21)**
+  (`validator_assert_t_enum`), while the calldata-decode `AbiCleanup.enum`
+  keeps the **empty revert** (`validator_revert_t_enum`) — solc has BOTH
+  validators and the abi-malformed Forge lane pins the empty calldata one.
+  Use-site forcing added at `BinaryOp.apply` (comparisons/arithmetic),
+  `uintCast?`/`intCast?`/`uintCleanup?`/`intCleanup?` (conversions),
+  `enumFromUIntValue` (enum-to-enum revalidation), and `coerceStorageWordAs`
+  (storage writes; solc's `update_storage_value` validates) — returns/getters
+  already force through `collectReturnBindings`' deref. A bare load-and-drop
+  (`E x = e; x;`) stays silent, exactly like solc's `fun_loadOnly` probe.
+- **intN / function-type**: verified already faithful on this tree
+  (`intCast?` is total on the packed lane; `externalFunctionValueFromStorageWord`
+  already masks the address to 160 bits via `Account.addressWord`). Pinned by
+  lanes, no code change.
+
+Known corners (documented, not lane-pinned): an out-of-range storage enum
+reaching `abi.encode`/event-data encoding directly (without a variable read or
+return in between) rejects through the Option-typed encoders as a generic
+revert rather than Panic(0x21); solc timing places the panic at the encode.
+Revisit only if a fixture ever observes it.
+
+**Lane**: new paired case `storage-dirty-words` (corpus 101 → 102): Forge
+plants non-canonical words via `vm.store` (bool slot=2 truthy / high-bits-only
+falsy; enum slot=7 → Panic 0x21 from getter, `==` compare, and `uint256(·)`
+conversion; enum `2^200+1` → masked in-range read; address high-bit drop;
+bytes4 lane mask; packed uint8/int8 mask + signextend), Lean plants the same
+words via `State.storeSlot` on the solc-AST-imported contract — 5 Forge tests
++ 15 paired Lean evals, all green via `--only storage-dirty-words`.
+
+This stage is independent of the postWorld arc but is what makes wholesale
+`postWorld` adoption total: any word the environment writes into our storage
+now has defined, solc-faithful read semantics.
