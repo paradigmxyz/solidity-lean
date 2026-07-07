@@ -1999,3 +1999,252 @@ solc's actual mechanisms. Findings recorded in
   NOT reuse the right-to-left call-argument hoisting order.
 
 Task #9's description was updated to carry these constraints inline.
+## 2026-07-07 — Function-boundary refactor, reference-signature extension: memory-ref + storage-ref-parameter callees onto the boundary
+
+Branch `refactor/ref-signatures` (worktree, based at the integrated tip
+`11350cd`). Extends the internal-function boundary (`Stmt.internalCall` +
+`Contract.table`, landed for value signatures) to **reference-signature
+callees**: callees whose parameters are stack values, `memory` references, or
+`storage` references, and whose returns are stack values or `memory` references.
+Reference-signature recursion / deep nesting through these signatures now
+elaborates and runs (previously silently rejected via the retained inline fuel).
+
+### Semantic model (as implemented)
+- **Memory refs = pointer pass-through.** A `T memory` argument flows as its
+  `Value.memoryRef` pointer; the callee frame binds the pointer (not a copy), so
+  callee mutations alias back and a returned memory pointer aliases the caller's
+  object. The heap is shared (frames replace `locals` only).
+- **Storage refs = flowing runtime values.** A `T storage` argument flows as a
+  `Value.storageRef`/`storagePathRef` runtime value (solc's model: a storage
+  pointer is a plain argument), bound into the callee frame; the callee's storage
+  accesses resolve through it against the shared `state`. No elaboration-time
+  alias substitution.
+
+### Interpreter groundwork (`Interpreter.lean`, function-boundary region only —
+away from the postWorld snapshot/adoption/emit/read-helper regions)
+- `Expr.evalRefArgWithRuntimeOrder` + list form: reference-PRESERVING argument
+  evaluation for the `internalCall` arm. A `Expr.var` bound to a storage/memory
+  reference yields the pointer VALUE (not the dereferenced load); everything else
+  falls through to ordinary eval, so value calls are byte-identical.
+- `BindingDecl.bindArgRef?`/`bindArgsRef?` + `InternalFunction.initialFrame?`:
+  reference-preserving parameter binding (`Ty.coerceValue?` has no reference
+  case, so ordinary binding would reject a pointer). Entry path
+  (`FunctionDef.initialFrame?`) untouched.
+- `collectReturnBindingsRef`/`coerceReturnBindingsRef`: preserve memory/storage
+  pointers on return (memory returns alias; storage-return coercion has no value
+  case); non-reference returns dereference-and-coerce exactly as the shared
+  collectors, so the entry path (which must abi-value memory returns and never
+  returns storage pointers) is untouched.
+- `Runtime.assignLocalRefAware?`/`assignNamedValuesRef?` + `internalCallAssign`:
+  a returned storage pointer re-points the caller's storage-alias target
+  (`assignStorageRef?`), not `coerceLike?` (which has no reference case).
+- Witnesses (`SolidCore/Witness/InternalCall.lean`): storage read-through,
+  storage-ref return re-pointing, value-argument inertness.
+
+### Elaboration (`Interface.lean`)
+- `FunctionDecl.isBoundaryCallee` (was `isValueBoundaryCallee`): now admits
+  callees whose params are `isBoundaryLocation` (value / `memory` / `storage`, NOT
+  `calldata`, NOT function-typed) and returns are `isBoundaryReturnLocation`
+  (value / `memory`, NOT `storage`, NOT `calldata`, NOT function-typed). Used
+  identically at the call-site emit and every table-build site.
+- `Parameters.boundaryArgDecls?` (was `valueBoundaryArgDecls?`): reuses
+  `Parameter.toStorageAwareCoreArgDecl?` to build one reference-preserving temp
+  per argument — `storage` → `storageAlias*` (binds the pointer value), `memory`
+  → `memoryVarDecl` (aliases a bare memory variable's pointer via
+  `memoryRefOrValueWithRuntimeOrder`), value → `varDecl`. Temp name forced to
+  `_ic_arg_<i>` (never the parameter name). Node args are the temp reads,
+  evaluated reference-preservingly by the arm.
+- `FunctionDecl.boundaryCallParts?` (was `valueBoundaryCallParts?`): the return
+  decls were already storage-aware (`toStorageAwareDefaultCoreDecls?` +
+  `storageRefFlags`); only the arg construction changed. Threads `storageRefEnv`.
+- `FunctionDecl.internalTableKey?`: **collision fix.** The ABI canonical
+  signature collapses user types (every one-field struct → `(uint256)`, every
+  enum → `uint8`, every user type → `address`). Two overloads differing only by
+  such a type (`div_(Exp memory,Exp memory)` at 1e18 vs
+  `div_(Double memory,Double memory)` at 1e36 — the compound-exponential
+  regression) would share a key and misdispatch. The key now appends a structural
+  identity of the parameter types (derived `repr`, preserving struct/enum/user
+  identity), computed identically at both sites from the same resolved decl.
+- `FunctionDecl.toCore?`: registers `storage`-ref RETURNS in `storageRefEnv` and
+  runs `rewriteStorageReturnAssignments` (parity with the splice path), so a
+  boundary storage-ref-return callee's body treats its return as a storage
+  pointer. Inert for value returns and impossible for entry functions — kept as
+  forward-groundwork for the deferred storage-ref-return slice below.
+
+### Residues (deliberately deferred — splice path retained; `defaultInternalCallInlineFuel` NOT deleted)
+- **Storage-ref RETURNS** (`uint256[] storage`-returning callees:
+  `pointer-return-definite`, `function-type-locations`'s storage fn-pointer,
+  `override-data-locations` internalStorage). Excluded by
+  `isBoundaryReturnLocation`; they stay spliced (green). The interpreter carries
+  storage-ref returns correctly (proved by the `InternalCall` witnesses) and the
+  callee-body groundwork is in place (above), but the CALLER-side capture wiring
+  for a storage-ref-return NODE (aliasing the caller local to the returned
+  pointer through the wrapper callers) is not yet complete — the boundary version
+  still computed a wrong value where the splice path is correct. Precise residue:
+  finish the wrapper-caller (`internal*CallCore?`) storage-ref-return capture,
+  then drop the `storage` exclusion from `isBoundaryReturnLocation`.
+- **Function-typed callees** (`frontend-frontier` `acceptInternalPure`,
+  `function-type-locations` fn-pointer locals). Excluded: there is no
+  internal-function-pointer `Value` constructor (only `Value.externalFunction`);
+  adding one is broad `Value`-match blast radius and overlaps the sibling
+  postWorld agent's `Interpreter.lean` surface — recorded, not attempted here.
+- **Calldata-ref callees** excluded (no flowing calldata-reference value yet).
+- **Internal call in a tuple-literal RHS component** (e.g. `(a,) = (7, poke())`,
+  `(x,y) = (f(), g())`) still fails elaboration — the stage-3 expression-position
+  hoisting does not cover the tuple-literal-component position (flagged by the
+  tuple-hole agent; adjacent to this surface but a distinct hoisting shape). NOT
+  covered by this work; queued as named residue.
+
+### Splice deletion (stage 4): still deferred
+The splice path remains the live elaboration for storage-ref-return, calldata,
+and function-typed callees, so `defaultInternalCallInlineFuel` + its consumption
+sites and `functionExpandModifiersToCoreWithStorageRefsOnly?` cannot be deleted.
+
+### Merge note
+Main advanced past this branch's base (`11350cd`): postWorld arc `d52bb82`
+(Interpreter.lean snapshot/adoption; State `envWorld?`/`selfNonce`; A2 debit moved
+into the responder echo) and tuple-hole `d390609` (importer-only). This branch is
+NOT rebased. Interpreter.lean edits here are confined to the function-boundary
+call machinery (arm, frame build, return mapping, ref-preserving arg eval) —
+expected disjoint from the adoption/emit/responder regions; the merge should
+compose in Interpreter.lean with care, and the manifest via the established
+programmatic three-way compose.
+
+### Gates
+Per-commit: `lake build SolidCore` green; the five reference/pointer/function
+sentinels (`reference-internal-memory-boundaries`, `reference-mapping-storage`,
+`reference-assignments`, `pointer-return-definite`, `local-pointer-definite`,
+`function-type-locations`) green via `--only`; smoke green; a broad Lean-only
+replay over the heavy OZ `using`-for storage-ref fixtures (enumerable-set/map,
+checkpoints, bitmaps, counters, arrays, timers, double-ended-queue, merkle-proof)
+and the memory-struct-heavy compound-exponential lane — all green. Full
+`--jobs 10` replay is the closing gate.
+
+## 2026-07-07 — Boundary-completion arc (stages A–E): all reference signatures on the boundary; splice deleted
+
+Branch `refactor/ref-signatures`, continuing from the reference-signature
+extension entry above. Designed against direct `--ir` probes of the pinned
+solc 0.8.35 (`docs/refs-completion-solc-research.md`, imported at `22597bd`).
+One commit per stage; smoke + relevant sentinels per stage; single full
+`--jobs 10` replay as the closing gate.
+
+### Stage A — storage-ref RETURNS (research §1)
+solc via-IR returns exactly ONE word (the slot) from a `T storage`-returning
+internal function; the caller binds it as a plain local. Mirror: the flowing
+`Value.storageRef`. The missing piece was the CALLEE-side binding:
+`BindingDecl.isStorageRef` (defaulted `false`) makes `defaultBinding` bind a
+storage-ref named return to `Value.storageRef uninitializedStorageReturnTarget`
+in the callee FRAME — the body's re-points (`storageAliasAssign*`, which assign
+through scopes into the frame) and the reference-preserving return collection
+then see a storage pointer that survives block scope pops (a declaration-based
+prologue was rejected for exactly that scope-pop failure mode, witnessed).
+`isBoundaryReturnLocation` stopped excluding `storage`.
+
+### Stage B — tuple-literal RHS components (research §4)
+solc evaluates tuple-literal components LEFT-to-right, each into its own temp,
+ALL before any assignment; a hole's component still evaluates. New arm for the
+assignment form + extension of the list-level varDecl-tuple arm, both reusing
+`tupleItemsUseCoreWithInternalCalls?` (the L-to-R temp sequencing already
+pinned for `return (f(), g())`); the no-call form keeps today's path (tried
+first). NOT the right-to-left yulCompatible call-arg order. Importer: null
+tuple components classify as source scalars (same hunk as main's `d390609`).
+Lane `tuple-literal-hoist` (assignment/hole/decl forms, storage order-log).
+
+### Stage C — internal function pointers (research §2)
+solc via-IR: an internal fn-pointer value is a small sequential dispatch ID
+(0 = uninitialized/deleted), assigned 1..n to the functions used as VALUES, in
+first-use order; a call through a pointer is a dispatch switch whose default is
+`Panic(0x51)`; the storage type is 8 bytes with a 64-bit-mask read cleanup and
+NO read-time validity check. Mirrored exactly:
+- `Value.internalFunction (id : Word)`, core `Ty.internalFunction`, core
+  `Expr.internalFunction` literal; rows for default (0), coercion (identity),
+  storage read (64-bit mask — the dirty-word row; adoption-planted words in
+  fn-pointer slots behave exactly as solc, no carve-out), storage write
+  (8-byte packed slice), no ABI form.
+- `InternalFunction.id? : Option Word` (+ `FunctionDef.dispatchId?` →
+  `Contract.table`); `Stmt.internalCallPtr` evaluates the pointer expr FIRST,
+  then args; table miss (incl. 0) → `RevertData.panic 0x51`; hit → the
+  ordinary framed call.
+- Elaboration: per-contract numbering (`FunctionDecls.internalFnValueNumbering`
+  — value-position identifiers, call-callee slots excluded, first-use order);
+  fn-value identifiers rewrite to dispatch-ID number literals AFTER alias
+  inlining (statically-resolvable fn-ptr locals keep the alias path);
+  `Expr.toCoreAsWithEnv?` turns a number literal in an internal-fn-typed
+  context into the pointer literal (typechecker-unreachable otherwise);
+  unresolvable call names fall back to `ptrBoundaryCallParts?` (params/returns
+  from the function TYPE); nested ptr-call args hoist through the same gates
+  as direct calls (`directOrPtrCallArgReturnTy?`).
+- **Eval-frame regression + fix**: inlining the ptr arm into `Stmt.eval` grew
+  the compiled frame past the stack budget — five corpus lanes segfaulted
+  (exit 139). The frame build + result mapping of BOTH call arms moved out of
+  the mutual block (`internalCallEnter?`/`internalCallFinish`); the eval frame
+  is now smaller than pre-arc. Recorded as a standing constraint: the eval
+  block recurses once per statement, so its compiled frame size bounds usable
+  program depth — keep its arms thin.
+- Lane `internal-fn-pointers`: storage round-trip with data-dependent pointer,
+  pointer as internal arg (incl. `f(f(x))`) and return, uninitialized call →
+  Panic 0x51 (Forge-paired via low-level call), recursion through a runtime
+  pointer. Witnesses additionally pin dirty-word masking end-to-end.
+
+### Stage D — calldata-ref callees (research §3)
+solc passes a dynamic calldata ref as two plain words (offset, length) — a
+pure READ descriptor (calldata is immutable). This semantics materializes
+calldata into immutable `Value`s at the ABI boundary, so passing the value is
+observationally identical to passing the descriptor; slices are value slices.
+Survey found no incompatibility → exclusion lifted (the research's preferred
+outcome), no new machinery. Lane `calldata-ref-internal` (params, slice
+returned from an internal fn, recursion over a calldata array).
+
+### Stage E — splice deletion + closure
+- `internalTableKey?` made TOTAL over named functions: when `abiSignature?`
+  fails (mapping-typed storage params — OZ EnumerableSet/Map), the name + the
+  structural repr suffix still key the table.
+- Storage-located params with no core type form get a placeholder core Ty and
+  `AbiCleanup.none` (the binding is reference-preserving, so the declared core
+  Ty of a storage-ref binding is never consulted; ABI cleanups are entry-only
+  and mapping params cannot reach an ABI entry).
+- DELETED: the α-renaming inline-splice bodies of `internalCallParts?` (both
+  branches), `functionExpandModifiersToCoreWithStorageRefsOnly?`, the
+  `Stmt.toCoreWithStorageRefsOnly?`/list mutual cluster,
+  `Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?`,
+  `Parameters.runtimeAliasEnv` (net −315 lines). No callee kind splices.
+- KEPT deliberately: (1) `defaultInternalCallInlineFuel` — renamed in ROLE,
+  not name: it no longer bounds inline expansion (that path is gone, and with
+  it the recursion rejection); it survives only as the nested-call-argument
+  hoisting bound (syntactic depth of `f(g(h(...)))` within one expression) and
+  as the decreasing Nat of the elaboration cluster's termination measure.
+  Deviation from the plan's "delete the constant", recorded honestly: removing
+  the parameter threading entirely is a large mechanical follow-up with no
+  semantic content. (2) The internal-function ALIAS-inlining machinery
+  (`inlineInternalFunctionAliases*`) — statically-resolvable fn-ptr locals are
+  still substituted before the ID rewrite; behavior-identical, and deleting it
+  would force every static use through the dispatch table for no semantic
+  gain. (3) Modifiers stay inlined (unchanged posture).
+- Residues (recorded, all pre-existing rejections — no acceptance regressed):
+  member-form fn-value uses (`Lib.f` as a value), fn-pointer VALUES in
+  constructors and modifier bodies (fn-pointer CALLS and all other uses work),
+  and tuple-literal hoisting only for the assignment/declaration statement
+  forms.
+- Lane `recursion-ref-signatures`: recursive linked-list walk over a mapping
+  via `Node storage` (=60), recursion over `uint256[] memory` incl.
+  mutation-through-pointer aliasing (=15099) — the residual recursion-gap
+  slice, now green against Forge.
+- ROADMAP registry row → **Fixed — all signatures**.
+
+Corpus: 105 cases (tuple-literal-hoist, internal-fn-pointers,
+calldata-ref-internal, recursion-ref-signatures added; each pins researched
+solc behavior with Forge as ground truth). Closing gate: full `--jobs 10`
+replay (results in the final gate record below).
+
+### Closing gate (boundary-completion arc)
+Full paired replay, `--jobs 10`, all **105/105 cases pass** (103 Forge-paired +
+2 Forge-skipped-by-config; `status=0`). Zero failures. The four new pinning
+lanes — `tuple-literal-hoist`, `internal-fn-pointers`, `calldata-ref-internal`,
+`recursion-ref-signatures` — pass Forge-paired. The full-replay run caught one
+truth-value drift (frontend-frontier: a public state variable overriding a
+virtual function collided with the fn-pointer numbering candidates — fixed by
+excluding `storageNames` from candidates), which is exactly the kind of
+frame-isolation/name-resolution edge the arc's R-risks flagged; re-run clean.
+The inline-splice machinery is gone and every internal-linkage callee — value,
+memory-ref, storage-ref (params + returns), calldata-ref, and function-pointer
+— executes as a framed in-monad boundary call.

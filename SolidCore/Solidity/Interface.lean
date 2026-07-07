@@ -2098,6 +2098,10 @@ def Ty.toCore? : Ty -> Option CoreTy
   | Ty.user _ => some SolidCore.Solidity.Source.Ty.address
   | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ =>
       some SolidCore.Solidity.Source.Ty.externalFunction
+  | Ty.functionWithLocations _ _ _ _ _ _ =>
+      -- Stage C (boundary-completion arc): internal function pointers are
+      -- first-class runtime values (dispatch IDs).
+      some SolidCore.Solidity.Source.Ty.internalFunction
   | _ => none
 
 def Ty.listToCore? : List Ty -> Option (List CoreTy)
@@ -2179,6 +2183,8 @@ def Ty.toCoreStorageWord? : Ty -> Option CoreTy
         none
   | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ =>
       some SolidCore.Solidity.Source.Ty.externalFunction
+  | Ty.functionWithLocations _ _ _ _ _ _ =>
+      some SolidCore.Solidity.Source.Ty.internalFunction
   | _ => none
 
 def Ty.storagePackedBytes? : Ty -> Option Nat
@@ -2208,6 +2214,9 @@ def Ty.storagePackedBytes? : Ty -> Option Nat
       else
         none
   | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ => some 24
+  -- Internal fn pointers are an 8-byte storage type (solc via-IR;
+  -- docs/refs-completion-solc-research.md §2).
+  | Ty.functionWithLocations _ _ _ _ _ _ => some 8
   | _ => none
 
 def Ty.storagePackedSigned : Ty -> Bool
@@ -6412,6 +6421,22 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                   Expr.coreAsFromTy? targetTy sourceTy coreExpr
               | none =>
                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+          | Expr.literal (Literal.number text) =>
+              -- Stage C: a function identifier in value position was rewritten
+              -- to its dispatch-ID literal (`rewriteInternalFnValueIdents`);
+              -- in an internal-fn-typed context it becomes the core
+              -- internal-function-pointer literal. (A REAL number literal in an
+              -- internal-fn-typed position is rejected by the typechecker, so
+              -- post-typecheck this shape is unambiguous.) External-fn-typed
+              -- and ordinary contexts keep the existing path.
+              (match targetTy with
+              | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+              | Ty.functionWithLocations _ _ _ _ _ _ =>
+                  (parseNumberNat? text).map
+                    SolidCore.Solidity.Source.Expr.internalFunction
+              | _ =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | _ =>
               Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
 
@@ -6948,9 +6973,30 @@ end
 
 def Parameter.toCoreBinding? (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Option CoreBindingDecl := do
-  let ty ← Ty.toCore? param.ty
+  -- Stage E: a `T storage` binding is a storage POINTER at run time — it binds
+  -- reference-preservingly (`bindArgRef?`) and defaults to a storage alias
+  -- (`defaultBinding` via `isStorageRef`), so its declared core Ty is never
+  -- consulted for coercion. Types with no core form (mapping-containing
+  -- structs, bare mappings — common `using`-for library params) therefore get
+  -- a placeholder, instead of sinking the whole contract's table build.
+  let ty ←
+    match Ty.toCore? param.ty with
+    | some ty => some ty
+    | none =>
+        if param.location == some DataLocation.storage then
+          some SolidCore.Solidity.Source.Ty.uint256
+        else
+          none
   let name := param.name.getD (fallbackPrefix ++ toString index)
-  some { name := name, ty := ty }
+  -- Reference-signature extension, stage A: mark `T storage` bindings so the
+  -- framed internal-call entry binds them as storage POINTERS (see
+  -- `BindingDecl.isStorageRef` in `Interpreter.lean`). Only return bindings are
+  -- default-bound (parameters bind to argument values), but the flag is set
+  -- uniformly from the declared data location.
+  some
+    { name := name
+      ty := ty
+      isStorageRef := param.location == some DataLocation.storage }
 
 def Parameters.toCoreBindings? (fallbackPrefix : String)
     (params : List Parameter) : Option (List CoreBindingDecl) :=
@@ -7103,6 +7149,14 @@ def Parameters.toCoreMemoryLocalizeStmts? (fallbackPrefix : String)
     (params : List Parameter) : Option (List CoreStmt) :=
   mapOptionIdx (Parameter.toCoreMemoryLocalizeStmt? fallbackPrefix) 0 params
 
+/-- Reserved storage-alias target for a not-yet-assigned `T storage` named
+    return. Single source of truth lives in the interpreter (the framed
+    internal-call entry binds storage-ref returns to it via
+    `BindingDecl.defaultBinding`); elaboration's caller-side return temps
+    (`toStorageAwareDefaultCoreDecl?`) use the same target. -/
+def uninitializedStorageReturnTarget : Name :=
+  SolidCore.Solidity.Source.uninitializedStorageReturnTarget
+
 def Parameter.toDefaultVarDecl (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Stmt :=
   Stmt.varDecl
@@ -7114,9 +7168,6 @@ def Parameter.toDefaultVarDecl (fallbackPrefix : String) (index : Nat)
 def Parameters.toDefaultVarDecls (fallbackPrefix : String)
     (params : List Parameter) : List Stmt :=
   mapIdx (Parameter.toDefaultVarDecl fallbackPrefix) 0 params
-
-def uninitializedStorageReturnTarget : Name :=
-  "__solidcore_uninitialized_storage_return"
 
 def Parameter.toStorageAwareDefaultCoreDecl? (fallbackPrefix : String)
     (index : Nat) (param : Parameter) : Option CoreStmt := do
@@ -7241,27 +7292,80 @@ def FunctionDecl.abiSelector? (decl : FunctionDecl) : Option Word := do
     (e.g. `"__internal_f(uint256)"`) disambiguates same-named overloads and can
     never collide with a plain entrypoint `FunctionDef.name` (which name-based
     dispatch still requires — see `Contract.findFunctionByName?`). Computed
-    identically at the call-site emit (`valueBoundaryCallParts?`) and the
+    identically at the call-site emit (`boundaryCallParts?`) and the
     table-build (`directCoreFunctions?`) from the resolved `FunctionDecl`. -/
 def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
-  let sig ← FunctionDecl.abiSignature? decl
-  some ("__internal_" ++ sig)
+  let name ← decl.name
+  -- Stage E: the key must be TOTAL over named functions — callees whose
+  -- parameter types have no ABI-canonical form (e.g. `mapping(...) storage`
+  -- parameters) previously fell back to the inline-splice path, which is now
+  -- deleted. When `abiSignature?` fails, the name + the structural identity
+  -- suffix below still yield a collision-free key (the suffix alone
+  -- distinguishes overloads).
+  let sig := (FunctionDecl.abiSignature? decl).getD (name ++ "(?)")
+  -- Reference-signature extension: the ABI canonical signature collapses
+  -- user-defined types — every one-field struct renders `(uint256)`, every enum
+  -- `uint8`, every user type `address` (`Ty.abiCanonical?`). Two overloads whose
+  -- parameters differ only by such a type (e.g. `div_(Exp memory,Exp memory)`
+  -- scaled by 1e18 vs `div_(Double memory,Double memory)` scaled by 1e36, both
+  -- `(uint256)` in ABI form) would then share a table key and misdispatch. Append
+  -- a structural identity of the parameter types (derived `repr`, which preserves
+  -- struct `Path`, enum tag, and user `Path`) so the key is unique per resolved
+  -- callee. Computed identically at the call-site emit and the table build (both
+  -- from the same resolved `FunctionDecl`), so the two never drift.
+  let identity := toString (repr (decl.params.map Parameter.ty))
+  some ("__internal_" ++ sig ++ "#" ++ identity)
 
-/-- A callee whose parameters and returns are all stack value types (no data
-    location — no storage/memory/calldata reference). Only these are switched to
-    the function-boundary (`Stmt.internalCall`) representation in stage 2: the
-    by-value frame binds them exactly, `paramCleanups` are idempotent, and there
-    is no by-reference aliasing (memory pointers, storage pointers) to preserve.
-    Storage-ref / memory-ref / function-pointer callees keep the inline-splice
-    path (deferred to later stages). Since stage 3, synthetic helpers (library
-    `__library_*`, `super`/base helpers — mangled, overload-unique names) also
-    qualify: they are resolved via the same branches of `internalCallParts?` and
-    the table build emits entries for them (`toCoreFromOrders?`) alongside
-    ordinary contract functions and free functions. -/
-def FunctionDecl.isValueBoundaryCallee (decl : FunctionDecl) : Bool :=
+/-- A parameter/return that the function boundary can carry across a framed
+    internal call. Stack values (no data location), `memory` references (the
+    memory pointer flows — callee mutations alias back), and `storage` references
+    (the storage pointer flows as a plain runtime argument — solc's model) all
+    qualify. Excluded: `calldata` references (not yet represented as flowing
+    runtime values — kept on the inline-splice path) and function-typed
+    parameters/returns (no internal-function-pointer `Value` exists yet). -/
+def Parameter.isBoundaryLocation (param : Parameter) : Bool :=
+  match param.location with
+  | some DataLocation.calldata =>
+      -- Stage D (boundary-completion arc): calldata references cross the
+      -- boundary too. solc via-IR passes them as plain (offset, length) /
+      -- offset descriptor words (docs/refs-completion-solc-research.md §3);
+      -- this semantics materializes calldata into immutable `Value`s at the
+      -- ABI boundary, and passing an immutable value is observationally
+      -- identical to passing a read-only descriptor (calldata cannot be
+      -- written, so no aliasing is observable). Slices are value slices.
+      true
+  | _ => true
+
+/-- A RETURN the function boundary can carry. Stage A of the boundary-completion
+    arc: `storage`-ref returns are carried as flowing `Value.storageRef` pointer
+    values — solc via-IR returns exactly one word (the slot) from an internal
+    `T storage`-returning function and the caller binds it as a plain local
+    (`docs/refs-completion-solc-research.md` §1). The callee's named storage
+    return is re-declared as a storage alias in the body prologue
+    (`toCoreStorageReturnAliasStmts?`), the reference-preserving return
+    collection carries the pointer out, and `assignNamedValuesRef?` re-points the
+    caller's alias temp. Same exclusions as `isBoundaryLocation` otherwise. -/
+def Parameter.isBoundaryReturnLocation (param : Parameter) : Bool :=
+  Parameter.isBoundaryLocation param
+
+/-- A callee eligible for the function-boundary (`Stmt.internalCall`)
+    representation. Originally (stages 2–3) restricted to pure stack-value
+    signatures; the reference-signature extension widens it to callees whose
+    parameters and returns are all boundary-carryable
+    (`Parameter.isBoundaryLocation`): value, `memory`-ref, and `storage`-ref
+    signatures. The `internalTableKey?` guard (an ABI-canonical signature exists)
+    additionally excludes anything without an ABI shape. Reference parameters
+    flow as pointer VALUES: the arg site lowers them to reference-preserving
+    temps (`storageAlias*` / aliasing `memoryVarDecl`) and the interpreter's
+    `internalCall` arm binds them reference-preservingly into the callee frame,
+    the callee body resolving them through the shared `state`. Synthetic helpers
+    (library `__library_*`, `super`/base helpers — mangled, overload-unique
+    names) qualify too. Calldata-ref and function-typed callees keep the
+    inline-splice path (recorded residue). -/
+def FunctionDecl.isBoundaryCallee (decl : FunctionDecl) : Bool :=
   (FunctionDecl.internalTableKey? decl).isSome &&
-    decl.params.all (fun p => p.location.isNone) &&
-    decl.returns.all (fun p => p.location.isNone)
+    decl.params.all Parameter.isBoundaryLocation &&
+    decl.returns.all Parameter.isBoundaryReturnLocation
 
 def FunctionDecl.selectorEntry? (decl : FunctionDecl) :
     Option (Name × Word) := do
@@ -8596,6 +8700,205 @@ def ModifierInvocation.renameIdents (env : NameAliasEnv)
 def Stmt.renameIdents (env : NameAliasEnv) (stmt : Stmt) : Stmt :=
   Stmt.renameIdentsFuel defaultRenameIdentsFuel env stmt
 
+/-! ### Internal-function-pointer value uses (boundary-completion arc, stage C)
+
+A function identifier used in VALUE position (not as the callee of a direct
+call) is an internal-function-pointer value; solc via-IR assigns such functions
+small sequential dispatch IDs (1..n, first-use order; 0 = uninitialized) and
+compiles the identifier to the literal ID
+(`docs/refs-completion-solc-research.md` §2). The collector enumerates value
+uses (first-use order) to build the per-contract numbering; the rewriter
+replaces each such identifier with its ID as a number literal, which
+`Expr.toCoreAsWithEnv?` then elaborates to the core
+`Expr.internalFunction` pointer literal in internal-fn-typed contexts.
+
+Positions: everywhere except the callee slot of `Expr.call`/`callWithOptions`
+(a direct call, not a value use). Known residue: member-form value uses
+(`Lib.f`, `Contract.f`) are not collected/rewritten. Locals shadowing a
+function name would be mis-collected, but solc rejects local shadowing, so
+typechecked inputs cannot contain it. -/
+
+def Expr.collectInternalFnValueIdentsFuel (candidates : List Name) :
+    Nat -> Expr -> List Name
+  | 0, _ => []
+  | fuel + 1, expr =>
+      let go := Expr.collectInternalFnValueIdentsFuel candidates fuel
+      let goArg : Arg -> List Name
+        | Arg.positional value => go value
+        | Arg.named _ value => go value
+      let goOption : CallOption -> List Name
+        | CallOption.named _ value => go value
+      let goItem : TupleItem -> List Name
+        | TupleItem.hole => []
+        | TupleItem.value value => go value
+      match expr with
+      | Expr.ident name => if candidates.contains name then [name] else []
+      | Expr.call fn args =>
+          (match fn with
+            | Expr.ident _ => []
+            | _ => go fn) ++ concatMapList goArg args
+      | Expr.callWithOptions fn options args =>
+          (match fn with
+            | Expr.ident _ => []
+            | _ => go fn) ++
+            concatMapList goOption options ++ concatMapList goArg args
+      | Expr.member base _ => go base
+      | Expr.index base index => go base ++ go index
+      | Expr.slice base start stop =>
+          go base ++
+            (match start with | some e => go e | none => []) ++
+            (match stop with | some e => go e | none => [])
+      | Expr.newExpr _ args => concatMapList goArg args
+      | Expr.tuple items => concatMapList goItem items
+      | Expr.array values => concatMapList go values
+      | Expr.enumFromUInt _ value => go value
+      | Expr.unary _ value => go value
+      | Expr.binary _ lhs rhs => go lhs ++ go rhs
+      | Expr.ternary cond thenExpr elseExpr =>
+          go cond ++ go thenExpr ++ go elseExpr
+      | Expr.assign lhs _ rhs => go lhs ++ go rhs
+      | Expr.payableConversion value => go value
+      | _ => []
+
+def Stmt.collectInternalFnValueIdentsFuel (candidates : List Name) :
+    Nat -> Stmt -> List Name
+  | 0, _ => []
+  | fuel + 1, stmt =>
+      let goE := Expr.collectInternalFnValueIdentsFuel candidates (fuel + 1)
+      let goS := Stmt.collectInternalFnValueIdentsFuel candidates fuel
+      let goClause : CatchClause -> List Name
+        | CatchClause.clause _ _ body => goS body
+      match stmt with
+      | Stmt.block stmts => concatMapList goS stmts
+      | Stmt.varDecl _ init =>
+          (match init with | some e => goE e | none => [])
+      | Stmt.expr e => goE e
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          goE cond ++ goS thenBranch ++
+            (match elseBranch with | some b => goS b | none => [])
+      | Stmt.whileLoop cond body => goE cond ++ goS body
+      | Stmt.doWhile body cond => goS body ++ goE cond
+      | Stmt.forLoop init cond post body =>
+          (match init with | some i => goS i | none => []) ++
+            (match cond with | some c => goE c | none => []) ++
+            (match post with | some e => goE e | none => []) ++ goS body
+      | Stmt.tryCatch e clauses => goE e ++ concatMapList goClause clauses
+      | Stmt.tryCatchReturns e _ success clauses =>
+          goE e ++ goS success ++ concatMapList goClause clauses
+      | Stmt.emitEvent e => goE e
+      | Stmt.revertCall e => goE e
+      | Stmt.returnValues init =>
+          (match init with | some e => goE e | none => [])
+      | Stmt.unchecked body => goS body
+      | _ => []
+
+def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
+    Nat -> Expr -> Expr
+  | 0, expr => expr
+  | fuel + 1, expr =>
+      let go := Expr.rewriteInternalFnValueIdentsFuel ids fuel
+      let goArg : Arg -> Arg
+        | Arg.positional value => Arg.positional (go value)
+        | Arg.named name value => Arg.named name (go value)
+      let goOption : CallOption -> CallOption
+        | CallOption.named name value => CallOption.named name (go value)
+      let goItem : TupleItem -> TupleItem
+        | TupleItem.hole => TupleItem.hole
+        | TupleItem.value value => TupleItem.value (go value)
+      match expr with
+      | Expr.ident name =>
+          (match ids.lookup name with
+            | some id => Expr.literal (Literal.number (toString id))
+            | none => expr)
+      | Expr.call fn args =>
+          Expr.call
+            (match fn with
+              | Expr.ident _ => fn
+              | _ => go fn)
+            (args.map goArg)
+      | Expr.callWithOptions fn options args =>
+          Expr.callWithOptions
+            (match fn with
+              | Expr.ident _ => fn
+              | _ => go fn)
+            (options.map goOption) (args.map goArg)
+      | Expr.member base member => Expr.member (go base) member
+      | Expr.index base index => Expr.index (go base) (go index)
+      | Expr.slice base start stop =>
+          Expr.slice (go base) (start.map go) (stop.map go)
+      | Expr.newExpr ty args => Expr.newExpr ty (args.map goArg)
+      | Expr.tuple items => Expr.tuple (items.map goItem)
+      | Expr.array values => Expr.array (values.map go)
+      | Expr.enumFromUInt w value => Expr.enumFromUInt w (go value)
+      | Expr.unary op value => Expr.unary op (go value)
+      | Expr.binary op lhs rhs => Expr.binary op (go lhs) (go rhs)
+      | Expr.ternary cond thenExpr elseExpr =>
+          Expr.ternary (go cond) (go thenExpr) (go elseExpr)
+      | Expr.assign lhs op rhs => Expr.assign (go lhs) op (go rhs)
+      | Expr.payableConversion value => Expr.payableConversion (go value)
+      | _ => expr
+
+def Stmt.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
+    Nat -> Stmt -> Stmt
+  | 0, stmt => stmt
+  | fuel + 1, stmt =>
+      let goE := Expr.rewriteInternalFnValueIdentsFuel ids (fuel + 1)
+      let goS := Stmt.rewriteInternalFnValueIdentsFuel ids fuel
+      let goClause : CatchClause -> CatchClause
+        | CatchClause.clause name params body =>
+            CatchClause.clause name params (goS body)
+      match stmt with
+      | Stmt.block stmts => Stmt.block (stmts.map goS)
+      | Stmt.varDecl bindings init => Stmt.varDecl bindings (init.map goE)
+      | Stmt.expr e => Stmt.expr (goE e)
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse (goE cond) (goS thenBranch) (elseBranch.map goS)
+      | Stmt.whileLoop cond body => Stmt.whileLoop (goE cond) (goS body)
+      | Stmt.doWhile body cond => Stmt.doWhile (goS body) (goE cond)
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map goS) (cond.map goE) (post.map goE) (goS body)
+      | Stmt.tryCatch e clauses =>
+          Stmt.tryCatch (goE e) (clauses.map goClause)
+      | Stmt.tryCatchReturns e params success clauses =>
+          Stmt.tryCatchReturns (goE e) params (goS success)
+            (clauses.map goClause)
+      | Stmt.emitEvent e => Stmt.emitEvent (goE e)
+      | Stmt.revertCall e => Stmt.revertCall (goE e)
+      | Stmt.returnValues init => Stmt.returnValues (init.map goE)
+      | Stmt.unchecked body => Stmt.unchecked (goS body)
+      | _ => stmt
+
+def Stmt.rewriteInternalFnValueIdents (ids : List (Name × Nat))
+    (stmt : Stmt) : Stmt :=
+  if ids.isEmpty then stmt
+  else Stmt.rewriteInternalFnValueIdentsFuel ids defaultInlineConstantsFuel stmt
+
+/-- First-use-order deduplication. -/
+def Names.dedupPreservingOrder (names : List Name) : List Name :=
+  (names.foldl
+    (fun (acc : List Name × List Name) name =>
+      let (kept, seen) := acc
+      if seen.contains name then acc else (kept ++ [name], name :: seen))
+    ([], [])).1
+
+/-- Per-contract internal-dispatch numbering (stage C): scan the given function
+    bodies (declaration order) for function identifiers used as VALUES and
+    assign IDs 1..n in first-use order, mirroring solc via-IR's internal
+    dispatch. -/
+def FunctionDecls.internalFnValueNumbering
+    (candidates : List Name) (fns : List FunctionDecl) : List (Name × Nat) :=
+  let uses :=
+    concatMapList
+      (fun (fn : FunctionDecl) =>
+        match fn.body with
+        | some body =>
+            Stmt.collectInternalFnValueIdentsFuel candidates
+              defaultInlineConstantsFuel body
+        | none => [])
+      fns
+  let ordered := Names.dedupPreservingOrder uses
+  (ordered.zipIdx.map (fun p => (p.fst, p.snd + 1)))
+
 def Parameter.runtimeName (fallbackPrefix : String) (index : Nat) : Name :=
   fallbackPrefix ++ toString index
 
@@ -8606,15 +8909,6 @@ def Parameter.withRuntimeName (fallbackPrefix : String) (index : Nat)
 def Parameters.withRuntimeNames (fallbackPrefix : String)
     (params : List Parameter) : List Parameter :=
   mapIdx (Parameter.withRuntimeName fallbackPrefix) 0 params
-
-def Parameter.runtimeAlias? (fallbackPrefix : String) (index : Nat)
-    (param : Parameter) : Option (Name × Name) :=
-  param.name.map
-    (fun name => (name, Parameter.runtimeName fallbackPrefix index))
-
-def Parameters.runtimeAliasEnv (fallbackPrefix : String)
-    (params : List Parameter) : NameAliasEnv :=
-  mapIdx (Parameter.runtimeAlias? fallbackPrefix) 0 params |>.filterMap id
 
 def ModifierDecl.paramAliasEnv (decl : SourceModifierDecl) : NameAliasEnv :=
   mapIdx
@@ -8922,6 +9216,25 @@ def FunctionDecl.findInternalCalleeReturnTyWithArgs?
     FunctionDecl.findInternalCalleeWithArgs? functions env name args
   FunctionDecl.singleReturnTy? callee
 
+/-- Single return type of a direct-call argument: a resolvable internal callee
+    OR (stage C) a call through an internal function pointer, whose return type
+    comes from the fn-typed variable's TYPE. Used by the call-argument hoisting
+    gates so a ptr call nested in argument position hoists exactly like a
+    direct call (the hoisted call itself routes through
+    `ptrBoundaryCallParts?`). -/
+def FunctionDecl.directOrPtrCallArgReturnTy?
+    (functions : List FunctionDecl) (env : TypeEnv)
+    (name : Name) (args : List Arg) : Option Ty :=
+  match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
+  | some (callee, _) => FunctionDecl.singleReturnTy? callee
+  | none =>
+      match Expr.abiTyWithEnv? env (Expr.ident name) with
+      | some (Ty.functionWithLocations _ _ [returnTy] _ _
+          Visibility.internal_) => some returnTy
+      | some (Ty.functionWithLocations _ _ [returnTy] _ _
+          Visibility.private_) => some returnTy
+      | _ => none
+
 def Expr.abiTyWithInternalFunctionsEnv?
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
     (expr : Expr) : Option Ty :=
@@ -8935,8 +9248,20 @@ def Expr.abiTyWithInternalFunctionsEnv?
                 functions env name args with
           | some ty => some ty
           | none =>
-              FunctionDecl.findInternalCalleeReturnTyWithArgs?
-                freeFunctions env name args
+              match
+                  FunctionDecl.findInternalCalleeReturnTyWithArgs?
+                    freeFunctions env name args with
+              | some ty => some ty
+              | none =>
+                  -- Stage C: a call through an internal function POINTER —
+                  -- `name` is a fn-typed local/param/state var; its single
+                  -- return type comes from the function TYPE.
+                  match Expr.abiTyWithEnv? env (Expr.ident name) with
+                  | some (Ty.functionWithLocations _ _ [returnTy] _ _
+                      Visibility.internal_) => some returnTy
+                  | some (Ty.functionWithLocations _ _ [returnTy] _ _
+                      Visibility.private_) => some returnTy
+                  | _ => none
       | Expr.call (Expr.typeName ty) [Arg.positional _] => some ty
       | Expr.payableConversion _ => some (Ty.address true)
       | Expr.unary UnaryOp.bitNot inner =>
@@ -9351,20 +9676,6 @@ def Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
               , headArgDecls ++ tailArgDecls
               , headParamDecls ++ tailParamDecls )
   | _, _, _, _ => none
-
-def Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-    (storageRefEnv : StorageRefEnv) (storageNames : List Name)
-    (env : TypeEnv)
-    (functions freeFunctions : List FunctionDecl)
-    (fallbackPrefix : String) (params : List Parameter) (args : List Expr) :
-    Option (InternalFunctionAliasEnv × List CoreStmt) :=
-  match
-      Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
-        storageRefEnv storageNames env functions freeFunctions fallbackPrefix
-        0 [] params args with
-  | some (aliasEnv, argDecls, paramDecls) =>
-      some (aliasEnv, argDecls ++ paramDecls)
-  | none => none
 
 set_option maxHeartbeats 1000000 in
 mutual
@@ -9881,215 +10192,6 @@ def storageAliasAssignmentCore? (storageRefEnv : StorageRefEnv)
   else
     none
 
-mutual
-
-def Stmt.toCoreWithStorageRefsOnly? (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name) (stmt : Stmt) :
-    Option CoreStmt :=
-  match stmt with
-  | Stmt.block body => do
-      let coreBody ←
-        Stmt.listToCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.block coreBody)
-  | Stmt.expr
-      (Expr.assign
-        (Expr.call (Expr.member target "push") [])
-        AssignOp.assign rhs) =>
-      match Expr.storageRefArrayPushAssignStmtCore?
-          storageRefEnv env storageNames target rhs with
-      | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames
-          (Stmt.expr
-            (Expr.assign
-              (Expr.call (Expr.member target "push") [])
-              AssignOp.assign rhs))
-  | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
-      match Stmt.toCore? storageNames (Stmt.expr expr) with
-      | some coreStmt => some coreStmt
-      | none =>
-          Expr.storageRefArrayMemberStmtCore?
-            storageRefEnv env storageNames expr
-  | Stmt.ifElse cond thenBranch elseBranch => do
-      let condCore ← Expr.toCore? storageNames cond
-      let thenCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames thenBranch
-      let elseCore ←
-        match elseBranch with
-        | some stmt =>
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames stmt
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      some (SolidCore.Solidity.Source.Stmt.ifElse
-        condCore thenCore elseCore)
-  | Stmt.whileLoop cond body => do
-      let condCore ← Expr.toCore? storageNames cond
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
-  | Stmt.doWhile body cond => do
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      let condCore ← Expr.toCore? storageNames cond
-      some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
-  | Stmt.forLoop init cond post body => do
-      let initCore ←
-        match init with
-        | some stmt =>
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames stmt
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      let condCore ←
-        match cond with
-        | some expr => Expr.toCore? storageNames expr
-        | none => some (SolidCore.Solidity.Source.Expr.word 1)
-      let postCore ←
-        match post with
-        | some expr => Stmt.toCore? storageNames (Stmt.expr expr)
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.forLoop
-        initCore condCore postCore bodyCore)
-  | Stmt.unchecked body => do
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
-  | other => Stmt.toCore? storageNames other
-termination_by (sizeOf stmt, 2)
-
-def Stmt.listToCoreWithStorageRefsOnly? (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name) (stmts : List Stmt) :
-    Option (List CoreStmt) :=
-  match stmts with
-  | [] => some []
-  | Stmt.expr (Expr.assign (Expr.ident name) AssignOp.assign
-      (Expr.ident target)) :: rest =>
-      match storageAliasAssignmentCore? storageRefEnv storageNames name target with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.expr
-                (Expr.assign (Expr.ident name) AssignOp.assign
-                  (Expr.ident target)))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames rest
-          some (head :: tail)
-  | Stmt.varDecl [binding] (some (Expr.ident source)) :: rest =>
-      match storageAliasDeclFromRefCore? storageRefEnv binding source with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.varDecl [binding] (some (Expr.ident source)))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-  | Stmt.varDecl [binding] (some source@(Expr.member _ _)) :: rest =>
-      match
-          storageAliasDeclFromRefPathCore?
-            storageRefEnv storageNames binding source with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.varDecl [binding] (some source))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-  | Stmt.varDecl [binding] (some source@(Expr.index _ _)) :: rest =>
-      match
-          storageAliasDeclFromRefPathCore?
-            storageRefEnv storageNames binding source with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.varDecl [binding] (some source))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-  | stmt :: rest => do
-      let head ←
-        Stmt.toCoreWithStorageRefsOnly? storageRefEnv env storageNames stmt
-      let nextEnv :=
-        match stmt with
-        | Stmt.varDecl bindings _ => VarBindings.extendTypeEnv env bindings
-        | _ => env
-      let nextStorageRefEnv :=
-        match stmt with
-        | Stmt.varDecl bindings _ =>
-            VarBindings.extendStorageRefEnv storageRefEnv bindings
-        | _ => storageRefEnv
-      let tail ←
-        Stmt.listToCoreWithStorageRefsOnly?
-          nextStorageRefEnv nextEnv storageNames rest
-      some (head :: tail)
-termination_by (sizeOf stmts, 1)
-
-end
-
-def functionExpandModifiersToCoreWithStorageRefsOnly?
-    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
-    (storageNames returnNames : List Name)
-    (available : List SourceModifierDecl)
-    (invocations : List SourceModifierInvocation) (body : Stmt) :
-    Option CoreStmt :=
-  match invocations with
-  | [] =>
-      Stmt.toCoreWithStorageRefsOnly?
-        storageRefEnv env storageNames body
-  | invocation :: rest => do
-      let inner ←
-        functionExpandModifiersToCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames returnNames available rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
-      modifierApplyToCoreWithEnv? storageRefEnv env storageNames returnNames
-        modifierDecl invocation inner
-
 def Expr.localStorageArrayMemberStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) :
@@ -10209,6 +10311,14 @@ def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
   Stmt.rewriteStorageReturnAssignmentsFuel
     defaultStorageReturnRewriteFuel fallbackPrefix returns stmt
 
+/-- Nested-call-argument HOISTING bound (stage E). The historical role of this
+    constant — the inline-expansion depth budget of the deleted splice path,
+    whose exhaustion silently rejected recursion — is GONE: no callee splices
+    and recursion depth is bounded only by the interpreter's statement fuel.
+    What remains bounded is the syntactic nesting depth of internal calls
+    inside a single expression's argument list (`f(g(h(...)))`), which the
+    hoisting machinery peels one level per unit; 64 exceeds any real program
+    and the elaboration-cluster termination measure needs a decreasing Nat. -/
 def defaultInternalCallInlineFuel : Nat := 64
 
 def Stmt.listLeadingBeforeFinalTopLevelModifierPlaceholder? :
@@ -10485,31 +10595,39 @@ termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
     representation: one core temp per parameter (source order, so left-to-right
     argument evaluation is preserved exactly as the inline path did), plus a pure
     `var` read per temp for the `internalCall` node's argument list. Stack-value
-    params only (guaranteed by the `isValueBoundaryCallee` guard at the call
+    params only (guaranteed by the `isBoundaryCallee` guard at the call
     site), so the storage/memory-ref branches of
     `Parameter.toStorageAwareCoreArgDecl?` are unreachable here. The temp names
     use a fresh (`_ic_arg_*`) prefix — never the parameter name — so an argument
     expression that reads a same-named caller local is not clobbered; the arm
     binds arguments to the callee's parameters positionally (`initialFrame?`), so
     the temp name is irrelevant to the callee. -/
-def Parameters.valueBoundaryArgDecls?
-    (env : TypeEnv) (storageNames : List Name) (fallbackPrefix : String) :
+def Parameters.boundaryArgDecls?
+    (storageRefEnv : StorageRefEnv) (storageNames : List Name) (env : TypeEnv)
+    (fallbackPrefix : String) :
     Nat -> List Parameter -> List Expr ->
     Option (List CoreStmt × List CoreExpr)
   | _, [], [] => some ([], [])
   | index, param :: params, arg :: args => do
       let name := fallbackPrefix ++ toString index
-      let coreTy ← Ty.toCore? param.ty
-      let initCore ←
-        match Expr.toCoreAsWithEnv? storageNames env param.ty arg with
-        | some coreExpr => some coreExpr
-        | none => Expr.toCore? storageNames arg
+      -- One reference-preserving temp per parameter, source order (left-to-right
+      -- argument evaluation preserved). `toStorageAwareCoreArgDecl?` picks the
+      -- decl per data location: a `storage` ref lowers to a `storageAlias*`
+      -- statement binding the temp to the storage pointer VALUE; a `memory` ref
+      -- to a `memoryVarDecl` that *aliases* the caller's memory pointer when the
+      -- argument is a bare memory variable; a value to a plain `varDecl`. The
+      -- temp NAME is forced to `_ic_arg_<i>` (`param.name := none`) — never the
+      -- parameter name — so it cannot shadow a same-named caller local read by a
+      -- later argument. The `internalCall` node's argument list is the pure temp
+      -- reads, evaluated reference-preservingly by the arm.
+      let decl ←
+        Parameter.toStorageAwareCoreArgDecl? storageRefEnv storageNames env
+          fallbackPrefix index { param with name := none } arg
       let (tailDecls, tailVars) ←
-        Parameters.valueBoundaryArgDecls? env storageNames fallbackPrefix
-          (index + 1) params args
+        Parameters.boundaryArgDecls? storageRefEnv storageNames env
+          fallbackPrefix (index + 1) params args
       some
-        ( SolidCore.Solidity.Source.Stmt.varDecl coreTy name (some initCore)
-            :: tailDecls
+        ( decl :: tailDecls
         , SolidCore.Solidity.Source.Expr.var name :: tailVars )
   | _, _, _ => none
 
@@ -10521,13 +10639,17 @@ def Parameters.valueBoundaryArgDecls?
     same 4-tuple shape as `internalCallParts?` so every wrapper caller is
     unchanged: wrapping the node in `captureReturn` is a harmless passthrough
     (the node maps the callee's returns to `Result.normal` internally, so
-    `captureReturn` never rewrites it). Storage-ref returns are impossible here
-    (all returns are stack values), so `returnStorageRefs` is all-`false`. -/
-def FunctionDecl.valueBoundaryCallParts?
-    (env : TypeEnv) (storageNames : List Name)
+    `captureReturn` never rewrites it). Reference-signature extension: the return
+    decls are already storage-aware (`toStorageAwareDefaultCoreDecls?` emits a
+    `storageAlias` target for a `storage`-ref return; `storageRefFlags` marks
+    it), and the argument decls are reference-preserving temps
+    (`boundaryArgDecls?`), so this handles value, `memory`-ref, and `storage`-ref
+    signatures uniformly. -/
+def FunctionDecl.boundaryCallParts?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
     (name : Name) (callee : FunctionDecl) (sourceArgs : List Expr) :
     Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
-  if FunctionDecl.isValueBoundaryCallee callee then some () else none
+  if FunctionDecl.isBoundaryCallee callee then some () else none
   let tableKey ← FunctionDecl.internalTableKey? callee
   let returnPrefix := "_ret_" ++ name ++ "_"
   let runtimeReturns := Parameters.withRuntimeNames returnPrefix callee.returns
@@ -10536,7 +10658,7 @@ def FunctionDecl.valueBoundaryCallParts?
     Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
   let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
   let (argDecls, argVars) ←
-    Parameters.valueBoundaryArgDecls? env storageNames "_ic_arg_" 0
+    Parameters.boundaryArgDecls? storageRefEnv storageNames env "_ic_arg_" 0
       callee.params sourceArgs
   let returnNames :=
     returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
@@ -10546,130 +10668,103 @@ def FunctionDecl.valueBoundaryCallParts?
     , argDecls ++ returnDecls
     , SolidCore.Solidity.Source.Stmt.internalCall returnNames tableKey argVars )
 
-def FunctionDecl.internalCallParts?
-    (internalFuel : Nat)
-    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
-    (externalCallKindEnv : ExternalCallKindEnv)
-    (storageNames : List Name) (modifiers : List SourceModifierDecl)
-    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
+/-- Stage C (boundary-completion arc): elaborate a call through an internal
+    function POINTER — `name` is not a declared function but a fn-typed
+    local/parameter/state variable. The pointer expression elaborates as an
+    ordinary read (local `var` / storage load with the 64-bit mask); the call
+    becomes `Stmt.internalCallPtr`, resolved by dispatch ID at run time (miss
+    -> Panic 0x51). Same reference-preserving arg/return temp construction as
+    `boundaryCallParts?`, with the parameter/return shapes taken from the
+    function TYPE. -/
+def FunctionDecl.ptrBoundaryCallParts?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
+    (name : Name) (args : List Arg) :
     Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
+  let fnTy ← Expr.abiTyWithEnv? env (Expr.ident name)
+  match fnTy with
+  | Ty.functionWithLocations paramTys paramLocs returnTys returnLocs _
+      visibility =>
+      (match visibility with
+      | Visibility.external_ => none
+      | _ => do
+        if paramTys.length == paramLocs.length &&
+            returnTys.length == returnLocs.length then
+          some ()
+        else
+          none
+        let params := List.zipWith
+          (fun ty loc =>
+            ({ name := none, ty := ty, location := loc } : Parameter))
+          paramTys paramLocs
+        let returns := List.zipWith
+          (fun ty loc =>
+            ({ name := none, ty := ty, location := loc } : Parameter))
+          returnTys returnLocs
+        if params.all Parameter.isBoundaryLocation &&
+            returns.all Parameter.isBoundaryReturnLocation then
+          some ()
+        else
+          none
+        let sourceArgs ←
+          mapOption
+            (fun (arg : Arg) =>
+              match arg with
+              | Arg.positional value => some value
+              | Arg.named _ _ => none)
+            args
+        if params.length == sourceArgs.length then some () else none
+        let fnCore ← Expr.toCore? storageNames (Expr.ident name)
+        let returnPrefix := "_ret_" ++ name ++ "_"
+        let runtimeReturns := Parameters.withRuntimeNames returnPrefix returns
+        let returnBindings ←
+          Parameters.toCoreBindings? returnPrefix runtimeReturns
+        let returnDecls ←
+          Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
+        let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
+        let (argDecls, argVars) ←
+          Parameters.boundaryArgDecls? storageRefEnv storageNames env
+            "_ic_arg_" 0 params sourceArgs
+        let returnNames :=
+          returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+        some
+          ( returnBindings
+          , returnStorageRefs
+          , argDecls ++ returnDecls
+          , SolidCore.Solidity.Source.Stmt.internalCallPtr
+              returnNames fnCore argVars ))
+  | _ => none
+
+/-- Resolve an internal call site and emit its function-boundary parts. Since
+    stage E of the boundary-completion arc this is boundary-ONLY: the resolved
+    callee elaborates to `Stmt.internalCall` against the function table
+    (`boundaryCallParts?`), an unresolvable name is tried as a call through an
+    internal function POINTER (`ptrBoundaryCallParts?`), and the historical
+    inline-splice path (α-renaming callee bodies into the caller under
+    `defaultInternalCallInlineFuel`) is DELETED — no callee kind splices
+    anymore. `internalFuel` is retained by the surrounding elaboration cluster
+    only as the nested-call-argument hoisting bound (see
+    `defaultInternalCallInlineFuel`'s doc). -/
+def FunctionDecl.internalCallParts?
+    (_internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (_externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (_modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) :=
   match FunctionDecl.findInternalCalleeWithArgs?
       functions env name args with
-  | some (callee, sourceArgs) => do
-      if let some result :=
-          FunctionDecl.valueBoundaryCallParts? env storageNames name callee
-            sourceArgs then
-        return result
-      let returnPrefix := "_ret_" ++ name ++ "_"
-      let runtimeReturns :=
-        Parameters.withRuntimeNames returnPrefix callee.returns
-      let runtimeCallee :=
-        { callee with returns := runtimeReturns }
-      let runtimeAliasEnv :=
-        Parameters.runtimeAliasEnv returnPrefix callee.returns
-      let (paramAliasEnv, paramDecls) ←
-        Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-          storageRefEnv storageNames env functions freeFunctions "_arg"
-          callee.params sourceArgs
-      let returnDecls ←
-        Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
-      let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
-      let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
-      let body ← callee.body
-      let calleeEnv :=
-        FunctionDecl.typeEnv env runtimeCallee
-      let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv returnPrefix
-          (Parameters.extendStorageRefEnv "_arg" [] callee.params)
-          runtimeReturns
-      let body := Stmt.renameIdents runtimeAliasEnv body
-      let body :=
-        Stmt.inlineInternalFunctionAliasesFuel
-          functions freeFunctions defaultInternalFunctionAliasFuel
-          paramAliasEnv body
-      let body :=
-        Stmt.rewriteStorageReturnAssignments "_ret" runtimeReturns body
-      let body := Stmt.annotateAbi calleeEnv body
-      let (calleeModifiers, body) :=
-        match functionExpandLeadingModifiers? modifiers callee.modifiers body with
-        | some body => ([], body)
-        | none => (callee.modifiers, body)
-      let bodyCore ←
-        match internalFuel with
-        | 0 =>
-            functionExpandModifiersToCoreWithStorageRefsOnly?
-              calleeStorageRefEnv calleeEnv storageNames
-              (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              modifiers calleeModifiers body
-        | fuel + 1 =>
-            functionExpandModifiersToCoreWithInternalCalls?
-              fuel calleeStorageRefEnv calleeEnv externalCallKindEnv storageNames
-              (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              modifiers functions freeFunctions
-              (runtimeReturns.map Parameter.ty) calleeModifiers body
-      let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
-      let prefixCore := paramDecls ++ returnDecls
-      some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
-  | none => do
-      let (callee, sourceArgs) ←
-        FunctionDecl.findInternalCalleeWithArgs?
-          freeFunctions env name args
-      if let some result :=
-          FunctionDecl.valueBoundaryCallParts? env storageNames name callee
-            sourceArgs then
-        return result
-      let returnPrefix := "_ret_" ++ name ++ "_"
-      let runtimeReturns :=
-        Parameters.withRuntimeNames returnPrefix callee.returns
-      let runtimeCallee :=
-        { callee with returns := runtimeReturns }
-      let runtimeAliasEnv :=
-        Parameters.runtimeAliasEnv returnPrefix callee.returns
-      let (paramAliasEnv, paramDecls) ←
-        Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-          storageRefEnv storageNames env functions freeFunctions "_arg"
-          callee.params sourceArgs
-      let returnDecls ←
-        Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
-      let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
-      let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
-      let body ← callee.body
-      let calleeEnv :=
-        FunctionDecl.typeEnv
-          (TypeEnv.externalCallKindEntries env) runtimeCallee
-      let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv returnPrefix
-          (Parameters.extendStorageRefEnv "_arg" [] callee.params)
-          runtimeReturns
-      let body := Stmt.renameIdents runtimeAliasEnv body
-      let body :=
-        Stmt.inlineInternalFunctionAliasesFuel
-          functions freeFunctions defaultInternalFunctionAliasFuel
-          paramAliasEnv body
-      let body :=
-        Stmt.rewriteStorageReturnAssignments "_ret" runtimeReturns body
-      let body := Stmt.annotateAbi calleeEnv body
-      let (calleeModifiers, body) :=
-        match functionExpandLeadingModifiers? [] callee.modifiers body with
-        | some body => ([], body)
-        | none => (callee.modifiers, body)
-      let bodyCore ←
-        match internalFuel with
-        | 0 =>
-            functionExpandModifiersToCoreWithStorageRefsOnly?
-              calleeStorageRefEnv calleeEnv []
-              (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              [] calleeModifiers body
-        | fuel + 1 =>
-            functionExpandModifiersToCoreWithInternalCalls?
-              fuel calleeStorageRefEnv calleeEnv externalCallKindEnv []
-              (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              [] [] freeFunctions
-              (runtimeReturns.map Parameter.ty) calleeModifiers body
-      let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
-      let prefixCore := paramDecls ++ returnDecls
-      some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
-termination_by (internalFuel, 0, 0)
+  | some (callee, sourceArgs) =>
+      FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name
+        callee sourceArgs
+  | none =>
+      match FunctionDecl.findInternalCalleeWithArgs?
+          freeFunctions env name args with
+      | some (callee, sourceArgs) =>
+          FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name
+            callee sourceArgs
+      | none =>
+          FunctionDecl.ptrBoundaryCallParts?
+            storageRefEnv env storageNames name args
 
 def FunctionDecl.internalStatementCallCore?
     (internalFuel : Nat)
@@ -11810,6 +11905,44 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
+      (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
+        (Expr.tuple rhsItems)) =>
+      -- Stage B (boundary-completion arc): tuple-literal RHS whose components
+      -- contain internal calls — `(a, b) = (f(), g())`, `(, b) = (f(), g())`.
+      -- solc evaluates the components LEFT-to-right, each into its own temp,
+      -- ALL before any assignment, and a hole's component still evaluates
+      -- (`docs/refs-completion-solc-research.md` §4). The no-call form keeps
+      -- today's `Stmt.toCore?` path (tried first: behaviour-preserving); only
+      -- shapes that path rejects (call components) reach the hoisting, which
+      -- reuses `tupleItemsUseCoreWithInternalCalls?` — the same left-to-right
+      -- temp sequencing already pinned for `return (f(), g())` — and assigns
+      -- the temps via the ordinary `assignTuple` (pure temp reads, so store
+      -- order is unobservable, matching solc's temps-then-stores shape).
+      match
+          Stmt.toCore? storageNames
+            (Stmt.expr
+              (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
+                (Expr.tuple rhsItems))) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+          let componentTys ←
+            mapOption
+              (fun item =>
+                match item with
+                | TupleItem.value expr =>
+                    Expr.abiTyWithInternalFunctionsEnv?
+                      functions freeFunctions env expr
+                | TupleItem.hole => none)
+              rhsItems
+          FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions "_sol_tuple_assign_item"
+            0 componentTys rhsItems
+            (fun coreExprs =>
+              SolidCore.Solidity.Source.Stmt.assignTuple targets
+                (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+  | Stmt.expr
       (Expr.call
         (Expr.member (Expr.call (Expr.ident name) args) "push")
         memberArgs) =>
@@ -12151,12 +12284,10 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 (Stmt.expr (Expr.call (Expr.ident name) args))
       match Args.replaceDirectInternalCallArg? "_sol_call_arg" 0 args with
       | some (argName, argArgs, argTmp, replacedArgs) =>
-          match FunctionDecl.findInternalCalleeWithArgs?
+          match FunctionDecl.directOrPtrCallArgReturnTy?
               functions env argName argArgs with
-          | some (argCallee, _) =>
-              match argCallee.returns with
-              | [retParam] => do
-                  let argCoreTy ← Ty.toCore? retParam.ty
+          | some argRetTy => do
+                  let argCoreTy ← Ty.toCore? argRetTy
                   let argCore ←
                     FunctionDecl.internalSingleReturnCallCore?
                       internalFuel storageRefEnv env externalCallKindEnv
@@ -12177,7 +12308,6 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                           argCoreTy argTmp none
                       , argCore
                       , callCore ])
-              | _ => fallback?
           | none => fallback?
       | none => fallback?
   | Stmt.expr
@@ -12897,12 +13027,10 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                         (decls ++ [callCore]))
       match Args.replaceDirectInternalCallArg? "_sol_vardecl_arg" 0 args with
       | some (argName, argArgs, argTmp, replacedArgs) =>
-          match FunctionDecl.findInternalCalleeWithArgs?
+          match FunctionDecl.directOrPtrCallArgReturnTy?
               functions env argName argArgs with
-          | some (argCallee, _) =>
-              match argCallee.returns with
-              | [retParam] => do
-                  let argCoreTy ← Ty.toCore? retParam.ty
+          | some argRetTy => do
+                  let argCoreTy ← Ty.toCore? argRetTy
                   let argCore ←
                     FunctionDecl.internalSingleReturnCallCore?
                       internalFuel storageRefEnv env externalCallKindEnv
@@ -12923,7 +13051,6 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                           argCoreTy argTmp none
                       , argCore
                       , SolidCore.Solidity.Source.Stmt.block pieces ])
-              | _ => fallback?
           | none => fallback?
       | none => fallback?
   | Stmt.varDecl bindings
@@ -13289,12 +13416,9 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                         (some (Expr.call (Expr.ident name) args)))
       match Args.replaceDirectInternalCallArg? "_sol_return_arg" 0 args with
       | some (argName, argArgs, argTmp, replacedArgs) =>
-          match FunctionDecl.findInternalCalleeWithArgs?
+          match FunctionDecl.directOrPtrCallArgReturnTy?
               functions env argName argArgs with
-          | some (argCallee, _) =>
-              match argCallee.returns with
-              | [retParam] => do
-                  let argTy := retParam.ty
+          | some argTy => do
                   let argCoreTy ← Ty.toCore? argTy
                   let envWithArgTmp := (argTmp, argTy) :: env
                   let argCore ←
@@ -13335,7 +13459,6 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                           argCoreTy argTmp none
                       , argCore
                       , callCore ])
-              | _ => fallback?
           | none => fallback?
       | none => fallback?
   | Stmt.returnValues
@@ -13861,8 +13984,33 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
-      let (coreDecls, assigns) ←
-        tupleVarDeclCorePieces? storageNames bindings items
+      let pieces? : Option (List CoreStmt) :=
+        match tupleVarDeclCorePieces? storageNames bindings items with
+        | some (coreDecls, assigns) => some (coreDecls ++ assigns)
+        | none => do
+            -- Stage B (boundary-completion arc), declaration form:
+            -- `(uint a, uint b) = (f(), g())`. Same left-to-right hoisting as
+            -- the assignment form (`docs/refs-completion-solc-research.md` §4);
+            -- the declared binding types are the component target types. The
+            -- decls are emitted at LIST level (they must survive for the
+            -- following statements); component name resolution is settled at
+            -- elaboration against the OUTER env (the bindings extend the env
+            -- only for `rest`), so emission order cannot capture. Anonymous
+            -- (hole) bindings still evaluate their component.
+            if bindings.length == items.length then some () else none
+            let tys ← VarBindings.sourceTysIncludingAnonymous? bindings
+            let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+            let targets ← VarBindings.toCoreTupleTargets? bindings
+            let hoisted ←
+              FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions "_sol_tuple_decl_item"
+                0 tys items
+                (fun coreExprs =>
+                  SolidCore.Solidity.Source.Stmt.assignTuple targets
+                    (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+            some (coreDecls ++ [hoisted])
+      let pieces ← pieces?
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -13870,7 +14018,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (VarBindings.extendTypeEnv env bindings)
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
-      some (coreDecls ++ assigns ++ tail)
+      some (pieces ++ tail)
   | Stmt.varDecl [binding]
       (some (Expr.ternary cond thenExpr elseExpr)) :: rest =>
       match binding.name with
@@ -16648,7 +16796,8 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     (baseNames : List Name := [])
     (externalCallKindEnv : ExternalCallKindEnv := [])
     (eventArgEnv : NamedArgParamEnv := [])
-    (errorArgEnv : NamedArgParamEnv := []) :
+    (errorArgEnv : NamedArgParamEnv := [])
+    (internalFnIds : List (Name × Nat) := []) :
     Option CoreFunctionDef := do
   let decl := FunctionDecl.inlineConstants constants decl
   let selectorEnv :=
@@ -16657,8 +16806,17 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   let decl := FunctionDecl.resolveSelectors selectorEnv decl
   let name ← FunctionDecl.coreName? decl
   let params ← Parameters.toCoreBindings? "_arg" decl.params
+  -- Stage E: ABI cleanups are an ENTRY-only concern; storage-ref parameters
+  -- (which can never appear in an ABI entrypoint signature) get `none` instead
+  -- of failing the whole elaboration when their type has no ABI cleanup form.
   let paramAbiCleanups ←
-    Tys.toCoreAbiCleanups? (decl.params.map Parameter.ty)
+    mapOption
+      (fun (param : Parameter) =>
+        if param.location == some DataLocation.storage then
+          some SolidCore.Solidity.Source.AbiCleanup.none
+        else
+          Ty.toCoreAbiCleanup? param.ty)
+      decl.params
   let returns ← Parameters.toCoreBindings? "_ret" decl.returns
   let body ← decl.body
   let env := FunctionDecl.typeEnv
@@ -16695,8 +16853,25 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
           body := modifier.body.map
             (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
   let body := Stmt.inlineInternalFunctionAliasesInBody functions freeFunctions body
+  -- Stage C (boundary-completion arc): function identifiers still used as
+  -- VALUES after alias inlining (fn-ptr state vars, data-dependent locals,
+  -- fn-typed arguments/returns) become their dispatch-ID literals; the
+  -- statically-aliasable local uses were already inlined above (status quo).
+  let body := Stmt.rewriteInternalFnValueIdents internalFnIds body
+  -- Reference-signature extension: a `T storage` RETURN is a storage pointer the
+  -- body re-points (`result = x`, or `return x` rewritten to `result = x;
+  -- return;`). The inline-splice path registered returns in its storageRefEnv and
+  -- rewrote its `return`s; the boundary path elaborates each function ONCE here,
+  -- so `toCore?` must do the same so a boundary storage-ref-return callee's body
+  -- treats its return as a storage pointer. Inert for value returns
+  -- (`rewriteStorageReturnAssignments` only touches storage returns; the env
+  -- entry marks non-storage returns `false`) and impossible for entry functions
+  -- (storage pointers cannot cross the external boundary). -/
+  let body := Stmt.rewriteStorageReturnAssignments "_ret" decl.returns body
   let body := Stmt.annotateAbi env body
-  let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] decl.params
+  let storageRefEnv :=
+    Parameters.extendStorageRefEnv "_ret"
+      (Parameters.extendStorageRefEnv "_arg" [] decl.params) decl.returns
   let functions :=
     match contractName? with
     | some contractName =>
@@ -18334,6 +18509,7 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
     (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl)
     (eventArgEnv errorArgEnv : NamedArgParamEnv)
+    (internalFnIds : List (Name × Nat))
     (decl : ContractDecl) :
     Option (List CoreFunctionDef) := do
   let getters ←
@@ -18358,19 +18534,19 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
             functions freeFunctions fn
             (concatMapList ContractDecl.directOrdinaryFunctions supers)
             (some decl.name) (dispatchOrder.map ContractDecl.name)
-            externalCallKindEnv eventArgEnv errorArgEnv
+            externalCallKindEnv eventArgEnv errorArgEnv internalFnIds
         some (fn, fd))
       ((ContractDecl.directOrdinaryFunctions decl).filter
         (fun fn =>
           (FunctionDecl.isCoreEntrypoint fn ||
-            FunctionDecl.isValueBoundaryCallee fn) && fn.body.isSome))
+            FunctionDecl.isBoundaryCallee fn) && fn.body.isSome))
   let entrypointFunctions :=
     (functionPairs.filter
       (fun pair => FunctionDecl.isCoreEntrypoint pair.fst)).map Prod.snd
   let internalEntries :=
     functionPairs.filterMap
       (fun pair =>
-        if FunctionDecl.isValueBoundaryCallee pair.fst then
+        if FunctionDecl.isBoundaryCallee pair.fst then
           (FunctionDecl.internalTableKey? pair.fst).map
             (fun key => { pair.snd with name := key, selector? := none })
         else
@@ -18764,6 +18940,19 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
+  -- Stage C: per-contract internal-dispatch numbering — functions used as
+  -- VALUES get IDs 1..n (first-use order across the ordinary function bodies
+  -- in declaration order), mirroring solc via-IR
+  -- (docs/refs-completion-solc-research.md §2).
+  -- A name that is ALSO a state variable is excluded: a public state variable
+  -- may OVERRIDE an inherited virtual function (`uint256 public override
+  -- value;`), and a bare identifier then reads the VARIABLE — rewriting it to
+  -- a dispatch ID corrupts the read (caught by the frontend-frontier lane).
+  let fnIdCandidates :=
+    ((availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name).filter
+      (fun n => !storageNames.contains n)
+  let internalFnIds :=
+    FunctionDecls.internalFnValueNumbering fnIdCandidates ordinaryFunctions
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
@@ -18777,7 +18966,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (ContractDecl.directCoreFunctions?
         storageNames constants stateEnv externalCallKindEnv allContracts
         dispatchOrder sourceUsingDecls modifiers availableFunctions
-        sourceFunctions eventArgEnv errorArgEnv)
+        sourceFunctions eventArgEnv errorArgEnv internalFnIds)
       dispatchOrder
   -- Function-boundary refactor stage 3: value-boundary synthetic helpers
   -- (library `__library_*`, super/base helpers) get selector-less table entries
@@ -18800,10 +18989,11 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (superFunctions := []) (contractName? := none)
       (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
       (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+      (internalFnIds := internalFnIds)
   let libraryInternalEntries ←
     filterMapOption
       (fun fn =>
-        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome then do
           let fd ← elabHelper fn
           let key ← FunctionDecl.internalTableKey? fn
           some (some { fd with name := key, selector? := none })
@@ -18819,7 +19009,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let freeInternalEntries ←
     filterMapOption
       (fun fn =>
-        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome then do
           let fd ←
             FunctionDecl.toCore?
               [] constants externalCallKindTypeEnv allContracts
@@ -18827,6 +19017,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
               (superFunctions := []) (contractName? := none)
               (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
               (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+              (internalFnIds := internalFnIds)
           let key ← FunctionDecl.internalTableKey? fn
           some (some { fd with name := key, selector? := none })
         else
@@ -18836,7 +19027,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     concatLists functionGroups ++ libraryInternalEntries ++ freeInternalEntries
   let helperCandidates :=
     (superHelpers ++ baseHelpers).filter
-      (fun fn => FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome)
+      (fun fn => FunctionDecl.isBoundaryCallee fn && fn.body.isSome)
   let seedKeys :=
     concatMapList
       (fun (fd : CoreFunctionDef) => CoreStmt.collectInternalCallKeys fd.body)
@@ -18846,6 +19037,27 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (helperCandidates.length + 1) helperCandidates seedKeys []
   let functions :=
     CoreFunctionDefs.dedupInternalByName (eagerEntries ++ demandedEntries)
+  -- Stage C: stamp dispatch IDs onto the selector-less table entries of the
+  -- numbered (used-as-value) functions; `Contract.table` projects them onto
+  -- `InternalFunction.id?` for run-time pointer dispatch.
+  let fnKeyIds : List (Name × Nat) :=
+    internalFnIds.filterMap
+      (fun (pair : Name × Nat) => do
+        let fnDecl ←
+          (availableFunctions ++ sourceFunctions).find?
+            (fun fn => fn.name == some pair.fst)
+        let key ← FunctionDecl.internalTableKey? fnDecl
+        some (key, pair.snd))
+  let functions :=
+    functions.map
+      (fun fd =>
+        match fnKeyIds.lookup fd.name with
+        | some id =>
+            if fd.selector?.isNone then
+              { fd with dispatchId? := some (id : Word) }
+            else
+              fd
+        | none => fd)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/internal-fn-pointers/out"
+cache_path = "../../.foundry-suites/internal-fn-pointers/cache"
+evm_version = "cancun"

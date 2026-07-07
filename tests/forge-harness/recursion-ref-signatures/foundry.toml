@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/recursion-ref-signatures/out"
+cache_path = "../../.foundry-suites/recursion-ref-signatures/cache"
+evm_version = "cancun"

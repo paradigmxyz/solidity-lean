@@ -5109,6 +5109,188 @@
           }
         ]
       }
+    },
+    {
+      "name": "tuple-literal-hoist",
+      "description": "Stage-B pin for the boundary-completion arc (docs/refs-completion-solc-research.md \u00a74): tuple-literal RHS components containing internal calls evaluate LEFT-to-right into temps, all before any assignment; a hole still evaluates its component. Covers the assignment form, the hole form, and the declaration form; each probe encodes values + a storage order-log into one word, asserted against Forge.",
+      "forge": {
+        "match_contract": "TupleLiteralHoistForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/tuple-literal-hoist"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContract \"assignPair\" SolidCore.Solidity.Source.State.empty [] 11022012",
+            "label": "assignPairOrderAndValues"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContract \"assignHole\" SolidCore.Solidity.Source.State.empty [] 22012",
+            "label": "assignHoleStillEvaluates"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContract \"declPair\" SolidCore.Solidity.Source.State.empty [] 22011021",
+            "label": "declPairOrderAndValues"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "TupleLiteralHoistHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TupleLiteralHoist",
+        "source": "tests/forge-harness/tuple-literal-hoist/src/TupleLiteralHoist.sol"
+      }
+    },
+    {
+      "name": "internal-fn-pointers",
+      "description": "Stage-C pin for the boundary-completion arc (docs/refs-completion-solc-research.md \u00a72): internal function pointers as dispatch IDs \u2014 8-byte storable state variable round-trip, pointer as internal argument and return, data-dependent (ternary) pointers, uninitialized-pointer call -> Panic(0x51), and recursion through a runtime pointer.",
+      "forge": {
+        "match_contract": "InternalFnPointersForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/internal-fn-pointers"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaStorageTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 21] 42"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaStorageFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 21] 63"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaParam",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaParam\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3] 12"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaReturn",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaReturn\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 10] 30"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "uninitializedPanics51",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"callUninitialized\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 0x51"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaRecursion",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaRecursion\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7] 7"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "InternalFnPointersHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.InternalFnPointers",
+        "source": "tests/forge-harness/internal-fn-pointers/src/InternalFnPointers.sol"
+      }
+    },
+    {
+      "name": "calldata-ref-internal",
+      "description": "Stage-D pin for the boundary-completion arc (docs/refs-completion-solc-research.md \u00a73): calldata references cross the internal-function boundary \u2014 dynamic array + bytes params, a slice-adjusted ref returned from an internal function, and recursion over a calldata array (previously silently rejected).",
+      "forge": {
+        "match_contract": "CalldataRefInternalForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/calldata-ref-internal"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaParams",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContract \"viaParams\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5], SolidCore.Solidity.Source.Value.bytes [1, 2]] 12001"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaSlice",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContract \"viaSlice\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [1, 2]] 2"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaRecursion",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContract \"viaRecursion\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5]] 12"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "CalldataRefInternalHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CalldataRefInternal",
+        "source": "tests/forge-harness/calldata-ref-internal/src/CalldataRefInternal.sol"
+      }
+    },
+    {
+      "name": "recursion-ref-signatures",
+      "description": "Stage-E pin: recursion through REFERENCE signatures \u2014 a recursive linked-list walk over a mapping via a `Node storage` param, and recursion over a `uint256[] memory` param including mutation-through-pointer aliasing. The residual slice of the recursion gap (value signatures landed with the function-boundary refactor); previously silently rejected, now framed boundary calls.",
+      "forge": {
+        "match_contract": "RecursionRefSignaturesForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/recursion-ref-signatures"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.RecursionRefSignatures.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaStorageRecursion",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.RecursionRefSignatures.importedContract \"viaStorageRecursion\" SolidCore.Solidity.Source.State.empty [] 60"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaMemoryRecursion",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.RecursionRefSignatures.importedContract \"viaMemoryRecursion\" SolidCore.Solidity.Source.State.empty [] 15099"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "RecursionRefSignaturesHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RecursionRefSignatures",
+        "source": "tests/forge-harness/recursion-ref-signatures/src/RecursionRefSignatures.sol"
+      }
     }
   ]
 }
