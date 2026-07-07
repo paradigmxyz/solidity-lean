@@ -802,6 +802,11 @@ structure State where
   -- (`Runtime.recordExternalInteraction`), and read by `address(this).balance` /
   -- `selfbalance`. Other addresses stay environment facts (static oracle).
   selfBalance : Word := 0
+  -- openworld/postworld: the self-account nonce. Nothing in the interpreter
+  -- reads it (create addresses come from `CreateResponse.address`); it is
+  -- carried so the outgoing `OpenWorld` snapshot covers every `OpenAccount`
+  -- field and the adoption round-trip law holds field-wise.
+  selfNonce : Word := 0
   events : List Event
   deriving Repr
 
@@ -1845,6 +1850,98 @@ def wordToAddress (w : Word) : EvmYul.AccountAddress :=
   EvmYul.AccountAddress.ofUInt256 (wordToU256 w)
 def addressToWord (a : EvmYul.AccountAddress) : Word := a.val
 
+/-! ### openworld/postworld — outgoing `OpenWorld` snapshots
+
+`snapshotWorld` materializes the real `OpenWorld` carried by every
+`Query.external` (mirror of the Yul side's `ofYulShared`): the self account
+verbatim from `State` (storage, transient, A2 `selfBalance`, `selfNonce`, code
+from `Context`), other accounts from the environment-fact seed maps, the
+substate (log series, selfdestruct set; access sets/refund are `default` — a
+declared fidelity gap, same code-erasure spirit as the Yul side's gas
+exclusion), and `createdAccounts`. Nothing restructures state: the snapshot is
+a projection, and responder matchers never inspect it (corpus-neutral). -/
+
+def wordMapToStorage (m : WordMap) : EvmYul.Storage :=
+  m.foldl (fun acc kv => acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
+    default
+
+def storageToWordMap (s : EvmYul.Storage) : WordMap :=
+  s.toList.map (fun kv => (u256ToWord kv.1, u256ToWord kv.2))
+
+def logEntryToEvm (e : SolidCore.Solidity.Shared.Log.Entry) :
+    EvmYul.LogEntry :=
+  { address := wordToAddress e.address
+    topics := (e.topics.map wordToU256).toArray
+    data := bytesToByteArray e.data }
+
+def evmLogEntryToShared (e : EvmYul.LogEntry) :
+    SolidCore.Solidity.Shared.Log.Entry :=
+  { address := addressToWord e.address
+    topics := e.topics.toList.map u256ToWord
+    data := byteArrayToBytes e.data }
+
+def addressSetOfWords (words : List Word) :
+    Batteries.RBSet EvmCompiler.Simulation.OpenAddress compare :=
+  words.foldl (fun acc w => acc.insert (wordToAddress w)) default
+
+/-- The self account as an `OpenAccount` (see table in
+    `docs/openworld-postworld-plan.md` §2.1). -/
+def snapshotSelfAccount (context : Context) (state : State) :
+    EvmCompiler.Simulation.OpenAccount :=
+  { nonce := wordToU256 state.selfNonce
+    balance := wordToU256 state.selfBalance
+    storage := wordMapToStorage state.storage
+    transientStorage := wordMapToStorage state.transient
+    codeBytes :=
+      bytesToByteArray
+        (SolidCore.Solidity.Shared.Account.codeAt
+          context.accountCodes context.self) }
+
+/-- Environment-fact accounts (every address seeded in the Context maps,
+    excluding self): balance/code from the maps, storage/transient empty
+    (we assert nothing about other accounts' storage), nonce 0. -/
+def snapshotOtherAccounts (context : Context) : List (Word × EvmCompiler.Simulation.OpenAccount) :=
+  let addrs :=
+    (context.accountBalances.map Prod.fst ++
+      context.accountCodes.map Prod.fst ++
+      context.accountCodehashes.map Prod.fst).map
+        SolidCore.Solidity.Shared.norm
+  let dedup := addrs.foldl (fun acc a =>
+    if acc.contains a then acc else acc ++ [a]) []
+  (dedup.filter (fun a => !(wordEq a context.self))).map (fun a =>
+    ( a
+    , { nonce := wordToU256 0
+        balance :=
+          wordToU256
+            (SolidCore.Solidity.Shared.Account.balanceAt
+              context.accountBalances a)
+        storage := default
+        transientStorage := default
+        codeBytes :=
+          bytesToByteArray
+            (SolidCore.Solidity.Shared.Account.codeAt
+              context.accountCodes a) } ))
+
+/-- The outgoing world snapshot (mirror of Yul's `ofYulShared`). -/
+def snapshotWorld (context : Context) (state : State) :
+    SolidCore.Solidity.Shared.OpenWorld :=
+  let accounts : EvmYul.AddrMap EvmCompiler.Simulation.OpenAccount :=
+    ((snapshotOtherAccounts context).foldl
+      (fun (acc : EvmYul.AddrMap EvmCompiler.Simulation.OpenAccount) entry =>
+        acc.insert (wordToAddress entry.1) entry.2)
+      default).insert
+        (wordToAddress context.self) (snapshotSelfAccount context state)
+  let substate : EvmYul.Substate :=
+    { (default : EvmYul.Substate) with
+      selfDestructSet :=
+        addressSetOfWords (state.selfdestructs.map Prod.fst)
+      logSeries :=
+        ((state.logEntries context.self).map logEntryToEvm).toArray }
+  { accounts := accounts
+    substate := substate
+    createdAccounts :=
+      addressSetOfWords context.createdInTransactionAccounts }
+
 def lowLevelKindToCallKind :
     LowLevelCallKind → EvmCompiler.Simulation.CallKind
   | SolidCore.Solidity.Shared.Call.ExternalCallKind.call => .call
@@ -1916,13 +2013,17 @@ def decodeCallResponse (response : EvmCompiler.Simulation.CallResponse)
     output := byteArrayToBytes response.returnData }
 
 /-- Emit an external low-level call as a `Query.external` node and resume on the
-    `CallResponse`. Checkpoint-1: world snapshot is a placeholder `default`. -/
-def emitLowLevelCall (context : Context) (kind : LowLevelCallKind)
+    `CallResponse`. The query carries the real `snapshotWorld` of the caller's
+    state at emit (mirror of Yul's `callEval` → `ofYulShared`); responder
+    matchers never inspect it (corpus-neutral). `postWorld` adoption on resume
+    is Stage 2 of the openworld/postworld plan. -/
+def emitLowLevelCall (context : Context) (state : State)
+    (kind : LowLevelCallKind)
     (target : Word) (calldata : List Byte) (value : Word) (gas? : Option Word) :
     SolI LowLevelCallResult :=
   let request := buildCallRequest context kind target calldata value gas?
   .request
-    (EvmCompiler.Simulation.Query.external default
+    (EvmCompiler.Simulation.Query.external (snapshotWorld context state)
       (EvmCompiler.Simulation.ExternalRequest.call request))
     (fun response =>
       .done (.ok (decodeCallResponse response kind target calldata value gas?)))
@@ -1935,10 +2036,10 @@ def emitLowLevelCall (context : Context) (kind : LowLevelCallKind)
     oracle rows `Precompile.lookup?` keyed). Mirrors `Precompile.outputWord?`: a
     failed call or short output yields `none`. `keccak256` is the KECCAK256
     opcode, computed in-EVM, so it stays local — no query. -/
-def emitPrecompileWord (context : Context)
+def emitPrecompileWord (context : Context) (state : State)
     (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte) :
     SolI (Option Word) := do
-  let result ← emitLowLevelCall context LowLevelCallKind.staticcall
+  let result ← emitLowLevelCall context state LowLevelCallKind.staticcall
     (SolidCore.Solidity.Shared.Precompile.address kind) input 0 none
   pure (SolidCore.Solidity.Shared.Precompile.outputWord? result)
 
@@ -2016,12 +2117,14 @@ def decodeCreateResponse (response : EvmCompiler.Simulation.CreateResponse)
     output := byteArrayToBytes response.returnData }
 
 /-- Emit a contract creation as a `Query.external` node and resume on the
-    `CreateResponse`. Checkpoint-1: world snapshot is a placeholder `default`. -/
-def emitContractCreation (context : Context) (name : String) (args : List Byte)
+    `CreateResponse`. The query carries the real `snapshotWorld` (mirror of
+    Yul's `createEval` → `ofYulShared`); matchers ignore it. -/
+def emitContractCreation (context : Context) (state : State)
+    (name : String) (args : List Byte)
     (value : Word) (salt? : Option Word) : SolI ContractCreationResult :=
   let request := buildCreateRequest context name args value salt?
   .request
-    (EvmCompiler.Simulation.Query.external default
+    (EvmCompiler.Simulation.Query.external (snapshotWorld context state)
       (EvmCompiler.Simulation.ExternalRequest.create request))
     (fun response =>
       .done (.ok (decodeCreateResponse response name args value salt?)))
@@ -5681,7 +5784,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  match ← emitPrecompileWord context kind.precompileKind bytes with
+                  match ← emitPrecompileWord context runtime'.state
+                      kind.precompileKind bytes with
                   | some hash => pure (Value.word hash, runtime')
                   | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -5695,7 +5799,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let v ← vValue.expectWord
                   let r ← rValue.expectWord
                   let s ← sValue.expectWord
-                  let address ← emitPrecompileWord context
+                  let address ← emitPrecompileWord context runtime'.state
                     SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
                     (SolidCore.Solidity.Shared.Precompile.ecrecoverInput digest v r s)
                   pure (Value.word (address.getD 0), runtime')
@@ -5774,7 +5878,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let result ←
-                    emitLowLevelCall context
+                    emitLowLevelCall context runtime'.state
                       kind target calldata value none
                   pure
                     ( Value.tuple
@@ -5791,7 +5895,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let value ← valueValue.expectWord
                   let gas ← gasValue.expectWord
                   let result ←
-                    emitLowLevelCall context
+                    emitLowLevelCall context runtime'.state
                       kind target calldata value (some gas)
                   pure
                     ( Value.tuple
@@ -5818,7 +5922,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let result ←
-                    emitContractCreation context
+                    emitContractCreation context runtime'.state
                       contractName constructorArgs value none
                   if result.success then
                     pure
@@ -5835,7 +5939,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let value ← valueValue.expectWord
                   let salt ← saltValue.expectWord
                   let result ←
-                    emitContractCreation context
+                    emitContractCreation context runtime'.state
                       contractName constructorArgs value (some salt)
                   if result.success then
                     pure
@@ -7436,7 +7540,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                                         pure (LowLevelCallResult.failedRequest
                                           kind target calldata value gas?)
                                       else
-                                        emitLowLevelCall context
+                                        emitLowLevelCall context runtime'''.state
                                           kind target calldata value gas?
                                     let runtimeWithInteraction :=
                                       runtime'''.recordExternalInteraction
@@ -7518,7 +7622,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                               | none => Except.ok (none, runtime'')
                             match saltResult? with
                             | Except.ok (salt?, runtime''') =>
-                                emitContractCreation context
+                                emitContractCreation context runtime'''.state
                                     contractName constructorArgs value salt? >>=
                                   fun createResult =>
                               let runtimeWithInteraction :=

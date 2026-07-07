@@ -1772,3 +1772,31 @@ words via `State.storeSlot` on the solc-AST-imported contract — 5 Forge tests
 This stage is independent of the postWorld arc but is what makes wholesale
 `postWorld` adoption total: any word the environment writes into our storage
 now has defined, solc-faithful read semantics.
+
+## 2026-07-07 — openworld/postworld Stage 1: real outgoing `OpenWorld` snapshots
+
+`emitLowLevelCall`/`emitContractCreation` (and the precompile wrapper) now
+carry `snapshotWorld context state` in every `Query.external`, replacing the
+checkpoint-1 `default` placeholder — the mirror of Yul's `callEval`/`createEval`
+→ `ofYulShared`. The snapshot is a pure projection (plan §2.1):
+
+- self account: `State.storage`/`State.transient` verbatim (slot ↦ word into
+  `EvmYul.Storage`), A2 `State.selfBalance`, new `State.selfNonce := 0`
+  (carried so the adoption round-trip law will hold field-wise; nothing reads
+  it), code from `Context.accountCodes`;
+- other accounts: one `OpenAccount` per Context-seeded address — balance/code
+  from the seed maps, storage/transient empty (we assert nothing), nonce 0;
+- substate: `logSeries` = `State.logEntries` projection, `selfDestructSet`
+  from `State.selfdestructs`; access sets/refund `default` (declared fidelity
+  gap, recorded not hidden);
+- `createdAccounts` from `Context.createdInTransactionAccounts`.
+
+Emit helpers gained a `state : State` parameter; the six evaluator call sites
+pass the post-argument-evaluation `runtime'.state`. Corpus-neutrality verified
+by full replay (matchers key on kind/target/calldata/value/gas only and every
+`Query.external` match wildcards the world) — zero fixture edits. New
+build-time witness `snapshotWitnessMatches` (Witness/InterpreterExamples.lean)
+pins a non-default snapshot: live storage/transient words, balance 77,
+nonce 3, code bytes, one log entry, a seeded other-account balance, and a
+created-accounts seed all appear in the emitted query; a regression to the
+`default` placeholder fails `lake build SolidCore`.
