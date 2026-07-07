@@ -464,7 +464,9 @@ object:
   Sm  MEMORY-LAYOUT layer         structural values (tuple/array/bytes/string, memoryRef)
       abstracts: aggregate values as regions of a flat byte memory.
       seam Sm→(word/byte ops): structs/arrays → head/tail + length-prefix layout on
-                  Yul memory; free-memory-pointer discipline at 0x80; memoryRef →
+                  Yul memory; free-memory-pointer discipline (the FMP word lives
+                  at 0x40 and initially points to 0x80, the start of free memory);
+                  memoryRef →
                   concrete offset; copy/allocation → mstore/mload sequences.
       done-rel: value ≅ (region of the flat `ByteArray` memory) under a memory
                 invariant; final `memory`/`activeWords` match the Yul done-rel's

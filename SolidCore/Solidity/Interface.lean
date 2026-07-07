@@ -1,3 +1,4 @@
+import SolidCore.Solidity.ABI
 import SolidCore.Solidity.Ast
 
 namespace SolidCore

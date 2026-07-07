@@ -776,3 +776,56 @@ With these, the complete stage-3 gate battery is green: build (1091 jobs),
 smoke (28 cases) + the two oracle cases outside the smoke set via `--only`,
 witness truth-value baseline (138 evals byte-identical), stage-2 responder
 equivalence re-run just before the flip (18/18), full replay, and AST audit.
+## 2026-07-06 — Lowering-prep cleanup pass (N1/N2/N4 from the readiness study)
+
+Executed on branch `cleanup/lowering-prep` (worktree, based at 56f59fa), per
+`docs/compile-to-yul-readiness.md` §5's "do now" list. Every "zero uses" claim
+was re-verified against the current tree (post-Phase-5-stage-3) before any
+deletion, since the study predates the stage-1e/2/3 commits.
+
+- **N1 — landed.** Deleted the 18 dead observation-era classifier enums from
+  `Interpreter.lean` (`LowLevelCallEvaluationStatus` … `CallExitMode`; full
+  list in the commit). Re-verification: rg across `SolidCore/`,
+  `tests/forge-harness/manifest.json`, `scripts/` found zero references
+  outside the inductive declarations themselves (type names and all
+  constructors). Interspersed live types (`TernaryBranch`,
+  `RevertPayloadSource`, `RequireCheckSource`, `TryCatchMatchKind`,
+  `SwitchBranchSelection`) kept.
+- **N2 — SKIPPED: the readiness doc's dead-code claim is stale.** The doc
+  says the `Runtime` byte-memory shadow (`memoryByteMap`/`memoryBytesUsed`/
+  `memoryFreePointer`/`memoryAllocations`, readers `loadMemoryByte?`/
+  `readMemoryBytes?`) is "written only at newBytes/newDynamicArray and read
+  nowhere". On the current tree it has a live reader: the witness
+  `memoryAllocationFootprintMatches` (+ 4 helper defs,
+  `SolidCore/Witness/Interface.lean:1600–1661`) asserts on all four fields
+  and both readers. Nothing *semantic* reads the shadow, so retiring it is
+  still right eventually — but it now requires deleting witness defs in the
+  same witness territory the concurrent main-tree agent's final Phase-5 work
+  touches (the reason N3 was deferred), so it is skipped here rather than
+  half-done. Revisit after Phase 5 merges, together with N3.
+- **N3 — deferred by instruction**, not attempted: the in-file example defs at
+  the tail of `Interpreter.lean` are inside the main-tree agent's uncommitted
+  final work; moving them in parallel guarantees conflicts.
+- **N4 — landed.** `Ast.lean` no longer imports `SolidCore.Solidity.ABI`.
+  The dependency turned out to be **entirely vestigial for Ast itself**: the
+  surface AST uses no ABI/Interpreter/Keccak name (it builds unchanged
+  without the import; `Word`/`Byte` are local abbrevs over
+  `Shared.Word`/`Nat`). The real consumer was `Interface.lean`, which
+  imported only `Ast` and received ABI/Interpreter/Keccak transitively; it
+  now imports `SolidCore.Solidity.ABI` explicitly. No import cycle
+  (ABI → Interpreter/Keccak/Word; Ast → Shared only), no declaration renamed,
+  manifest untouched.
+- **Doc corrections** (same pass): fixed the readiness doc's Sm seam note —
+  the free-memory pointer *lives at* `0x40` and initially *points to* `0x80`;
+  softened `function-boundary-refactor-plan.md` §1.5's "solc inlines
+  modifiers" to the accurate split: the *semantics* is placeholder
+  substitution; legacy codegen inlines, via-IR may emit modifier inner bodies
+  as per-layer Yul functions (an emission choice, not a semantic one).
+- **ROADMAP**: added the recursion/internal-call acceptance gap to the known
+  semantic gaps registry (internal-linkage calls inlined with fuel 64;
+  recursion/deep nesting silently rejected at elaboration while solc
+  accepts; status "Deferred — plan exists",
+  `docs/function-boundary-refactor-plan.md`).
+
+Gates per landed item: `lake build SolidCore` + `scripts/smoke_replay.sh`
+(28 cases, `forge_interpreter_compare=pass`, all `lean=ok`).

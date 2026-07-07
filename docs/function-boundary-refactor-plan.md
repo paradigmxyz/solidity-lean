@@ -136,15 +136,20 @@ it. Until this refactor lands, it should be a **recorded semantic gap** in
 
 ### 1.5 solc's behavior, confirmed (the internal/modifier split)
 
-- **Modifiers: solc inlines.** The Solidity docs specify the `_` placeholder as
-  "where the body of the function being modified should be inserted"; modifiers
-  are not compiled as separate Yul functions — multiple modifiers nest
-  outside-in in declaration order, modifier arguments are evaluated at the
+- **Modifiers: substitution semantics; codegen varies.** The Solidity docs
+  specify the `_` placeholder as "where the body of the function being modified
+  should be inserted" — the *semantics* is body substitution: multiple modifiers
+  nest outside-in in declaration order, modifier arguments are evaluated at the
   wrapping site, and `_` may occur multiple times (body inserted at each) or
   zero times (body never runs; function returns default values). Virtual/
   override modifiers resolve to one concrete modifier body per contract before
-  expansion. Sources: docs.soliditylang.org Contracts §"Function Modifiers",
-  internals/optimizer (IR codegen). **Decision: modifiers stay inlined**, and
+  expansion. How that substitution is *lowered* is codegen-specific: legacy
+  codegen inlines the modifier body at each placeholder, whereas via-IR (the Yul
+  pipeline) may emit the modifier's inner body as per-layer Yul helper functions
+  — an emission choice, not a change to the substitution semantics. Sources:
+  docs.soliditylang.org Contracts §"Function Modifiers", internals/optimizer
+  (IR codegen). **Decision: modifiers stay inlined in this semantics** (the
+  substitution model, matching solc's meaning), and
   the current placeholder-substitution machinery (§1.1) is kept, including its
   handling of arguments (`modifierParamBindingsWithArgs?`) and inheritance
   (virtual/override resolved during linearization before expansion). Edge cases

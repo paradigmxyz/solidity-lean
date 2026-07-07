@@ -1672,10 +1672,6 @@ def LowLevelCallResult.failedRequest
 def Context.accountHasCode (context : Context) (target : Word) : Bool :=
   !(SolidCore.Solidity.Shared.Account.codeAt context.accountCodes target).isEmpty
 
-inductive ExternalResolutionKind where
-  | resolved
-  | failedFallback
-  deriving Repr, BEq
 
 inductive EnvWord where
   | blockBasefee : EnvWord
@@ -2734,11 +2730,6 @@ def State.storeFieldWord (state : State) (field : StorageField)
     state.storeFieldSlot field updated
   else
     state.storeFieldSlot field value
-
-inductive StorageFieldAccessKind where
-  | load
-  | store
-  deriving Repr, BEq
 
 def StorageField.storageValueFromWord? (field : StorageField)
     (ty : Ty) (word : Word) : Option Value :=
@@ -6133,33 +6124,6 @@ def Expr.evalListWithRuntimeByContext
   SolI.foldExpr (Expr.listEvalFuel exprs + 1) context
     (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder context runtime exprs)
 
-inductive LowLevelCallEvaluationStatus where
-  | resolved
-  | notLowLevelCall
-  | operandsReverted
-  | malformedOperands
-  | targetTypeMismatch
-  | calldataTypeMismatch
-  | valueTypeMismatch
-  | gasTypeMismatch
-  deriving Repr, BEq
-
-inductive ContractCreationEvaluationStatus where
-  | deployed
-  | notContractCreation
-  | operandsReverted
-  | malformedOperands
-  | constructorArgsTypeMismatch
-  | valueTypeMismatch
-  | saltTypeMismatch
-  | creationReverted
-  deriving Repr, BEq
-
-inductive ShortCircuitDecision where
-  | skippedRight
-  | evaluatedRight
-  deriving Repr, BEq
-
 inductive TernaryBranch where
   | thenBranch
   | elseBranch
@@ -6328,57 +6292,12 @@ inductive Result where
   | continued : Runtime -> Result
   deriving Repr
 
-inductive ResultMode where
-  | normal
-  | returned
-  | selfdestructed
-  | reverted
-  | broke
-  | continued
-  deriving Repr, BEq
-
-inductive RevertPayloadKind where
-  | empty
-  | errorString
-  | errorBytesExpression
-  | customError
-  deriving Repr, BEq
-
 inductive RevertPayloadSource where
   | empty
   | errorString : String -> RevertPayloadSource
   | errorBytesExpression : Expr -> RevertPayloadSource
   | customError : String -> List Expr -> RevertPayloadSource
   deriving Repr
-
-inductive TerminalEvaluationKind where
-  | notTerminal
-  | returnValues
-  | revertEmpty
-  | revertString
-  | revertBytesExpression
-  | customError
-  | selfdestruct
-  deriving Repr, BEq
-
-inductive TerminalEvaluationStatus where
-  | notTerminal
-  | returned
-  | returnArgumentsReverted
-  | reverted
-  | revertPayloadErrored
-  | selfdestructed
-  | selfdestructRecipientReverted
-  | selfdestructRecipientTypeMismatch
-  deriving Repr, BEq
-
-inductive RequireCheckKind where
-  | assert
-  | requireEmpty
-  | requireString
-  | requireBytesExpression
-  | requireCustom
-  deriving Repr, BEq
 
 inductive RequireCheckSource where
   | assert : Expr -> RequireCheckSource
@@ -6394,46 +6313,10 @@ inductive TryCatchMatchKind where
   | lowLevel
   deriving Repr, BEq
 
-inductive EvalMode where
-  | completed
-  | outOfFuel
-  deriving Repr, BEq
-
-inductive IfBranchSelection where
-  | thenBranch
-  | elseBranch
-  deriving Repr, BEq
-
 inductive SwitchBranchSelection where
   | caseBranch : Word -> SwitchBranchSelection
   | defaultBranch
   | noBranch
-  deriving Repr, BEq
-
-inductive WhileLoopStep where
-  | outOfFuel
-  | conditionFalse
-  | conditionErrored
-  | bodyNormal
-  | bodyContinue
-  | bodyBreak
-  | bodyTerminal
-  | bodyOutOfFuel
-  deriving Repr, BEq
-
-inductive ForLoopStep where
-  | outOfFuel
-  | initOutOfFuel
-  | initTerminal
-  | conditionFalse
-  | conditionErrored
-  | bodyNormal
-  | bodyContinue
-  | bodyBreak
-  | bodyTerminal
-  | bodyOutOfFuel
-  | postTerminal
-  | postOutOfFuel
   deriving Repr, BEq
 
 def Result.mapRuntime (f : Runtime -> Runtime) : Result -> Result
@@ -7573,41 +7456,6 @@ def Stmt.evalFor (fuel : Nat) (context : Context)
 
 end
 
-inductive TryExternalCallEvaluationStatus where
-  | notTryExternalCall
-  | targetReverted
-  | targetTypeMismatch
-  | calldataReverted
-  | calldataTypeMismatch
-  | valueReverted
-  | valueTypeMismatch
-  | gasReverted
-  | gasTypeMismatch
-  | successBodyEvaluated
-  | successBodyOutOfFuel
-  | successAbiDecodeFailure
-  | successReturnBindFailure
-  | catchBodyEvaluated
-  | catchBodyOutOfFuel
-  | catchUnmatched
-  deriving Repr, BEq
-
-inductive TryContractCreateEvaluationStatus where
-  | notTryContractCreate
-  | constructorArgsReverted
-  | constructorArgsTypeMismatch
-  | valueReverted
-  | valueTypeMismatch
-  | saltReverted
-  | saltTypeMismatch
-  | successBodyEvaluated
-  | successBodyOutOfFuel
-  | successReturnBindFailure
-  | catchBodyEvaluated
-  | catchBodyOutOfFuel
-  | catchUnmatched
-  deriving Repr, BEq
-
 structure FunctionDef where
   name : String
   selector? : Option Word
@@ -7629,11 +7477,6 @@ inductive CallResult where
 def CallResult.resultState : CallResult -> State
   | CallResult.returned state _ => state
   | CallResult.reverted state _ => state
-
-inductive CallExitMode where
-  | returned
-  | reverted
-  deriving Repr, BEq
 
 def CallResult.clearTransient : CallResult -> CallResult
   | CallResult.returned state values =>
@@ -7767,11 +7610,6 @@ def FunctionDef.callFailOpen? (fuel : Nat) (responder : ScriptedResponder)
     match SolI.runFailOpen responder tree with
     | .ok result => some result
     | .error _ => none
-
-inductive FunctionEntryKind where
-  | ordinary
-  | construction
-  deriving Repr, BEq
 
 inductive FunctionExitKind where
   | fallthroughNamedReturns

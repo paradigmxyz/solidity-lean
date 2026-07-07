@@ -5,7 +5,6 @@ Pure pre-validity AST types (expressions, statements, declarations, source
 units). Elaboration to the executable core and the (Phase 4) observation layer
 live in Interface.lean, which imports this module.
 -/
-import SolidCore.Solidity.ABI
 import SolidCore.Solidity.Shared.Precompile
 import SolidCore.Solidity.Shared.Word
 
