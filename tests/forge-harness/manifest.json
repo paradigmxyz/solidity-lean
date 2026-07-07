@@ -798,6 +798,49 @@
       }
     },
     {
+      "name": "recursion-gap",
+      "description": "Stage-0 pin of the internal-function recursion / call-nesting>64 gap (docs/function-boundary-refactor-plan.md). solc/Forge accept and run recursion and a 70-deep static call chain; the current Lean elaboration inlines all internal-linkage calls with defaultInternalCallInlineFuel=64 and silently REJECTS them (toCoreContract? = none), so ownCall? returns none for every function of the contract even though the typechecker accepts it. The .isNone witnesses pin that rejection today; they FLIP to the concrete factorial/sumTo/deepChain values at stage 5, when the function boundary is preserved.",
+      "forge": {
+        "root": "tests/forge-harness/recursion-gap",
+        "match_contract": "RecursionGapForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/recursion-gap/src/RecursionGap.sol",
+        "contract": "RecursionGapHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RecursionGap"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractTypechecks",
+            "expr": "SolidCore.Solidity.SolcAstImport.RecursionGap.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "recursiveFactorialRejectedToday",
+            "expr": "(SolidCore.Solidity.TypeCheck.CheckedInput.ownCall? 300 SolidCore.Solidity.SolcAstImport.RecursionGap.importedContract (SolidCore.Solidity.Source.CallTarget.name \"factorial\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5]).isNone",
+            "expect": "true"
+          },
+          {
+            "label": "deepRecursionRejectedToday",
+            "expr": "(SolidCore.Solidity.TypeCheck.CheckedInput.ownCall? 300 SolidCore.Solidity.SolcAstImport.RecursionGap.importedContract (SolidCore.Solidity.Source.CallTarget.name \"sumTo\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 70]).isNone",
+            "expect": "true"
+          },
+          {
+            "label": "deepStaticChainRejectedToday",
+            "expr": "(SolidCore.Solidity.TypeCheck.CheckedInput.ownCall? 300 SolidCore.Solidity.SolcAstImport.RecursionGap.importedContract (SolidCore.Solidity.Source.CallTarget.name \"deepChain\") SolidCore.Solidity.Source.State.empty []).isNone",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
       "name": "tuple-destructure",
       "description": "Forge checks solc/EVM tuple returns, destructuring, omitted tuple slots, and tuple assignment; pinned solc and the common checker reject omitted tuple components in value positions, tuple declarations without required initializers, tuple type/arity mismatches, non-lvalue assignment targets, and tuple indexing; Lean imports the same source contract from solc AST and checks source tuple behavior.",
       "forge": {

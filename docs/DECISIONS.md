@@ -1035,3 +1035,38 @@ pre-claimed here:
 This entry exists so the tree can be branched from now: any worktree taken
 from this commit carries the complete Phase 6 code/docs state; only the gate
 verdict and the summary text land after it.
+
+## 2026-07-06 — Function-boundary refactor, stage 0: pin the recursion/deep-nesting gap
+
+Branch `refactor/function-boundary` (worktree, based at Phase-6 checkpoint
+`1a69f5d`), executing `docs/function-boundary-refactor-plan.md`.
+
+Stage 0 records and pins the acceptance gap from the plan §1.4 with a paired
+corpus lane, `recursion-gap` (100th case):
+
+- Fixture `tests/forge-harness/recursion-gap/src/RecursionGap.sol` has
+  (a) a genuinely recursive `factorial` (→120 at n=5), (a') `sumTo` whose
+  runtime recursion depth itself exceeds the 64 inline horizon (`sumTo(70)=2485`),
+  and (b) a **static, non-recursive** call chain of depth 70 (`step0..step70`,
+  `deepChain()=70`). Forge test asserts all three; solc 0.8.35 accepts and
+  Foundry-EVM runs them (3/3 pass).
+- The recursive functions are `public` (not `external`): solc rejects internal
+  self-calls by name on `external` functions ("undeclared identifier … not yet
+  visible"), so recursion must be `public`/`internal`. Recorded because it is a
+  non-obvious fixture constraint. `deepChain` stays `external` (it calls an
+  `internal` chain, does not self-recurse).
+- **Honest Lean expectation, pinned today**: the gap lives in *elaboration*, not
+  typechecking — `importedContractAccepted` (the typechecker) is `true` (asserted
+  as `importedContractTypechecks`). Elaboration (`toCoreContract?`) returns
+  `none` because `defaultInternalCallInlineFuel = 64` runs out on the recursion /
+  deep nesting, so `CheckedInput.ownCall?` returns `none` for **every** function
+  of the contract. The three `*RejectedToday` witnesses assert exactly that
+  (`(ownCall? … ).isNone = true`), each documented to FLIP to the concrete value
+  at stage 5. Using the Option-returning `ownCall?` + `.isNone` (rather than the
+  `Except`-returning `checkedOwnCallWordMatches`, whose failure is an
+  `Except.error` with a fragile message) keeps the pin a clean `Bool`.
+- ROADMAP gap-registry row updated (Deferred → In progress, pinned by this lane).
+
+Gate: `lake build SolidCore` green (baseline); single-lane Lean replay
+`forge_interpreter_compare=pass`, `paired_cases_passed=yes`; Forge suite 3/3.
+Full replay deferred (the main tree is mid sequential replay; CPU caution).
