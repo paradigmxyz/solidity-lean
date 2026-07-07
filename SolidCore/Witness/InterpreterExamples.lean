@@ -16,9 +16,9 @@ namespace Source
 /-- Short witness: a two-external-call execution as an explicit interaction tree;
     `queryTranscript` exposes its two external-call queries. -/
 def phase5DemoTree (context : Context) : SolI (List LowLevelCallResult) := do
-  let r1 ← emitLowLevelCall context State.empty
+  let (r1, _) ← emitLowLevelCall context State.empty
     LowLevelCallKind.call 0xa11ce [0x11, 0x22] 0 none
-  let r2 ← emitLowLevelCall context State.empty
+  let (r2, _) ← emitLowLevelCall context State.empty
     LowLevelCallKind.call 0xb0b [0x33] 7 (some 50000)
   pure [r1, r2]
 

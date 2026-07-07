@@ -1800,3 +1800,66 @@ pins a non-default snapshot: live storage/transient words, balance 77,
 nonce 3, code bytes, one log entry, a seeded other-account balance, and a
 created-accounts seed all appear in the emitted query; a regression to the
 `default` placeholder fails `lake build SolidCore`.
+
+## 2026-07-07 — openworld/postworld Stage 2: wholesale postWorld adoption, echo answers
+
+The arbitrary-changes model is wired end to end (mirror of Yul's
+`withWorldAndMachine` → `installYulShared`), behavior-preserving by
+construction under the echo convention:
+
+- **Adoption** (`adoptWorld`): on every call/create resume, the answered
+  `postWorld`'s self account lands on the existing `State` fields — ordinary
+  slot-keyed wholesale replacement of the `WordMap`s (ruling #1: no
+  representation change), `selfBalance` (A2's field), `selfNonce`. Self absent
+  from the answered accounts ⇒ the empty account (total, like
+  `installYulAccounts`). The answered world is retained VERBATIM in
+  `State.envWorld?`, which owns the other-account facts, self code, substate
+  extras, and `createdAccounts` after adoption; the four Context maps are now
+  documented seed-only, and env reads (`.balance` of others, `.code`,
+  `.codehash`, extcodesize-style checks, created-accounts set) route through
+  `State.env*` accessors (adopted world first, seeds pre-adoption — risk R3's
+  single-accessor mitigation).
+- **Snapshot after adoption**: `worldMutatedSinceAdoption` (set by every State
+  mutator) selects between returning `envWorld?` VERBATIM (nothing mutated) and
+  overlaying it with the live self account + canonical log series +
+  new selfdestruct records.
+- **Logs** (risk R1, split-point variant): canonical series =
+  `adoptedLogPrefix ++ (events.drop adoptedEventCount)` projection — `events`
+  stays CUMULATIVE, so every existing `state.events` assertion is untouched
+  (audited: full replay green with zero fixture edits). Same split-point
+  pattern for the selfdestruct set. Callee logs arrive by adoption of the
+  answered series — logs are substate, not caller-local (risk R2: a fixture
+  asserting "logs survive calls" asserts a property of the responder, not the
+  semantics).
+- **Echo everywhere**: `ScriptedResponder.answerCall?/answerCreate?` now take
+  the sent world and answer `postWorld := sent world` for delta-less rows —
+  `Query.defaultAnswer`'s convention (`contextAnswer` already had it). The
+  world never participates in row MATCHING (fail-closed rules unchanged).
+  A failed create echoes automatically (risk R7). A2's debit stays in
+  `recordExternalInteraction` at this stage (pure echo + existing debit =
+  today's behavior; the §3.1 debit fold happens at Stage 3 when the
+  responder computes post-debit worlds and the record-side debit is deleted —
+  the plan's "+ A2-debit fold" is sequenced there to avoid double-counting).
+
+**Round-trip laws (proved, `SolidCore/Solidity/AdoptionLaws.lean`)**:
+
+- `snapshotWorld_adoptWorld : snapshotWorld context (adoptWorld w context s) = w`
+  — for EVERY `w`, with plain `=` (the exact mirror of
+  `ofYulShared_installYulShared`). Exactness comes from verbatim retention:
+  adopt keeps the world, an unmutated snapshot returns it unchanged — the same
+  no-surgery design as the Yul side.
+- `adoptWorld_idempotent`.
+- `adoptWorld_echo_noop`: on the rebuild branches (pre-adoption or mutated),
+  adopting the echo of your own snapshot preserves every observable component:
+  `loadSlot`/`loadTransientSlot` extensionally (up to `norm`, which every read
+  applies; canonical stores are already normalized), balance/nonce up to
+  `norm`, and `events`/`externalInteractions`/`immutables`/`selfdestructs`
+  exactly. Adopted-clean states are covered exactly by the first two laws.
+  Proof infrastructure: `Std.TransCmp`/`Std.LawfulEqCmp` bridge instances for
+  the shared `UInt256`'s derived `Ord`, a foldr-based `wordMapToStorage`
+  (first-occurrence semantics aligned with `WordMap.lookup?`), and an
+  RBMap-`toList`/`find?` correspondence via Batteries' sortedness lemmas.
+
+Gate: `lake build SolidCore` green (laws included), full replay `--jobs 10`
+green with ZERO fixture edits (echo adoption is invisible to the corpus, as
+the laws predict).

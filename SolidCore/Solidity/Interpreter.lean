@@ -788,6 +788,15 @@ inductive ExternalInteraction where
       SourceContractCreationResult -> ExternalInteraction
   deriving Repr
 
+/-- Opaque-ish `Repr` for the shared `OpenWorld` (RBMap-backed; no derived
+    `Repr` upstream). Renders account count + substate log length — enough for
+    witness diffs without dumping trees. -/
+instance : Repr SolidCore.Solidity.Shared.OpenWorld :=
+  ⟨fun w _ =>
+    "OpenWorld(accounts := " ++ toString w.accounts.size ++
+      ", logSeries := " ++ toString w.substate.logSeries.size ++
+      ", created := " ++ toString w.createdAccounts.size ++ ")"⟩
+
 structure State where
   storage : WordMap
   transient : WordMap := []
@@ -808,6 +817,27 @@ structure State where
   -- field and the adoption round-trip law holds field-wise.
   selfNonce : Word := 0
   events : List Event
+  -- openworld/postworld Stage 2 — the adopted environment view.
+  -- After an external answer is adopted, `envWorld?` holds the answered
+  -- `postWorld` VERBATIM: it owns the other-accounts facts, self code, the
+  -- substate extras (access sets/refund), and `createdAccounts`; the existing
+  -- State fields above own the live self account (storage/transient/balance/
+  -- nonce). `worldMutatedSinceAdoption = false` means no State mutation has
+  -- happened since adoption, so the next outgoing snapshot returns
+  -- `envWorld?` verbatim — this is what makes the round-trip law
+  -- `snapshotWorld context (adoptWorld w context s) = w` exact (mirror of
+  -- `ofYulShared_installYulShared`).
+  envWorld? : Option SolidCore.Solidity.Shared.OpenWorld := none
+  worldMutatedSinceAdoption : Bool := true
+  -- Canonical log series = `adoptedLogPrefix ++ (events.drop adoptedEventCount)`
+  -- projection: `events` stays CUMULATIVE (existing witness assertions on
+  -- `state.events` are untouched — plan risk R1's split-point variant); the
+  -- prefix carries the adopted series (callee logs included, wholesale — logs
+  -- are substate on the Yul side, not caller-local). Same split-point pattern
+  -- for the selfdestruct set.
+  adoptedLogPrefix : List SolidCore.Solidity.Shared.Log.Entry := []
+  adoptedEventCount : Nat := 0
+  adoptedSelfdestructCount : Nat := 0
   deriving Repr
 
 def State.empty : State :=
@@ -823,7 +853,9 @@ def State.loadSlot (state : State) (slot : Word) : Word :=
   | none => 0
 
 def State.storeSlot (state : State) (slot value : Word) : State :=
-  { state with storage := WordMap.insertLoop state.storage slot value }
+  { state with
+    storage := WordMap.insertLoop state.storage slot value
+    worldMutatedSinceAdoption := true }
 
 def State.loadTransientSlot (state : State) (slot : Word) : Word :=
   match WordMap.lookup? state.transient slot with
@@ -831,10 +863,12 @@ def State.loadTransientSlot (state : State) (slot : Word) : Word :=
   | none => 0
 
 def State.storeTransientSlot (state : State) (slot value : Word) : State :=
-  { state with transient := WordMap.insertLoop state.transient slot value }
+  { state with
+    transient := WordMap.insertLoop state.transient slot value
+    worldMutatedSinceAdoption := true }
 
 def State.clearTransient (state : State) : State :=
-  { state with transient := [] }
+  { state with transient := [], worldMutatedSinceAdoption := true }
 
 def State.immutable? (state : State) (name : String) : Option Value :=
   ImmutableMap.lookup? state.immutables name
@@ -854,7 +888,8 @@ def State.recordSelfdestruct (state : State)
     selfdestructs :=
       state.selfdestructs ++
         [(record.fromAddress, record.recipient)]
-    selfdestructEffects := state.selfdestructEffects ++ [record] }
+    selfdestructEffects := state.selfdestructEffects ++ [record]
+    worldMutatedSinceAdoption := true }
 
 abbrev Frame := List (String × Value)
 abbrev LocalEnv := List Frame
@@ -971,7 +1006,8 @@ def Runtime.recordExternalInteraction
       { runtime.state with
         selfBalance := balance'
         externalInteractions :=
-          runtime.state.externalInteractions ++ [interaction] } }
+          runtime.state.externalInteractions ++ [interaction]
+        worldMutatedSinceAdoption := true } }
 
 def Runtime.pushScope (runtime : Runtime) : Runtime :=
   { runtime with locals := [] :: runtime.locals }
@@ -1523,6 +1559,11 @@ structure Context where
   sender : Word
   value : Word
   self : Word
+  -- openworld/postworld: the four fields below are entry-time SEEDS. After
+  -- the first `postWorld` adoption, `State.envWorld?` is authoritative for
+  -- other-account balance/code/codehash and the created-accounts set; route
+  -- reads through `State.envAccountBalance`/`envAccountCode`/
+  -- `envAccountCodehash`/`envCreatedAccounts`, never these maps directly.
   accountBalances : WordMap
   accountCodes : ByteMap
   accountCodehashes : WordMap
@@ -1862,7 +1903,10 @@ exclusion), and `createdAccounts`. Nothing restructures state: the snapshot is
 a projection, and responder matchers never inspect it (corpus-neutral). -/
 
 def wordMapToStorage (m : WordMap) : EvmYul.Storage :=
-  m.foldl (fun acc kv => acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
+  -- foldr, so an earlier duplicate key overrides a later one — matching
+  -- `WordMap.lookup?`'s first-match semantics (store ops never create
+  -- duplicates, but hand-built fixture states may).
+  m.foldr (fun kv acc => acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
     default
 
 def storageToWordMap (s : EvmYul.Storage) : WordMap :=
@@ -1884,8 +1928,24 @@ def addressSetOfWords (words : List Word) :
     Batteries.RBSet EvmCompiler.Simulation.OpenAddress compare :=
   words.foldl (fun acc w => acc.insert (wordToAddress w)) default
 
+/-- Canonical log series: the adopted prefix (whatever the last answered
+    `postWorld` carried — callee logs included) followed by the projection of
+    the events emitted since that adoption. `events` itself stays cumulative
+    (risk R1's split-point variant: no fixture-visible change). -/
+def State.canonicalLogEntries (state : State) (self : Word) :
+    List SolidCore.Solidity.Shared.Log.Entry :=
+  state.adoptedLogPrefix ++
+    (state.events.drop state.adoptedEventCount).map (Event.toLogEntry self)
+
+/-- Selfdestruct records added since the last adoption (split-point pattern,
+    like the log series). -/
+def State.selfdestructsSinceAdoption (state : State) : List (Word × Word) :=
+  state.selfdestructs.drop state.adoptedSelfdestructCount
+
 /-- The self account as an `OpenAccount` (see table in
-    `docs/openworld-postworld-plan.md` §2.1). -/
+    `docs/openworld-postworld-plan.md` §2.1). The code seed comes from
+    `Context.accountCodes`; after an adoption the answered world owns the self
+    code (`snapshotWorld`'s overlay branch reads it from `envWorld?`). -/
 def snapshotSelfAccount (context : Context) (state : State) :
     EvmCompiler.Simulation.OpenAccount :=
   { nonce := wordToU256 state.selfNonce
@@ -1893,9 +1953,15 @@ def snapshotSelfAccount (context : Context) (state : State) :
     storage := wordMapToStorage state.storage
     transientStorage := wordMapToStorage state.transient
     codeBytes :=
-      bytesToByteArray
-        (SolidCore.Solidity.Shared.Account.codeAt
-          context.accountCodes context.self) }
+      match state.envWorld? with
+      | some w =>
+          match w.accounts.find? (wordToAddress context.self) with
+          | some account => account.codeBytes
+          | none => ByteArray.empty
+      | none =>
+          bytesToByteArray
+            (SolidCore.Solidity.Shared.Account.codeAt
+              context.accountCodes context.self) }
 
 /-- Environment-fact accounts (every address seeded in the Context maps,
     excluding self): balance/code from the maps, storage/transient empty
@@ -1922,8 +1988,10 @@ def snapshotOtherAccounts (context : Context) : List (Word × EvmCompiler.Simula
             (SolidCore.Solidity.Shared.Account.codeAt
               context.accountCodes a) } ))
 
-/-- The outgoing world snapshot (mirror of Yul's `ofYulShared`). -/
-def snapshotWorld (context : Context) (state : State) :
+/-- The outgoing world snapshot before any adoption: self from `State`,
+    other accounts + created set from the Context seed maps, substate from the
+    canonical series (mirror of Yul's `ofYulShared` at seed fidelity). -/
+def snapshotWorldSeed (context : Context) (state : State) :
     SolidCore.Solidity.Shared.OpenWorld :=
   let accounts : EvmYul.AddrMap EvmCompiler.Simulation.OpenAccount :=
     ((snapshotOtherAccounts context).foldl
@@ -1936,11 +2004,126 @@ def snapshotWorld (context : Context) (state : State) :
       selfDestructSet :=
         addressSetOfWords (state.selfdestructs.map Prod.fst)
       logSeries :=
-        ((state.logEntries context.self).map logEntryToEvm).toArray }
+        ((state.canonicalLogEntries context.self).map logEntryToEvm).toArray }
   { accounts := accounts
     substate := substate
     createdAccounts :=
       addressSetOfWords context.createdInTransactionAccounts }
+
+/-- The outgoing world snapshot (mirror of Yul's `ofYulShared`).
+
+    After an adoption, the answered world is authoritative for everything the
+    interpreter does not own: if nothing mutated since adoption the adopted
+    world is returned VERBATIM (exactly `ofYulShared ∘ installYulShared = id`,
+    the round-trip law `snapshot_adoptWorld`); otherwise the adopted world is
+    overlaid with the live self account, the canonical log series, and the
+    selfdestruct records added since adoption. Before any adoption, the
+    Context seed maps supply the environment facts (`snapshotWorldSeed`). -/
+def snapshotWorld (context : Context) (state : State) :
+    SolidCore.Solidity.Shared.OpenWorld :=
+  match state.envWorld? with
+  | some w =>
+      if state.worldMutatedSinceAdoption then
+        { accounts :=
+            w.accounts.insert (wordToAddress context.self)
+              (snapshotSelfAccount context state)
+          substate :=
+            { w.substate with
+              selfDestructSet :=
+                (state.selfdestructsSinceAdoption.map Prod.fst).foldl
+                  (fun acc a => acc.insert (wordToAddress a))
+                  w.substate.selfDestructSet
+              logSeries :=
+                ((state.canonicalLogEntries context.self).map
+                  logEntryToEvm).toArray }
+          createdAccounts := w.createdAccounts }
+      else
+        w
+  | none => snapshotWorldSeed context state
+
+/-- Wholesale adoption of an answered `postWorld` (mirror of Yul's
+    `installYulShared`): the self-account fields land on the existing `State`
+    fields (ordinary slot-keyed writes into the same `WordMap`s — wholesale
+    replacement, not merge), the world itself is retained verbatim as the live
+    environment view (`envWorld?` owns other accounts, self code, substate
+    extras, `createdAccounts`), and the canonical log series becomes the
+    answered `logSeries` (split-point pattern: `events` stays cumulative).
+    Self absent from the answered accounts ⇒ the empty account — total, no
+    error, same as `installYulAccounts`. -/
+def adoptWorld (postWorld : SolidCore.Solidity.Shared.OpenWorld)
+    (context : Context) (state : State) : State :=
+  let selfAccount :=
+    (postWorld.accounts.find? (wordToAddress context.self)).getD default
+  { state with
+    storage := storageToWordMap selfAccount.storage
+    transient := storageToWordMap selfAccount.transientStorage
+    selfBalance := u256ToWord selfAccount.balance
+    selfNonce := u256ToWord selfAccount.nonce
+    envWorld? := some postWorld
+    worldMutatedSinceAdoption := false
+    adoptedLogPrefix :=
+      postWorld.substate.logSeries.toList.map evmLogEntryToShared
+    adoptedEventCount := state.events.length
+    adoptedSelfdestructCount := state.selfdestructs.length }
+
+/-! ### Adopted environment facts (plan §2.3)
+
+After the first adoption the Context maps (`accountBalances`, `accountCodes`,
+`accountCodehashes`, `createdInTransactionAccounts`) are SEED-ONLY: reads of
+other-account facts consult the adopted world first and fall back to the seeds
+only pre-adoption (`envWorld? = none`), so pre-first-call behavior is
+unchanged. The adopted world is authoritative including absence: an account
+missing from the answered world reads as nonexistent (balance 0, no code). -/
+
+def State.envAccount? (state : State) (addr : Word) :
+    Option EvmCompiler.Simulation.OpenAccount :=
+  state.envWorld?.bind (fun w => w.accounts.find? (wordToAddress addr))
+
+def State.envAccountBalance (state : State) (context : Context)
+    (addr : Word) : Word :=
+  match state.envWorld? with
+  | some _ =>
+      match state.envAccount? addr with
+      | some account => u256ToWord account.balance
+      | none => 0
+  | none =>
+      SolidCore.Solidity.Shared.Account.balanceAt
+        context.accountBalances addr
+
+def State.envAccountCode (state : State) (context : Context)
+    (addr : Word) : List Byte :=
+  match state.envWorld? with
+  | some _ =>
+      match state.envAccount? addr with
+      | some account => byteArrayToBytes account.codeBytes
+      | none => []
+  | none =>
+      SolidCore.Solidity.Shared.Account.codeAt context.accountCodes addr
+
+def State.envAccountHasCode (state : State) (context : Context)
+    (addr : Word) : Bool :=
+  !(state.envAccountCode context addr).isEmpty
+
+def State.envCreatedAccounts (state : State) (context : Context) :
+    List Word :=
+  match state.envWorld? with
+  | some w => w.createdAccounts.toList.map addressToWord
+  | none => context.createdInTransactionAccounts
+
+/-- `extcodehash` from the adopted world: nonexistent account → 0 (EIP-1052);
+    existing account → keccak of its adopted code bytes. Pre-adoption the
+    Context seed map is authoritative (it may carry oracle codehashes that are
+    not keccak(seed code) — a recorded environment-fact liberty). -/
+def State.envAccountCodehash (state : State) (context : Context)
+    (addr : Word) : Word :=
+  match state.envWorld? with
+  | some _ =>
+      match state.envAccount? addr with
+      | some account => keccakWord (byteArrayToBytes account.codeBytes)
+      | none => 0
+  | none =>
+      SolidCore.Solidity.Shared.Account.codehashAt
+        context.accountCodehashes addr
 
 def lowLevelKindToCallKind :
     LowLevelCallKind → EvmCompiler.Simulation.CallKind
@@ -2015,18 +2198,23 @@ def decodeCallResponse (response : EvmCompiler.Simulation.CallResponse)
 /-- Emit an external low-level call as a `Query.external` node and resume on the
     `CallResponse`. The query carries the real `snapshotWorld` of the caller's
     state at emit (mirror of Yul's `callEval` → `ofYulShared`); responder
-    matchers never inspect it (corpus-neutral). `postWorld` adoption on resume
-    is Stage 2 of the openworld/postworld plan. -/
+    matchers never inspect it (corpus-neutral). On resume the answered
+    `postWorld` is adopted WHOLESALE into the state (mirror of Yul's
+    `withWorldAndMachine` → `installYulShared`); under the echo convention
+    (`postWorld := sent world`, `Query.defaultAnswer`'s shape) adoption is the
+    identity on every carried field. -/
 def emitLowLevelCall (context : Context) (state : State)
     (kind : LowLevelCallKind)
     (target : Word) (calldata : List Byte) (value : Word) (gas? : Option Word) :
-    SolI LowLevelCallResult :=
+    SolI (LowLevelCallResult × State) :=
   let request := buildCallRequest context kind target calldata value gas?
   .request
     (EvmCompiler.Simulation.Query.external (snapshotWorld context state)
       (EvmCompiler.Simulation.ExternalRequest.call request))
     (fun response =>
-      .done (.ok (decodeCallResponse response kind target calldata value gas?)))
+      .done (.ok
+        ( decodeCallResponse response kind target calldata value gas?
+        , adoptWorld response.postWorld context state )))
 
 /-- Emit a precompile builtin (ecrecover/sha256/ripemd160) as a `STATICCALL` to
     address 1/2/3 and decode its 32-byte output word. In the EVM these builtins
@@ -2038,10 +2226,11 @@ def emitLowLevelCall (context : Context) (state : State)
     opcode, computed in-EVM, so it stays local — no query. -/
 def emitPrecompileWord (context : Context) (state : State)
     (kind : SolidCore.Solidity.Shared.Precompile.Kind) (input : List Byte) :
-    SolI (Option Word) := do
-  let result ← emitLowLevelCall context state LowLevelCallKind.staticcall
+    SolI (Option Word × State) := do
+  let (result, state') ← emitLowLevelCall context state
+    LowLevelCallKind.staticcall
     (SolidCore.Solidity.Shared.Precompile.address kind) input 0 none
-  pure (SolidCore.Solidity.Shared.Precompile.outputWord? result)
+  pure (SolidCore.Solidity.Shared.Precompile.outputWord? result, state')
 
 /-- Emit `gasleft()` as a `Query.resource .gas` observation on the shared
     alphabet's reserved resource arm, resuming on the answered word (A3). Every
@@ -2121,13 +2310,16 @@ def decodeCreateResponse (response : EvmCompiler.Simulation.CreateResponse)
     Yul's `createEval` → `ofYulShared`); matchers ignore it. -/
 def emitContractCreation (context : Context) (state : State)
     (name : String) (args : List Byte)
-    (value : Word) (salt? : Option Word) : SolI ContractCreationResult :=
+    (value : Word) (salt? : Option Word) :
+    SolI (ContractCreationResult × State) :=
   let request := buildCreateRequest context name args value salt?
   .request
     (EvmCompiler.Simulation.Query.external (snapshotWorld context state)
       (EvmCompiler.Simulation.ExternalRequest.create request))
     (fun response =>
-      .done (.ok (decodeCreateResponse response name args value salt?)))
+      .done (.ok
+        ( decodeCreateResponse response name args value salt?
+        , adoptWorld response.postWorld context state )))
 
 /-- The stage-3 context answerer: external queries get `Query.defaultAnswer` (the
     context no longer carries oracle rows; see `SolI.runFromContext`), and the
@@ -2185,7 +2377,10 @@ request for an expected-vs-actual diff) instead of the old fail-open
 (exact-gas-first then no-gas; target recovered from `codeAddress`), so on any
 tree whose every external request has a matching row the responder answers
 identically to `contextAnswer` — the stage-2 equivalence gate. The `OpenWorld`
-snapshot in the query is ignored (checkpoint-1); `postWorld := default`. -/
+snapshot in the query never participates in row MATCHING; it participates in
+the ANSWER: rows without a world delta answer `postWorld := sent world` — the
+echo convention, exactly `Query.defaultAnswer`'s shape — so echo adoption is
+the identity on every carried field (openworld/postworld Stage 2). -/
 
 inductive OracleRow where
   | call : LowLevelCallResult → OracleRow
@@ -2205,8 +2400,11 @@ def ScriptedResponder.createRows (responder : ScriptedResponder) :
     match row with | OracleRow.create c => some c | _ => none)
 
 /-- Answer a call request from the responder's call rows; `none` on a total
-    miss. Keying + gas fallback mirror `answerCall` exactly. -/
+    miss. Keying + gas fallback mirror `answerCall` exactly. The sent world
+    never participates in matching; delta-less rows echo it back as
+    `postWorld`. -/
 def ScriptedResponder.answerCall? (responder : ScriptedResponder)
+    (world : SolidCore.Solidity.Shared.OpenWorld)
     (request : EvmCompiler.Simulation.CallRequest) :
     Option EvmCompiler.Simulation.CallResponse :=
   let kind := callKindToLowLevel request.kind
@@ -2224,13 +2422,14 @@ def ScriptedResponder.answerCall? (responder : ScriptedResponder)
   result?.map (fun result =>
     { success := result.success
       returnData := bytesToByteArray result.output
-      postWorld := default
+      postWorld := world
       returnedGas := request.requestedGas })
 
 /-- Answer a create request from the responder's create rows; `none` on a total
     miss OR a malformed name-encoded initCode (fail-closed — `answerCreate`
     fail-opened on a malformed name). Keying mirrors `answerCreate`. -/
 def ScriptedResponder.answerCreate? (responder : ScriptedResponder)
+    (world : SolidCore.Solidity.Shared.OpenWorld)
     (request : EvmCompiler.Simulation.CreateRequest) :
     Option EvmCompiler.Simulation.CreateResponse := do
   let (name, args) ← decodeCreationInitCode? request.initCode
@@ -2242,7 +2441,9 @@ def ScriptedResponder.answerCreate? (responder : ScriptedResponder)
   some
     { address := wordToU256 (if result.success then result.address else 0)
       returnData := bytesToByteArray result.output
-      postWorld := default
+      -- Echo convention; a failed create's postWorld is conventionally the
+      -- echo world (revert semantics, risk R7) — automatic here.
+      postWorld := world
       returnedGas := wordToU256 0 }
 
 /-- Fold failure under a responder: a Solidity failure (revert/outOfFuel — for
@@ -2260,17 +2461,17 @@ def SolI.runWith {α : Type} (responder : ScriptedResponder) :
   | .done (.ok a) => .ok a
   | .done (.error e) => .error (ResponderFailure.solidity e)
   | .request
-      (EvmCompiler.Simulation.Query.external _
+      (EvmCompiler.Simulation.Query.external world
         (EvmCompiler.Simulation.ExternalRequest.call request)) k =>
-      match responder.answerCall? request with
+      match responder.answerCall? world request with
       | some response => SolI.runWith responder (k response)
       | none =>
           .error (ResponderFailure.unmatched
             (EvmCompiler.Simulation.ExternalRequest.call request))
   | .request
-      (EvmCompiler.Simulation.Query.external _
+      (EvmCompiler.Simulation.Query.external world
         (EvmCompiler.Simulation.ExternalRequest.create request)) k =>
-      match responder.answerCreate? request with
+      match responder.answerCreate? world request with
       | some response => SolI.runWith responder (k response)
       | none =>
           .error (ResponderFailure.unmatched
@@ -2305,7 +2506,7 @@ def ScriptedResponder.answer (responder : ScriptedResponder) :
     (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q
   | EvmCompiler.Simulation.Query.external world
       (EvmCompiler.Simulation.ExternalRequest.call request) =>
-      match responder.answerCall? request with
+      match responder.answerCall? world request with
       | some response => response
       | none =>
           EvmCompiler.Simulation.Query.defaultAnswer
@@ -2313,7 +2514,7 @@ def ScriptedResponder.answer (responder : ScriptedResponder) :
               (EvmCompiler.Simulation.ExternalRequest.call request))
   | EvmCompiler.Simulation.Query.external world
       (EvmCompiler.Simulation.ExternalRequest.create request) =>
-      match responder.answerCreate? request with
+      match responder.answerCreate? world request with
       | some response => response
       | none =>
           EvmCompiler.Simulation.Query.defaultAnswer
@@ -5469,22 +5670,33 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
               let key ← keyValue.expectWord
               -- A2: `address(this).balance` / `selfbalance` (an accountBalance
-              -- lookup keyed on `self`) read the dynamic self balance; every
-              -- other address stays an environment fact (static oracle).
+              -- lookup keyed on `self`) read the dynamic self balance.
+              -- openworld/postworld Stage 2: other-address facts come from the
+              -- ADOPTED world when one exists (`State.env*`), falling back to
+              -- the Context seed maps pre-adoption.
               let result :=
                 match which with
                 | EnvLookup.accountBalance =>
                     if wordEq key context.self then
                       runtime'.state.selfBalance
                     else
-                      which.eval context key
+                      runtime'.state.envAccountBalance context key
+                | EnvLookup.accountCodehash =>
+                    if context.evmVersion.constantinopleOrLater then
+                      runtime'.state.envAccountCodehash context key
+                    else
+                      0
                 | _ => which.eval context key
               pure (Value.word result, runtime')
           | Expr.envBytesLookup which keyExpr => do
               let (keyValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
               let key ← keyValue.expectWord
-              pure (Value.bytes (which.eval context key), runtime')
+              let result :=
+                match which with
+                | EnvBytesLookup.accountCode =>
+                    runtime'.state.envAccountCode context key
+              pure (Value.bytes result, runtime')
           | Expr.var name =>
               match runtime.lookupStoragePathRef? name with
               | some (target, indexes) => do
@@ -5786,8 +5998,10 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | some bytes =>
                   match ← emitPrecompileWord context runtime'.state
                       kind.precompileKind bytes with
-                  | some hash => pure (Value.word hash, runtime')
-                  | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+                  | (some hash, adoptedState) =>
+                      pure (Value.word hash,
+                        { runtime' with state := adoptedState })
+                  | (none, _) => throw <| SolidityFailure.revert RevertData.typeMismatch
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.ecrecover digestExpr vExpr rExpr sExpr => do
               let (values, runtime') ←
@@ -5799,10 +6013,12 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   let v ← vValue.expectWord
                   let r ← rValue.expectWord
                   let s ← sValue.expectWord
-                  let address ← emitPrecompileWord context runtime'.state
-                    SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
-                    (SolidCore.Solidity.Shared.Precompile.ecrecoverInput digest v r s)
-                  pure (Value.word (address.getD 0), runtime')
+                  let (address, adoptedState) ←
+                    emitPrecompileWord context runtime'.state
+                      SolidCore.Solidity.Shared.Precompile.Kind.ecrecover
+                      (SolidCore.Solidity.Shared.Precompile.ecrecoverInput digest v r s)
+                  pure (Value.word (address.getD 0),
+                    { runtime' with state := adoptedState })
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.tuple exprs => do
               let (values, runtime') ←
@@ -5877,14 +6093,15 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | some bytes => pure bytes
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
-                  let result ←
+                  let (result, adoptedState) ←
                     emitLowLevelCall context runtime'.state
                       kind target calldata value none
                   pure
                     ( Value.tuple
                         [ Value.word (boolWord result.success)
                         , Value.bytes result.output ]
-                    , runtime'.recordExternalInteraction
+                    , { runtime' with
+                        state := adoptedState }.recordExternalInteraction
                         (ExternalInteraction.lowLevelCall result) )
               | [targetValue, calldataValue, valueValue, gasValue] => do
                   let target ← targetValue.expectWord
@@ -5894,14 +6111,15 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let gas ← gasValue.expectWord
-                  let result ←
+                  let (result, adoptedState) ←
                     emitLowLevelCall context runtime'.state
                       kind target calldata value (some gas)
                   pure
                     ( Value.tuple
                         [ Value.word (boolWord result.success)
                         , Value.bytes result.output ]
-                    , runtime'.recordExternalInteraction
+                    , { runtime' with
+                        state := adoptedState }.recordExternalInteraction
                         (ExternalInteraction.lowLevelCall result) )
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.contractCreate contractName constructorArgsExpr valueExpr
@@ -5921,13 +6139,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | some bytes => pure bytes
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
-                  let result ←
+                  let (result, adoptedState) ←
                     emitContractCreation context runtime'.state
                       contractName constructorArgs value none
                   if result.success then
                     pure
                       ( Value.word result.address
-                      , runtime'.recordExternalInteraction
+                      , { runtime' with
+                          state := adoptedState }.recordExternalInteraction
                           (ExternalInteraction.contractCreation result) )
                   else
                     throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
@@ -5938,13 +6157,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   let value ← valueValue.expectWord
                   let salt ← saltValue.expectWord
-                  let result ←
+                  let (result, adoptedState) ←
                     emitContractCreation context runtime'.state
                       contractName constructorArgs value (some salt)
                   if result.success then
                     pure
                       ( Value.word result.address
-                      , runtime'.recordExternalInteraction
+                      , { runtime' with
+                          state := adoptedState }.recordExternalInteraction
                           (ExternalInteraction.contractCreation result) )
                   else
                     throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
@@ -6612,7 +6832,8 @@ def Runtime.emitEvent (context : Context)
             { runtime with
               state := { runtime.state with
                 events := SolidCore.Solidity.Shared.Log.append
-                  runtime.state.events event } }
+                  runtime.state.events event
+                worldMutatedSinceAdoption := true } }
       | none => Except.error RevertData.typeMismatch
   | none => Except.error RevertData.typeMismatch
 
@@ -7534,16 +7755,21 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                             | Except.ok (value, gas?, runtime''') => do
                                     let missingCode :=
                                       checkTargetCode &&
-                                        !(context.accountHasCode target)
-                                    let callResult ←
+                                        !(runtime'''.state.envAccountHasCode
+                                          context target)
+                                    let (callResult, adoptedState) ←
                                       if missingCode then
-                                        pure (LowLevelCallResult.failedRequest
-                                          kind target calldata value gas?)
+                                        pure
+                                          ( LowLevelCallResult.failedRequest
+                                              kind target calldata value gas?
+                                          , runtime'''.state )
                                       else
                                         emitLowLevelCall context runtime'''.state
                                           kind target calldata value gas?
                                     let runtimeWithInteraction :=
-                                      runtime'''.recordExternalInteraction
+                                      { runtime''' with
+                                        state :=
+                                          adoptedState }.recordExternalInteraction
                                         (ExternalInteraction.lowLevelCall
                                           callResult)
                                     let success := callResult.success
@@ -7624,9 +7850,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                             | Except.ok (salt?, runtime''') =>
                                 emitContractCreation context runtime'''.state
                                     contractName constructorArgs value salt? >>=
-                                  fun createResult =>
+                                  fun (createResult, adoptedState) =>
                               let runtimeWithInteraction :=
-                                runtime'''.recordExternalInteraction
+                                { runtime''' with
+                                  state :=
+                                    adoptedState }.recordExternalInteraction
                                   (ExternalInteraction.contractCreation
                                     createResult)
                               let success := createResult.success
@@ -7721,7 +7949,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                         state :=
                           runtime'.state.recordSelfdestruct
                             context.evmVersion
-                            context.createdInTransactionAccounts
+                            (runtime'.state.envCreatedAccounts context)
                             context.self recipient })
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
@@ -7952,7 +8180,8 @@ def FunctionDef.evalBodyEntry (fuel : Nat) (table : FunctionTable)
               SolidCore.Solidity.Shared.addWord
                 (SolidCore.Solidity.Shared.Account.balanceAt
                   context.accountBalances context.self)
-                context.value }
+                context.value
+            worldMutatedSinceAdoption := true }
         let runtime : Runtime := { state, locals := [frame] }
         some (Stmt.eval fuel table context runtime function.body)
     | none => none
@@ -8055,7 +8284,8 @@ theorem FunctionDef.call?_reverted_rolls_back
                   SolidCore.Solidity.Shared.addWord
                     (SolidCore.Solidity.Shared.Account.balanceAt
                       context.accountBalances context.self)
-                    context.value }
+                    context.value
+                worldMutatedSinceAdoption := true }
             locals := [frame] }
           function.body =
         pure (Result.reverted runtime revert)) :
