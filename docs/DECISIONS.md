@@ -1015,3 +1015,23 @@ so the move is behaviour-neutral. `Interpreter.lean` no longer carries example
 scaffolding.
 
 Gate: `lake build SolidCore` + smoke.
+
+## 2026-07-06 — Phase 6 status: awaiting the final sequential replay gate
+
+All Phase 6 work items are committed (docs 1–5 at `2c3262d`, item 8 at
+`50f1ca4`, items 6/7/9 at `e687bed`). Two things remain, and neither is
+pre-claimed here:
+
+1. **Item 10** — the clean sequential full replay + AST audit is RUNNING
+   (nohup-detached, started 18:06 PDT) against exactly this tree. Phase 6 is
+   complete only if it ends `forge_interpreter_compare=pass`, `cases=99`,
+   `paired_cases_passed=yes`, with a clean audit.
+2. **Item 11** — the final run-summary entry (phases, corpus status, every
+   deviation, open items) is drafted and will be committed as the follow-up
+   entry to this one, with the replay result and sequential wall-clock number
+   (vs the ~20–25 min pre-Phase-5 baseline; >~2× triggers the recorded
+   fused-run deferral) filled in from the actual run.
+
+This entry exists so the tree can be branched from now: any worktree taken
+from this commit carries the complete Phase 6 code/docs state; only the gate
+verdict and the summary text land after it.
