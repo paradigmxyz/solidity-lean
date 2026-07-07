@@ -935,6 +935,59 @@
       }
     },
     {
+      "name": "tuple-holes",
+      "description": "Forge and imported Lean check tuple-with-hole assignment: solc allows omitted (skipped) components in a tuple assignment / declaration LHS (leading/middle/trailing holes); only the binding of a held-out slot is skipped while its RHS component is still evaluated (side effect observed via a storage-incrementing call), and the canonical value-carrying idiom (bool ok, ) = target.call{value:1}(\"\") discards the returned bytes while the successful send debits the caller. Pinned solc and the common checker reject a fully-empty tuple target (,) and hole+arity mismatches.",
+      "forge": {
+        "root": "tests/forge-harness/tuple-holes",
+        "match_contract": "TupleHolesForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/tuple-holes/invalid/AllHolesAssignment.sol",
+        "tests/forge-harness/tuple-holes/invalid/HoleAssignmentArity.sol",
+        "tests/forge-harness/tuple-holes/invalid/HoleDeclArity.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/tuple-holes/src/TupleHoles.sol",
+        "contract": "TupleHoles",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TupleHoles"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TupleHoles.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "assignTrailingHole",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 128 SolidCore.Solidity.SolcAstImport.TupleHoles.importedContract \"assignTrailingHole\" SolidCore.Solidity.Source.State.empty [] 71",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "assignLeadingHole",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 128 SolidCore.Solidity.SolcAstImport.TupleHoles.importedContract \"assignLeadingHole\" SolidCore.Solidity.Source.State.empty [] 91",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "declMiddleHole",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 128 SolidCore.Solidity.SolcAstImport.TupleHoles.importedContract \"declMiddleHole\" SolidCore.Solidity.Source.State.empty [] 351",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "callTrailingHoleDebits",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.TupleHoles.importedSourceUnit\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"TupleHoles\"\n  let recipient := 0xbeef\n  let sendRow : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := recipient, calldata := [], value := 1, gas? := none, success := true, output := [] }\n  let ctx := { contract.core.context with self := 0xcafe, accountBalances := [(0xcafe, 10)] }\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [sendRow] []) contract \"callTrailingHole\" ctx SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word recipient]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word bal] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq bal 9)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "expression-control",
       "description": "Forge checks solc/EVM expression control flow; Lean imports the same source contract from solc AST and checks source short-circuit and ternary side effects.",
       "forge": {
