@@ -7197,15 +7197,13 @@ def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
     by-value frame binds them exactly, `paramCleanups` are idempotent, and there
     is no by-reference aliasing (memory pointers, storage pointers) to preserve.
     Storage-ref / memory-ref / function-pointer callees keep the inline-splice
-    path (deferred to later stages). Synthetic helpers (library `__library_*`,
-    `super`/base helpers — all `__`-prefixed) also stay on the splice path in
-    stage 2: they are resolved via the same first branch of `internalCallParts?`
-    but the table build only emits entries for ordinary contract functions, so
-    node-emitting them would miss the table. `using`/library/`super` move to the
-    boundary in stage 3. -/
+    path (deferred to later stages). Since stage 3, synthetic helpers (library
+    `__library_*`, `super`/base helpers — mangled, overload-unique names) also
+    qualify: they are resolved via the same branches of `internalCallParts?` and
+    the table build emits entries for them (`toCoreFromOrders?`) alongside
+    ordinary contract functions and free functions. -/
 def FunctionDecl.isValueBoundaryCallee (decl : FunctionDecl) : Bool :=
   (FunctionDecl.internalTableKey? decl).isSome &&
-    !(decl.name.getD "").startsWith "__" &&
     decl.params.all (fun p => p.location.isNone) &&
     decl.returns.all (fun p => p.location.isNone)
 
@@ -18622,6 +18620,29 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
         dispatchOrder sourceUsingDecls modifiers availableFunctions
         sourceFunctions eventArgEnv errorArgEnv)
       dispatchOrder
+  -- Function-boundary refactor stage 3: value-boundary synthetic helpers
+  -- (library `__library_*`, super/base helpers) get selector-less table entries
+  -- under the same `internalTableKey?` the call-site emits. Elaborated once via
+  -- `toCore?` with the full contract context (they may read storage), mirroring
+  -- the splice-era treatment: bodies are already contextualized/super-free
+  -- (`contextualSuperHelpers?`/`libraryHelperFunctions`), so no contract-name
+  -- rewrites are re-run.
+  let helperInternalEntries ←
+    filterMapOption
+      (fun fn =>
+        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+          let fd ←
+            FunctionDecl.toCore?
+              storageNames constants stateEnv allContracts sourceUsingDecls
+              modifiers availableFunctions sourceFunctions fn
+              (superFunctions := []) (contractName? := none)
+              (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
+              (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+          let key ← FunctionDecl.internalTableKey? fn
+          some (some { fd with name := key, selector? := none })
+        else
+          some none)
+      (superHelpers ++ baseHelpers ++ libraryHelpers)
   -- Function-boundary refactor stage 2: value-boundary FREE functions also get
   -- selector-less table entries (they are resolved via the freeFunctions branch
   -- of `internalCallParts?` and node-emitted under the same `internalTableKey?`).
@@ -18646,7 +18667,8 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       sourceFunctions
   let functions :=
     CoreFunctionDefs.dedupInternalByName
-      (concatLists functionGroups ++ freeInternalEntries)
+      (concatLists functionGroups ++ helperInternalEntries ++
+        freeInternalEntries)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←

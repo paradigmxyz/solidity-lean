@@ -1262,3 +1262,43 @@ Gate note: per Dan's instruction this run, the smoke and full replays are
 DEFERRED until all stages are implemented; stage-2 gate here = full
 `lake build SolidCore` green (1095 jobs, all compile-time `#guard` witnesses
 intact) + the recursion-gap solo replay above.
+
+## 2026-07-06 — Function-boundary refactor, stage 3: library/`using`/`super`/base helpers onto the boundary (value-signature slice)
+
+- `FunctionDecl.isValueBoundaryCallee` no longer excludes `__`-prefixed names:
+  library helpers (`__library_<Lib>_<f>[_overload_<i>]`), super helpers, and
+  base helpers with pure stack-value signatures now node-emit through the same
+  `valueBoundaryCallParts?` guard in both `internalCallParts?` branches (their
+  mangled names are already overload-unique, so `internalTableKey?` stays
+  collision-free: `__internal___library_Lib_f(uint256)` etc.).
+- `toCoreFromOrders?` emits selector-less table entries for value-boundary
+  members of `superHelpers ++ baseHelpers ++ libraryHelpers`, elaborated once
+  via `FunctionDecl.toCore?` with the full contract context (storageNames,
+  stateEnv, modifiers, availableFunctions) — helper bodies are pre-contextualized
+  (super-rewrites and library `using`-surface expansion already applied by
+  `contextualSuperHelpers?`/`libraryHelperFunctions`), matching the splice-era
+  treatment which also ran no contract-name rewrites on them. Dedup order:
+  contract groups, then helpers, then free functions (first-wins).
+- **Expression-position hoisting: deliberately NOT generalized (deviation from
+  the plan's stage 3).** The splice-era wrapper set (`internalSingleReturnCall*`,
+  `internalTwoSingleReturnCalls*`, unary/binary/abi variants) already
+  sequentializes every expression-position call shape this semantics accepts;
+  `valueBoundaryCallParts?` slots into exactly that sequentialization, so
+  observable evaluation order is inherited from the splice era rather than
+  re-implemented — R4's order-fidelity risk is structurally avoided (same
+  temp-decl order, same conditional structure; only the callee body's execution
+  site moved). Shapes the wrappers reject (e.g. calls in loop conditions /
+  short-circuit operands that the current elaboration refuses) were rejected
+  BEFORE this refactor and remain rejected: no acceptance widening beyond the
+  recursion/depth fix. New-shape hoisting is future work, tracked with the
+  remaining-splice items below.
+- **Residual splice (kept deliberately)**: callees with storage-ref, memory-ref,
+  or function-typed params/returns still inline-splice (the frame model passes
+  arguments by value; storage-pointer args are lowered as `storageAlias*`
+  statements, not value-producing expressions). Consequence for stage 4: the
+  splice machinery and `defaultInternalCallInlineFuel` CANNOT be deleted yet —
+  ref-signature recursion also remains rejected (registry row will say so).
+- Gate (per this run's instruction, full replays deferred to the end):
+  `lake build SolidCore` green (1095 jobs); solo lanes recursion-gap,
+  modifier-order, uniswap-transfer-helper, openzeppelin-multicall all
+  `forge=ok lean=ok`, `forge_interpreter_compare=pass`.
