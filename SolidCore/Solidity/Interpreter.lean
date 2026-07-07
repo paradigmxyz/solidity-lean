@@ -7955,6 +7955,9 @@ structure FunctionDef where
   paramAbiCleanups : List AbiCleanup := []
   returns : List BindingDecl
   body : Stmt
+  /-- Internal-function-pointer dispatch ID (stage C), copied onto the
+      table projection (`toInternal` -> `InternalFunction.id?`). -/
+  dispatchId? : Option Word := none
   deriving Repr
 
 inductive CallResult where
@@ -8014,7 +8017,8 @@ def FunctionDef.toInternal (function : FunctionDef) : InternalFunction :=
   { name := function.name
     params := function.params
     returns := function.returns
-    body := function.body }
+    body := function.body
+    id? := function.dispatchId? }
 
 def FunctionDef.callBodyResult (function : FunctionDef)
     (state : State) : Result -> CallResult

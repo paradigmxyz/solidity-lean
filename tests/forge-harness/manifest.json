@@ -4948,6 +4948,64 @@
         "namespace": "SolidCore.Solidity.SolcAstImport.TupleLiteralHoist",
         "source": "tests/forge-harness/tuple-literal-hoist/src/TupleLiteralHoist.sol"
       }
+    },
+    {
+      "name": "internal-fn-pointers",
+      "description": "Stage-C pin for the boundary-completion arc (docs/refs-completion-solc-research.md \u00a72): internal function pointers as dispatch IDs \u2014 8-byte storable state variable round-trip, pointer as internal argument and return, data-dependent (ternary) pointers, uninitialized-pointer call -> Panic(0x51), and recursion through a runtime pointer.",
+      "forge": {
+        "match_contract": "InternalFnPointersForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/internal-fn-pointers"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaStorageTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 21] 42"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaStorageFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 21] 63"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaParam",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaParam\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3] 12"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaReturn",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaReturn\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 10] 30"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "uninitializedPanics51",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"callUninitialized\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 0x51"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaRecursion",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.InternalFnPointers.importedContract \"viaRecursion\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7] 7"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "InternalFnPointersHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.InternalFnPointers",
+        "source": "tests/forge-harness/internal-fn-pointers/src/InternalFnPointers.sol"
+      }
     }
   ]
 }
