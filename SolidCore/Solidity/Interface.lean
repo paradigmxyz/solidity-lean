@@ -18923,8 +18923,13 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   -- VALUES get IDs 1..n (first-use order across the ordinary function bodies
   -- in declaration order), mirroring solc via-IR
   -- (docs/refs-completion-solc-research.md §2).
+  -- A name that is ALSO a state variable is excluded: a public state variable
+  -- may OVERRIDE an inherited virtual function (`uint256 public override
+  -- value;`), and a bare identifier then reads the VARIABLE — rewriting it to
+  -- a dispatch ID corrupts the read (caught by the frontend-frontier lane).
   let fnIdCandidates :=
-    (availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name
+    ((availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name).filter
+      (fun n => !storageNames.contains n)
   let internalFnIds :=
     FunctionDecls.internalFnValueNumbering fnIdCandidates ordinaryFunctions
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
