@@ -1107,3 +1107,139 @@ Re-run probe outcomes now match Forge: `packedU8 -> [0x12,0x34]`,
 `packedMixedWidth -> [..0x9a]`, `packedNegInt8 -> [0xff]`, `packedUint32 -> 4 B`,
 `packedBoolMix -> [1,0,7]`; `negBaseEven -> 4`, `negBaseOdd -> -8`,
 `negExpOverflow -> panic 0x11`; `shlWrapSigned -> -128`, `shlTruncUnsigned -> 254`.
+
+## 2026-07-06 — A3: `gasleft` as `Query.resource .gas` (behaviour-preserving)
+
+`EnvWord.gasleft` no longer reads the ambient `context.gasleft` constant directly
+in the expression evaluator. It now emits `Query.resource .gas` (the shared
+alphabet's reserved resource arm — `EvmCompiler.Simulation.ResourceQuery.gas`,
+`Answer (.resource _) = InteractionWord`) via a new `emitGasleft : SolI Word`,
+resuming on the answered word. The query appears in the transcript; the value is
+unchanged **by construction** because every answerer supplies the ambient
+`context.gasleft` word:
+
+- `contextAnswer` (drives `SolI.run`) gains an explicit `resource .gas` arm →
+  `wordToU256 context.gasleft` (was a context-ignoring alias of
+  `Query.defaultAnswer`, which would have answered `0`); other resource arms
+  (`msize`) keep `defaultAnswer`. `contextAnswer` moved above `SolI.runFromContext`.
+- `SolI.runFromContext` (drives `foldExpr`, constant-expression evaluation) now
+  answers via `contextAnswer context` instead of `Query.defaultAnswer` — so it,
+  too, returns `context.gasleft` for `resource .gas`; external shapes are
+  bit-identical (`contextAnswer` external = `defaultAnswer`).
+- `SolI.runWith` (fail-closed corpus responder) gains an **explicit** `resource`
+  arm (previously the catch-all): resource queries are a *different* query arm
+  from external call/create requests and are answered **ambiently**, never
+  matched against the responder's rows nor treated as an unmatched-external miss.
+  This context-free fold carries no ambient gas word, so `gas` takes the
+  canonical `0` default — behaviour-preserving because **no corpus fixture emits
+  a `gasleft` query** (verified: 0 corpus `gasleft` users), so no corpus value
+  changes. A context-bearing fold answers with `context.gasleft`.
+
+`buildCallRequest.requestedGas` keeps its current fill rule (explicit `{gas:}`
+else ambient `context.gasleft`). Witness: `SolidCore.Witness.GasleftResource`
+drives a real `gasleft()` expression through the evaluator and machine-checks (at
+`lake build SolidCore` time, throwing `#eval` guard, no axioms) that the
+transcript is exactly `[resource .gas]` and the folded value equals the ambient
+`context.gasleft` word.
+
+Gate: `lake build SolidCore` + smoke. ROADMAP registry row A3 → fixed.
+
+## 2026-07-06 — A2 design: intra-frame balance accounting (self balance becomes dynamic)
+
+**Problem.** `msg.value` never credited the callee; `address(this).balance` /
+`selfbalance` read the static `context.accountBalances` oracle and value sends
+wrote nothing. Real EVM credits value before body execution and debits it on a
+successful value-carrying call — Solidity-observable.
+
+**Home for the dynamic value: `State.selfBalance : Word`.** `State` is the
+dynamic execution state threaded through a call (storage, transient, events,
+external interactions). Self balance is a scalar there (this contract's balance);
+**other addresses stay environment facts** — `EnvLookup.accountBalance` for a key
+≠ `context.self` still answers from the static `accountBalances` map (the
+open-world model: the environment owns the world's balances).
+
+**Credit point — re-base at each external entry (`FunctionDef.evalBodyEntry`).**
+Before `Stmt.eval` runs the body, set
+`state.selfBalance := addWord (balanceAt context.accountBalances context.self) context.value`
+(the environment fact for `self`, then credit `msg.value`). This is the external
+message-call / constructor entry (constructor-with-value credits identically —
+`constructFrom → FunctionDef.call? → evalBodyEntry`). Internal calls are spliced
+in `Stmt.eval` and never reach `evalBodyEntry`, so value is credited exactly once
+per external frame. `payable` acceptance already exists
+(`FunctionDef.acceptsValue`); credit happens only on the accepted path (a
+rejected value send reverts with no body, hence no credit).
+
+**Why re-base (from the oracle each entry) rather than thread a persistent
+balance across top-level calls.** The corpus witnesses model "the environment
+sent ETH to the contract between two calls" by hand-tuning
+`accountBalances[self]` in the *later* call's context to the balance observed at
+read time (e.g. weth9 `totalSupply` oracle `12`; payment-splitter `400` then
+`300` after a release). Re-basing from that oracle at each external entry keeps
+those reads correct, while `msg.value` crediting and value-send debiting become
+observable **within** a frame. A persistently-threaded balance would instead
+shadow the injected oracle (a constructor crediting `0` would pin `some 0` and
+override a later `accountBalances := [(self, 400)]`), breaking splitter/escrow.
+Re-basing is also simpler: `selfBalance` need not be `Option`-guarded — the entry
+always initializes it before any read.
+
+**Debit point — centralized in `Runtime.recordExternalInteraction`.** Every
+value-carrying external effect (low-level `call`, `.send`/`.transfer` — which
+lower to `Expr.lowLevelCall` with `kind = call` — and `contractCreate` with
+value) records an `ExternalInteraction` carrying the result's `kind`/`value`/
+`success`. Folding the debit into `recordExternalInteraction` (a single choke
+point covering all four emit sites: two `Expr.lowLevelCall` arms, the
+`Stmt.tryExternalCall` arm, and both `Expr.contractCreate` arms) keeps the diff
+surgical and **off** the `Stmt.eval` call-splicing regions the sibling
+function-boundary worktree is rewriting. Debit amount:
+- low-level call: `if success ∧ kind ∈ {call, callcode} then value else 0`
+  (staticcall/delegatecall/precompiles transfer nothing → 0);
+- create: `if success then value else 0`.
+Subtraction is floored at `0` (saturating) — an open-world `success = true`
+implies the environment accepted the transfer, but we never fabricate a
+wrapped-huge balance on an inconsistent oracle.
+
+**Failed-send behaviour.** The environment answers `success = false` → debit `0`
+(EVM refunds value to the caller on callee failure). `.transfer`'s revert-on-
+failure rolls back the frame anyway; `.send`/`call` observe the un-debited
+balance.
+
+**Reads.** `EnvLookup.accountBalance` at its evaluation site reads
+`runtime.state.selfBalance` when the key equals `context.self`, else the static
+oracle. `address(this).balance` and `selfbalance` both lower to this node with
+key `= context.self`.
+
+**Existing balance-touching corpus (audited, all stay green).** With value-`0`
+entries the credit is `+0`, so the read equals the oracle base — unchanged:
+- `dapphub-weth9` `totalSupply` (oracle `12`, value `0` → `12`); the deposit/
+  receive credits are asserted via `balanceOf` storage, not `address(this).balance`.
+- `openzeppelin-vesting-wallet`/`payment-splitter`/`refund-escrow`: entries carry
+  value `0`; each reads `address(this).balance` (= oracle) *before* sending, and
+  the send's debit lands after the read (or in a separate call whose asserted
+  getter reads storage). The multi-stage splitter/escrow oracles (`400`/`300`,
+  `125`/`44`) are re-based fresh per entry, so the hand-tuned post-release balance
+  is honoured.
+- Lean witness `checkedAddressMembersMatch` (`accountInfo`): self `.balance` =
+  oracle `1000` at value `0` → unchanged; other-address `.balance` = static `77`.
+
+**The one hand-tuned oracle that must change: `base-constructor-runtime-args`
+`BalanceArg`.** It is the sole corpus case that both *receives* value (`10`) and
+reads `address(this).balance` in the *same* entry (a constructor storing the
+balance to slot 0, asserted `== 10`). Its oracle was hand-tuned to the
+**post-credit** balance `accountBalances := [(0xcafe, 10)]`; under A2 that
+double-counts (`base 10 + value 10 = 20`). Corrected to the **pre-credit
+environment fact** `accountBalances := []` (fresh account, balance `0`), so A2's
+credit reconstructs `0 + 10 = 10` — matching Forge ground truth (a fresh deploy
+funded with `10` wei reports `address(this).balance == 10` in its constructor).
+This is exactly the roadmap's flagged case: the lane previously passed *because*
+the balance read returned a hand-tuned oracle constant; A2 makes the credit
+explicit and moves the tuning to the pre-call fact.
+
+**Pinning (paired Forge lanes).** A dedicated `balance-accounting` fixture covers
+the four required scenarios against Forge ground truth: (1) a payable entry
+crediting `msg.value` and reading `address(this).balance`; (2) a `transfer`/`send`
+debit observable via a subsequent balance read; (3) a failed send (recipient
+reverts) leaving the balance un-debited; (4) constructor-with-value crediting.
+Fix + lane land together green (`--only`, the W1–W3 pattern).
+
+Gate: `lake build SolidCore` + smoke (weth9 / vesting / splitter / escrow are the
+canaries) + the new lane via `--only`. ROADMAP registry row A2 → fixed.

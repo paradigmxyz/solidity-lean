@@ -1835,6 +1835,19 @@ def emitPrecompileWord (context : Context)
     (SolidCore.Solidity.Shared.Precompile.address kind) input 0 none
   pure (SolidCore.Solidity.Shared.Precompile.outputWord? result)
 
+/-- Emit `gasleft()` as a `Query.resource .gas` observation on the shared
+    alphabet's reserved resource arm, resuming on the answered word (A3). Every
+    answerer supplies the ambient `context.gasleft` (`contextAnswer`/`SolI.run`,
+    `SolI.runFromContext`/`foldExpr`), so the returned value is exactly the
+    former ambient constant — the query simply now appears in the transcript.
+    Resource queries are answered ambiently, NOT matched against a responder's
+    call/create rows (see `SolI.runWith`). -/
+def emitGasleft : SolI Word :=
+  .request
+    (EvmCompiler.Simulation.Query.resource
+      EvmCompiler.Simulation.ResourceQuery.gas)
+    (fun g => .done (.ok (u256ToWord g)))
+
 /-- Source-canonical initCode for a create: 32-byte big-endian UTF-8-name
     length ‖ name bytes ‖ constructor args. The source semantics creates by
     contract *name* (pre-compilation; fixtures key the oracle by name and do
@@ -1906,13 +1919,26 @@ def emitContractCreation (context : Context) (name : String) (args : List Byte)
     (fun response =>
       .done (.ok (decodeCreateResponse response name args value salt?)))
 
-/-- Fuel-bounded fold answering every query with the canonical
-    `Query.defaultAnswer` (stage 3: the fixture oracle left `Context`; external
-    answers come from scripted responders — `SolI.runWith`/`runFailOpen`).
-    `defaultAnswer`'s call/create shapes decode to exactly the old fail-open
+/-- The stage-3 context answerer: external queries get `Query.defaultAnswer` (the
+    context no longer carries oracle rows; see `SolI.runFromContext`), and the
+    reserved `resource .gas` arm (A3) is answered ambiently with the context's
+    `gasleft` word — exactly the constant `EnvWord.gasleft` returned before the
+    query existed. Other resource arms (`msize`) keep the canonical default. -/
+def contextAnswer (context : Context) :
+    (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q
+  | EvmCompiler.Simulation.Query.resource
+      EvmCompiler.Simulation.ResourceQuery.gas =>
+      wordToU256 context.gasleft
+  | q => EvmCompiler.Simulation.Query.defaultAnswer q
+
+/-- Fuel-bounded fold answering every query from `Context` via `contextAnswer`
+    (stage 3: the fixture oracle left `Context`; external answers come from
+    scripted responders — `SolI.runWith`/`runFailOpen`). `contextAnswer`'s
+    external call/create shapes decode to exactly the old fail-open
     `failedRequest` (success = false / address = 0, empty output), so this is
     bit-identical to the retired replay-from-Context fold on the row-less
-    contexts that remain. Kept fuel-bounded for the transcript utilities and
+    contexts that remain; the reserved `resource .gas` arm (A3) returns the
+    ambient `context.gasleft`. Kept fuel-bounded for the transcript utilities and
     `foldExpr` (constant-expression evaluation). -/
 def SolI.runFromContext {α : Type} (fuel : Nat) (context : Context) :
     SolI α → Except SolidityFailure α
@@ -1922,13 +1948,7 @@ def SolI.runFromContext {α : Type} (fuel : Nat) (context : Context) :
       | 0 => .error .outOfFuel
       | Nat.succ fuel' =>
           SolI.runFromContext fuel' context
-            (k (EvmCompiler.Simulation.Query.defaultAnswer query))
-
-/-- The stage-3 context answerer: every query gets `Query.defaultAnswer` (the
-    context no longer carries oracle rows; see `SolI.runFromContext`). -/
-def contextAnswer (_context : Context) :
-    (q : EvmCompiler.Simulation.Query) → EvmCompiler.Simulation.Answer q :=
-  EvmCompiler.Simulation.Query.defaultAnswer
+            (k (contextAnswer context query))
 
 /-- Fold a `SolI` interaction tree to its final `Except SolidityFailure` result
     by answering every query from `Context` (`contextAnswer`). Unlike
@@ -2045,8 +2065,18 @@ def SolI.runWith {α : Type} (responder : ScriptedResponder) :
       | none =>
           .error (ResponderFailure.unmatched
             (EvmCompiler.Simulation.ExternalRequest.create request))
-  | .request query k =>
-      SolI.runWith responder (k (EvmCompiler.Simulation.Query.defaultAnswer query))
+  | .request (EvmCompiler.Simulation.Query.resource r) k =>
+      -- Resource queries (`gas`/`msize`, A3) are a DIFFERENT query arm from the
+      -- external call/create requests matched above: they are answered ambiently,
+      -- never treated as an unmatched-external miss. This context-free responder
+      -- fold carries no ambient gas word, so `gas` takes the canonical default
+      -- (`0`); no corpus fixture emits a `gasleft` query through this path
+      -- (verified: 0 corpus `gasleft` users), so every corpus value is unchanged.
+      -- A context-bearing fold (`contextAnswer`/`SolI.run`, `SolI.runFromContext`)
+      -- answers `gas` with the ambient `context.gasleft`.
+      SolI.runWith responder
+        (k (EvmCompiler.Simulation.Query.defaultAnswer
+          (EvmCompiler.Simulation.Query.resource r)))
 
 /-- Assemble a responder from plain oracle-row lists (witness/manifest helper). -/
 def responderOfResults (calls : List LowLevelCallResult)
@@ -5201,7 +5231,12 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
           | Expr.self =>
               pure (Value.word context.self, runtime)
           | Expr.env which =>
-              pure (Value.word (which.eval context), runtime)
+              match which with
+              | EnvWord.gasleft => do
+                  -- A3: `gasleft` is a resource query, not an ambient read.
+                  let gas ← emitGasleft
+                  pure (Value.word gas, runtime)
+              | _ => pure (Value.word (which.eval context), runtime)
           | Expr.envLookup which keyExpr => do
               let (keyValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
