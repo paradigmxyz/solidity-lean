@@ -1969,3 +1969,33 @@ observing the send debit (self balance 10 → 9, returned `bytes` held out, via 
 green (28 cases), `--only tuple-holes` and the nearest neighbours
 `--only tuple-destructure --only low-level-call-options` green, frontend audit
 green. A full replay was not required for this importer-only scoped fix.
+
+## 2026-07-07 — solc ground-truth research for the boundary-completion arc
+
+Before launching the residue-removal arc (task #9: storage-ref returns,
+internal function pointers, calldata-ref callees, tuple-literal-component
+hoisting, splice deletion), we probed the pinned solc 0.8.35 via-IR pipeline
+directly (`--ir` on four minimal fixtures) so the implementing agent designs to
+solc's actual mechanisms. Findings recorded in
+`docs/refs-completion-solc-research.md`. Load-bearing facts:
+
+- **Storage-ref returns** are a single slot word returned from the Yul
+  function; the caller binds it as a plain local. Confirms stage A is pure
+  `Value.storageRef` flow with no new value forms.
+- **Internal function pointers** are sequential numeric IDs (0 = invalid /
+  uninitialized), called through a per-arity `dispatch_internal_in_m_out_n`
+  switch whose `default` is `Panic(0x51)`. They are **storable** (8-byte
+  packed storage type; read cleanup = 64-bit mask, validity checked only at
+  call time). Consequence for stage C: the interpreter's fn-pointer `Value`
+  needs a word encoding (per-contract ID + ID→table-key map), a Panic-0x51
+  miss path, and a 64-bit-mask row in the dirty-word storage-read table —
+  which also makes postWorld-adopted dirty words in fn-pointer slots behave
+  exactly as solc does, with no adoption carve-out.
+- **Calldata refs** cross internal boundaries as plain `(offset, length)`
+  word pairs (dynamic) or a single offset word (static); slices are adjusted
+  pairs. Stage D should flow a descriptor, not exclude.
+- **Tuple-literal RHS components** evaluate left-to-right into temps, all
+  before any assignment; holes still evaluate their component. Stage B must
+  NOT reuse the right-to-left call-argument hoisting order.
+
+Task #9's description was updated to carry these constraints inline.
