@@ -18183,39 +18183,41 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
     filterMapOption (StateVarDecl.toCoreGetterIfPublic? storageNames constants)
       (ContractDecl.directStateVars decl)
   let usingDecls := ContractDecl.directUsingDecls decl ++ sourceUsingDecls
-  let entrypointFunctions ←
+  -- Function-boundary refactor stage 2 (+ R1 perf fix): elaborate each direct
+  -- function of this contract ONCE via `toCore?`, and reuse the resulting
+  -- `FunctionDef` for both roles it may play — the plain-name selector-bearing
+  -- entrypoint (dispatch) and the `internalTableKey?`-named selector-less table
+  -- entry that contract-internal `Stmt.internalCall`s resolve against. The body
+  -- is identical in both roles; only `name`/`selector?` differ. (An earlier cut
+  -- ran `toCore?` twice per public value-boundary function, roughly doubling
+  -- whole-contract elaboration cost on entrypoint-heavy lanes.)
+  let functionPairs ←
     mapOption
       (fun fn => do
         let supers ← ContractDecls.afterName? dispatchOrder decl.name
-        FunctionDecl.toCore?
-          storageNames constants extraEnv contracts usingDecls modifiers functions
-          freeFunctions fn (concatMapList ContractDecl.directOrdinaryFunctions supers)
-          (some decl.name) (dispatchOrder.map ContractDecl.name)
-          externalCallKindEnv eventArgEnv errorArgEnv)
+        let fd ←
+          FunctionDecl.toCore?
+            storageNames constants extraEnv contracts usingDecls modifiers
+            functions freeFunctions fn
+            (concatMapList ContractDecl.directOrdinaryFunctions supers)
+            (some decl.name) (dispatchOrder.map ContractDecl.name)
+            externalCallKindEnv eventArgEnv errorArgEnv
+        some (fn, fd))
       ((ContractDecl.directOrdinaryFunctions decl).filter
-        (fun fn => FunctionDecl.isCoreEntrypoint fn && fn.body.isSome))
-  -- Function-boundary refactor stage 2: emit a selector-less table entry
-  -- (`internalTableKey?` name) for every stack-value function of this contract,
-  -- so contract-internal `Stmt.internalCall`s resolve against `Contract.table`.
-  -- Public value-boundary functions get BOTH a plain entrypoint entry (above,
-  -- for selector/name dispatch) and a mangled internal entry (here).
-  let internalEntries ←
-    filterMapOption
-      (fun fn =>
-        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
-          let supers ← ContractDecls.afterName? dispatchOrder decl.name
-          let fd ←
-            FunctionDecl.toCore?
-              storageNames constants extraEnv contracts usingDecls modifiers
-              functions freeFunctions fn
-              (concatMapList ContractDecl.directOrdinaryFunctions supers)
-              (some decl.name) (dispatchOrder.map ContractDecl.name)
-              externalCallKindEnv eventArgEnv errorArgEnv
-          let key ← FunctionDecl.internalTableKey? fn
-          some (some { fd with name := key, selector? := none })
+        (fun fn =>
+          (FunctionDecl.isCoreEntrypoint fn ||
+            FunctionDecl.isValueBoundaryCallee fn) && fn.body.isSome))
+  let entrypointFunctions :=
+    (functionPairs.filter
+      (fun pair => FunctionDecl.isCoreEntrypoint pair.fst)).map Prod.snd
+  let internalEntries :=
+    functionPairs.filterMap
+      (fun pair =>
+        if FunctionDecl.isValueBoundaryCallee pair.fst then
+          (FunctionDecl.internalTableKey? pair.fst).map
+            (fun key => { pair.snd with name := key, selector? := none })
         else
-          some none)
-      (ContractDecl.directOrdinaryFunctions decl)
+          none)
   some (getters ++ entrypointFunctions ++ internalEntries)
 
 def Parameters.baseConstructorArgCoreDecls?

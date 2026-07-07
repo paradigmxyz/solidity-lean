@@ -7049,10 +7049,16 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   | none => pure (Result.reverted runtime' RevertData.typeMismatch)
                   | some frame =>
                       -- Frame isolation: REPLACE locals (not pushScope); state
-                      -- (storage/memory/events/transient) is shared.
+                      -- (storage/memory/events/transient) is shared. Checked-ness
+                      -- is lexical per function in Solidity: the callee body
+                      -- starts CHECKED regardless of the caller's enclosing
+                      -- checked/unchecked block (its own `Stmt.unchecked` nodes
+                      -- opt out locally) — the splice era guaranteed this by
+                      -- wrapping callee bodies in `Stmt.checked`.
                       let savedLocals := runtime'.locals
                       let calleeRuntime := { runtime' with locals := [frame] }
-                      match ← Stmt.eval fuel table context calleeRuntime fn.body with
+                      match ← Stmt.eval fuel table { context with checked := true }
+                          calleeRuntime fn.body with
                       | Result.returned r values =>
                           -- Map exactly as `FunctionDef.callBodyResult` (R3):
                           -- bare `return;` (empty) collects named returns;
