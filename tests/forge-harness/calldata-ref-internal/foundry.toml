@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/calldata-ref-internal/out"
+cache_path = "../../.foundry-suites/calldata-ref-internal/cache"
+evm_version = "cancun"

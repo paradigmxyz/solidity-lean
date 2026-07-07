@@ -7284,7 +7284,15 @@ def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
     parameters/returns (no internal-function-pointer `Value` exists yet). -/
 def Parameter.isBoundaryLocation (param : Parameter) : Bool :=
   match param.location with
-  | some DataLocation.calldata => false
+  | some DataLocation.calldata =>
+      -- Stage D (boundary-completion arc): calldata references cross the
+      -- boundary too. solc via-IR passes them as plain (offset, length) /
+      -- offset descriptor words (docs/refs-completion-solc-research.md §3);
+      -- this semantics materializes calldata into immutable `Value`s at the
+      -- ABI boundary, and passing an immutable value is observationally
+      -- identical to passing a read-only descriptor (calldata cannot be
+      -- written, so no aliasing is observable). Slices are value slices.
+      true
   | _ => true
 
 /-- A RETURN the function boundary can carry. Stage A of the boundary-completion

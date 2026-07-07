@@ -5006,6 +5006,49 @@
         "namespace": "SolidCore.Solidity.SolcAstImport.InternalFnPointers",
         "source": "tests/forge-harness/internal-fn-pointers/src/InternalFnPointers.sol"
       }
+    },
+    {
+      "name": "calldata-ref-internal",
+      "description": "Stage-D pin for the boundary-completion arc (docs/refs-completion-solc-research.md \u00a73): calldata references cross the internal-function boundary \u2014 dynamic array + bytes params, a slice-adjusted ref returned from an internal function, and recursion over a calldata array (previously silently rejected).",
+      "forge": {
+        "match_contract": "CalldataRefInternalForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/calldata-ref-internal"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaParams",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContract \"viaParams\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5], SolidCore.Solidity.Source.Value.bytes [1, 2]] 12001"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaSlice",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContract \"viaSlice\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [1, 2]] 2"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "viaRecursion",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.CalldataRefInternal.importedContract \"viaRecursion\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5]] 12"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "CalldataRefInternalHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CalldataRefInternal",
+        "source": "tests/forge-harness/calldata-ref-internal/src/CalldataRefInternal.sol"
+      }
     }
   ]
 }
