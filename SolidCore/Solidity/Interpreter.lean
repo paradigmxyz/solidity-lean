@@ -4619,6 +4619,31 @@ def checkedSignedMod (_checked : Bool) (lhs rhs : Word) :
   else
     Except.ok (SolidCore.Solidity.Shared.smodWord lhs rhs)
 
+-- Signed exponentiation with two's-complement wrapping. The exponent is a
+-- non-negative magnitude (Solidity rejects negative exponents), so we iterate
+-- it as a `Nat`. In checked mode each intermediate product is validated against
+-- the int256 range (panic 0x11 on overflow); in unchecked mode the accumulator
+-- wraps mod 2^256 through `signedToWord`. Narrow-type (`intN`) result overflow
+-- is enforced by the enclosing `intCleanup` the importer inserts.
+def checkedSignedExpLoop (checked : Bool) (base : Word) :
+    Nat -> Word -> Except RevertData Word
+  | 0, acc => Except.ok acc
+  | remaining + 1, acc =>
+      let product :=
+        SolidCore.Solidity.Shared.signedValue acc *
+          SolidCore.Solidity.Shared.signedValue base
+      if checked && !(signedInt256InRange product) then
+        Except.error RevertData.overflow
+      else
+        checkedSignedExpLoop checked base remaining
+          (SolidCore.Solidity.Shared.signedToWord product)
+
+def checkedSignedExp (checked : Bool) (base exponent : Word) :
+    Except RevertData Word :=
+  checkedSignedExpLoop checked base
+    (SolidCore.Solidity.Shared.norm exponent)
+    (SolidCore.Solidity.Shared.signedToWord 1)
+
 def checkedAddMod (lhs rhs modulus : Word) :
     Except RevertData Word :=
   if wordEq modulus 0 then
@@ -4678,6 +4703,9 @@ def BinaryOp.applySignedWord
       Except.ok (Value.int value)
   | BinaryOp.mod => do
       let value ← checkedSignedMod checked lhs rhs
+      Except.ok (Value.int value)
+  | BinaryOp.exp => do
+      let value ← checkedSignedExp checked lhs rhs
       Except.ok (Value.int value)
   | BinaryOp.bitAnd =>
       Except.ok (Value.int (SolidCore.Solidity.Shared.andWord lhs rhs))
@@ -4754,6 +4782,9 @@ def BinaryOp.apply
               Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
           | BinaryOp.sar =>
               Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
+          | BinaryOp.exp => do
+              let value ← checkedSignedExp checked lhsWord rhsWord
+              Except.ok (Value.int value)
           | _ => Except.error RevertData.typeMismatch
       | _, _ => Except.error RevertData.typeMismatch
 

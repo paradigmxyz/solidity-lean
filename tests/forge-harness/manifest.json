@@ -52,6 +52,21 @@
             "label": "commonTypecheckerUncheckedPlacement",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.uncheckedPlacementDisciplineMatches",
             "expect": "true"
+          },
+          {
+            "label": "importedSignedExpEven",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.CheckedArithmetic.importedContract \"negBaseEven\" SolidCore.Solidity.Source.State.empty [] 4",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedSignedExpOdd",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.CheckedArithmetic.importedContract \"negBaseOdd\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Shared.signedToWord (-8))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedSignedExpOverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 16 SolidCore.Solidity.SolcAstImport.CheckedArithmetic.importedContract \"negExpOverflow\" SolidCore.Solidity.Source.State.empty [] 0x11",
+            "expect": "Except.ok true"
           }
         ]
       }

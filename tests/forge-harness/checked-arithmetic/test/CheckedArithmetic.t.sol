@@ -27,4 +27,18 @@ contract CheckedArithmeticForgeTest {
             require(code == 0x12, "wrong division panic");
         }
     }
+
+    function testSignedExponentiation() public view {
+        require(target.negBaseEven() == 4, "(-2)**2");
+        require(target.negBaseOdd() == -8, "(-2)**3");
+    }
+
+    function testSignedExpOverflowPanics() public {
+        try target.negExpOverflow() returns (int8) {
+            revert("expected signed exp overflow panic");
+        } catch Panic(uint256 code) {
+            require(code == 0x11, "wrong signed exp panic");
+        }
+    }
+
 }
