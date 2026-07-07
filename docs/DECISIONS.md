@@ -1698,3 +1698,20 @@ balance (verified by reading `../evm-compiler`, read-only):
   point Solidity `BALANCE(self)`/`SELFBALANCE` and the outgoing-call debit become
   the same account-map operations Yul performs. A2 is the intra-frame stepping
   stone and does not contradict that direction.
+
+## 2026-07-07 — Combined integration gate: GREEN (101 cases)
+
+Merged `refactor/function-boundary` (1930a38; internal-function boundary,
+recursion closed for value signatures) and `gaps/balance-gasleft` (2536503; A2
+dynamic self-balance, A3 gasleft resource query) onto main (which carried the
+W1–W3 soundness fixes and the ecdsa fail-closed fix 883fc52). Conflict
+resolutions: manifest three-way composed programmatically (zero double-edited
+cases; recursion-gap inserted), Interpreter's evalBodyEntry composed BOTH sides
+(fnboundary's `table` parameter + A2's selfBalance credit-before-body), DECISIONS
+append-append. Combined gate on the merged tree: `lake build SolidCore` green
+(1096 jobs — the cross-branch `call?_reverted_rolls_back` theorem composed and
+reproved), full replay `forge_interpreter_compare=pass`, `cases=101`,
+`paired_cases_passed=yes`, zero failures. The corpus now pins: recursion/deep
+call chains (recursion-gap), balance accounting (balance-accounting), packed
+narrow-int hashing, shift truncation, signed exponentiation, rational constants,
+and the fail-closed ecdsa precompile rows.
