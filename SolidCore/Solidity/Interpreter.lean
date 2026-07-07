@@ -733,24 +733,33 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
   | Value.abiLazy _ _ =>
       Except.error RevertData.typeMismatch
 
+-- `WordMap` stays an assoc list: it backs only the small, cold `Context`
+-- seed maps (`accountBalances`, `accountCodehashes`), which are iterated by
+-- key at snapshot boundaries (`snapshotOtherAccounts`) and read via
+-- `Account.lookupWord?`. The hot per-slot storage/transient maps use
+-- `StorageMap` below.
 abbrev WordMap := List (Word × Word)
 
-def WordMap.lookup? : WordMap -> Word -> Option Word
-  | [], _ => none
-  | (key, value) :: rest, query =>
-      if wordEq key query then
-        some (SolidCore.Solidity.Shared.norm value)
-      else
-        WordMap.lookup? rest query
+-- PERF (2026-07-07, cause #1): storage/transient are keccak-hash-keyed and
+-- read/written m·n times in mapping loops. Back them with `Std.HashMap`
+-- (O(1) expected) instead of an O(n) assoc list that re-`norm`s a bignum on
+-- every compare. CORRECTNESS: keys AND values are normalized (`% 2^256`) at
+-- insert time, so two Nats equal mod 2^256 collide as one key (what the old
+-- `wordEq`-on-compare guaranteed) and lookups never need to re-`norm`.
+-- Iteration order is unobservable: the only consumers are `wordMapToStorage`
+-- (folds into a key-addressed `EvmYul.Storage`; keys are unique so fold order
+-- is irrelevant) and `storageToWordMap` (rebuilds from a key-addressed store).
+abbrev StorageMap := Std.HashMap Word Word
 
-def WordMap.insertLoop : WordMap -> Word -> Word -> WordMap
-  | [], key, value =>
-      [(SolidCore.Solidity.Shared.norm key, SolidCore.Solidity.Shared.norm value)]
-  | (entryKey, entryValue) :: rest, key, value =>
-      if wordEq entryKey key then
-        (SolidCore.Solidity.Shared.norm key, SolidCore.Solidity.Shared.norm value) :: rest
-      else
-        (entryKey, entryValue) :: WordMap.insertLoop rest key value
+def StorageMap.lookup? (m : StorageMap) (query : Word) : Option Word :=
+  Std.HashMap.get? m (SolidCore.Solidity.Shared.norm query)
+
+def StorageMap.insertLoop (m : StorageMap) (key value : Word) : StorageMap :=
+  Std.HashMap.insert m (SolidCore.Solidity.Shared.norm key)
+    (SolidCore.Solidity.Shared.norm value)
+
+instance : Repr StorageMap where
+  reprPrec m prec := reprPrec (Std.HashMap.toList m) prec
 
 abbrev ByteMap := List (Word × List Byte)
 
@@ -762,42 +771,36 @@ def ByteMap.lookup? : ByteMap -> Word -> Option (List Byte)
       else
         ByteMap.lookup? rest query
 
-abbrev MemoryMap := List (Nat × Value)
+-- PERF (2026-07-07, cause #1): memory refs are `Nat`-keyed and materialized
+-- in bulk by EnumerableSet `.values()`; back them with `Std.HashMap`. Keys are
+-- monotonic allocation ids (already canonical), never re-normalized. Memory is
+-- only ever read/written by id (`Runtime.loadMemory?`/`allocMemory`/
+-- `storeMemory?`) — never iterated — so order is unobservable.
+abbrev MemoryMap := Std.HashMap Nat Value
 
-def MemoryMap.lookup? : MemoryMap -> Nat -> Option Value
-  | [], _ => none
-  | (key, value) :: rest, query =>
-      if key == query then
-        some value
-      else
-        MemoryMap.lookup? rest query
+def MemoryMap.lookup? (m : MemoryMap) (query : Nat) : Option Value :=
+  Std.HashMap.get? m query
 
-def MemoryMap.insertLoop : MemoryMap -> Nat -> Value -> MemoryMap
-  | [], key, value => [(key, value)]
-  | (entryKey, entryValue) :: rest, key, value =>
-      if entryKey == key then
-        (key, value) :: rest
-      else
-        (entryKey, entryValue) :: MemoryMap.insertLoop rest key value
+def MemoryMap.insertLoop (m : MemoryMap) (key : Nat) (value : Value) : MemoryMap :=
+  Std.HashMap.insert m key value
+
+instance : Repr MemoryMap where
+  reprPrec m prec := reprPrec (Std.HashMap.toList m) prec
 
 
-abbrev ImmutableMap := List (String × Value)
+-- PERF (2026-07-07, cause #1): immutables are `String`-keyed and read by name
+-- only (`State.immutable?`) — never iterated. Back with `Std.HashMap`.
+abbrev ImmutableMap := Std.HashMap String Value
 
-def ImmutableMap.lookup? : ImmutableMap -> String -> Option Value
-  | [], _ => none
-  | (name, value) :: rest, query =>
-      if name == query then
-        some value
-      else
-        ImmutableMap.lookup? rest query
+def ImmutableMap.lookup? (m : ImmutableMap) (query : String) : Option Value :=
+  Std.HashMap.get? m query
 
-def ImmutableMap.insertLoop : ImmutableMap -> String -> Value -> ImmutableMap
-  | [], name, value => [(name, value)]
-  | (entryName, entryValue) :: rest, name, value =>
-      if entryName == name then
-        (name, value) :: rest
-      else
-        (entryName, entryValue) :: ImmutableMap.insertLoop rest name value
+def ImmutableMap.insertLoop (m : ImmutableMap) (name : String) (value : Value) :
+    ImmutableMap :=
+  Std.HashMap.insert m name value
+
+instance : Repr ImmutableMap where
+  reprPrec m prec := reprPrec (Std.HashMap.toList m) prec
 
 structure Event where
   name : String
@@ -835,9 +838,9 @@ instance : Repr SolidCore.Solidity.Shared.OpenWorld :=
       ", created := " ++ toString w.createdAccounts.size ++ ")"⟩
 
 structure State where
-  storage : WordMap
-  transient : WordMap := []
-  immutables : ImmutableMap := []
+  storage : StorageMap
+  transient : StorageMap := {}
+  immutables : ImmutableMap := {}
   selfdestructs : List (Word × Word) := []
   selfdestructEffects : List SolidCore.Solidity.Shared.Account.SelfdestructRecord := []
   externalInteractions : List ExternalInteraction := []
@@ -880,34 +883,34 @@ structure State where
   deriving Repr
 
 def State.empty : State :=
-  { storage := [], transient := [], immutables := [], events := [] }
+  { storage := {}, transient := {}, immutables := {}, events := [] }
 
 def State.logEntries (state : State) (self : Word) :
     List SolidCore.Solidity.Shared.Log.Entry :=
   state.events.map (Event.toLogEntry self)
 
 def State.loadSlot (state : State) (slot : Word) : Word :=
-  match WordMap.lookup? state.storage slot with
+  match StorageMap.lookup? state.storage slot with
   | some value => value
   | none => 0
 
 def State.storeSlot (state : State) (slot value : Word) : State :=
   { state with
-    storage := WordMap.insertLoop state.storage slot value
+    storage := StorageMap.insertLoop state.storage slot value
     worldMutatedSinceAdoption := true }
 
 def State.loadTransientSlot (state : State) (slot : Word) : Word :=
-  match WordMap.lookup? state.transient slot with
+  match StorageMap.lookup? state.transient slot with
   | some value => value
   | none => 0
 
 def State.storeTransientSlot (state : State) (slot value : Word) : State :=
   { state with
-    transient := WordMap.insertLoop state.transient slot value
+    transient := StorageMap.insertLoop state.transient slot value
     worldMutatedSinceAdoption := true }
 
 def State.clearTransient (state : State) : State :=
-  { state with transient := [], worldMutatedSinceAdoption := true }
+  { state with transient := {}, worldMutatedSinceAdoption := true }
 
 def State.immutable? (state : State) (name : String) : Option Value :=
   ImmutableMap.lookup? state.immutables name
@@ -1002,7 +1005,7 @@ def LocalEnv.visibleBindings (locals : LocalEnv) : Frame :=
 structure Runtime where
   state : State
   locals : LocalEnv
-  memory : MemoryMap := []
+  memory : MemoryMap := {}
   nextMemory : Nat := 0
   deriving Repr
 
@@ -1958,15 +1961,16 @@ declared fidelity gap, same code-erasure spirit as the Yul side's gas
 exclusion), and `createdAccounts`. Nothing restructures state: the snapshot is
 a projection, and responder matchers never inspect it (corpus-neutral). -/
 
-def wordMapToStorage (m : WordMap) : EvmYul.Storage :=
-  -- foldr, so an earlier duplicate key overrides a later one — matching
-  -- `WordMap.lookup?`'s first-match semantics (store ops never create
-  -- duplicates, but hand-built fixture states may).
-  m.foldr (fun kv acc => acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
-    default
+def wordMapToStorage (m : StorageMap) : EvmYul.Storage :=
+  -- Keys in a `StorageMap` are unique (insert dedups), so fold order is
+  -- irrelevant — every entry maps to a distinct `EvmYul.Storage` slot.
+  Std.HashMap.fold
+    (fun acc k v => acc.insert (wordToU256 k) (wordToU256 v)) default m
 
-def storageToWordMap (s : EvmYul.Storage) : WordMap :=
-  s.toList.map (fun kv => (u256ToWord kv.1, u256ToWord kv.2))
+def storageToWordMap (s : EvmYul.Storage) : StorageMap :=
+  s.toList.foldl
+    (fun acc kv => StorageMap.insertLoop acc (u256ToWord kv.1) (u256ToWord kv.2))
+    {}
 
 def logEntryToEvm (e : SolidCore.Solidity.Shared.Log.Entry) :
     EvmYul.LogEntry :=

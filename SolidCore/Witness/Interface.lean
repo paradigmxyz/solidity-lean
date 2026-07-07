@@ -11634,7 +11634,7 @@ def transientClearedAtTransactionBoundaryMatches : Option Bool := do
       [SolidCore.Solidity.Source.Value.word value] =>
       some
         (SolidCore.Solidity.Source.wordEq value 0 &&
-          state'.transient == [])
+          state'.transient.isEmpty)
   | _ => some false
 
 def revertedTransientWriteDropsWrite : Option Bool := do
@@ -11654,7 +11654,7 @@ def revertedTransientWriteDropsWrite : Option Bool := do
           [SolidCore.Solidity.Source.Value.word value] =>
           some
             (SolidCore.Solidity.Source.wordEq value 0 &&
-              state.transient == [])
+              state.transient.isEmpty)
       | _ => some false
   | _ => some false
 
