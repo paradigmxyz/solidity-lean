@@ -1952,3 +1952,16 @@ Corpus: 105 cases (tuple-literal-hoist, internal-fn-pointers,
 calldata-ref-internal, recursion-ref-signatures added; each pins researched
 solc behavior with Forge as ground truth). Closing gate: full `--jobs 10`
 replay (results in the final gate record below).
+
+### Closing gate (boundary-completion arc)
+Full paired replay, `--jobs 10`, all **105/105 cases pass** (103 Forge-paired +
+2 Forge-skipped-by-config; `status=0`). Zero failures. The four new pinning
+lanes — `tuple-literal-hoist`, `internal-fn-pointers`, `calldata-ref-internal`,
+`recursion-ref-signatures` — pass Forge-paired. The full-replay run caught one
+truth-value drift (frontend-frontier: a public state variable overriding a
+virtual function collided with the fn-pointer numbering candidates — fixed by
+excluding `storageNames` from candidates), which is exactly the kind of
+frame-isolation/name-resolution edge the arc's R-risks flagged; re-run clean.
+The inline-splice machinery is gone and every internal-linkage callee — value,
+memory-ref, storage-ref (params + returns), calldata-ref, and function-pointer
+— executes as a framed in-monad boundary call.
