@@ -254,6 +254,33 @@ def callPickStorage : Stmt :=
    | some (Result.returned _ [Value.word w]) => wordEq w 7
    | _ => false)
 
+-- Stage A (storage-ref RETURN via named return + frame binding): the callee's
+-- named return is declared `isStorageRef := true`, so the frame binds it to a
+-- storage POINTER (initially the reserved uninitialized target); the body
+-- re-points it via `storageAliasAssign` from inside a nested block (proving the
+-- assignment lands in the FRAME binding and survives the block's scope pop, the
+-- failure mode of a declaration-based prologue), and the caller's alias temp is
+-- re-pointed to the returned slot.
+def namedStorageReturnFn : InternalFunction :=
+  { name := "namedPick"
+    params := []
+    returns := [{ name := "out", ty := Ty.uint256, isStorageRef := true }]
+    body := Stmt.block [Stmt.block [Stmt.storageAliasAssign "out" "x"]] }
+
+def callNamedStorageReturn : Stmt :=
+  Stmt.block
+    [ Stmt.assign (LValue.storage "x") (Expr.word 13)
+    , Stmt.assign (LValue.storage "y") (Expr.word 5)
+    , Stmt.storageAlias "r" "y"
+    , Stmt.internalCall ["r"] "namedPick" []
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard
+  (match (foldTop 16 [namedStorageReturnFn] storageRefContext State.empty
+      callNamedStorageReturn).toOption with
+   | some (Result.returned _ [Value.word w]) => wordEq w 13
+   | _ => false)
+
 /-! ### Missing callee -> defensive revert (total interpreter) -/
 
 def callMissing : Stmt :=

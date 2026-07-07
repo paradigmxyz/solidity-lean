@@ -6330,9 +6330,26 @@ def LValues.writeTupleWithRuntime (context : Context) :
       LValues.writeTupleWithRuntime context runtime targets values
   | _, _, _ => throw (SolidityFailure.revert RevertData.typeMismatch)
 
+/-- Reserved storage-alias target for a not-yet-assigned `T storage` named
+    return (reference-signature extension, stage A). It names no real storage
+    field, so reading through it fails — unreachable in accepted programs (solc's
+    frontend enforces definite assignment of storage-pointer returns; see
+    `docs/refs-completion-solc-research.md` §1). Shared with elaboration
+    (`Interface.lean` aliases this constant). -/
+def uninitializedStorageReturnTarget : String :=
+  "__solidcore_uninitialized_storage_return"
+
 structure BindingDecl where
   name : String
   ty : Ty
+  /-- `true` for a `T storage` reference parameter/return: `defaultBinding`
+      binds the name to a storage POINTER (initially the reserved
+      `uninitializedStorageReturnTarget`) instead of `ty.defaultValue`, so a
+      callee body's re-points (`storageAliasAssign*` — which require an existing
+      storage-ref binding and assign through all scopes into the frame) and the
+      reference-preserving return collection find a storage reference. Defaulted
+      `false` so every existing construction site is unchanged. -/
+  isStorageRef : Bool := false
   deriving Repr
 
 mutual
@@ -6457,7 +6474,10 @@ def Result.runtime : Result -> Runtime
   | Result.continued runtime => runtime
 
 def BindingDecl.defaultBinding (decl : BindingDecl) : String × Value :=
-  (decl.name, decl.ty.defaultValue)
+  if decl.isStorageRef then
+    (decl.name, Value.storageRef uninitializedStorageReturnTarget)
+  else
+    (decl.name, decl.ty.defaultValue)
 
 def BindingDecl.bindArg? (decl : BindingDecl) (value : Value) :
     Option (String × Value) := do

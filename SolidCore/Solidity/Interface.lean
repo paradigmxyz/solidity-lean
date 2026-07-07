@@ -6929,7 +6929,15 @@ def Parameter.toCoreBinding? (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Option CoreBindingDecl := do
   let ty ← Ty.toCore? param.ty
   let name := param.name.getD (fallbackPrefix ++ toString index)
-  some { name := name, ty := ty }
+  -- Reference-signature extension, stage A: mark `T storage` bindings so the
+  -- framed internal-call entry binds them as storage POINTERS (see
+  -- `BindingDecl.isStorageRef` in `Interpreter.lean`). Only return bindings are
+  -- default-bound (parameters bind to argument values), but the flag is set
+  -- uniformly from the declared data location.
+  some
+    { name := name
+      ty := ty
+      isStorageRef := param.location == some DataLocation.storage }
 
 def Parameters.toCoreBindings? (fallbackPrefix : String)
     (params : List Parameter) : Option (List CoreBindingDecl) :=
@@ -7082,6 +7090,14 @@ def Parameters.toCoreMemoryLocalizeStmts? (fallbackPrefix : String)
     (params : List Parameter) : Option (List CoreStmt) :=
   mapOptionIdx (Parameter.toCoreMemoryLocalizeStmt? fallbackPrefix) 0 params
 
+/-- Reserved storage-alias target for a not-yet-assigned `T storage` named
+    return. Single source of truth lives in the interpreter (the framed
+    internal-call entry binds storage-ref returns to it via
+    `BindingDecl.defaultBinding`); elaboration's caller-side return temps
+    (`toStorageAwareDefaultCoreDecl?`) use the same target. -/
+def uninitializedStorageReturnTarget : Name :=
+  SolidCore.Solidity.Source.uninitializedStorageReturnTarget
+
 def Parameter.toDefaultVarDecl (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Stmt :=
   Stmt.varDecl
@@ -7093,9 +7109,6 @@ def Parameter.toDefaultVarDecl (fallbackPrefix : String) (index : Nat)
 def Parameters.toDefaultVarDecls (fallbackPrefix : String)
     (params : List Parameter) : List Stmt :=
   mapIdx (Parameter.toDefaultVarDecl fallbackPrefix) 0 params
-
-def uninitializedStorageReturnTarget : Name :=
-  "__solidcore_uninitialized_storage_return"
 
 def Parameter.toStorageAwareDefaultCoreDecl? (fallbackPrefix : String)
     (index : Nat) (param : Parameter) : Option CoreStmt := do
@@ -7252,21 +7265,17 @@ def Parameter.isBoundaryLocation (param : Parameter) : Bool :=
      | some DataLocation.calldata => false
      | _ => true)
 
-/-- A RETURN the function boundary can carry. Same as `isBoundaryLocation` but
-    additionally excludes `storage` references: a returned storage pointer flows
-    correctly through the interpreter (proved by the `InternalCall` witnesses),
-    but the callee-side re-point elaboration (`result = x` / `return x` as a
-    storage-pointer re-point across the framed boundary) is not yet complete, so
-    storage-ref-RETURN callees stay on the inline-splice path (recorded residue,
-    `docs/DECISIONS.md`). Value and `memory`-ref returns are carried. -/
+/-- A RETURN the function boundary can carry. Stage A of the boundary-completion
+    arc: `storage`-ref returns are carried as flowing `Value.storageRef` pointer
+    values — solc via-IR returns exactly one word (the slot) from an internal
+    `T storage`-returning function and the caller binds it as a plain local
+    (`docs/refs-completion-solc-research.md` §1). The callee's named storage
+    return is re-declared as a storage alias in the body prologue
+    (`toCoreStorageReturnAliasStmts?`), the reference-preserving return
+    collection carries the pointer out, and `assignNamedValuesRef?` re-points the
+    caller's alias temp. Same exclusions as `isBoundaryLocation` otherwise. -/
 def Parameter.isBoundaryReturnLocation (param : Parameter) : Bool :=
-  (match param.ty with
-   | Ty.functionWithLocations .. => false
-   | _ => true) &&
-    (match param.location with
-     | some DataLocation.calldata => false
-     | some DataLocation.storage => false
-     | _ => true)
+  Parameter.isBoundaryLocation param
 
 /-- A callee eligible for the function-boundary (`Stmt.internalCall`)
     representation. Originally (stages 2–3) restricted to pure stack-value
