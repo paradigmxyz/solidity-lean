@@ -6952,7 +6952,20 @@ end
 
 def Parameter.toCoreBinding? (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Option CoreBindingDecl := do
-  let ty ← Ty.toCore? param.ty
+  -- Stage E: a `T storage` binding is a storage POINTER at run time — it binds
+  -- reference-preservingly (`bindArgRef?`) and defaults to a storage alias
+  -- (`defaultBinding` via `isStorageRef`), so its declared core Ty is never
+  -- consulted for coercion. Types with no core form (mapping-containing
+  -- structs, bare mappings — common `using`-for library params) therefore get
+  -- a placeholder, instead of sinking the whole contract's table build.
+  let ty ←
+    match Ty.toCore? param.ty with
+    | some ty => some ty
+    | none =>
+        if param.location == some DataLocation.storage then
+          some SolidCore.Solidity.Source.Ty.uint256
+        else
+          none
   let name := param.name.getD (fallbackPrefix ++ toString index)
   -- Reference-signature extension, stage A: mark `T storage` bindings so the
   -- framed internal-call entry binds them as storage POINTERS (see
@@ -7261,7 +7274,14 @@ def FunctionDecl.abiSelector? (decl : FunctionDecl) : Option Word := do
     identically at the call-site emit (`boundaryCallParts?`) and the
     table-build (`directCoreFunctions?`) from the resolved `FunctionDecl`. -/
 def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
-  let sig ← FunctionDecl.abiSignature? decl
+  let name ← decl.name
+  -- Stage E: the key must be TOTAL over named functions — callees whose
+  -- parameter types have no ABI-canonical form (e.g. `mapping(...) storage`
+  -- parameters) previously fell back to the inline-splice path, which is now
+  -- deleted. When `abiSignature?` fails, the name + the structural identity
+  -- suffix below still yield a collision-free key (the suffix alone
+  -- distinguishes overloads).
+  let sig := (FunctionDecl.abiSignature? decl).getD (name ++ "(?)")
   -- Reference-signature extension: the ABI canonical signature collapses
   -- user-defined types — every one-field struct renders `(uint256)`, every enum
   -- `uint8`, every user type `address` (`Ty.abiCanonical?`). Two overloads whose
@@ -8869,15 +8889,6 @@ def Parameters.withRuntimeNames (fallbackPrefix : String)
     (params : List Parameter) : List Parameter :=
   mapIdx (Parameter.withRuntimeName fallbackPrefix) 0 params
 
-def Parameter.runtimeAlias? (fallbackPrefix : String) (index : Nat)
-    (param : Parameter) : Option (Name × Name) :=
-  param.name.map
-    (fun name => (name, Parameter.runtimeName fallbackPrefix index))
-
-def Parameters.runtimeAliasEnv (fallbackPrefix : String)
-    (params : List Parameter) : NameAliasEnv :=
-  mapIdx (Parameter.runtimeAlias? fallbackPrefix) 0 params |>.filterMap id
-
 def ModifierDecl.paramAliasEnv (decl : SourceModifierDecl) : NameAliasEnv :=
   mapIdx
     (fun index param =>
@@ -9645,20 +9656,6 @@ def Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
               , headParamDecls ++ tailParamDecls )
   | _, _, _, _ => none
 
-def Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-    (storageRefEnv : StorageRefEnv) (storageNames : List Name)
-    (env : TypeEnv)
-    (functions freeFunctions : List FunctionDecl)
-    (fallbackPrefix : String) (params : List Parameter) (args : List Expr) :
-    Option (InternalFunctionAliasEnv × List CoreStmt) :=
-  match
-      Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
-        storageRefEnv storageNames env functions freeFunctions fallbackPrefix
-        0 [] params args with
-  | some (aliasEnv, argDecls, paramDecls) =>
-      some (aliasEnv, argDecls ++ paramDecls)
-  | none => none
-
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -10174,215 +10171,6 @@ def storageAliasAssignmentCore? (storageRefEnv : StorageRefEnv)
   else
     none
 
-mutual
-
-def Stmt.toCoreWithStorageRefsOnly? (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name) (stmt : Stmt) :
-    Option CoreStmt :=
-  match stmt with
-  | Stmt.block body => do
-      let coreBody ←
-        Stmt.listToCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.block coreBody)
-  | Stmt.expr
-      (Expr.assign
-        (Expr.call (Expr.member target "push") [])
-        AssignOp.assign rhs) =>
-      match Expr.storageRefArrayPushAssignStmtCore?
-          storageRefEnv env storageNames target rhs with
-      | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames
-          (Stmt.expr
-            (Expr.assign
-              (Expr.call (Expr.member target "push") [])
-              AssignOp.assign rhs))
-  | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
-      match Stmt.toCore? storageNames (Stmt.expr expr) with
-      | some coreStmt => some coreStmt
-      | none =>
-          Expr.storageRefArrayMemberStmtCore?
-            storageRefEnv env storageNames expr
-  | Stmt.ifElse cond thenBranch elseBranch => do
-      let condCore ← Expr.toCore? storageNames cond
-      let thenCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames thenBranch
-      let elseCore ←
-        match elseBranch with
-        | some stmt =>
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames stmt
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      some (SolidCore.Solidity.Source.Stmt.ifElse
-        condCore thenCore elseCore)
-  | Stmt.whileLoop cond body => do
-      let condCore ← Expr.toCore? storageNames cond
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
-  | Stmt.doWhile body cond => do
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      let condCore ← Expr.toCore? storageNames cond
-      some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
-  | Stmt.forLoop init cond post body => do
-      let initCore ←
-        match init with
-        | some stmt =>
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames stmt
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      let condCore ←
-        match cond with
-        | some expr => Expr.toCore? storageNames expr
-        | none => some (SolidCore.Solidity.Source.Expr.word 1)
-      let postCore ←
-        match post with
-        | some expr => Stmt.toCore? storageNames (Stmt.expr expr)
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.forLoop
-        initCore condCore postCore bodyCore)
-  | Stmt.unchecked body => do
-      let bodyCore ←
-        Stmt.toCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames body
-      some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
-  | other => Stmt.toCore? storageNames other
-termination_by (sizeOf stmt, 2)
-
-def Stmt.listToCoreWithStorageRefsOnly? (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv) (storageNames : List Name) (stmts : List Stmt) :
-    Option (List CoreStmt) :=
-  match stmts with
-  | [] => some []
-  | Stmt.expr (Expr.assign (Expr.ident name) AssignOp.assign
-      (Expr.ident target)) :: rest =>
-      match storageAliasAssignmentCore? storageRefEnv storageNames name target with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.expr
-                (Expr.assign (Expr.ident name) AssignOp.assign
-                  (Expr.ident target)))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames rest
-          some (head :: tail)
-  | Stmt.varDecl [binding] (some (Expr.ident source)) :: rest =>
-      match storageAliasDeclFromRefCore? storageRefEnv binding source with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.varDecl [binding] (some (Expr.ident source)))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-  | Stmt.varDecl [binding] (some source@(Expr.member _ _)) :: rest =>
-      match
-          storageAliasDeclFromRefPathCore?
-            storageRefEnv storageNames binding source with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.varDecl [binding] (some source))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-  | Stmt.varDecl [binding] (some source@(Expr.index _ _)) :: rest =>
-      match
-          storageAliasDeclFromRefPathCore?
-            storageRefEnv storageNames binding source with
-      | some head => do
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithStorageRefsOnly?
-              storageRefEnv env storageNames
-              (Stmt.varDecl [binding] (some source))
-          let tail ←
-            Stmt.listToCoreWithStorageRefsOnly?
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              storageNames rest
-          some (head :: tail)
-  | stmt :: rest => do
-      let head ←
-        Stmt.toCoreWithStorageRefsOnly? storageRefEnv env storageNames stmt
-      let nextEnv :=
-        match stmt with
-        | Stmt.varDecl bindings _ => VarBindings.extendTypeEnv env bindings
-        | _ => env
-      let nextStorageRefEnv :=
-        match stmt with
-        | Stmt.varDecl bindings _ =>
-            VarBindings.extendStorageRefEnv storageRefEnv bindings
-        | _ => storageRefEnv
-      let tail ←
-        Stmt.listToCoreWithStorageRefsOnly?
-          nextStorageRefEnv nextEnv storageNames rest
-      some (head :: tail)
-termination_by (sizeOf stmts, 1)
-
-end
-
-def functionExpandModifiersToCoreWithStorageRefsOnly?
-    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
-    (storageNames returnNames : List Name)
-    (available : List SourceModifierDecl)
-    (invocations : List SourceModifierInvocation) (body : Stmt) :
-    Option CoreStmt :=
-  match invocations with
-  | [] =>
-      Stmt.toCoreWithStorageRefsOnly?
-        storageRefEnv env storageNames body
-  | invocation :: rest => do
-      let inner ←
-        functionExpandModifiersToCoreWithStorageRefsOnly?
-          storageRefEnv env storageNames returnNames available rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
-      modifierApplyToCoreWithEnv? storageRefEnv env storageNames returnNames
-        modifierDecl invocation inner
-
 def Expr.localStorageArrayMemberStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) :
@@ -10502,6 +10290,14 @@ def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
   Stmt.rewriteStorageReturnAssignmentsFuel
     defaultStorageReturnRewriteFuel fallbackPrefix returns stmt
 
+/-- Nested-call-argument HOISTING bound (stage E). The historical role of this
+    constant — the inline-expansion depth budget of the deleted splice path,
+    whose exhaustion silently rejected recursion — is GONE: no callee splices
+    and recursion depth is bounded only by the interpreter's statement fuel.
+    What remains bounded is the syntactic nesting depth of internal calls
+    inside a single expression's argument list (`f(g(h(...)))`), which the
+    hoisting machinery peels one level per unit; 64 exceeds any real program
+    and the elaboration-cluster termination measure needs a decreasing Nat. -/
 def defaultInternalCallInlineFuel : Nat := 64
 
 def Stmt.listLeadingBeforeFinalTopLevelModifierPlaceholder? :
@@ -10917,135 +10713,37 @@ def FunctionDecl.ptrBoundaryCallParts?
               returnNames fnCore argVars ))
   | _ => none
 
+/-- Resolve an internal call site and emit its function-boundary parts. Since
+    stage E of the boundary-completion arc this is boundary-ONLY: the resolved
+    callee elaborates to `Stmt.internalCall` against the function table
+    (`boundaryCallParts?`), an unresolvable name is tried as a call through an
+    internal function POINTER (`ptrBoundaryCallParts?`), and the historical
+    inline-splice path (α-renaming callee bodies into the caller under
+    `defaultInternalCallInlineFuel`) is DELETED — no callee kind splices
+    anymore. `internalFuel` is retained by the surrounding elaboration cluster
+    only as the nested-call-argument hoisting bound (see
+    `defaultInternalCallInlineFuel`'s doc). -/
 def FunctionDecl.internalCallParts?
-    (internalFuel : Nat)
+    (_internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
-    (externalCallKindEnv : ExternalCallKindEnv)
-    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (_externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (_modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg) :
-    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) :=
   match FunctionDecl.findInternalCalleeWithArgs?
       functions env name args with
-  | some (callee, sourceArgs) => do
-      if let some result :=
-          FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name callee
-            sourceArgs then
-        return result
-      let returnPrefix := "_ret_" ++ name ++ "_"
-      let runtimeReturns :=
-        Parameters.withRuntimeNames returnPrefix callee.returns
-      let runtimeCallee :=
-        { callee with returns := runtimeReturns }
-      let runtimeAliasEnv :=
-        Parameters.runtimeAliasEnv returnPrefix callee.returns
-      let (paramAliasEnv, paramDecls) ←
-        Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-          storageRefEnv storageNames env functions freeFunctions "_arg"
-          callee.params sourceArgs
-      let returnDecls ←
-        Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
-      let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
-      let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
-      let body ← callee.body
-      let calleeEnv :=
-        FunctionDecl.typeEnv env runtimeCallee
-      let calleeStorageRefEnv :=
-        Parameters.extendStorageRefEnv returnPrefix
-          (Parameters.extendStorageRefEnv "_arg" [] callee.params)
-          runtimeReturns
-      let body := Stmt.renameIdents runtimeAliasEnv body
-      let body :=
-        Stmt.inlineInternalFunctionAliasesFuel
-          functions freeFunctions defaultInternalFunctionAliasFuel
-          paramAliasEnv body
-      let body :=
-        Stmt.rewriteStorageReturnAssignments "_ret" runtimeReturns body
-      let body := Stmt.annotateAbi calleeEnv body
-      let (calleeModifiers, body) :=
-        match functionExpandLeadingModifiers? modifiers callee.modifiers body with
-        | some body => ([], body)
-        | none => (callee.modifiers, body)
-      let bodyCore ←
-        match internalFuel with
-        | 0 =>
-            functionExpandModifiersToCoreWithStorageRefsOnly?
-              calleeStorageRefEnv calleeEnv storageNames
-              (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              modifiers calleeModifiers body
-        | fuel + 1 =>
-            functionExpandModifiersToCoreWithInternalCalls?
-              fuel calleeStorageRefEnv calleeEnv externalCallKindEnv storageNames
-              (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-              modifiers functions freeFunctions
-              (runtimeReturns.map Parameter.ty) calleeModifiers body
-      let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
-      let prefixCore := paramDecls ++ returnDecls
-      some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
+  | some (callee, sourceArgs) =>
+      FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name
+        callee sourceArgs
   | none =>
       match FunctionDecl.findInternalCalleeWithArgs?
           freeFunctions env name args with
+      | some (callee, sourceArgs) =>
+          FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name
+            callee sourceArgs
       | none =>
-          -- Stage C: not a declared function -> a call through an internal
-          -- function pointer (fn-typed local/param/state var).
           FunctionDecl.ptrBoundaryCallParts?
             storageRefEnv env storageNames name args
-      | some (callee, sourceArgs) => do
-          if let some result :=
-              FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name callee
-                sourceArgs then
-            return result
-          let returnPrefix := "_ret_" ++ name ++ "_"
-          let runtimeReturns :=
-            Parameters.withRuntimeNames returnPrefix callee.returns
-          let runtimeCallee :=
-            { callee with returns := runtimeReturns }
-          let runtimeAliasEnv :=
-            Parameters.runtimeAliasEnv returnPrefix callee.returns
-          let (paramAliasEnv, paramDecls) ←
-            Parameters.toStorageAwareCoreArgDeclsWithInternalAliases?
-              storageRefEnv storageNames env functions freeFunctions "_arg"
-              callee.params sourceArgs
-          let returnDecls ←
-            Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
-          let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
-          let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
-          let body ← callee.body
-          let calleeEnv :=
-            FunctionDecl.typeEnv
-              (TypeEnv.externalCallKindEntries env) runtimeCallee
-          let calleeStorageRefEnv :=
-            Parameters.extendStorageRefEnv returnPrefix
-              (Parameters.extendStorageRefEnv "_arg" [] callee.params)
-              runtimeReturns
-          let body := Stmt.renameIdents runtimeAliasEnv body
-          let body :=
-            Stmt.inlineInternalFunctionAliasesFuel
-              functions freeFunctions defaultInternalFunctionAliasFuel
-              paramAliasEnv body
-          let body :=
-            Stmt.rewriteStorageReturnAssignments "_ret" runtimeReturns body
-          let body := Stmt.annotateAbi calleeEnv body
-          let (calleeModifiers, body) :=
-            match functionExpandLeadingModifiers? [] callee.modifiers body with
-            | some body => ([], body)
-            | none => (callee.modifiers, body)
-          let bodyCore ←
-            match internalFuel with
-            | 0 =>
-                functionExpandModifiersToCoreWithStorageRefsOnly?
-                  calleeStorageRefEnv calleeEnv []
-                  (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-                  [] calleeModifiers body
-            | fuel + 1 =>
-                functionExpandModifiersToCoreWithInternalCalls?
-                  fuel calleeStorageRefEnv calleeEnv externalCallKindEnv []
-                  (returnBindings.map SolidCore.Solidity.Source.BindingDecl.name)
-                  [] [] freeFunctions
-                  (runtimeReturns.map Parameter.ty) calleeModifiers body
-          let bodyCore := SolidCore.Solidity.Source.Stmt.checked bodyCore
-          let prefixCore := paramDecls ++ returnDecls
-          some (returnBindings, returnStorageRefs, prefixCore, bodyCore)
-termination_by (internalFuel, 0, 0)
 
 def FunctionDecl.internalStatementCallCore?
     (internalFuel : Nat)
@@ -17087,8 +16785,17 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   let decl := FunctionDecl.resolveSelectors selectorEnv decl
   let name ← FunctionDecl.coreName? decl
   let params ← Parameters.toCoreBindings? "_arg" decl.params
+  -- Stage E: ABI cleanups are an ENTRY-only concern; storage-ref parameters
+  -- (which can never appear in an ABI entrypoint signature) get `none` instead
+  -- of failing the whole elaboration when their type has no ABI cleanup form.
   let paramAbiCleanups ←
-    Tys.toCoreAbiCleanups? (decl.params.map Parameter.ty)
+    mapOption
+      (fun (param : Parameter) =>
+        if param.location == some DataLocation.storage then
+          some SolidCore.Solidity.Source.AbiCleanup.none
+        else
+          Ty.toCoreAbiCleanup? param.ty)
+      decl.params
   let returns ← Parameters.toCoreBindings? "_ret" decl.returns
   let body ← decl.body
   let env := FunctionDecl.typeEnv
