@@ -1141,3 +1141,57 @@ run. Recorded as an R1 perf datapoint to compare at stage 2's full replay +
 wall-clock (the plan's R1 measurement point); Stage 1 changes are behaviour-
 neutral (elaboration still splices, no `internalCall` nodes emitted), so this is
 not attributable to the node/arm as a correctness matter.
+
+## 2026-07-06 — Function-boundary refactor, stage 2 handoff: verified edit surface (no code changes)
+
+Stages 0–1 are committed (`e5a9876`, `58b6cf0`); stages 2–5 were deliberately
+not attempted this run (each `Interface.lean` iteration is a ~7–20 min compile
+and stage 2 is full-replay-gated). This entry records the VERIFIED edit surface
+for stage 2, mapped against the committed tree, so the implementer starts from
+checked anchors. Key facts (line numbers as of `58b6cf0`):
+
+- `CoreStmt` IS the interpreter's `Stmt` (`Interface.lean:27` abbrev), so
+  elaboration emits `Source.Stmt.internalCall` directly; the constructor exists
+  (`Interpreter.lean:6155`) and the evaluator arm handles it (`:7038–7091`).
+  **No other exhaustive core-`Stmt` match needs a new case** — the eval-block
+  helpers delegate to `Stmt.eval`, and every `Interface.lean`/`TypeCheck.lean`
+  `Stmt` traversal (renameIdents, toCore?, expandUsing, annotateAbi, …) is on
+  the *surface* AST `Stmt`, a different type. No Yul/Sc lowering file exists yet.
+- `FunctionDecl.internalCallParts?` (`Interface.lean:10401–10516`, two symmetric
+  branches: contract functions `:10408–10460`, freeFunctions `:10461–10515`).
+  At the emit point: the resolved callee decl is in scope (`callee`), and the
+  ordered surface arg exprs are `sourceArgs` — but the current code produces
+  arg-temp DECLS (`toStorageAwareCoreArgDeclsWithInternalAliases?`), not core
+  arg exprs. Stage-2 work at this site = compute the callee table key + elaborate
+  `sourceArgs` to `List CoreExpr` + return an `internalCall`-shaped result; the
+  10 wrapper callers (`:10518–10869`: internalStatementCallCore?,
+  internalSingleReturnCallCore?, …AssignReturn…, …Tuple…, internalReturnCallCore?)
+  each own the `targets`.
+- **Table key**: `FunctionDecl.coreName?` (`:8684–8689`) is what
+  `FunctionDecl.toCore?` puts in `FunctionDef.name` (`:16502`), so it is the
+  consistent key. Library helpers are already mangled uniquely
+  (`libraryHelperName`/`…ForIndex` `:15078–15086`) and super-helpers are named by
+  `FunctionDecl.superHelpers` (`:473`) BEFORE `internalCallParts?` runs. The one
+  real gap: **plain contract-internal overloads share `coreName?`** — stage 2
+  must add a disambiguating key (signature suffix or an overload index like the
+  library scheme) used identically at the call-site emit and the table emit (R6:
+  enforce by a single shared helper, not convention).
+- **Table construction**: `ContractDecl.directCoreFunctions?`
+  (`:18054–18080`) currently filters to
+  `FunctionDecl.isCoreEntrypoint && body.isSome` (`:18078–18079`;
+  `isCoreEntrypoint` `:8701–8705` returns false for internal/private). Relaxing
+  this filter to also map `FunctionDecl.toCore?` over non-entrypoint direct
+  functions + the helper sets already assembled in `toCoreFromOrders?`
+  (`ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers`,
+  `:18457–18468`) emits the internal-linkage `FunctionDef`s; `selector? := none`
+  falls out automatically (`abiSelector?` at `:16563` is none for internal), and
+  `Contract.table` (`Interpreter.lean:7745`) then materializes the table with NO
+  `CoreContract` shape change. Dedup caution: library/super helpers repeat across
+  the dispatch order — dedup by name when emitting, or table keys collide.
+- **Stage-4 deletion list** (after stages 2–3 replays are green):
+  `defaultInternalCallInlineFuel` (`:10129`) + its 4 consumption sites
+  (`:14680, :16551, :18155, :18200`), the fuel decrement in `internalCallParts?`
+  (`:10446–10457`/`:10501–10512`), and the fuel-0 fallback
+  `functionExpandModifiersToCoreWithStorageRefsOnly?` (`:9991`) whose `[]` case
+  reaches `Expr.toCore?`'s `| _ => none` — the exact rejection the stage-0
+  `recursion-gap` lane pins.
