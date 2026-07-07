@@ -725,6 +725,13 @@ structure State where
   selfdestructs : List (Word × Word) := []
   selfdestructEffects : List SolidCore.Solidity.Shared.Account.SelfdestructRecord := []
   externalInteractions : List ExternalInteraction := []
+  -- A2 (intra-frame balance accounting): the dynamic balance of `self` (this
+  -- contract) during a call. Re-based at each external entry to the environment
+  -- fact `balanceAt accountBalances self` plus the credited `msg.value`
+  -- (`FunctionDef.evalBodyEntry`), debited by successful value-carrying sends
+  -- (`Runtime.recordExternalInteraction`), and read by `address(this).balance` /
+  -- `selfbalance`. Other addresses stay environment facts (static oracle).
+  selfBalance : Word := 0
   events : List Event
   deriving Repr
 
@@ -853,11 +860,41 @@ structure Runtime where
 def Runtime.ofState (state : State) : Runtime :=
   { state, locals := [[]] }
 
+/-- A2: the amount a recorded external effect debits from `self`'s balance. Only
+    a **successful** value-transferring effect debits — a low-level `call`/
+    `callcode` (staticcall/delegatecall/precompiles transfer nothing) or a
+    contract creation carrying value. A failed effect debits nothing (the EVM
+    refunds value to the caller on callee failure / a reverted create). -/
+def ExternalInteraction.selfBalanceDebit : ExternalInteraction → Word
+  | ExternalInteraction.lowLevelCall result =>
+      if result.success &&
+          (result.kind == SolidCore.Solidity.Shared.Call.ExternalCallKind.call ||
+            result.kind ==
+              SolidCore.Solidity.Shared.Call.ExternalCallKind.callcode) then
+        result.value
+      else
+        0
+  | ExternalInteraction.contractCreation result =>
+      if result.success then result.value else 0
+
 def Runtime.recordExternalInteraction
     (runtime : Runtime) (interaction : ExternalInteraction) : Runtime :=
+  -- A2: a successful value-carrying effect debits `self`'s dynamic balance
+  -- (floored at 0 — an open-world `success` implies the environment accepted the
+  -- transfer, so we never fabricate a wrapped-huge balance on an inconsistent
+  -- oracle). The debit is centralized here so every emit site (low-level call
+  -- arms, `tryExternalCall`, both create arms) accounts uniformly.
+  let debit := interaction.selfBalanceDebit
+  let balance := runtime.state.selfBalance
+  let balance' :=
+    if balance >= debit then
+      SolidCore.Solidity.Shared.subWord balance debit
+    else
+      0
   { runtime with
     state :=
       { runtime.state with
+        selfBalance := balance'
         externalInteractions :=
           runtime.state.externalInteractions ++ [interaction] } }
 
@@ -5241,7 +5278,18 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let (keyValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
               let key ← keyValue.expectWord
-              pure (Value.word (which.eval context key), runtime')
+              -- A2: `address(this).balance` / `selfbalance` (an accountBalance
+              -- lookup keyed on `self`) read the dynamic self balance; every
+              -- other address stays an environment fact (static oracle).
+              let result :=
+                match which with
+                | EnvLookup.accountBalance =>
+                    if wordEq key context.self then
+                      runtime'.state.selfBalance
+                    else
+                      which.eval context key
+                | _ => which.eval context key
+              pure (Value.word result, runtime')
           | Expr.envBytesLookup which keyExpr => do
               let (keyValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
@@ -7565,6 +7613,20 @@ def FunctionDef.evalBodyEntry (fuel : Nat) (context : Context)
   if function.acceptsValue context.value then
     match function.initialFrame? args with
     | some frame =>
+        -- A2: this is the external message-call / constructor entry (internal
+        -- calls are spliced in `Stmt.eval` and never reach here). Before the
+        -- body runs, re-base `self`'s dynamic balance to the environment fact
+        -- for `self` and credit `msg.value`, as the EVM credits value before
+        -- body execution. Re-basing from the oracle each entry (rather than
+        -- threading a persistent balance) honours the environment injecting ETH
+        -- between top-level calls; the intra-frame credit/debit is what A2 adds.
+        let state :=
+          { state with
+            selfBalance :=
+              SolidCore.Solidity.Shared.addWord
+                (SolidCore.Solidity.Shared.Account.balanceAt
+                  context.accountBalances context.self)
+                context.value }
         let runtime : Runtime := { state, locals := [frame] }
         some (Stmt.eval fuel context runtime function.body)
     | none => none
@@ -7650,7 +7712,15 @@ theorem FunctionDef.call?_reverted_rolls_back
     (hAccepts : function.acceptsValue context.value = true)
     (hFrame : function.initialFrame? args = some frame)
   (hEval :
-      Stmt.eval fuel context { state := state, locals := [frame] }
+      Stmt.eval fuel context
+          { state :=
+              { state with
+                selfBalance :=
+                  SolidCore.Solidity.Shared.addWord
+                    (SolidCore.Solidity.Shared.Account.balanceAt
+                      context.accountBalances context.self)
+                    context.value }
+            locals := [frame] }
           function.body =
         pure (Result.reverted runtime revert)) :
     function.call? fuel context state args =

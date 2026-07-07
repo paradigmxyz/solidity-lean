@@ -1243,3 +1243,40 @@ Fix + lane land together green (`--only`, the W1–W3 pattern).
 
 Gate: `lake build SolidCore` + smoke (weth9 / vesting / splitter / escrow are the
 canaries) + the new lane via `--only`. ROADMAP registry row A2 → fixed.
+
+## 2026-07-06 — A2 consistency with the Yul (`../evm-compiler`) balance model
+
+Checked A2's balance model against how the shared Yul/EVM semantics handle
+balance (verified by reading `../evm-compiler`, read-only):
+
+- Yul balance is a per-account `UInt256` in the threaded `OpenWorld.accounts`
+  map. `SELFBALANCE` reads `codeOwner`'s account; `BALANCE` reads any account by
+  address; `CALLVALUE` reads `executionEnv.weiValue`. An outgoing `CALL` with
+  value is **debited from the caller and credited to the callee before the
+  callee body runs** (reference EVM `Θ`, `thetaCallTransfer` producing `σ₁`
+  before `Ξ`), and on failure the whole account map is rolled back — **no net
+  transfer**. Across the boundary balance travels only inside the `OpenWorld`
+  snapshot (`Query.external` in) and `CallResponse.postWorld` (out).
+
+- A2 lines up **within a single external frame** (the observable it targets):
+  `State.selfBalance` is the self/`codeOwner` account entry, read by
+  `address(this).balance` *and* written by the outgoing-call debit through the
+  same field (matching that `SELFBALANCE`/`BALANCE(self)` and the call debit hit
+  one live entry); `msg.value` is credited at `evalBodyEntry` before `Stmt.eval`
+  (credit-before-body); the debit fires only on `success` and nothing on failure
+  — observationally equal at the caller boundary to Yul's debit-before-body +
+  refund-on-failure, since the callee body is environment-answered and never
+  observes our self balance mid-call. Other-address `.balance` stays the static
+  oracle (= a read of `accounts.find? addr |>.balance`).
+
+- Two **pre-existing checkpoint-1 simplifications** remain (not A2 regressions):
+  (1) responders ignore `postWorld`, so self balance moves only via its own
+  credits/debits, not via callee-returned world deltas; (2) balance is not a
+  threaded `OpenWorld` — cross-call balance is supplied by the static oracle at
+  each entry (the environment owning cross-call world state, per the open-world
+  model) rather than carried in `postWorld`. The convergence (the Phase 5
+  "OpenWorld-shaped environment carried in the source state" future work) folds
+  `selfBalance` into a threaded `OpenWorld` and honours `postWorld`, at which
+  point Solidity `BALANCE(self)`/`SELFBALANCE` and the outgoing-call debit become
+  the same account-map operations Yul performs. A2 is the intra-frame stepping
+  stone and does not contradict that direction.
