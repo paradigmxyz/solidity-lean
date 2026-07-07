@@ -1195,3 +1195,70 @@ checked anchors. Key facts (line numbers as of `58b6cf0`):
   `functionExpandModifiersToCoreWithStorageRefsOnly?` (`:9991`) whose `[]` case
   reaches `Expr.toCore?`'s `| _ => none` — the exact rejection the stage-0
   `recursion-gap` lane pins.
+
+## 2026-07-06 — Function-boundary refactor, stage 2: node emission for value-signature contract-internal + free functions
+
+Elaboration now emits `Stmt.internalCall` nodes (instead of splicing callee
+bodies) for internal calls whose resolved callee has a **pure stack-value
+signature** — every parameter and return has no data location (`location.isNone`)
+— and whose name is not a synthetic `__`-prefixed helper. All other callee kinds
+(storage-ref / memory-ref / function-pointer parameters or returns; library
+`__library_*`, super/base helpers) keep the existing inline-splice path; they
+move to the boundary in stage 3 or stay spliced where the frame model cannot
+represent them yet.
+
+**R6 table-key scheme (the handoff's open design item), decided:**
+`FunctionDecl.internalTableKey? = "__internal_" ++ abiSignature?`
+(e.g. `__internal_factorial(uint256)`), one shared helper used identically at
+the call-site emit (`valueBoundaryCallParts?`) and the table build
+(`directCoreFunctions?` / `toCoreFromOrders?`). Chosen over the library
+`_overload_<index>` scheme because `abiSignature?` (the existing canonical
+param-type renderer, already the selector source) is order-independent —
+immune to decl-list reordering — and the `__internal_` prefix makes collision
+with a plain entrypoint `FunctionDef.name` impossible. Entrypoint names stay
+plain: name-based dispatch (`Contract.findFunctionByName?`, `CallTarget.name`,
+used by Checked/ABI/witness paths) requires them.
+
+Mechanics:
+- `FunctionDecl.valueBoundaryCallParts?` returns the same
+  `(returnBindings, returnStorageRefs, prefixCore, bodyCore)` 4-tuple shape as
+  `internalCallParts?`, with `bodyCore := Stmt.internalCall returnNames key
+  argVars` — so all 10 wrapper callers are byte-unchanged: `captureReturn`
+  around the node is a harmless passthrough (the arm maps callee returns to
+  `Result.normal` internally). Guarded `return` at the top of BOTH branches of
+  `internalCallParts?` (contract functions and freeFunctions).
+- Arg temps use a fresh `_ic_arg_<i>` prefix, never the parameter name: the
+  evaluator binds arguments to callee params positionally (`initialFrame?`), and
+  param-named temps could shadow a same-named caller local read by a later
+  argument expression (a hazard the old α-renaming splice masked).
+- Table build: `directCoreFunctions?` additionally elaborates every
+  value-boundary ordinary function (any visibility) via the same
+  `FunctionDecl.toCore?` and stores it under the mangled key with
+  `selector? := none` **forced** — `abiSelector?` is visibility-blind (a
+  handoff-map gap: internal functions would otherwise get spurious selectors
+  into `findFunctionBySelector?` dispatch). Public functions therefore get two
+  entries: plain-name selector-bearing entrypoint + mangled selector-less table
+  entry. `toCoreFromOrders?` appends value-boundary FREE-function entries after
+  the contract groups and dedups (`CoreFunctionDefs.dedupInternalByName`,
+  first-wins = most-derived-wins across the C3 dispatch order, and
+  contract-over-free on key collision, matching resolver precedence).
+  Constructor path needs nothing: `constructWithBases…` already passes
+  `contract.table` from `toCoreFromOrders?`.
+- Modifiers untouched (substitution machinery byte-stable). The callee body in
+  the table is elaborated once by `toCore?` (modifier expansion included), so a
+  modifier-wrapped internal callee behaves as before.
+
+Recursion-gap lane flip pulled forward from stage 5 (recorded deviation): the
+fixture's functions are all `uint256`-typed, so at stage 2 they elaborate —
+`toCoreContract?` is no longer `none` and the stage-0 `.isNone` pins would now
+FAIL. The manifest lane was flipped to the concrete-value witnesses the stage-0
+entry promised: `checkedOwnCallWordMatches` at fuel 4000 asserting
+factorial(5)=120, sumTo(70)=2485, deepChain()=70 — verified against Forge
+(solo replay: `forge=ok lean=ok`, `forge_interpreter_compare=pass`,
+`paired_cases_passed=yes`). Stage 5 still owns the ROADMAP registry row update
+and the final full-replay confirmation.
+
+Gate note: per Dan's instruction this run, the smoke and full replays are
+DEFERRED until all stages are implemented; stage-2 gate here = full
+`lake build SolidCore` green (1095 jobs, all compile-time `#guard` witnesses
+intact) + the recursion-gap solo replay above.
