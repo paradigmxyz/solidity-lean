@@ -4,6 +4,7 @@ import SolidCore.Witness.Interface
 import SolidCore.Witness.InterpreterExamples
 import SolidCore.Witness.InternalCall
 import SolidCore.Witness.Phase5Demo
+import SolidCore.Witness.GasleftResource
 import SolidCore.Witness.TypeCheck
 import SolidCore.Witness.Checked
 import SolidCore.Witness.RationalConstants
