@@ -18151,6 +18151,107 @@ def StateVarDecl.toCoreInit? (storageNames : List Name)
         initCore)
   | _, _ => some SolidCore.Solidity.Source.Stmt.skip
 
+mutual
+
+/-- Collect the callee keys of every `Stmt.internalCall` node in a core
+    statement tree (function-boundary refactor: used to elaborate super/base
+    helper table entries on demand instead of eagerly — the helper candidate
+    sets are O(#contracts x #functions) while actual call sites are few). -/
+def CoreStmt.collectInternalCallKeys : CoreStmt -> List Name
+  | SolidCore.Solidity.Source.Stmt.internalCall _ callee _ => [callee]
+  | SolidCore.Solidity.Source.Stmt.block stmts =>
+      CoreStmts.collectInternalCallKeys stmts
+  | SolidCore.Solidity.Source.Stmt.captureReturn _ body =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.ifElse _ thenBranch elseBranch =>
+      CoreStmt.collectInternalCallKeys thenBranch ++
+        CoreStmt.collectInternalCallKeys elseBranch
+  | SolidCore.Solidity.Source.Stmt.switch _ cases defaultBranch =>
+      CoreSwitchCases.collectInternalCallKeys cases ++
+        (match defaultBranch with
+          | some branch => CoreStmt.collectInternalCallKeys branch
+          | none => [])
+  | SolidCore.Solidity.Source.Stmt.whileLoop _ body =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.doWhile body _ =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.forLoop init _ post body =>
+      CoreStmt.collectInternalCallKeys init ++
+        CoreStmt.collectInternalCallKeys post ++
+        CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.tryExternalCall
+      _ _ _ _ _ _ _ _ _ body clauses =>
+      CoreStmt.collectInternalCallKeys body ++
+        CoreTryCatchClauses.collectInternalCallKeys clauses
+  | SolidCore.Solidity.Source.Stmt.tryContractCreate _ _ _ _ _ body clauses =>
+      CoreStmt.collectInternalCallKeys body ++
+        CoreTryCatchClauses.collectInternalCallKeys clauses
+  | SolidCore.Solidity.Source.Stmt.checked body =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.unchecked body =>
+      CoreStmt.collectInternalCallKeys body
+  | _ => []
+
+def CoreStmts.collectInternalCallKeys : List CoreStmt -> List Name
+  | [] => []
+  | stmt :: rest =>
+      CoreStmt.collectInternalCallKeys stmt ++
+        CoreStmts.collectInternalCallKeys rest
+
+def CoreSwitchCases.collectInternalCallKeys :
+    List (SolidCore.Solidity.Source.Word × CoreStmt) -> List Name
+  | [] => []
+  | (_, stmt) :: rest =>
+      CoreStmt.collectInternalCallKeys stmt ++
+        CoreSwitchCases.collectInternalCallKeys rest
+
+def CoreTryCatchClauses.collectInternalCallKeys :
+    List SolidCore.Solidity.Source.TryCatchClause -> List Name
+  | [] => []
+  | SolidCore.Solidity.Source.TryCatchClause.clause _ _ body :: rest =>
+      CoreStmt.collectInternalCallKeys body ++
+        CoreTryCatchClauses.collectInternalCallKeys rest
+
+end
+
+/-- Demand-driven elaboration of helper table entries (function-boundary
+    refactor R1). `candidates` are value-boundary helper decls (super/base
+    helpers); an entry is elaborated only when its `internalTableKey?` is
+    demanded by an already-emitted body, iterating to a fixpoint (helper bodies
+    may demand further helpers). Fuel is `candidates.length + 1`: each
+    productive round elaborates at least one candidate, so the fuel suffices. -/
+def FunctionDecls.demandedHelperEntries
+    (elabHelper : FunctionDecl -> Option CoreFunctionDef) :
+    Nat -> List FunctionDecl -> List Name -> List CoreFunctionDef ->
+    Option (List CoreFunctionDef)
+  | 0, _, _, acc => some acc
+  | fuel + 1, candidates, demanded, acc =>
+      let hits := candidates.filter (fun fn =>
+        match FunctionDecl.internalTableKey? fn with
+        | some key => demanded.contains key
+        | none => false)
+      match hits with
+      | [] => some acc
+      | _ => do
+          let rest := candidates.filter (fun fn =>
+            match FunctionDecl.internalTableKey? fn with
+            | some key => !demanded.contains key
+            | none => true)
+          let newEntries ←
+            mapOption
+              (fun fn => do
+                let fd ← elabHelper fn
+                let key ← FunctionDecl.internalTableKey? fn
+                some { fd with name := key, selector? := none })
+              hits
+          let newKeys :=
+            concatMapList
+              (fun (fd : CoreFunctionDef) =>
+                CoreStmt.collectInternalCallKeys fd.body)
+              newEntries
+          FunctionDecls.demandedHelperEntries elabHelper fuel rest
+            (demanded ++ newKeys) (acc ++ newEntries)
+
 /-- Deduplicate internal-linkage table entries (selector-less) by name, keeping
     the first occurrence (most-derived, C3 order — base/derived contracts each
     emit an entry for an inherited value-boundary function under the same
@@ -18629,22 +18730,30 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   -- the splice-era treatment: bodies are already contextualized/super-free
   -- (`contextualSuperHelpers?`/`libraryHelperFunctions`), so no contract-name
   -- rewrites are re-run.
-  let helperInternalEntries ←
+  -- R1 perf: LIBRARY helpers are eager (small set; constructors may call them
+  -- via `using`), but SUPER/BASE helpers are elaborated ON DEMAND — the
+  -- candidate sets are O(#contracts x #functions) (`asBaseHelper?` maps every
+  -- function of every contract) while actual call sites are few, and eagerly
+  -- elaborating them all made whole-contract elaboration ~5x slower (measured
+  -- on the openzeppelin-erc20 lane: 7.3s -> 36s per eval). Demand is seeded
+  -- from every eagerly-emitted body and iterated to a fixpoint.
+  let elabHelper := fun (fn : FunctionDecl) =>
+    FunctionDecl.toCore?
+      storageNames constants stateEnv allContracts sourceUsingDecls
+      modifiers availableFunctions sourceFunctions fn
+      (superFunctions := []) (contractName? := none)
+      (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
+      (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+  let libraryInternalEntries ←
     filterMapOption
       (fun fn =>
         if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
-          let fd ←
-            FunctionDecl.toCore?
-              storageNames constants stateEnv allContracts sourceUsingDecls
-              modifiers availableFunctions sourceFunctions fn
-              (superFunctions := []) (contractName? := none)
-              (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
-              (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+          let fd ← elabHelper fn
           let key ← FunctionDecl.internalTableKey? fn
           some (some { fd with name := key, selector? := none })
         else
           some none)
-      (superHelpers ++ baseHelpers ++ libraryHelpers)
+      libraryHelpers
   -- Function-boundary refactor stage 2: value-boundary FREE functions also get
   -- selector-less table entries (they are resolved via the freeFunctions branch
   -- of `internalCallParts?` and node-emitted under the same `internalTableKey?`).
@@ -18667,10 +18776,20 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
         else
           some none)
       sourceFunctions
+  let eagerEntries :=
+    concatLists functionGroups ++ libraryInternalEntries ++ freeInternalEntries
+  let helperCandidates :=
+    (superHelpers ++ baseHelpers).filter
+      (fun fn => FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome)
+  let seedKeys :=
+    concatMapList
+      (fun (fd : CoreFunctionDef) => CoreStmt.collectInternalCallKeys fd.body)
+      eagerEntries
+  let demandedEntries ←
+    FunctionDecls.demandedHelperEntries elabHelper
+      (helperCandidates.length + 1) helperCandidates seedKeys []
   let functions :=
-    CoreFunctionDefs.dedupInternalByName
-      (concatLists functionGroups ++ helperInternalEntries ++
-        freeInternalEntries)
+    CoreFunctionDefs.dedupInternalByName (eagerEntries ++ demandedEntries)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←
