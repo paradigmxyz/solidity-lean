@@ -418,6 +418,9 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
         do
         let values ← decodeTupleValues? argData elementTys headIndex
         some (Value.tuple values)
+  -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
+  -- position (params/returns lower enums to `uint256` + `AbiCleanup.enum`).
+  | _fuel + 1, _, _, Ty.enumStorage _ => none
 
 def decodeValueAt? (argData : Bytes) (headIndex : Nat)
     (ty : Ty) : Option Value :=

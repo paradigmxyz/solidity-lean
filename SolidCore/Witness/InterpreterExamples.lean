@@ -16,13 +16,67 @@ namespace Source
 /-- Short witness: a two-external-call execution as an explicit interaction tree;
     `queryTranscript` exposes its two external-call queries. -/
 def phase5DemoTree (context : Context) : SolI (List LowLevelCallResult) := do
-  let r1 ← emitLowLevelCall context LowLevelCallKind.call 0xa11ce [0x11, 0x22] 0 none
-  let r2 ← emitLowLevelCall context LowLevelCallKind.call 0xb0b [0x33] 7 (some 50000)
+  let (r1, _) ← emitLowLevelCall context State.empty
+    LowLevelCallKind.call 0xa11ce [0x11, 0x22] 0 none
+  let (r2, _) ← emitLowLevelCall context State.empty
+    LowLevelCallKind.call 0xb0b [0x33] 7 (some 50000)
   pure [r1, r2]
 
 /-- The demo tree emits exactly two external-call queries. -/
 def phase5DemoTranscriptLength (context : Context) : Nat :=
   (SolI.queryTranscript 8 (contextAnswer context) (phase5DemoTree context)).length
+
+/-- openworld/postworld Stage 1 witness: the emitted query carries a REAL
+    `OpenWorld` snapshot — the self account holds the live storage, transient
+    storage, A2 `selfBalance`, `selfNonce`, and Context-seeded code; the log
+    series carries the emitted events; `createdAccounts` carries the Context
+    seed. Pinned against a non-default state so a regression to the old
+    `default` placeholder fails the build (see the `#eval` below). -/
+def snapshotWitnessContext : Context :=
+  { Context.empty with
+    self := 0xcafe
+    accountCodes := [(0xcafe, [0xfe, 0xed])]
+    accountBalances := [(0xd00d, 55)]
+    createdInTransactionAccounts := [0xbeef] }
+
+def snapshotWitnessState : State :=
+  { State.empty with
+    storage := [(1, 42)]
+    transient := [(2, 9)]
+    selfBalance := 77
+    selfNonce := 3
+    events :=
+      [{ name := "Ping", indexed := [], data := [],
+         topics := [5], dataBytes := [1] }] }
+
+def snapshotWitnessWorld : SolidCore.Solidity.Shared.OpenWorld :=
+  snapshotWorld snapshotWitnessContext snapshotWitnessState
+
+def snapshotWitnessMatches : Bool :=
+  -- The emitted query's world is exactly `snapshotWorld` of the emit state.
+  let emitted :=
+    match emitLowLevelCall snapshotWitnessContext snapshotWitnessState
+        LowLevelCallKind.call 0xd00d [] 0 none with
+    | .request (EvmCompiler.Simulation.Query.external world _) _ =>
+        some world
+    | _ => none
+  match emitted with
+  | none => false
+  | some world =>
+      match world.accounts.find? (wordToAddress 0xcafe) with
+      | none => false
+      | some self =>
+          u256ToWord self.balance == 77 &&
+          u256ToWord self.nonce == 3 &&
+          (self.storage.find? (wordToU256 1)).map u256ToWord == some 42 &&
+          (self.transientStorage.find? (wordToU256 2)).map u256ToWord ==
+            some 9 &&
+          byteArrayToBytes self.codeBytes == [0xfe, 0xed] &&
+          (match world.accounts.find? (wordToAddress 0xd00d) with
+           | some other => u256ToWord other.balance == 55
+           | none => false) &&
+          world.substate.logSeries.size == 1 &&
+          world.createdAccounts.contains (wordToAddress 0xbeef)
 
 def uint256 (name : String) : BindingDecl :=
   { name, ty := Ty.uint256 }
@@ -255,3 +309,13 @@ def writesThenRevertsCall : Option CallResult :=
 end Source
 end Solidity
 end SolidCore
+
+/- Build-time machine-check (same pattern as Phase5Demo): fails the library
+   build if outgoing snapshots regress to the checkpoint-1 `default`
+   placeholder. -/
+#eval
+  if SolidCore.Solidity.Source.snapshotWitnessMatches then
+    (pure () : IO Unit)
+  else
+    throw (IO.userError
+      "snapshotWitnessMatches failed: outgoing OpenWorld snapshot regressed")

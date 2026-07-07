@@ -1715,3 +1715,201 @@ reproved), full replay `forge_interpreter_compare=pass`, `cases=101`,
 call chains (recursion-gap), balance accounting (balance-accounting), packed
 narrow-int hashing, shift truncation, signed exponentiation, rational constants,
 and the fail-closed ecdsa precompile rows.
+
+## 2026-07-07 — openworld/postworld Stage 0: total, solc-faithful typed storage reads
+
+Per `docs/openworld-postworld-plan.md` §2.6 (orchestrator ruling #2: typed reads
+of non-canonical storage words are TOTAL and solc-faithful, never fail-closed).
+Ground truth: solc 0.8.35 `--ir` probes (`/tmp/solc-probes/EnumUse.yul`) — the
+storage read pipeline `read_from_storage_split → cleanup_from_storage_t_X` never
+reverts for any type; validation happens at *use* sites via `cleanup_t_X`.
+
+Fixes landed (`Ty.storageValueFromWord?`, `Interpreter.lean`):
+
+- **bool**: fail-closed reject of w ∉ {0,1} → total `and(w,0xff)` +
+  truthiness; canonicalized to {0,1} on read (observationally identical to
+  solc's read-mask + use-site `iszero(iszero(·))`; a non-canonical bool is
+  unobservable).
+- **address**: no mask → `and(w, 2^160-1)` on read.
+- **bytesN**: identity → mask to the low 8N bits (our internal convention is
+  right-aligned; solc's `shl(256-8N,w)` drops the same bits above the lane).
+- **enum**: the big one. New Source-layer `Ty.enumStorage (maxValue)`, produced
+  ONLY in storage layouts (`Ty.toCoreStorageLayout?`/`toCoreStorageMemberLayout?`
+  lower AST `Ty.enum` to it; ABI params/returns/locals keep the erased
+  `uint256` + `AbiCleanup.enum` lowering). Read masks the lane byte and is
+  total; an in-range word stays a bare `Value.word` (zero representation change
+  on canonical data), an out-of-range word is wrapped
+  `Value.abiLazy (AbiCleanup.enumStorage max)` — a *deferred use-site
+  validator*. Forcing an `enumStorage` cleanup rejects with **Panic(0x21)**
+  (`validator_assert_t_enum`), while the calldata-decode `AbiCleanup.enum`
+  keeps the **empty revert** (`validator_revert_t_enum`) — solc has BOTH
+  validators and the abi-malformed Forge lane pins the empty calldata one.
+  Use-site forcing added at `BinaryOp.apply` (comparisons/arithmetic),
+  `uintCast?`/`intCast?`/`uintCleanup?`/`intCleanup?` (conversions),
+  `enumFromUIntValue` (enum-to-enum revalidation), and `coerceStorageWordAs`
+  (storage writes; solc's `update_storage_value` validates) — returns/getters
+  already force through `collectReturnBindings`' deref. A bare load-and-drop
+  (`E x = e; x;`) stays silent, exactly like solc's `fun_loadOnly` probe.
+- **intN / function-type**: verified already faithful on this tree
+  (`intCast?` is total on the packed lane; `externalFunctionValueFromStorageWord`
+  already masks the address to 160 bits via `Account.addressWord`). Pinned by
+  lanes, no code change.
+
+Known corners (documented, not lane-pinned): an out-of-range storage enum
+reaching `abi.encode`/event-data encoding directly (without a variable read or
+return in between) rejects through the Option-typed encoders as a generic
+revert rather than Panic(0x21); solc timing places the panic at the encode.
+Revisit only if a fixture ever observes it.
+
+**Lane**: new paired case `storage-dirty-words` (corpus 101 → 102): Forge
+plants non-canonical words via `vm.store` (bool slot=2 truthy / high-bits-only
+falsy; enum slot=7 → Panic 0x21 from getter, `==` compare, and `uint256(·)`
+conversion; enum `2^200+1` → masked in-range read; address high-bit drop;
+bytes4 lane mask; packed uint8/int8 mask + signextend), Lean plants the same
+words via `State.storeSlot` on the solc-AST-imported contract — 5 Forge tests
++ 15 paired Lean evals, all green via `--only storage-dirty-words`.
+
+This stage is independent of the postWorld arc but is what makes wholesale
+`postWorld` adoption total: any word the environment writes into our storage
+now has defined, solc-faithful read semantics.
+
+## 2026-07-07 — openworld/postworld Stage 1: real outgoing `OpenWorld` snapshots
+
+`emitLowLevelCall`/`emitContractCreation` (and the precompile wrapper) now
+carry `snapshotWorld context state` in every `Query.external`, replacing the
+checkpoint-1 `default` placeholder — the mirror of Yul's `callEval`/`createEval`
+→ `ofYulShared`. The snapshot is a pure projection (plan §2.1):
+
+- self account: `State.storage`/`State.transient` verbatim (slot ↦ word into
+  `EvmYul.Storage`), A2 `State.selfBalance`, new `State.selfNonce := 0`
+  (carried so the adoption round-trip law will hold field-wise; nothing reads
+  it), code from `Context.accountCodes`;
+- other accounts: one `OpenAccount` per Context-seeded address — balance/code
+  from the seed maps, storage/transient empty (we assert nothing), nonce 0;
+- substate: `logSeries` = `State.logEntries` projection, `selfDestructSet`
+  from `State.selfdestructs`; access sets/refund `default` (declared fidelity
+  gap, recorded not hidden);
+- `createdAccounts` from `Context.createdInTransactionAccounts`.
+
+Emit helpers gained a `state : State` parameter; the six evaluator call sites
+pass the post-argument-evaluation `runtime'.state`. Corpus-neutrality verified
+by full replay (matchers key on kind/target/calldata/value/gas only and every
+`Query.external` match wildcards the world) — zero fixture edits. New
+build-time witness `snapshotWitnessMatches` (Witness/InterpreterExamples.lean)
+pins a non-default snapshot: live storage/transient words, balance 77,
+nonce 3, code bytes, one log entry, a seeded other-account balance, and a
+created-accounts seed all appear in the emitted query; a regression to the
+`default` placeholder fails `lake build SolidCore`.
+
+## 2026-07-07 — openworld/postworld Stage 2: wholesale postWorld adoption, echo answers
+
+The arbitrary-changes model is wired end to end (mirror of Yul's
+`withWorldAndMachine` → `installYulShared`), behavior-preserving by
+construction under the echo convention:
+
+- **Adoption** (`adoptWorld`): on every call/create resume, the answered
+  `postWorld`'s self account lands on the existing `State` fields — ordinary
+  slot-keyed wholesale replacement of the `WordMap`s (ruling #1: no
+  representation change), `selfBalance` (A2's field), `selfNonce`. Self absent
+  from the answered accounts ⇒ the empty account (total, like
+  `installYulAccounts`). The answered world is retained VERBATIM in
+  `State.envWorld?`, which owns the other-account facts, self code, substate
+  extras, and `createdAccounts` after adoption; the four Context maps are now
+  documented seed-only, and env reads (`.balance` of others, `.code`,
+  `.codehash`, extcodesize-style checks, created-accounts set) route through
+  `State.env*` accessors (adopted world first, seeds pre-adoption — risk R3's
+  single-accessor mitigation).
+- **Snapshot after adoption**: `worldMutatedSinceAdoption` (set by every State
+  mutator) selects between returning `envWorld?` VERBATIM (nothing mutated) and
+  overlaying it with the live self account + canonical log series +
+  new selfdestruct records.
+- **Logs** (risk R1, split-point variant): canonical series =
+  `adoptedLogPrefix ++ (events.drop adoptedEventCount)` projection — `events`
+  stays CUMULATIVE, so every existing `state.events` assertion is untouched
+  (audited: full replay green with zero fixture edits). Same split-point
+  pattern for the selfdestruct set. Callee logs arrive by adoption of the
+  answered series — logs are substate, not caller-local (risk R2: a fixture
+  asserting "logs survive calls" asserts a property of the responder, not the
+  semantics).
+- **Echo everywhere**: `ScriptedResponder.answerCall?/answerCreate?` now take
+  the sent world and answer `postWorld := sent world` for delta-less rows —
+  `Query.defaultAnswer`'s convention (`contextAnswer` already had it). The
+  world never participates in row MATCHING (fail-closed rules unchanged).
+  A failed create echoes automatically (risk R7). A2's debit stays in
+  `recordExternalInteraction` at this stage (pure echo + existing debit =
+  today's behavior; the §3.1 debit fold happens at Stage 3 when the
+  responder computes post-debit worlds and the record-side debit is deleted —
+  the plan's "+ A2-debit fold" is sequenced there to avoid double-counting).
+
+**Round-trip laws (proved, `SolidCore/Solidity/AdoptionLaws.lean`)**:
+
+- `snapshotWorld_adoptWorld : snapshotWorld context (adoptWorld w context s) = w`
+  — for EVERY `w`, with plain `=` (the exact mirror of
+  `ofYulShared_installYulShared`). Exactness comes from verbatim retention:
+  adopt keeps the world, an unmutated snapshot returns it unchanged — the same
+  no-surgery design as the Yul side.
+- `adoptWorld_idempotent`.
+- `adoptWorld_echo_noop`: on the rebuild branches (pre-adoption or mutated),
+  adopting the echo of your own snapshot preserves every observable component:
+  `loadSlot`/`loadTransientSlot` extensionally (up to `norm`, which every read
+  applies; canonical stores are already normalized), balance/nonce up to
+  `norm`, and `events`/`externalInteractions`/`immutables`/`selfdestructs`
+  exactly. Adopted-clean states are covered exactly by the first two laws.
+  Proof infrastructure: `Std.TransCmp`/`Std.LawfulEqCmp` bridge instances for
+  the shared `UInt256`'s derived `Ord`, a foldr-based `wordMapToStorage`
+  (first-occurrence semantics aligned with `WordMap.lookup?`), and an
+  RBMap-`toList`/`find?` correspondence via Batteries' sortedness lemmas.
+
+Gate: `lake build SolidCore` green (laws included), full replay `--jobs 10`
+green with ZERO fixture edits (echo adoption is invisible to the corpus, as
+the laws predict).
+
+## 2026-07-07 — openworld/postworld Stage 3: PostDelta responder rows, reentrancy lanes, A2-debit fold
+
+The flip: responder rows can now carry real world changes, and the A2 debit
+moved into adoption. Behavior-preserving for delta-less rows.
+
+- **`PostDelta`** on responder rows (`OracleRow.callWithPost`/`createWithPost`):
+  model-level, ordinary slot-keyed writes into the same maps (ruling #1) —
+  `selfStorageWrites`, `selfTransientWrites`, `selfBalance?` (absolute),
+  `selfNonce?`, `otherAccounts` (balance/code of others), `appendLogs`,
+  `createdAccounts`. `PostDelta.apply self base` layers them onto the echo
+  world; `answerCall?`/`answerCreate?` compute
+  `postWorld := PostDelta.apply self (debit-folded echo) delta`.
+- **A2 debit fold**: the value-transfer debit left `recordExternalInteraction`
+  (which now only records the interaction transcript) and became
+  `OpenWorld.debitSelf` applied to the echoed world inside the responder,
+  gated by the same success/kind table (`ExternalInteraction.selfBalanceDebit`).
+  A row's explicit `selfBalance?` REPLACES the debit (no double-count) — this
+  is what lets the balance-refunding lane pin that adoption, not the debit, is
+  authoritative. Delta-less rows: debit-folded echo == the old
+  record-side debit + echo, so the full corpus is unchanged (verified by
+  replay: balance witnesses green, zero edits). `answerCreate?` also rejects an
+  ill-formed row (failed create + nonempty delta, risk R7) fail-closed.
+- **`reentrancy-adoption` lane** (corpus 102 → 103): the ReentrancyAdoption
+  Forge fixture runs REAL reentering callees and the deltas are derived from
+  its trace (Forge is ground truth):
+  1. reentrant-storage-write — attacker reenters `setX(42)`; `pull()` returns
+     42 and `x()` reads 42 after (`post.selfStorageWrites := [(0,42)]`).
+  2. reentrant-ill-encoded-then-read — the reentering world plants `flag=2`
+     (slot 1) / `choice=7` (slot 3); post-call the bool getter reads truthy
+     (1) and the enum getter Panics 0x21 — Stage 0 total reads exercised
+     THROUGH Stage 3 adoption (the marquee lane).
+  3. balance-changing-callee — victim funded 100, spends 40, callee refunds 20;
+     `post.selfBalance? := 80` overrides the naive 60 debit; `spend()` reads 80.
+  4. transient-storage-mutation — `tk:=1`, callee reenters `bump()`;
+     `post.selfTransientWrites := [(0,2)]`; observed `tk == 2`.
+  5. create-with-reentry — child constructor reenters `setX(7)`; create row +
+     `post.selfStorageWrites := [(0,7)]`; `deploy()` returns 7, `x()` reads 7.
+  All five Forge tests green; all five paired Lean evals green; storage layout
+  (flag/choice slot packing) and the missing `receive()` were both Forge
+  ground-truth corrections, not papered over.
+
+This **supersedes** the Phase 5 fail-closed re-projection policy of
+`docs/DECISIONS.md:310-319` and the ROADMAP self-storage "fail-closed
+re-projection" resolution: with Stage 0 total reads there is no layout-encoding
+inverse and no environment well-formedness hypothesis — the arbitrary-changes
+model is exact and the round-trip law is `=`.
+
+Gate: `lake build SolidCore` green, `--only reentrancy-adoption` green, full
+replay `--jobs 10` green (103 cases, zero pre-existing fixture edits).
