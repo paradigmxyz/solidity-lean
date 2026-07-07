@@ -6152,6 +6152,7 @@ inductive Stmt where
   | requireErrorExpr : Expr -> Expr -> Stmt
   | requireCustom : Expr -> String -> List Expr -> Stmt
   | captureReturn : List String -> Stmt -> Stmt
+  | internalCall : List String -> String -> List Expr -> Stmt
   | ifElse : Expr -> Stmt -> Stmt -> Stmt
   | switch : Expr -> List (Word × Stmt) -> Option Stmt -> Stmt
   | whileLoop : Expr -> Stmt -> Stmt
@@ -6364,9 +6365,98 @@ def Stmt.findSwitchBranch? (value : Word)
     (cases : List (Word × Stmt)) : Option Stmt :=
   (Stmt.findSwitchCase? value cases).map Prod.snd
 
+/-- The evaluator-visible representation of an internal-linkage function
+    (contract-internal / free / library-internal / `using` / `super`). Distinct
+    from `FunctionDef`, which additionally carries entry-only concerns
+    (`selector?`, `payable`, `paramAbiCleanups`). Introduced by the
+    function-boundary refactor (`docs/function-boundary-refactor-plan.md` §2.2):
+    internal calls become `Stmt.internalCall` nodes keyed by `name` into a
+    `FunctionTable`, instead of being spliced inline at elaboration. -/
+structure InternalFunction where
+  name : String
+  params : List BindingDecl
+  returns : List BindingDecl
+  body : Stmt
+  deriving Repr
+
+/-- The evaluator-visible table of internal-linkage functions, looked up by
+    name. Threaded as an explicit parameter of the `Stmt.eval` mutual block: it
+    cannot live in `Context` (defined long before `Stmt`/`FunctionDef`, and
+    `InternalFunction.body : Stmt`). -/
+abbrev FunctionTable := List InternalFunction
+
+def FunctionTable.lookup? (table : FunctionTable) (name : String) :
+    Option InternalFunction :=
+  List.find? (fun fn => fn.name == name) table
+
+def InternalFunction.returnDefaultBindings (fn : InternalFunction) : Frame :=
+  fn.returns.map BindingDecl.defaultBinding
+
+/-- Build the isolated callee frame: parameters bound to (coerced) argument
+    values, followed by named/return locals defaulted. Mirrors
+    `FunctionDef.initialFrame?` (the entry-frame builder) exactly. -/
+def InternalFunction.initialFrame? (fn : InternalFunction)
+    (args : List Value) : Option Frame :=
+  match BindingDecl.bindArgs? fn.params args with
+  | some params => some (params ++ fn.returnDefaultBindings)
+  | none => none
+
+/-- Collect the *named* return values from a finished callee runtime, coercing
+    each to its declared type. Shared by the entry mapping
+    (`FunctionDef.callBodyResult`, via `FunctionDef.collectReturns`) and the
+    in-frame internal-call arm so the two cannot drift (refactor risk R3). -/
+def collectReturnBindings (returns : List BindingDecl)
+    (runtime : Runtime) : Except RevertData (List Value) :=
+  let rec collect : List BindingDecl -> Except RevertData (List Value)
+    | [] => Except.ok []
+    | decl :: rest => do
+        let value ←
+          match runtime.lookupLocal? decl.name with
+          | some value => runtime.derefMemoryValueDeep value
+          | none => Except.error RevertData.typeMismatch
+        let value ←
+          match decl.ty.coerceValue? value with
+          | some coerced => Except.ok coerced
+          | none => Except.error RevertData.typeMismatch
+        let values ← collect rest
+        Except.ok (value :: values)
+  collect returns
+
+/-- Coerce *explicitly returned* values to the declared return types. Shared by
+    the entry mapping (via `FunctionDef.coerceReturnValues`) and the
+    internal-call arm (refactor risk R3). -/
+def coerceReturnBindings (returns : List BindingDecl)
+    (runtime : Runtime) (values : List Value) :
+    Except RevertData (List Value) :=
+  let rec coerce :
+      List BindingDecl -> List Value -> Except RevertData (List Value)
+    | [], [] => Except.ok []
+    | decl :: decls, value :: rest => do
+        let value ← runtime.derefMemoryValueDeep value
+        let head ←
+          match decl.ty.coerceValue? value with
+          | some coerced => Except.ok coerced
+          | none => Except.error RevertData.typeMismatch
+        let tail ← coerce decls rest
+        Except.ok (head :: tail)
+    | _, _ => Except.error RevertData.typeMismatch
+  coerce returns values
+
+/-- Write an internal call's coerced return values into the caller's target
+    locals (already declared by elaboration). Empty targets discard the values
+    (statement-position call). Mirrors `Stmt.captureReturn`'s assignment. -/
+def internalCallAssign (runtime : Runtime) (targets : List String)
+    (values : List Value) : SolI Result :=
+  if targets.isEmpty then
+    pure (Result.normal runtime)
+  else
+    match runtime.assignNamedValues? targets values with
+    | some updated => pure (Result.normal updated)
+    | none => pure (Result.reverted runtime RevertData.typeMismatch)
+
 mutual
 
-def Stmt.eval (fuel : Nat) (context : Context)
+def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
     (runtime : Runtime) : Stmt -> SolI Result :=
   match fuel with
   | 0 => fun _ => throw SolidityFailure.outOfFuel
@@ -6374,7 +6464,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
       match stmt with
       | Stmt.skip => pure (Result.normal runtime)
       | Stmt.block body => do
-          let result ← Stmt.evalList fuel context runtime.pushScope body
+          let result ← Stmt.evalList fuel table context runtime.pushScope body
           pure (result.mapRuntime Runtime.popScope)
       | Stmt.varDecl ty name init =>
           match init with
@@ -6936,7 +7026,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.captureReturn returnNames body => do
-          match ← Stmt.eval fuel context runtime body with
+          match ← Stmt.eval fuel table context runtime body with
           | Result.returned runtime' values =>
               if values.isEmpty || returnNames.isEmpty then
                 pure (Result.normal runtime')
@@ -6945,6 +7035,57 @@ def Stmt.eval (fuel : Nat) (context : Context)
                 | some updated => pure (Result.normal updated)
                 | none => pure (Result.reverted runtime' RevertData.typeMismatch)
           | result => pure result
+      | Stmt.internalCall targets callee args => do
+          -- In-monad framed internal call (no query emitted; transcript
+          -- invariant). See `docs/function-boundary-refactor-plan.md` §3.1.
+          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime args).caught with
+          | Except.error err => pure (Result.reverted runtime err)
+          | Except.ok (argValues, runtime') =>
+              match table.lookup? callee with
+              | none => pure (Result.reverted runtime' RevertData.typeMismatch)
+              | some fn =>
+                  match fn.initialFrame? argValues with
+                  | none => pure (Result.reverted runtime' RevertData.typeMismatch)
+                  | some frame =>
+                      -- Frame isolation: REPLACE locals (not pushScope); state
+                      -- (storage/memory/events/transient) is shared.
+                      let savedLocals := runtime'.locals
+                      let calleeRuntime := { runtime' with locals := [frame] }
+                      match ← Stmt.eval fuel table context calleeRuntime fn.body with
+                      | Result.returned r values =>
+                          -- Map exactly as `FunctionDef.callBodyResult` (R3):
+                          -- bare `return;` (empty) collects named returns;
+                          -- explicit values are coerced to declared returns.
+                          match
+                            (if values.isEmpty then
+                                collectReturnBindings fn.returns r
+                              else
+                                coerceReturnBindings fn.returns r values)
+                          with
+                          | Except.ok values =>
+                              internalCallAssign
+                                { r with locals := savedLocals } targets values
+                          | Except.error err => pure (Result.reverted r err)
+                      | Result.normal r =>
+                          match collectReturnBindings fn.returns r with
+                          | Except.ok values =>
+                              internalCallAssign
+                                { r with locals := savedLocals } targets values
+                          | Except.error err => pure (Result.reverted r err)
+                      | Result.selfdestructed r =>
+                          -- Halts the whole external frame; propagate until the
+                          -- entry `callBodyResult` maps it to `returned []`.
+                          pure (Result.selfdestructed r)
+                      | Result.reverted r err =>
+                          -- Propagate; rollback happens at the entry snapshot.
+                          pure (Result.reverted r err)
+                      | Result.broke r =>
+                          -- A callee cannot break the caller's loop; fixes the
+                          -- latent `captureReturn` passthrough (§1.2 / R3).
+                          pure (Result.reverted r RevertData.typeMismatch)
+                      | Result.continued r =>
+                          pure (Result.reverted r RevertData.typeMismatch)
       | Stmt.ifElse cond thenBranch elseBranch => do
           match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
               context runtime cond).caught with
@@ -6952,9 +7093,9 @@ def Stmt.eval (fuel : Nat) (context : Context)
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
-                    Stmt.eval fuel context runtime' thenBranch
+                    Stmt.eval fuel table context runtime' thenBranch
                   else
-                    Stmt.eval fuel context runtime' elseBranch
+                    Stmt.eval fuel table context runtime' elseBranch
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.switch discr cases defaultBranch => do
@@ -6964,20 +7105,20 @@ def Stmt.eval (fuel : Nat) (context : Context)
               match value.expectWord with
               | Except.ok word =>
                   match Stmt.findSwitchBranch? word cases, defaultBranch with
-                  | some branch, _ => Stmt.eval fuel context runtime' branch
-                  | none, some branch => Stmt.eval fuel context runtime' branch
+                  | some branch, _ => Stmt.eval fuel table context runtime' branch
+                  | none, some branch => Stmt.eval fuel table context runtime' branch
                   | none, none => pure (Result.normal runtime')
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.whileLoop cond body =>
-          Stmt.evalWhile fuel context runtime cond body
+          Stmt.evalWhile fuel table context runtime cond body
       | Stmt.doWhile body cond =>
-          Stmt.evalDoWhile fuel context runtime body cond
+          Stmt.evalDoWhile fuel table context runtime body cond
       | Stmt.forLoop init cond post body => do
           let loopRuntime := runtime.pushScope
-          match ← Stmt.eval fuel context loopRuntime init with
+          match ← Stmt.eval fuel table context loopRuntime init with
           | Result.normal initialized =>
-              let result ← Stmt.evalFor fuel context initialized cond post body
+              let result ← Stmt.evalFor fuel table context initialized cond post body
               pure (result.mapRuntime Runtime.popScope)
           | result => pure (result.mapRuntime Runtime.popScope)
         | Stmt.tryExternalCall kind targetExpr calldataExpr valueExpr
@@ -7080,7 +7221,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                               match BindingDecl.bindArgs?
                                                   returns decoded with
                                               | some frame => do
-                                                  let result ← Stmt.eval fuel context
+                                                  let result ← Stmt.eval fuel table context
                                                       (runtimeWithInteraction.withFrame
                                                         frame)
                                                       successBody
@@ -7106,7 +7247,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                         match TryCatchClause.findMatch?
                                             output catchClauses with
                                         | some (frame, body) => do
-                                            let result ← Stmt.eval fuel context
+                                            let result ← Stmt.eval fuel table context
                                                 (runtimeWithInteraction.withFrame
                                                   frame) body
                                             pure
@@ -7163,7 +7304,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                     [Value.word address]
                                 match BindingDecl.bindArgs? returns values with
                                 | some frame => do
-                                    let result ← Stmt.eval fuel context
+                                    let result ← Stmt.eval fuel table context
                                           (runtimeWithInteraction.withFrame frame)
                                           successBody
                                     pure
@@ -7177,7 +7318,7 @@ def Stmt.eval (fuel : Nat) (context : Context)
                                   match TryCatchClause.findMatch?
                                       output catchClauses with
                                   | some (frame, body) => do
-                                      let result ← Stmt.eval fuel context
+                                      let result ← Stmt.eval fuel table context
                                           (runtimeWithInteraction.withFrame frame)
                                           body
                                       pure
@@ -7249,20 +7390,20 @@ def Stmt.eval (fuel : Nat) (context : Context)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.checked body =>
-          Stmt.eval fuel { context with checked := true } runtime body
+          Stmt.eval fuel table { context with checked := true } runtime body
       | Stmt.unchecked body =>
-          Stmt.eval fuel { context with checked := false } runtime body
+          Stmt.eval fuel table { context with checked := false } runtime body
 
-def Stmt.evalList (fuel : Nat) (context : Context)
+def Stmt.evalList (fuel : Nat) (table : FunctionTable) (context : Context)
     (runtime : Runtime) : List Stmt -> SolI Result
   | [] => pure (Result.normal runtime)
   | stmt :: rest => do
-      match ← Stmt.eval fuel context runtime stmt with
+      match ← Stmt.eval fuel table context runtime stmt with
       | Result.normal runtime' =>
-          Stmt.evalList fuel context runtime' rest
+          Stmt.evalList fuel table context runtime' rest
       | result => pure result
 
-def Stmt.evalWhile (fuel : Nat) (context : Context)
+def Stmt.evalWhile (fuel : Nat) (table : FunctionTable) (context : Context)
     (runtime : Runtime) (cond : Expr) (body : Stmt) :
     SolI Result :=
   match fuel with
@@ -7274,11 +7415,11 @@ def Stmt.evalWhile (fuel : Nat) (context : Context)
           match value.expectWord with
           | Except.ok word =>
               if wordTruthy word then
-                match ← Stmt.eval fuel context runtime' body with
+                match ← Stmt.eval fuel table context runtime' body with
                 | Result.normal runtime' =>
-                    Stmt.evalWhile fuel context runtime' cond body
+                    Stmt.evalWhile fuel table context runtime' cond body
                 | Result.continued runtime' =>
-                    Stmt.evalWhile fuel context runtime' cond body
+                    Stmt.evalWhile fuel table context runtime' cond body
                 | Result.broke runtime' =>
                     pure (Result.normal runtime')
                 | result => pure result
@@ -7287,13 +7428,13 @@ def Stmt.evalWhile (fuel : Nat) (context : Context)
           | Except.error err => pure (Result.reverted runtime' err)
       | Except.error err => pure (Result.reverted runtime err)
 
-def Stmt.evalDoWhile (fuel : Nat) (context : Context)
+def Stmt.evalDoWhile (fuel : Nat) (table : FunctionTable) (context : Context)
     (runtime : Runtime) (body : Stmt) (cond : Expr) :
     SolI Result :=
   match fuel with
   | 0 => throw SolidityFailure.outOfFuel
   | fuel + 1 => do
-      match ← Stmt.eval fuel context runtime body with
+      match ← Stmt.eval fuel table context runtime body with
       | Result.normal runtime' =>
           match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
               context runtime' cond).caught with
@@ -7301,7 +7442,7 @@ def Stmt.evalDoWhile (fuel : Nat) (context : Context)
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
-                    Stmt.evalDoWhile fuel context runtime'' body cond
+                    Stmt.evalDoWhile fuel table context runtime'' body cond
                   else
                     pure (Result.normal runtime'')
               | Except.error err => pure (Result.reverted runtime'' err)
@@ -7313,7 +7454,7 @@ def Stmt.evalDoWhile (fuel : Nat) (context : Context)
               match value.expectWord with
               | Except.ok word =>
                   if wordTruthy word then
-                    Stmt.evalDoWhile fuel context runtime'' body cond
+                    Stmt.evalDoWhile fuel table context runtime'' body cond
                   else
                     pure (Result.normal runtime'')
               | Except.error err => pure (Result.reverted runtime'' err)
@@ -7322,7 +7463,7 @@ def Stmt.evalDoWhile (fuel : Nat) (context : Context)
           pure (Result.normal runtime')
       | result => pure result
 
-def Stmt.evalFor (fuel : Nat) (context : Context)
+def Stmt.evalFor (fuel : Nat) (table : FunctionTable) (context : Context)
     (runtime : Runtime) (cond : Expr) (post : Stmt) (body : Stmt) :
     SolI Result :=
   match fuel with
@@ -7334,16 +7475,16 @@ def Stmt.evalFor (fuel : Nat) (context : Context)
           match value.expectWord with
           | Except.ok word =>
               if wordTruthy word then
-                match ← Stmt.eval fuel context runtime' body with
+                match ← Stmt.eval fuel table context runtime' body with
                 | Result.normal runtime' =>
-                    match ← Stmt.eval fuel context runtime' post with
+                    match ← Stmt.eval fuel table context runtime' post with
                     | Result.normal posted =>
-                        Stmt.evalFor fuel context posted cond post body
+                        Stmt.evalFor fuel table context posted cond post body
                     | result => pure result
                 | Result.continued runtime' =>
-                    match ← Stmt.eval fuel context runtime' post with
+                    match ← Stmt.eval fuel table context runtime' post with
                     | Result.normal posted =>
-                        Stmt.evalFor fuel context posted cond post body
+                        Stmt.evalFor fuel table context posted cond post body
                     | result => pure result
                 | Result.broke runtime' =>
                     pure (Result.normal runtime')
@@ -7403,39 +7544,26 @@ def FunctionDef.entryInitialFrame? (function : FunctionDef)
   else
     none
 
+-- Return-value extraction is shared with the internal-call arm via
+-- `collectReturnBindings`/`coerceReturnBindings` (single source of truth so the
+-- entry mapping and the framed internal call cannot drift — refactor risk R3).
 def FunctionDef.collectReturns (function : FunctionDef)
     (runtime : Runtime) : Except RevertData (List Value) :=
-  let rec collect : List BindingDecl -> Except RevertData (List Value)
-    | [] => Except.ok []
-    | decl :: rest => do
-        let value ←
-          match runtime.lookupLocal? decl.name with
-          | some value => runtime.derefMemoryValueDeep value
-          | none => Except.error RevertData.typeMismatch
-        let value ←
-          match decl.ty.coerceValue? value with
-          | some coerced => Except.ok coerced
-          | none => Except.error RevertData.typeMismatch
-        let values ← collect rest
-        Except.ok (value :: values)
-  collect function.returns
+  collectReturnBindings function.returns runtime
 
 def FunctionDef.coerceReturnValues (function : FunctionDef)
     (runtime : Runtime) (values : List Value) :
     Except RevertData (List Value) :=
-  let rec coerce :
-      List BindingDecl -> List Value -> Except RevertData (List Value)
-    | [], [] => Except.ok []
-    | decl :: decls, value :: rest => do
-        let value ← runtime.derefMemoryValueDeep value
-        let head ←
-          match decl.ty.coerceValue? value with
-          | some coerced => Except.ok coerced
-          | none => Except.error RevertData.typeMismatch
-        let tail ← coerce decls rest
-        Except.ok (head :: tail)
-    | _, _ => Except.error RevertData.typeMismatch
-  coerce function.returns values
+  coerceReturnBindings function.returns runtime values
+
+/-- Project the entry-only `FunctionDef` onto the evaluator-visible
+    `InternalFunction` used as a `FunctionTable` key (drops `selector?`,
+    `payable`, `paramAbiCleanups`). -/
+def FunctionDef.toInternal (function : FunctionDef) : InternalFunction :=
+  { name := function.name
+    params := function.params
+    returns := function.returns
+    body := function.body }
 
 def FunctionDef.callBodyResult (function : FunctionDef)
     (state : State) : Result -> CallResult
@@ -7468,24 +7596,27 @@ def FunctionDef.callBodyResult (function : FunctionDef)
 /-- Enter a function body. `none` means a *static* absence (value not accepted
     or arity/frame construction failed) — NOT an effect; the returned tree
     encodes execution. -/
-def FunctionDef.evalBodyEntry (fuel : Nat) (context : Context)
+def FunctionDef.evalBodyEntry (fuel : Nat) (table : FunctionTable)
+    (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
     Option (SolI Result) :=
   if function.acceptsValue context.value then
     match function.initialFrame? args with
     | some frame =>
         let runtime : Runtime := { state, locals := [frame] }
-        some (Stmt.eval fuel context runtime function.body)
+        some (Stmt.eval fuel table context runtime function.body)
     | none => none
   else
     some
       (pure (Result.reverted (Runtime.ofState state) RevertData.empty))
 
-/-- Execute a function call as an interaction tree; `none` is static absence. -/
-def FunctionDef.call (fuel : Nat) (context : Context)
+/-- Execute a function call as an interaction tree; `none` is static absence.
+    `table` is the internal-linkage function table the body's `internalCall`
+    nodes resolve against (§2.2). -/
+def FunctionDef.call (fuel : Nat) (table : FunctionTable) (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
     Option (SolI CallResult) :=
-  (function.evalBodyEntry fuel context state args).map
+  (function.evalBodyEntry fuel table context state args).map
     (Functor.map (function.callBodyResult state))
 
 /-- Frozen adapter: fold the call tree **fail-closed** under an empty responder
@@ -7497,10 +7628,10 @@ def FunctionDef.call (fuel : Nat) (context : Context)
     → `none`) instead of silently continuing on a fail-open failed call. On the
     query-free paths `.error` can only be `.outOfFuel` by construction (reverts
     are caught into `Result.reverted` values below); both are matched totally. -/
-def FunctionDef.call? (fuel : Nat) (context : Context)
+def FunctionDef.call? (fuel : Nat) (table : FunctionTable) (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
     Option CallResult :=
-  (function.call fuel context state args).bind fun tree =>
+  (function.call fuel table context state args).bind fun tree =>
     match SolI.runWith [] tree with
     | .ok result => some result
     | .error _ => none
@@ -7508,10 +7639,15 @@ def FunctionDef.call? (fuel : Nat) (context : Context)
 /-- Witness adapter: fold the call tree under a fail-open responder
     (`SolI.runFailOpen`) — rows answer matched requests, misses fail-open to
     the default (failure) answer, mirroring the retired context oracle. -/
+-- `table` is last with a default so the ~24 external-effect witness call sites
+-- (which pass no table) keep compiling. Correct while elaboration still splices
+-- (stages 0–1: bodies contain no `internalCall` nodes, so the table is unused);
+-- the stage-2 switch to node emission passes the real `contract.table` at the
+-- sites whose bodies gain internal calls, guarded by the full replay.
 def FunctionDef.callFailOpen? (fuel : Nat) (responder : ScriptedResponder)
     (context : Context) (function : FunctionDef) (state : State)
-    (args : List Value) : Option CallResult :=
-  (function.call fuel context state args).bind fun tree =>
+    (args : List Value) (table : FunctionTable := []) : Option CallResult :=
+  (function.call fuel table context state args).bind fun tree =>
     match SolI.runFailOpen responder tree with
     | .ok result => some result
     | .error _ => none
@@ -7537,32 +7673,35 @@ def FunctionExitKind.ofBodyResult : Result -> FunctionExitKind
   | Result.broke _ => FunctionExitKind.invalidControlReverts
   | Result.continued _ => FunctionExitKind.invalidControlReverts
 
-def FunctionDef.callUnspecifiedResults (fuel : Nat) (context : Context)
+def FunctionDef.callUnspecifiedResults (fuel : Nat) (table : FunctionTable)
+    (context : Context)
     (function : FunctionDef) (state : State) (args : List Value) :
     List CallResult :=
   context.withUnspecifiedChildEvalOrders.filterMap
     (fun orderedContext =>
-      function.call? fuel orderedContext state args)
+      function.call? fuel table orderedContext state args)
 
-def FunctionDef.CallsUnspecified (fuel : Nat) (context : Context)
+def FunctionDef.CallsUnspecified (fuel : Nat) (table : FunctionTable)
+    (context : Context)
     (function : FunctionDef) (state : State) (args : List Value)
     (result : CallResult) : Prop :=
-  function.call? fuel
+  function.call? fuel table
       (context.withChildEvalOrder ChildEvalOrder.yulCompatible)
       state args =
     some result
 
 theorem FunctionDef.call?_reverted_rolls_back
-    {fuel : Nat} {context : Context} {function : FunctionDef}
+    {fuel : Nat} {table : FunctionTable} {context : Context}
+    {function : FunctionDef}
     {state : State} {args : List Value} {frame : Frame}
     {runtime : Runtime} {revert : RevertData}
     (hAccepts : function.acceptsValue context.value = true)
     (hFrame : function.initialFrame? args = some frame)
   (hEval :
-      Stmt.eval fuel context { state := state, locals := [frame] }
+      Stmt.eval fuel table context { state := state, locals := [frame] }
           function.body =
         pure (Result.reverted runtime revert)) :
-    function.call? fuel context state args =
+    function.call? fuel table context state args =
       some (CallResult.reverted state revert) := by
   simp [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry,
     FunctionDef.callBodyResult, SolI.runWith, Functor.map, Pure.pure,
@@ -7597,6 +7736,14 @@ def Contract.context (contract : Contract) : Context :=
     blockEnv := BlockEnv.empty
     txEnv := TxEnv.empty
     gasleft := 0 }
+
+/-- The internal-linkage function table the evaluator threads into
+    `Stmt.eval`: every function of the contract, projected onto its
+    evaluator-visible `InternalFunction`. Contract-internal calls resolve
+    against this by name (§2.2). Selector dispatch is unaffected — it reads
+    `functions` directly (`findFunctionBySelector?`). -/
+def Contract.table (contract : Contract) : FunctionTable :=
+  contract.functions.map FunctionDef.toInternal
 
 def Contract.findFunctionByName? (contract : Contract)
     (name : String) : Option FunctionDef :=
@@ -7639,7 +7786,7 @@ def Contract.call (fuel : Nat) (contract : Contract)
     Option (SolI CallResult) :=
   match contract.resolveCallFunction? target args with
   | some function =>
-      function.call fuel contract.context state args
+      function.call fuel contract.table contract.context state args
   | none => none
 
 /-- Frozen adapter: fold the contract-call tree **fail-closed** under an empty

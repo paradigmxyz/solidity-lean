@@ -1070,3 +1070,74 @@ corpus lane, `recursion-gap` (100th case):
 Gate: `lake build SolidCore` green (baseline); single-lane Lean replay
 `forge_interpreter_compare=pass`, `paired_cases_passed=yes`; Forge suite 3/3.
 Full replay deferred (the main tree is mid sequential replay; CPU caution).
+
+## 2026-07-06 — Function-boundary refactor, stage 1: core node + table + evaluator arm (dead code)
+
+Landed the target representation as dead code — nothing emits `Stmt.internalCall`
+yet (elaboration still splices), so the corpus is neutral by construction.
+
+Interpreter (`SolidCore/Solidity/Interpreter.lean`):
+- New `Stmt.internalCall : List String -> String -> List Expr -> Stmt`
+  (targets, resolved callee name, arg exprs).
+- `InternalFunction` (name/params/returns/body) + `abbrev FunctionTable`
+  + `FunctionTable.lookup?`, defined before the eval block (they cannot live in
+  `Context`, which precedes `Stmt`). `FunctionDef.toInternal` projects the
+  entry-only `FunctionDef` onto it; `Contract.table` maps all functions.
+- The `Stmt.eval` mutual block (eval/evalList/evalWhile/evalDoWhile/evalFor)
+  gained a `FunctionTable` parameter (2nd, after `fuel`), threaded through every
+  recursive call.
+- `internalCall` arm (§3.1): eval args in the caller runtime; look up callee;
+  build the callee frame; **REPLACE** `runtime.locals` with `[frame]` (state
+  shared); recurse `Stmt.eval (fuel-1) table …`; map the body `Result` exactly as
+  the entry `callBodyResult` for returned/normal (restoring the caller's saved
+  locals, keeping the callee's state), propagate `selfdestructed`/`reverted`, and
+  map `broke`/`continued` to `reverted typeMismatch` (fixing the latent
+  `captureReturn` passthrough).
+- R3 mitigation: `collectReturnBindings`/`coerceReturnBindings` are the single
+  source of truth; `FunctionDef.collectReturns`/`coerceReturnValues` now delegate
+  to them, so the entry mapping and the internal-call arm cannot drift.
+- `table` threaded through `evalBodyEntry`/`call`/`call?`/`callUnspecifiedResults`/
+  `CallsUnspecified` (after `fuel`) and the rollback theorem. `Contract.call`
+  passes `contract.table`.
+
+Caller updates:
+- ABI.lean (6 fallback/receive sites) pass `contract.table`; Checked.lean (9
+  sites) pass `contract.core.table`; Interface.lean constructor sites pass
+  `contract.table`, the two bare single-function adapters pass
+  `[function.toInternal]`; `Stmt.eval?`/`Stmt.evalFailOpen?` gained a
+  `table := []` default (their ~40 witness callers are unchanged).
+- `FunctionDef.callFailOpen?` puts `table` LAST with default `[]` so its ~24
+  external-effect witness sites in `Witness/Interface.lean` compile unchanged.
+  This is correct while elaboration still splices (stages 0–1: bodies contain no
+  `internalCall` nodes). At stage 2 the sites whose bodies gain internal calls
+  get `contract.table`, guarded by the full replay. (The value-producing
+  `call`/`call?` adapters keep `table` after `fuel` and already pass real
+  tables.)
+
+Witnesses: `SolidCore/Witness/InternalCall.lean` (imported by `SolidCore.lean`)
+pins the arm with `#guard`s on hand-built tables: direct recursion
+(factorial 5=120, 3=6, 1=1), frame isolation (a callee reading the caller's
+`secret` reverts; the caller's locals survive), state sharing (a callee's storage
+write reads back 42), `broke`→`reverted typeMismatch`, `selfdestruct`
+propagation, the fuel bound (value at 64, `outOfFuel` at 3), and a missing-callee
+defensive revert.
+
+Gate: `lake build SolidCore` green (1095 jobs); `scripts/smoke_replay.sh`
+behaviour-green — all 28 curated cases compute the expected values
+(`Except.ok true` / `true`), including the external-effect query paths
+(low-level/high-level calls, contract creation, create options) confirming
+transcript invariance. Corpus neutral (no node emitted yet).
+
+Environmental note (not a correctness issue): the smoke's `reference-assignments`
+lane reported `timeout_after_600s` when run at `jobs=10` — the main tree's
+long sequential replay was still competing for CPU/RAM, and ~20 concurrent
+`lake env lean` processes (each ~700 MB) caused swapping that pushed this heavy
+case's *wall*-clock past the 600 s per-case cap while its CPU need is ~245 s.
+Re-run **solo** on the freed machine it passes cleanly:
+`case_result=… lean=ok`, `forge_interpreter_compare=pass`,
+`paired_cases_passed=yes`, `5:11.99` wall. The other heavy cases
+(`openzeppelin-erc20`, `openzeppelin-vesting-wallet`) completed in the concurrent
+run. Recorded as an R1 perf datapoint to compare at stage 2's full replay +
+wall-clock (the plan's R1 measurement point); Stage 1 changes are behaviour-
+neutral (elaboration still splices, no `internalCall` nodes emitted), so this is
+not attributable to the node/arm as a correctness matter.

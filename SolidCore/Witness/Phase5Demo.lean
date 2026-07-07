@@ -39,6 +39,7 @@ def phase5RealDemoTree? :
     Option (SolI SolidCore.Solidity.Source.CallResult) :=
   phase5RealDemoFunction?.bind (fun function =>
     SolidCore.Solidity.Source.FunctionDef.call 8
+      [function.toInternal]
       SolidCore.Solidity.Source.Context.empty function
       SolidCore.Solidity.Source.State.empty
       [ SolidCore.Solidity.Source.Value.word 0xcafe

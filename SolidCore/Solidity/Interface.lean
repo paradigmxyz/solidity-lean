@@ -18867,7 +18867,7 @@ def ContractDecl.constructWithBasesAndSourceAtFrom? (fuel : Nat)
       sourceUsingDecls sourceFunctions sourceEvents sourceErrors
       sourceConstants sourceUserValueTypes sourceEnums sourceStructs contracts decl
   SolidCore.Solidity.Source.FunctionDef.call?
-    fuel
+    fuel contract.table
     { contract.context with
       self := self
       sender := sender
@@ -19212,7 +19212,7 @@ def ContractDecl.constructWithBasesAndSourceAtFromTree (fuel : Nat)
       sourceUsingDecls sourceFunctions sourceEvents sourceErrors
       sourceConstants sourceUserValueTypes sourceEnums sourceStructs contracts decl
   SolidCore.Solidity.Source.FunctionDef.call
-    fuel
+    fuel contract.table
     { contract.context with
       self := self
       sender := sender
@@ -19282,7 +19282,8 @@ def SourceUnit.toCoreContracts? (unit : SourceUnit) :
   | none => none
 
 def Stmt.eval? (fuel : Nat) (storageNames : List Name)
-    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
+    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt)
+    (table : SolidCore.Solidity.Source.FunctionTable := []) :
     Option CoreResult := do
   let coreStmt ← Stmt.toCore? storageNames stmt
   -- Frozen `?`-adapter: fold the interaction tree **fail-closed** under an empty
@@ -19291,7 +19292,7 @@ def Stmt.eval? (fuel : Nat) (storageNames : List Name)
   -- that a future external call routed through here fails loudly (unmatched →
   -- `none`) rather than fail-open.
   (SolidCore.Solidity.Source.SolI.runWith []
-    (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
+    (SolidCore.Solidity.Source.Stmt.eval fuel table context runtime coreStmt)).toOption
 
 def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)
     (modifiers : List SourceModifierDecl)
@@ -19308,17 +19309,18 @@ def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)
       (functions := [decl])
       (freeFunctions := [])
       (decl := decl)
-  SolidCore.Solidity.Source.FunctionDef.call? fuel context function state args
+  SolidCore.Solidity.Source.FunctionDef.call? fuel [function.toInternal] context function state args
 
 /-- Witness adapter twin of `Stmt.eval?`: fold under a fail-open responder. -/
 def Stmt.evalFailOpen? (fuel : Nat)
     (responder : SolidCore.Solidity.Source.ScriptedResponder)
     (storageNames : List Name)
-    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
+    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt)
+    (table : SolidCore.Solidity.Source.FunctionTable := []) :
     Option CoreResult := do
   let coreStmt ← Stmt.toCore? storageNames stmt
   (SolidCore.Solidity.Source.SolI.runFailOpen responder
-    (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
+    (SolidCore.Solidity.Source.Stmt.eval fuel table context runtime coreStmt)).toOption
 
 /-- Witness adapter twin of `FunctionDecl.call?`: fold under a fail-open
     responder. -/
@@ -19340,7 +19342,7 @@ def FunctionDecl.callFailOpen? (fuel : Nat)
       (freeFunctions := [])
       (decl := decl)
   SolidCore.Solidity.Source.FunctionDef.callFailOpen?
-    fuel responder context function state args
+    fuel responder context function state args [function.toInternal]
 
 def ContractDecl.call? (fuel : Nat) (decl : ContractDecl)
     (target : SolidCore.Solidity.Source.CallTarget) (state : CoreState)
