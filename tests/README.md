@@ -2,7 +2,53 @@
 
 This directory holds executable evidence and regression suites for the Solidity
 source semantics. Tests support the Lean semantics, but they do not replace the
-source-language definitions under `SolidCore.Spine.L00_SourceSolidity`.
+source-language definitions under `SolidCore.Solidity.*` (interpreter, ABI,
+typechecker, elaboration) and `SolidCore.Witness.*` (the example corpus).
+
+## Frozen regression suites
+
+The conformance corpus (`forge-harness/`) and the typechecker-acceptedness
+(`solc_rejects`) lanes are **frozen regression suites**, not a growing coverage
+target. As of this branch they are **99 paired cases**, **426 Lean `#eval`
+assertions**, and **~311 pinned-solc rejection lanes**. New lanes are added
+**only to pin a discovered bug** — as `rational-constants` does (the A1
+over-reject) and the planned recursion/function-boundary lane will — and
+**never to extend coverage**. The open-ended acceptedness audit of the previous
+roadmap is closed, not continued.
+
+## Running the suite
+
+- **Dev loop (fast):** `scripts/smoke_replay.sh` — a curated Lean-only subset
+  (28 cases, `--skip-forge`) that still generates each witness from the solc AST
+  and validates every `#eval`. It first runs `lake build SolidCore` so a
+  library/witness break cannot hide behind a green replay. Use this in the
+  edit/build/check loop. The minute-plus heavy contracts (erc721-royalty,
+  uniswap-v3-math, frontend-frontier, …) are intentionally excluded here and run
+  only in the full replay.
+- **Commit gate (full):**
+  `FORGE=/Users/dan/.foundry/bin/forge scripts/compare_forge_solc_interpreter.sh --timeout 900`
+  runs every paired case (Forge/pinned-solc + Lean witnesses). A green run
+  exits `status=0` with `forge_interpreter_compare=pass`, `cases=99`,
+  `paired_cases_passed=yes`. It also honors `--jobs N` (default `1` =
+  sequential; `--jobs 10` parallelizes cases for a faster gate) and
+  `--only CASE`. The sequential run takes ~20+ minutes; a replay interrupted
+  mid-run counts as **not run**.
+- **AST audit:** `python3 scripts/audit_solc_ast_frontend.py` — must report
+  `render_failures=0` and zero unimplemented/unclassified node counts.
+
+## Scripted-responder fixture format
+
+External call/create answers are supplied by **scripted responders**, not oracle
+records. A witness that drives an execution with external effects folds the
+interaction tree under a responder built from the fixture's rows:
+`…UnderResponder N (responderOfResults [callRows] [createRows]) contract …`.
+The responder answers each external query from the rows and **fails closed** on
+any unanticipated request (`unmatched external request`, carrying the request
+for an expected-vs-actual diff) rather than silently continuing on a failed
+call. An intentional call failure is an explicit `success := false` row, so
+"the fixture intends this call to fail" and "the fixture never anticipated this
+request" stay distinguishable. Row keying (kind, code address, calldata, value,
+exact-gas-first then no-gas) mirrors the interpreter's own request emission.
 
 ## Layout
 
