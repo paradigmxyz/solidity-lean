@@ -706,16 +706,6 @@ def callTargetWithContextUnderResponder (fuel : Nat)
   callTargetWithContextResponder
     fuel contract target context state args responder
 
-def constructUnderResponder (fuel : Nat) (responder : ScriptedResponder)
-    (contract : CheckedContract) (state : CoreState) (args : List CoreValue) :
-    Except TypeError CoreCallResult :=
-  constructResponder fuel contract state args responder
-
-def constructFromUnderResponder (fuel : Nat) (responder : ScriptedResponder)
-    (contract : CheckedContract) (state : CoreState) (sender value : Word)
-    (args : List CoreValue) : Except TypeError CoreCallResult :=
-  constructFromResponder fuel contract state sender value args responder
-
 def callCalldataAtFromWithContextUnderResponder (fuel : Nat)
     (responder : ScriptedResponder)
     (contract : CheckedContract) (context : CoreContext)
@@ -723,11 +713,6 @@ def callCalldataAtFromWithContextUnderResponder (fuel : Nat)
     Except TypeError CoreAbiCallResult :=
   callCalldataAtFromWithContextResponder
     fuel contract context state self sender value calldata responder
-
-def callCalldataUnderResponder (fuel : Nat) (responder : ScriptedResponder)
-    (contract : CheckedContract) (state : CoreState) (calldata : List Byte) :
-    Except TypeError CoreAbiCallResult :=
-  callCalldataResponder fuel contract state calldata responder
 
 end CheckedContract
 

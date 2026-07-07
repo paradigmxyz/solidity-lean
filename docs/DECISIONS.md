@@ -887,3 +887,16 @@ over-correct into unsoundness.
 
 `lake build SolidCore` green; the new lane is green
 (`solc_rejects=ok forge=ok lean=ok`).
+
+## 2026-07-06 — Phase 6 item 8: delete 3 orphan `*UnderResponder` wrappers
+
+`CheckedContract.constructUnderResponder`, `constructFromUnderResponder`, and
+`callCalldataUnderResponder` (`Checked.lean`) were thin wrappers over
+`constructResponder`/`constructFromResponder`/`callCalldataResponder` left behind
+by the Phase-5 stage-3 responder conversion. Re-verified zero references anywhere
+(SolidCore/, manifest.json, scripts/ — each name appeared only on its own `def`
+line) and deleted them. The used siblings
+(`callTargetWithContextUnderResponder`, `callCalldataAtFromWithContextUnderResponder`,
+`callFunctionWithContextUnderResponder`) are kept.
+
+Gate: `lake build SolidCore` + smoke.
