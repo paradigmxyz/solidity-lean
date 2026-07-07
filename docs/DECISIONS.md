@@ -1107,3 +1107,80 @@ Re-run probe outcomes now match Forge: `packedU8 -> [0x12,0x34]`,
 `packedMixedWidth -> [..0x9a]`, `packedNegInt8 -> [0xff]`, `packedUint32 -> 4 B`,
 `packedBoolMix -> [1,0,7]`; `negBaseEven -> 4`, `negBaseOdd -> -8`,
 `negExpOverflow -> panic 0x11`; `shlWrapSigned -> -128`, `shlTruncUnsigned -> 254`.
+
+## 2026-07-07 — Latent red lane: `openzeppelin-ecdsa` eval #4 emitted an unanswered ecrecover query under the fail-closed plain adapter
+
+**Symptom.** `--only openzeppelin-ecdsa` errored on one eval with
+`TypeError.unsupported "checked executable contract call OpenZeppelinECDSAHarness"`
+— a fail-closed diagnostic escaping to the eval result (RC=1). Latent on
+`codex/solidity-semantics-only` since Phase 6 `e687bed`.
+
+**Root cause (traced, cited).** The ecdsa manifest has 5 evals. Evals #1/#2
+(`tryRecoverVRS`/`recoverVRS`/`recoverShort` success paths) were already
+converted to `callFunctionWithContextUnderResponder` with an `ecrecover`
+oracle row. Evals #3 (high-S) and #4 (invalid-signer) still used the plain
+`CheckedContract.call` with `State.empty` and NO responder. `e687bed` hardened
+the plain adapter from fail-open (stray query answered with failure) to
+fail-closed (`SolI.runWith []` -> `ResponderFailure.unmatched` ->
+`TypeError.unsupported`, via `optionToExcept ("contract call " ++ decl.name)`,
+`Checked.lean:290`). The catch: **whether a query is emitted depends on the
+input**:
+
+- Eval #3 (high-S, `s > halfOrder`): `OpenZeppelinECDSA.tryRecover`
+  (`src/OpenZeppelinECDSA.sol:57-62`) returns `InvalidSignatureS` **before**
+  reaching `ecrecover` at line 64. `recover` -> `_throwError` reverts, also
+  before `ecrecover`. **No query is emitted** -> the plain fail-closed call
+  succeeds. Eval #3 is therefore a *meaningful* fail-closed assertion that the
+  high-S path never touches the precompile; left as plain `call` deliberately
+  (converting it would mask a future regression where high-S wrongly reaches
+  ecrecover).
+- Eval #4 (invalid signer, `v = 29`, `s = 0xbbbb < halfOrder`): passes the
+  S-check, reaches `ecrecover(hash, 29, r, s)` at line 64, which **emits a
+  staticcall query to precompile 1** (`emitPrecompileWord`,
+  `Interpreter.lean:1831`). `recoverVRS` emits a second. With no responder the
+  first query is `unmatched` -> the observed error. **This is the failure.**
+
+**Fix (manifest-only, no Lean change).** Converted eval #4 to
+`CheckedContract.callResponder` (`Checked.lean:619`) — the fail-closed
+responder-folding twin of the plain `call` (folds `callTree` =
+`Source.Contract.call`, so the target-based semantics and the
+`CallResult.reverted (RevertData.custom "ECDSAInvalidSignature" [])`
+representation are byte-identical to the old plain path). Rows:
+`responderOfResults [ecrecoverResult] []` with `ecrecoverResult` keyed on the
+exact `(staticcall, precompile-1, ecrecoverInput hash 29 r s, value 0)` the
+source emits, `success := true`, `output := []` (empty). Real EVM ecrecover on
+an invalid `v` (=29) returns success with empty data;
+`Precompile.outputWord?` (short output -> `none`) then yields signer =
+`address(0)`, so `tryRecover` returns `(0, InvalidSignature, 0)` and `recover`
+reverts `ECDSAInvalidSignature` — matching both the Forge assertions
+(`test/OpenZeppelinECDSA.t.sol:70-98`: `recovered == address(0)`,
+`RecoverError.InvalidSignature`, `ECDSAInvalidSignature` revert) and the
+eval's pre-existing expectations. Kept as target-based `callResponder` rather
+than switching to `callFunctionWithContext*` to preserve the exact revert
+shape; no new Lean wrapper needed, so no build required. Eval count unchanged
+(5).
+
+**Did any expectation encode fail-open behavior contradicting Forge? No.** Under
+the retired fail-open path the stray ecrecover query was answered with
+failure (success=false / empty), which also decodes to `address(0)` — so
+fail-open here *coincided* with Forge's real assertion rather than
+contradicting it. The eval's expected values (`signer 0`, `err 1`, `arg 0`,
+`ECDSAInvalidSignature`) were already Forge-truthful; only the plumbing
+(unanswered query) was wrong. No expectation was weakened; the fail-closed
+hardening was not touched.
+
+**Process lesson.** The `e687bed` fail-closed hardening was gated by
+`smoke_replay.sh` + witness baseline, **neither of which includes
+`openzeppelin-ecdsa`**. Its true gate — the full sequential replay that
+exercises every corpus case's every eval — kept getting killed, so the
+regression shipped and stayed latent for the commits between `e687bed` and
+`223e4d8`. Input-dependent query emission (eval #3 emits nothing, eval #4
+emits) is exactly the class of bug a curated smoke cannot see. Lesson: a
+fail-open -> fail-closed flip must be gated by the *full* replay, not the
+smoke subset, before landing; if the full replay can't be run to completion,
+the flip is unverified.
+
+**Gates.** `lake build SolidCore` green (1094 jobs, no-op — manifest-only).
+`--only openzeppelin-ecdsa`: `forge=ok lean=ok`,
+`forge_interpreter_compare=pass`; all 5 evals `Except.ok true`.
+`scripts/smoke_replay.sh` green.
