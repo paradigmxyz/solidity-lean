@@ -4275,14 +4275,32 @@ def abiEncodePackedArrayValues? (ty : Ty) :
 
 end
 
+-- Pack a narrow (`uintN`/`intN`/`enum`) top-level scalar to `byteWidth` bytes.
+-- `abi.encodePacked` uses each top-level value's true width (N/8) instead of the
+-- 32-byte ABI padding; the two's-complement low bytes are exactly what solc
+-- emits for both `uintN` and `intN` (e.g. `int8(-1)` -> `0xff`).
+def abiEncodePackedNarrowScalar? (byteWidth : Nat) : Value -> Option (List Byte)
+  | Value.word value => some (wordToBytesBE byteWidth value)
+  | Value.int value => some (wordToBytesBE byteWidth value)
+  | _ => none
+
+-- `widths` carries, per top-level argument, the packed byte width for a narrow
+-- scalar (`0` means "use the type-directed packing", which is correct for
+-- `bool`/`address`/`bytesN`/`bytes`/`string`/arrays/`uint256`/`int256`). Array
+-- and struct elements are intentionally left to the 32-byte-padded path, which
+-- matches solc's packed encoding of aggregates.
 def abiEncodePackedValues? :
-    List Ty -> List Value -> Option (List Byte)
-  | [], [] => some []
-  | ty :: tys, value :: values => do
-      let head ← abiEncodePackedValue? ty value
-      let tail ← abiEncodePackedValues? tys values
+    List Nat -> List Ty -> List Value -> Option (List Byte)
+  | [], [], [] => some []
+  | width :: widths, ty :: tys, value :: values => do
+      let head ←
+        if width == 0 then
+          abiEncodePackedValue? ty value
+        else
+          abiEncodePackedNarrowScalar? width value
+      let tail ← abiEncodePackedValues? widths tys values
       some (head ++ tail)
-  | _, _ => none
+  | _, _, _ => none
 
 inductive UnaryOp where
   | bitNot : UnaryOp
@@ -4451,7 +4469,7 @@ inductive Expr where
   | tuple : List Expr -> Expr
   | abiEncode : List Ty -> List Expr -> Expr
   | abiEncodeWithSelector : Expr -> List Ty -> List Expr -> Expr
-  | abiEncodePacked : List Ty -> List Expr -> Expr
+  | abiEncodePacked : List Nat -> List Ty -> List Expr -> Expr
   | abiDecode : List Ty -> List AbiCleanup -> Expr -> Expr
   | lowLevelCall :
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool -> Expr
@@ -4619,6 +4637,31 @@ def checkedSignedMod (_checked : Bool) (lhs rhs : Word) :
   else
     Except.ok (SolidCore.Solidity.Shared.smodWord lhs rhs)
 
+-- Signed exponentiation with two's-complement wrapping. The exponent is a
+-- non-negative magnitude (Solidity rejects negative exponents), so we iterate
+-- it as a `Nat`. In checked mode each intermediate product is validated against
+-- the int256 range (panic 0x11 on overflow); in unchecked mode the accumulator
+-- wraps mod 2^256 through `signedToWord`. Narrow-type (`intN`) result overflow
+-- is enforced by the enclosing `intCleanup` the importer inserts.
+def checkedSignedExpLoop (checked : Bool) (base : Word) :
+    Nat -> Word -> Except RevertData Word
+  | 0, acc => Except.ok acc
+  | remaining + 1, acc =>
+      let product :=
+        SolidCore.Solidity.Shared.signedValue acc *
+          SolidCore.Solidity.Shared.signedValue base
+      if checked && !(signedInt256InRange product) then
+        Except.error RevertData.overflow
+      else
+        checkedSignedExpLoop checked base remaining
+          (SolidCore.Solidity.Shared.signedToWord product)
+
+def checkedSignedExp (checked : Bool) (base exponent : Word) :
+    Except RevertData Word :=
+  checkedSignedExpLoop checked base
+    (SolidCore.Solidity.Shared.norm exponent)
+    (SolidCore.Solidity.Shared.signedToWord 1)
+
 def checkedAddMod (lhs rhs modulus : Word) :
     Except RevertData Word :=
   if wordEq modulus 0 then
@@ -4678,6 +4721,9 @@ def BinaryOp.applySignedWord
       Except.ok (Value.int value)
   | BinaryOp.mod => do
       let value ← checkedSignedMod checked lhs rhs
+      Except.ok (Value.int value)
+  | BinaryOp.exp => do
+      let value ← checkedSignedExp checked lhs rhs
       Except.ok (Value.int value)
   | BinaryOp.bitAnd =>
       Except.ok (Value.int (SolidCore.Solidity.Shared.andWord lhs rhs))
@@ -4754,6 +4800,9 @@ def BinaryOp.apply
               Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
           | BinaryOp.sar =>
               Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
+          | BinaryOp.exp => do
+              let value ← checkedSignedExp checked lhsWord rhsWord
+              Except.ok (Value.int value)
           | _ => Except.error RevertData.typeMismatch
       | _, _ => Except.error RevertData.typeMismatch
 
@@ -5065,7 +5114,7 @@ def Expr.orderFuel : Expr -> Nat
   | Expr.abiEncode _ exprs => Expr.listEvalFuel exprs + 1
   | Expr.abiEncodeWithSelector selectorExpr _ exprs =>
       Expr.orderFuel selectorExpr + Expr.listEvalFuel exprs + 1
-  | Expr.abiEncodePacked _ exprs => Expr.listEvalFuel exprs + 1
+  | Expr.abiEncodePacked _ _ exprs => Expr.listEvalFuel exprs + 1
   | Expr.abiDecode _ _ expr => Expr.orderFuel expr + 1
   | Expr.lowLevelCall _ targetExpr calldataExpr valueExpr gas? _ =>
       Expr.orderFuel targetExpr + Expr.orderFuel calldataExpr +
@@ -5312,7 +5361,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let lhsValue ← resolved.read context runtime''
                     pure (resolved, lhsValue, rhsValue, runtime'')
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
-              let cleaned ← cleanup.apply context.checked value
+              -- Left shifts truncate to the operand width with no overflow
+              -- check, even inside a checked block, so the compound-assign
+              -- cleanup for `<<=` must be applied unchecked.
+              let cleanupChecked :=
+                match op with
+                | BinaryOp.shl => false
+                | _ => context.checked
+              let cleaned ← cleanup.apply cleanupChecked value
               let updated ← resolved.write context runtime'' cleaned
               pure (cleaned, updated)
           | Expr.binary BinaryOp.boolAnd lhs rhs => do
@@ -5506,11 +5562,11 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         , runtime' )
                   | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.abiEncodePacked tys exprs => do
+          | Expr.abiEncodePacked widths tys exprs => do
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
-              match abiEncodePackedValues? tys values with
+              match abiEncodePackedValues? widths tys values with
               | some bytes => pure (Value.bytes bytes, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiDecode tys cleanups expr => do

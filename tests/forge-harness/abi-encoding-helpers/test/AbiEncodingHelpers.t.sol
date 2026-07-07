@@ -35,6 +35,19 @@ contract AbiEncodingHelpersForgeTest {
         );
     }
 
+    function testPackedNarrowWidths() public view {
+        requireBytesEq(target.packedU8(), hex"1234", "packed u8");
+        requireBytesEq(
+            target.packedMixedWidth(),
+            hex"123456789a",
+            "packed mixed width"
+        );
+        requireBytesEq(target.packedNegInt8(), hex"ff", "packed neg int8");
+        requireBytesEq(target.packedUint32(), hex"789abcde", "packed u32");
+        requireBytesEq(target.packedBoolMix(), hex"010007", "packed bool mix");
+        requireBytesEq(target.packedEnum(), hex"02", "packed enum");
+    }
+
     function testPackedExternalFunction() public {
         function(uint256) external returns (uint256) fn =
             IAbiEncodingHelperTarget(address(uint160(0x1234))).ping;
