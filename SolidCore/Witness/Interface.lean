@@ -5053,6 +5053,7 @@ def abiEncodePackedSourceMatchesExpected : Option Bool := do
   let result ← abiEncodePackedSourceCallResult
   let expected ←
     SolidCore.Solidity.Source.abiEncodePackedValues?
+      [ 0, 0, 0 ]
       [ SolidCore.Solidity.Source.Ty.fixedBytes 1
       , SolidCore.Solidity.Source.Ty.uint256
       , SolidCore.Solidity.Source.Ty.bytesCalldata ]
@@ -5096,6 +5097,7 @@ def abiEncodePackedInferredSourceMatchesExpected : Option Bool := do
   let result ← abiEncodePackedInferredSourceCallResult
   let expected ←
     SolidCore.Solidity.Source.abiEncodePackedValues?
+      [ 0, 0, 0 ]
       [ SolidCore.Solidity.Source.Ty.fixedBytes 1
       , SolidCore.Solidity.Source.Ty.uint256
       , SolidCore.Solidity.Source.Ty.bytesCalldata ]

@@ -6623,6 +6623,7 @@ def checkedAbiEncodePackedMatchesExpected :
   let expectedPacked ←
     optionToExcept "abi.encodePacked expected"
       (SolidCore.Solidity.Source.abiEncodePackedValues?
+        [ 0, 0, 0 ]
         [ SolidCore.Solidity.Source.Ty.fixedBytes 1
         , SolidCore.Solidity.Source.Ty.uint256
         , SolidCore.Solidity.Source.Ty.bytesCalldata ]

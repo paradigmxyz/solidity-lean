@@ -1035,3 +1035,75 @@ pre-claimed here:
 This entry exists so the tree can be branched from now: any worktree taken
 from this commit carries the complete Phase 6 code/docs state; only the gate
 verdict and the summary text land after it.
+
+## 2026-07-06 — B/C soundness backlog: fix the three Forge-confirmed WRONG-VALUE bugs (W1/W2/W3)
+
+Landed the three WRONG-VALUE soundness fixes from `docs/bc-soundness-audit.md`
+(all Forge-confirmed against pinned solc 0.8.35). Each fix ships with a
+regression lane pinned in the SAME commit; the corpus freeze exception for
+pinning discovered bugs was used. Eval-count delta: **+6 Lean evals** (99 cases
+unchanged; no new case created — the lanes extend the two most-fitting existing
+families).
+
+**W3 — signed-base exponentiation crash.** `applySignedWord` had no `exp` arm,
+so `(-2)**2` hit the `typeMismatch` sentinel (panic 0). Added `checkedSignedExp`
+/`checkedSignedExpLoop` (Interpreter.lean): two's-complement modular
+exponentiation over the exponent magnitude, per-step int256-range check in
+checked mode (`RevertData.overflow`), wrapping via `signedToWord` unchecked.
+Added the `exp` arm to `applySignedWord` and to the `Value.int`/`Value.word`
+dispatch. Narrow-type (`intN`) result overflow is enforced by the enclosing
+`intCleanup` the importer already inserts — Forge-pinned boundary:
+`int8(-2)**7 == -128` (fits), `int8(-2)**8` panics `0x11` (checked),
+`== 0` unchecked. Lane: `checked-arithmetic` gains `negBaseEven`(=4),
+`negBaseOdd`(=-8), `negExpOverflow`(panic 0x11) + 3 Lean evals.
+
+**W2 — narrow left-shift spurious overflow panic.** Solidity shifts truncate to
+the operand width with NO overflow check, even in a checked block; we wrapped the
+shift result in the checked `uintCleanup`/`intCleanup`. Fix: `Ty.implicitCleanupCore?`
+(Interface.lean) now detects a left-shift (`Source.Expr.binary BinaryOp.shl`) and
+cleans it with the truncating `uintCast`/`intCast` (never-panic) instead of the
+checked cleanup; the compound-assign path (`<<=`) applies its `ValueCleanup`
+unchecked for `shl` in the `assignOpCleanupExpr` interpreter arm. Right shifts
+(`shr`/`sar`, magnitude non-increasing) are untouched. Forge-pinned:
+`int8(64)<<1 == -128`, `uint8(255)<<1 == 254` (no revert). Lane:
+`checked-arithmetic` gains `shlWrapSigned`, `shlTruncUnsigned` + 2 Lean evals.
+
+**W1 — `abi.encodePacked` narrow-width loss.** Top-level narrow `uintN`/`intN`
+packed to a full 32-byte word instead of N/8 bytes, corrupting every
+`keccak256(abi.encodePacked(...))`. Design chosen: **thread the surface top-level
+byte width into the packed-encode node** rather than adding narrow constructors
+to the core `Source.Ty` (which would have rippled into every exhaustive `Ty`
+match — `defaultValue`, `coerceValue?`, `abiStaticBytes?`, decode, … — the
+"balloon" the audit warned against). Concretely: `abiEncodePacked` now carries a
+parallel `List Nat` of per-argument packed widths (`0` = "type-directed packing",
+which stays correct for `bool`/`address`/`bytesN`/`bytes`/`string`/arrays/
+`uint256`/`int256`); `Ty.packedTopWidth` computes N/8 for narrow `uintN`/`intN`;
+`abiEncodePackedNarrowScalar?` emits the two's-complement low bytes (correct for
+both `uintN` and `intN`, e.g. `int8(-1) -> 0xff`). **Array/struct elements are
+deliberately left on the 32-byte-padded path** — that is exactly solc's packed
+encoding of aggregates (confirmed: the pre-existing `packedUint8Array` lane
+expects `encodeWord 1 ++ encodeWord 2`), so the corpus-green array/`uint256`/
+`address`/`bytesN`/`bytes` behavior is undisturbed. All six call sites (two
+`abi.encodePacked`, four `bytes/string.concat`) and both witness call sites
+(`Witness/Checked.lean`, `Witness/Interface.lean`) updated. Forge-pinned:
+`encodePacked(uint8 0x12, uint8 0x34) == hex"1234"`, `uint16+uint24 -> 5 B`,
+`int8(-1) -> ff`, `uint32 -> 4 B`, `(true,false,uint8 7) -> hex"010007"`. Lane:
+`abi-encoding-helpers` gains 5 narrow-scalar functions + 1 Lean eval.
+
+**Known residual (documented, not a regression):** `abi.encodePacked(<enum>)`
+still emits 32 bytes rather than 1. Enums always pack to 1 byte in solc, but the
+env-less packed elaboration path (`Args.toAbiEncodeSource?` -> the
+`storageNames`-only `Expr.abiTy?`) does not resolve an enum member expression to
+`Ty.enum`, so `packedTopWidth` sees a width-0 type. Resolving it needs the enum
+declaration env threaded into that path — beyond the surgical W1 fix and not a
+regression (it was 32 bytes before). The `packedEnum` function + its Forge
+assertion are kept (solc-truth = `hex"02"`); only the Lean side omits the enum
+assertion. Filed as a follow-up.
+
+**Gates.** `lake build SolidCore` green (1094 jobs). `scripts/smoke_replay.sh`
+green. All three lanes green via `--only` (`checked-arithmetic`,
+`abi-encoding-helpers`: `forge=ok lean=ok`, `forge_interpreter_compare=pass`).
+Re-run probe outcomes now match Forge: `packedU8 -> [0x12,0x34]`,
+`packedMixedWidth -> [..0x9a]`, `packedNegInt8 -> [0xff]`, `packedUint32 -> 4 B`,
+`packedBoolMix -> [1,0,7]`; `negBaseEven -> 4`, `negBaseOdd -> -8`,
+`negExpOverflow -> panic 0x11`; `shlWrapSigned -> -128`, `shlTruncUnsigned -> 254`.

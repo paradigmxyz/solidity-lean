@@ -3220,6 +3220,24 @@ def Ty.toCoreValueCleanup? : Ty -> Option CoreValueCleanup
       some (SolidCore.Solidity.Source.ValueCleanup.uint 8)
   | _ => some SolidCore.Solidity.Source.ValueCleanup.none
 
+-- Packed byte width for a top-level `abi.encodePacked` argument. Narrow
+-- `uintN`/`intN` pack to N/8 bytes and enums to 1 byte (solc caps enums at 256
+-- members, i.e. a `uint8` underlying type). `0` means "no narrow override":
+-- full-word ints, `bool`, `address`, `bytesN`, `bytes`/`string`, and arrays all
+-- keep their existing type-directed packing (which is already solc-correct).
+def Ty.packedTopWidth : Ty -> Nat
+  | Ty.uint bits =>
+      if bits == 0 || bits == 256 then 0
+      else if bits % 8 == 0 && bits < 256 then bits / 8 else 0
+  | Ty.int bits =>
+      if bits == 0 || bits == 256 then 0
+      else if bits % 8 == 0 && bits < 256 then bits / 8 else 0
+  | Ty.enum _ => 1
+  | _ => 0
+
+def Tys.packedTopWidths (tys : List Ty) : List Nat :=
+  tys.map Ty.packedTopWidth
+
 def Expr.numberLiteralNat? (expr : Expr) : Option Nat := do
   let value ← Expr.numberLiteralRat? expr
   value.exactNat?
@@ -3740,8 +3758,9 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.call (Expr.typeName Ty.string)
       [Arg.positional
         (Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args)] => do
-      let (tys, exprs) ← Args.toAbiEncode? storageNames args
-      some (SolidCore.Solidity.Source.Expr.abiEncodePacked tys exprs)
+      let (sourceTys, coreTys, exprs) ← Args.toAbiEncodeSource? storageNames args
+      some (SolidCore.Solidity.Source.Expr.abiEncodePacked
+        (Tys.packedTopWidths sourceTys) coreTys exprs)
   | Expr.call (Expr.typeName targetTy)
       [Arg.positional
         (Expr.member (Expr.typeName sourceTy@(Ty.user _)) "name")] =>
@@ -4050,8 +4069,9 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       some
         (SolidCore.Solidity.Source.Expr.abiDecode tys cleanups dataCore)
   | Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args => do
-      let (tys, exprs) ← Args.toAbiEncode? storageNames args
-      some (SolidCore.Solidity.Source.Expr.abiEncodePacked tys exprs)
+      let (sourceTys, coreTys, exprs) ← Args.toAbiEncodeSource? storageNames args
+      some (SolidCore.Solidity.Source.Expr.abiEncodePacked
+        (Tys.packedTopWidths sourceTys) coreTys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSelector")
       (Arg.positional selector :: args) => do
       match Expr.abiTy? storageNames selector with
@@ -4157,7 +4177,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         Args.toAbiEncodeSource? storageNames args
       if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
-          coreTys coreExprs)
+          (Tys.packedTopWidths sourceTys) coreTys coreExprs)
       else
         none
   | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args => do
@@ -4165,7 +4185,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         Args.toAbiEncodeSource? storageNames args
       if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
-          coreTys coreExprs)
+          (Tys.packedTopWidths sourceTys) coreTys coreExprs)
       else
         none
   | Expr.call (Expr.member (Expr.ident "string") "concat") args => do
@@ -4173,7 +4193,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         Args.toAbiEncodeSource? storageNames args
       if Tys.allStringConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
-          coreTys coreExprs)
+          (Tys.packedTopWidths sourceTys) coreTys coreExprs)
       else
         none
   | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") args => do
@@ -4181,7 +4201,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         Args.toAbiEncodeSource? storageNames args
       if Tys.allStringConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
-          coreTys coreExprs)
+          (Tys.packedTopWidths sourceTys) coreTys coreExprs)
       else
         none
   | Expr.member (Expr.ident name) "length" =>

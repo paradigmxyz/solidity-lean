@@ -6,6 +6,41 @@ interface IAbiEncodingHelperTarget {
 }
 
 contract AbiEncodingHelpers {
+    enum Direction { Left, Right, Up }
+
+    // Narrow top-level scalars must pack to their true width (N/8 bytes), not
+    // the 32-byte ABI padding. Regression lane for the B/C W1 soundness fix.
+    function packedU8() external pure returns (bytes memory) {
+        uint8 a = 0x12;
+        uint8 b = 0x34;
+        return abi.encodePacked(a, b);
+    }
+
+    function packedMixedWidth() external pure returns (bytes memory) {
+        uint16 a = 0x1234;
+        uint24 b = 0x56789a;
+        return abi.encodePacked(a, b);
+    }
+
+    function packedNegInt8() external pure returns (bytes memory) {
+        int8 a = -1;
+        return abi.encodePacked(a);
+    }
+
+    function packedUint32() external pure returns (bytes memory) {
+        uint32 a = 0x789abcde;
+        return abi.encodePacked(a);
+    }
+
+    function packedBoolMix() external pure returns (bytes memory) {
+        uint8 c = 7;
+        return abi.encodePacked(true, false, c);
+    }
+
+    function packedEnum() external pure returns (bytes memory) {
+        return abi.encodePacked(Direction.Up);
+    }
+
     function packedScalars(
         bytes1 tag,
         uint256 value,
