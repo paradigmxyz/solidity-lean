@@ -11855,6 +11855,44 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreStmt => some coreStmt
       | none => Stmt.toCore? storageNames fallback
   | Stmt.expr
+      (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
+        (Expr.tuple rhsItems)) =>
+      -- Stage B (boundary-completion arc): tuple-literal RHS whose components
+      -- contain internal calls — `(a, b) = (f(), g())`, `(, b) = (f(), g())`.
+      -- solc evaluates the components LEFT-to-right, each into its own temp,
+      -- ALL before any assignment, and a hole's component still evaluates
+      -- (`docs/refs-completion-solc-research.md` §4). The no-call form keeps
+      -- today's `Stmt.toCore?` path (tried first: behaviour-preserving); only
+      -- shapes that path rejects (call components) reach the hoisting, which
+      -- reuses `tupleItemsUseCoreWithInternalCalls?` — the same left-to-right
+      -- temp sequencing already pinned for `return (f(), g())` — and assigns
+      -- the temps via the ordinary `assignTuple` (pure temp reads, so store
+      -- order is unobservable, matching solc's temps-then-stores shape).
+      match
+          Stmt.toCore? storageNames
+            (Stmt.expr
+              (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
+                (Expr.tuple rhsItems))) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+          let componentTys ←
+            mapOption
+              (fun item =>
+                match item with
+                | TupleItem.value expr =>
+                    Expr.abiTyWithInternalFunctionsEnv?
+                      functions freeFunctions env expr
+                | TupleItem.hole => none)
+              rhsItems
+          FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions "_sol_tuple_assign_item"
+            0 componentTys rhsItems
+            (fun coreExprs =>
+              SolidCore.Solidity.Source.Stmt.assignTuple targets
+                (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+  | Stmt.expr
       (Expr.call
         (Expr.member (Expr.call (Expr.ident name) args) "push")
         memberArgs) =>
@@ -13906,8 +13944,33 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
-      let (coreDecls, assigns) ←
-        tupleVarDeclCorePieces? storageNames bindings items
+      let pieces? : Option (List CoreStmt) :=
+        match tupleVarDeclCorePieces? storageNames bindings items with
+        | some (coreDecls, assigns) => some (coreDecls ++ assigns)
+        | none => do
+            -- Stage B (boundary-completion arc), declaration form:
+            -- `(uint a, uint b) = (f(), g())`. Same left-to-right hoisting as
+            -- the assignment form (`docs/refs-completion-solc-research.md` §4);
+            -- the declared binding types are the component target types. The
+            -- decls are emitted at LIST level (they must survive for the
+            -- following statements); component name resolution is settled at
+            -- elaboration against the OUTER env (the bindings extend the env
+            -- only for `rest`), so emission order cannot capture. Anonymous
+            -- (hole) bindings still evaluate their component.
+            if bindings.length == items.length then some () else none
+            let tys ← VarBindings.sourceTysIncludingAnonymous? bindings
+            let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+            let targets ← VarBindings.toCoreTupleTargets? bindings
+            let hoisted ←
+              FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions "_sol_tuple_decl_item"
+                0 tys items
+                (fun coreExprs =>
+                  SolidCore.Solidity.Source.Stmt.assignTuple targets
+                    (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+            some (coreDecls ++ [hoisted])
+      let pieces ← pieces?
       let tail ←
         Stmt.listToCoreWithInternalCallsWithRefs?
           internalFuel
@@ -13915,7 +13978,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           (VarBindings.extendTypeEnv env bindings)
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
-      some (coreDecls ++ assigns ++ tail)
+      some (pieces ++ tail)
   | Stmt.varDecl [binding]
       (some (Expr.ternary cond thenExpr elseExpr)) :: rest =>
       match binding.name with

@@ -4905,6 +4905,49 @@
           }
         ]
       }
+    },
+    {
+      "name": "tuple-literal-hoist",
+      "description": "Stage-B pin for the boundary-completion arc (docs/refs-completion-solc-research.md \u00a74): tuple-literal RHS components containing internal calls evaluate LEFT-to-right into temps, all before any assignment; a hole still evaluates its component. Covers the assignment form, the hole form, and the declaration form; each probe encodes values + a storage order-log into one word, asserted against Forge.",
+      "forge": {
+        "match_contract": "TupleLiteralHoistForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/tuple-literal-hoist"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContract \"assignPair\" SolidCore.Solidity.Source.State.empty [] 11022012",
+            "label": "assignPairOrderAndValues"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContract \"assignHole\" SolidCore.Solidity.Source.State.empty [] 22012",
+            "label": "assignHoleStillEvaluates"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.TupleLiteralHoist.importedContract \"declPair\" SolidCore.Solidity.Source.State.empty [] 22011021",
+            "label": "declPairOrderAndValues"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "TupleLiteralHoistHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TupleLiteralHoist",
+        "source": "tests/forge-harness/tuple-literal-hoist/src/TupleLiteralHoist.sol"
+      }
     }
   ]
 }
