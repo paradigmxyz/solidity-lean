@@ -1114,6 +1114,30 @@ def Runtime.assignNamedValues? (runtime : Runtime) :
       | none => none
   | _, _ => none
 
+/-- Reference-aware local assignment for internal-call return capture
+    (function-boundary refactor, reference-signature extension). A returned
+    storage pointer must re-point the caller's storage-alias target (through
+    `assignStorageRef?`/`assignStoragePathRef?`), not be `coerceLike?`'d as an
+    ordinary value (which has no storage/memory-ref case). Memory-ref returns and
+    plain values fall through to `assignLocal?` (which already aliases a memory
+    target and coerces a value target). -/
+def Runtime.assignLocalRefAware?
+    (runtime : Runtime) (name : String) (value : Value) : Option Runtime :=
+  match value with
+  | Value.storageRef target => runtime.assignStorageRef? name target
+  | Value.storagePathRef target indexes =>
+      runtime.assignStoragePathRef? name target indexes
+  | _ => runtime.assignLocal? name value
+
+def Runtime.assignNamedValuesRef? (runtime : Runtime) :
+    List String -> List Value -> Option Runtime
+  | [], [] => some runtime
+  | name :: names, value :: values =>
+      match runtime.assignLocalRefAware? name value with
+      | some updated => Runtime.assignNamedValuesRef? updated names values
+      | none => none
+  | _, _ => none
+
 def Runtime.declareMemoryLocal (runtime : Runtime) (ty : Ty)
     (name : String) (value : Value) : Option Runtime := do
   let coerced ← ty.coerceValue? value
@@ -6232,6 +6256,64 @@ def Expr.evalReturnListWithRuntimeByContext
     (Expr.evalReturnListWithRuntimeOrder
       context.effectiveChildEvalOrder context runtime exprs)
 
+/-- Reference-preserving argument evaluation for the `internalCall` arm
+    (function-boundary refactor, reference-signature extension). Unlike ordinary
+    `Expr.var` evaluation — which *dereferences* a variable bound to a storage
+    pointer (loading the pointed-to storage value) or a memory pointer (loading
+    the memory object) — this yields the pointer VALUE itself when the argument
+    is a variable holding a storage/memory reference. That is how reference-typed
+    parameters flow across an internal-function boundary: `T memory` passes the
+    memory pointer (callee mutations alias back), `T storage` passes the storage
+    pointer as a plain runtime argument (solc's model). Non-reference arguments
+    (the elaboration's `_ic_arg_*` value temps, and any expression not bound to a
+    reference) fall through to ordinary evaluation, so value calls are
+    unaffected. -/
+def Expr.evalRefArgWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (expr : Expr) : SolI (Value × Runtime) :=
+  match expr with
+  | Expr.var name =>
+      match runtime.lookupStoragePathRef? name with
+      | some (target, indexes) =>
+          pure (Value.storageRefForPath target indexes, runtime)
+      | none =>
+          match runtime.lookupMemoryRef? name with
+          | some id => pure (Value.memoryRef id, runtime)
+          | none => Expr.evalWithRuntimeOrder order context runtime expr
+  | _ => Expr.evalWithRuntimeOrder order context runtime expr
+
+def Expr.evalRefArgListWithRuntimeOrderFuel
+    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+    Runtime -> List Expr -> SolI (List Value × Runtime)
+  | runtime, exprs =>
+      match fuel with
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
+      | fuel + 1 =>
+          match exprs with
+          | [] => pure ([], runtime)
+          | expr :: rest =>
+              match order with
+              | ChildEvalOrder.leftToRight => do
+                  let (value, runtime') ←
+                    Expr.evalRefArgWithRuntimeOrder order context runtime expr
+                  let (values, runtime'') ←
+                    Expr.evalRefArgListWithRuntimeOrderFuel fuel order
+                      context runtime' rest
+                  pure (value :: values, runtime'')
+              | ChildEvalOrder.rightToLeft => do
+                  let (values, runtime') ←
+                    Expr.evalRefArgListWithRuntimeOrderFuel fuel order
+                      context runtime rest
+                  let (value, runtime'') ←
+                    Expr.evalRefArgWithRuntimeOrder order context runtime' expr
+                  pure (value :: values, runtime'')
+
+def Expr.evalRefArgListWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (exprs : List Expr) : SolI (List Value × Runtime) :=
+  Expr.evalRefArgListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
+    order context runtime exprs
+
 def LValue.resolveWithRuntime (target : LValue) (context : Context)
     (runtime : Runtime) : SolI (ResolvedLValue × Runtime) :=
   Expr.resolveLValueWithRuntimeOrder context.effectiveChildEvalOrder context
@@ -6531,12 +6613,36 @@ def FunctionTable.lookup? (table : FunctionTable) (name : String) :
 def InternalFunction.returnDefaultBindings (fn : InternalFunction) : Frame :=
   fn.returns.map BindingDecl.defaultBinding
 
-/-- Build the isolated callee frame: parameters bound to (coerced) argument
-    values, followed by named/return locals defaulted. Mirrors
-    `FunctionDef.initialFrame?` (the entry-frame builder) exactly. -/
+/-- Reference-preserving parameter binding (function-boundary refactor,
+    reference-signature extension). A memory/storage-reference argument value is
+    a pointer and must be bound to the (reference-typed) parameter unchanged:
+    `Ty.coerceValue?` has no case for `memoryRef`/`storageRef`/`storagePathRef`,
+    so ordinary binding would reject it. Non-reference values coerce exactly as
+    the entry path's `BindingDecl.bindArg?`. -/
+def BindingDecl.bindArgRef? (decl : BindingDecl) (value : Value) :
+    Option (String × Value) :=
+  match value with
+  | Value.memoryRef _ | Value.storageRef _ | Value.storagePathRef _ _ =>
+      some (decl.name, value)
+  | _ => decl.bindArg? value
+
+def BindingDecl.bindArgsRef? :
+    List BindingDecl -> List Value -> Option Frame
+  | [], [] => some []
+  | decl :: decls, value :: values => do
+      let head ← decl.bindArgRef? value
+      let tail ← BindingDecl.bindArgsRef? decls values
+      some (head :: tail)
+  | _, _ => none
+
+/-- Build the isolated callee frame: parameters bound to (coerced, or
+    reference-preserved) argument values, followed by named/return locals
+    defaulted. Mirrors `FunctionDef.initialFrame?` (the entry-frame builder),
+    but binds reference-typed parameters by preserving the pointer value
+    (`bindArgsRef?`) so `T memory`/`T storage` parameters flow by reference. -/
 def InternalFunction.initialFrame? (fn : InternalFunction)
     (args : List Value) : Option Frame :=
-  match BindingDecl.bindArgs? fn.params args with
+  match BindingDecl.bindArgsRef? fn.params args with
   | some params => some (params ++ fn.returnDefaultBindings)
   | none => none
 
@@ -6581,15 +6687,70 @@ def coerceReturnBindings (returns : List BindingDecl)
     | _, _ => Except.error RevertData.typeMismatch
   coerce returns values
 
+/-- Reference-preserving analogues of `collectReturnBindings`/
+    `coerceReturnBindings` for the `internalCall` arm (reference-signature
+    extension). A `T memory` return keeps its memory pointer (so the caller
+    aliases the same object, not a deep copy) and a `T storage` return keeps its
+    storage pointer (`coerceValue?` has no reference case). Non-reference returns
+    are dereferenced-and-coerced exactly as the shared collectors, so the entry
+    path (which must abi-value its memory returns and never returns storage
+    pointers) is untouched — the divergence is confined to the reference kinds
+    the entry path never produces. -/
+def collectReturnBindingsRef (returns : List BindingDecl)
+    (runtime : Runtime) : Except RevertData (List Value) :=
+  let rec collect : List BindingDecl -> Except RevertData (List Value)
+    | [] => Except.ok []
+    | decl :: rest => do
+        let value ←
+          match runtime.lookupLocal? decl.name with
+          | some value => Except.ok value
+          | none => Except.error RevertData.typeMismatch
+        let value ←
+          match value with
+          | Value.memoryRef _ | Value.storageRef _ | Value.storagePathRef _ _ =>
+              Except.ok value
+          | _ => do
+              let value ← runtime.derefMemoryValueDeep value
+              match decl.ty.coerceValue? value with
+              | some coerced => Except.ok coerced
+              | none => Except.error RevertData.typeMismatch
+        let values ← collect rest
+        Except.ok (value :: values)
+  collect returns
+
+def coerceReturnBindingsRef (returns : List BindingDecl)
+    (runtime : Runtime) (values : List Value) :
+    Except RevertData (List Value) :=
+  let rec coerce :
+      List BindingDecl -> List Value -> Except RevertData (List Value)
+    | [], [] => Except.ok []
+    | decl :: decls, value :: rest => do
+        let head ←
+          match value with
+          | Value.memoryRef _ | Value.storageRef _ | Value.storagePathRef _ _ =>
+              Except.ok value
+          | _ => do
+              let value ← runtime.derefMemoryValueDeep value
+              match decl.ty.coerceValue? value with
+              | some coerced => Except.ok coerced
+              | none => Except.error RevertData.typeMismatch
+        let tail ← coerce decls rest
+        Except.ok (head :: tail)
+    | _, _ => Except.error RevertData.typeMismatch
+  coerce returns values
+
 /-- Write an internal call's coerced return values into the caller's target
     locals (already declared by elaboration). Empty targets discard the values
-    (statement-position call). Mirrors `Stmt.captureReturn`'s assignment. -/
+    (statement-position call). Mirrors `Stmt.captureReturn`'s assignment. A
+    returned storage/memory pointer is written reference-aware
+    (`assignNamedValuesRef?`) so a storage-pointer return re-points the caller's
+    alias target. -/
 def internalCallAssign (runtime : Runtime) (targets : List String)
     (values : List Value) : SolI Result :=
   if targets.isEmpty then
     pure (Result.normal runtime)
   else
-    match runtime.assignNamedValues? targets values with
+    match runtime.assignNamedValuesRef? targets values with
     | some updated => pure (Result.normal updated)
     | none => pure (Result.reverted runtime RevertData.typeMismatch)
 
@@ -7177,7 +7338,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.internalCall targets callee args => do
           -- In-monad framed internal call (no query emitted; transcript
           -- invariant). See `docs/function-boundary-refactor-plan.md` §3.1.
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalRefArgListWithRuntimeOrder
+              context.effectiveChildEvalOrder
               context runtime args).caught with
           | Except.error err => pure (Result.reverted runtime err)
           | Except.ok (argValues, runtime') =>
@@ -7204,16 +7366,16 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                           -- explicit values are coerced to declared returns.
                           match
                             (if values.isEmpty then
-                                collectReturnBindings fn.returns r
+                                collectReturnBindingsRef fn.returns r
                               else
-                                coerceReturnBindings fn.returns r values)
+                                coerceReturnBindingsRef fn.returns r values)
                           with
                           | Except.ok values =>
                               internalCallAssign
                                 { r with locals := savedLocals } targets values
                           | Except.error err => pure (Result.reverted r err)
                       | Result.normal r =>
-                          match collectReturnBindings fn.returns r with
+                          match collectReturnBindingsRef fn.returns r with
                           | Except.ok values =>
                               internalCallAssign
                                 { r with locals := savedLocals } targets values

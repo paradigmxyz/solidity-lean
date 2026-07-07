@@ -184,6 +184,76 @@ def callSd : Stmt :=
 #guard isOutOfFuel (foldTop 3 factorialTable Context.empty State.empty (callFactorial 5))
 #guard (runTop 3 factorialTable (callFactorial 5)).isNone
 
+/-! ### Reference-signature callees (function-boundary refactor, ref extension)
+
+These pin the interpreter groundwork that lets storage/memory-reference
+parameters and returns cross the internal-function boundary as pointer VALUES:
+reference-preserving argument evaluation (`evalRefArgWithRuntimeOrder`),
+reference-preserving parameter binding (`bindArgsRef?`), reference-preserving
+return collection (`collectReturnBindingsRef`), and reference-aware return
+assignment (`assignNamedValuesRef?`). -/
+
+def storageRefContext : Context :=
+  { Context.empty with
+    storageFields :=
+      [ { name := "x", slot := 0, ty? := some Ty.uint256 }
+      , { name := "y", slot := 1, ty? := some Ty.uint256 } ] }
+
+-- Callee takes a `T storage` parameter `_arg0` and reads THROUGH it. Under
+-- reference-preserving binding, `_arg0` holds the caller's storage pointer, so
+-- `Expr.var "_arg0"` loads the caller's slot.
+def readThroughFn : InternalFunction :=
+  { name := "readThrough", params := [uintB "_arg0"], returns := [uintB "out"]
+    body := Stmt.returnValues [Expr.var "_arg0"] }
+
+-- Caller: set storage x := 7, alias local `p` to x, pass `p` by reference.
+def callReadThrough : Stmt :=
+  Stmt.block
+    [ Stmt.assign (LValue.storage "x") (Expr.word 7)
+    , Stmt.storageAlias "p" "x"
+    , Stmt.varDecl Ty.uint256 "r" none
+    , Stmt.internalCall ["r"] "readThrough" [Expr.var "p"]
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard
+  (match (foldTop 16 [readThroughFn] storageRefContext State.empty
+      callReadThrough).toOption with
+   | some (Result.returned _ [Value.word w]) => wordEq w 7
+   | _ => false)
+
+-- A callee whose `_arg0` is passed a plain (non-reference) value still binds and
+-- reads by value — the ref-preserving path is inert for value arguments.
+def callReadThroughByValue : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl Ty.uint256 "r" none
+    , Stmt.internalCall ["r"] "readThrough" [Expr.word 55]
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard returnedWordEq 55 (runTop 16 [readThroughFn] callReadThroughByValue)
+
+-- Callee RETURNS a `T storage` pointer: it re-points its named storage return
+-- `out` at slot `x`. `collectReturnBindingsRef` preserves the pointer and
+-- `assignNamedValuesRef?` re-points the caller's alias target `r`.
+def pickStorageFn : InternalFunction :=
+  { name := "pickStorage", params := [], returns := [uintB "out"]
+    body := Stmt.storageAlias "out" "x" }
+
+-- Caller aliases `r` to y (value 5) first; after the call `r` must point at x
+-- (value 7), proving the returned pointer flowed, not the initial aliasing.
+def callPickStorage : Stmt :=
+  Stmt.block
+    [ Stmt.assign (LValue.storage "x") (Expr.word 7)
+    , Stmt.assign (LValue.storage "y") (Expr.word 5)
+    , Stmt.storageAlias "r" "y"
+    , Stmt.internalCall ["r"] "pickStorage" []
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard
+  (match (foldTop 16 [pickStorageFn] storageRefContext State.empty
+      callPickStorage).toOption with
+   | some (Result.returned _ [Value.word w]) => wordEq w 7
+   | _ => false)
+
 /-! ### Missing callee -> defensive revert (total interpreter) -/
 
 def callMissing : Stmt :=
