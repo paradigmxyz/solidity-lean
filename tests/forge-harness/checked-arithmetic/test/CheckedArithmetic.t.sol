@@ -41,4 +41,8 @@ contract CheckedArithmeticForgeTest {
         }
     }
 
+    function testNarrowLeftShift() public view {
+        require(target.shlWrapSigned() == -128, "int8(64)<<1");
+        require(target.shlTruncUnsigned() == 254, "uint8(255)<<1");
+    }
 }

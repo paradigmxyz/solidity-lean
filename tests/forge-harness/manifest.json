@@ -67,6 +67,16 @@
             "label": "importedSignedExpOverflowPanics",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 16 SolidCore.Solidity.SolcAstImport.CheckedArithmetic.importedContract \"negExpOverflow\" SolidCore.Solidity.Source.State.empty [] 0x11",
             "expect": "Except.ok true"
+          },
+          {
+            "label": "importedNarrowShiftSignedWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.CheckedArithmetic.importedContract \"shlWrapSigned\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Shared.signedToWord (-128))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedNarrowShiftUnsignedTruncates",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 16 SolidCore.Solidity.SolcAstImport.CheckedArithmetic.importedContract \"shlTruncUnsigned\" SolidCore.Solidity.Source.State.empty [] 254",
+            "expect": "Except.ok true"
           }
         ]
       }

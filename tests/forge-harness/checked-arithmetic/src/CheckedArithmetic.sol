@@ -33,4 +33,15 @@ contract CheckedArithmeticHarnessTarget {
         return a ** 8;
     }
 
+    // Left shifts truncate to the operand width with no overflow check even in
+    // a checked block (B/C W2 soundness fix).
+    function shlWrapSigned() external pure returns (int8) {
+        int8 a = 64;
+        return a << 1;
+    }
+
+    function shlTruncUnsigned() external pure returns (uint8) {
+        uint8 a = 255;
+        return a << 1;
+    }
 }

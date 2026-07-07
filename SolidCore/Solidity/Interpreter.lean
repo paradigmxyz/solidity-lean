@@ -5343,7 +5343,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     let lhsValue ← resolved.read context runtime''
                     pure (resolved, lhsValue, rhsValue, runtime'')
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
-              let cleaned ← cleanup.apply context.checked value
+              -- Left shifts truncate to the operand width with no overflow
+              -- check, even inside a checked block, so the compound-assign
+              -- cleanup for `<<=` must be applied unchecked.
+              let cleanupChecked :=
+                match op with
+                | BinaryOp.shl => false
+                | _ => context.checked
+              let cleaned ← cleanup.apply cleanupChecked value
               let updated ← resolved.write context runtime'' cleaned
               pure (cleaned, updated)
           | Expr.binary BinaryOp.boolAnd lhs rhs => do

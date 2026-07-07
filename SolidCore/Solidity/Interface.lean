@@ -3167,17 +3167,32 @@ def Ty.allowsIntCastSource? (bits : Nat) (sourceTy : Ty) : Option Unit :=
 
 def Ty.implicitCleanupCore? (targetTy : Ty) (expr : CoreExpr) :
     Option CoreExpr :=
+  -- Left shifts truncate to the result type width with no overflow check, even
+  -- inside a checked block, so a shift result must be cleaned with a truncating
+  -- cast (`uintCast`/`intCast`) rather than the checked `uintCleanup`/
+  -- `intCleanup` used for the overflow-checked arithmetic operators.
+  let isLeftShift :=
+    match expr with
+    | SolidCore.Solidity.Source.Expr.binary
+        SolidCore.Solidity.Source.BinaryOp.shl _ _ => true
+    | _ => false
   match targetTy with
   | Ty.uint bits =>
       let bits := if bits == 0 then 256 else bits
       if 0 < bits && bits <= 256 then
-        some (SolidCore.Solidity.Source.Expr.uintCleanup bits expr)
+        if isLeftShift then
+          some (SolidCore.Solidity.Source.Expr.uintCast bits expr)
+        else
+          some (SolidCore.Solidity.Source.Expr.uintCleanup bits expr)
       else
         none
   | Ty.int bits =>
       let bits := if bits == 0 then 256 else bits
       if 0 < bits && bits <= 256 then
-        some (SolidCore.Solidity.Source.Expr.intCleanup bits expr)
+        if isLeftShift then
+          some (SolidCore.Solidity.Source.Expr.intCast bits expr)
+        else
+          some (SolidCore.Solidity.Source.Expr.intCleanup bits expr)
       else
         none
   | _ => some expr
