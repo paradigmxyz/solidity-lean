@@ -759,3 +759,20 @@ the full sequential 98-case replay + AST audit gate run was IN PROGRESS at
 commit time (committed early at the user's request, on the strength of
 build/smoke/equivalence/baseline gates and an independent review of the diff);
 its result and wall-clock are recorded in a follow-up entry.
+
+## 2026-07-06 — Phase 5 stage 3 follow-up: full-gate results
+
+The gates left in progress at the stage-3 commit (`49a20f3`) both passed
+against that exact tree:
+
+- **Full corpus replay**: `forge_interpreter_compare=pass`, `cases=98`,
+  `paired_cases_passed=yes`, zero case failures. Run with `--jobs 10`
+  (~16 min wall-clock; a first sequential attempt was killed by the session's
+  background-task reaper at 74/98 after ~60 min — nothing about the corpus).
+- **AST frontend audit**: `rendered_sources=97`, `render_failures=0`,
+  `unknown_source_scalar_value_fields=0` (no unimplemented constructs).
+
+With these, the complete stage-3 gate battery is green: build (1091 jobs),
+smoke (28 cases) + the two oracle cases outside the smoke set via `--only`,
+witness truth-value baseline (138 evals byte-identical), stage-2 responder
+equivalence re-run just before the flip (18/18), full replay, and AST audit.
