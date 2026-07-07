@@ -4177,7 +4177,7 @@ def abiEncodeCoreExprStatement : SolidCore.Solidity.Source.Stmt :=
 def abiEncodeCoreExprResult : Option CoreResult :=
   (SolidCore.Solidity.Source.SolI.run
     SolidCore.Solidity.Source.Context.empty
-    (SolidCore.Solidity.Source.Stmt.eval 8
+    (SolidCore.Solidity.Source.Stmt.eval 8 []
       SolidCore.Solidity.Source.Context.empty
       (SolidCore.Solidity.Source.Runtime.ofState
         SolidCore.Solidity.Source.State.empty)
@@ -20936,7 +20936,7 @@ def unspecifiedTupleOrderStmtEval
     unspecifiedBinaryOrderContext.withChildEvalOrder order
   match
     (SolidCore.Solidity.Source.SolI.run context
-      (SolidCore.Solidity.Source.Stmt.eval 16 context
+      (SolidCore.Solidity.Source.Stmt.eval 16 [] context
         (SolidCore.Solidity.Source.Runtime.ofState
           SolidCore.Solidity.Source.State.empty)
         core)).toOption

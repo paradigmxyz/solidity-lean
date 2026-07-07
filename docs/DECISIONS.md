@@ -1184,3 +1184,345 @@ the flip is unverified.
 `--only openzeppelin-ecdsa`: `forge=ok lean=ok`,
 `forge_interpreter_compare=pass`; all 5 evals `Except.ok true`.
 `scripts/smoke_replay.sh` green.
+## 2026-07-06 — Function-boundary refactor, stage 0: pin the recursion/deep-nesting gap
+
+Branch `refactor/function-boundary` (worktree, based at Phase-6 checkpoint
+`1a69f5d`), executing `docs/function-boundary-refactor-plan.md`.
+
+Stage 0 records and pins the acceptance gap from the plan §1.4 with a paired
+corpus lane, `recursion-gap` (100th case):
+
+- Fixture `tests/forge-harness/recursion-gap/src/RecursionGap.sol` has
+  (a) a genuinely recursive `factorial` (→120 at n=5), (a') `sumTo` whose
+  runtime recursion depth itself exceeds the 64 inline horizon (`sumTo(70)=2485`),
+  and (b) a **static, non-recursive** call chain of depth 70 (`step0..step70`,
+  `deepChain()=70`). Forge test asserts all three; solc 0.8.35 accepts and
+  Foundry-EVM runs them (3/3 pass).
+- The recursive functions are `public` (not `external`): solc rejects internal
+  self-calls by name on `external` functions ("undeclared identifier … not yet
+  visible"), so recursion must be `public`/`internal`. Recorded because it is a
+  non-obvious fixture constraint. `deepChain` stays `external` (it calls an
+  `internal` chain, does not self-recurse).
+- **Honest Lean expectation, pinned today**: the gap lives in *elaboration*, not
+  typechecking — `importedContractAccepted` (the typechecker) is `true` (asserted
+  as `importedContractTypechecks`). Elaboration (`toCoreContract?`) returns
+  `none` because `defaultInternalCallInlineFuel = 64` runs out on the recursion /
+  deep nesting, so `CheckedInput.ownCall?` returns `none` for **every** function
+  of the contract. The three `*RejectedToday` witnesses assert exactly that
+  (`(ownCall? … ).isNone = true`), each documented to FLIP to the concrete value
+  at stage 5. Using the Option-returning `ownCall?` + `.isNone` (rather than the
+  `Except`-returning `checkedOwnCallWordMatches`, whose failure is an
+  `Except.error` with a fragile message) keeps the pin a clean `Bool`.
+- ROADMAP gap-registry row updated (Deferred → In progress, pinned by this lane).
+
+Gate: `lake build SolidCore` green (baseline); single-lane Lean replay
+`forge_interpreter_compare=pass`, `paired_cases_passed=yes`; Forge suite 3/3.
+Full replay deferred (the main tree is mid sequential replay; CPU caution).
+
+## 2026-07-06 — Function-boundary refactor, stage 1: core node + table + evaluator arm (dead code)
+
+Landed the target representation as dead code — nothing emits `Stmt.internalCall`
+yet (elaboration still splices), so the corpus is neutral by construction.
+
+Interpreter (`SolidCore/Solidity/Interpreter.lean`):
+- New `Stmt.internalCall : List String -> String -> List Expr -> Stmt`
+  (targets, resolved callee name, arg exprs).
+- `InternalFunction` (name/params/returns/body) + `abbrev FunctionTable`
+  + `FunctionTable.lookup?`, defined before the eval block (they cannot live in
+  `Context`, which precedes `Stmt`). `FunctionDef.toInternal` projects the
+  entry-only `FunctionDef` onto it; `Contract.table` maps all functions.
+- The `Stmt.eval` mutual block (eval/evalList/evalWhile/evalDoWhile/evalFor)
+  gained a `FunctionTable` parameter (2nd, after `fuel`), threaded through every
+  recursive call.
+- `internalCall` arm (§3.1): eval args in the caller runtime; look up callee;
+  build the callee frame; **REPLACE** `runtime.locals` with `[frame]` (state
+  shared); recurse `Stmt.eval (fuel-1) table …`; map the body `Result` exactly as
+  the entry `callBodyResult` for returned/normal (restoring the caller's saved
+  locals, keeping the callee's state), propagate `selfdestructed`/`reverted`, and
+  map `broke`/`continued` to `reverted typeMismatch` (fixing the latent
+  `captureReturn` passthrough).
+- R3 mitigation: `collectReturnBindings`/`coerceReturnBindings` are the single
+  source of truth; `FunctionDef.collectReturns`/`coerceReturnValues` now delegate
+  to them, so the entry mapping and the internal-call arm cannot drift.
+- `table` threaded through `evalBodyEntry`/`call`/`call?`/`callUnspecifiedResults`/
+  `CallsUnspecified` (after `fuel`) and the rollback theorem. `Contract.call`
+  passes `contract.table`.
+
+Caller updates:
+- ABI.lean (6 fallback/receive sites) pass `contract.table`; Checked.lean (9
+  sites) pass `contract.core.table`; Interface.lean constructor sites pass
+  `contract.table`, the two bare single-function adapters pass
+  `[function.toInternal]`; `Stmt.eval?`/`Stmt.evalFailOpen?` gained a
+  `table := []` default (their ~40 witness callers are unchanged).
+- `FunctionDef.callFailOpen?` puts `table` LAST with default `[]` so its ~24
+  external-effect witness sites in `Witness/Interface.lean` compile unchanged.
+  This is correct while elaboration still splices (stages 0–1: bodies contain no
+  `internalCall` nodes). At stage 2 the sites whose bodies gain internal calls
+  get `contract.table`, guarded by the full replay. (The value-producing
+  `call`/`call?` adapters keep `table` after `fuel` and already pass real
+  tables.)
+
+Witnesses: `SolidCore/Witness/InternalCall.lean` (imported by `SolidCore.lean`)
+pins the arm with `#guard`s on hand-built tables: direct recursion
+(factorial 5=120, 3=6, 1=1), frame isolation (a callee reading the caller's
+`secret` reverts; the caller's locals survive), state sharing (a callee's storage
+write reads back 42), `broke`→`reverted typeMismatch`, `selfdestruct`
+propagation, the fuel bound (value at 64, `outOfFuel` at 3), and a missing-callee
+defensive revert.
+
+Gate: `lake build SolidCore` green (1095 jobs); `scripts/smoke_replay.sh`
+behaviour-green — all 28 curated cases compute the expected values
+(`Except.ok true` / `true`), including the external-effect query paths
+(low-level/high-level calls, contract creation, create options) confirming
+transcript invariance. Corpus neutral (no node emitted yet).
+
+Environmental note (not a correctness issue): the smoke's `reference-assignments`
+lane reported `timeout_after_600s` when run at `jobs=10` — the main tree's
+long sequential replay was still competing for CPU/RAM, and ~20 concurrent
+`lake env lean` processes (each ~700 MB) caused swapping that pushed this heavy
+case's *wall*-clock past the 600 s per-case cap while its CPU need is ~245 s.
+Re-run **solo** on the freed machine it passes cleanly:
+`case_result=… lean=ok`, `forge_interpreter_compare=pass`,
+`paired_cases_passed=yes`, `5:11.99` wall. The other heavy cases
+(`openzeppelin-erc20`, `openzeppelin-vesting-wallet`) completed in the concurrent
+run. Recorded as an R1 perf datapoint to compare at stage 2's full replay +
+wall-clock (the plan's R1 measurement point); Stage 1 changes are behaviour-
+neutral (elaboration still splices, no `internalCall` nodes emitted), so this is
+not attributable to the node/arm as a correctness matter.
+
+## 2026-07-06 — Function-boundary refactor, stage 2 handoff: verified edit surface (no code changes)
+
+Stages 0–1 are committed (`e5a9876`, `58b6cf0`); stages 2–5 were deliberately
+not attempted this run (each `Interface.lean` iteration is a ~7–20 min compile
+and stage 2 is full-replay-gated). This entry records the VERIFIED edit surface
+for stage 2, mapped against the committed tree, so the implementer starts from
+checked anchors. Key facts (line numbers as of `58b6cf0`):
+
+- `CoreStmt` IS the interpreter's `Stmt` (`Interface.lean:27` abbrev), so
+  elaboration emits `Source.Stmt.internalCall` directly; the constructor exists
+  (`Interpreter.lean:6155`) and the evaluator arm handles it (`:7038–7091`).
+  **No other exhaustive core-`Stmt` match needs a new case** — the eval-block
+  helpers delegate to `Stmt.eval`, and every `Interface.lean`/`TypeCheck.lean`
+  `Stmt` traversal (renameIdents, toCore?, expandUsing, annotateAbi, …) is on
+  the *surface* AST `Stmt`, a different type. No Yul/Sc lowering file exists yet.
+- `FunctionDecl.internalCallParts?` (`Interface.lean:10401–10516`, two symmetric
+  branches: contract functions `:10408–10460`, freeFunctions `:10461–10515`).
+  At the emit point: the resolved callee decl is in scope (`callee`), and the
+  ordered surface arg exprs are `sourceArgs` — but the current code produces
+  arg-temp DECLS (`toStorageAwareCoreArgDeclsWithInternalAliases?`), not core
+  arg exprs. Stage-2 work at this site = compute the callee table key + elaborate
+  `sourceArgs` to `List CoreExpr` + return an `internalCall`-shaped result; the
+  10 wrapper callers (`:10518–10869`: internalStatementCallCore?,
+  internalSingleReturnCallCore?, …AssignReturn…, …Tuple…, internalReturnCallCore?)
+  each own the `targets`.
+- **Table key**: `FunctionDecl.coreName?` (`:8684–8689`) is what
+  `FunctionDecl.toCore?` puts in `FunctionDef.name` (`:16502`), so it is the
+  consistent key. Library helpers are already mangled uniquely
+  (`libraryHelperName`/`…ForIndex` `:15078–15086`) and super-helpers are named by
+  `FunctionDecl.superHelpers` (`:473`) BEFORE `internalCallParts?` runs. The one
+  real gap: **plain contract-internal overloads share `coreName?`** — stage 2
+  must add a disambiguating key (signature suffix or an overload index like the
+  library scheme) used identically at the call-site emit and the table emit (R6:
+  enforce by a single shared helper, not convention).
+- **Table construction**: `ContractDecl.directCoreFunctions?`
+  (`:18054–18080`) currently filters to
+  `FunctionDecl.isCoreEntrypoint && body.isSome` (`:18078–18079`;
+  `isCoreEntrypoint` `:8701–8705` returns false for internal/private). Relaxing
+  this filter to also map `FunctionDecl.toCore?` over non-entrypoint direct
+  functions + the helper sets already assembled in `toCoreFromOrders?`
+  (`ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers`,
+  `:18457–18468`) emits the internal-linkage `FunctionDef`s; `selector? := none`
+  falls out automatically (`abiSelector?` at `:16563` is none for internal), and
+  `Contract.table` (`Interpreter.lean:7745`) then materializes the table with NO
+  `CoreContract` shape change. Dedup caution: library/super helpers repeat across
+  the dispatch order — dedup by name when emitting, or table keys collide.
+- **Stage-4 deletion list** (after stages 2–3 replays are green):
+  `defaultInternalCallInlineFuel` (`:10129`) + its 4 consumption sites
+  (`:14680, :16551, :18155, :18200`), the fuel decrement in `internalCallParts?`
+  (`:10446–10457`/`:10501–10512`), and the fuel-0 fallback
+  `functionExpandModifiersToCoreWithStorageRefsOnly?` (`:9991`) whose `[]` case
+  reaches `Expr.toCore?`'s `| _ => none` — the exact rejection the stage-0
+  `recursion-gap` lane pins.
+
+## 2026-07-06 — Function-boundary refactor, stage 2: node emission for value-signature contract-internal + free functions
+
+Elaboration now emits `Stmt.internalCall` nodes (instead of splicing callee
+bodies) for internal calls whose resolved callee has a **pure stack-value
+signature** — every parameter and return has no data location (`location.isNone`)
+— and whose name is not a synthetic `__`-prefixed helper. All other callee kinds
+(storage-ref / memory-ref / function-pointer parameters or returns; library
+`__library_*`, super/base helpers) keep the existing inline-splice path; they
+move to the boundary in stage 3 or stay spliced where the frame model cannot
+represent them yet.
+
+**R6 table-key scheme (the handoff's open design item), decided:**
+`FunctionDecl.internalTableKey? = "__internal_" ++ abiSignature?`
+(e.g. `__internal_factorial(uint256)`), one shared helper used identically at
+the call-site emit (`valueBoundaryCallParts?`) and the table build
+(`directCoreFunctions?` / `toCoreFromOrders?`). Chosen over the library
+`_overload_<index>` scheme because `abiSignature?` (the existing canonical
+param-type renderer, already the selector source) is order-independent —
+immune to decl-list reordering — and the `__internal_` prefix makes collision
+with a plain entrypoint `FunctionDef.name` impossible. Entrypoint names stay
+plain: name-based dispatch (`Contract.findFunctionByName?`, `CallTarget.name`,
+used by Checked/ABI/witness paths) requires them.
+
+Mechanics:
+- `FunctionDecl.valueBoundaryCallParts?` returns the same
+  `(returnBindings, returnStorageRefs, prefixCore, bodyCore)` 4-tuple shape as
+  `internalCallParts?`, with `bodyCore := Stmt.internalCall returnNames key
+  argVars` — so all 10 wrapper callers are byte-unchanged: `captureReturn`
+  around the node is a harmless passthrough (the arm maps callee returns to
+  `Result.normal` internally). Guarded `return` at the top of BOTH branches of
+  `internalCallParts?` (contract functions and freeFunctions).
+- Arg temps use a fresh `_ic_arg_<i>` prefix, never the parameter name: the
+  evaluator binds arguments to callee params positionally (`initialFrame?`), and
+  param-named temps could shadow a same-named caller local read by a later
+  argument expression (a hazard the old α-renaming splice masked).
+- Table build: `directCoreFunctions?` additionally elaborates every
+  value-boundary ordinary function (any visibility) via the same
+  `FunctionDecl.toCore?` and stores it under the mangled key with
+  `selector? := none` **forced** — `abiSelector?` is visibility-blind (a
+  handoff-map gap: internal functions would otherwise get spurious selectors
+  into `findFunctionBySelector?` dispatch). Public functions therefore get two
+  entries: plain-name selector-bearing entrypoint + mangled selector-less table
+  entry. `toCoreFromOrders?` appends value-boundary FREE-function entries after
+  the contract groups and dedups (`CoreFunctionDefs.dedupInternalByName`,
+  first-wins = most-derived-wins across the C3 dispatch order, and
+  contract-over-free on key collision, matching resolver precedence).
+  Constructor path needs nothing: `constructWithBases…` already passes
+  `contract.table` from `toCoreFromOrders?`.
+- Modifiers untouched (substitution machinery byte-stable). The callee body in
+  the table is elaborated once by `toCore?` (modifier expansion included), so a
+  modifier-wrapped internal callee behaves as before.
+
+Recursion-gap lane flip pulled forward from stage 5 (recorded deviation): the
+fixture's functions are all `uint256`-typed, so at stage 2 they elaborate —
+`toCoreContract?` is no longer `none` and the stage-0 `.isNone` pins would now
+FAIL. The manifest lane was flipped to the concrete-value witnesses the stage-0
+entry promised: `checkedOwnCallWordMatches` at fuel 4000 asserting
+factorial(5)=120, sumTo(70)=2485, deepChain()=70 — verified against Forge
+(solo replay: `forge=ok lean=ok`, `forge_interpreter_compare=pass`,
+`paired_cases_passed=yes`). Stage 5 still owns the ROADMAP registry row update
+and the final full-replay confirmation.
+
+Gate note: per Dan's instruction this run, the smoke and full replays are
+DEFERRED until all stages are implemented; stage-2 gate here = full
+`lake build SolidCore` green (1095 jobs, all compile-time `#guard` witnesses
+intact) + the recursion-gap solo replay above.
+
+## 2026-07-06 — Function-boundary refactor, stage 3: library/`using`/`super`/base helpers onto the boundary (value-signature slice)
+
+- `FunctionDecl.isValueBoundaryCallee` no longer excludes `__`-prefixed names:
+  library helpers (`__library_<Lib>_<f>[_overload_<i>]`), super helpers, and
+  base helpers with pure stack-value signatures now node-emit through the same
+  `valueBoundaryCallParts?` guard in both `internalCallParts?` branches (their
+  mangled names are already overload-unique, so `internalTableKey?` stays
+  collision-free: `__internal___library_Lib_f(uint256)` etc.).
+- `toCoreFromOrders?` emits selector-less table entries for value-boundary
+  members of `superHelpers ++ baseHelpers ++ libraryHelpers`, elaborated once
+  via `FunctionDecl.toCore?` with the full contract context (storageNames,
+  stateEnv, modifiers, availableFunctions) — helper bodies are pre-contextualized
+  (super-rewrites and library `using`-surface expansion already applied by
+  `contextualSuperHelpers?`/`libraryHelperFunctions`), matching the splice-era
+  treatment which also ran no contract-name rewrites on them. Dedup order:
+  contract groups, then helpers, then free functions (first-wins).
+- **Expression-position hoisting: deliberately NOT generalized (deviation from
+  the plan's stage 3).** The splice-era wrapper set (`internalSingleReturnCall*`,
+  `internalTwoSingleReturnCalls*`, unary/binary/abi variants) already
+  sequentializes every expression-position call shape this semantics accepts;
+  `valueBoundaryCallParts?` slots into exactly that sequentialization, so
+  observable evaluation order is inherited from the splice era rather than
+  re-implemented — R4's order-fidelity risk is structurally avoided (same
+  temp-decl order, same conditional structure; only the callee body's execution
+  site moved). Shapes the wrappers reject (e.g. calls in loop conditions /
+  short-circuit operands that the current elaboration refuses) were rejected
+  BEFORE this refactor and remain rejected: no acceptance widening beyond the
+  recursion/depth fix. New-shape hoisting is future work, tracked with the
+  remaining-splice items below.
+- **Residual splice (kept deliberately)**: callees with storage-ref, memory-ref,
+  or function-typed params/returns still inline-splice (the frame model passes
+  arguments by value; storage-pointer args are lowered as `storageAlias*`
+  statements, not value-producing expressions). Consequence for stage 4: the
+  splice machinery and `defaultInternalCallInlineFuel` CANNOT be deleted yet —
+  ref-signature recursion also remains rejected (registry row will say so).
+- Gate (per this run's instruction, full replays deferred to the end):
+  `lake build SolidCore` green (1095 jobs); solo lanes recursion-gap,
+  modifier-order, uniswap-transfer-helper, openzeppelin-multicall all
+  `forge=ok lean=ok`, `forge_interpreter_compare=pass`.
+
+## 2026-07-06 — Function-boundary refactor, stages 4-5: deletion deferred (splice still live for ref signatures); recursion lane green; registry updated
+
+**Stage 4 (splice deletion): deferred, deliberately.** The plan's deletion list
+(`defaultInternalCallInlineFuel` + 4 consumption sites, the fuel decrement in
+`internalCallParts?`, `functionExpandModifiersToCoreWithStorageRefsOnly?`)
+assumed ALL internal-linkage calls moved to the boundary. Under the
+value-signature slice actually implemented (stages 2-3), the splice path is the
+LIVE elaboration for callees with storage-ref / memory-ref / function-typed
+params or returns (the corpus exercises storage-ref library callees heavily —
+OZ `using`-for fixtures), so nothing on the deletion list is dead
+(9 remaining references, verified). Deleting becomes possible only after the
+boundary covers ref signatures: the blocker is elaboration (storage-ref args
+are lowered as `storageAlias*` statements, not value-producing core
+expressions), NOT the interpreter (storage pointers already exist as runtime
+`Value.storageRef`/`storagePathRef`). Recorded as the follow-up work item.
+
+**Stage 5 (flip + registry):** the `recursion-gap` lane was flipped at stage 2
+(the fixture is all-`uint256`, so it elaborates as soon as contract-internal
+value calls are on the boundary) and passes against Forge with the concrete
+values (factorial(5)=120, sumTo(70)=2485, deepChain()=70). ROADMAP registry row
+updated: **Fixed for value-signature callees; residual gap = ref-signature
+callees** (recursion through storage/memory-ref signatures is still silently
+rejected via the retained inline fuel). Readiness-doc D1 note: Sc now has a
+source IR for value-signature internal calls (`Stmt.internalCall` +
+`Contract.table`).
+
+Final combined gate (smoke + full replay + wall-clock vs baseline) runs at the
+end of this working session per Dan's instruction; results recorded in the next
+entry.
+
+## 2026-07-07 — Function-boundary refactor: final gates, R1 wall-clock, and a pre-existing ecdsa lane failure pinned to the base commit
+
+Final combined gate (per Dan's instruction to defer per-stage replays):
+
+- **Full replay** (100 cases, `--jobs 10`, tip `ad2a78a` + perf/semantic fixes):
+  **99/100 pass in 627s wall**, `recursion-gap` green with the concrete Forge
+  values, all 35 `solc_rejects` acceptance-rejection lanes still reject, all
+  previously-timing-out heavy lanes (openzeppelin-erc20 / access-control /
+  erc1155-pausable-supply / erc721-royalty, reference-assignments) pass.
+- **The single failure is NOT this refactor's**: `openzeppelin-ecdsa`'s
+  invalid-signer eval expects `ecrecover` with v=29 to yield signer 0 without a
+  scripted responder row. `ecrecover` is emitted as a precompile STATICCALL
+  `Query.external`; under the Phase-6 item-7 **fail-closed** adapters
+  (`e687bed`, on this branch's base) an unanswered call is `unmatched` →
+  `Contract.call?` = none → `executableFailure` — the eval's expectation
+  depends on the retired fail-OPEN default (miss → failed call → empty output →
+  `outputWord?` none → `.getD 0` → signer 0). Verified by rebuilding the
+  stage-1 baseline `58b6cf0` (node emission entirely absent): the lane fails
+  IDENTICALLY there. The Phase-6 checkpoint was "awaiting sequential replay
+  gate" — this is what that gate would have caught. Left unfixed here
+  (out of refactor scope; likely already addressed on main): fix = either a
+  scripted responder row for the precompile miss in the lane eval, or a
+  deliberate deterministic-precompile answering layer in the responder.
+- **R1 (performance) final numbers** (erc20 probes, per-eval interpretation):
+  pre-refactor 7.3s (balanceOf-shaped) / 43.3s (construct-shaped); first cut
+  36.1s / 218s (~5x — eager helper elaboration + double toCore?); after the
+  single-elaboration reuse + demand-driven super/base helper entries:
+  12.1s / 74.4s (**~1.7x**, within the roadmap ~2x rule). Residual overhead =
+  the eager internal-linkage table entries per dispatch-order contract, kept
+  eager deliberately: constructors call internal functions (`_mint`) that no
+  entrypoint body demands, so demand-driving them from entrypoint seeds would
+  silently break construction. The harness generator now sets
+  `set_option maxHeartbeats 8000000` per generated file (the 200k default was
+  an implicit ~50s-per-#eval CPU ceiling that construct-heavy lanes sat just
+  under pre-refactor; the per-case wall cap remains the perf gate).
+- **R2 note**: fuel is now uniform statement-recursion depth — an internal call
+  costs one unit and the callee body runs at `fuel - 1`. No corpus witness
+  moved (fuels are generous; the recursion-gap lane runs at 4000).
+- **R3/R4 evidence**: zero value drift anywhere in the corpus — the only
+  behavioural fix needed was checked-ness lexicality (callee bodies run
+  `checked := true` regardless of the caller's enclosing unchecked block,
+  matching the splice's `Stmt.checked` wrapper; caught by inspection, pinned by
+  the OZ lanes that exercise unchecked arithmetic). Evaluation order is
+  inherited from the splice-era wrapper sequentialisation (no new hoisting
+  shapes were introduced), so the order witnesses pass unchanged.

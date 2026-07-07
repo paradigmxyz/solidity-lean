@@ -595,7 +595,7 @@ def Contract.callFallbackAtFromWithContext? (fuel : Nat)
       let context :=
         Contract.callContextAtWithBase contract base self sender value calldata
       if function.acceptsValue value then
-        match FunctionDef.call? fuel context function state args with
+        match FunctionDef.call? fuel contract.table context function state args with
         | some (CallResult.returned state' values) => do
             let output ← FunctionDef.encodeFallbackOutput? function values
             some { success := true, output, state := state' }
@@ -632,7 +632,7 @@ def Contract.callReceiveOrFallbackAtFromWithContext? (fuel : Nat)
         let context :=
           Contract.callContextAtWithBase contract base self sender value []
         if function.acceptsValue value then
-          match FunctionDef.call? fuel context function state [] with
+          match FunctionDef.call? fuel contract.table context function state [] with
           | some (CallResult.returned state' values) => do
               let output ← encodeValues?
                 (function.returns.map BindingDecl.ty) values
@@ -681,7 +681,7 @@ def Contract.callCalldataAtFromWithContext? (fuel : Nat)
                 Contract.callContextAtWithBase contract base self sender value
                   calldata
               if function.acceptsValue value then
-                match function.call? fuel context state args with
+                match function.call? fuel contract.table context state args with
                 | some (CallResult.returned state' values) => do
                     let output ← encodeValues?
                       (function.returns.map BindingDecl.ty) values
@@ -880,7 +880,7 @@ def Contract.callFallbackAtFromWithContext (fuel : Nat)
       let context :=
         Contract.callContextAtWithBase contract base self sender value calldata
       if function.acceptsValue value then
-        (FunctionDef.call fuel context function state args).map fun tree =>
+        (FunctionDef.call fuel contract.table context function state args).map fun tree =>
           tree.bind fun cr =>
             liftAbiEncode (Contract.encodeFallbackResult? contract function cr)
       else
@@ -897,7 +897,7 @@ def Contract.callReceiveOrFallbackAtFromWithContext (fuel : Nat)
         let context :=
           Contract.callContextAtWithBase contract base self sender value []
         if function.acceptsValue value then
-          (FunctionDef.call fuel context function state []).map fun tree =>
+          (FunctionDef.call fuel contract.table context function state []).map fun tree =>
             tree.bind fun cr =>
               liftAbiEncode (Contract.encodeCalldataResult? contract function cr)
         else
@@ -925,7 +925,7 @@ def Contract.callCalldataAtFromWithContext (fuel : Nat)
                 Contract.callContextAtWithBase contract base self sender value
                   calldata
               if function.acceptsValue value then
-                (function.call fuel context state args).map fun tree =>
+                (function.call fuel contract.table context state args).map fun tree =>
                   tree.bind fun cr =>
                     liftAbiEncode
                       (Contract.encodeCalldataResult? contract function cr)

@@ -239,7 +239,7 @@ def constructFrom? (fuel : Nat) (contract : CheckedContract)
   let constructor ←
     CheckedProgram.constructorFunctionFor? contract.program contract.decl
   SolidCore.Solidity.Source.FunctionDef.call?
-    fuel
+    fuel contract.core.table
     { contract.core.context with
       sender := sender
       value := value
@@ -252,7 +252,7 @@ def constructWithContext? (fuel : Nat) (contract : CheckedContract)
   let constructor ←
     CheckedProgram.constructorFunctionFor? contract.program contract.decl
   SolidCore.Solidity.Source.FunctionDef.call?
-    fuel
+    fuel contract.core.table
     { context with
       sender := sender
       value := value
@@ -333,7 +333,7 @@ def callFunctionWithContext? (fuel : Nat)
     Option CoreCallResult := do
   let function ← coreFunction? contract functionName
   SolidCore.Solidity.Source.FunctionDef.call?
-    fuel context function state args
+    fuel contract.core.table context function state args
 
 def callFunctionWithContext (fuel : Nat)
     (contract : CheckedContract) (functionName : Name)
@@ -352,7 +352,7 @@ def callTargetWithContext? (fuel : Nat)
   match contract.core.resolveCallFunction? target args with
   | some function =>
       SolidCore.Solidity.Source.FunctionDef.call?
-        fuel context function state args
+        fuel contract.core.table context function state args
   | none => none
 
 def callTargetWithContext (fuel : Nat)
@@ -371,7 +371,7 @@ def callFunctionUnspecifiedResults (fuel : Nat)
   match coreFunction? contract functionName with
   | some function =>
       SolidCore.Solidity.Source.FunctionDef.callUnspecifiedResults
-        fuel context function state args
+        fuel contract.core.table context function state args
   | none => []
 
 def callCalldataFrom? (fuel : Nat) (contract : CheckedContract)
@@ -505,7 +505,7 @@ def constructFromTree (fuel : Nat) (contract : CheckedContract)
   let constructor ←
     CheckedProgram.constructorFunctionFor? contract.program contract.decl
   SolidCore.Solidity.Source.FunctionDef.call
-    fuel
+    fuel contract.core.table
     { contract.core.context with
       sender := sender
       value := value
@@ -518,7 +518,7 @@ def constructWithContextTree (fuel : Nat) (contract : CheckedContract)
   let constructor ←
     CheckedProgram.constructorFunctionFor? contract.program contract.decl
   SolidCore.Solidity.Source.FunctionDef.call
-    fuel
+    fuel contract.core.table
     { context with
       sender := sender
       value := value
@@ -549,7 +549,7 @@ def callFunctionWithContextTree (fuel : Nat)
     Option (SolI CoreCallResult) := do
   let function ← coreFunction? contract functionName
   SolidCore.Solidity.Source.FunctionDef.call
-    fuel context function state args
+    fuel contract.core.table context function state args
 
 def callTargetWithContextTree (fuel : Nat)
     (contract : CheckedContract) (target : CallTarget)
@@ -559,7 +559,7 @@ def callTargetWithContextTree (fuel : Nat)
   match contract.core.resolveCallFunction? target args with
   | some function =>
       SolidCore.Solidity.Source.FunctionDef.call
-        fuel context function state args
+        fuel contract.core.table context function state args
   | none => none
 
 def callCalldataFromTree (fuel : Nat) (contract : CheckedContract)

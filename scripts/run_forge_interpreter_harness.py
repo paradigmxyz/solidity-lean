@@ -398,6 +398,12 @@ def run_lean(
         return False, f"solc_ast_{import_status}"
 
     lean_lines = [f"import {item}" for item in imports]
+    # The default 200000-heartbeat elaborator budget caps each #eval at roughly
+    # ~50s of interpretation, which construct-heavy lanes (openzeppelin-*) sat
+    # just under before the function-boundary refactor and cross after its
+    # ~1.7x whole-contract elaboration overhead.  The heartbeat ceiling was
+    # never this harness's perf gate -- the per-case wall-clock timeout is.
+    lean_lines.append("set_option maxHeartbeats 8000000")
     if generated_source:
         lean_lines.append("")
         lean_lines.append(generated_source)

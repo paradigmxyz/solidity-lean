@@ -93,7 +93,7 @@ def compositionalControlExample : Stmt :=
 
 def compositionalControlResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 20 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 20 [] Context.empty (Runtime.ofState State.empty)
       compositionalControlExample)).toOption
 
 def ternarySkipsRejectedBranch : Stmt :=
@@ -104,7 +104,7 @@ def ternarySkipsRejectedBranch : Stmt :=
 
 def ternarySkipsRejectedBranchResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 8 [] Context.empty (Runtime.ofState State.empty)
       ternarySkipsRejectedBranch)).toOption
 
 def doWhileRunsBeforeCondition : Stmt :=
@@ -117,7 +117,7 @@ def doWhileRunsBeforeCondition : Stmt :=
 
 def doWhileRunsBeforeConditionResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 16 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 16 [] Context.empty (Runtime.ofState State.empty)
       doWhileRunsBeforeCondition)).toOption
 
 def expressionStatementFailure : Stmt :=
@@ -125,7 +125,7 @@ def expressionStatementFailure : Stmt :=
 
 def expressionStatementFailureResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 4 [] Context.empty (Runtime.ofState State.empty)
       expressionStatementFailure)).toOption
 
 def deleteLocalExample : Stmt :=
@@ -136,7 +136,7 @@ def deleteLocalExample : Stmt :=
 
 def deleteLocalResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 8 [] Context.empty (Runtime.ofState State.empty)
       deleteLocalExample)).toOption
 
 def defaultBoolExample : Stmt :=
@@ -146,7 +146,7 @@ def defaultBoolExample : Stmt :=
 
 def defaultBoolResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 8 [] Context.empty (Runtime.ofState State.empty)
       defaultBoolExample)).toOption
 
 def signedArithmeticExample : Stmt :=
@@ -161,7 +161,7 @@ def signedArithmeticExample : Stmt :=
 
 def signedArithmeticResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 12 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 12 [] Context.empty (Runtime.ofState State.empty)
       signedArithmeticExample)).toOption
 
 def signedNegOverflowExample : Stmt :=
@@ -172,7 +172,7 @@ def signedNegOverflowExample : Stmt :=
 
 def signedNegOverflowResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 8 [] Context.empty (Runtime.ofState State.empty)
       signedNegOverflowExample)).toOption
 
 def uncheckedSignedNegWrapExample : Stmt :=
@@ -184,7 +184,7 @@ def uncheckedSignedNegWrapExample : Stmt :=
 
 def uncheckedSignedNegWrapResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 8 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 8 [] Context.empty (Runtime.ofState State.empty)
       uncheckedSignedNegWrapExample)).toOption
 
 def assertFailureExample : Stmt :=
@@ -192,7 +192,7 @@ def assertFailureExample : Stmt :=
 
 def assertFailureResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 4 [] Context.empty (Runtime.ofState State.empty)
       assertFailureExample)).toOption
 
 def requireFailureExample : Stmt :=
@@ -200,7 +200,7 @@ def requireFailureExample : Stmt :=
 
 def requireFailureResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 4 [] Context.empty (Runtime.ofState State.empty)
       requireFailureExample)).toOption
 
 def revertStringExample : Stmt :=
@@ -208,7 +208,7 @@ def revertStringExample : Stmt :=
 
 def revertStringResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 4 [] Context.empty (Runtime.ofState State.empty)
       revertStringExample)).toOption
 
 def captureReturnExample : Stmt :=
@@ -224,7 +224,7 @@ def captureReturnExample : Stmt :=
 
 def captureReturnResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 16 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 16 [] Context.empty (Runtime.ofState State.empty)
       captureReturnExample)).toOption
 
 def bytesReturnExample : Stmt :=
@@ -232,7 +232,7 @@ def bytesReturnExample : Stmt :=
 
 def bytesReturnResult : Option Result :=
   (SolI.run Context.empty
-    (Stmt.eval 4 Context.empty (Runtime.ofState State.empty)
+    (Stmt.eval 4 [] Context.empty (Runtime.ofState State.empty)
       bytesReturnExample)).toOption
 
 def rollbackContext : Context :=
@@ -250,7 +250,7 @@ def writesThenReverts : FunctionDef :=
         , Stmt.revert "Nope" [] ] }
 
 def writesThenRevertsCall : Option CallResult :=
-  writesThenReverts.call? 8 rollbackContext State.empty []
+  writesThenReverts.call? 8 [writesThenReverts.toInternal] rollbackContext State.empty []
 
 end Source
 end Solidity

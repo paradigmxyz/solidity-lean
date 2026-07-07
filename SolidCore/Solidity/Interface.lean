@@ -7215,6 +7215,33 @@ def FunctionDecl.abiSelector? (decl : FunctionDecl) : Option Word := do
   let signature ← FunctionDecl.abiSignature? decl
   some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
 
+/-- Overload-unique, collision-free function-table key for an internal-linkage
+    call target (function-boundary refactor, R6). `"__internal_" ++ abiSignature`
+    (e.g. `"__internal_f(uint256)"`) disambiguates same-named overloads and can
+    never collide with a plain entrypoint `FunctionDef.name` (which name-based
+    dispatch still requires — see `Contract.findFunctionByName?`). Computed
+    identically at the call-site emit (`valueBoundaryCallParts?`) and the
+    table-build (`directCoreFunctions?`) from the resolved `FunctionDecl`. -/
+def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
+  let sig ← FunctionDecl.abiSignature? decl
+  some ("__internal_" ++ sig)
+
+/-- A callee whose parameters and returns are all stack value types (no data
+    location — no storage/memory/calldata reference). Only these are switched to
+    the function-boundary (`Stmt.internalCall`) representation in stage 2: the
+    by-value frame binds them exactly, `paramCleanups` are idempotent, and there
+    is no by-reference aliasing (memory pointers, storage pointers) to preserve.
+    Storage-ref / memory-ref / function-pointer callees keep the inline-splice
+    path (deferred to later stages). Since stage 3, synthetic helpers (library
+    `__library_*`, `super`/base helpers — mangled, overload-unique names) also
+    qualify: they are resolved via the same branches of `internalCallParts?` and
+    the table build emits entries for them (`toCoreFromOrders?`) alongside
+    ordinary contract functions and free functions. -/
+def FunctionDecl.isValueBoundaryCallee (decl : FunctionDecl) : Bool :=
+  (FunctionDecl.internalTableKey? decl).isSome &&
+    decl.params.all (fun p => p.location.isNone) &&
+    decl.returns.all (fun p => p.location.isNone)
+
 def FunctionDecl.selectorEntry? (decl : FunctionDecl) :
     Option (Name × Word) := do
   let name ← decl.name
@@ -10433,6 +10460,71 @@ def functionExpandModifiersToCoreWithInternalCalls?
         modifierDecl invocation inner
 termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
 
+/-- Elaborate call arguments to core expressions for the function-boundary
+    representation: one core temp per parameter (source order, so left-to-right
+    argument evaluation is preserved exactly as the inline path did), plus a pure
+    `var` read per temp for the `internalCall` node's argument list. Stack-value
+    params only (guaranteed by the `isValueBoundaryCallee` guard at the call
+    site), so the storage/memory-ref branches of
+    `Parameter.toStorageAwareCoreArgDecl?` are unreachable here. The temp names
+    use a fresh (`_ic_arg_*`) prefix — never the parameter name — so an argument
+    expression that reads a same-named caller local is not clobbered; the arm
+    binds arguments to the callee's parameters positionally (`initialFrame?`), so
+    the temp name is irrelevant to the callee. -/
+def Parameters.valueBoundaryArgDecls?
+    (env : TypeEnv) (storageNames : List Name) (fallbackPrefix : String) :
+    Nat -> List Parameter -> List Expr ->
+    Option (List CoreStmt × List CoreExpr)
+  | _, [], [] => some ([], [])
+  | index, param :: params, arg :: args => do
+      let name := fallbackPrefix ++ toString index
+      let coreTy ← Ty.toCore? param.ty
+      let initCore ←
+        match Expr.toCoreAsWithEnv? storageNames env param.ty arg with
+        | some coreExpr => some coreExpr
+        | none => Expr.toCore? storageNames arg
+      let (tailDecls, tailVars) ←
+        Parameters.valueBoundaryArgDecls? env storageNames fallbackPrefix
+          (index + 1) params args
+      some
+        ( SolidCore.Solidity.Source.Stmt.varDecl coreTy name (some initCore)
+            :: tailDecls
+        , SolidCore.Solidity.Source.Expr.var name :: tailVars )
+  | _, _, _ => none
+
+/-- Function-boundary form of `internalCallParts?` for stack-value callees:
+    declare per-arg core temps + default return temps, and emit a single
+    `Stmt.internalCall` targeting the return temps. The callee body is NOT
+    inlined here — it lives once in the function table under `internalTableKey?`,
+    so recursion / deep nesting elaborate (no inline fuel consumed). Returns the
+    same 4-tuple shape as `internalCallParts?` so every wrapper caller is
+    unchanged: wrapping the node in `captureReturn` is a harmless passthrough
+    (the node maps the callee's returns to `Result.normal` internally, so
+    `captureReturn` never rewrites it). Storage-ref returns are impossible here
+    (all returns are stack values), so `returnStorageRefs` is all-`false`. -/
+def FunctionDecl.valueBoundaryCallParts?
+    (env : TypeEnv) (storageNames : List Name)
+    (name : Name) (callee : FunctionDecl) (sourceArgs : List Expr) :
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
+  if FunctionDecl.isValueBoundaryCallee callee then some () else none
+  let tableKey ← FunctionDecl.internalTableKey? callee
+  let returnPrefix := "_ret_" ++ name ++ "_"
+  let runtimeReturns := Parameters.withRuntimeNames returnPrefix callee.returns
+  let returnBindings ← Parameters.toCoreBindings? returnPrefix runtimeReturns
+  let returnDecls ←
+    Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
+  let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
+  let (argDecls, argVars) ←
+    Parameters.valueBoundaryArgDecls? env storageNames "_ic_arg_" 0
+      callee.params sourceArgs
+  let returnNames :=
+    returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+  some
+    ( returnBindings
+    , returnStorageRefs
+    , argDecls ++ returnDecls
+    , SolidCore.Solidity.Source.Stmt.internalCall returnNames tableKey argVars )
+
 def FunctionDecl.internalCallParts?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -10443,6 +10535,10 @@ def FunctionDecl.internalCallParts?
   match FunctionDecl.findInternalCalleeWithArgs?
       functions env name args with
   | some (callee, sourceArgs) => do
+      if let some result :=
+          FunctionDecl.valueBoundaryCallParts? env storageNames name callee
+            sourceArgs then
+        return result
       let returnPrefix := "_ret_" ++ name ++ "_"
       let runtimeReturns :=
         Parameters.withRuntimeNames returnPrefix callee.returns
@@ -10497,6 +10593,10 @@ def FunctionDecl.internalCallParts?
       let (callee, sourceArgs) ←
         FunctionDecl.findInternalCalleeWithArgs?
           freeFunctions env name args
+      if let some result :=
+          FunctionDecl.valueBoundaryCallParts? env storageNames name callee
+            sourceArgs then
+        return result
       let returnPrefix := "_ret_" ++ name ++ "_"
       let runtimeReturns :=
         Parameters.withRuntimeNames returnPrefix callee.returns
@@ -18086,6 +18186,124 @@ def StateVarDecl.toCoreInit? (storageNames : List Name)
         initCore)
   | _, _ => some SolidCore.Solidity.Source.Stmt.skip
 
+mutual
+
+/-- Collect the callee keys of every `Stmt.internalCall` node in a core
+    statement tree (function-boundary refactor: used to elaborate super/base
+    helper table entries on demand instead of eagerly — the helper candidate
+    sets are O(#contracts x #functions) while actual call sites are few). -/
+def CoreStmt.collectInternalCallKeys : CoreStmt -> List Name
+  | SolidCore.Solidity.Source.Stmt.internalCall _ callee _ => [callee]
+  | SolidCore.Solidity.Source.Stmt.block stmts =>
+      CoreStmts.collectInternalCallKeys stmts
+  | SolidCore.Solidity.Source.Stmt.captureReturn _ body =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.ifElse _ thenBranch elseBranch =>
+      CoreStmt.collectInternalCallKeys thenBranch ++
+        CoreStmt.collectInternalCallKeys elseBranch
+  | SolidCore.Solidity.Source.Stmt.switch _ cases defaultBranch =>
+      CoreSwitchCases.collectInternalCallKeys cases ++
+        (match defaultBranch with
+          | some branch => CoreStmt.collectInternalCallKeys branch
+          | none => [])
+  | SolidCore.Solidity.Source.Stmt.whileLoop _ body =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.doWhile body _ =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.forLoop init _ post body =>
+      CoreStmt.collectInternalCallKeys init ++
+        CoreStmt.collectInternalCallKeys post ++
+        CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.tryExternalCall
+      _ _ _ _ _ _ _ _ _ body clauses =>
+      CoreStmt.collectInternalCallKeys body ++
+        CoreTryCatchClauses.collectInternalCallKeys clauses
+  | SolidCore.Solidity.Source.Stmt.tryContractCreate _ _ _ _ _ body clauses =>
+      CoreStmt.collectInternalCallKeys body ++
+        CoreTryCatchClauses.collectInternalCallKeys clauses
+  | SolidCore.Solidity.Source.Stmt.checked body =>
+      CoreStmt.collectInternalCallKeys body
+  | SolidCore.Solidity.Source.Stmt.unchecked body =>
+      CoreStmt.collectInternalCallKeys body
+  | _ => []
+
+def CoreStmts.collectInternalCallKeys : List CoreStmt -> List Name
+  | [] => []
+  | stmt :: rest =>
+      CoreStmt.collectInternalCallKeys stmt ++
+        CoreStmts.collectInternalCallKeys rest
+
+def CoreSwitchCases.collectInternalCallKeys :
+    List (SolidCore.Solidity.Source.Word × CoreStmt) -> List Name
+  | [] => []
+  | (_, stmt) :: rest =>
+      CoreStmt.collectInternalCallKeys stmt ++
+        CoreSwitchCases.collectInternalCallKeys rest
+
+def CoreTryCatchClauses.collectInternalCallKeys :
+    List SolidCore.Solidity.Source.TryCatchClause -> List Name
+  | [] => []
+  | SolidCore.Solidity.Source.TryCatchClause.clause _ _ body :: rest =>
+      CoreStmt.collectInternalCallKeys body ++
+        CoreTryCatchClauses.collectInternalCallKeys rest
+
+end
+
+/-- Demand-driven elaboration of helper table entries (function-boundary
+    refactor R1). `candidates` are value-boundary helper decls (super/base
+    helpers); an entry is elaborated only when its `internalTableKey?` is
+    demanded by an already-emitted body, iterating to a fixpoint (helper bodies
+    may demand further helpers). Fuel is `candidates.length + 1`: each
+    productive round elaborates at least one candidate, so the fuel suffices. -/
+def FunctionDecls.demandedHelperEntries
+    (elabHelper : FunctionDecl -> Option CoreFunctionDef) :
+    Nat -> List FunctionDecl -> List Name -> List CoreFunctionDef ->
+    Option (List CoreFunctionDef)
+  | 0, _, _, acc => some acc
+  | fuel + 1, candidates, demanded, acc =>
+      let hits := candidates.filter (fun fn =>
+        match FunctionDecl.internalTableKey? fn with
+        | some key => demanded.contains key
+        | none => false)
+      match hits with
+      | [] => some acc
+      | _ => do
+          let rest := candidates.filter (fun fn =>
+            match FunctionDecl.internalTableKey? fn with
+            | some key => !demanded.contains key
+            | none => true)
+          let newEntries ←
+            mapOption
+              (fun fn => do
+                let fd ← elabHelper fn
+                let key ← FunctionDecl.internalTableKey? fn
+                some { fd with name := key, selector? := none })
+              hits
+          let newKeys :=
+            concatMapList
+              (fun (fd : CoreFunctionDef) =>
+                CoreStmt.collectInternalCallKeys fd.body)
+              newEntries
+          FunctionDecls.demandedHelperEntries elabHelper fuel rest
+            (demanded ++ newKeys) (acc ++ newEntries)
+
+/-- Deduplicate internal-linkage table entries (selector-less) by name, keeping
+    the first occurrence (most-derived, C3 order — base/derived contracts each
+    emit an entry for an inherited value-boundary function under the same
+    `internalTableKey?`). Selector-bearing entrypoints are never dropped (public
+    overloads share a plain name but carry distinct selectors). -/
+def CoreFunctionDefs.dedupInternalByName
+    (fns : List CoreFunctionDef) : List CoreFunctionDef :=
+  (fns.foldl
+    (fun (acc : List CoreFunctionDef × List Name) fn =>
+      let (kept, seen) := acc
+      if fn.selector?.isNone && seen.contains fn.name then
+        (kept, seen)
+      else
+        (kept ++ [fn],
+          if fn.selector?.isNone then fn.name :: seen else seen))
+    ([], [])).1
+
 def ContractDecl.directCoreFunctions? (storageNames : List Name)
     (constants : ConstantEnv)
     (extraEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
@@ -18101,18 +18319,42 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
     filterMapOption (StateVarDecl.toCoreGetterIfPublic? storageNames constants)
       (ContractDecl.directStateVars decl)
   let usingDecls := ContractDecl.directUsingDecls decl ++ sourceUsingDecls
-  let functions ←
+  -- Function-boundary refactor stage 2 (+ R1 perf fix): elaborate each direct
+  -- function of this contract ONCE via `toCore?`, and reuse the resulting
+  -- `FunctionDef` for both roles it may play — the plain-name selector-bearing
+  -- entrypoint (dispatch) and the `internalTableKey?`-named selector-less table
+  -- entry that contract-internal `Stmt.internalCall`s resolve against. The body
+  -- is identical in both roles; only `name`/`selector?` differ. (An earlier cut
+  -- ran `toCore?` twice per public value-boundary function, roughly doubling
+  -- whole-contract elaboration cost on entrypoint-heavy lanes.)
+  let functionPairs ←
     mapOption
       (fun fn => do
         let supers ← ContractDecls.afterName? dispatchOrder decl.name
-        FunctionDecl.toCore?
-          storageNames constants extraEnv contracts usingDecls modifiers functions
-          freeFunctions fn (concatMapList ContractDecl.directOrdinaryFunctions supers)
-          (some decl.name) (dispatchOrder.map ContractDecl.name)
-          externalCallKindEnv eventArgEnv errorArgEnv)
+        let fd ←
+          FunctionDecl.toCore?
+            storageNames constants extraEnv contracts usingDecls modifiers
+            functions freeFunctions fn
+            (concatMapList ContractDecl.directOrdinaryFunctions supers)
+            (some decl.name) (dispatchOrder.map ContractDecl.name)
+            externalCallKindEnv eventArgEnv errorArgEnv
+        some (fn, fd))
       ((ContractDecl.directOrdinaryFunctions decl).filter
-        (fun fn => FunctionDecl.isCoreEntrypoint fn && fn.body.isSome))
-  some (getters ++ functions)
+        (fun fn =>
+          (FunctionDecl.isCoreEntrypoint fn ||
+            FunctionDecl.isValueBoundaryCallee fn) && fn.body.isSome))
+  let entrypointFunctions :=
+    (functionPairs.filter
+      (fun pair => FunctionDecl.isCoreEntrypoint pair.fst)).map Prod.snd
+  let internalEntries :=
+    functionPairs.filterMap
+      (fun pair =>
+        if FunctionDecl.isValueBoundaryCallee pair.fst then
+          (FunctionDecl.internalTableKey? pair.fst).map
+            (fun key => { pair.snd with name := key, selector? := none })
+        else
+          none)
+  some (getters ++ entrypointFunctions ++ internalEntries)
 
 def Parameters.baseConstructorArgCoreDecls?
     (internalFuel : Nat) (allContracts : List ContractDecl)
@@ -18516,7 +18758,73 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
         dispatchOrder sourceUsingDecls modifiers availableFunctions
         sourceFunctions eventArgEnv errorArgEnv)
       dispatchOrder
-  let functions := concatLists functionGroups
+  -- Function-boundary refactor stage 3: value-boundary synthetic helpers
+  -- (library `__library_*`, super/base helpers) get selector-less table entries
+  -- under the same `internalTableKey?` the call-site emits. Elaborated once via
+  -- `toCore?` with the full contract context (they may read storage), mirroring
+  -- the splice-era treatment: bodies are already contextualized/super-free
+  -- (`contextualSuperHelpers?`/`libraryHelperFunctions`), so no contract-name
+  -- rewrites are re-run.
+  -- R1 perf: LIBRARY helpers are eager (small set; constructors may call them
+  -- via `using`), but SUPER/BASE helpers are elaborated ON DEMAND — the
+  -- candidate sets are O(#contracts x #functions) (`asBaseHelper?` maps every
+  -- function of every contract) while actual call sites are few, and eagerly
+  -- elaborating them all made whole-contract elaboration ~5x slower (measured
+  -- on the openzeppelin-erc20 lane: 7.3s -> 36s per eval). Demand is seeded
+  -- from every eagerly-emitted body and iterated to a fixpoint.
+  let elabHelper := fun (fn : FunctionDecl) =>
+    FunctionDecl.toCore?
+      storageNames constants stateEnv allContracts sourceUsingDecls
+      modifiers availableFunctions sourceFunctions fn
+      (superFunctions := []) (contractName? := none)
+      (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
+      (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+  let libraryInternalEntries ←
+    filterMapOption
+      (fun fn =>
+        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+          let fd ← elabHelper fn
+          let key ← FunctionDecl.internalTableKey? fn
+          some (some { fd with name := key, selector? := none })
+        else
+          some none)
+      libraryHelpers
+  -- Function-boundary refactor stage 2: value-boundary FREE functions also get
+  -- selector-less table entries (they are resolved via the freeFunctions branch
+  -- of `internalCallParts?` and node-emitted under the same `internalTableKey?`).
+  -- Appended AFTER the contract groups so a same-signature contract function's
+  -- entry wins the key on lookup/dedup, matching the call-site resolver's
+  -- contract-functions-first precedence.
+  let freeInternalEntries ←
+    filterMapOption
+      (fun fn =>
+        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+          let fd ←
+            FunctionDecl.toCore?
+              [] constants externalCallKindTypeEnv allContracts
+              sourceUsingDecls [] [] sourceFunctions fn
+              (superFunctions := []) (contractName? := none)
+              (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
+              (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
+          let key ← FunctionDecl.internalTableKey? fn
+          some (some { fd with name := key, selector? := none })
+        else
+          some none)
+      sourceFunctions
+  let eagerEntries :=
+    concatLists functionGroups ++ libraryInternalEntries ++ freeInternalEntries
+  let helperCandidates :=
+    (superHelpers ++ baseHelpers).filter
+      (fun fn => FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome)
+  let seedKeys :=
+    concatMapList
+      (fun (fd : CoreFunctionDef) => CoreStmt.collectInternalCallKeys fd.body)
+      eagerEntries
+  let demandedEntries ←
+    FunctionDecls.demandedHelperEntries elabHelper
+      (helperCandidates.length + 1) helperCandidates seedKeys []
+  let functions :=
+    CoreFunctionDefs.dedupInternalByName (eagerEntries ++ demandedEntries)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←
@@ -18902,7 +19210,7 @@ def ContractDecl.constructWithBasesAndSourceAtFrom? (fuel : Nat)
       sourceUsingDecls sourceFunctions sourceEvents sourceErrors
       sourceConstants sourceUserValueTypes sourceEnums sourceStructs contracts decl
   SolidCore.Solidity.Source.FunctionDef.call?
-    fuel
+    fuel contract.table
     { contract.context with
       self := self
       sender := sender
@@ -19247,7 +19555,7 @@ def ContractDecl.constructWithBasesAndSourceAtFromTree (fuel : Nat)
       sourceUsingDecls sourceFunctions sourceEvents sourceErrors
       sourceConstants sourceUserValueTypes sourceEnums sourceStructs contracts decl
   SolidCore.Solidity.Source.FunctionDef.call
-    fuel
+    fuel contract.table
     { contract.context with
       self := self
       sender := sender
@@ -19317,7 +19625,8 @@ def SourceUnit.toCoreContracts? (unit : SourceUnit) :
   | none => none
 
 def Stmt.eval? (fuel : Nat) (storageNames : List Name)
-    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
+    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt)
+    (table : SolidCore.Solidity.Source.FunctionTable := []) :
     Option CoreResult := do
   let coreStmt ← Stmt.toCore? storageNames stmt
   -- Frozen `?`-adapter: fold the interaction tree **fail-closed** under an empty
@@ -19326,7 +19635,7 @@ def Stmt.eval? (fuel : Nat) (storageNames : List Name)
   -- that a future external call routed through here fails loudly (unmatched →
   -- `none`) rather than fail-open.
   (SolidCore.Solidity.Source.SolI.runWith []
-    (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
+    (SolidCore.Solidity.Source.Stmt.eval fuel table context runtime coreStmt)).toOption
 
 def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)
     (modifiers : List SourceModifierDecl)
@@ -19343,17 +19652,18 @@ def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)
       (functions := [decl])
       (freeFunctions := [])
       (decl := decl)
-  SolidCore.Solidity.Source.FunctionDef.call? fuel context function state args
+  SolidCore.Solidity.Source.FunctionDef.call? fuel [function.toInternal] context function state args
 
 /-- Witness adapter twin of `Stmt.eval?`: fold under a fail-open responder. -/
 def Stmt.evalFailOpen? (fuel : Nat)
     (responder : SolidCore.Solidity.Source.ScriptedResponder)
     (storageNames : List Name)
-    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
+    (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt)
+    (table : SolidCore.Solidity.Source.FunctionTable := []) :
     Option CoreResult := do
   let coreStmt ← Stmt.toCore? storageNames stmt
   (SolidCore.Solidity.Source.SolI.runFailOpen responder
-    (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
+    (SolidCore.Solidity.Source.Stmt.eval fuel table context runtime coreStmt)).toOption
 
 /-- Witness adapter twin of `FunctionDecl.call?`: fold under a fail-open
     responder. -/
@@ -19375,7 +19685,7 @@ def FunctionDecl.callFailOpen? (fuel : Nat)
       (freeFunctions := [])
       (decl := decl)
   SolidCore.Solidity.Source.FunctionDef.callFailOpen?
-    fuel responder context function state args
+    fuel responder context function state args [function.toInternal]
 
 def ContractDecl.call? (fuel : Nat) (decl : ContractDecl)
     (target : SolidCore.Solidity.Source.CallTarget) (state : CoreState)
