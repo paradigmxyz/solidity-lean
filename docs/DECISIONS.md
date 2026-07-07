@@ -1332,3 +1332,49 @@ source IR for value-signature internal calls (`Stmt.internalCall` +
 Final combined gate (smoke + full replay + wall-clock vs baseline) runs at the
 end of this working session per Dan's instruction; results recorded in the next
 entry.
+
+## 2026-07-07 — Function-boundary refactor: final gates, R1 wall-clock, and a pre-existing ecdsa lane failure pinned to the base commit
+
+Final combined gate (per Dan's instruction to defer per-stage replays):
+
+- **Full replay** (100 cases, `--jobs 10`, tip `ad2a78a` + perf/semantic fixes):
+  **99/100 pass in 627s wall**, `recursion-gap` green with the concrete Forge
+  values, all 35 `solc_rejects` acceptance-rejection lanes still reject, all
+  previously-timing-out heavy lanes (openzeppelin-erc20 / access-control /
+  erc1155-pausable-supply / erc721-royalty, reference-assignments) pass.
+- **The single failure is NOT this refactor's**: `openzeppelin-ecdsa`'s
+  invalid-signer eval expects `ecrecover` with v=29 to yield signer 0 without a
+  scripted responder row. `ecrecover` is emitted as a precompile STATICCALL
+  `Query.external`; under the Phase-6 item-7 **fail-closed** adapters
+  (`e687bed`, on this branch's base) an unanswered call is `unmatched` →
+  `Contract.call?` = none → `executableFailure` — the eval's expectation
+  depends on the retired fail-OPEN default (miss → failed call → empty output →
+  `outputWord?` none → `.getD 0` → signer 0). Verified by rebuilding the
+  stage-1 baseline `58b6cf0` (node emission entirely absent): the lane fails
+  IDENTICALLY there. The Phase-6 checkpoint was "awaiting sequential replay
+  gate" — this is what that gate would have caught. Left unfixed here
+  (out of refactor scope; likely already addressed on main): fix = either a
+  scripted responder row for the precompile miss in the lane eval, or a
+  deliberate deterministic-precompile answering layer in the responder.
+- **R1 (performance) final numbers** (erc20 probes, per-eval interpretation):
+  pre-refactor 7.3s (balanceOf-shaped) / 43.3s (construct-shaped); first cut
+  36.1s / 218s (~5x — eager helper elaboration + double toCore?); after the
+  single-elaboration reuse + demand-driven super/base helper entries:
+  12.1s / 74.4s (**~1.7x**, within the roadmap ~2x rule). Residual overhead =
+  the eager internal-linkage table entries per dispatch-order contract, kept
+  eager deliberately: constructors call internal functions (`_mint`) that no
+  entrypoint body demands, so demand-driving them from entrypoint seeds would
+  silently break construction. The harness generator now sets
+  `set_option maxHeartbeats 8000000` per generated file (the 200k default was
+  an implicit ~50s-per-#eval CPU ceiling that construct-heavy lanes sat just
+  under pre-refactor; the per-case wall cap remains the perf gate).
+- **R2 note**: fuel is now uniform statement-recursion depth — an internal call
+  costs one unit and the callee body runs at `fuel - 1`. No corpus witness
+  moved (fuels are generous; the recursion-gap lane runs at 4000).
+- **R3/R4 evidence**: zero value drift anywhere in the corpus — the only
+  behavioural fix needed was checked-ness lexicality (callee bodies run
+  `checked := true` regardless of the caller's enclosing unchecked block,
+  matching the splice's `Stmt.checked` wrapper; caught by inspection, pinned by
+  the OZ lanes that exercise unchecked arithmetic). Evaluation order is
+  inherited from the splice-era wrapper sequentialisation (no new hoisting
+  shapes were introduced), so the order witnesses pass unchanged.
