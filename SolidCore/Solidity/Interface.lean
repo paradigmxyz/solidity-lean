@@ -7220,27 +7220,72 @@ def FunctionDecl.abiSelector? (decl : FunctionDecl) : Option Word := do
     (e.g. `"__internal_f(uint256)"`) disambiguates same-named overloads and can
     never collide with a plain entrypoint `FunctionDef.name` (which name-based
     dispatch still requires — see `Contract.findFunctionByName?`). Computed
-    identically at the call-site emit (`valueBoundaryCallParts?`) and the
+    identically at the call-site emit (`boundaryCallParts?`) and the
     table-build (`directCoreFunctions?`) from the resolved `FunctionDecl`. -/
 def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
   let sig ← FunctionDecl.abiSignature? decl
-  some ("__internal_" ++ sig)
+  -- Reference-signature extension: the ABI canonical signature collapses
+  -- user-defined types — every one-field struct renders `(uint256)`, every enum
+  -- `uint8`, every user type `address` (`Ty.abiCanonical?`). Two overloads whose
+  -- parameters differ only by such a type (e.g. `div_(Exp memory,Exp memory)`
+  -- scaled by 1e18 vs `div_(Double memory,Double memory)` scaled by 1e36, both
+  -- `(uint256)` in ABI form) would then share a table key and misdispatch. Append
+  -- a structural identity of the parameter types (derived `repr`, which preserves
+  -- struct `Path`, enum tag, and user `Path`) so the key is unique per resolved
+  -- callee. Computed identically at the call-site emit and the table build (both
+  -- from the same resolved `FunctionDecl`), so the two never drift.
+  let identity := toString (repr (decl.params.map Parameter.ty))
+  some ("__internal_" ++ sig ++ "#" ++ identity)
 
-/-- A callee whose parameters and returns are all stack value types (no data
-    location — no storage/memory/calldata reference). Only these are switched to
-    the function-boundary (`Stmt.internalCall`) representation in stage 2: the
-    by-value frame binds them exactly, `paramCleanups` are idempotent, and there
-    is no by-reference aliasing (memory pointers, storage pointers) to preserve.
-    Storage-ref / memory-ref / function-pointer callees keep the inline-splice
-    path (deferred to later stages). Since stage 3, synthetic helpers (library
-    `__library_*`, `super`/base helpers — mangled, overload-unique names) also
-    qualify: they are resolved via the same branches of `internalCallParts?` and
-    the table build emits entries for them (`toCoreFromOrders?`) alongside
-    ordinary contract functions and free functions. -/
-def FunctionDecl.isValueBoundaryCallee (decl : FunctionDecl) : Bool :=
+/-- A parameter/return that the function boundary can carry across a framed
+    internal call. Stack values (no data location), `memory` references (the
+    memory pointer flows — callee mutations alias back), and `storage` references
+    (the storage pointer flows as a plain runtime argument — solc's model) all
+    qualify. Excluded: `calldata` references (not yet represented as flowing
+    runtime values — kept on the inline-splice path) and function-typed
+    parameters/returns (no internal-function-pointer `Value` exists yet). -/
+def Parameter.isBoundaryLocation (param : Parameter) : Bool :=
+  (match param.ty with
+   | Ty.functionWithLocations .. => false
+   | _ => true) &&
+    (match param.location with
+     | some DataLocation.calldata => false
+     | _ => true)
+
+/-- A RETURN the function boundary can carry. Same as `isBoundaryLocation` but
+    additionally excludes `storage` references: a returned storage pointer flows
+    correctly through the interpreter (proved by the `InternalCall` witnesses),
+    but the callee-side re-point elaboration (`result = x` / `return x` as a
+    storage-pointer re-point across the framed boundary) is not yet complete, so
+    storage-ref-RETURN callees stay on the inline-splice path (recorded residue,
+    `docs/DECISIONS.md`). Value and `memory`-ref returns are carried. -/
+def Parameter.isBoundaryReturnLocation (param : Parameter) : Bool :=
+  (match param.ty with
+   | Ty.functionWithLocations .. => false
+   | _ => true) &&
+    (match param.location with
+     | some DataLocation.calldata => false
+     | some DataLocation.storage => false
+     | _ => true)
+
+/-- A callee eligible for the function-boundary (`Stmt.internalCall`)
+    representation. Originally (stages 2–3) restricted to pure stack-value
+    signatures; the reference-signature extension widens it to callees whose
+    parameters and returns are all boundary-carryable
+    (`Parameter.isBoundaryLocation`): value, `memory`-ref, and `storage`-ref
+    signatures. The `internalTableKey?` guard (an ABI-canonical signature exists)
+    additionally excludes anything without an ABI shape. Reference parameters
+    flow as pointer VALUES: the arg site lowers them to reference-preserving
+    temps (`storageAlias*` / aliasing `memoryVarDecl`) and the interpreter's
+    `internalCall` arm binds them reference-preservingly into the callee frame,
+    the callee body resolving them through the shared `state`. Synthetic helpers
+    (library `__library_*`, `super`/base helpers — mangled, overload-unique
+    names) qualify too. Calldata-ref and function-typed callees keep the
+    inline-splice path (recorded residue). -/
+def FunctionDecl.isBoundaryCallee (decl : FunctionDecl) : Bool :=
   (FunctionDecl.internalTableKey? decl).isSome &&
-    decl.params.all (fun p => p.location.isNone) &&
-    decl.returns.all (fun p => p.location.isNone)
+    decl.params.all Parameter.isBoundaryLocation &&
+    decl.returns.all Parameter.isBoundaryReturnLocation
 
 def FunctionDecl.selectorEntry? (decl : FunctionDecl) :
     Option (Name × Word) := do
@@ -10464,31 +10509,39 @@ termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
     representation: one core temp per parameter (source order, so left-to-right
     argument evaluation is preserved exactly as the inline path did), plus a pure
     `var` read per temp for the `internalCall` node's argument list. Stack-value
-    params only (guaranteed by the `isValueBoundaryCallee` guard at the call
+    params only (guaranteed by the `isBoundaryCallee` guard at the call
     site), so the storage/memory-ref branches of
     `Parameter.toStorageAwareCoreArgDecl?` are unreachable here. The temp names
     use a fresh (`_ic_arg_*`) prefix — never the parameter name — so an argument
     expression that reads a same-named caller local is not clobbered; the arm
     binds arguments to the callee's parameters positionally (`initialFrame?`), so
     the temp name is irrelevant to the callee. -/
-def Parameters.valueBoundaryArgDecls?
-    (env : TypeEnv) (storageNames : List Name) (fallbackPrefix : String) :
+def Parameters.boundaryArgDecls?
+    (storageRefEnv : StorageRefEnv) (storageNames : List Name) (env : TypeEnv)
+    (fallbackPrefix : String) :
     Nat -> List Parameter -> List Expr ->
     Option (List CoreStmt × List CoreExpr)
   | _, [], [] => some ([], [])
   | index, param :: params, arg :: args => do
       let name := fallbackPrefix ++ toString index
-      let coreTy ← Ty.toCore? param.ty
-      let initCore ←
-        match Expr.toCoreAsWithEnv? storageNames env param.ty arg with
-        | some coreExpr => some coreExpr
-        | none => Expr.toCore? storageNames arg
+      -- One reference-preserving temp per parameter, source order (left-to-right
+      -- argument evaluation preserved). `toStorageAwareCoreArgDecl?` picks the
+      -- decl per data location: a `storage` ref lowers to a `storageAlias*`
+      -- statement binding the temp to the storage pointer VALUE; a `memory` ref
+      -- to a `memoryVarDecl` that *aliases* the caller's memory pointer when the
+      -- argument is a bare memory variable; a value to a plain `varDecl`. The
+      -- temp NAME is forced to `_ic_arg_<i>` (`param.name := none`) — never the
+      -- parameter name — so it cannot shadow a same-named caller local read by a
+      -- later argument. The `internalCall` node's argument list is the pure temp
+      -- reads, evaluated reference-preservingly by the arm.
+      let decl ←
+        Parameter.toStorageAwareCoreArgDecl? storageRefEnv storageNames env
+          fallbackPrefix index { param with name := none } arg
       let (tailDecls, tailVars) ←
-        Parameters.valueBoundaryArgDecls? env storageNames fallbackPrefix
-          (index + 1) params args
+        Parameters.boundaryArgDecls? storageRefEnv storageNames env
+          fallbackPrefix (index + 1) params args
       some
-        ( SolidCore.Solidity.Source.Stmt.varDecl coreTy name (some initCore)
-            :: tailDecls
+        ( decl :: tailDecls
         , SolidCore.Solidity.Source.Expr.var name :: tailVars )
   | _, _, _ => none
 
@@ -10500,13 +10553,17 @@ def Parameters.valueBoundaryArgDecls?
     same 4-tuple shape as `internalCallParts?` so every wrapper caller is
     unchanged: wrapping the node in `captureReturn` is a harmless passthrough
     (the node maps the callee's returns to `Result.normal` internally, so
-    `captureReturn` never rewrites it). Storage-ref returns are impossible here
-    (all returns are stack values), so `returnStorageRefs` is all-`false`. -/
-def FunctionDecl.valueBoundaryCallParts?
-    (env : TypeEnv) (storageNames : List Name)
+    `captureReturn` never rewrites it). Reference-signature extension: the return
+    decls are already storage-aware (`toStorageAwareDefaultCoreDecls?` emits a
+    `storageAlias` target for a `storage`-ref return; `storageRefFlags` marks
+    it), and the argument decls are reference-preserving temps
+    (`boundaryArgDecls?`), so this handles value, `memory`-ref, and `storage`-ref
+    signatures uniformly. -/
+def FunctionDecl.boundaryCallParts?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
     (name : Name) (callee : FunctionDecl) (sourceArgs : List Expr) :
     Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
-  if FunctionDecl.isValueBoundaryCallee callee then some () else none
+  if FunctionDecl.isBoundaryCallee callee then some () else none
   let tableKey ← FunctionDecl.internalTableKey? callee
   let returnPrefix := "_ret_" ++ name ++ "_"
   let runtimeReturns := Parameters.withRuntimeNames returnPrefix callee.returns
@@ -10515,7 +10572,7 @@ def FunctionDecl.valueBoundaryCallParts?
     Parameters.toStorageAwareDefaultCoreDecls? returnPrefix runtimeReturns
   let returnStorageRefs := Parameters.storageRefFlags runtimeReturns
   let (argDecls, argVars) ←
-    Parameters.valueBoundaryArgDecls? env storageNames "_ic_arg_" 0
+    Parameters.boundaryArgDecls? storageRefEnv storageNames env "_ic_arg_" 0
       callee.params sourceArgs
   let returnNames :=
     returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
@@ -10536,7 +10593,7 @@ def FunctionDecl.internalCallParts?
       functions env name args with
   | some (callee, sourceArgs) => do
       if let some result :=
-          FunctionDecl.valueBoundaryCallParts? env storageNames name callee
+          FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name callee
             sourceArgs then
         return result
       let returnPrefix := "_ret_" ++ name ++ "_"
@@ -10594,7 +10651,7 @@ def FunctionDecl.internalCallParts?
         FunctionDecl.findInternalCalleeWithArgs?
           freeFunctions env name args
       if let some result :=
-          FunctionDecl.valueBoundaryCallParts? env storageNames name callee
+          FunctionDecl.boundaryCallParts? storageRefEnv env storageNames name callee
             sourceArgs then
         return result
       let returnPrefix := "_ret_" ++ name ++ "_"
@@ -16674,8 +16731,20 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
           body := modifier.body.map
             (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
   let body := Stmt.inlineInternalFunctionAliasesInBody functions freeFunctions body
+  -- Reference-signature extension: a `T storage` RETURN is a storage pointer the
+  -- body re-points (`result = x`, or `return x` rewritten to `result = x;
+  -- return;`). The inline-splice path registered returns in its storageRefEnv and
+  -- rewrote its `return`s; the boundary path elaborates each function ONCE here,
+  -- so `toCore?` must do the same so a boundary storage-ref-return callee's body
+  -- treats its return as a storage pointer. Inert for value returns
+  -- (`rewriteStorageReturnAssignments` only touches storage returns; the env
+  -- entry marks non-storage returns `false`) and impossible for entry functions
+  -- (storage pointers cannot cross the external boundary). -/
+  let body := Stmt.rewriteStorageReturnAssignments "_ret" decl.returns body
   let body := Stmt.annotateAbi env body
-  let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] decl.params
+  let storageRefEnv :=
+    Parameters.extendStorageRefEnv "_ret"
+      (Parameters.extendStorageRefEnv "_arg" [] decl.params) decl.returns
   let functions :=
     match contractName? with
     | some contractName =>
@@ -18342,14 +18411,14 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
       ((ContractDecl.directOrdinaryFunctions decl).filter
         (fun fn =>
           (FunctionDecl.isCoreEntrypoint fn ||
-            FunctionDecl.isValueBoundaryCallee fn) && fn.body.isSome))
+            FunctionDecl.isBoundaryCallee fn) && fn.body.isSome))
   let entrypointFunctions :=
     (functionPairs.filter
       (fun pair => FunctionDecl.isCoreEntrypoint pair.fst)).map Prod.snd
   let internalEntries :=
     functionPairs.filterMap
       (fun pair =>
-        if FunctionDecl.isValueBoundaryCallee pair.fst then
+        if FunctionDecl.isBoundaryCallee pair.fst then
           (FunctionDecl.internalTableKey? pair.fst).map
             (fun key => { pair.snd with name := key, selector? := none })
         else
@@ -18782,7 +18851,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let libraryInternalEntries ←
     filterMapOption
       (fun fn =>
-        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome then do
           let fd ← elabHelper fn
           let key ← FunctionDecl.internalTableKey? fn
           some (some { fd with name := key, selector? := none })
@@ -18798,7 +18867,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let freeInternalEntries ←
     filterMapOption
       (fun fn =>
-        if FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome then do
+        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome then do
           let fd ←
             FunctionDecl.toCore?
               [] constants externalCallKindTypeEnv allContracts
@@ -18815,7 +18884,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     concatLists functionGroups ++ libraryInternalEntries ++ freeInternalEntries
   let helperCandidates :=
     (superHelpers ++ baseHelpers).filter
-      (fun fn => FunctionDecl.isValueBoundaryCallee fn && fn.body.isSome)
+      (fun fn => FunctionDecl.isBoundaryCallee fn && fn.body.isSome)
   let seedKeys :=
     concatMapList
       (fun (fd : CoreFunctionDef) => CoreStmt.collectInternalCallKeys fd.body)
