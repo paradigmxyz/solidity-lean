@@ -1913,3 +1913,59 @@ model is exact and the round-trip law is `=`.
 
 Gate: `lake build SolidCore` green, `--only reentrancy-adoption` green, full
 replay `--jobs 10` green (103 cases, zero pre-existing fixture edits).
+## 2026-07-07 — Tuple-with-hole assignment: importer coverage-audit gap (one line), core already complete
+
+The interpreter core, surface AST, typechecker, and executable elaboration
+**already modelled tuple holes end-to-end** before this change: `TupleItem.hole`
+threads through every `Interface.lean` pass, `TupleItems.toCoreLValueTargets?`
+lowers `.hole` to a `none` slot in the `List (Option CoreLValue)` that
+`LValues.writeTuple` consumes, and `VarBindings.toCoreTupleTargets?` maps a
+name-less declaration binding to `none`. The prior work (May 2026, archived) had
+already pinned holes in binding positions at the checker/executable level.
+
+The **only** remaining break was in the solc-AST importer's *coverage audit*
+(`scripts/solc_ast_to_lean_source.py`), not its renderer. `tuple_item_from_node`
+and `var_binding_from_node` already render a `null` component as `TupleItem.hole`
+/ `{ name := none, … }`. But `iter_scalar_fields` treats a `null` entry inside a
+list as a scalar leaf, so a `TupleExpression.components` list containing a hole
+surfaced as an *unclassified scalar field* and the audit hard-failed with
+`unclassified Solidity AST scalar fields present: TupleExpression.components`.
+The declaration-hole path had already been worked around by registering
+`('VariableDeclarationStatement', 'declarations')` in `SOURCE_SCALAR_FIELDS`; the
+analogous `('TupleExpression', 'components')` entry was simply missing. **Fix:
+one entry added to `SOURCE_SCALAR_FIELDS`** — no Lean source changed. (`null`
+in a solc AST list is always a structural hole, never scalar data, so
+classifying that field as a known source scalar is safe; the frontend audit
+stays green: `render_failures=0`, `unknown_source_scalar_value_fields=0`.)
+
+**solc 0.8.35 accept/reject boundary probed** (pinned artifact). Accepts:
+leading / middle / trailing holes in both tuple **assignment** LHS (`(a,) = …`,
+`(,b) = …`, `(a,,c) = …`) and **declaration** LHS (`(uint a,) = …`, etc.),
+nested holes (`((a,),(b,c))`, `((a,b),)`), and the canonical low-level-call idiom
+`(bool ok, ) = t.call{value:1}("")` (assignment and leading-hole variants too).
+Rejects: a fully-empty tuple target `(,)` — a **parse** error ("Expected primary
+expression"), so it never reaches our importer — and hole + arity mismatch
+(`(a,) = (1,2,3)` type-mismatch; `(uint a,) = (1,2,3)` "Different number of
+components"). We accept exactly the accepted forms and keep rejecting the rest.
+
+**Semantics verified**: a held-out component is not *bound*, but its RHS
+computation still runs. Pinned with a storage post-increment in the held-out
+slot (`(a,) = (7, pokes++)` etc.): the interpreter bumps `pokes` exactly as solc
+does. (An internal-function call in a tuple-literal RHS — `(a,) = (7, poke())` —
+is a *separate, pre-existing* executable-lowering gap unrelated to holes; both
+the hole and no-hole forms fail it, so the side-effect fixtures use `pokes++`,
+which lowers and evaluates cleanly. Left untouched — it is the internal-call
+elaboration surface owned elsewhere.)
+
+**Pinned by a new `tuple-holes` corpus lane** (kept `tuple-destructure` intact):
+5 Lean evals — importer acceptance, `assignTrailingHole`=71 / `assignLeadingHole`
+=91 / `declMiddleHole`=351 (leading/middle/trailing holes with a side-effecting
+RHS, all own-call), and the canonical `callTrailingHole` value-carrying idiom
+observing the send debit (self balance 10 → 9, returned `bytes` held out, via the
+`responderOfResults` + `accountBalances` pattern reused from `balance-accounting`)
+— plus 3 `solc_rejects` (`AllHolesAssignment`, `HoleAssignmentArity`,
+`HoleDeclArity`). Corpus now 102 cases, 445 lean_evals (+5), 314 solc_rejects
+(+3). Gates: `lake build SolidCore` green (no Lean delta), `scripts/smoke_replay.sh`
+green (28 cases), `--only tuple-holes` and the nearest neighbours
+`--only tuple-destructure --only low-level-call-options` green, frontend audit
+green. A full replay was not required for this importer-only scoped fix.
