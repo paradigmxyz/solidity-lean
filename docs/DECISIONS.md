@@ -829,3 +829,61 @@ deletion, since the study predates the stage-1e/2/3 commits.
 
 Gates per landed item: `lake build SolidCore` + `scripts/smoke_replay.sh`
 (28 cases, `forge_interpreter_compare=pass`, all `lean=ok`).
+## 2026-07-06 — A1 rational constants: over-reject (completeness) fix, no unsoundness
+
+The audit (`docs/rational-constants-audit.md`, commit `5c26c24`) corrected the gap
+registry's suspicion. A1 was recorded as **suspected unsoundness** ("may currently
+mis-evaluate"). It is not: a `NumberRat` exact-rational folder already existed
+(Phase 3b), folds in unbounded-precision ℚ, and gates integer-only results on
+exact division — **0 WRONG-VALUE divergences** across the whole probe set. The
+classic truncation traps (`7/2*2`, `1/2 + 1/2`) already return solc's exact `7`
+and `1`, not `6`/`0`.
+
+The real, live gap was **OVER-REJECTION** (a completeness gap): `NumberRat` was
+over `Nat`, so any constant whose folded value is negative — formed by subtraction
+or a nested unary minus — was rejected even though solc accepts it. Confirmed on
+three probes: `int256 = 0 - 5` (−5), `int256 = 3 - 10` (−7),
+`int256 = 7 / 2 * 2 - 100` (−93, a negative fractional intermediate).
+
+**The fix (engine):** widen `NumberRat` to a signed exact rational
+(`num : Int`, `den : Nat` strictly positive; `mk?` canonicalizes the sign onto
+the numerator). Consequences:
+
+- `NumberRat.sub` is now **total** (`some (lhs.sub rhs)` in
+  `BinaryOp.applyNumberRat?`) — a negative result is representable. This is the
+  whole fix for the three over-rejects.
+- `div?` routes the (possibly signed) denominator through `mk?`; `pow` over
+  signed `Int` handles negative bases for free.
+- New `NumberRat.exactInt? : Option Int`; `exactNat?` is `exactInt?` filtered to
+  `≥ 0`, so bit/shift/mod ops (which solc errors on for negatives) and unsigned
+  targets still reject negatives.
+- `Expr.numberLiteralRat?` / `untypedNumberLiteralRat?` gained a real
+  `unary neg` case (negate the numerator; the old untyped "only if zero" guard is
+  gone). New `Expr.numberLiteralInt?` folds to a signed integer.
+- `Expr.toCoreNumericLiteralAs?` **collapsed**: fold once to a signed `Int`, then
+  one signed range test per target — `uint`: `0 ≤ v < 2^bits`; `int`:
+  `−2^(bits−1) ≤ v ≤ 2^(bits−1) − 1`. solc rules (2) range and (3) sign fall out
+  of this single test, removing the old syntactic-top-level-unary-minus branch
+  (`negatedNumberLiteralNat?`, `uint/intPositive/NegativeLiteralFits` deleted).
+- `TypeCheck.fixedPointLiteralRaw?` adjusted for the signed numerator (positive
+  path; negatives still handled by the sibling `negatedFixedPointLiteralRaw?`).
+- Everything stays **total** (no `partial`); `Option` kept only for the genuine
+  partial ops (den 0, non-integer operand).
+
+**The fix (importer):** `type_from_expression_node`'s array-length in
+type-expression position (`solc_ast_to_lean_source.py`) gained the same
+already-folded `typeString`/`typeIdentifier` fallback the VariableDeclaration
+array-length path already had, so a scientific/unit length like `uint8[1e1]` in
+that position imports instead of aborting.
+
+**Regression guard:** new `rational-constants` corpus lane
+(`tests/forge-harness/rational-constants/`, manifest case): a Forge test pins
+solc's EVM values for the folded constants (incl. −5 / −7 / −93); `solc_rejects`
+pins solc's rejection of `7/2 → int256` (non-integer) and `0-1 → uint256` (signed
+→ unsigned); Lean witnesses (`SolidCore.Witness.RationalConstants`) pin the three
+folds to their exact signed values, their acceptance into `int256`, and that the
+two rejection-boundary probes still return `none` — so the Int-widening does not
+over-correct into unsoundness.
+
+`lake build SolidCore` green; the new lane is green
+(`solc_rejects=ok forge=ok lean=ok`).

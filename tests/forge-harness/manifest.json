@@ -57,6 +57,68 @@
       }
     },
     {
+      "name": "rational-constants",
+      "description": "Forge checks solc/EVM values of folded rational constants (incl. the negative A1 over-reject cases -5/-7/-93); pinned solc rejects a fractional constant into an integer type and a negative into an unsigned type; Lean imports the same accepts contract (now typechecks) and pins the fold values and the rejection boundary via named witnesses.",
+      "forge": {
+        "root": "tests/forge-harness/rational-constants",
+        "match_contract": "RationalConstantsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/rational-constants/src/RationalConstants.sol",
+        "contract": "RationalConstantsHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RationalConstants"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/rational-constants/invalid/FractionalIntoInt.sol",
+        "tests/forge-harness/rational-constants/invalid/NegIntoUint.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.RationalConstants"
+        ],
+        "evals": [
+          {
+            "label": "importedAcceptsContractTypechecks",
+            "expr": "SolidCore.Solidity.SolcAstImport.RationalConstants.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "negFiveFolds",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.negFiveFolds",
+            "expect": "true"
+          },
+          {
+            "label": "negSubFolds",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.negSubFolds",
+            "expect": "true"
+          },
+          {
+            "label": "fracNegFolds",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.fracNegFolds",
+            "expect": "true"
+          },
+          {
+            "label": "fracNegAcceptedInt256",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.fracNegAcceptedInt256",
+            "expect": "true"
+          },
+          {
+            "label": "fractionalIntoIntRejected",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.fractionalIntoIntRejected",
+            "expect": "true"
+          },
+          {
+            "label": "negIntoUintRejected",
+            "expr": "SolidCore.Solidity.Executable.RationalConstants.negIntoUintRejected",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
       "name": "storage-counter",
       "description": "Forge checks solc/EVM storage mutation; Lean imports the same source contract from solc AST and checks source storage readback.",
       "forge": {

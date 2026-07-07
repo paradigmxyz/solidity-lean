@@ -1224,9 +1224,13 @@ def TypeContext.canImplicitlyConvert (types : TypeContext)
 def fixedPointLiteralRaw? (decimals : Nat)
     (expr : Solidity.Expr) : Option Nat := do
   let value ← Solidity.Executable.Expr.numberLiteralRat? expr
-  let scaled := value.num * 10 ^ decimals
-  if scaled % value.den == 0 then
-    some (scaled / value.den)
+  let scaled := value.num * (10 ^ decimals : Int)
+  let den := Int.ofNat value.den
+  if den == 0 then
+    none
+  else if scaled % den == 0 then
+    let q := scaled / den
+    if q < 0 then none else some q.toNat
   else
     none
 

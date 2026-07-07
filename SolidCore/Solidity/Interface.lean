@@ -2623,21 +2623,40 @@ def divideIfExact? (value divisor : Nat) : Option Nat :=
     none
 
 structure NumberRat where
-  num : Nat
+  num : Int
   den : Nat
   deriving Repr
 
 def NumberRat.ofNat (value : Nat) : NumberRat :=
+  { num := Int.ofNat value, den := 1 }
+
+def NumberRat.ofInt (value : Int) : NumberRat :=
   { num := value, den := 1 }
 
-def NumberRat.mk? (num den : Nat) : Option NumberRat :=
+-- Build a rational from a signed numerator and a (possibly signed) denominator,
+-- canonicalizing so the stored denominator is a strictly-positive `Nat`.
+def NumberRat.mk? (num den : Int) : Option NumberRat :=
   if den == 0 then
     none
+  else if den < 0 then
+    some { num := -num, den := (-den).toNat }
   else
-    some { num, den }
+    some { num := num, den := den.toNat }
 
-def NumberRat.exactNat? (value : NumberRat) : Option Nat :=
-  divideIfExact? value.num value.den
+-- Exact signed integer value, or `none` when the reduced denominator is not 1.
+def NumberRat.exactInt? (value : NumberRat) : Option Int :=
+  if value.den == 0 then
+    none
+  else if value.num % (Int.ofNat value.den) == 0 then
+    some (value.num / (Int.ofNat value.den))
+  else
+    none
+
+-- Exact non-negative integer value; rejects negatives (used by unsigned and
+-- bit/shift paths, matching solc's error on those operands).
+def NumberRat.exactNat? (value : NumberRat) : Option Nat := do
+  let i ← value.exactInt?
+  if i < 0 then none else some i.toNat
 
 def decimalValueWithScaleRat? (digits : List Nat) (fractionDigits : Nat)
     (exponent? : Option (Bool × Nat)) : Option NumberRat :=
@@ -2704,23 +2723,21 @@ def parseNumberRat? (text : String) : Option NumberRat :=
   | chars => parseDecimalRatChars? chars
 
 def NumberRat.add (lhs rhs : NumberRat) : NumberRat :=
-  { num := lhs.num * rhs.den + rhs.num * lhs.den
+  { num := lhs.num * (Int.ofNat rhs.den) + rhs.num * (Int.ofNat lhs.den)
     den := lhs.den * rhs.den }
 
-def NumberRat.sub? (lhs rhs : NumberRat) : Option NumberRat :=
-  let lhsNum := lhs.num * rhs.den
-  let rhsNum := rhs.num * lhs.den
-  if rhsNum <= lhsNum then
-    NumberRat.mk? (lhsNum - rhsNum) (lhs.den * rhs.den)
-  else
-    none
+-- Subtraction is now total: with a signed numerator a negative result is
+-- representable (this is the whole fix for the A1 over-rejects).
+def NumberRat.sub (lhs rhs : NumberRat) : NumberRat :=
+  { num := lhs.num * (Int.ofNat rhs.den) - rhs.num * (Int.ofNat lhs.den)
+    den := lhs.den * rhs.den }
 
 def NumberRat.mul (lhs rhs : NumberRat) : NumberRat :=
   { num := lhs.num * rhs.num
     den := lhs.den * rhs.den }
 
 def NumberRat.scaleNat (value : NumberRat) (factor : Nat) : NumberRat :=
-  { value with num := value.num * factor }
+  { value with num := value.num * (Int.ofNat factor) }
 
 def parseUnitNumberRat? (text : String)
     (unit : UnitDenomination) : Option NumberRat := do
@@ -2736,7 +2753,7 @@ def NumberRat.div? (lhs rhs : NumberRat) : Option NumberRat :=
   if rhs.num == 0 then
     none
   else
-    NumberRat.mk? (lhs.num * rhs.den) (lhs.den * rhs.num)
+    NumberRat.mk? (lhs.num * (Int.ofNat rhs.den)) ((Int.ofNat lhs.den) * rhs.num)
 
 def NumberRat.mod? (lhs rhs : NumberRat) : Option NumberRat := do
   let lhsNat ← lhs.exactNat?
@@ -2775,8 +2792,10 @@ def NumberRat.shr? (lhs rhs : NumberRat) : Option NumberRat := do
   let rhsNat ← rhs.exactNat?
   some (NumberRat.ofNat (lhsNat / 2 ^ rhsNat))
 
-def NumberRat.compareNum (lhs rhs : NumberRat) : Nat × Nat :=
-  (lhs.num * rhs.den, rhs.num * lhs.den)
+-- Both denominators are strictly positive, so cross-multiplication preserves
+-- ordering; comparison is over signed numerators.
+def NumberRat.compareNum (lhs rhs : NumberRat) : Int × Int :=
+  (lhs.num * (Int.ofNat rhs.den), rhs.num * (Int.ofNat lhs.den))
 
 def NumberRat.lt (lhs rhs : NumberRat) : Bool :=
   let pair := NumberRat.compareNum lhs rhs
@@ -2793,7 +2812,7 @@ def BinaryOp.applyNumberRat? (op : BinaryOp)
     (lhs rhs : NumberRat) : Option NumberRat :=
   match op with
   | BinaryOp.add => some (lhs.add rhs)
-  | BinaryOp.sub => lhs.sub? rhs
+  | BinaryOp.sub => some (lhs.sub rhs)
   | BinaryOp.mul => some (lhs.mul rhs)
   | BinaryOp.div => lhs.div? rhs
   | BinaryOp.mod => lhs.mod? rhs
@@ -2828,6 +2847,9 @@ def Expr.numberLiteralRat? : Expr -> Option NumberRat
   | Expr.literal (Literal.number text) => parseNumberRat? text
   | Expr.literal (Literal.unitNumber text unit) =>
       parseUnitNumberRat? text unit
+  | Expr.unary UnaryOp.neg inner => do
+      let value ← Expr.numberLiteralRat? inner
+      some { value with num := -value.num }
   | Expr.binary op lhs rhs => do
       let lhsValue ← Expr.numberLiteralRat? lhs
       let rhsValue ← Expr.numberLiteralRat? rhs
@@ -3187,11 +3209,13 @@ def Expr.numberLiteralNat? (expr : Expr) : Option Nat := do
   let value ← Expr.numberLiteralRat? expr
   value.exactNat?
 
-def Expr.negatedNumberLiteralNat? : Expr -> Option Nat
-  | Expr.unary UnaryOp.neg inner => Expr.numberLiteralNat? inner
-  | Expr.call (Expr.typeName _) [Arg.positional expr] =>
-      Expr.negatedNumberLiteralNat? expr
-  | _ => none
+-- Exact signed integer value of a folded constant expression (or `none` when it
+-- folds to a genuine fraction). This subsumes the old syntactic
+-- `negatedNumberLiteralNat?`: negatives produced by subtraction or by a nested
+-- unary minus are now recognized, not just a top-level unary minus.
+def Expr.numberLiteralInt? (expr : Expr) : Option Int := do
+  let value ← Expr.numberLiteralRat? expr
+  value.exactInt?
 
 def Expr.untypedNumberLiteralRat? : Expr -> Option NumberRat
   | Expr.literal (Literal.number text) => parseNumberRat? text
@@ -3199,7 +3223,7 @@ def Expr.untypedNumberLiteralRat? : Expr -> Option NumberRat
       parseUnitNumberRat? text unit
   | Expr.unary UnaryOp.neg inner => do
       let value ← Expr.untypedNumberLiteralRat? inner
-      if value.num == 0 then some value else none
+      some { value with num := -value.num }
   | Expr.binary op lhs rhs => do
       let lhsValue ← Expr.untypedNumberLiteralRat? lhs
       let rhsValue ← Expr.untypedNumberLiteralRat? rhs
@@ -3302,42 +3326,35 @@ def Expr.isNumberLiteralExpression : Expr -> Bool
       Expr.isNumberLiteralExpression expr
   | _ => false
 
-def uintLiteralFits (bits value : Nat) : Bool :=
-  value < 2 ^ bits
+-- Unsigned fit: `0 ≤ v ≤ 2^bits − 1` (rule (2) for unsigned, plus rule (3):
+-- a negative folded value fails the lower bound, matching solc's rejection of a
+-- signed literal into an unsigned type).
+def uintLiteralFitsInt (bits : Nat) (v : Int) : Bool :=
+  0 <= v && v < (2 ^ bits : Int)
 
-def intPositiveLiteralFits (bits value : Nat) : Bool :=
-  value < 2 ^ (bits - 1)
-
-def intNegativeLiteralFits (bits magnitude : Nat) : Bool :=
-  magnitude <= 2 ^ (bits - 1)
+-- Signed fit: `−2^(bits−1) ≤ v ≤ 2^(bits−1) − 1`. Rules (2) and (3) fall out of
+-- this single signed range test.
+def intLiteralFitsInt (bits : Nat) (v : Int) : Bool :=
+  -(2 ^ (bits - 1) : Int) <= v && v <= (2 ^ (bits - 1) : Int) - 1
 
 def Expr.toCoreNumericLiteralAs? (ty : Ty) (expr : Expr) :
-    Option CoreExpr :=
+    Option CoreExpr := do
+  let value ← Expr.numberLiteralInt? expr
   match Ty.uintBits? ty with
-  | some bits => do
-      let value ← Expr.numberLiteralNat? expr
-      if uintLiteralFits bits value then
-        some (SolidCore.Solidity.Source.Expr.word value)
+  | some bits =>
+      if uintLiteralFitsInt bits value then
+        some (SolidCore.Solidity.Source.Expr.word value.toNat)
       else
         none
   | none =>
       match Ty.intBits? ty with
       | some bits =>
-          match Expr.negatedNumberLiteralNat? expr with
-          | some magnitude =>
-              if intNegativeLiteralFits bits magnitude then
-                some
-                  (SolidCore.Solidity.Source.Expr.intWord
-                    (SolidCore.Solidity.Shared.signedToWord
-                      (-(Int.ofNat magnitude))))
-              else
-                none
-          | none => do
-              let value ← Expr.numberLiteralNat? expr
-              if intPositiveLiteralFits bits value then
-                some (SolidCore.Solidity.Source.Expr.intWord value)
-              else
-                none
+          if intLiteralFitsInt bits value then
+            some
+              (SolidCore.Solidity.Source.Expr.intWord
+                (SolidCore.Solidity.Shared.signedToWord value))
+          else
+            none
       | none => none
 
 def Ty.typeInfoExpr? (ty : Ty) (member : Name) : Option CoreExpr := do

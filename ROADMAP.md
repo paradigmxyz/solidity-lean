@@ -101,9 +101,10 @@ Review findings on the completed work (2026-07-06):
   `danrobinson/EVMYulLean @ 3c5c44a6`); do not bump either side.
 - **Interaction monad sharing**: extract a small standalone Lake package both
   repos depend on; `evm-compiler` re-exports under its existing names.
-- **Semantic gap fixes** (balance accounting, rational constant folding,
-  `gasleft` as a resource query): **deferred**, recorded in the gap registry
-  below. This phase is structural.
+- **Semantic gap fixes** (balance accounting, `gasleft` as a resource query):
+  **deferred**, recorded in the gap registry below. This phase is structural.
+  (Rational constant folding: the A1 over-reject is now **fixed** — see the gap
+  registry; the audit found no unsoundness.)
 - **Observation layer**: delete all of it; prune or re-express the harness
   witnesses that referenced it.
 - **Conformance corpus**: kept, frozen as a regression oracle. No new
@@ -462,7 +463,7 @@ when picked up.
 | Gap | Status | Notes |
 | --- | --- | --- |
 | Intra-frame balance accounting | Deferred | `msg.value` never credits the callee; `address(this).balance` and value sends read/write nothing. Real EVM credits before body execution; this is Solidity-observable. Phase 5's world environment creates the natural home for the fix. |
-| Rational constant expressions | Deferred — **suspected unsoundness** | solc folds constants in unbounded-precision rationals (`1e18`, subdenominated and fractional intermediates, huge powers that cancel). No rational-folding machinery exists here; one importer path requires plain decimal naturals. Audit lane first; may currently mis-evaluate or silently reject legal programs. |
+| Rational constant expressions | **Over-reject fixed (2026-07-06); no unsoundness** | Audit (`docs/rational-constants-audit.md`) found the suspected unsoundness **does not exist**: the `NumberRat` folder already folds in unbounded-precision ℚ and gates on exact division — 0 WRONG-VALUE divergences (truncation traps `7/2*2`, `1/2+1/2` already give exact `7`, `1`). The real gap was **over-rejection** (a completeness gap): `NumberRat` was over `Nat`, so negative folds (`0-5`, `3-10`, `7/2*2-100 = −93`) were wrongly rejected. Fixed by widening `NumberRat` to a signed exact rational (`num : Int`), making `sub` total, and collapsing the type-fit check to one signed range test; importer `type_from_expression_node` gained the array-length `typeString` fallback. Pinned by the `rational-constants` corpus lane + `SolidCore.Witness.RationalConstants` (folds, acceptance, and the fractional-into-int / negative-into-unsigned rejection boundary). See `docs/DECISIONS.md`. |
 | `gasleft` as resource query | Deferred | Today a fixed ambient word. Becomes `Query.resource gas` once someone needs it; alphabet already reserves it. |
 | Create initCode is source-canonical, not compiled bytecode | Deferred (gas-like) | Stage 1c encodes a create's identity as `creationInitCode` = 32-byte BE UTF-8-name-length ‖ name ‖ args (the source semantics creates by contract *name*, pre-compilation; fixtures key the oracle by name and do not populate `contractCreationCodes`). The emitted `CreateRequest.initCode` therefore differs from the real compiled creation bytecode — a transcript-level mismatch analogous to the `gasleft` erasure, resolved at the future lowering when creates carry real initCode. Injective encoding, decoded fail-closed in `answerCreate`. |
 | Inline assembly | Out of scope (unchanged) | Future design sketch: an embedded-Yul statement whose meaning *is* the shared Yul semantics — cheap once both live on the same interaction substrate. Determines real-world applicability of any eventual compiler. |
