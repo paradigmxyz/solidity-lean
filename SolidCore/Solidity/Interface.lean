@@ -19285,8 +19285,12 @@ def Stmt.eval? (fuel : Nat) (storageNames : List Name)
     (context : CoreContext) (runtime : CoreRuntime) (stmt : Stmt) :
     Option CoreResult := do
   let coreStmt ← Stmt.toCore? storageNames stmt
-  -- Frozen `?`-adapter: fold the interaction tree under `context` (phase 5).
-  (SolidCore.Solidity.Source.SolI.run context
+  -- Frozen `?`-adapter: fold the interaction tree **fail-closed** under an empty
+  -- responder (phase 5 / phase 6 item 7). No query is emitted on this path, so
+  -- this is behaviour-identical to the old `SolI.run context` fold; the point is
+  -- that a future external call routed through here fails loudly (unmatched →
+  -- `none`) rather than fail-open.
+  (SolidCore.Solidity.Source.SolI.runWith []
     (SolidCore.Solidity.Source.Stmt.eval fuel context runtime coreStmt)).toOption
 
 def FunctionDecl.call? (fuel : Nat) (storageNames : List Name)

@@ -1597,69 +1597,6 @@ def memoryAllocationFootprintFunction : FunctionDecl :=
     returns := [{ name := some "ok", ty := Ty.uint 256 }]
     body := some memoryAllocationFootprintBody }
 
-def memoryAllocationFootprintExpected : Nat :=
-  SolidCore.Solidity.Source.dynamicArrayMemoryFootprint
-      SolidCore.Solidity.Source.Ty.uint256 3 +
-    SolidCore.Solidity.Source.dynamicBytesMemoryFootprint 5 +
-    SolidCore.Solidity.Source.dynamicBytesMemoryFootprint 2
-
-def memoryAllocationFootprintExpectedFreePointer : Nat :=
-  SolidCore.Solidity.Source.initialFreeMemoryPointer +
-    memoryAllocationFootprintExpected
-
-def memoryAllocationFootprintExpectedRegions :
-    List SolidCore.Solidity.Source.MemoryAllocation :=
-  [ { start := 128, sizeBytes := 128 }
-  , { start := 256, sizeBytes := 64 }
-  , { start := 320, sizeBytes := 64 } ]
-
-def memoryAllocationFootprintExpectedBytes : List Byte :=
-  SolidCore.Solidity.Source.dynamicArrayMemoryContent
-      SolidCore.Solidity.Source.Ty.uint256 3 ++
-    SolidCore.Solidity.Source.dynamicBytesMemoryContent 5 ++
-    SolidCore.Solidity.Source.dynamicBytesMemoryContent 2
-
-def memoryAllocationFootprintMatches : Option Bool := do
-  let result ←
-    Stmt.eval? 32 [] SolidCore.Solidity.Source.Context.empty
-      (SolidCore.Solidity.Source.Runtime.ofState
-        SolidCore.Solidity.Source.State.empty)
-      memoryAllocationFootprintBody
-  match result with
-  | SolidCore.Solidity.Source.Result.returned runtime
-      [SolidCore.Solidity.Source.Value.word ok] =>
-      some
-        (ok == 1 &&
-          runtime.memoryBytesUsed == memoryAllocationFootprintExpected &&
-          runtime.memoryFreePointer ==
-            memoryAllocationFootprintExpectedFreePointer &&
-          runtime.memoryAllocations ==
-            memoryAllocationFootprintExpectedRegions &&
-          runtime.readMemoryBytes?
-              SolidCore.Solidity.Source.initialFreeMemoryPointer
-              memoryAllocationFootprintExpected ==
-            some memoryAllocationFootprintExpectedBytes &&
-          runtime.readMemoryBytes? 128
-              SolidCore.Solidity.Source.wordBytes ==
-            some
-              (SolidCore.Solidity.Source.wordToBytesBE
-                SolidCore.Solidity.Source.wordBytes 3) &&
-          runtime.readMemoryBytes? 256
-              SolidCore.Solidity.Source.wordBytes ==
-            some
-              (SolidCore.Solidity.Source.wordToBytesBE
-                SolidCore.Solidity.Source.wordBytes 5) &&
-          runtime.readMemoryBytes? 320
-              SolidCore.Solidity.Source.wordBytes ==
-            some
-              (SolidCore.Solidity.Source.wordToBytesBE
-                SolidCore.Solidity.Source.wordBytes 2) &&
-          runtime.loadMemoryByte? 127 == none &&
-          runtime.loadMemoryByte? 384 == none &&
-          memoryAllocationFootprintExpected == 256 &&
-          memoryAllocationFootprintExpectedFreePointer == 384)
-  | _ => some false
-
 def sourceWordValuesMatch :
     List SolidCore.Solidity.Source.Value -> List Word -> Bool
   | [], [] => true

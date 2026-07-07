@@ -900,3 +900,118 @@ line) and deleted them. The used siblings
 `callFunctionWithContextUnderResponder`) are kept.
 
 Gate: `lake build SolidCore` + smoke.
+
+## 2026-07-06 — Phase 6 item 6: machine-checked two-external-call demo witness
+
+Phase 5's acceptance included a *synthetic* demo tree (`phase5DemoTree`,
+`Interpreter.lean` ~2204) that calls `emitLowLevelCall` twice with hardcoded
+addresses — it never runs the evaluator. Item 6 hardens this: a **real**
+two-external-call execution as an explicit interaction tree.
+
+`SolidCore/Witness/Phase5Demo.lean` (new, imported by the `SolidCore.lean`
+library root so `lake build SolidCore` compiles it) elaborates the existing
+hand-built `lowLevelStaticDelegateFunction` (`probeBoth`: a `staticcall` then a
+`delegatecall`) to a core `FunctionDef`, drives it through the real evaluator
+(`FunctionDef.call`, the tree-returning entry), and:
+
+- `phase5RealDemoTranscript` folds `SolI.queryTranscript` under the scripted
+  responder answerer, exposing the raw ordered `Query` transcript over the shared
+  alphabet;
+- `phase5RealDemoTranscriptMatches` asserts the transcript is exactly two
+  external-call queries to `0xcafe` **plus** the folded results
+  (`lowLevelStaticDelegateMatches`).
+
+**Observed / pinned:** the deterministic child-evaluation order emits the
+`delegatecall` **first**, then the `staticcall`, even though the source tuple is
+`(staticcall(...), delegatecall(...))`. The responder keys on
+kind/target/calldata (not order), so results are unaffected; the transcript pins
+the emission order, which the roadmap flags as load-bearing.
+
+**Machine-check without axioms, without touching the frozen manifest.** Chosen
+route: built-but-not-manifest. An in-kernel `decide` proof of
+`phase5RealDemoTranscriptMatches = true` is infeasible (the kernel cannot reduce
+the interpreter through `FunctionDecl.toCore?` + fuel-8 execution — `decide`
+fails in ~1.5 s), and `native_decide` is avoided to keep the axiom set empty.
+Instead a throwing `#eval` guard (`throw (IO.userError …)` on `false`) is enforced
+by the compiled evaluator exactly like a harness `#eval`: `lake build SolidCore`
+fails if the demo regresses (negative test confirmed — flipping the expected
+kind order fails the build with the guard's message), and no proof axioms are
+introduced. The frozen conformance manifest (99 cases / 426 evals) is untouched.
+
+Gate: `lake build SolidCore` + smoke (28 cases, `forge_interpreter_compare=pass`).
+
+## 2026-07-06 — Phase 6 item 7: harden the frozen `?` adapters (fail-open → fail-closed)
+
+`FunctionDef.call?`, `Contract.call?`, `Contract.callTransaction?`
+(`Interpreter.lean`) and `Stmt.eval?` (`Interface.lean`) folded their
+interaction tree with `SolI.run context` (equivalently `contextAnswer`, i.e.
+`Query.defaultAnswer`), which answers *any* stray external query fail-open with
+the default (failed-call) answer and continues. Redefined all four to fold
+**fail-closed** under an empty scripted responder, `SolI.runWith []`: an external
+request with no matching row aborts with `ResponderFailure.unmatched` →
+`.error _ → none`. `FunctionDecl.call?` inherits the fix (it delegates to
+`FunctionDef.call?`).
+
+**Why it is safe / behaviour-identical today.** These entry points reach only
+query-free paths (no external call/create is emitted on them — the corpus's
+oracle-bearing witnesses fold under real responders via the `*UnderResponder` /
+`*FailOpen` twins, not these adapters). Verified: **zero** manifest evals
+reference any of the four `?` adapters, so no eval can regress. The point is
+forward-looking: a future fixture edit that routes an external call through a
+non-responder entry now fails **loudly** instead of silently continuing on a
+fail-open failed call.
+
+**One proof updated (not a behaviour change).** `FunctionDef.call?_reverted_rolls_back`
+(`Interpreter.lean`) `simp`ed with `SolI.run`; its revert path is a
+`.done (.ok (CallResult.reverted …))` leaf, on which `SolI.runWith [] = SolI.run`
+definitionally, so the theorem still holds — the `simp` lemma was switched
+`SolI.run → SolI.runWith`. (This is the repo's one interpreter-side theorem; the
+witness/example folds that call `SolI.run` directly are unaffected — only the `?`
+adapters changed.)
+
+Gate: `lake build SolidCore` + smoke; witness truth values unchanged.
+
+## 2026-07-06 — Phase 6 item 9 (N2): delete the byte-memory shadow
+
+The `Runtime` byte-memory shadow (`memoryByteMap`, `memoryBytesUsed`,
+`memoryFreePointer`, `memoryAllocations` + readers `loadMemoryByte?`/
+`readMemoryBytes?`, writer `noteMemoryAllocation`/`noteMemoryBytes`) was written
+at `Expr.newBytes`/`newDynamicArray` and read by **nothing semantic** — only by
+the witness `memoryAllocationFootprintMatches` (+ its `Expected*` helpers), which
+is **not** manifest-referenced (verified 0 across manifest.json). Per the
+roadmap's no-speculative-interfaces rule (the shadow misleads future
+memory-refinement work), deleted together:
+
+- The 4 `Runtime` fields, `noteMemoryAllocation`/`noteMemoryBytes`,
+  `loadMemoryByte?`/`readMemoryBytes?`, and their now-dead support
+  (`MemoryByteMap` abbrev + its 4 methods, `MemoryAllocation` struct,
+  `initialFreeMemoryPointer`, `roundUpToWordBytes`, and the four
+  `dynamic{Bytes,Array}Memory{Footprint,Content}` helpers — all shadow-only,
+  verified). `bytesPrefixRightPadded` (widely used) and the **semantic**
+  `Context.checkMemoryAllocation` guard (can revert on over-allocation) are kept.
+- The two allocation call sites drop the `noteMemoryAllocation` write, keeping
+  `checkMemoryAllocation` and threading `runtime'` unchanged (the shadow was the
+  only thing the write touched — behaviour-preserving for every semantic field).
+- The witness `memoryAllocationFootprintMatches` + `memoryAllocationFootprint{
+  Expected,ExpectedFreePointer,ExpectedRegions,ExpectedBytes}` in
+  `Witness/Interface.lean`. Kept `memoryAllocationFootprintBody`/`…Function`,
+  which are shared with the (non-shadow) `checkedMemoryAllocationFootprint*`
+  witnesses that just run the function and check its return value.
+
+Gate: `lake build SolidCore` + smoke; witness truth values unchanged.
+
+## 2026-07-06 — Phase 6 item 9 (N3): move in-file examples out of `Interpreter.lean`
+
+De-monolith: the example/demo defs living inside the semantics file moved verbatim
+(names + `SolidCore.Solidity.Source` namespace preserved) to a new
+`SolidCore/Witness/InterpreterExamples.lean` (imported by the `SolidCore.lean`
+root). Moved: the synthetic `phase5DemoTree`/`phase5DemoTranscriptLength` demo and
+the statement/expression example corpus (`compositionalControlExample`,
+signed-arithmetic, ternary/do-while, revert/require/assert, `captureReturn`,
+`writesThenReverts`, …) with their little AST-builder helpers (`uint256`,
+`Expr.add`, `Stmt.seq`, …). Verified zero external references to any moved def
+(none manifest-referenced; the builder helpers are not called outside the block),
+so the move is behaviour-neutral. `Interpreter.lean` no longer carries example
+scaffolding.
+
+Gate: `lake build SolidCore` + smoke.
