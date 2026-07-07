@@ -1302,3 +1302,33 @@ intact) + the recursion-gap solo replay above.
   `lake build SolidCore` green (1095 jobs); solo lanes recursion-gap,
   modifier-order, uniswap-transfer-helper, openzeppelin-multicall all
   `forge=ok lean=ok`, `forge_interpreter_compare=pass`.
+
+## 2026-07-06 — Function-boundary refactor, stages 4-5: deletion deferred (splice still live for ref signatures); recursion lane green; registry updated
+
+**Stage 4 (splice deletion): deferred, deliberately.** The plan's deletion list
+(`defaultInternalCallInlineFuel` + 4 consumption sites, the fuel decrement in
+`internalCallParts?`, `functionExpandModifiersToCoreWithStorageRefsOnly?`)
+assumed ALL internal-linkage calls moved to the boundary. Under the
+value-signature slice actually implemented (stages 2-3), the splice path is the
+LIVE elaboration for callees with storage-ref / memory-ref / function-typed
+params or returns (the corpus exercises storage-ref library callees heavily —
+OZ `using`-for fixtures), so nothing on the deletion list is dead
+(9 remaining references, verified). Deleting becomes possible only after the
+boundary covers ref signatures: the blocker is elaboration (storage-ref args
+are lowered as `storageAlias*` statements, not value-producing core
+expressions), NOT the interpreter (storage pointers already exist as runtime
+`Value.storageRef`/`storagePathRef`). Recorded as the follow-up work item.
+
+**Stage 5 (flip + registry):** the `recursion-gap` lane was flipped at stage 2
+(the fixture is all-`uint256`, so it elaborates as soon as contract-internal
+value calls are on the boundary) and passes against Forge with the concrete
+values (factorial(5)=120, sumTo(70)=2485, deepChain()=70). ROADMAP registry row
+updated: **Fixed for value-signature callees; residual gap = ref-signature
+callees** (recursion through storage/memory-ref signatures is still silently
+rejected via the retained inline fuel). Readiness-doc D1 note: Sc now has a
+source IR for value-signature internal calls (`Stmt.internalCall` +
+`Contract.table`).
+
+Final combined gate (smoke + full replay + wall-clock vs baseline) runs at the
+end of this working session per Dan's instruction; results recorded in the next
+entry.
