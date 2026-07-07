@@ -73,6 +73,15 @@ inductive Ty where
   | fixedBytes : Nat -> Ty
   | bytesCalldata : Ty
   | externalFunction : Ty
+  /-- An internal function pointer (boundary-completion arc, stage C). The
+      runtime value is a small sequential numeric ID (`Value.internalFunction`),
+      matching solc via-IR's internal-dispatch model: ID 0 is the
+      uninitialized/deleted pointer, IDs 1..n are assigned per contract to the
+      dispatch-reachable internal functions, and the storage type is 8 bytes
+      with a 64-bit-mask read cleanup (`docs/refs-completion-solc-research.md`
+      §2). Validity is checked only at call time (`Stmt.internalCallPtr`):
+      an ID with no table entry panics 0x51. -/
+  | internalFunction : Ty
   | fixedArray : Nat -> Ty -> Ty
   | dynamicArray : Ty -> Ty
   | tuple : List Ty -> Ty
@@ -93,6 +102,8 @@ inductive Value where
   | int : Word -> Value
   | bytes : List Byte -> Value
   | externalFunction : Word -> Word -> Value
+  /-- Internal function pointer: the per-contract dispatch ID (0 = invalid). -/
+  | internalFunction : Word -> Value
   | fixedArray : List Value -> Value
   | dynamicArray : List Value -> Value
   | tuple : List Value -> Value
@@ -110,6 +121,7 @@ def Ty.defaultValue : Ty -> Value
   | Ty.fixedBytes _ => Value.word 0
   | Ty.bytesCalldata => Value.bytes []
   | Ty.externalFunction => Value.externalFunction 0 0
+  | Ty.internalFunction => Value.internalFunction 0
   | Ty.fixedArray size elementTy =>
       Value.fixedArray (List.replicate size elementTy.defaultValue)
   | Ty.dynamicArray _ => Value.dynamicArray []
@@ -136,6 +148,19 @@ def externalFunctionValueFromStorageWord (word : Word) : Value :=
       (SolidCore.Solidity.Shared.norm word / externalFunctionSelectorModulus))
     (SolidCore.Solidity.Shared.norm word % externalFunctionSelectorModulus)
 
+/-- Internal function pointers are an 8-byte storage type; the storage-read
+    cleanup is `and(value, 0xffffffffffffffff)` — a 64-bit mask, nothing more
+    (solc via-IR, `docs/refs-completion-solc-research.md` §2). No validity check
+    at read time; invalid IDs surface only at call time as `Panic(0x51)`. This
+    makes adoption-planted dirty words in fn-pointer slots behave exactly as
+    solc: the read masks, a call either dispatches to a real function of that ID
+    or panics. -/
+def internalFunctionIdModulus : Nat := 2 ^ 64
+
+def internalFunctionValueFromStorageWord (word : Word) : Value :=
+  Value.internalFunction
+    (SolidCore.Solidity.Shared.norm word % internalFunctionIdModulus)
+
 def Value.asWord? : Value -> Option Word
   | Value.word value => some (SolidCore.Solidity.Shared.norm value)
   | _ => none
@@ -157,6 +182,7 @@ def Value.length? : Value -> Option Nat
   | Value.word _ => none
   | Value.int _ => none
   | Value.externalFunction _ _ => none
+  | Value.internalFunction _ => none
   | Value.storageRef _ => none
   | Value.storagePathRef _ _ => none
   | Value.memoryRef _ => none
@@ -171,6 +197,7 @@ def Value.defaultLike : Value -> Value
   | Value.int _ => Value.int 0
   | Value.bytes _ => Value.bytes []
   | Value.externalFunction _ _ => Value.externalFunction 0 0
+  | Value.internalFunction _ => Value.internalFunction 0
   | Value.fixedArray values => Value.fixedArray (values.map Value.defaultLike)
   | Value.dynamicArray _ => Value.dynamicArray []
   | Value.tuple values => Value.tuple (values.map Value.defaultLike)
@@ -340,6 +367,8 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.bytesCalldata, Value.bytes bytes => some (Value.bytes bytes)
   | Ty.externalFunction, Value.externalFunction addr selector =>
       some (Value.externalFunction addr selector)
+  | Ty.internalFunction, Value.internalFunction id =>
+      some (Value.internalFunction id)
   | Ty.fixedArray size elementTy, Value.fixedArray values =>
       if values.length == size then
         match Ty.coerceValueList? elementTy values with
@@ -386,6 +415,8 @@ def Ty.storageValueFromWord? : Ty -> Word -> Option Value
   | Ty.fixedBytes _, value => some (Value.word value)
   | Ty.externalFunction, value =>
       some (externalFunctionValueFromStorageWord value)
+  | Ty.internalFunction, value =>
+      some (internalFunctionValueFromStorageWord value)
   | _, _ => none
 
 mutual
@@ -402,6 +433,8 @@ def Value.coerceLike? : Value -> Value -> Option Value
   | Value.bytes _, Value.bytes bs => some (Value.bytes bs)
   | Value.externalFunction _ _, Value.externalFunction addr selector =>
       some (Value.externalFunction addr selector)
+  | Value.internalFunction _, Value.internalFunction id =>
+      some (Value.internalFunction id)
   | Value.fixedArray oldValues, Value.fixedArray values =>
       match Value.coerceLikeList? oldValues values with
       | some coerced => some (Value.fixedArray coerced)
@@ -460,6 +493,8 @@ def Value.index? (container : Value) (index : Word) :
   | Value.int _ =>
       Except.error RevertData.typeMismatch
   | Value.externalFunction _ _ =>
+      Except.error RevertData.typeMismatch
+  | Value.internalFunction _ =>
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
@@ -616,6 +651,8 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
   | Value.int _ =>
       Except.error RevertData.typeMismatch
   | Value.externalFunction _ _ =>
+      Except.error RevertData.typeMismatch
+  | Value.internalFunction _ =>
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
@@ -2223,6 +2260,8 @@ def coerceStorageWordAs (ty : Ty) (value : Value) :
       match externalFunctionStorageWord? addr selector with
       | some word => Except.ok word
       | none => Except.error RevertData.typeMismatch
+  | Ty.internalFunction, Value.internalFunction id =>
+      Except.ok (SolidCore.Solidity.Shared.norm id % internalFunctionIdModulus)
   | _, _ =>
       match coerced.asStorageWord? with
       | some word => Except.ok word
@@ -4144,6 +4183,10 @@ def abiDecodeValueAtWithFuel? :
           none
       else
         none
+  | _fuel + 1, _argData, _headIndex, Ty.internalFunction =>
+      -- Internal function pointers have no ABI representation (they cannot
+      -- cross the external boundary); decoding one is a type error.
+      none
   | _fuel + 1, argData, headIndex, Ty.externalFunction => do
       let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
       let addressBytes ← readBytes? slot 0 20
@@ -4514,6 +4557,11 @@ def AbiCleanups.lazyParamValues : List AbiCleanup -> List Value ->
 inductive Expr where
   | word : Word -> Expr
   | intWord : Word -> Expr
+  /-- Internal-function-pointer literal: a function identifier used in value
+      position compiles to its per-contract dispatch ID
+      (`docs/refs-completion-solc-research.md` §2). Evaluates to
+      `Value.internalFunction id`. -/
+  | internalFunction : Word -> Expr
   | byteArray : List Byte -> Expr
   | contractAddress : String -> Expr
   | contractCreationCode : String -> Expr
@@ -5149,6 +5197,7 @@ mutual
 def Expr.orderFuel : Expr -> Nat
   | Expr.word _ => 1
   | Expr.intWord _ => 1
+  | Expr.internalFunction _ => 1
   | Expr.byteArray _ => 1
   | Expr.contractAddress _ => 1
   | Expr.contractCreationCode _ => 1
@@ -5260,6 +5309,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               pure (Value.word (normWord value), runtime)
           | Expr.intWord value =>
               pure (Value.int (normWord value), runtime)
+          | Expr.internalFunction id =>
+              pure (Value.internalFunction (normWord id), runtime)
           | Expr.byteArray bytes =>
               pure (Value.bytes (bytes.map normByte), runtime)
           | Expr.contractAddress name =>
@@ -6391,6 +6442,14 @@ inductive Stmt where
   | requireCustom : Expr -> String -> List Expr -> Stmt
   | captureReturn : List String -> Stmt -> Stmt
   | internalCall : List String -> String -> List Expr -> Stmt
+  /-- Call through an internal function POINTER (boundary-completion arc,
+      stage C): `targets`, the function-pointer expression (evaluated first,
+      then the arguments — matching via-IR's sequencing), and the argument
+      expressions. The pointer's dispatch ID is resolved against the
+      `FunctionTable` at call time; a miss — including the uninitialized ID 0 —
+      panics `0x51`, exactly solc's per-arity dispatch default
+      (`docs/refs-completion-solc-research.md` §2). -/
+  | internalCallPtr : List String -> Expr -> List Expr -> Stmt
   | ifElse : Expr -> Stmt -> Stmt -> Stmt
   | switch : Expr -> List (Word × Stmt) -> Option Stmt -> Stmt
   | whileLoop : Expr -> Stmt -> Stmt
@@ -6618,6 +6677,13 @@ structure InternalFunction where
   params : List BindingDecl
   returns : List BindingDecl
   body : Stmt
+  /-- Per-contract dispatch ID for functions reachable through internal
+      function POINTERS (stage C): `some id` (1..n) iff the function is used as
+      a value somewhere in the contract, mirroring solc via-IR's internal
+      dispatch numbering. `none` for functions never used as values (calling
+      such an ID panics 0x51, like solc's dispatch default). Defaulted so all
+      existing construction sites are unchanged. -/
+  id? : Option Word := none
   deriving Repr
 
 /-- The evaluator-visible table of internal-linkage functions, looked up by
@@ -6629,6 +6695,18 @@ abbrev FunctionTable := List InternalFunction
 def FunctionTable.lookup? (table : FunctionTable) (name : String) :
     Option InternalFunction :=
   List.find? (fun fn => fn.name == name) table
+
+/-- Resolve a function-pointer dispatch ID. ID 0 never matches (`id?` is `some`
+    of 1..n only), so the uninitialized pointer misses — the caller maps a miss
+    to `Panic(0x51)`. -/
+def FunctionTable.lookupById? (table : FunctionTable) (id : Word) :
+    Option InternalFunction :=
+  List.find?
+    (fun fn =>
+      match fn.id? with
+      | some fnId => wordEq fnId id
+      | none => false)
+    table
 
 def InternalFunction.returnDefaultBindings (fn : InternalFunction) : Frame :=
   fn.returns.map BindingDecl.defaultBinding
@@ -6773,6 +6851,56 @@ def internalCallAssign (runtime : Runtime) (targets : List String)
     match runtime.assignNamedValuesRef? targets values with
     | some updated => pure (Result.normal updated)
     | none => pure (Result.reverted runtime RevertData.typeMismatch)
+
+/-- Frame prologue of a framed internal call, shared by the `internalCall` and
+    `internalCallPtr` arms: build the callee frame (reference-preserving
+    binding) and REPLACE the caller's locals (state — storage/memory/events/
+    transient — is shared). Factored OUT of the `Stmt.eval` mutual block to keep
+    that function's compiled stack frame small: the eval block recurses once per
+    statement, so its frame size bounds the usable program depth (an oversized
+    frame segfaults deep-but-legal programs). -/
+def internalCallEnter? (fn : InternalFunction) (argValues : List Value)
+    (runtime : Runtime) : Option (Runtime × LocalEnv) :=
+  match fn.initialFrame? argValues with
+  | none => none
+  | some frame => some ({ runtime with locals := [frame] }, runtime.locals)
+
+/-- Result epilogue of a framed internal call (the internal-call analog of
+    `FunctionDef.callBodyResult`), shared by the `internalCall` and
+    `internalCallPtr` arms and factored out of the eval block (see
+    `internalCallEnter?`): collect/coerce returns reference-preservingly,
+    restore the caller's locals (keeping the callee's state), assign targets;
+    propagate reverts/selfdestructs; a callee cannot break the caller's loop. -/
+def internalCallFinish (fn : InternalFunction) (targets : List String)
+    (savedLocals : LocalEnv) : Result -> SolI Result
+  | Result.returned r values =>
+      match
+        (if values.isEmpty then
+            collectReturnBindingsRef fn.returns r
+          else
+            coerceReturnBindingsRef fn.returns r values)
+      with
+      | Except.ok values =>
+          internalCallAssign { r with locals := savedLocals } targets values
+      | Except.error err => pure (Result.reverted r err)
+  | Result.normal r =>
+      match collectReturnBindingsRef fn.returns r with
+      | Except.ok values =>
+          internalCallAssign { r with locals := savedLocals } targets values
+      | Except.error err => pure (Result.reverted r err)
+  | Result.selfdestructed r =>
+      -- Halts the whole external frame; propagate until the entry
+      -- `callBodyResult` maps it to `returned []`.
+      pure (Result.selfdestructed r)
+  | Result.reverted r err =>
+      -- Propagate; rollback happens at the entry snapshot.
+      pure (Result.reverted r err)
+  | Result.broke r =>
+      -- A callee cannot break the caller's loop; fixes the latent
+      -- `captureReturn` passthrough (function-boundary plan §1.2 / R3).
+      pure (Result.reverted r RevertData.typeMismatch)
+  | Result.continued r =>
+      pure (Result.reverted r RevertData.typeMismatch)
 
 mutual
 
@@ -7358,6 +7486,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.internalCall targets callee args => do
           -- In-monad framed internal call (no query emitted; transcript
           -- invariant). See `docs/function-boundary-refactor-plan.md` §3.1.
+          -- Checked-ness is lexical per function: the callee body starts
+          -- CHECKED regardless of the caller's enclosing checked/unchecked
+          -- block. Frame build + result mapping live OUTSIDE the mutual block
+          -- (`internalCallEnter?`/`internalCallFinish`) to keep this
+          -- function's stack frame small.
           match ← (Expr.evalRefArgListWithRuntimeOrder
               context.effectiveChildEvalOrder
               context runtime args).caught with
@@ -7366,53 +7499,44 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               match table.lookup? callee with
               | none => pure (Result.reverted runtime' RevertData.typeMismatch)
               | some fn =>
-                  match fn.initialFrame? argValues with
+                  match internalCallEnter? fn argValues runtime' with
                   | none => pure (Result.reverted runtime' RevertData.typeMismatch)
-                  | some frame =>
-                      -- Frame isolation: REPLACE locals (not pushScope); state
-                      -- (storage/memory/events/transient) is shared. Checked-ness
-                      -- is lexical per function in Solidity: the callee body
-                      -- starts CHECKED regardless of the caller's enclosing
-                      -- checked/unchecked block (its own `Stmt.unchecked` nodes
-                      -- opt out locally) — the splice era guaranteed this by
-                      -- wrapping callee bodies in `Stmt.checked`.
-                      let savedLocals := runtime'.locals
-                      let calleeRuntime := { runtime' with locals := [frame] }
-                      match ← Stmt.eval fuel table { context with checked := true }
-                          calleeRuntime fn.body with
-                      | Result.returned r values =>
-                          -- Map exactly as `FunctionDef.callBodyResult` (R3):
-                          -- bare `return;` (empty) collects named returns;
-                          -- explicit values are coerced to declared returns.
-                          match
-                            (if values.isEmpty then
-                                collectReturnBindingsRef fn.returns r
-                              else
-                                coerceReturnBindingsRef fn.returns r values)
-                          with
-                          | Except.ok values =>
-                              internalCallAssign
-                                { r with locals := savedLocals } targets values
-                          | Except.error err => pure (Result.reverted r err)
-                      | Result.normal r =>
-                          match collectReturnBindingsRef fn.returns r with
-                          | Except.ok values =>
-                              internalCallAssign
-                                { r with locals := savedLocals } targets values
-                          | Except.error err => pure (Result.reverted r err)
-                      | Result.selfdestructed r =>
-                          -- Halts the whole external frame; propagate until the
-                          -- entry `callBodyResult` maps it to `returned []`.
-                          pure (Result.selfdestructed r)
-                      | Result.reverted r err =>
-                          -- Propagate; rollback happens at the entry snapshot.
-                          pure (Result.reverted r err)
-                      | Result.broke r =>
-                          -- A callee cannot break the caller's loop; fixes the
-                          -- latent `captureReturn` passthrough (§1.2 / R3).
-                          pure (Result.reverted r RevertData.typeMismatch)
-                      | Result.continued r =>
-                          pure (Result.reverted r RevertData.typeMismatch)
+                  | some (calleeRuntime, savedLocals) => do
+                      let result ← Stmt.eval fuel table
+                        { context with checked := true } calleeRuntime fn.body
+                      internalCallFinish fn targets savedLocals result
+      | Stmt.internalCallPtr targets fnExpr args => do
+          -- Call through an internal function pointer (stage C). The pointer
+          -- expression evaluates FIRST, then the arguments (via-IR
+          -- sequencing); the ID resolves against the table at call time; a
+          -- miss — including the uninitialized/deleted ID 0 and
+          -- adoption-planted dirty IDs with no dispatch entry — panics 0x51
+          -- (solc's dispatch-switch default). Once resolved, the call is the
+          -- ordinary framed internal call.
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime fnExpr).caught with
+          | Except.error err => pure (Result.reverted runtime err)
+          | Except.ok (Value.internalFunction id, runtimeFn) => do
+              match ← (Expr.evalRefArgListWithRuntimeOrder
+                  context.effectiveChildEvalOrder
+                  context runtimeFn args).caught with
+              | Except.error err => pure (Result.reverted runtimeFn err)
+              | Except.ok (argValues, runtime') =>
+                  match table.lookupById? id with
+                  | none =>
+                      pure (Result.reverted runtime' (RevertData.panic 0x51))
+                  | some fn =>
+                      match internalCallEnter? fn argValues runtime' with
+                      | none =>
+                          pure
+                            (Result.reverted runtime' RevertData.typeMismatch)
+                      | some (calleeRuntime, savedLocals) => do
+                          let result ← Stmt.eval fuel table
+                            { context with checked := true }
+                            calleeRuntime fn.body
+                          internalCallFinish fn targets savedLocals result
+          | Except.ok (_, runtimeFn) =>
+              pure (Result.reverted runtimeFn RevertData.typeMismatch)
       | Stmt.ifElse cond thenBranch elseBranch => do
           match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
               context runtime cond).caught with

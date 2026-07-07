@@ -348,6 +348,10 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
           none
       else
         none
+  | _fuel + 1, _argData, _headIndex, Ty.internalFunction =>
+      -- Internal function pointers have no ABI representation (they cannot
+      -- cross the external boundary); decoding one is a type error.
+      none
   | _fuel + 1, argData, headIndex, Ty.externalFunction => do
       let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
       let addressBytes ← readBytes? slot 0 20

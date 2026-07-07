@@ -281,6 +281,115 @@ def callNamedStorageReturn : Stmt :=
    | some (Result.returned _ [Value.word w]) => wordEq w 13
    | _ => false)
 
+/-! ### Stage C: internal function pointers (dispatch IDs)
+
+Pins the `Stmt.internalCallPtr` arm + `Value.internalFunction` + the 64-bit
+storage-read mask against solc via-IR's model
+(`docs/refs-completion-solc-research.md` §2): a pointer is a small numeric ID,
+call-through dispatches by ID, a miss (incl. the uninitialized 0) panics 0x51,
+and a dirty storage word is masked to 64 bits at read with validity checked
+only at call time. -/
+
+def isPanic51 : Option Result -> Bool
+  | some (Result.reverted _ (RevertData.panic w)) => wordEq w 0x51
+  | _ => false
+
+def dblFn : InternalFunction :=
+  { name := "dbl", params := [uintB "x"], returns := [uintB "out"]
+    body := Stmt.returnValues
+      [Expr.binary BinaryOp.mul (Expr.var "x") (Expr.word 2)]
+    id? := some 1 }
+
+def tripFn : InternalFunction :=
+  { name := "trip", params := [uintB "x"], returns := [uintB "out"]
+    body := Stmt.returnValues
+      [Expr.binary BinaryOp.mul (Expr.var "x") (Expr.word 3)]
+    id? := some 2 }
+
+def ptrTable : FunctionTable := [dblFn, tripFn]
+
+def callPtr (id : Word) : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl Ty.uint256 "r" none
+    , Stmt.internalCallPtr ["r"] (Expr.internalFunction id) [Expr.word 21]
+    , Stmt.returnValues [Expr.var "r"] ]
+
+-- Dispatch by ID: 1 -> dbl (42), 2 -> trip (63).
+#guard returnedWordEq 42 (runTop 16 ptrTable (callPtr 1))
+#guard returnedWordEq 63 (runTop 16 ptrTable (callPtr 2))
+
+-- Uninitialized pointer (ID 0) and unknown IDs panic 0x51 (dispatch default).
+#guard isPanic51 (runTop 16 ptrTable (callPtr 0))
+#guard isPanic51 (runTop 16 ptrTable (callPtr 7))
+
+-- A pointer stored as a LOCAL value flows and dispatches.
+def callPtrViaLocal : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl Ty.internalFunction "fp"
+        (some (Expr.internalFunction 2))
+    , Stmt.varDecl Ty.uint256 "r" none
+    , Stmt.internalCallPtr ["r"] (Expr.var "fp") [Expr.word 21]
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard returnedWordEq 63 (runTop 16 ptrTable callPtrViaLocal)
+
+-- Storage round-trip with a DIRTY word: the fn-pointer storage read masks to
+-- 64 bits (no validity check at read); the masked ID then dispatches at call
+-- time. Planted word = 2^64 * 5 + 2 -> masked ID 2 -> trip -> 63.
+def fnPtrStorageContext : Context :=
+  { Context.empty with
+    storageFields := [{ name := "fp", slot := 0, ty? := some Ty.internalFunction }] }
+
+def dirtyFnPtrState : State :=
+  State.empty.storeSlot 0 (2 ^ 64 * 5 + 2)
+
+def callPtrFromStorage : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl Ty.uint256 "r" none
+    , Stmt.internalCallPtr ["r"] (Expr.storage "fp") [Expr.word 21]
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard
+  (match (foldTop 16 ptrTable fnPtrStorageContext dirtyFnPtrState
+      callPtrFromStorage).toOption with
+   | some (Result.returned _ [Value.word w]) => wordEq w 63
+   | _ => false)
+
+-- A dirty word whose MASKED ID has no dispatch entry panics 0x51 at call time.
+def dirtyMissState : State :=
+  State.empty.storeSlot 0 (2 ^ 64 * 5 + 9)
+
+#guard
+  (match (foldTop 16 ptrTable fnPtrStorageContext dirtyMissState
+      callPtrFromStorage).toOption with
+   | some (Result.reverted _ (RevertData.panic w)) => wordEq w 0x51
+   | _ => false)
+
+-- Recursion THROUGH a pointer is bounded by the same statement fuel.
+def factorialPtrFn : InternalFunction :=
+  { name := "factorialPtr", params := [uintB "n"], returns := [uintB "out"]
+    body :=
+      Stmt.ifElse
+        (Expr.binary BinaryOp.le (Expr.var "n") (Expr.word 1))
+        (Stmt.returnValues [Expr.word 1])
+        (Stmt.block
+          [ Stmt.varDecl Ty.uint256 "t" none
+          , Stmt.internalCallPtr ["t"] (Expr.internalFunction 1)
+              [Expr.binary BinaryOp.sub (Expr.var "n") (Expr.word 1)]
+          , Stmt.returnValues
+              [Expr.binary BinaryOp.mul (Expr.var "n") (Expr.var "t")] ])
+    id? := some 1 }
+
+def callFactorialPtr (n : Word) : Stmt :=
+  Stmt.block
+    [ Stmt.varDecl Ty.uint256 "r" none
+    , Stmt.internalCallPtr ["r"] (Expr.internalFunction 1) [Expr.word n]
+    , Stmt.returnValues [Expr.var "r"] ]
+
+#guard returnedWordEq 120 (runTop 64 [factorialPtrFn] (callFactorialPtr 5))
+#guard isOutOfFuel
+  (foldTop 3 [factorialPtrFn] Context.empty State.empty (callFactorialPtr 5))
+
 /-! ### Missing callee -> defensive revert (total interpreter) -/
 
 def callMissing : Stmt :=
