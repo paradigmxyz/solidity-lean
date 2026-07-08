@@ -78,6 +78,86 @@ Must-hold neighbors: `library-type-uses`, `udvt-operator-dispatch`,
 
 **Lane**: new manifest case `using-for-global-nonudvt` — Forge accept+value lane +
 4 solc-reject fixtures + common-checker witness. UF1/UF2/UF3 marked Fixed.
+## 2026-07-08 — V1 Fixed: calldata-slice OOB reverts with EMPTY data (not Panic 0x32)
+
+`docs/solc-implementation-divergences-6.md` V1 (CONFIRMED, SOUNDNESS wrong-value,
+the campaign's first wrong-VALUE bug): a calldata slice `a[i:j]` with `i > j` or
+`j > a.length` must revert with **empty data** (`revert(0, 0)`) in solc's default
+(non-debug) mode; Solidus instead reverted with **Panic(0x32)** (36-byte
+returndata), reusing the array-INDEX-access OOB constant for the slice-RANGE check.
+
+**solc rule** (`libsolidity/codegen/YulUtilFunctions.cpp:2523-2539`, the slice
+bounds check `if gt(startIndex, endIndex) …` / `if gt(endIndex, length) …`): both
+route to `revertReasonIfDebugFunction`, whose body (`:4598-4605`) under
+`RevertStrings::Default` (< Debug) emits literally `revert(0, 0)` — empty
+returndata, no `Panic`. `Panic(0x32)` is emitted only for a regular array/bytes
+**index** access `a[k]` OOB (a different Yul helper), never for a slice range.
+
+**Fix** (one edit, `SolidCore/Solidity/Interpreter.lean`, `sliceListByWords?`): the
+out-of-range arm now returns `Except.error RevertData.empty` (the existing empty
+`revert(0, 0)` constructor, encoded to 0 bytes by `Contract.encodeRevertData?`
+in `ABI.lean:485`) instead of `RevertData.indexOutOfBounds` (= `panic 0x32`). The
+in-bounds value path `(drop start).take (stop - start)` and the array/bytes INDEX
+access path (`Value.index?`/`setIndex?`, still `RevertData.indexOutOfBounds`) are
+untouched.
+
+**Boundary verified** (pinned solc 0.8.35 + Forge): lane `calldata-slice-oob`
+low-level `.call`s `slice(bytes,uint256,uint256)` with `(1,100)` and `(3,1)` →
+`success == false` AND `returndata.length == 0` (empty revert); an in-bounds
+`slice(input,1,4)` returns the correct sub-array; and `indexAt(bytes,uint256)`
+with an OOB index → `returndata.length == 36` equal to
+`abi.encodeWithSignature("Panic(uint256)", 0x32)` (Panic 0x32 unchanged). Lean
+imports the same contract: OOB slice → `CallResult.reverted _ RevertData.empty`,
+in-bounds → `Value.bytes [20,30,40]`, OOB index → `RevertData.panic 0x32`.
+
+**Lane**: new manifest case `calldata-slice-oob` (forge-paired: empty-revert
+observable + in-bounds value + index-OOB Panic(0x32) neighbor) + solc_import +
+Lean evals. Harness: `forge=ok lean=ok forge_interpreter_compare=pass`. No
+regression: smoke green, `entrypoint-slice-control` (in-bounds slices) and
+`memory-allocation-overflow` (Panic 0x41) `lean=ok`.
+
+## 2026-07-08 — A1 Fixed: type(AbstractContract).interfaceId now lowers
+
+`docs/solc-implementation-divergences-6.md` A1 (COMPLETENESS wrong-reject,
+differentially-live): solc accepts and computes `type(T).interfaceId` for any
+NON-deployable contract — an interface **or an abstract contract** — but Solidus
+failed to LOWER it for an abstract contract (`interfaceIdEntry?` returned
+`some none` for non-interfaces, and `Ty.typeInfoExpr?` had no `interfaceId` arm),
+rejecting a program solc compiles — despite the (post-lowering) typechecker
+already accepting it (`TypeCheck.lean:5486-5499`).
+
+**solc rule** (`Types.cpp:4271-4285`: member exposed iff `!canBeDeployed()`;
+`ContractDefinition::interfaceId()` `AST.cpp:315-321`): `interfaceId` = XOR of the
+4-byte selectors of `interfaceFunctionList(false)` — the externally-visible
+functions AND public state-variable getters declared DIRECTLY in the contract
+(`false` excludes inherited); internal/private functions excluded. Probe (pinned
+solc + Forge): an abstract contract with external `foo`/`bar` and public
+`stateVar` → `interfaceId = sel(foo) ^ sel(bar) ^ sel(stateVar())`; an internal
+function does NOT contribute; a concrete deployable contract has no `.interfaceId`.
+
+**Fix** (one edit, `SolidCore/Solidity/Interface.lean`): `isNonDeployable :=
+isInterface || decl.abstract` now gates `interfaceId?`/`interfaceIdEntry?` (so the
+`interfaceIdEnv` includes abstract contracts and `resolveInterfaceIds` folds them
+to a `bytes4` literal — no `Ty.typeInfoExpr?` arm needed). `interfaceId?` was
+generalized past the interface-only shortcut: it XORs the selectors of the
+externally-visible **functions** (`FunctionDecl.isInterfaceFunction` — ordinary
+function, not internal/private) AND the public state-variable **getters**
+(`StateVarDecl.selectorEntry?`), matching `interfaceFunctionList(false)`. For an
+interface the getter fold is vacuous and every function is external, so the
+interface path (F2) is byte-for-byte unchanged.
+
+**Boundary verified** (pinned solc 0.8.35 + Forge): lane `abstract-interface-id`
+— `type(AbstractLedger).interfaceId` (external `transfer`/`balanceOf`, public
+`totalSupply`, internal `_settle`) == `0xc1b31357` ==
+`sel("transfer(address,uint256)") ^ sel("balanceOf(address)") ^ sel("totalSupply()")`;
+pinned solc rejects `type(Deployable).interfaceId` on a concrete contract
+(`invalid/ConcreteInterfaceId.sol`, "Member \"interfaceId\" not found"). Lean now
+LOWERS the source unit (`importedContractAccepted`) and `checkedCallWordMatches`
+of `abstractLedgerId()` == `0xc1b31357`.
+
+**Lane**: new manifest case `abstract-interface-id` (forge accept lane + concrete
+`solc_rejects` + solc_import + Lean accept/value evals). Harness:
+`solc_rejects=ok forge=ok lean=ok forge_interpreter_compare=pass`.
 
 ## 2026-07-08 — PK1 fixed: abi.encodePacked of a nested static array
 
