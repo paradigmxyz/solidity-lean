@@ -6567,6 +6567,64 @@
      }
     ]
    }
+  },
+  {
+   "name": "narrow-arith-widened",
+   "description": "Forge checks solc/EVM narrow-integer arithmetic assigned/returned at a WIDER type: solc computes the op at the operands' common type, so a narrow overflow Panics 0x11 even though the result is widened. uint8+uint8 / uint8*uint8 / int8+int8 returned as uint16/int16 panic on operand-width overflow; a non-overflowing add widens; an explicitly-256-bit-widened add (uint256(a)+uint256(b)) does NOT panic. Solidus formerly cleaned only at the wider target width and silently produced the fitting wide value (the G15-noted narrow-arithmetic-widened gap). Lean imports the same contract from the solc AST.",
+   "forge": {
+    "root": "tests/forge-harness/narrow-arith-widened",
+    "match_contract": "NarrowArithWidenedForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/narrow-arith-widened/src/NarrowArithWidened.sol",
+    "contract": "NarrowArithWidenedHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.NarrowArithWidened"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "addNoOverflow",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContract \"addU8toU16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 100, SolidCore.Solidity.Source.Value.word 55] 155",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "addOverflowPanics",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContract \"addU8toU16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 17",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "mulOverflowPanics",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContract \"mulU8toU16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 20, SolidCore.Solidity.Source.Value.word 20] 17",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "addSignedNoOverflow",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContract \"addI8toI16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int 100, SolidCore.Solidity.Source.Value.int 20] (SolidCore.Solidity.Shared.signedToWord 120)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "addSignedOverflowPanics",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContract \"addI8toI16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int 100, SolidCore.Solidity.Source.Value.int 100] 17",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "widenedOperandsNoPanic",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowArithWidened.importedContract \"addWidenedOperands\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 300",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

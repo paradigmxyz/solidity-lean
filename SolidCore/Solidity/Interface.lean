@@ -6650,6 +6650,25 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
               match
                   Expr.binaryToCoreWithEnvTyped? storageNames env op lhs rhs with
               | some (sourceTy, coreExpr) =>
+                  -- SOUNDNESS (narrow-arithmetic-widened gap, recorded in the
+                  -- G15 note): solc computes a binary arithmetic op at the
+                  -- operands' common type REGARDLESS of a wider assignment /
+                  -- return / argument target, so a narrow overflow Panics 0x11
+                  -- even when the result is widened afterwards (`uint16 c =
+                  -- uint8a + uint8b` with `a+b > 255` panics, not 300).
+                  -- `binaryToCoreWithEnvTyped?` returns the bare op; its checked
+                  -- cleanup lives at the operand width `sourceTy`. `coreAsFromTy?`
+                  -- for a WIDER target applies only the target-width cleanup
+                  -- (which never catches the operand overflow), so the operand
+                  -- cleanup must be applied here first. (Same-width targets
+                  -- already clean in `coreAsFromTy?`; the extra cleanup is then
+                  -- idempotent. Only overflow-arithmetic ops need it — comparisons
+                  -- and bitwise ops never overflow their operand width.)
+                  let coreExpr :=
+                    if BinaryOp.isOverflowArithmetic op then
+                      Ty.implicitCleanupCore sourceTy coreExpr
+                    else
+                      coreExpr
                   Expr.coreAsFromTy? targetTy sourceTy coreExpr
               | none =>
                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr

@@ -3094,12 +3094,12 @@ compare=pass`.
 **Note for the arithmetic-width sibling.** The `widthPanic` observable keeps the
 operand width equal to the assignment target (`uint8 r = (…)+1`), so it fires
 through the existing narrow-cleanup path. A ternary result WIDENED before its
-overflow is observed (`uint16 r = (t?63:255)+1`) does not panic here — that is
-the pre-existing narrow-arithmetic-widened gap (`uint8+uint8` assigned to
-`uint16` yields 256 today), which lives in the binary-operand-width machinery
-the sibling owns, not in ternary typing. `untypedLiteralMobileTy?` and
-`smallest{Uint,Int}Bits?` are new shared `Executable` helpers the sibling may
-also want for literal mobile types.
+overflow is observed (`uint16 r = (t?63:255)+1`) did not panic — that was the
+pre-existing narrow-arithmetic-widened gap (`uint8+uint8` assigned to `uint16`
+yielded 256), in the binary-operand-width machinery. **Now FIXED under the
+residue cleanup (2026-07-08, "narrow-arithmetic-widened gap" entry below).**
+`untypedLiteralMobileTy?` and `smallest{Uint,Int}Bits?` are shared `Executable`
+helpers for literal mobile types.
 
 ## 2026-07-08 — G13: nested tuple LHS `((a, b), c) = …` (over-reject fixed)
 
@@ -3427,3 +3427,44 @@ delegatecall execution is modeled (recorded here so it is not lost).
 Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `forge_interpreter_compare=pass`; the `acceptance-boundaries` lane (now G2–G10 +
 G8) `solc_rejects=ok lean=ok`.
+
+## 2026-07-08 — Sweep: narrow-arithmetic-widened gap (soundness / missing Panic 0x11 fixed)
+
+Sweeping `DECISIONS.md` for residual gaps beyond R1/R2/R3 (per the residue-cleanup
+brief) surfaced the narrow-arithmetic-widened gap the G15 note recorded and
+deferred to "the binary-operand-width machinery": a narrow integer arithmetic op
+whose result is assigned / returned / passed at a WIDER type was computed at the
+wider width and did not Panic on operand-width overflow. Probe: `uint16 f(uint8
+a, uint8 b) { return a + b; }` with `a=200, b=100` returned 300; pinned solc /
+Forge Panic 0x11.
+
+**solc semantics.** A binary arithmetic op is evaluated at the operands' common
+type regardless of a wider target; overflow at that width Panics 0x11, and the
+(checked) result is only then implicitly widened. So `uint8 + uint8` overflow
+panics even when the target is `uint16`/`uint256`.
+
+**Wrong → right (`Interface.lean`, `Expr.toCoreAsWithEnv?` binary arm).**
+`binaryToCoreWithEnvTyped?` returns the BARE op (its overflow check lives in the
+result cleanup at the operand width `sourceTy`), and `coreAsFromTy?` for a WIDER
+target applied only the TARGET-width cleanup — which can never catch the operand
+overflow (the un-narrowed sum fits the wider type). The binary arm now wraps the
+result in `Ty.implicitCleanupCore sourceTy` (the operand-width Panic 0x11) BEFORE
+`coreAsFromTy?`, but only for overflow-arithmetic ops (`+ - * / % **`);
+comparisons and bitwise ops never overflow their operand width, and a same-width
+target's `coreAsFromTy?` cleanup is then idempotent. An explicitly-256-bit-widened
+`uint16(uint256(a) + uint256(b))` keeps its non-panicking 256-bit semantics (the
+operand casts move the common type to `uint256`).
+
+**Right value (Forge-verified).** Lane `narrow-arith-widened`:
+`addU8toU16(100,55)=155`, `addU8toU16(200,100)` Panic 0x11, `mulU8toU16(20,20)`
+Panic 0x11, `addI8toI16(100,20)=120`, `addI8toI16(100,100)` Panic 0x11,
+`addWidenedOperands(200,100)=300`. `forge=ok lean=ok compare=pass`.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass`; additionally spot-ran 14 arithmetic/token/math
+lanes lean-only (checked-arithmetic, openzeppelin-{safecast,signed-math,erc20,
+checkpoints,erc20-snapshot}, solmate-erc20, uniswap-v3-math, packed-ternary-width,
+udvt-operator-dispatch, ternary-literal-mobile-type, signed-literal-arithmetic,
+narrow-udvt-arithmetic, literal-cast-conversions) — all `lean=ok compare=pass`,
+no regression from the added operand-width panics. The full 133-case replay is the
+coordinator's merge gate.
