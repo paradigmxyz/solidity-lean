@@ -5347,9 +5347,13 @@ def checkExpr (env : CheckEnv) :
                         lvalue := false
                         stateLValue := false }
                   else if member == "interfaceId" then
+                    -- solc (Types.cpp:4271-4285): a NON-deployable contract
+                    -- (interface OR abstract) exposes `interfaceId`; a
+                    -- deployable concrete contract does not.
                     require
                       (contractDecl.kind ==
-                        Solidity.ContractKind.interface)
+                          Solidity.ContractKind.interface ||
+                        contractDecl.abstract)
                       (TypeError.unsupported ("member " ++ member))
                     Except.ok
                       { source := expr

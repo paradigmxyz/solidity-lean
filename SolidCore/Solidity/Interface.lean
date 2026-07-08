@@ -2786,12 +2786,15 @@ def NumberRat.div? (lhs rhs : NumberRat) : Option NumberRat :=
     NumberRat.mk? (lhs.num * (Int.ofNat rhs.den)) ((Int.ofNat lhs.den) * rhs.num)
 
 def NumberRat.mod? (lhs rhs : NumberRat) : Option NumberRat := do
-  let lhsNat ← lhs.exactNat?
-  let rhsNat ← rhs.exactNat?
-  if rhsNat == 0 then
+  -- solc folds constant `%` for signed operands too: the result is the truncated
+  -- remainder (`Int.tmod`), whose sign follows the dividend (Types.cpp / literal
+  -- constant evaluation). Both operands must reduce to exact integers.
+  let lhsInt ← lhs.exactInt?
+  let rhsInt ← rhs.exactInt?
+  if rhsInt == 0 then
     none
   else
-    some (NumberRat.ofNat (lhsNat % rhsNat))
+    some (NumberRat.ofInt (Int.tmod lhsInt rhsInt))
 
 def NumberRat.pow (base : NumberRat) (exponent : Nat) : NumberRat :=
   { num := base.num ^ exponent

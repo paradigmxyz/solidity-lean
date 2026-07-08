@@ -2703,3 +2703,68 @@ when the else-branch type is not structurally inferable. `abiTy?` cannot resolve
 local-variable branch types, so the pinning lane uses explicit casts
 (`uint8(0x11)`/`uint16(0x2233)`) which `abiTy?` resolves. Pinned by the new
 `packed-ternary-width` lane (both branches, Forge-paired-green).
+
+## 2026-07-08 — Completeness boundaries C1-C5 (solc-source coverage review)
+
+Closing the five completeness/fidelity gaps from `docs/solc-source-coverage-review.md`.
+Each boundary confirmed against pinned solc 0.8.35 (accept vs reject / value) plus
+a still-valid neighbor; pinned by the new `completeness-boundaries` lane
+(solc-reject fixtures + `SolidCore.Solidity.TypeCheck.Examples` witnesses, all
+`lake build SolidCore` regression-guarded).
+
+- **C1 (`string.length`) — already correct.** The coverage doc read only the
+  `Interface.lean` elaboration path; the acceptance gate is `Ty.hasLengthMember`
+  (`TypeCheck.lean:4044`), which lists `bytes`/`bytesN`/`array` but NOT
+  `Ty.string`, so `stringVar.length` was already rejected at typecheck (gate
+  predates this effort, commit b17f0d2). solc: `ArrayType::nativeMembers` adds
+  `length` only when `!isString()`. Probe: `s.length` on `string memory` →
+  `Error: Member "length" not found`; neighbors `bytes(s).length` and
+  `uint[].length` compile. No code change; added reject fixture
+  `C1StringLength.sol` + witnesses `c1StringLengthRejected` /
+  `c1LengthNeighborsAccepted`.
+
+- **C2 (`type(C)` member set) — creationCode/runtimeCode already gated;
+  interfaceId FIXED for abstract.** solc `Types.cpp:4271-4285`: deployable
+  (concrete non-abstract) → `{creationCode, runtimeCode, name}`; non-deployable
+  (interface OR abstract) → `{interfaceId, name}`. `TypeCheck.lean:5335-5348`
+  already required `kind != interface && !abstract` for creationCode/runtimeCode
+  (correct). But the `interfaceId` gate (`:5349`) required `kind == interface`
+  only, OVER-REJECTING `type(AbstractContract).interfaceId`, which pinned solc
+  ACCEPTS (probe: abstract contract `type(A).interfaceId` compiles). Fix:
+  widened the gate to `kind == interface || abstract`
+  (`TypeCheck.lean:5349-5357`). Concrete `type(D).interfaceId` still rejected
+  (probe: `Error: Member "interfaceId" not found`). Added reject fixture
+  `C2ConcreteInterfaceId.sol` + witnesses `c2ConcreteInterfaceIdRejected` /
+  `c2NonDeployableInterfaceIdAccepted` (interface AND abstract accepted).
+
+- **C3 (`abi.encodePacked` arrays-of-dynamic) — already correct.** The gate is
+  `Ty.isAbiEncodePackedArrayElementShape` (`TypeCheck.lean:4172`), the
+  array-ELEMENT shape predicate, which omits `bytes`/`string`/`array`, so
+  `bytes[]`/`string[]`/`T[][]` elements were already rejected (the top-level
+  `isAbiEncodePackedArgShape` still admits flat `bytes`/`string`/`uint[]`). solc:
+  packed mode → `Error: Type not supported in packed mode` for a
+  dynamically-sized element. Probe: `encodePacked(bytes[])` and
+  `encodePacked(string[])` rejected; `encodePacked(uint[])` compiles. No code
+  change; added reject fixtures `C3Packed{Bytes,String}Array.sol` + witnesses
+  `c3PackedDynamicArraysRejected` / `c3PackedUintArrayAccepted`.
+
+- **C4 (constant `%` with a negative operand) — FIXED (over-reject).**
+  `NumberRat.mod?` (`Interface.lean:2788`) required `exactNat?` of both operands,
+  rejecting any negative constant operand. solc folds signed `%` to the truncated
+  remainder (sign of the dividend). Probe (pinned solc, all accepted):
+  `(-7) % 3 == -1`, `7 % (-3) == 1`, `(-7) % (-3) == -1`. Fix: fold via
+  `exactInt?` + `Int.tmod` (Lean `Int.tmod` matches Solidity truncated `%`
+  exactly; the `%`/`emod` operator does NOT — `(-7).emod 3 = 2`). Neighbor:
+  positive `7 % 3 == 1` still folds and is accepted. Witnesses
+  `c4NegativeModFolds` / `c4NegativeModAcceptedInt256` / `c4PositiveModAccepted`.
+
+- **C5 (`bytesN.length` static type `uint256` vs solc `uint8`) — SKIP,
+  justified.** solc `FixedBytesType::nativeMembers` types `.length` as `uint8`
+  (a compile-time constant = N); the repo tags it `uint 256`
+  (`TypeCheck.lean:5425`). The doc found NO observable divergence (both
+  ABI-encode to a 32-byte word; the emitted VALUE `Expr.word size` is already
+  correct). Narrowing the static type `uint256 → uint8` can only make the
+  typechecker REJECT MORE programs (e.g. common-type interactions), never fix a
+  divergence — pure over-reject risk on a frozen, solc-validated corpus whose key
+  gate is "no valid program newly rejected". Downside-only; skipped for fidelity's
+  sake per the doc's own guidance.
