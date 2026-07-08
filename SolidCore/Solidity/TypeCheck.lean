@@ -7064,27 +7064,40 @@ def checkExpr (env : CheckEnv) :
       | Solidity.Expr.tuple lhsItems =>
           match expr with
           | Solidity.Expr.assign _
-              Solidity.AssignOp.assign _ => do
-              let targets ← checkTupleAssignmentTargets env lhsItems
-              let resultTys ←
-                match rhs with
-                | Solidity.Expr.tuple _ =>
-                    checkTupleAssignmentTargetsWithTupleExprAssignableTo env
-                      targets rhs
-                | _ => do
-                    let rhsChecked ← checkExpr env rhs
-                    match rhsChecked.ty with
-                    | Solidity.Ty.tuple tys =>
-                        checkTupleAssignmentTargetsWithTys env targets tys
-                          rhsChecked.storageRefs rhsChecked.dataLocations
-                    | _ =>
-                        Except.error
-                          (TypeError.arityMismatch
-                            "tuple assignment" lhsItems.length 1)
-              Except.ok
-                { source := expr
-                  ty := Solidity.Ty.tuple resultTys
-                  lvalue := false }
+              Solidity.AssignOp.assign _ =>
+              if Solidity.Executable.TupleItems.hasNestedTuple lhsItems then
+                -- Nested LHS `((a, b), c) = …` (G13): solc accepts these; the
+                -- structure is checked recursively against a nested tuple RHS
+                -- (`checkNestedTupleItems`), matching solc's left-to-right
+                -- component semantics. The result type of a nested tuple
+                -- assignment statement is unobservable, so it is left coarse.
+                do
+                  checkNestedTupleItems env lhsItems rhs
+                  Except.ok
+                    { source := expr
+                      ty := Solidity.Ty.tuple []
+                      lvalue := false }
+              else do
+                let targets ← checkTupleAssignmentTargets env lhsItems
+                let resultTys ←
+                  match rhs with
+                  | Solidity.Expr.tuple _ =>
+                      checkTupleAssignmentTargetsWithTupleExprAssignableTo env
+                        targets rhs
+                  | _ => do
+                      let rhsChecked ← checkExpr env rhs
+                      match rhsChecked.ty with
+                      | Solidity.Ty.tuple tys =>
+                          checkTupleAssignmentTargetsWithTys env targets tys
+                            rhsChecked.storageRefs rhsChecked.dataLocations
+                      | _ =>
+                          Except.error
+                            (TypeError.arityMismatch
+                              "tuple assignment" lhsItems.length 1)
+                Except.ok
+                  { source := expr
+                    ty := Solidity.Ty.tuple resultTys
+                    lvalue := false }
           | _ => Except.error (TypeError.expectedLValue lhs)
       | _ => do
           let lhsChecked ← checkExpr env lhs
@@ -7671,6 +7684,71 @@ def checkTupleAssignmentTargetsWithTupleExprAssignableTo (env : CheckEnv) :
         (TypeError.arityMismatch
           "tuple assignment" targets.length 1)
 termination_by _ rhs => sizeOf rhs
+decreasing_by
+  all_goals
+    simp_wf
+    try simp_all [sizeOf]
+    try omega
+
+-- Type-check a (possibly nested) tuple-assignment LHS against a nested tuple
+-- RHS, in lockstep left-to-right (G13). A parenthesized sub-tuple target
+-- recurses into the matching sub-tuple value; a leaf target reproduces the flat
+-- path's lvalue / writable-location / state-write / assignability /
+-- mapping-copy / calldata-location discipline inline (on syntactic subterms, so
+-- termination stays structural); a hole still type-checks its RHS component.
+def checkNestedTupleItems (env : CheckEnv) :
+    List Solidity.TupleItem -> Solidity.Expr -> Except TypeError Unit
+  | [], Solidity.Expr.tuple [] => Except.ok ()
+  | Solidity.TupleItem.value (Solidity.Expr.tuple lhsInner) :: lhsRest,
+      Solidity.Expr.tuple
+        (Solidity.TupleItem.value (Solidity.Expr.tuple rhsInner) :: rhsRest) =>
+      do
+      checkNestedTupleItems env lhsInner (Solidity.Expr.tuple rhsInner)
+      checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
+  | Solidity.TupleItem.value (Solidity.Expr.tuple _) :: _, _ =>
+      Except.error
+        (TypeError.unsupported
+          "nested tuple assignment target needs a nested tuple value")
+  | Solidity.TupleItem.hole :: lhsRest,
+      Solidity.Expr.tuple (Solidity.TupleItem.value rhsExpr :: rhsRest) => do
+      let _ ← checkExpr env rhsExpr
+      checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
+  | Solidity.TupleItem.value target :: lhsRest,
+      Solidity.Expr.tuple (Solidity.TupleItem.value rhsExpr :: rhsRest) => do
+      let targetChecked ← checkExpr env target
+      require targetChecked.lvalue (TypeError.expectedLValue target)
+      targetChecked.expectWritableLocation target
+      if targetChecked.stateLValue then
+        requireStateWriteAllowed env
+      else
+        Except.ok ()
+      let checked ←
+        checkArgAssignableToParam env targetChecked.ty
+          (Solidity.Arg.positional rhsExpr)
+      (match Expr.directIdentName? target with
+       | some name =>
+           require (!env.isLocalStorageRef name || checked.stateLValue)
+             (TypeError.invalidDataLocation targetChecked.ty
+               (some Solidity.DataLocation.storage))
+       | none => Except.ok ())
+      env.requireNoMappingStorageCopy target targetChecked checked.stateLValue
+      if targetChecked.locationIsCalldata then
+        checked.expectLocationAssignableTo targetChecked.ty
+          targetChecked.dataLocation?
+      else
+        Except.ok ()
+      checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
+  | _ :: _, Solidity.Expr.tuple (Solidity.TupleItem.hole :: _) =>
+      Except.error (TypeError.unsupported "tuple hole in value position")
+  | lhsItems, Solidity.Expr.tuple rhsItems =>
+      Except.error
+        (TypeError.arityMismatch
+          "nested tuple assignment" lhsItems.length rhsItems.length)
+  | lhsItems, _ =>
+      Except.error
+        (TypeError.arityMismatch
+          "nested tuple assignment" lhsItems.length 1)
+termination_by lhsItems rhs => sizeOf lhsItems + sizeOf rhs
 decreasing_by
   all_goals
     simp_wf

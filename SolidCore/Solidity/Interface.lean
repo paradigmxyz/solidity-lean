@@ -24,6 +24,7 @@ abbrev CoreValueCleanup := SolidCore.Solidity.Source.ValueCleanup
 abbrev CoreAbiCleanup := SolidCore.Solidity.Source.AbiCleanup
 abbrev CoreExpr := SolidCore.Solidity.Source.Expr
 abbrev CoreLValue := SolidCore.Solidity.Source.LValue
+abbrev CoreTupleTarget := SolidCore.Solidity.Source.TupleTarget
 abbrev CoreStmt := SolidCore.Solidity.Source.Stmt
 abbrev CoreTryCatchClause := SolidCore.Solidity.Source.TryCatchClause
 abbrev CoreContext := SolidCore.Solidity.Source.Context
@@ -5649,11 +5650,50 @@ def VarBindings.toCoreTupleTargets? :
       | none => some (none :: tail)
 termination_by bindings => (sizeOf bindings, 0)
 
+-- Is any LHS component itself a parenthesized sub-tuple? (`((a, b), c) = …`)
+def TupleItems.hasNestedTuple : List TupleItem -> Bool
+  | [] => false
+  | TupleItem.value (Expr.tuple _) :: _ => true
+  | _ :: rest => TupleItems.hasNestedTuple rest
+termination_by items => sizeOf items
+
+-- Elaborate one (possibly nested) tuple-assignment LHS component to a core
+-- `TupleTarget`. A parenthesized sub-tuple recurses; a `hole` maps to `hole`;
+-- everything else must be an assignable core lvalue.
+def TupleItem.toCoreTupleTarget? (storageNames : List Name) :
+    TupleItem -> Option CoreTupleTarget
+  | TupleItem.hole => some SolidCore.Solidity.Source.TupleTarget.hole
+  | TupleItem.value (Expr.tuple innerItems) => do
+      let inner ← TupleItems.toCoreTupleTargets? storageNames innerItems
+      some (SolidCore.Solidity.Source.TupleTarget.nested inner)
+  | TupleItem.value expr => do
+      let target ← Expr.toCoreLValue? storageNames expr
+      some (SolidCore.Solidity.Source.TupleTarget.leaf target)
+termination_by item => (sizeOf item, 0)
+
+def TupleItems.toCoreTupleTargets? (storageNames : List Name) :
+    List TupleItem -> Option (List CoreTupleTarget)
+  | [] => some []
+  | item :: rest => do
+      let head ← TupleItem.toCoreTupleTarget? storageNames item
+      let tail ← TupleItems.toCoreTupleTargets? storageNames rest
+      some (head :: tail)
+termination_by items => (sizeOf items, 1)
+
 def tupleAssignmentCore? (storageNames : List Name)
-    (lhsItems : List TupleItem) (rhs : Expr) : Option CoreStmt := do
-  let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
-  let rhsCore ← Expr.toCore? storageNames rhs
-  some (SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore)
+    (lhsItems : List TupleItem) (rhs : Expr) : Option CoreStmt :=
+  if TupleItems.hasNestedTuple lhsItems then do
+    -- Nested LHS: `((a, b), c) = ((x, y), z)`. solc accepts these; the RHS is
+    -- evaluated once and destructured against the nested target tree in
+    -- lockstep, matching solc's left-to-right component semantics. The flat
+    -- `assignTuple` path is unchanged for non-nested LHSs.
+    let targets ← TupleItems.toCoreTupleTargets? storageNames lhsItems
+    let rhsCore ← Expr.toCore? storageNames rhs
+    some (SolidCore.Solidity.Source.Stmt.assignTupleNested targets rhsCore)
+  else do
+    let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+    let rhsCore ← Expr.toCore? storageNames rhs
+    some (SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore)
 
 def tupleVarDeclCorePieces? (storageNames : List Name)
     (bindings : List VarBinding) (items : List TupleItem) :

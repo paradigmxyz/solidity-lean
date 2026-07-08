@@ -3095,3 +3095,53 @@ the pre-existing narrow-arithmetic-widened gap (`uint8+uint8` assigned to
 the sibling owns, not in ternary typing. `untypedLiteralMobileTy?` and
 `smallest{Uint,Int}Bits?` are new shared `Executable` helpers the sibling may
 also want for literal mobile types.
+
+## 2026-07-08 — G13: nested tuple LHS `((a, b), c) = …` (over-reject fixed)
+
+**solc semantics (confirmed).** solc accepts a nested tuple on the assignment
+LHS (`syntaxTests/tupleAssignments/tuple_in_tuple_short.sol`, empty
+expectations; verified `((a, b), c) = ((x, x+1), x+2)`, `(a, (b, c)) = …`, and a
+nested hole compile with the pin). The RHS tuple is evaluated once,
+left-to-right, into temps, then the values are assigned into the (nested)
+targets in lockstep with the LHS structure; a hole still evaluates its RHS
+component and discards it.
+
+**Wrong → right.** The core `Stmt.assignTuple` LHS was a FLAT
+`List (Option LValue)`; elaboration (`TupleItems.toCoreLValueTargets?`) and the
+typechecker (`checkTupleAssignmentTargets`) had no recursion into a nested tuple
+target, so any `((a, b), c) = …` failed to elaborate / type-check and was
+OVER-REJECTED. No wrong value — rejected up front.
+
+**Fix (new nested target, flat path unchanged).**
+- `Interpreter.lean`: new `inductive TupleTarget = hole | leaf LValue | nested
+  (List TupleTarget)` and `Stmt.assignTupleNested : List TupleTarget -> Expr ->
+  Stmt`; a `TupleTargets.writeNested`/`TupleTarget.writeNested` mutual recurses
+  a `Value.tuple` against the target tree, left-to-right; the `assignTupleNested`
+  interpreter arm evaluates the RHS ONCE to a (possibly nested) `Value.tuple`
+  then writes — so `((a,b),c)=((b,c),a)` swaps and holes are pre-evaluated,
+  matching solc's temps-then-stores order. The flat `assignTuple` path is
+  untouched and still used for non-nested LHSs.
+- `Interface.lean`: `TupleItems.hasNestedTuple` gates `tupleAssignmentCore?`;
+  when nested, `TupleItem.toCoreTupleTarget?`/`TupleItems.toCoreTupleTargets?`
+  build the `TupleTarget` tree and emit `assignTupleNested`; otherwise the
+  existing flat elaboration runs.
+- `TypeCheck.lean`: the tuple-LHS `Assignment` arm dispatches to
+  `checkNestedTupleItems` when `hasNestedTuple`. It walks LHS items against the
+  RHS tuple expression in lockstep — recursing on a nested sub-tuple, and for a
+  leaf reproducing the flat path's lvalue / writable-location / state-write /
+  assignability / mapping-copy / calldata-location checks inline (on syntactic
+  subterms, keeping termination structural: measure `sizeOf lhsItems + sizeOf
+  rhs`). A hole still type-checks (evaluates) its RHS component.
+
+**Right value (Forge-verified).** Lane `nested-tuple-assignment`:
+`nestedLit(3) = 345` (a,b,c = 3,4,5), `nestedRight(3) = 345`, `nestedSwap(3) =
+453` (RHS `((b,c),a)` read first → a,b,c = 4,5,3), `nestedHole(3) = 35` (middle
+hole discards x+1). Forge `NestedTupleAssignmentForgeTest` and the Lean
+`checkedOwnCallWordMatches` witnesses agree; `forge=ok lean=ok compare=pass`.
+
+**Scope note.** A nested-position RHS *internal function call* (`((a,b),c) =
+(foo(), bar())` where `foo` returns a 2-tuple) needs the internal-call
+tuple-hoisting machinery to run inside the nested elaboration; the lane pins the
+expression-RHS forms (literals/params/reads, incl. the swap and hole), which is
+where the destructure/order/hole semantics live. Call-in-nested-position is left
+as a remaining (harmless) over-reject rather than risk a wrong value.
