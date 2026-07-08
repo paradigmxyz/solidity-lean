@@ -6218,6 +6218,84 @@
    }
   },
   {
+   "name": "acceptance-boundaries-round2",
+   "description": "Round-2 acceptance boundaries (2026-07-08) from docs/solc-implementation-divergences-2.md. Pinned solc 0.8.35 and this typechecker both REJECT: (E1) a NON-rational immutable read (keccak256- or constant-ref-initialized) inside a pure function (TypeError 2527; only a RationalNumber initializer stays pure), (O1) a duplicate contract in an override(A,A) list (error 4520), and (PT1) a constant whose value cyclically depends on itself (error 6161). Both still ACCEPT the neighbors on the Lean side: the same immutable read in a view function and a numeric-literal / constant-arithmetic immutable read in pure; the legitimate diamond override(A,B); a non-cyclic constant chain. E2 (over-reject fix): this.f.selector in a pure function is now ACCEPTED while this.f() stays a pure-violation. AE1 confirmed already-handled: abi.encodePacked(bytes[]/string[]) is rejected while encodePacked(uint[]) is accepted.",
+   "solc_rejects": [
+    "tests/forge-harness/acceptance-boundaries-round2/invalid/E1KeccakImmutableInPure.sol",
+    "tests/forge-harness/acceptance-boundaries-round2/invalid/E1ConstantRefImmutableInPure.sol",
+    "tests/forge-harness/acceptance-boundaries-round2/invalid/O1DuplicateOverride.sol",
+    "tests/forge-harness/acceptance-boundaries-round2/invalid/PT1CyclicConstant.sol"
+   ],
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.TypeCheck",
+     "SolidCore.Witness.AcceptanceBoundariesRound2"
+    ],
+    "evals": [
+     {
+      "label": "e1KeccakImmutableInPureRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.e1KeccakImmutableInPureRejected",
+      "expect": "true"
+     },
+     {
+      "label": "e1NeighborsAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.e1NeighborsAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "e2ThisSelectorInPureAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.e2ThisSelectorInPureAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "e2ThisCallInPureStillRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.e2ThisCallInPureStillRejected",
+      "expect": "true"
+     },
+     {
+      "label": "o1DuplicateOverrideRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.o1DuplicateOverrideRejected",
+      "expect": "true"
+     },
+     {
+      "label": "o1DiamondOverrideAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.o1DiamondOverrideAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "pt1SelfCyclicConstantRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.pt1SelfCyclicConstantRejected",
+      "expect": "true"
+     },
+     {
+      "label": "pt1MutualCyclicConstantRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.pt1MutualCyclicConstantRejected",
+      "expect": "true"
+     },
+     {
+      "label": "pt1NonCyclicConstantAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.pt1NonCyclicConstantAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "ae1EncodePackedBytesArrayRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.ae1EncodePackedBytesArrayRejected",
+      "expect": "true"
+     },
+     {
+      "label": "ae1EncodePackedUintArrayAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.ae1EncodePackedUintArrayAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "round2AcceptanceBoundariesHold",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.round2AcceptanceBoundariesHold",
+      "expect": "true"
+     }
+    ]
+   }
+  },
+  {
    "name": "ternary-literal-mobile-type",
    "description": "Forge checks solc/EVM conditional-of-literals typing: `(t ? 63 : 255)` carries the ternary's common (mobile) type uint8 (not uint256), assignable to a uint8 local, implicitly widening to uint256, and its `+1` overflows uint8 -> Panic 0x11; larger literals raise the common type to uint16. Lean imports the same contract from the solc AST and checks the source ternary mobile-type behavior (G15).",
    "forge": {
