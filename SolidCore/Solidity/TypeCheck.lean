@@ -5201,6 +5201,30 @@ def checkExpr (env : CheckEnv) :
                       stateLValue := false }
               | _ => Except.error (TypeError.unsupported "member selector")
   | expr@(Solidity.Expr.member
+      (Solidity.Expr.member (Solidity.Expr.ident "this") member) "selector") =>
+      -- solc `ViewPureChecker.cpp:357-370`: `this.f.selector` is special-cased
+      -- as a compile-time constant — the `this` sub-expression is never visited,
+      -- so it contributes NO state read and the expression stays Pure. Resolving
+      -- the external-callable function value of the current contract here (rather
+      -- than recursing into `this`, which would `requireStateReadAllowed`) both
+      -- keeps `this.f.selector` pure and still rejects a private/internal `f`
+      -- ("member not found") — matching pinned solc 0.8.35. Note this only covers
+      -- `.selector`; `this.f()` still routes through the state-mutability call
+      -- path and remains a view/pure violation.
+      match env.currentContract with
+      | some path => do
+          let sig ←
+            env.types.resolveContractExternalFunctionValue path member
+          match FunctionSig.externalFunctionValueTy? sig with
+          | some _ =>
+              Except.ok
+                { source := expr
+                  ty := Solidity.Ty.bytesN 4
+                  lvalue := false
+                  stateLValue := false }
+          | none => Except.error (TypeError.unsupported "member selector")
+      | none => Except.error (TypeError.unknownIdentifier "this")
+  | expr@(Solidity.Expr.member
       (Solidity.Expr.member base member) "selector") => do
       let baseChecked ← checkExpr env base
       match baseChecked.ty with
