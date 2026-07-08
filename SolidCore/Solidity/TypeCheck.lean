@@ -1596,6 +1596,14 @@ structure CheckEnv where
   inUnchecked : Bool := false
   inConstructor : Bool := false
   inReceive : Bool := false
+  -- CF2: names of the current scope's internal/private/free functions that
+  -- PROVABLY always revert (never reach the function exit). solc's
+  -- `ControlFlowRevertPruner` reroutes a call to such a callee to the revert
+  -- node, so paths after the call cannot reach the function exit; the
+  -- storage/calldata-pointer-return definite-assignment check (error 3464) then
+  -- runs on the pruned CFG. A call to one of these names is treated as a
+  -- terminating statement here (see `Stmt.pointerReturnFlowFuel`).
+  alwaysRevertNames : List Name := []
   deriving Repr
 
 def CheckEnv.lookupVar? (env : CheckEnv) (name : Name) : Option Ty :=
@@ -10943,6 +10951,21 @@ def Expr.isTerminalBuiltinCall : Solidity.Expr -> Bool
       (Solidity.Expr.ident "revert") _ => true
   | _ => false
 
+-- CF2: the callee name of a direct-by-name call `f(...)` / `f{...}(...)`, if any.
+-- Only bare-ident callees are internal-call targets that the revert pruner
+-- resolves; `this.f()` / member calls are external and never pruned.
+def Expr.callTargetName? : Solidity.Expr -> Option Name
+  | Solidity.Expr.call (Solidity.Expr.ident name) _ => some name
+  | Solidity.Expr.callWithOptions (Solidity.Expr.ident name) _ _ => some name
+  | _ => none
+
+-- CF2: is `e` a call to a provably-always-reverting internal function?
+def Expr.isAlwaysRevertingCall
+    (arNames : List Name) (e : Solidity.Expr) : Bool :=
+  match Expr.callTargetName? e with
+  | some name => Solidity.Executable.nameIn name arNames
+  | none => false
+
 mutual
 
 def Stmt.pointerReturnFlowFuel :
@@ -10962,10 +10985,15 @@ def Stmt.pointerReturnFlowFuel :
           exprFlowToNormal
             (Expr.pointerReturnFlowFuel fuel requirements assigned init)
       | none => { normal? := some assigned }
-  | fuel + 1, _, requirements, _, assigned,
+  | fuel + 1, env, requirements, _, assigned,
       Solidity.Stmt.expr expr =>
       let flow := Expr.pointerReturnFlowFuel fuel requirements assigned expr
-      if Expr.isTerminalBuiltinCall expr then
+      -- CF2: a call to a provably-always-reverting internal function never
+      -- returns, so (like a direct `revert`/`selfdestruct`) it does not reach
+      -- the function exit — no `normal?` continuation. The args are still
+      -- evaluated before the call, so an unsafe read there is preserved.
+      if Expr.isTerminalBuiltinCall expr ||
+          Expr.isAlwaysRevertingCall env.alwaysRevertNames expr then
         { unsafeReturn := flow.unsafeRead }
       else
         exprFlowToNormal flow
@@ -11160,6 +11188,137 @@ def FunctionDecl.pointerReturnFlowWithModifiersFuel :
 end
 
 def defaultPointerReturnFlowFuel : Nat := 4096
+
+/-!
+CF2 — the "always reverts" analysis (solc `ControlFlowRevertPruner`).
+
+A function ALWAYS reverts iff, in solc's CFG, its entry cannot reach the exit
+node — every path ends at the revert node. We under-approximate this soundly:
+we only mark a statement as always-reverting when it PROVABLY diverts to a
+revert on every path.
+
+Primitive terminators (solc `ControlFlowBuilder::visit(FunctionCall)` /
+`RevertStatement` / `Throw`):
+- a `revert(...)` / `revert Err(...)` / `selfdestruct(...)`;
+- a call to an internal function already known to always revert.
+`require`/`assert` are NOT terminators: solc connects them to BOTH the revert
+node and a following node (probed: a `require(false)` helper does NOT prune),
+so `require(false)`-style helpers correctly stay non-reverting here.
+
+We compute per statement a pair `(falls, exits)` (`Stmt.revertFlowFuel`):
+  * `falls` — control can reach the END of the statement (continue to the
+    following statement / fall out of the function body);
+  * `exits` — control can leave the FUNCTION via a `return` reachable inside
+    the statement (reach the CFG exit node).
+A statement ALWAYS reverts iff `!falls && !exits` — every path ends at the
+revert node. Both bits are OVER-approximated (biased to `true`) for everything
+we don't prove terminating, so `alwaysReverts` is UNDER-approximated: we only
+mark a statement always-reverting when provably so.
+
+Terminating leaves (`(false, false)`): `revert`/`selfdestruct` and a call to an
+already-known-always-reverting internal function. `return` is `(false, true)`
+(reaches the exit, NOT the revert node — so it does NOT make a function always
+revert). Sequencing threads control only past a statement that can fall
+through; a statement's `exits` bit is always accumulated so a returning path is
+never lost. `if`-without-`else`, loops, `try/catch`, inline assembly, and
+unknown statements stay `(true, true)`.
+
+`require`/`assert` are NOT terminators: solc connects them to BOTH the revert
+node and a following node (probed: a `require(false)` helper does NOT prune), so
+`require(false)`-style helpers correctly stay non-reverting here.
+
+SOUNDNESS: this is acceptance-loosening. Marking a callee always-reverting
+prunes a path in the pointer-return check, so a WRONG "always reverts" could
+accept an invalid program. Because we only ever assert `(false, false)` on a
+provable terminator and accumulate every `return`, we never over-accept.
+Non-terminating recursion (`f(){ f(); }`) is treated by solc as reverting; we
+conservatively do NOT (our monotone fixpoint from the empty set never marks it),
+a sound residual over-reject on that exotic shape.
+-/
+mutual
+
+def Stmt.revertFlowFuel :
+    Nat -> List Name -> Solidity.Stmt -> Bool × Bool
+  | 0, _, _ => (true, true)
+  | fuel + 1, arNames, Solidity.Stmt.block body =>
+      Stmts.revertFlowFuel fuel arNames body
+  | fuel + 1, arNames, Solidity.Stmt.unchecked body =>
+      Stmt.revertFlowFuel fuel arNames body
+  | _ + 1, arNames, Solidity.Stmt.expr expr =>
+      if Expr.isTerminalBuiltinCall expr ||
+          Expr.isAlwaysRevertingCall arNames expr then
+        (false, false)
+      else
+        (true, false)
+  | _ + 1, _, Solidity.Stmt.revertCall _ => (false, false)
+  | _ + 1, _, Solidity.Stmt.returnValues _ => (false, true)
+  | fuel + 1, arNames,
+      Solidity.Stmt.ifElse _ thenBranch (some elseBranch) =>
+      let thenFlow := Stmt.revertFlowFuel fuel arNames thenBranch
+      let elseFlow := Stmt.revertFlowFuel fuel arNames elseBranch
+      (thenFlow.fst || elseFlow.fst, thenFlow.snd || elseFlow.snd)
+  | fuel + 1, arNames,
+      Solidity.Stmt.ifElse _ thenBranch none =>
+      let thenFlow := Stmt.revertFlowFuel fuel arNames thenBranch
+      (true, thenFlow.snd)
+  | _ + 1, _, Solidity.Stmt.empty => (true, false)
+  | _ + 1, _, Solidity.Stmt.varDecl _ _ => (true, false)
+  | _ + 1, _, Solidity.Stmt.emitEvent _ => (true, false)
+  | _ + 1, _, Solidity.Stmt.break => (false, true)
+  | _ + 1, _, Solidity.Stmt.continue => (false, true)
+  | _ + 1, _, _ => (true, true)
+
+def Stmts.revertFlowFuel :
+    Nat -> List Name -> List Solidity.Stmt -> Bool × Bool
+  | 0, _, _ => (true, true)
+  | _ + 1, _, [] => (true, false)
+  | fuel + 1, arNames, stmt :: rest =>
+      let headFlow := Stmt.revertFlowFuel fuel arNames stmt
+      if headFlow.fst then
+        let tailFlow := Stmts.revertFlowFuel fuel arNames rest
+        (tailFlow.fst, headFlow.snd || tailFlow.snd)
+      else
+        (false, headFlow.snd)
+
+end
+
+def Stmt.alwaysRevertsFuel
+    (fuel : Nat) (arNames : List Name) (stmt : Solidity.Stmt) : Bool :=
+  let flow := Stmt.revertFlowFuel fuel arNames stmt
+  !flow.fst && !flow.snd
+
+-- CF2: one Kleene step of the always-reverts fixpoint. A name qualifies iff it
+-- names at least one bodied function AND every bodied declaration with that
+-- name always reverts under the current `known` oracle (sound under
+-- overloading). `candidates` is the fixed list of all bodied-function names;
+-- the filtered result grows monotonically as `known` grows.
+def alwaysRevertStep
+    (candidates : List Name) (decls : List (Name × Solidity.Stmt))
+    (known : List Name) : List Name :=
+  candidates.filter (fun nm =>
+    decls.all (fun d =>
+      d.fst != nm ||
+        Stmt.alwaysRevertsFuel defaultPointerReturnFlowFuel known d.snd))
+
+def alwaysRevertFixpoint
+    (candidates : List Name) (decls : List (Name × Solidity.Stmt)) :
+    Nat -> List Name -> List Name
+  | 0, known => known
+  | iter + 1, known =>
+      let next := alwaysRevertStep candidates decls known
+      if next.length <= known.length then known
+      else alwaysRevertFixpoint candidates decls iter next
+
+-- CF2: names of functions (from the given decls) that provably always revert.
+def computeAlwaysRevertNames
+    (fns : List Solidity.FunctionDecl) : List Name :=
+  let decls : List (Name × Solidity.Stmt) :=
+    fns.filterMap (fun fn =>
+      match fn.name, fn.body with
+      | some name, some body => some (name, body)
+      | _, _ => none)
+  let candidates := decls.map Prod.fst
+  alwaysRevertFixpoint candidates decls (candidates.length + 1) []
 
 def FunctionDecl.checkPointerReturnDefiniteAssignment
     (env : CheckEnv) (fn : Solidity.FunctionDecl)
@@ -12348,6 +12507,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     (sourceErrors : List ErrorSig) (sourceEvents : List EventSig)
     (sourceConstants : List Solidity.StateVarDecl)
     (sourceUsingDecls : List Solidity.UsingDecl)
+    (sourceFreeFunctions : List Solidity.FunctionDecl)
     (sourceTypes : TypeContext)
     (contract : Solidity.ContractDecl) : Except TypeError Unit := do
   let stateVars := contract.items.filterMap ContractItem.stateVar?
@@ -12527,7 +12687,12 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         visibleFunctionSigs.map (·.name) ++
           visibleStateVars.map Solidity.StateVarDecl.name ++
           (ModifierDecls.signatures allModifierDecls).map (·.name) ++
-          (eventSigs ++ inheritedEventSigs).map (·.name) }
+          (eventSigs ++ inheritedEventSigs).map (·.name)
+      -- CF2: provably-always-reverting internal callees in scope. Own contract
+      -- functions ∪ file-level free functions (inherited-base helper bodies are
+      -- out of scope here — a sound under-detection, never an over-accept).
+      alwaysRevertNames :=
+        computeAlwaysRevertNames (functions ++ sourceFreeFunctions) }
   ContractDecl.checkBaseConstructorArgsForDeployment storageOrder contract
     storageOrder
   EventSigs.ensureNoDuplicateAbiSignaturesAgainst contractTypes
@@ -13217,6 +13382,8 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
       usingDecls := sourceUsingDecls
       errors := freeErrorSigs
       events := freeEventSigs
+      -- CF2: free functions calling always-reverting free helpers.
+      alwaysRevertNames := computeAlwaysRevertNames freeFunctions
       returnTys := []
       returnNames := [] }
   let rec checkFreeStructs :
@@ -13272,7 +13439,7 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
   | [] => Except.ok ()
   | contract :: rest => do
       ContractDecl.check freeFunctionSigs freeErrorSigs freeEventSigs
-          freeConstants sourceUsingDecls sourceTypes contract
+          freeConstants sourceUsingDecls freeFunctions sourceTypes contract
       checkContracts rest
   require (!StateVarDecls.constantsHaveCycle freeConstants)
     (TypeError.invalidVariableDecl "constant has a cyclic dependency")
