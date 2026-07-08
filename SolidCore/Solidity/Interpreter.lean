@@ -5214,6 +5214,18 @@ def Expr.toLValue? : Expr -> Option LValue
       some (LValue.index baseTarget idx)
   | _ => none
 
+/-- A component of a NESTED tuple-assignment LHS (`((a, b), c) = …`). `hole` is
+    an omitted component (its RHS value is still produced, then discarded);
+    `leaf` is an ordinary assignable target; `nested` is a parenthesized
+    sub-tuple destructured against a `Value.tuple` sub-value in lockstep. The
+    flat `Stmt.assignTuple` (`List (Option LValue)`) is unchanged and still used
+    for non-nested LHSs; only genuinely nested LHSs elaborate to `nested`. -/
+inductive TupleTarget where
+  | hole : TupleTarget
+  | leaf : LValue -> TupleTarget
+  | nested : List TupleTarget -> TupleTarget
+  deriving Repr
+
 def checkedAdd (checked : Bool) (lhs rhs : Word) :
     Except RevertData Word :=
   let raw := SolidCore.Solidity.Shared.norm lhs + SolidCore.Solidity.Shared.norm rhs
@@ -6963,6 +6975,33 @@ def LValues.writeTupleWithRuntime (context : Context) :
       LValues.writeTupleWithRuntime context runtime targets values
   | _, _, _ => throw (SolidityFailure.revert RevertData.typeMismatch)
 
+mutual
+
+/-- Write a list of NESTED tuple targets against the matching RHS values,
+    left-to-right. The RHS was fully evaluated before any write (so `(a, b) =
+    (b, a)` swaps and a hole's value is already produced), matching solc's
+    "evaluate the tuple into temps, then assign" order. -/
+def TupleTargets.writeNested (context : Context) :
+    Runtime -> List TupleTarget -> List Value -> SolI Runtime
+  | runtime, [], [] => pure runtime
+  | runtime, target :: targets, value :: values => do
+      let runtime' ← TupleTarget.writeNested context runtime target value
+      TupleTargets.writeNested context runtime' targets values
+  | _, _, _ => throw (SolidityFailure.revert RevertData.typeMismatch)
+
+def TupleTarget.writeNested (context : Context) (runtime : Runtime) :
+    TupleTarget -> Value -> SolI Runtime
+  | TupleTarget.hole, _ => pure runtime
+  | TupleTarget.leaf target, value => do
+      let (resolved, runtime') ← target.resolveWithRuntime context runtime
+      resolved.write context runtime' value
+  | TupleTarget.nested targets, Value.tuple values =>
+      TupleTargets.writeNested context runtime targets values
+  | TupleTarget.nested _, _ =>
+      throw (SolidityFailure.revert RevertData.typeMismatch)
+
+end
+
 /-- Reserved storage-alias target for a not-yet-assigned `T storage` named
     return (reference-signature extension, stage A). It names no real storage
     field, so reading through it fails — unreachable in accepted programs (solc's
@@ -7004,6 +7043,10 @@ inductive Stmt where
   | exprStmt : Expr -> Stmt
   | assign : LValue -> Expr -> Stmt
   | assignTuple : List (Option LValue) -> Expr -> Stmt
+  /-- Nested tuple-assignment LHS (`((a, b), c) = …`): the RHS is evaluated once
+      to a (possibly nested) `Value.tuple`, then destructured against the target
+      tree in lockstep, left-to-right (`docs/DECISIONS.md` 2026-07-08 G13). -/
+  | assignTupleNested : List TupleTarget -> Expr -> Stmt
   | assignOp : LValue -> BinaryOp -> Expr -> Stmt
   | assignOpCleanup : LValue -> BinaryOp -> Expr -> ValueCleanup -> Stmt
   | deleteValue : LValue -> Stmt
@@ -7677,6 +7720,16 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               context runtime expr).caught with
           | Except.ok (Value.tuple values, runtime') =>
               match ← (LValues.writeTupleWithRuntime context runtime' targets
+                  values).caught with
+              | Except.ok updated => pure (Result.normal updated)
+              | Except.error err => pure (Result.reverted runtime err)
+          | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.assignTupleNested targets expr => do
+          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              context runtime expr).caught with
+          | Except.ok (Value.tuple values, runtime') =>
+              match ← (TupleTargets.writeNested context runtime' targets
                   values).caught with
               | Except.ok updated => pure (Result.normal updated)
               | Except.error err => pure (Result.reverted runtime err)

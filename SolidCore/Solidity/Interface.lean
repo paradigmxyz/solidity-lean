@@ -24,6 +24,7 @@ abbrev CoreValueCleanup := SolidCore.Solidity.Source.ValueCleanup
 abbrev CoreAbiCleanup := SolidCore.Solidity.Source.AbiCleanup
 abbrev CoreExpr := SolidCore.Solidity.Source.Expr
 abbrev CoreLValue := SolidCore.Solidity.Source.LValue
+abbrev CoreTupleTarget := SolidCore.Solidity.Source.TupleTarget
 abbrev CoreStmt := SolidCore.Solidity.Source.Stmt
 abbrev CoreTryCatchClause := SolidCore.Solidity.Source.TryCatchClause
 abbrev CoreContext := SolidCore.Solidity.Source.Context
@@ -3421,6 +3422,50 @@ def uintLiteralFitsInt (bits : Nat) (v : Int) : Bool :=
 def intLiteralFitsInt (bits : Nat) (v : Int) : Bool :=
   -(2 ^ (bits - 1) : Int) <= v && v <= (2 ^ (bits - 1) : Int) - 1
 
+-- Smallest `uintN` (N a multiple of 8, 8 ≤ N ≤ 256) whose range holds the
+-- non-negative integer `v`; solc's `RationalNumberType::mobileType()`
+-- (`Types.cpp`) for a non-negative literal.
+def smallestUintBits? (v : Nat) : Option Nat :=
+  (List.range 32).findSome? fun k =>
+    let bits := 8 * (k + 1)
+    if v < 2 ^ bits then some bits else none
+
+-- Smallest `intN` (N a multiple of 8) whose signed range holds `v`; solc's
+-- `mobileType()` for a negative literal.
+def smallestIntBits? (v : Int) : Option Nat :=
+  (List.range 32).findSome? fun k =>
+    let bits := 8 * (k + 1)
+    if intLiteralFitsInt bits v then some bits else none
+
+-- Mobile (smallest-fitting) type of an *untyped number-literal* expression.
+-- For a plain/constant-folded integer literal this is the smallest `uintN`/`intN`
+-- that holds its value; for a conditional whose both branches are untyped number
+-- literals it is the common (mobile) type of the branch mobile types — matching
+-- solc `TypeChecker::visit(Conditional)`:
+--   `commonType(trueExpr->mobileType(), falseExpr->mobileType())`.
+-- Returns `none` for anything that is not a pure untyped-integer-literal shape
+-- (e.g. a typed conversion branch, a non-integer rational, or an out-of-range
+-- fold), so callers fall back to their existing behavior.
+def Expr.untypedLiteralMobileTy? : Expr -> Option Ty
+  | Expr.ternary _ thenExpr elseExpr => do
+      let thenTy ← Expr.untypedLiteralMobileTy? thenExpr
+      let elseTy ← Expr.untypedLiteralMobileTy? elseExpr
+      Ty.commonImplicit? thenTy elseTy
+  | expr =>
+      match Expr.numberLiteralRat? expr with
+      | some q =>
+          if q.den == 1 then
+            if 0 <= q.num then
+              (smallestUintBits? q.num.toNat).map Ty.uint
+            else
+              (smallestIntBits? q.num).map Ty.int
+          else
+            none
+      | none => none
+termination_by expr => sizeOf expr
+decreasing_by
+  all_goals simp_wf <;> omega
+
 def Expr.toCoreNumericLiteralAs? (ty : Ty) (expr : Expr) :
     Option CoreExpr := do
   let value ← Expr.numberLiteralInt? expr
@@ -4844,15 +4889,21 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
       | BinaryOp.eq | BinaryOp.ne | BinaryOp.boolAnd | BinaryOp.boolOr =>
           some Ty.bool
       | _ => Expr.abiTy? storageNames lhs
-  | Expr.ternary _ thenExpr elseExpr => do
-      -- solc packs a conditional operand of `abi.encodePacked` using the
-      -- ternary's COMMON (mobile) type, not the then-branch's width. Combine
-      -- both branch types via `Ty.commonImplicit?`; fall back to the then-type
-      -- when the else-branch type can't be inferred structurally here.
-      let thenTy ← Expr.abiTy? storageNames thenExpr
-      match Expr.abiTy? storageNames elseExpr with
-      | some elseTy => some ((Ty.commonImplicit? thenTy elseTy).getD thenTy)
-      | none => some thenTy
+  | expr@(Expr.ternary _ thenExpr elseExpr) =>
+      -- A conditional of two untyped number literals carries the ternary's
+      -- COMMON (mobile) type, not the then-branch's width nor `uint256`
+      -- (solc `TypeChecker::visit(Conditional)`): `(t ? 63 : 255)` is `uint8`.
+      match Expr.untypedLiteralMobileTy? expr with
+      | some mobileTy => some mobileTy
+      | none => do
+          -- solc packs a conditional operand of `abi.encodePacked` using the
+          -- ternary's COMMON (mobile) type, not the then-branch's width. Combine
+          -- both branch types via `Ty.commonImplicit?`; fall back to the
+          -- then-type when the else-branch type can't be inferred here.
+          let thenTy ← Expr.abiTy? storageNames thenExpr
+          match Expr.abiTy? storageNames elseExpr with
+          | some elseTy => some ((Ty.commonImplicit? thenTy elseTy).getD thenTy)
+          | none => some thenTy
   | Expr.tuple items => do
       let tys ←
         mapOption
@@ -5599,11 +5650,50 @@ def VarBindings.toCoreTupleTargets? :
       | none => some (none :: tail)
 termination_by bindings => (sizeOf bindings, 0)
 
+-- Is any LHS component itself a parenthesized sub-tuple? (`((a, b), c) = …`)
+def TupleItems.hasNestedTuple : List TupleItem -> Bool
+  | [] => false
+  | TupleItem.value (Expr.tuple _) :: _ => true
+  | _ :: rest => TupleItems.hasNestedTuple rest
+termination_by items => sizeOf items
+
+-- Elaborate one (possibly nested) tuple-assignment LHS component to a core
+-- `TupleTarget`. A parenthesized sub-tuple recurses; a `hole` maps to `hole`;
+-- everything else must be an assignable core lvalue.
+def TupleItem.toCoreTupleTarget? (storageNames : List Name) :
+    TupleItem -> Option CoreTupleTarget
+  | TupleItem.hole => some SolidCore.Solidity.Source.TupleTarget.hole
+  | TupleItem.value (Expr.tuple innerItems) => do
+      let inner ← TupleItems.toCoreTupleTargets? storageNames innerItems
+      some (SolidCore.Solidity.Source.TupleTarget.nested inner)
+  | TupleItem.value expr => do
+      let target ← Expr.toCoreLValue? storageNames expr
+      some (SolidCore.Solidity.Source.TupleTarget.leaf target)
+termination_by item => (sizeOf item, 0)
+
+def TupleItems.toCoreTupleTargets? (storageNames : List Name) :
+    List TupleItem -> Option (List CoreTupleTarget)
+  | [] => some []
+  | item :: rest => do
+      let head ← TupleItem.toCoreTupleTarget? storageNames item
+      let tail ← TupleItems.toCoreTupleTargets? storageNames rest
+      some (head :: tail)
+termination_by items => (sizeOf items, 1)
+
 def tupleAssignmentCore? (storageNames : List Name)
-    (lhsItems : List TupleItem) (rhs : Expr) : Option CoreStmt := do
-  let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
-  let rhsCore ← Expr.toCore? storageNames rhs
-  some (SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore)
+    (lhsItems : List TupleItem) (rhs : Expr) : Option CoreStmt :=
+  if TupleItems.hasNestedTuple lhsItems then do
+    -- Nested LHS: `((a, b), c) = ((x, y), z)`. solc accepts these; the RHS is
+    -- evaluated once and destructured against the nested target tree in
+    -- lockstep, matching solc's left-to-right component semantics. The flat
+    -- `assignTuple` path is unchanged for non-nested LHSs.
+    let targets ← TupleItems.toCoreTupleTargets? storageNames lhsItems
+    let rhsCore ← Expr.toCore? storageNames rhs
+    some (SolidCore.Solidity.Source.Stmt.assignTupleNested targets rhsCore)
+  else do
+    let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+    let rhsCore ← Expr.toCore? storageNames rhs
+    some (SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore)
 
 def tupleVarDeclCorePieces? (storageNames : List Name)
     (bindings : List VarBinding) (items : List TupleItem) :
