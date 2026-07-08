@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/mutability-relax-override/out"
+cache_path = "../../.foundry-suites/mutability-relax-override/cache"
+evm_version = "cancun"

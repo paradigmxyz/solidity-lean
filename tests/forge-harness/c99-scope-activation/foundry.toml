@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/c99-scope-activation/out"
+cache_path = "../../.foundry-suites/c99-scope-activation/cache"
+evm_version = "cancun"

@@ -2974,3 +2974,69 @@ zero-fill/truncation, G15 ternary-of-literals adopting the mobile common type
 NOT attempted in this pass to avoid introducing a wrong-value soundness bug
 without full-replay validation (the coordinator's merge gate), which is a strictly
 worse outcome than a harmless over-reject. Recorded here as the next work item.
+## 2026-07-08 — TEST-COVERAGE gaps G17–G22 pinned (or recorded OOS)
+
+Six features from `docs/solidus-solc-deep-comparison.md` were elaborated/handled
+by the interpreter but had ZERO differential corpus lane. Each was closed by
+adding a Forge-paired lane whose expected values come from ACTUAL pinned-solc
+0.8.35 / Foundry-EVM runs (never invented), then confirming Solidus reproduces
+them (`forge=ok lean=ok`, `compare=pass`). No interpreter/typechecker change was
+required — every gap was a missing test, not a missing/wrong behavior. Corpus
+frozen: only NEW lanes were added.
+
+- **G17 `storage-uninit-fn-ptr`** — calling an internal function pointer held in
+  a never-assigned STORAGE state variable (and one left unset on an untaken
+  constructor branch) reads the zero dispatch value and panics `0x51`. This is
+  the storage-default counterpart of the already-laned LOCAL-uninitialized
+  pointer call (`internal-fn-pointers callUninitialized`). Forge ground truth:
+  both `callStored`/`callCtor` revert with `Panic(0x51)`; Lean via
+  `checkedOwnCallPanicMatches`.
+
+- **G18 `try-external-fn-return`** — `try p.getCb() returns (function() external
+  view returns (uint256) cb) { return cb(); }` binds an EXTERNAL FUNCTION-typed
+  return value; the 24-byte pointer round-trips through the try binding and, when
+  invoked, yields the callee's value (42). Forge exercises a concrete `Provider`
+  (real EVM ABI encode/decode of the external fn pointer across the try
+  boundary). Lean scripts a two-row responder: `getCb()` returns the
+  ABI-encoded external fn pointer (`Ty.externalFunction` → `0xbeef.value()`),
+  and invoking it returns 42. Confirms the try/catch external-fn return machinery
+  (`Interpreter.lean:7174-7236`) is correct.
+
+- **G19 `mutability-relax-override`** — overrides that RELAX (narrow) state
+  mutability: base `view` overridden `pure`, base `nonpayable` overridden
+  `view`. Pinned solc accepts both (warnings only) and virtual dispatch reaches
+  the override bodies. Forge: `runTag(5)=7`, `runBump(5)=25`; Lean via
+  `checkedCallWordMatches` (source-unit route, since inheritance base resolution
+  needs the whole program). `importedContractAccepted` pins acceptance.
+
+- **G20 `using-for-wildcard`** — `using WildcardLib for *` binds the library's
+  functions to ALL receiver types by first parameter; member calls dispatch to
+  the matching function across `uint256`/`int256`/`bytes memory`/`bool`
+  receivers. Forge: `viaUint(21)=42`, `viaInt(-4)=-12`, `viaBytes(0xaabbcc,10)=13`,
+  `viaBool(false)=true`. Lean uses the source-unit route (library binding
+  resolution needs the program, like inheritance); the `int256` return is
+  matched via an inline `CallResult.returned [Value.int _]` on `signedToWord`.
+
+- **G21 `c99-scope-activation`** — C99 block-scope activation: a local is in
+  scope only AFTER its declaration point, not hoisted to the top of its block.
+  Two probes whose VALUES distinguish C99 from whole-block hoisting:
+  `blockActivation()=1100` (inner `uint y = x` reads the OUTER `x=1`, not a
+  hoisted inner `x=0`) and `selfInitFromOuter()=6` (inner `uint x = x + 1`
+  initializer reads the OUTER `x=5`). Forge confirms (warnings only); Lean via
+  `checkedOwnCallWordMatches`.
+
+- **G22 create2 address prediction — recorded OUT-OF-SCOPE, no lane added.**
+  Predicting the deployed `create2` address
+  `keccak256(0xff‖deployer‖salt‖keccak256(initCode))` requires the REAL compiled
+  creation bytecode as `initCode`. Solidus deliberately models `initCode` as a
+  source-canonical name encoding (`creationInitCode`, `Interpreter.lean:2336`:
+  32-byte name length ‖ name ‖ ctor args), a recorded gas-like deferred
+  limitation (see the earlier "initCode is not compiled bytecode" decision). The
+  create2 address in Solidus comes from the fixture oracle/responder, not from
+  keccak over real bytecode, so it CANNOT reproduce solc's deployed address.
+  Forcing a lane would either assert a non-solc address (forbidden) or require
+  modeling compiled initCode (out of scope per the create-initCode decision).
+  This is a deliberate OOS non-gap, not an untested-but-modeled path.
+
+No soundness bug found: all five pinned features already matched EVM ground
+truth; G22 is a documented out-of-scope limitation.
