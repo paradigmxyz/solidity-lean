@@ -2808,3 +2808,61 @@ matched the EVM on the first differential run.
   Cancun version → 0, matching EIP-4844's non-blob-tx behavior.
 
 No soundness bug found: all four builtins already matched EVM ground truth.
+
+## 2026-07-08 — G1: user-defined operators dispatch to their bound function, not the builtin
+
+Fixes the wrong-VALUE soundness bug G1 (`docs/solidus-solc-deep-comparison.md`).
+Since Solidity 0.8.19, `using {f as +} for T global;` (and unary `using {g as -}`)
+binds an operator symbol to a free function; solc resolves `a + b` (a,b : T) to a
+CALL of `f(a, b)` that runs with the operator function's OWN checked/unchecked
+context. Solidus dropped solc's resolved operator reference on import
+(`('BinaryOperation','function')`/`('UnaryOperation','function')` sat in
+`ANALYSIS_SCALAR_FIELDS`) and lowered the node to a plain builtin `Expr.binary`/
+`Expr.unary`, so the interpreter applied the BUILTIN op on the raw underlying
+words. Whenever an operator body differs from the builtin the computed value was
+wrong AND wrongly accepted; existing lanes passed only because their bodies equal
+the builtin.
+
+solc semantics confirmed against pinned solc 0.8.35 and its
+`test/libsolidity/semanticTests/operators/userDefined/`:
+- `fixed_point_udvt_with_operators.sol`: `applyInterest(500e18, 0.1e18) -> 550e18`
+  (fixed-point `*` = `(a*b)/1e18`). Solidus BEFORE: the builtin int256 `*` (no
+  /1e18 rescale) → `500e18 + 500e18*1e17 ≈ 5e37` (wrong). AFTER: `550e18`.
+- `checked_operators.sol` / `unchecked_operators.sol`: the operator function runs
+  with its own lexical context — a checked body panics 0x11 on overflow even when
+  the call site is inside `unchecked {}`; an `unchecked{}` body wraps even from a
+  checked call site.
+
+Fix — importer only (the harness frontend that translates solc AST to
+`SolidCore.Solidity` source AST); no trusted-Lean change was needed because a
+user-defined operator application IS, semantically, an internal call, and the
+existing internal-call boundary (`Stmt.internalCall`, `Interpreter.lean:8089`)
+already (a) resolves free functions by name and (b) resets `checked := true` for
+the callee body regardless of the caller's `unchecked` context:
+- `scripts/solc_ast_to_lean_source.py`: new `collect_function_names_by_id`
+  (id→name, populated in `render_module`, line ~2020) and
+  `user_defined_operator_name` (line ~1832). In `expr_from_node`, a
+  `BinaryOperation`/`UnaryOperation` whose solc `function` field is a non-null
+  FunctionDefinition id is rendered as `Expr.call (Expr.ident <opFn>) [a, b]`
+  (binary, line ~1203) / `[a]` (unary, line ~1100) instead of `Expr.binary`/
+  `Expr.unary`. Elaboration + interpreter then run it as an ordinary internal
+  call, inheriting correct value, per-body checked/unchecked context, comparison
+  `bool` result types, unary/binary `-` disambiguation, and recursion.
+
+New pinning lane `tests/forge-harness/udvt-operator-dispatch` (Forge-paired,
+manifest case appended; corpus otherwise untouched): fixed-point mul (550e18),
+unary/binary minus disambiguation, `bool` comparison operators, and the
+checked/unchecked-context distinction at word width (`checkedOpOverflow(max)`
+panics 0x11 from an `unchecked` call site; `uncheckedOpWraps(max) == 0` from a
+checked call site). The lane deliberately avoids two ORTHOGONAL, pre-existing
+Solidus gaps unrelated to operator dispatch (out of this agent's surface): (1)
+signed `int / <numeric-literal>` division reverts typeMismatch — worked around
+with a `int256 scale = 1e18;` local; (2) arithmetic on a narrow (`uintN`, N<256)
+UDVT `unwrap` result is not width-checked (`Small.unwrap(a)+Small.unwrap(b)` does
+not panic on uint8 overflow, though plain `uint8 a + b` does) — hence the
+checked/unchecked demonstration uses `uint256`-underlying UDVTs, where word-width
+overflow IS detected.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+compare=pass; new lane + existing UDVT-operator lane `frontend-frontier` both
+`forge=ok lean=ok` (`forge_interpreter_compare=pass`). Not merged to main.
