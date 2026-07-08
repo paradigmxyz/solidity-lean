@@ -3468,3 +3468,112 @@ udvt-operator-dispatch, ternary-literal-mobile-type, signed-literal-arithmetic,
 narrow-udvt-arithmetic, literal-cast-conversions) — all `lean=ok compare=pass`,
 no regression from the added operand-width panics. The full 133-case replay is the
 coordinator's merge gate.
+
+## 2026-07-08 — Round-2 acceptance-boundary divergences E1/E2/O1/PT1 fixed; AE1 already-handled; CF2 documented-stays
+
+Fixing the acceptance-boundary divergences in `docs/solc-implementation-divergences-2.md`.
+All are accept/reject-boundary only (no wrong runtime value). Each rule was read
+in solc source (`/Users/dan/Projects/solidity-src`, v0.8.35 = the pinned binary),
+probed against the pinned solc 0.8.35 binary on the exact case AND a neighbor that
+must keep its current behavior, fixed minimally in `SolidCore/Solidity/TypeCheck.lean`,
+then re-probed. Lane: `tests/forge-harness/acceptance-boundaries-round2/` +
+witnesses `SolidCore/Witness/AcceptanceBoundariesRound2.lean`, manifest case
+`acceptance-boundaries-round2`.
+
+**E1 — non-rational immutable read in a `pure` function (over-accept → FIXED).**
+solc `ViewPureChecker.cpp:194-199`: an immutable read is `Pure` ONLY if the
+initializer's type category is `RationalNumber`; every other initializer makes the
+read `View` (TypeError 2527). Solidus dropped ANY compile-time-constant-init
+immutable from `stateNames` via the broad `exprIsCompileTimeConstant` (true for
+`keccak256`, `abi.*`, `concat`, `type().wrap`, a `constant` reference, `bool`/
+`string` literals, explicit conversions). Fix: new predicate `exprIsRationalConstant`
+(numeric `number`/`unitNumber` literals; unary `-`/`~` over a rational; the
+arithmetic/bitwise/shift binary operators over rationals — reusing
+`BinaryOp.storageLayoutBaseEvalAllowed`; comparison/logical operators and ternaries
+excluded). `StateVarDecl.hasCompileTimeImmutableInit` now uses it, so only a
+RationalNumber immutable stays out of the state-read set; every other immutable
+joins the existing runtime-immutable class (identical, already-correct `isState`
+handling at the ident-read site). Boundary probed against pinned solc: `uint
+immutable X=5;`, `2+3`, `1 ether`, `-3`, `~1`, `1<<4` read in `pure` ACCEPT;
+`keccak256("x")`, a `constant` ref, `true`, `uint(5)`, `3<5`, `true?1:2` read in
+`pure` REJECT (2527); the same reads in a `view` function ACCEPT. Lane fixtures
+`E1KeccakImmutableInPure.sol` / `E1ConstantRefImmutableInPure.sol` (solc-reject);
+witnesses `e1KeccakImmutableInPureRejected` + `e1NeighborsAccepted`.
+
+**E2 — `this.f.selector` in a `pure`/non-view function (over-reject → FIXED).**
+solc `ViewPureChecker.cpp:357-370` special-cases `this.f.selector` — `this` is
+never visited, so it contributes NO state read and stays Pure. Solidus recursed
+into the inner `this` (ident-`this` runs `requireStateReadAllowed`) and rejected it
+in `pure`. Fix: a dedicated match arm for
+`Expr.member (Expr.member (Expr.ident "this") member) "selector"` resolves the
+current contract's external-callable function value (`env.currentContract` +
+`resolveContractExternalFunctionValue`) and returns `bytes4` without a state read;
+it also still rejects a private/internal `f` ("member not found"), matching solc.
+Only `.selector` is loosened — `this.f()` still routes through the call path and
+remains a `pure`/`view` violation. Probed: `this.f.selector` (f public or external)
+in `pure`/`view` ACCEPT; `this.f()` in `pure` REJECT; `this.f.selector` for private/
+internal `f` REJECT. Witnesses `e2ThisSelectorInPureAccepted` +
+`e2ThisCallInPureStillRejected`.
+
+**O1 — duplicate contract in `override(A, A)` (over-accept → FIXED).**
+solc `OverrideChecker.cpp:850-879` rejects a duplicate in the override list
+(error 4520). Solidus `checkOverrideSpecifier` used `pathSetsEqual`
+(membership-both-ways, duplicates ignored). Fix: new `pathListHasDuplicate`, wired
+as a `require (!…)` in both `checkOverrideSpecifier` (functions) and
+`checkModifierOverrideUse` (modifiers). Probed: `override(A, A)` REJECT (4520);
+`override(A, B)` legit diamond and `override(A)` single base ACCEPT. Lane fixture
+`O1DuplicateOverride.sol`; witnesses `o1DuplicateOverrideRejected` +
+`o1DiamondOverrideAccepted`.
+
+**PT1 — cyclic `constant` dependency (over-accept → FIXED).**
+solc `ConstStateVarCircularReferenceChecker` (`PostTypeChecker.cpp:154-245`,
+error 6161) rejects a `constant` whose value cyclically depends on itself. Probe
+CONFIRMED the over-accept: Solidus returned `Except.ok` for `uint constant A = A;`.
+Fix: `collectExprIdents` (a mutual recursion over `Expr`/`Arg`/`TupleItem`/
+`CallOption`) + `StateVarDecls.constantsHaveCycle` (build the constant→constant
+dependency graph restricted to declared `constant` names, fuel-bounded
+`constantReachesSelf`), wired as a `require (!…)` in `ContractDecl.check`
+(contract-own `constant`s ∪ file-level `constant`s) and in `SourceUnit.check`
+(free `constant`s). Over-collection of idents is harmless — the graph intersects
+with declared `constant` names, and a false cycle would need a coincidental name
+collision forming a full loop (impossible in valid code; the smoke gate confirms no
+corpus regression). Scope limitation (documented): the graph is per-contract +
+file-level, so a cycle spanning a contract and an *inherited* base constant is not
+detected — that is safe under-detection (never over-rejects a valid program) and
+covers the natural single-contract cases (self-cycle, same-contract mutual cycle).
+Probed: `uint constant A = A;` and `A=B; B=A;` REJECT (6161); `A=5; B=A+1;` ACCEPT.
+Lane fixture `PT1CyclicConstant.sol`; witnesses `pt1SelfCyclicConstantRejected`,
+`pt1MutualCyclicConstantRejected`, `pt1NonCyclicConstantAccepted`.
+
+**AE1 — `abi.encodePacked(bytes[]/string[])` (ALREADY-HANDLED, verified).**
+solc rejects an array-of-dynamic element in packed mode ("Type not supported in
+packed mode"). Solidus's typecheck predicate `Ty.isAbiEncodePackedArrayElementShape`
+omits `Ty.bytes`/`Ty.string`, so a `bytes[]`/`string[]` argument is already rejected
+at type-check; the interpreter right-pad fall-through the finding worried about is
+unreachable for accepted programs. Verified on the Lean side:
+`abi.encodePacked(bytes[])` and `(string[])` REJECT while `(uint[])` ACCEPTS
+(pinned-solc agrees). No code change. Witnesses `ae1EncodePackedBytesArrayRejected`
++ `ae1EncodePackedUintArrayAccepted`.
+
+**CF2 — no revert-pruning of always-reverting callees (over-reject → DOCUMENTED-STAYS).**
+solc runs `ControlFlowRevertPruner` (an interprocedural always-reverts analysis)
+before the uninitialized-storage/calldata-pointer-return check (3464), so a pointer
+whose only unassigned path terminates in a call to an always-reverting *helper* is
+accepted. Solidus prunes only builtin terminals (direct `revert`/`selfdestruct`).
+Probe CONFIRMED a real over-reject on a natural single-contract program: a
+`returns (uint[] storage p)` whose `else` branch calls an always-reverting internal
+helper is REJECTED by Solidus but ACCEPTED by solc; the direct-`revert` form is
+already accepted by both, and the genuinely-uninitialized form is rejected by both.
+STAYS: a correct fix requires porting solc's interprocedural always-reverts CFG pass
+(compute, per internal function, whether it always reverts, then treat calls to such
+functions as path terminals in the pointer definite-assignment flow) — a substantial
+analysis, not a cheap local change. The divergence is a SOUND over-reject (never
+accepts an invalid program), confined to the narrow class of storage/calldata-pointer
+returns whose sole unassigned path terminates in an always-reverting helper call, and
+the direct-revert form already works. Recorded so it is not lost.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no valid corpus program newly rejected); lane
+`acceptance-boundaries-round2` `solc_rejects=ok lean=ok`
+(`round2AcceptanceBoundariesHold = true`). The full 137-case replay is the
+coordinator's merge gate.
