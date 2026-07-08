@@ -2298,7 +2298,17 @@ def resolveInternalFunctionValueByNameLoop
         match found? with
         | none =>
             resolveInternalFunctionValueByNameLoop target (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
+        | some found =>
+            -- The same internal function may appear more than once in the
+            -- visible-signatures list (e.g. a modifier body's environment
+            -- unions `functionSigsForModifierBodies` with the caller's own
+            -- `functions`); a genuine duplicate of the SAME resolution target
+            -- is not an ambiguity (mirrors `resolveExternalFunctionValueByName`
+            -- and the call-site `FunctionSigs.resolveLoop`).
+            if FunctionSig.sameResolutionTarget found sig then
+              resolveInternalFunctionValueByNameLoop target (some found) rest
+            else
+              Except.error (TypeError.ambiguousFunction target)
       else
         resolveInternalFunctionValueByNameLoop target found? rest
 
@@ -2725,6 +2735,36 @@ def TypeContext.resolveContractExternalFunctionValue
   match types.lookupContractExternalFunctionSigs? path with
   | some sigs => FunctionSigs.resolveExternalFunctionValueByName sigs member
   | none => Except.error (TypeError.unknownFunction member)
+
+/-- Member-form internal-function VALUE resolution (boundary-completion arc,
+    member-form residue): `Lib.f` / `Contract.f` used in value position names
+    the same internal-function-pointer value a bare identifier `f` would, when
+    `f` is an internally-callable (non-private, non-external) function directly
+    declared on the named library/contract. Returns the resolved signature so
+    the caller can project `FunctionSig.internalFunctionValueTy?`. -/
+def TypeContext.resolveInternalFunctionValueMember?
+    (types : TypeContext) (path : Path) (member : Name) :
+    Option FunctionSig :=
+  match types.lookupContractDecl? path with
+  | some decl =>
+      let sigs :=
+        (ContractDecl.directFunctionSigsQualifiedLocalTypes decl).filter
+          FunctionSig.nonPrivate
+      match FunctionSigs.resolveInternalFunctionValueByName sigs member with
+      | Except.ok sig =>
+          -- A LIBRARY member is an internal-function-pointer value only when the
+          -- library function is declared `internal`; `public`/`external` library
+          -- functions are special (delegatecall entry points) and solc rejects
+          -- converting them to a function type. A contract member may be any
+          -- internally-callable (internal or public) function.
+          let visibilityOk :=
+            if decl.kind == Solidity.ContractKind.library then
+              sig.visibility == some Solidity.Visibility.internal_
+            else
+              FunctionSig.internallyCallable sig
+          if visibilityOk then some sig else none
+      | Except.error _ => none
+  | none => none
 
 def ModifierSig.paramsAccept : List Ty -> List Ty -> Bool
   | [], [] => true
@@ -5215,6 +5255,30 @@ def checkExpr (env : CheckEnv) :
       | none => Except.error (TypeError.unsupported ("member " ++ member))
   | expr@(Solidity.Expr.member
       (Solidity.Expr.typeName ty) member) => do
+      -- Member-form internal-function VALUE (`Lib.f` / `Contract.f`, boundary
+      -- completion arc, member-form residue): resolved BEFORE `checkTy` because
+      -- a library type name is not itself a value type. `Contract.f` is only a
+      -- value use for the current contract or an ancestor; an external-facing
+      -- member (`this.f`, `addr.f`) is a DIFFERENT feature handled elsewhere.
+      let memberFnValue? : Option CheckedExpr :=
+        match ty with
+        | Solidity.Ty.user path =>
+            if env.types.isLibraryPath path ||
+                (env.types.isContractPath path &&
+                  env.isCurrentOrAncestorContract path) then
+              match env.types.resolveInternalFunctionValueMember? path member with
+              | some sig =>
+                  (FunctionSig.internalFunctionValueTy? sig).map
+                    (fun fnTy =>
+                      { source := expr
+                        ty := fnTy
+                        lvalue := false
+                        stateLValue := false })
+              | none => none
+            else none
+        | _ => none
+      if let some checked := memberFnValue? then
+        return checked
       checkTy env.types ty
       let ty := env.qualifyCurrentLocalUserTypes ty
       match ty with

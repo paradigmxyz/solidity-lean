@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/refs-residue-fn-values/out"
+cache_path = "../../.foundry-suites/refs-residue-fn-values/cache"
+evm_version = "cancun"
