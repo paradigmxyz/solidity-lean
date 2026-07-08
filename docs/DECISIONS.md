@@ -3069,3 +3069,46 @@ divide, INT_MIN/-1 panic neighbor, and `*`/`+`/`-`/`%` neighbors).
 
 Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `forge_interpreter_compare=pass` (no regression); lane `forge=ok lean=ok`.
+
+## 2026-07-08 — H2: narrow `uintN`/`intN` cast of a checked arithmetic argument (gap/arithwidth)
+
+SOUNDNESS gap (adds a missing Panic 0x11) recorded incidentally in the G1 note
+(2026-07-08 UDVT-operator entry). Ground truth: pinned solc 0.8.35 + Forge. Not
+merged to main.
+
+Symptom (broader than the UDVT framing in the note): pinned solc/Forge Panic
+0x11 for `uint8(a + b)` and `int8(a + b)` on narrow overflow, but Solidus wrapped
+(`uint8(200 + 100) == 44`). Because a UDVT `Small.wrap(x)` lowers to `uint8(x)`,
+the same defect made a `using`-bound `+` operator whose body is
+`Small.wrap(Small.unwrap(a) + Small.unwrap(b))` (the G1 note's exact case) drop
+the uint8 overflow Panic. NOTE — the note's plainer probe
+`Small.unwrap(a) + Small.unwrap(b)` *as a bare return / statement* was ALREADY
+sound here (it lowers via the type-directed `binaryToCoreWithEnvTyped?` →
+`uintCleanup 8`); the surviving bug was specifically arithmetic **wrapped in a
+narrow int/uint cast**. Cause: a conversion-typed return fell to the env-less
+`Stmt.toCore?` cast path (`uintCast N (toCore? arg)`), which lowered the inner
+`a + b` with plain 256-bit operands and no result cleanup, then truncated —
+silently wrapping.
+
+Fix, two parts in Interface.lean: (1) a narrow-int/uint cast-of-arithmetic case
+in `Expr.toCoreAsWithEnv?` (helpers `Ty.narrowIntCastTarget?`,
+`BinaryOp.isOverflowArithmetic`, `Expr.peelToOverflowArithmetic?` — the last
+peels the redundant same-type cast `annotateAbi` re-wraps around the argument):
+it lowers the arithmetic via `binaryToCoreWithEnvTyped?` at the operands' own
+width, wraps the result in the checked `Ty.implicitCleanupCore srcTy` (this is
+the Panic 0x11 the cast path dropped), then applies the truncating outer cast;
+(2) route a conversion-typed `return` through `returnValuesCoreWithReturnTys?`
+instead of env-less `Stmt.toCore?`, with the env-less shape kept as the fallback
+so no previously-accepted return regresses. Peeling only strips casts wrapping
+the *whole* expression, so an explicitly-widened `uint8(uint256(a) + uint256(b))`
+keeps its 256-bit (non-panicking) semantics; `unchecked{}` still wraps
+(`uintCleanup` honors the checked flag → `uint8(200 + 100) == 44` in an
+`unchecked` block); a 256-bit UDVT is unaffected (`Big.unwrap(a)+Big.unwrap(b)`
+checks at 256). Verified vs Forge: `addU8(200,100)`, `addI8(100,100)`,
+`subI8(-100,100)`, `addU8Operator(200,100)` all Panic 0x11; `addU8(100,55)==155`,
+`addI8(-100,50)==-50`, `addU8Unchecked(200,100)==44`, `addBig(5,6)==11`.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no regression — H2 must not start panicking a
+currently-passing case, verified); lane `narrow-udvt-arithmetic` `forge=ok
+lean=ok`. Full replay is the coordinator's merge gate — not run here.

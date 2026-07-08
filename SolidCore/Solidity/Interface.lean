@@ -6455,6 +6455,39 @@ def Expr.binaryToCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
   | some (_, coreExpr) => some coreExpr
   | none => none
 
+/-- A narrow (`N < 256`) `uintN`/`intN` conversion target, as `(signed, bits)`.
+    (Word-width `uint256`/`int256` already check at full width, so they need no
+    special handling.) -/
+def Ty.narrowIntCastTarget? : Ty -> Option (Bool × Nat)
+  | Ty.uint bits => if 0 < bits && bits < 256 then some (false, bits) else none
+  | Ty.int bits => if 0 < bits && bits < 256 then some (true, bits) else none
+  | _ => none
+
+/-- Overflow-relevant arithmetic operators — the ones whose checked evaluation
+    can Panic 0x11/0x12 at the operand width. -/
+def BinaryOp.isOverflowArithmetic : BinaryOp -> Bool
+  | BinaryOp.add | BinaryOp.sub | BinaryOp.mul
+  | BinaryOp.div | BinaryOp.mod | BinaryOp.exp => true
+  | _ => false
+
+/-- Peel whole-expression narrow-int/uint conversions off `expr` to reach an
+    arithmetic binary underneath, returning its operator and operands. The
+    `annotateAbi` pass re-wraps a conversion argument in a redundant same-type
+    conversion (`uint8(a + b)` → `uint8(uint8(a + b))`), so the inner arithmetic
+    can sit under one or more narrow casts. Peeling only strips casts that wrap
+    the *entire* expression — operand-level casts stay inside `Expr.binary`, so
+    an explicitly-widened `uint8(uint256(a) + uint256(b))` is untouched and keeps
+    its 256-bit (non-panicking) semantics. -/
+def Expr.peelToOverflowArithmetic? :
+    Expr -> Option (BinaryOp × Expr × Expr)
+  | Expr.binary bop lhs rhs =>
+      if BinaryOp.isOverflowArithmetic bop then some (bop, lhs, rhs) else none
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.narrowIntCastTarget? castTy with
+      | some _ => Expr.peelToOverflowArithmetic? inner
+      | none => none
+  | _ => none
+
 def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   match Expr.toCoreIncDecWithEnv? storageNames env expr with
@@ -6464,6 +6497,40 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
       | some coreExpr => some coreExpr
       | none =>
           match expr with
+          | Expr.call (Expr.typeName castTy) [Arg.positional argExpr] =>
+              -- H2 (SOUNDNESS): a narrow `uintN`/`intN` explicit cast of a
+              -- checked arithmetic sub-expression must evaluate that
+              -- sub-expression at ITS OWN operand width (so the narrow overflow
+              -- Panic 0x11 fires), then convert. The generic fallback lowers the
+              -- argument through the env-less `toCore?` cast path, which drops
+              -- the operands' `uintCleanup`/`intCleanup` and runs the inner
+              -- add/sub/mul at 256 bits — silently wrapping instead of
+              -- panicking. This covers both bare `uint8(a + b)` and, since
+              -- `Small.wrap(x)` lowers to `uint8(x)`, UDVT operator-function
+              -- bodies like `Small.wrap(Small.unwrap(a) + Small.unwrap(b))`.
+              (match Ty.narrowIntCastTarget? castTy,
+                    Expr.peelToOverflowArithmetic? argExpr with
+              | some (signed, bits), some (bop, lhs, rhs) =>
+                  match Expr.binaryToCoreWithEnvTyped?
+                      storageNames env bop lhs rhs with
+                  | some (srcTy, binaryCore) =>
+                      -- `binaryToCoreWithEnvTyped?` returns the bare `add`/… with
+                      -- cleaned operands; the checked overflow test lives in the
+                      -- result cleanup (`uintCleanup`/`intCleanup`) at the
+                      -- operands' own width `srcTy` — that is the Panic 0x11 the
+                      -- env-less cast path dropped. The explicit narrow cast then
+                      -- truncates the (checked) result to `bits`.
+                      let checkedBinary :=
+                        Ty.implicitCleanupCore srcTy binaryCore
+                      some
+                        (if signed then
+                          SolidCore.Solidity.Source.Expr.intCast bits checkedBinary
+                        else
+                          SolidCore.Solidity.Source.Expr.uintCast bits checkedBinary)
+                  | none =>
+                      Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+              | _, _ =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.ternary cond thenExpr elseExpr => do
               let condCore ←
                 Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
@@ -13494,7 +13561,17 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (fun resultExpr =>
             SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames fallback
+      | none =>
+          -- H2: route a conversion-typed return through the type-directed
+          -- elaboration (which keeps a narrow `uintN`/`intN` cast of a checked
+          -- arithmetic argument at its operand width, so the overflow Panic
+          -- 0x11 survives). `returnValuesCoreWithReturnTys?` itself falls back
+          -- to the env-less `Stmt.toCore?` shape when the type-directed path
+          -- does not apply, so no previously-accepted return regresses.
+          match returnValuesCoreWithReturnTys? storageNames env returnTys
+              (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames fallback
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
       | some coreStmt => some coreStmt
