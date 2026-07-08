@@ -2703,3 +2703,44 @@ when the else-branch type is not structurally inferable. `abiTy?` cannot resolve
 local-variable branch types, so the pinning lane uses explicit casts
 (`uint8(0x11)`/`uint16(0x2233)`) which `abiTy?` resolves. Pinned by the new
 `packed-ternary-width` lane (both branches, Forge-paired-green).
+
+## 2026-07-08 — Builtin blind-spot closure: sha256, ripemd160, blockhash, blobhash pinned
+
+`docs/solidity-feature-coverage.md` flagged four builtins as SUPPORTED-UNTESTED
+(elaborated in `Interface.lean`, exercised by ZERO corpus lanes): `sha256(bytes)`
+(precompile 0x02), `ripemd160(bytes)` (0x03 → `bytes20`), `blockhash(uint)`
+(BLOCKHASH), and `blobhash(uint)` (BLOBHASH, EIP-4844). Their result fidelity vs
+the pinned solc 0.8.35 / Foundry-EVM had never been differentially checked.
+
+Two new Forge-paired lanes now pin them; both `forge=ok lean=ok`,
+`forge_interpreter_compare=pass`. NO interpreter change was needed — every value
+matched the EVM on the first differential run.
+
+- `hash-precompile-builtins` — `sha256Of`/`ripemd160Of`/`ripemd160Word` over
+  four payloads (empty, `hex"010203"`, one 32-byte word, a 40-byte `>32`
+  payload). Ground-truth digests were read from the precompile returns in a
+  Foundry `-vvvv` trace, then asserted in `HashPrecompiles.t.sol`. The Lean lane
+  imports the same solc AST and, under `responderOfResults` scripted with those
+  SAME digests, drives the interpreter: because the open-world responder matches
+  a precompile STATICCALL by (kind, target, calldata, value), a green lane proves
+  the interpreter forms the precompile calldata as the raw payload (no length
+  prefix) and decodes the 32-byte digest word identically. sha256 returns
+  `bytes32` (natural); `ripemd160`'s `bytes20` is right-aligned numerically
+  inside the interpreter (documented convention, Interpreter.lean ~L469), so the
+  value-level witness compares the numeric digest via `ripemd160Word`, while the
+  Forge side additionally pins the on-chain left-aligned `bytes20`/`bytes32`
+  widening (`0x79f9…d57` → `0x79f9…d57000…000`).
+
+- `block-env-builtins` — `blockHashOf`/`blobHashOf`. `vm.roll` fixes
+  `block.number = 1000` so Foundry's blockhash of recent blocks is deterministic
+  (verified stable across two runs). Pinned: current (1000)→0, recent
+  (999)→`0xf022…3d10`, boundary `number-256` (744)→`0x7468…279c`, too-old
+  `number-257` (743)→0, future (1001)→0; `blobhash(0)`/`blobhash(1)`→0 (non-blob
+  tx). The Lean lane builds a context whose `blockHashes` map carries the two
+  real hashes AND non-zero DECOYS at the three out-of-window slots (1000, 1001,
+  743), so a green lane proves the interpreter's availability-window predicate
+  (`requested < number && number - requested <= 256`) — not a mere map miss — is
+  what forces 0. blobhash reads the empty `txEnv.blobHashes` under the default
+  Cancun version → 0, matching EIP-4844's non-blob-tx behavior.
+
+No soundness bug found: all four builtins already matched EVM ground truth.
