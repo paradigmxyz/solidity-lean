@@ -9564,6 +9564,13 @@ def pathAllIn (targets allowed : List Path) : Bool :=
 def pathSetsEqual (left right : List Path) : Bool :=
   pathAllIn left right && pathAllIn right left
 
+/-- solc `OverrideChecker.cpp:850-879` (`checkOverrideList`, error 4520) rejects a
+duplicate contract in an `override(...)` list, e.g. `override(A, A)`. -/
+def pathListHasDuplicate : List Path -> Bool
+  | [] => false
+  | path :: rest =>
+      TypeContext.pathIn path rest || pathListHasDuplicate rest
+
 def StateVarDecl.publicGetterOverrideMember? (types : TypeContext)
     (contractName : Name) (localTypeNames : List Name)
     (origin : Path) (originKind : Solidity.ContractKind)
@@ -9743,6 +9750,8 @@ def checkOverrideSpecifier (ancestorPaths : List Path)
     Except TypeError Unit := do
   require (pathAllIn specifier.bases ancestorPaths)
     (TypeError.invalidOverride "override specifier names a non-base contract")
+  require (!pathListHasDuplicate specifier.bases)
+    (TypeError.invalidOverride "duplicate contract in override list")
   if specifier.bases.isEmpty then
     require (baseMatches.length <= 1)
       (TypeError.invalidOverride "multiple base overrides require base list")
@@ -10116,6 +10125,9 @@ def checkModifierOverrideUse (ancestorPaths : List Path)
       require (pathAllIn specifier.bases ancestorPaths)
         (TypeError.invalidOverride
           "modifier override specifier names a non-base contract")
+      require (!pathListHasDuplicate specifier.bases)
+        (TypeError.invalidOverride
+          "duplicate contract in modifier override list")
       if specifier.bases.isEmpty then
         require (baseMatches.length <= 1)
           (TypeError.invalidOverride
