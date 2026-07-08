@@ -7039,11 +7039,17 @@ def checkExpr (env : CheckEnv) :
             thenChecked.ty elseChecked.ty)
         (TypeError.expectedType thenChecked.ty elseChecked.ty)
       let resultTy :=
-        if TypeContext.canImplicitlyConvert env.types
-            elseChecked.ty thenChecked.ty then
-          thenChecked.ty
-        else
-          elseChecked.ty
+        -- A conditional of two untyped number literals adopts the ternary's
+        -- COMMON (mobile) type (solc `TypeChecker::visit(Conditional)`), e.g.
+        -- `(t ? 63 : 255) : uint8`, so narrowing/arithmetic use that width.
+        match Solidity.Executable.Expr.untypedLiteralMobileTy? expr with
+        | some mobileTy => mobileTy
+        | none =>
+            if TypeContext.canImplicitlyConvert env.types
+                elseChecked.ty thenChecked.ty then
+              thenChecked.ty
+            else
+              elseChecked.ty
       let resultLocation :=
         if thenChecked.dataLocation? == elseChecked.dataLocation? then
           thenChecked.dataLocation?

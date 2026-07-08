@@ -5251,7 +5251,7 @@
     },
     {
       "name": "mutability-relax-override",
-      "description": "G19 pin (docs/solidus-solc-deep-comparison.md): overrides that RELAX (narrow) state mutability — base view overridden pure, base nonpayable overridden view. Pinned solc accepts both (warnings only) and virtual dispatch reaches the override bodies; ground truth from Forge (runTag(5)=7, runBump(5)=25). Lean imports the same source and own-calls the derived entrypoints, pinning acceptance + value.",
+      "description": "G19 pin (docs/solidus-solc-deep-comparison.md): overrides that RELAX (narrow) state mutability \u2014 base view overridden pure, base nonpayable overridden view. Pinned solc accepts both (warnings only) and virtual dispatch reaches the override bodies; ground truth from Forge (runTag(5)=7, runBump(5)=25). Lean imports the same source and own-calls the derived entrypoints, pinning acceptance + value.",
       "forge": {
         "match_contract": "MutabilityRelaxOverrideForgeTest",
         "match_test": "test*",
@@ -5311,7 +5311,7 @@
           {
             "expect": "Except.ok true",
             "label": "viaInt",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.callContract 4000 SolidCore.Solidity.SolcAstImport.UsingForWildcard.importedSourceUnit \"UsingForWildcardHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"viaInt\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-4))]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int value] => Except.ok (SolidCore.Solidity.Source.wordEq value (SolidCore.Solidity.Shared.signedToWord (-12)))\n  | _ => Except.ok false)"
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 4000 SolidCore.Solidity.SolcAstImport.UsingForWildcard.importedSourceUnit \"UsingForWildcardHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"viaInt\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-4))]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int value] => Except.ok (SolidCore.Solidity.Source.wordEq value (SolidCore.Solidity.Shared.signedToWord (-12)))\n  | _ => Except.ok false)"
           },
           {
             "expect": "Except.ok true",
@@ -5337,7 +5337,7 @@
     },
     {
       "name": "c99-scope-activation",
-      "description": "G21 pin (docs/solidus-solc-deep-comparison.md): C99 block-scope activation — a local is in scope only AFTER its declaration point, not hoisted to the top of its block. Each probe's value distinguishes C99 activation from whole-block hoisting: blockActivation()=1100 (inner `uint y = x` reads the OUTER x=1, not a hoisted inner x=0), selfInitFromOuter()=6 (inner `uint x = x + 1` initializer reads the OUTER x=5). Ground truth from Forge (warnings only).",
+      "description": "G21 pin (docs/solidus-solc-deep-comparison.md): C99 block-scope activation \u2014 a local is in scope only AFTER its declaration point, not hoisted to the top of its block. Each probe's value distinguishes C99 activation from whole-block hoisting: blockActivation()=1100 (inner `uint y = x` reads the OUTER x=1, not a hoisted inner x=0), selfInitFromOuter()=6 (inner `uint x = x + 1` initializer reads the OUTER x=5). Ground truth from Forge (warnings only).",
       "forge": {
         "match_contract": "C99ScopeActivationForgeTest",
         "match_test": "test*",
@@ -5392,7 +5392,7 @@
           {
             "expect": "Except.ok true",
             "label": "tryExternalFnReturnRoundTrips",
-            "expr": "(do\n  let selValue := SolidCore.Solidity.Source.ABI.selectorFromSignature \"value()\"\n  let cbValue := SolidCore.Solidity.Source.Value.externalFunction 0xbeef selValue\n  let outputA ← SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.externalFunction] [cbValue]\n  let rowA ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"getCb()\" [] [] outputA\n  let outputB ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalWordOutput 42\n  let rowB ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"value()\" [] [] outputB\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.TryExternalFnReturn.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"TryExternalFnReturnHarnessTarget\"\n  let callResult ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [rowA, rowB] []) contract \"tryGetAndCall\"\n    { contract.core.context with accountCodes := [(0xbeef, [1])] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word value] => Except.ok (SolidCore.Solidity.Source.wordEq value 42)\n  | _ => Except.ok false)"
+            "expr": "(do\n  let selValue := SolidCore.Solidity.Source.ABI.selectorFromSignature \"value()\"\n  let cbValue := SolidCore.Solidity.Source.Value.externalFunction 0xbeef selValue\n  let outputA \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.externalFunction] [cbValue]\n  let rowA \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"getCb()\" [] [] outputA\n  let outputB \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalWordOutput 42\n  let rowB \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"value()\" [] [] outputB\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.TryExternalFnReturn.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"TryExternalFnReturnHarnessTarget\"\n  let callResult \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [rowA, rowB] []) contract \"tryGetAndCall\"\n    { contract.core.context with accountCodes := [(0xbeef, [1])] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word value] => Except.ok (SolidCore.Solidity.Source.wordEq value 42)\n  | _ => Except.ok false)"
           }
         ],
         "imports": [
@@ -6201,6 +6201,74 @@
             "label": "g10MsgDataInFallbackAccepted",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.g10MsgDataInFallbackAccepted",
             "expect": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ternary-literal-mobile-type",
+      "description": "Forge checks solc/EVM conditional-of-literals typing: `(t ? 63 : 255)` carries the ternary's common (mobile) type uint8 (not uint256), assignable to a uint8 local, implicitly widening to uint256, and its `+1` overflows uint8 -> Panic 0x11; larger literals raise the common type to uint16. Lean imports the same contract from the solc AST and checks the source ternary mobile-type behavior (G15).",
+      "forge": {
+        "root": "tests/forge-harness/ternary-literal-mobile-type",
+        "match_contract": "TernaryLiteralMobileTypeForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/ternary-literal-mobile-type/src/TernaryLiteralMobileType.sol",
+        "contract": "TernaryLiteralMobileTypeHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedNarrowAssignTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"narrowAssign\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 63",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedNarrowAssignFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"narrowAssign\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 255",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWidenAssignTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"widenAssign\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 63",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWidenAssignFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"widenAssign\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 255",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWidthPanicTrueOk",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"widthPanic\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 64",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWidthPanicFalseOverflows",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"widthPanic\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedUint16CommonTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"uint16Common\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 300",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedUint16CommonFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryLiteralMobileType.importedContract \"uint16Common\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 400",
+            "expect": "Except.ok true"
           }
         ]
       }

@@ -3040,3 +3040,58 @@ frozen: only NEW lanes were added.
 
 No soundness bug found: all five pinned features already matched EVM ground
 truth; G22 is a documented out-of-scope limitation.
+
+## 2026-07-08 — G15: ternary-of-literals adopts the mobile common type (over-reject fixed)
+
+**solc semantics (confirmed).** `TypeChecker::visit(Conditional)`
+(`libsolidity/analysis/TypeChecker.cpp:1356-1418`) sets a conditional's type to
+`Type::commonType(trueExpr->mobileType(), falseExpr->mobileType())`. For two
+untyped number literals the `mobileType()` of each is the smallest integer type
+that holds it, so `(t ? 63 : 255)` is `uint8` (both mobiles `uint8`, common
+`uint8`), `(t ? 300 : 400)` is `uint16`, and a mixed-sign case like
+`t ? 1 : 2` typed `uint8` is (correctly) NOT implicitly convertible to `int8`
+(solc rejects `int8 r = t ? 1 : 2` — verified with the pin). The concrete type
+means the enclosing arithmetic runs at that width: `(t ? 63 : 255) + 1` adds in
+`uint8`, so `255 + 1` panics 0x11 in checked mode.
+
+**Wrong → right.** Solidus typed every number literal `uint256`
+(`TypeCheck.lean literalTy?`), and `abiTy?`/the typechecker's `Conditional` arm
+combined the branch types to `uint256`; the ternary was never recognized as an
+untyped-literal shape (`exprIsUntypedNumberLiteralExpression` excludes
+`ternary`). So `uint8 a = t ? 63 : 255;` was OVER-REJECTED (`uint256` not
+convertible to `uint8`), and `(t ? 63 : 255)` fed to narrow arithmetic mis-typed
+to `uint256`. No wrong value was ever emitted — it rejected at typecheck/elab.
+
+**Fix (mobile common type, no new literal-narrowing path).**
+- `Interface.lean` (`Executable`): new `smallestUintBits?`/`smallestIntBits?`
+  and `Expr.untypedLiteralMobileTy?` — the mobile type of an untyped
+  number-literal expression, recursing into a `ternary` via `Ty.commonImplicit?`
+  on the branch mobiles (returns `none` for any non-untyped-integer-literal
+  shape, so all other exprs keep existing behavior).
+- `Interface.lean Expr.abiTy?` ternary arm: return the mobile common type when
+  both branches are untyped literals (else the prior `commonImplicit`-of-branch
+  fallback, which S3's `packed-ternary-width` relies on). `abiTyWithEnv?` picks
+  this up through its `abiTy?` fast path, so `commonOperandTyWithEnv?` sees
+  `uint8` and arithmetic elaborates at the ternary width.
+- `TypeCheck.lean` `Conditional` arm: `resultTy` is the mobile common type when
+  applicable (else the prior implicit-convertibility pick). Deliberately NOT
+  marked `requiresExactLiteralFit`: the concrete type flows through the normal
+  implicit-conversion path (`uint8 → uint16/uint256` widening OK), matching solc.
+
+**Right value (Forge-verified).** Lane `ternary-literal-mobile-type`:
+`narrowAssign(true/false) = 63/255` (was over-rejected), `widenAssign = 63/255`
+(uint8→uint256 widen), `widthPanic(true) = 64` and `widthPanic(false)` PANIC
+0x11 (uint8 `255+1` overflow — width observable), `uint16Common(true/false) =
+300/400`. Forge `TernaryLiteralMobileTypeForgeTest` and the Lean
+`checkedOwnCall{Word,Panic}Matches` witnesses agree; `forge=ok lean=ok
+compare=pass`.
+
+**Note for the arithmetic-width sibling.** The `widthPanic` observable keeps the
+operand width equal to the assignment target (`uint8 r = (…)+1`), so it fires
+through the existing narrow-cleanup path. A ternary result WIDENED before its
+overflow is observed (`uint16 r = (t?63:255)+1`) does not panic here — that is
+the pre-existing narrow-arithmetic-widened gap (`uint8+uint8` assigned to
+`uint16` yields 256 today), which lives in the binary-operand-width machinery
+the sibling owns, not in ternary typing. `untypedLiteralMobileTy?` and
+`smallest{Uint,Int}Bits?` are new shared `Executable` helpers the sibling may
+also want for literal mobile types.
