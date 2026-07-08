@@ -64,8 +64,8 @@ so there is no frontend exactly-once rule for Solidus to miss.
 
 | # | Area | Direction | Severity | Confidence |
 |---|------|-----------|----------|------------|
-| **CL1** | base-ctor: bare modifier-style base-constructor call (no arg list) on a **zero-param** base | **over-accept** (Solidus accepts; solc errors 1563) | acceptance-boundary wrong-accept — niche, importer-masked | CONFIRMED |
-| **PK1** | `abi.encodePacked` of a **nested array** (`uint[2][3]`, array-of-array element) | **over-reject** (Solidus rejects; solc accepts) | COMPLETENESS — live differential edge | CONFIRMED |
+| **CL1** | base-ctor: bare modifier-style base-constructor call (no arg list) on a **zero-param** base | **over-accept** (Solidus accepts; solc errors 1563) | acceptance-boundary wrong-accept — niche, importer-masked | FIXED (2026-07-08) |
+| **PK1** | `abi.encodePacked` of a **nested array** (`uint[2][3]`, array-of-array element) | **over-reject** (Solidus rejects; solc accepts) | COMPLETENESS — live differential edge | FIXED (2026-07-08) |
 
 **PK1 is the only NEW finding with a live differential edge**: solc accepts
 `abi.encodePacked(uint[2][3])`, so the importer produces an AST and Solidus then
@@ -84,7 +84,18 @@ and overload resolution.
 
 ## 1. NEW findings
 
-### CL1 — bare modifier-style base-constructor call on a zero-param base — over-accept — CONFIRMED — NEW
+### CL1 — bare modifier-style base-constructor call on a zero-param base — over-accept — CONFIRMED — FIXED (2026-07-08)
+
+> **FIXED (2026-07-08, `gap/round3-pk1-cl1`).** `ModifierInvocation` now carries
+> `hasArgList : Bool := true` (`Ast.lean`); the importer sets it from solc's
+> `arguments == null` vs `[]` (`solc_ast_to_lean_source.py`); and
+> `ModifierInvocation.check` rejects a base-constructor modifier with
+> `hasArgList = false` (`TypeCheck.lean`, "modifier-style base constructor call
+> without arguments"). Matches solc: bare `Base` rejected regardless of base
+> constructor params; `Base()` and inheritance-list `Base(args)` accepted.
+> Witnesses `bareModifierBaseConstructorRejected` / `parenModifierBaseConstructorAccepted`;
+> solc-reject fixture `invalid/BareModifierBaseConstructor.sol`.
+
 
 - **solc** `ContractLevelChecker.cpp:359-383` (`checkBaseConstructorArguments`):
   for every modifier on a constructor that resolves to a base contract, if the
@@ -111,7 +122,24 @@ and overload resolution.
   harness (solc emits no AST for a rejected program) and syntactically unusual.
   Same class and direction as round-2 E1/O1.
 
-### PK1 — `abi.encodePacked` of a nested array — over-reject — CONFIRMED — NEW
+### PK1 — `abi.encodePacked` of a nested array — over-reject — CONFIRMED — FIXED (2026-07-08)
+
+> **FIXED (2026-07-08, `gap/round3-pk1-cl1`).** Two edits: (1)
+> `Ty.isAbiEncodePackedArrayElementShape` (`TypeCheck.lean`) gained a
+> `Ty.array element size` case that accepts a nested array iff its inner
+> dimension is **static** (`some _`) and recurses on the element — matching
+> `typeSupportedByOldABIEncoder` (reject only a dynamically-sized *base* array).
+> (2) The interpreter's `abiEncodePackedArrayElement?` (`Interpreter.lean`) now
+> recurses into a `fixedArray` element, padding each innermost value to a 32-byte
+> word in-place. Probe-confirmed boundary: `uint[2][3]`, `uint[2][]`,
+> `uint[2][2][2]` ACCEPT; `uint[][3]`, `uint[2][][2]`, `bytes[]`, `string[]`
+> REJECT (9578). Forge lane `packed-nested-static-array` pins the 128-byte padded
+> layout against solc's own `abi.encodePacked`; Lean value witnesses
+> `abiEncodePackedNestedStaticArrayValueMatches` /
+> `abiEncodePackedDynamicOuterStaticInnerValueMatches` pin the same bytes;
+> `invalid/PackedDynamicInnerArray.sol` guards against over-accepting a dynamic
+> inner dimension.
+
 
 - **solc** `TypeChecker.cpp:2167-2174` rejects a packed-encoding argument only
   when `!typeSupportedByOldABIEncoder(*argType, false)` (`9578_error` "Type not

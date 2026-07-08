@@ -4978,11 +4978,21 @@ def abiEncodePackedValue? : Ty -> Value -> Option (List Byte)
 
 def abiEncodePackedArrayElement? (ty : Ty) (value : Value) :
     Option (List Byte) :=
-  match ty with
-  | Ty.fixedArray _ _ => none
-  | Ty.dynamicArray _ => none
-  | Ty.tuple _ => none
-  | _ => abiEventIndexedBytes? true ty value
+  match ty, value with
+  -- A nested STATIC array element (e.g. the `uint[2]` inside `uint[2][3]`) is
+  -- packed by recursing element-wise; solc pads array elements to 32 bytes but
+  -- keeps them in-place, so the inner elements route back through the padded
+  -- element path. Dynamic-array elements are rejected upstream by the packed
+  -- type-shape check, so they stay unencodable here.
+  | Ty.fixedArray size elementTy, Value.fixedArray values =>
+      if values.length == size then
+        abiEncodePackedArrayValues? elementTy values
+      else
+        none
+  | Ty.fixedArray _ _, _ => none
+  | Ty.dynamicArray _, _ => none
+  | Ty.tuple _, _ => none
+  | _, _ => abiEventIndexedBytes? true ty value
 
 def abiEncodePackedArrayValues? (ty : Ty) :
     List Value -> Option (List Byte)

@@ -6783,6 +6783,48 @@
      }
     ]
    }
+  },
+  {
+   "name": "packed-nested-static-array",
+   "description": "Round-3 PK1/CL1 boundaries: solc ACCEPTS abi.encodePacked of a nested STATIC array (uint8[2][2], uint8[2][]) with a 32-byte-padded in-place layout, while rejecting a dynamic-element array (uint8[][3]); and solc REJECTS a bare modifier-style base-constructor call (error 1563). Forge/pinned-solc pin the packed layout and the two source rejections; Lean witnesses pin the accept/reject typecheck boundary and the packed byte layout.",
+   "forge": {
+    "root": "tests/forge-harness/packed-nested-static-array",
+    "match_contract": "PackedNestedStaticArrayForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_rejects": [
+    "tests/forge-harness/packed-nested-static-array/invalid/PackedDynamicInnerArray.sol",
+    "tests/forge-harness/packed-nested-static-array/invalid/BareModifierBaseConstructor.sol"
+   ],
+   "solc_import": {
+    "source": "tests/forge-harness/packed-nested-static-array/src/PackedNestedStaticArray.sol",
+    "contract": "PackedNestedStaticArray",
+    "namespace": "SolidCore.Solidity.SolcAstImport.PackedNestedStaticArray"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "round3Pk1Cl1TypecheckDiscipline",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.abiEncodePackedNestedStaticArrayAccepted && SolidCore.Solidity.TypeCheck.Examples.abiEncodePackedDynamicInnerArrayRejected && SolidCore.Solidity.TypeCheck.Examples.abiEncodePackedStaticElementArrayAccepted && SolidCore.Solidity.TypeCheck.Examples.badAbiEncodePackedNestedArrayRejected && SolidCore.Solidity.TypeCheck.Examples.bareModifierBaseConstructorRejected && SolidCore.Solidity.TypeCheck.Examples.parenModifierBaseConstructorAccepted && SolidCore.Solidity.TypeCheck.Examples.baseConstructorModifierArgsAccepted && SolidCore.Solidity.TypeCheck.Examples.baseConstructorArgsAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedNestedStaticArraySourceAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.PackedNestedStaticArray.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "round3Pk1PackedValueLayout",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.abiEncodePackedNestedStaticArrayValueMatches && SolidCore.Solidity.TypeCheck.Examples.abiEncodePackedDynamicOuterStaticInnerValueMatches",
+      "expect": "true"
+     }
+    ]
+   }
   }
  ]
 }

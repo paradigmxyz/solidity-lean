@@ -9242,6 +9242,59 @@ def baseConstructorModifierArgsSource : Solidity.SourceUnit :=
 def baseConstructorModifierArgsAccepted : Bool :=
   sourceUnitAccepted? baseConstructorModifierArgsSource
 
+-- CL1: a bare modifier-style base-constructor call (`constructor() Base {}`,
+-- no argument list) is a declaration error in solc (1563), while the
+-- parenthesised form (`constructor() Base() {}`) is accepted. The two witnesses
+-- differ ONLY in `hasArgList`, isolating the boundary.
+def zeroParamBaseContract : Solidity.ContractDecl :=
+  { name := "ZeroParamBase"
+    items :=
+      [ Solidity.ContractItem.function
+          { kind := Solidity.FunctionKind.constructor
+            body := some Solidity.Stmt.empty } ] }
+
+def bareModifierBaseCtorDerived : Solidity.ContractDecl :=
+  { name := "BareModifierDerived"
+    bases := [{ base := userPath "ZeroParamBase" }]
+    items :=
+      [ Solidity.ContractItem.function
+          { kind := Solidity.FunctionKind.constructor
+            modifiers :=
+              [ { target := userPath "ZeroParamBase"
+                  args := []
+                  hasArgList := false } ]
+            body := some Solidity.Stmt.empty }
+      , Solidity.ContractItem.function simpleReturnFunction ] }
+
+def parenModifierBaseCtorDerived : Solidity.ContractDecl :=
+  { name := "ParenModifierDerived"
+    bases := [{ base := userPath "ZeroParamBase" }]
+    items :=
+      [ Solidity.ContractItem.function
+          { kind := Solidity.FunctionKind.constructor
+            modifiers :=
+              [ { target := userPath "ZeroParamBase"
+                  args := []
+                  hasArgList := true } ]
+            body := some Solidity.Stmt.empty }
+      , Solidity.ContractItem.function simpleReturnFunction ] }
+
+def bareModifierBaseConstructorSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract zeroParamBaseContract
+      , Solidity.SourceItem.contract bareModifierBaseCtorDerived ] }
+
+def bareModifierBaseConstructorRejected : Bool :=
+  Result.isError (SourceUnit.check bareModifierBaseConstructorSource)
+
+def parenModifierBaseConstructorSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract zeroParamBaseContract
+      , Solidity.SourceItem.contract parenModifierBaseCtorDerived ] }
+
+def parenModifierBaseConstructorAccepted : Bool :=
+  sourceUnitAccepted? parenModifierBaseConstructorSource
+
 def derivedBaseConstructorDuplicate :
     Solidity.ContractDecl :=
   { derivedBaseConstructorModifierGood with
@@ -23395,6 +23448,120 @@ def abiEncodePackedStaticElementArraySource :
 
 def abiEncodePackedStaticElementArrayAccepted : Bool :=
   sourceUnitAccepted? abiEncodePackedStaticElementArraySource
+
+-- PK1: solc ACCEPTS packed encoding of a nested STATIC array whose ultimate
+-- element is a static value type (`uint8[2][2]`). Mirrors the solc-accepting
+-- Forge lane `packed-nested-static-array`; the doubly-dynamic case above stays
+-- rejected.
+def abiEncodePackedNestedStaticArraySource :
+    Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "AbiEncodePackedNestedStaticArray"
+            items :=
+              [ Solidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "packMatrix"
+                    params :=
+                      [ { name := some "matrix"
+                          ty :=
+                            Solidity.Ty.array
+                              (Solidity.Ty.array (Solidity.Ty.uint 8) (some 2))
+                              (some 2)
+                          location :=
+                            some Solidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "abi")
+                                "encodePacked")
+                              [Solidity.Arg.positional
+                                (Solidity.Expr.ident
+                                  "matrix")]))) } ] } ] }
+
+def abiEncodePackedNestedStaticArrayAccepted : Bool :=
+  sourceUnitAccepted? abiEncodePackedNestedStaticArraySource
+
+-- PK1 guard: a nested array whose inner dimension is DYNAMIC (`uint8[][3]`)
+-- stays rejected, matching solc error 9578.
+def abiEncodePackedDynamicInnerArraySource :
+    Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "AbiEncodePackedDynamicInnerArray"
+            items :=
+              [ Solidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "packGrid"
+                    params :=
+                      [ { name := some "grid"
+                          ty :=
+                            Solidity.Ty.array
+                              (Solidity.Ty.array (Solidity.Ty.uint 8) none)
+                              (some 3)
+                          location :=
+                            some Solidity.DataLocation.memory } ]
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "abi")
+                                "encodePacked")
+                              [Solidity.Arg.positional
+                                (Solidity.Expr.ident
+                                  "grid")]))) } ] } ] }
+
+def abiEncodePackedDynamicInnerArrayRejected : Bool :=
+  Result.isError (SourceUnit.check abiEncodePackedDynamicInnerArraySource)
+
+-- PK1 value pin: the interpreter's packed encoder emits each innermost element
+-- padded to a 32-byte word, in-place — so `uint8[2][2] = [[1,2],[3,4]]` packs to
+-- word(1)‖word(2)‖word(3)‖word(4) (128 bytes). This is the exact layout the
+-- Forge lane confirms against solc's own `abi.encodePacked`.
+def abiEncodePackedNestedStaticArrayValueMatches : Bool :=
+  (SolidCore.Solidity.Source.abiEncodePackedValue?
+      (SolidCore.Solidity.Source.Ty.fixedArray 2
+        (SolidCore.Solidity.Source.Ty.fixedArray 2
+          SolidCore.Solidity.Source.Ty.uint256))
+      (SolidCore.Solidity.Source.Value.fixedArray
+        [ SolidCore.Solidity.Source.Value.fixedArray
+            [SolidCore.Solidity.Source.Value.word 1,
+              SolidCore.Solidity.Source.Value.word 2]
+        , SolidCore.Solidity.Source.Value.fixedArray
+            [SolidCore.Solidity.Source.Value.word 3,
+              SolidCore.Solidity.Source.Value.word 4] ]))
+    ==
+      some
+        (SolidCore.Solidity.Source.ABI.encodeWord 1 ++
+          SolidCore.Solidity.Source.ABI.encodeWord 2 ++
+          SolidCore.Solidity.Source.ABI.encodeWord 3 ++
+          SolidCore.Solidity.Source.ABI.encodeWord 4)
+
+-- PK1 value pin (dynamic outer, static inner): `uint8[2][] = [[9,8],[7,6]]`
+-- packs to the same 128-byte padded layout.
+def abiEncodePackedDynamicOuterStaticInnerValueMatches : Bool :=
+  (SolidCore.Solidity.Source.abiEncodePackedValue?
+      (SolidCore.Solidity.Source.Ty.dynamicArray
+        (SolidCore.Solidity.Source.Ty.fixedArray 2
+          SolidCore.Solidity.Source.Ty.uint256))
+      (SolidCore.Solidity.Source.Value.dynamicArray
+        [ SolidCore.Solidity.Source.Value.fixedArray
+            [SolidCore.Solidity.Source.Value.word 9,
+              SolidCore.Solidity.Source.Value.word 8]
+        , SolidCore.Solidity.Source.Value.fixedArray
+            [SolidCore.Solidity.Source.Value.word 7,
+              SolidCore.Solidity.Source.Value.word 6] ]))
+    ==
+      some
+        (SolidCore.Solidity.Source.ABI.encodeWord 9 ++
+          SolidCore.Solidity.Source.ABI.encodeWord 8 ++
+          SolidCore.Solidity.Source.ABI.encodeWord 7 ++
+          SolidCore.Solidity.Source.ABI.encodeWord 6)
 
 def bytesConcatSource : Solidity.SourceUnit :=
   { items :=
