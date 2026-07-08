@@ -1099,33 +1099,40 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
             actualMutability expectedMutability
     | _, _ => false
 
--- G14: acceptance of a copy assignment INTO a (non-pointer) storage array with
--- an implicitly-convertible element type and/or a differing length. solc's rule
--- (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
--- `Types.cpp:1640-1648`) is: base implicitly convertible; dynamic dest accepts
--- any length; fixed dest `T[N]` requires fixed source `S[M]` with `N ≥ M`; the
--- copy converts elements and zero-fills the tail.
+-- G14 / R2: acceptance of a copy assignment INTO a (non-pointer) storage array
+-- with an implicitly-convertible element type and/or a differing length. solc's
+-- rule (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
+-- `Types.cpp:1628-1665`) is: base implicitly convertible; a DYNAMIC dest accepts
+-- any source length (dynamic or fixed source); a FIXED dest `T[N]` requires a
+-- FIXED source `S[M]` with `N ≥ M`. The runtime resizes/pads the dest to the
+-- source length, converts each element (sign/zero-extending an integer widening
+-- to the dest width — a widening never overflows, so never Panic 0x11), and
+-- zero-fills / pads the tail (probed against the pin, 2026-07-08):
+--   * dyn dest ← fixed src ACCEPT; fixed dest N<M REJECT; fixed dest N≥M ACCEPT;
+--   * signed↔unsigned base REJECT; base narrowing REJECT; fixed dest ← dyn src
+--     REJECT (all mirrored by the base/length checks below).
 --
--- We only ACCEPT the subset whose copied VALUES the interpreter reproduces
--- EXACTLY (verified against Forge): a DYNAMIC unsigned-integer destination with
--- an unsigned-integer source of ≤ width (`uintM[] = uintN[]`, `N ≤ M`). Here the
--- element magnitude always fits the wider dest, and the dynamic dest's
--- deep-clear write already resizes and zero-fills. The remaining solc-accepted
--- shapes are deliberately left as harmless over-rejects rather than accepted
--- with a wrong value (see the 2026-07-08 G14 DECISIONS entry):
---   * SIGNED element widening (`int8[] → int16[]`) — the sign-extended element
---     currently mis-cleans on the narrow-dest write (Panic 0x11);
---   * FIXED-length dest `T[N] = S[M]` (N > M) — the write cannot yet pad the
---     tail to N (Panic 0x00).
--- The strict same-base rule still governs pointer/memory targets and every
--- non-storage context, so this is only consulted for a storage-variable dest.
+-- The base must be an INTEGER type (uint/int) that `canImplicitlyConvert` maps
+-- (same-signedness widening — this already forbids signed↔unsigned and
+-- narrowing, exactly as solc). Restricting to integer bases keeps every accepted
+-- shape one whose copied VALUES the interpreter reproduces bit-for-bit against
+-- Forge (see the R2 DECISIONS entry). The strict same-base rule still governs
+-- pointer/memory targets and every non-storage context, so this is only
+-- consulted for a genuine storage-variable dest.
+def Ty.integerArrayElemWiden? (srcElem destElem : Ty) : Bool :=
+  srcElem.isInteger && destElem.isInteger &&
+    Ty.canImplicitlyConvert srcElem destElem
+
 def Ty.storageArrayCopyAssignable? (destTy srcTy : Ty) : Bool :=
   match destTy, srcTy with
-  | Solidity.Ty.array (Solidity.Ty.uint destBits) none,
-    Solidity.Ty.array (Solidity.Ty.uint srcBits) _ =>
-      let destBits := if destBits == 0 then 256 else destBits
-      let srcBits := if srcBits == 0 then 256 else srcBits
-      srcBits <= destBits
+  -- Dynamic dest: any source length (dynamic OR fixed source).
+  | Solidity.Ty.array destElem none,
+    Solidity.Ty.array srcElem _ =>
+      Ty.integerArrayElemWiden? srcElem destElem
+  -- Fixed dest `T[N]`: fixed source `S[M]` with N ≥ M.
+  | Solidity.Ty.array destElem (some n),
+    Solidity.Ty.array srcElem (some m) =>
+      m <= n && Ty.integerArrayElemWiden? srcElem destElem
   | _, _ => false
 
 def Ty.fixedBytesSize? : Ty -> Option Nat

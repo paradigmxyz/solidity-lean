@@ -4379,6 +4379,21 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.unary UnaryOp.postDecrement target => do
       let targetCore ← Expr.toCoreLValue? storageNames target
       some (SolidCore.Solidity.Source.Expr.postDecrement targetCore.toExpr)
+  | Expr.unary UnaryOp.neg (Expr.literal (Literal.number text)) => do
+      -- A bare negated numeric literal `-5` is an `int_const` in solc, not a
+      -- checked negation of an unsigned word. The env-less fallback formerly
+      -- lowered it to `-(word 5)`, which Panics 0x11 under a checked unary `-`
+      -- on an unsigned operand (e.g. `signedArray.push(-5)`; the type-directed
+      -- paths, H1, cover the arithmetic sites). Fold to a signed constant.
+      let n ← parseNumberNat? text
+      some
+        (SolidCore.Solidity.Source.Expr.intWord
+          (SolidCore.Solidity.Shared.signedToWord (-(Int.ofNat n))))
+  | Expr.unary UnaryOp.neg (Expr.literal (Literal.unitNumber text unit)) => do
+      let n ← parseUnitNumberNat? text unit
+      some
+        (SolidCore.Solidity.Source.Expr.intWord
+          (SolidCore.Solidity.Shared.signedToWord (-(Int.ofNat n))))
   | Expr.unary op expr => do
       let coreOp ← UnaryOp.toCore? op
       let coreExpr ← Expr.toCore? storageNames expr

@@ -6512,6 +6512,49 @@
      }
     ]
    }
+  },
+  {
+   "name": "storage-array-copy-signed-fixed",
+   "description": "Forge checks solc/EVM storage-array copy for the shapes G14 deferred: SIGNED element widening (int8[] -> int16[], sign-extend each element, never overflows) and FIXED-length destinations (T[N] = S[M], N >= M) including signed, with the M..N tail padded 0. solc accepts these (ArrayType::isImplicitlyConvertibleTo); Solidus formerly over-rejected (canImplicitlyConvert had no array arm, and the fixed-dest write could not pad). Lean imports the same contract from the solc AST and runs the source semantics (R2).",
+   "forge": {
+    "root": "tests/forge-harness/storage-array-copy-signed-fixed",
+    "match_contract": "StorageArrayCopySignedFixedForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/storage-array-copy-signed-fixed/src/StorageArrayCopySignedFixed.sol",
+    "contract": "StorageArrayCopySignedFixedHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.StorageArrayCopySignedFixed"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.StorageArrayCopySignedFixed.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedSignedWiden",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntTripleMatches 256 SolidCore.Solidity.SolcAstImport.StorageArrayCopySignedFixed.importedContract \"signedWiden\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Shared.signedToWord (-5)) (SolidCore.Solidity.Shared.signedToWord 127) (SolidCore.Solidity.Shared.signedToWord 2)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "importedFixedDestSigned",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntQuintMatches 256 SolidCore.Solidity.SolcAstImport.StorageArrayCopySignedFixed.importedContract \"fixedDestSigned\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Shared.signedToWord (-1)) (SolidCore.Solidity.Shared.signedToWord 100) (SolidCore.Solidity.Shared.signedToWord (-128)) (SolidCore.Solidity.Shared.signedToWord 0) (SolidCore.Solidity.Shared.signedToWord 0)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "importedFixedDestUnsigned",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordQuadMatches 256 SolidCore.Solidity.SolcAstImport.StorageArrayCopySignedFixed.importedContract \"fixedDestUnsigned\" SolidCore.Solidity.Source.State.empty [] 200 255 0 0",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

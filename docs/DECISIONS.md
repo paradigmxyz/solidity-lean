@@ -3174,16 +3174,12 @@ wider dest): a DYNAMIC unsigned-integer dest with an unsigned-integer source of
 ≤ width (`uintM[] = uintN[]`, `N ≤ M`). No interpreter/elaboration change was
 needed for this subset.
 
-**Deliberately NOT accepted (left as harmless over-rejects, not wrong values).**
-The other solc-accepted shapes mis-compute in the current interpreter, so
-accepting them would be a SOUNDNESS regression (strictly worse than an
-over-reject), and were excluded from `storageArrayCopyAssignable?`:
-  * SIGNED element widening (`int8[] → int16[]`) — the sign-extended element
-    mis-cleans on the narrow-dest storage write → Panic 0x11 (observed);
-  * FIXED-length dest `T[N] = S[M]`, `N > M` — the storage write cannot yet pad
-    the tail from M to N → Panic 0x00 (observed).
-Both need the element-width storage read/write machinery (the sibling's
-BinaryOp/width domain) and a fixed-array pad-on-copy, respectively; deferred.
+**Initially NOT accepted (deferred; now FIXED under R2, 2026-07-08 residue
+cleanup, below).** The other solc-accepted shapes were left out of the first
+`storageArrayCopyAssignable?`:
+  * SIGNED element widening (`int8[] → int16[]`);
+  * FIXED-length dest `T[N] = S[M]`, `N > M`.
+Both are now accepted with Forge-verified values — see the R2 entry.
 
 **Right value (Forge-verified).** Lane `storage-array-copy-convert`:
 `widenU8toU16 = (255, 7, len 2)`, `widenU8toU256 = (1, 2, 3, len 3)`,
@@ -3312,6 +3308,60 @@ was not itself a tuple literal). No wrong value — rejected up front.
 `flatMulti = 10203012`, `nestedCalls = 102030345`, `nestedHole = 4099967` — Lean
 `checkedOwnCallWordMatches` witnesses reproduce all three exactly, including the
 left-to-right side-effect order. `forge=ok lean=ok compare=pass`.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no regression); new lane `forge=ok lean=ok`.
+
+## 2026-07-08 — R2 (residue cleanup): storage-array copy — signed widening + fixed-length dest (over-reject fixed)
+
+G14 deferred two storage-array-copy shapes as over-rejects. The maintainer's
+residue-cleanup pass requires them fixed. Both now compute Forge-exact values.
+
+**solc semantics (re-confirmed by probing the pin).** `ArrayType::
+isImplicitlyConvertibleTo` (`Types.cpp:1628-1665`): base implicitly convertible;
+a DYNAMIC dest accepts any source length (dynamic OR fixed source); a FIXED dest
+`T[N]` requires a FIXED source `S[M]` with `N ≥ M`. Probed accept/reject matrix
+(pin): dyn←fixed ACCEPT, fixed N<M REJECT, fixed N≥M ACCEPT, signed↔unsigned
+base REJECT, base narrowing REJECT, fixed←dyn REJECT. The runtime resizes/pads
+the dest, sign/zero-extends each element to the dest width (a widening never
+overflows → never Panic 0x11), and zero-fills the tail. Forge ground truth
+(`StorageArrayCopySignedFixedForgeTest`): `int8[]→int16[]` `[-5,127]`;
+`int8[3]→int16[5]` `[-1,100,-128,0,0]`; `uint8[2]→uint16[4]` `[200,255,0,0]`.
+
+**Fix.**
+- `TypeCheck.lean`: `Ty.storageArrayCopyAssignable?` rewritten to solc's rule —
+  dynamic dest ← any source length, fixed dest N≥M — with an INTEGER base
+  restriction (`Ty.integerArrayElemWiden?` = both integers and
+  `canImplicitlyConvert`, which already encodes same-signedness widening, so it
+  forbids signed↔unsigned and narrowing exactly as solc). Restricting to integer
+  bases keeps every accepted shape one whose copied values are Forge-verified.
+  Verified accept/reject matrix (9 cases) matches solc bit-for-bit; the
+  pointer-dest exclusion stays via the existing `stateLValue &&
+  !rebindsStoragePointer` call-site gate.
+- `Interpreter.lean`: (a) `loadStorageField` now materialises a whole
+  fixed-storage-array READ (was `typeMismatch`) via `loadStorageLayoutAt` — the
+  RHS of a fixed-array copy; (b) `Value.padFixedArrayTo` pads a shorter source
+  fixed-array to the dest length with the element default (`defaultLike`),
+  applied at the non-mutual store entry (`storeStorageField`) and in the
+  deep-clear fixed-array arm, so the value handed to the structural-recursive
+  `storeStorageLayoutAt` already has the exact length (padding elements inside
+  the mutual store would break structural recursion — verified). Signed element
+  widening needed NO copy change: the packed storage read (`intCast?` on the
+  masked field) already sign-extends, and the write (`coerceStorageWordAs` at the
+  normalized `int256` ty) packs the low bits correctly.
+- `Interface.lean` (`Expr.toCore?`): a bare negated numeric literal `-5`/`-1e18`
+  now folds to a signed constant (`Expr.intWord (signedToWord (-n))`) instead of
+  the env-less `-(word 5)`, which Panicked 0x11 under a checked unary `-` on an
+  unsigned operand. This surfaced only when POPULATING a signed dynamic array via
+  `signedArray.push(-5)` (index-writes and casts already worked); the fold makes
+  a bare `int_const` correct in every env-less position (the H1 type-directed
+  arithmetic paths are unaffected). A newly-added Witness helper
+  `checkedOwnCallIntQuintMatches` matches the 5-int fixed-dest return.
+
+**Right value (Forge-verified).** Lane `storage-array-copy-signed-fixed`:
+`signedWiden = (-5, 127, len 2)`, `fixedDestSigned = (-1, 100, -128, 0, 0)`,
+`fixedDestUnsigned = (200, 255, 0, 0)`. `forge=ok lean=ok compare=pass`. The
+prior `storage-array-copy-convert` (G14 unsigned/dynamic) lane still passes.
 
 Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `forge_interpreter_compare=pass` (no regression); new lane `forge=ok lean=ok`.

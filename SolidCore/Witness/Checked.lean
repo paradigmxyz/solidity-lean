@@ -4040,6 +4040,30 @@ def checkedOwnCallWordQuintMatches (fuel : Nat)
           SolidCore.Solidity.Source.wordEq e expectedE)
   | _ => Except.ok false
 
+def checkedOwnCallIntQuintMatches (fuel : Nat)
+    (decl : SourceContractDecl) (functionName : Name)
+    (state : CoreState) (args : List CoreValue)
+    (expectedA expectedB expectedC expectedD expectedE : Word) :
+    Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall fuel decl
+      (SolidCore.Solidity.Source.CallTarget.name functionName)
+      state args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned _
+      [ SolidCore.Solidity.Source.Value.int a
+      , SolidCore.Solidity.Source.Value.int b
+      , SolidCore.Solidity.Source.Value.int c
+      , SolidCore.Solidity.Source.Value.int d
+      , SolidCore.Solidity.Source.Value.int e ] =>
+      Except.ok
+        (SolidCore.Solidity.Source.wordEq a expectedA &&
+          SolidCore.Solidity.Source.wordEq b expectedB &&
+          SolidCore.Solidity.Source.wordEq c expectedC &&
+          SolidCore.Solidity.Source.wordEq d expectedD &&
+          SolidCore.Solidity.Source.wordEq e expectedE)
+  | _ => Except.ok false
+
 def checkedOwnCallWordQuadMatches (fuel : Nat)
     (decl : SourceContractDecl) (functionName : Name)
     (state : CoreState) (args : List CoreValue)

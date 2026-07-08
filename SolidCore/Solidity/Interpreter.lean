@@ -2808,6 +2808,25 @@ def coerceStorageWordAs (ty : Ty) (value : Value) :
       | some word => Except.ok word
       | none => Except.error RevertData.typeMismatch
 
+-- R2: pad a source fixed-array VALUE to a fixed destination's length by
+-- appending the element default (`defaultLike` of an existing element, which is
+-- the zero of that element's shape). Applied at the non-mutual store entry so
+-- the value handed to the structural-recursive `storeStorageLayoutAt` already
+-- has the exact length (padding elements would otherwise break its structural
+-- recursion). solc widens `T[N] = S[M]` (N ≥ M, guaranteed by the typecheck)
+-- and zero-fills the M..N tail.
+def Value.padFixedArrayTo (size : Nat) : Value -> Value
+  | Value.fixedArray values =>
+      if values.length < size then
+        match values with
+        | v :: _ =>
+            Value.fixedArray
+              (values ++ List.replicate (size - values.length) v.defaultLike)
+        | [] => Value.fixedArray values
+      else
+        Value.fixedArray values
+  | value => value
+
 def State.storeFixedArraySlots (state : State)
     (slot : Word) (elementTy : Ty) : Nat -> List Value ->
     Except RevertData State
@@ -3344,8 +3363,10 @@ def Runtime.loadStorageField (context : Context)
             State.loadStructSlots runtime.state field.slot
               { slot := 0, offset := 0 } tys
           Except.ok (Value.tuple values)
-      | some (StorageLayout.fixedArray _ _) =>
-          Except.error RevertData.typeMismatch
+      | some layout@(StorageLayout.fixedArray _ _) =>
+          -- R2: a whole-fixed-storage-array READ (e.g. the RHS of a storage
+          -- array copy `dstFixed = srcFixed`) materialises every element.
+          State.loadStorageLayoutAt runtime.state field.slot layout
       | some (StorageLayout.mapping _ _) =>
           Except.error RevertData.typeMismatch
       | some layout@(StorageLayout.packedScalar _ _ _ _) =>
@@ -3414,9 +3435,11 @@ def Runtime.storeStorageField (context : Context)
       let state ←
         State.storeStorageLayoutAt runtime.state field.slot layout value
       Except.ok { runtime with state }
-  | some layout@(StorageLayout.fixedArray _ _) => do
+  | some layout@(StorageLayout.fixedArray size _) => do
+      -- R2: pad a shorter source fixed-array to the dest length before storing.
       let state ←
-        State.storeStorageLayoutAt runtime.state field.slot layout value
+        State.storeStorageLayoutAt runtime.state field.slot layout
+          (value.padFixedArrayTo size)
       Except.ok { runtime with state }
   | some (StorageLayout.mapping _ _) =>
       Except.error RevertData.typeMismatch
@@ -3683,6 +3706,16 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
             Except.error RevertData.typeMismatch
       | StorageLayout.fixedArray size elementLayout,
           Value.fixedArray values => do
+          -- R2: fixed-dest copy `T[N] = S[M]`, N > M — pad the tail with the
+          -- element default (typecheck guarantees N ≥ M).
+          let values :=
+            if values.length < size then
+              match values with
+              | v :: _ =>
+                  values ++ List.replicate (size - values.length) v.defaultLike
+              | [] => values
+            else
+              values
           if values.length == size then
             (List.range values.length).zip values |>.foldlM
               (fun state pair => do
