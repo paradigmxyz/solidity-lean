@@ -1,0 +1,9 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Snd", "function": "run", "args": [], "value": 0 },
+  "expected_divergence": "SYNTHETIC: Solidus runs but returns the wrong value. run_samples.py simulates the wrong Solidus observable (success|w:999) because the known soundness bugs are being fixed; the point is to prove the comparator classifies a mismatch as SOUNDNESS_GAP (lane S, wrong-value).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:5" },
+  "feature": "synthetic-wrong-value-demo",
+  "synthetic": true,
+  "register_version_seen": "1.0.0"
+}

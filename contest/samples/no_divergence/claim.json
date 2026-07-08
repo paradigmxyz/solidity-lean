@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Arith", "function": "add", "args": [2, 3], "value": 0 },
+  "expected_divergence": "none expected - this is the NO_DIVERGENCE control: an ordinary contract Solidus handles correctly, whose Solidus observable equals solc+EVM.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:5" },
+  "feature": "checked-addition",
+  "register_version_seen": "1.0.0"
+}

@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "GasHider", "function": "entry", "args": [], "value": 0 },
+  "expected_divergence": "entrant claims Solidus returns a different gasleft() value than solc+EVM.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:12345" },
+  "feature": "gasleft-as-observable",
+  "register_version_seen": "1.0.0"
+}
