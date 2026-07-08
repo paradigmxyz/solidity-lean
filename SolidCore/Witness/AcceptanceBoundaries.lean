@@ -359,6 +359,88 @@ def g10FallbackMsgDataContract : ContractDecl :=
 def g10MsgDataInFallbackAccepted : Bool :=
   sourceUnitAccepted? { items := [SourceItem.contract g10FallbackMsgDataContract] }
 
+-- ===========================================================================
+-- G8 — `revert E(...)` where a contract-level NON-error member (function or
+-- state var) shadows a free error `E` is REJECTED (solc: "Expression has to be
+-- an error." / "This expression is not callable."). solc resolves `E` to its
+-- innermost declaration and rejects a revert of a non-error. Neighbors that
+-- stay ACCEPTED: a genuine contract error `E`, and a bare free error `E` with
+-- no shadowing member.
+-- ===========================================================================
+
+private def g8RevertE : Stmt :=
+  Stmt.revertCall (Expr.call (Expr.ident "E") [Arg.positional (numberExpr "1")])
+
+private def g8FreeErrorE : SourceItem :=
+  SourceItem.freeError
+    { name := "E", params := [{ name := none, ty := uint256, location := none }] }
+
+-- free error E shadowed by a contract FUNCTION E.
+def g8ErrorShadowedByFunctionSource : SourceUnit :=
+  { items :=
+      [ g8FreeErrorE
+      , SourceItem.contract
+          { name := "G8Fn"
+            items :=
+              [ ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "E"
+                    params := [{ name := some "x", ty := uint256, location := none }]
+                    returns := [{ name := none, ty := uint256, location := none }]
+                    body := some (Stmt.returnValues (some (Expr.ident "x"))) }
+              , ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "f"
+                    body := some g8RevertE } ] } ] }
+
+-- free error E shadowed by a contract STATE VAR E.
+def g8ErrorShadowedByStateVarSource : SourceUnit :=
+  { items :=
+      [ g8FreeErrorE
+      , SourceItem.contract
+          { name := "G8State"
+            items :=
+              [ ContractItem.stateVar { name := "E", ty := uint256 }
+              , ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "f"
+                    mutability := StateMutability.nonpayable
+                    body := some g8RevertE } ] } ] }
+
+def g8ErrorShadowRejected : Bool :=
+  Result.isError (SourceUnit.check g8ErrorShadowedByFunctionSource) &&
+    Result.isError (SourceUnit.check g8ErrorShadowedByStateVarSource)
+
+-- Neighbors that stay ACCEPTED: a genuine contract error, and a free error not
+-- shadowed by any contract member.
+def g8ContractErrorSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "G8OkContract"
+            items :=
+              [ ContractItem.errorDecl
+                  { name := "E"
+                    params := [{ name := none, ty := uint256, location := none }] }
+              , ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "f"
+                    body := some g8RevertE } ] } ] }
+
+def g8FreeErrorSource : SourceUnit :=
+  { items :=
+      [ g8FreeErrorE
+      , SourceItem.contract
+          { name := "G8OkFree"
+            items :=
+              [ ContractItem.function
+                  { simpleReturnFunction with
+                    name := some "f"
+                    body := some g8RevertE } ] } ] }
+
+def g8ErrorNeighborsAccepted : Bool :=
+  sourceUnitAccepted? g8ContractErrorSource &&
+    sourceUnitAccepted? g8FreeErrorSource
+
 end Examples
 end TypeCheck
 end Solidity

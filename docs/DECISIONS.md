@@ -2938,31 +2938,36 @@ FIXED over-accepts (Solidus was accepting programs solc rejects):
 PROBED and SKIPPED (real divergence confirmed, but out-of-scope / unreachable /
 needs machinery with over-reject risk beyond the acceptance predicate):
 
-- **G8 — `revert name(args)` shadowed by a callable.** The doc's own case
-  (`revertStatement/using_function.sol`) is a *free error* `f` shadowed by a
-  *contract function* `f`; solc resolves the innermost declaration and errors 1885.
-  Two contract-level members of the same name can't coexist ("Identifier already
-  declared"), and Solidus already rejects `revert f(...)` when no matching error is
-  in `env.errors`. The genuine over-accept needs error-vs-callable *scope-shadowing
-  precedence* (free error masked by a contract member of equal arity) that Solidus
-  does not model; deferred as obscure with real over-reject risk.
+- **G8 — `revert name(args)` shadowed by a callable. FIXED under R3 (2026-07-08
+  residue cleanup, below).** A free error `E` masked by a contract-level
+  non-error member `E` (function or state var) was an over-accept (Solidus
+  resolved `revert E(...)` to the free error in `env.errors`, ignoring the
+  shadow). Now rejected, matching solc (TypeError 1885).
 
-- **G11 — cross-contract `creationCode`/`runtimeCode` cycle.** solc TypeError 7813
-  (whole-program bytecode-dependency cycle). Confirmed solc rejects `type(C).
-  creationCode` inside `C`, but detection requires a whole-program cycle pass that
-  does not exist here; esoteric and unreachable on a solc-validated corpus.
-  Deferred.
+- **G11 — `creationCode`/`runtimeCode` cycle. RE-EXAMINED under R3 — Solidus is
+  already correct for the SELF cycle, no fix needed.** solc rejects `type(C).
+  creationCode`/`runtimeCode` inside `C` (circular reference). Probed Solidus
+  (hand-built AST): it REJECTS `type(C).creationCode` inside `C` (verdict matches
+  solc — accept/reject aligns; the message differs) while ACCEPTING
+  `type(Other).creationCode`. So there is NO over-accept for the single-contract
+  self cycle. A CROSS-contract cycle (C↔D) needs a whole-program bytecode-
+  dependency pass Solidus does not run, but such a program is solc-rejected and
+  therefore never reaches the solc-AST importer — unreachable in the differential
+  pipeline. Stays as an intentional whole-program OOS.
 
 - **G12 — `_` as an identifier.** solc DeclarationError 3726 ("The name `_` is
   reserved"). Rejected by solc at name resolution *before* AST import, so it is
   unreachable through the solc-AST importer; the divergence can never be observed
   by Solidus in this pipeline. Skipped per the reachability guidance.
 
-- **G16 — `try` on a library external call.** Confirmed solc ACCEPTS `try L.f()`
-  for a `public`/`external` library function (over-reject on the Solidus side).
-  External library calls (delegatecall dispatch to a separately-deployed library)
-  are outside Solidus's open-world execution model, so loosening the try-target
-  check would accept a shape the interpreter cannot execute; left as-is.
+- **G16 — `try` on a library external call. RE-CONFIRMED under R3 — stays as a
+  documented over-reject (execution-model bound).** solc ACCEPTS `try L.g()` for
+  an `external` library function. Solidus over-rejects it. Accepting it at
+  typecheck would admit a shape the interpreter cannot execute (external library
+  calls are DELEGATECALL dispatch to a separately-deployed library, which
+  Solidus's execution model does not implement) — a wrong-value/crash, strictly
+  worse than an over-reject. No corpus program uses it (unreachable on the frozen
+  corpus). Stays until external-library delegatecall execution is modeled.
 
 DEFERRED over-rejects (G13–G15): these are *harmless* completeness over-rejects
 (Solidus rejects programs solc accepts). Unlike G2–G10 (pure acceptance
@@ -3365,3 +3370,60 @@ prior `storage-array-copy-convert` (G14 unsigned/dynamic) lane still passes.
 
 Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `forge_interpreter_compare=pass` (no regression); new lane `forge=ok lean=ok`.
+
+## 2026-07-08 — R3 (residue cleanup): re-examined G8, G11, G12, G16
+
+The acceptance agent probed-and-skipped G8/G11 and flagged G12/G16 as likely
+non-issues. R3 re-examined each by probing pinned solc 0.8.35 and, where the
+solc-AST importer cannot reach the case (solc rejects it, so no AST is emitted),
+by hand-building the AST and calling `SourceUnit.check` directly (the technique
+the G2–G10 acceptance-boundary witnesses use).
+
+**G8 — free error shadowed by a contract member: FIXED (over-accept).** solc
+resolves `revert E(args)` to `E`'s innermost declaration and rejects a revert of
+a non-error: a free `error E` masked by a contract `function E` → TypeError
+"Expression has to be an error."; masked by a contract `uint E` → "This
+expression is not callable." Probed Solidus (hand-built AST): it OVER-ACCEPTED
+both (it resolved `E` against `env.errors`, which merges free + contract errors,
+ignoring that a contract member shadows the free error). Fix (`TypeCheck.lean`):
+a new `CheckEnv.contractNonErrorMemberNames` — the current contract's own +
+inherited NON-error member names (built from `visibleFunctionSigs`, NOT the
+`functions` field that also carries free functions, plus state vars / modifiers
+/ contract events) — and a guard at the top of `checkCustomErrorArgs` rejecting
+`revert E(...)` when `E` is a local variable or a contract-level non-error
+member. A genuine contract `error E` is not in that set (and never coexists with
+a same-name contract member), and free functions are excluded, so the valid
+neighbors still revert: probed `revert E()` for a contract error → accepted, for
+an unshadowed free error → accepted; the two shadow shapes → rejected. Pinned by
+the `acceptance-boundaries` lane (witnesses `g8ErrorShadowRejected` /
+`g8ErrorNeighborsAccepted`; solc-reject fixtures `G8ErrorShadowedByFunction.sol`,
+`G8ErrorShadowedByStateVar.sol`). solc-validated corpus never contains these
+(solc rejects them), so this is a defense-in-depth typechecker tightening; smoke
+28/28 confirms no valid revert regressed.
+
+**G11 — `type(C).creationCode`/`runtimeCode` cycle: already correct, no fix.**
+Probed Solidus (hand-built AST): `type(C).creationCode` inside `C` is REJECTED,
+`type(Other).creationCode` ACCEPTED — the accept/reject verdict matches solc for
+the single-contract self cycle, so there is NO over-accept. A cross-contract
+cycle (C↔D) needs a whole-program bytecode-dependency pass Solidus does not run,
+but such a program is solc-rejected and never reaches the solc-AST importer —
+unreachable in the differential pipeline. Documented as intentional whole-program
+OOS.
+
+**G12 — `_` reserved: confirmed non-issue.** solc rejects `_` as an identifier
+at name resolution, BEFORE emitting an AST, so the divergence is unobservable
+through the solc-AST importer (Solidus only ever receives programs solc already
+accepted). Unreachable in this pipeline.
+
+**G16 — `try` on a library external call: confirmed over-reject, stays.** solc
+ACCEPTS `try L.g()` for an `external` library function; Solidus over-rejects it.
+This is an over-REJECT (completeness), not an over-accept. Accepting it would
+admit a shape the interpreter cannot execute — external library functions are
+DELEGATECALL dispatch to a separately-deployed library, which Solidus's execution
+model does not implement — so acceptance would be a wrong-value/crash, strictly
+worse than an over-reject. No corpus program uses it. Stays until external-library
+delegatecall execution is modeled (recorded here so it is not lost).
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass`; the `acceptance-boundaries` lane (now G2–G10 +
+G8) `solc_rejects=ok lean=ok`.

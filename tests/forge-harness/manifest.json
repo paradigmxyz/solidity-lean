@@ -6104,7 +6104,7 @@
   },
   {
    "name": "acceptance-boundaries",
-   "description": "Acceptance boundaries G2-G10 (2026-07-08). Pinned solc 0.8.35 and this typechecker both REJECT: (G2) msg.value in a non-payable public/external function (TypeError 5887; internal/library/payable exempt), (G3) ==/!= on a reference type bytes/string/array/mapping/struct/UDVT (TypeError 2271), (G4) a compile-time out-of-bounds constant index on a bytesN or fixed-size array (TypeError 1859/3383), (G5) a bare return; with a non-empty (even named) return list (TypeError 6777), (G6) super.f() resolving to an abstract/unimplemented base function (TypeError 9582), (G7) a qualified emit X.g() whose member callee is not an event (TypeError 9292), (G9) an inline array literal of a mapping element type (invalid memory type), and (G10) msg.data inside a receive function (TypeError 7139). Both still ACCEPT the neighbors: msg.value in a payable/internal function; == on address/uint; an in-bounds or dynamic index; a value-carrying/implicit return; super.f() to an implemented base; simple and member-form emits of a real event; an inline array of a value type; and msg.data in an ordinary/fallback function.",
+   "description": "Acceptance boundaries G2-G10 (2026-07-08). Pinned solc 0.8.35 and this typechecker both REJECT: (G2) msg.value in a non-payable public/external function (TypeError 5887; internal/library/payable exempt), (G3) ==/!= on a reference type bytes/string/array/mapping/struct/UDVT (TypeError 2271), (G4) a compile-time out-of-bounds constant index on a bytesN or fixed-size array (TypeError 1859/3383), (G5) a bare return; with a non-empty (even named) return list (TypeError 6777), (G6) super.f() resolving to an abstract/unimplemented base function (TypeError 9582), (G7) a qualified emit X.g() whose member callee is not an event (TypeError 9292), (G9) an inline array literal of a mapping element type (invalid memory type), and (G10) msg.data inside a receive function (TypeError 7139). Both still ACCEPT the neighbors: msg.value in a payable/internal function; == on address/uint; an in-bounds or dynamic index; a value-carrying/implicit return; super.f() to an implemented base; simple and member-form emits of a real event; an inline array of a value type; and msg.data in an ordinary/fallback function. G8: revert E(...) where a contract-level non-error member (function or state var) shadows a free error E (TypeError 1885); neighbors \u2014 a genuine contract error and an unshadowed free error \u2014 still revert.",
    "solc_rejects": [
     "tests/forge-harness/acceptance-boundaries/invalid/G2MsgValueInView.sol",
     "tests/forge-harness/acceptance-boundaries/invalid/G3EqualityOnBytes.sol",
@@ -6114,7 +6114,9 @@
     "tests/forge-harness/acceptance-boundaries/invalid/G6SuperToAbstract.sol",
     "tests/forge-harness/acceptance-boundaries/invalid/G7EmitNonEventMember.sol",
     "tests/forge-harness/acceptance-boundaries/invalid/G9InlineArrayMapping.sol",
-    "tests/forge-harness/acceptance-boundaries/invalid/G10MsgDataInReceive.sol"
+    "tests/forge-harness/acceptance-boundaries/invalid/G10MsgDataInReceive.sol",
+    "tests/forge-harness/acceptance-boundaries/invalid/G8ErrorShadowedByFunction.sol",
+    "tests/forge-harness/acceptance-boundaries/invalid/G8ErrorShadowedByStateVar.sol"
    ],
    "lean": {
     "imports": [
@@ -6200,6 +6202,16 @@
      {
       "label": "g10MsgDataInFallbackAccepted",
       "expr": "SolidCore.Solidity.TypeCheck.Examples.g10MsgDataInFallbackAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "g8ErrorShadowRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.g8ErrorShadowRejected",
+      "expect": "true"
+     },
+     {
+      "label": "g8ErrorNeighborsAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.g8ErrorNeighborsAccepted",
       "expect": "true"
      }
     ]

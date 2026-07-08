@@ -1572,6 +1572,14 @@ structure CheckEnv where
   usingDecls : List Solidity.UsingDecl := []
   errors : List ErrorSig := []
   events : List EventSig := []
+  -- G8: names of the current contract's (own + inherited) NON-error members —
+  -- functions, state vars, modifiers, events. A `revert E(...)` whose `E` names
+  -- one of these resolves to a non-error declaration that shadows any free
+  -- error `E`, which solc rejects (TypeError 1885 "has to be an error" /
+  -- "not callable"). Excludes free functions/events (those do NOT shadow a
+  -- contract-level error), so a contract error `E` alongside a free function
+  -- `E` still reverts correctly.
+  contractNonErrorMemberNames : List Name := []
   contractKind : Option Solidity.ContractKind := none
   currentContractAbstract : Bool := false
   currentContract : Option Path := none
@@ -8029,6 +8037,17 @@ def checkEventArgs (env : CheckEnv)
 def checkCustomErrorArgs (env : CheckEnv)
     (name : Name) (args : List Solidity.Arg) :
     Except TypeError Unit := do
+  -- G8: `revert E(...)` where `E`'s innermost declaration is NOT an error —
+  -- a local variable, or a contract-level non-error member (function / state
+  -- var / modifier / event) shadowing a free error — is rejected by solc
+  -- (TypeError 1885). A contract-level error `E` never has a same-name
+  -- contract member, and free functions are excluded from
+  -- `contractNonErrorMemberNames`, so a valid error revert still proceeds.
+  if env.isLocalName name ||
+      Solidity.Executable.nameIn name env.contractNonErrorMemberNames then
+    Except.error
+      (TypeError.unsupported ("revert target is not an error: " ++ name))
+  else
   match checkArgs env args with
   | Except.ok checkedArgs =>
       let argInfos := checkedArgInfosFull args checkedArgs
@@ -12328,7 +12347,16 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       modifiers := ModifierDecls.signatures allModifierDecls
       modifierDecls := allModifierDecls
       errors := errorSigs ++ inheritedErrorSigs ++ visibleSourceErrors
-      events := eventSigs ++ inheritedEventSigs ++ visibleSourceEvents }
+      events := eventSigs ++ inheritedEventSigs ++ visibleSourceEvents
+      -- G8: contract-level (own + inherited) NON-error member names. Uses the
+      -- CONTRACT function sigs (`visibleFunctionSigs`), NOT the merged
+      -- `functions` (which also carries free functions), so a free function
+      -- does not spuriously shadow a contract error.
+      contractNonErrorMemberNames :=
+        visibleFunctionSigs.map (·.name) ++
+          visibleStateVars.map Solidity.StateVarDecl.name ++
+          (ModifierDecls.signatures allModifierDecls).map (·.name) ++
+          (eventSigs ++ inheritedEventSigs).map (·.name) }
   ContractDecl.checkBaseConstructorArgsForDeployment storageOrder contract
     storageOrder
   EventSigs.ensureNoDuplicateAbiSignaturesAgainst contractTypes
