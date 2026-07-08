@@ -6320,6 +6320,49 @@
           }
         ]
       }
+    },
+    {
+      "name": "storage-array-copy-convert",
+      "description": "Forge checks solc/EVM copy assignment into a DYNAMIC storage array with a wider-unsigned element source and/or a differing length (`uint16[] = uint8[]`, `uint256[] = uint8[]`, longer-source clear): the dest is resized to the source length, elements are widened per-element, and a longer old tail is zero-filled. solc accepts these; Solidus formerly over-rejected the whole array-copy family. Lean imports the same contract from the solc AST and checks the copied values (G14).",
+      "forge": {
+        "root": "tests/forge-harness/storage-array-copy-convert",
+        "match_contract": "StorageArrayCopyConvertForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-array-copy-convert/src/StorageArrayCopyConvert.sol",
+        "contract": "StorageArrayCopyConvertHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageArrayCopyConvert"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageArrayCopyConvert.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedWidenU8toU16",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StorageArrayCopyConvert.importedContract (SolidCore.Solidity.Source.CallTarget.name \"widenU8toU16\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq a 255 && SolidCore.Solidity.Source.wordEq b 7 && SolidCore.Solidity.Source.wordEq c 2)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWidenU8toU256",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StorageArrayCopyConvert.importedContract (SolidCore.Solidity.Source.CallTarget.name \"widenU8toU256\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq a 1 && SolidCore.Solidity.Source.wordEq b 2 && SolidCore.Solidity.Source.wordEq c 3 && SolidCore.Solidity.Source.wordEq len 3)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedShorterClearsTail",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StorageArrayCopyConvert.importedContract (SolidCore.Solidity.Source.CallTarget.name \"shorterClearsTail\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word i2, SolidCore.Solidity.Source.Value.word i4] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq len 2 && SolidCore.Solidity.Source.wordEq i2 0 && SolidCore.Solidity.Source.wordEq i4 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

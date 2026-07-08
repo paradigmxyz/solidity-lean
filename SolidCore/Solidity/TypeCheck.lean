@@ -1099,6 +1099,35 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
             actualMutability expectedMutability
     | _, _ => false
 
+-- G14: acceptance of a copy assignment INTO a (non-pointer) storage array with
+-- an implicitly-convertible element type and/or a differing length. solc's rule
+-- (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
+-- `Types.cpp:1640-1648`) is: base implicitly convertible; dynamic dest accepts
+-- any length; fixed dest `T[N]` requires fixed source `S[M]` with `N ≥ M`; the
+-- copy converts elements and zero-fills the tail.
+--
+-- We only ACCEPT the subset whose copied VALUES the interpreter reproduces
+-- EXACTLY (verified against Forge): a DYNAMIC unsigned-integer destination with
+-- an unsigned-integer source of ≤ width (`uintM[] = uintN[]`, `N ≤ M`). Here the
+-- element magnitude always fits the wider dest, and the dynamic dest's
+-- deep-clear write already resizes and zero-fills. The remaining solc-accepted
+-- shapes are deliberately left as harmless over-rejects rather than accepted
+-- with a wrong value (see the 2026-07-08 G14 DECISIONS entry):
+--   * SIGNED element widening (`int8[] → int16[]`) — the sign-extended element
+--     currently mis-cleans on the narrow-dest write (Panic 0x11);
+--   * FIXED-length dest `T[N] = S[M]` (N > M) — the write cannot yet pad the
+--     tail to N (Panic 0x00).
+-- The strict same-base rule still governs pointer/memory targets and every
+-- non-storage context, so this is only consulted for a storage-variable dest.
+def Ty.storageArrayCopyAssignable? (destTy srcTy : Ty) : Bool :=
+  match destTy, srcTy with
+  | Solidity.Ty.array (Solidity.Ty.uint destBits) none,
+    Solidity.Ty.array (Solidity.Ty.uint srcBits) _ =>
+      let destBits := if destBits == 0 then 256 else destBits
+      let srcBits := if srcBits == 0 then 256 else srcBits
+      srcBits <= destBits
+  | _, _ => false
+
 def Ty.fixedBytesSize? : Ty -> Option Nat
   | Solidity.Ty.bytesN size =>
       if 0 < size && size <= 32 then some size else none
@@ -7132,7 +7161,16 @@ def checkExpr (env : CheckEnv) :
                   Solidity.AssignOp.assign _ => do
                   env.requireNoMappingStorageCopy lhs lhsChecked
                     rhsChecked.stateLValue
-                  rhsChecked.expectAssignableToIn env.types lhsChecked.ty
+                  -- G14: a copy into a genuine storage-array variable accepts a
+                  -- base-convertible / shorter source (solc's less-restrictive
+                  -- storage-copy rule); the strict rule still governs pointer
+                  -- rebinds and non-storage targets.
+                  if lhsChecked.stateLValue && !rebindsStoragePointer &&
+                      Ty.storageArrayCopyAssignable? lhsChecked.ty
+                        rhsChecked.ty then
+                    Except.ok ()
+                  else
+                    rhsChecked.expectAssignableToIn env.types lhsChecked.ty
                   Except.ok lhsChecked.ty
               | Solidity.Expr.assign _
                   Solidity.AssignOp.addAssign _

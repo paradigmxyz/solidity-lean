@@ -3145,3 +3145,47 @@ tuple-hoisting machinery to run inside the nested elaboration; the lane pins the
 expression-RHS forms (literals/params/reads, incl. the swap and hole), which is
 where the destructure/order/hole semantics live. Call-in-nested-position is left
 as a remaining (harmless) over-reject rather than risk a wrong value.
+
+## 2026-07-08 — G14: storage-array copy with wider/shorter source (over-reject narrowed)
+
+**solc semantics (confirmed).** `ArrayType::isImplicitlyConvertibleTo`
+(`libsolidity/ast/Types.cpp:1628-1665`): a copy INTO a non-pointer storage array
+is accepted when the base type is implicitly convertible; a DYNAMIC dest accepts
+any source length; a FIXED dest `T[N]` requires a fixed source `S[M]` with
+`N ≥ M`. The runtime (`YulUtilFunctions` copyArrayToStorage/clearStorageRange)
+resizes the dest to the source length, copies elements with per-element
+conversion, and zero-fills a longer old tail. Forge ground truth (pin):
+`uint16[] = uint8[]` → `[255, 7]`; `uint256[] = uint8[]` (len 3) → `[1,2,3]`;
+a dynamic dest shrunk from length 5 to 2 then regrown reads the old slots back
+as `0`.
+
+**Wrong → right.** `Ty.canImplicitlyConvert` has no array arm (`_,_ => false`),
+so every non-identically-typed array copy was OVER-REJECTED at typecheck.
+
+**Fix (SAFE subset only — verified values, no wrong-value risk).**
+`TypeCheck.lean`: new `Ty.storageArrayCopyAssignable?`, consulted in the
+`AssignOp.assign` arm ONLY for a genuine storage-variable destination
+(`stateLValue && !rebindsStoragePointer`); when it holds, the strict
+`expectAssignableToIn` is skipped. It accepts exactly the family whose copied
+VALUES the interpreter already reproduces bit-for-bit (the dynamic-dest
+deep-clear write resizes and zero-fills; unsigned magnitudes always fit the
+wider dest): a DYNAMIC unsigned-integer dest with an unsigned-integer source of
+≤ width (`uintM[] = uintN[]`, `N ≤ M`). No interpreter/elaboration change was
+needed for this subset.
+
+**Deliberately NOT accepted (left as harmless over-rejects, not wrong values).**
+The other solc-accepted shapes mis-compute in the current interpreter, so
+accepting them would be a SOUNDNESS regression (strictly worse than an
+over-reject), and were excluded from `storageArrayCopyAssignable?`:
+  * SIGNED element widening (`int8[] → int16[]`) — the sign-extended element
+    mis-cleans on the narrow-dest storage write → Panic 0x11 (observed);
+  * FIXED-length dest `T[N] = S[M]`, `N > M` — the storage write cannot yet pad
+    the tail from M to N → Panic 0x00 (observed).
+Both need the element-width storage read/write machinery (the sibling's
+BinaryOp/width domain) and a fixed-array pad-on-copy, respectively; deferred.
+
+**Right value (Forge-verified).** Lane `storage-array-copy-convert`:
+`widenU8toU16 = (255, 7, len 2)`, `widenU8toU256 = (1, 2, 3, len 3)`,
+`shorterClearsTail = (len 2, [2]=0, [4]=0)`. Forge
+`StorageArrayCopyConvertForgeTest` and the Lean raw `ownCall` witnesses agree;
+`forge=ok lean=ok compare=pass`.
