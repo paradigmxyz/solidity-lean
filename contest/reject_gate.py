@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from . import env as cenv
 from . import exclusion_register as reg
 
 
@@ -406,6 +407,24 @@ def detect_create2_address_observable(entry: reg.ExclusionEntry, src: SourceAst)
     return hits
 
 
+def detect_env_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+    """UNPINNABLE env fact as an observable (review E-1 / P1 env register entry).
+
+    The canonical env (block.number/timestamp/chainid/basefee/coinbase/
+    prevrandao/gaslimit, msg.sender, tx.origin, address(this)) IS pinned on both
+    engines (see contest/env.py) and therefore compared, not excluded. What
+    stays OUT_OF_SCOPE is an observable derived from an env fact Solidus cannot
+    mirror: ``blockhash(n)`` / ``blobhash(i)`` (Solidus has no historical block
+    or blob hashes unless the harness pins them), which would otherwise become a
+    spurious SOUNDNESS_GAP. Conservative taint: the builtin appears in a function
+    that also has an observed position."""
+    return _semantic_taint_scan(entry, src, {
+        "label": "unpinnable env fact (blockhash/blobhash)",
+        "identifiers": {"blockhash", "blobhash"},
+        "members": {"blockhash", "blobhash"},
+    })
+
+
 def detect_closed_world_gas_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
     """send/transfer stipend-driven success/revert, or gas-option effect as an
     observable. Conservative: a `.transfer(`/`.send(` member call, or a `gas:`
@@ -494,12 +513,162 @@ _SEMANTIC_DETECTORS: dict[str, Callable[[reg.ExclusionEntry, SourceAst], list[Hi
     "detect_creationcode_observable": detect_creationcode_observable,
     "detect_create2_address_observable": detect_create2_address_observable,
     "detect_closed_world_gas_observable": detect_closed_world_gas_observable,
+    "detect_env_observable": detect_env_observable,
 }
+
+
+# ===========================================================================
+# TEST-FILE cheatcode scan (review P0 #3). The submission's TEST is NOT a
+# source Solidus imports, but it drives what the EVM measures. A test using a
+# state/oracle-forging cheatcode (vm.store/mockCall/ffi/etch/...) can fabricate
+# a divergence Solidus (run from a clean env) can never reproduce. Policy
+# (contest/env.py): DEFAULT-DENY every vm.*/hevm cheatcode except the
+# env-pinning/setup whitelist, whose literal effects are MIRRORED into the
+# Solidus env. Returns (banned_hits, overrides, unmirrorable_hits).
+# ===========================================================================
+
+def _literal_int(node: Any) -> Optional[int]:
+    """Extract an integer from a Literal / simple address wrapper, else None."""
+    if not isinstance(node, dict):
+        return None
+    nt = node.get("nodeType")
+    if nt == "Literal":
+        val = node.get("value")
+        kind = node.get("kind")
+        if kind == "bool":
+            return 1 if val in ("true", True) else 0
+        if val is None:
+            hv = node.get("hexValue")
+            return int(hv, 16) if hv else None
+        try:
+            return int(str(val), 0) if str(val).startswith("0x") else int(str(val))
+        except ValueError:
+            return None
+    # address(<literal>) / uint160(<literal>) / bytes32(<literal>) wrappers
+    if nt == "FunctionCall":
+        args = node.get("arguments") or []
+        if len(args) == 1:
+            return _literal_int(args[0])
+    return None
+
+
+def _vm_call_name(node: dict[str, Any]) -> Optional[str]:
+    """If ``node`` is a `vm.<member>(...)` / `hevm.<member>(...)` /
+    `console.<member>(...)` call, return the member name."""
+    if node.get("nodeType") != "FunctionCall":
+        return None
+    callee = node.get("expression")
+    if not isinstance(callee, dict) or callee.get("nodeType") != "MemberAccess":
+        return None
+    base = callee.get("expression")
+    if not isinstance(base, dict) or base.get("nodeType") != "Identifier":
+        return None
+    if base.get("name") not in ("vm", "hevm", "console", "console2"):
+        return None
+    return callee.get("memberName")
+
+
+@dataclass
+class CheatcodeScan:
+    banned: list[Hit] = field(default_factory=list)
+    unmirrorable: list[Hit] = field(default_factory=list)
+    overrides: "cenv.EnvOverrides" = field(default_factory=lambda: cenv.EnvOverrides())
+
+    @property
+    def rejected(self) -> bool:
+        return bool(self.banned or self.unmirrorable)
+
+
+def scan_test_cheatcodes(test_asts: list[SourceAst]) -> CheatcodeScan:
+    scan = CheatcodeScan()
+    for src in test_asts:
+        base_call = None
+        for node in iter_nodes(src.ast):
+            name = _vm_call_name(node)
+            if name is None:
+                continue
+            # console.* logging is a harmless observ-ability no-op.
+            call_base = node.get("expression", {}).get("expression", {})
+            if isinstance(call_base, dict) and call_base.get("name") in ("console", "console2"):
+                continue
+            if name in cenv.CHEATCODE_IGNORE:
+                continue
+            if name not in cenv.CHEATCODE_ALLOW:
+                scan.banned.append(Hit(
+                    "CHEAT-DENY", src.source,
+                    enclosing_contract_name(src.ast, node), node_src(node),
+                    f"banned cheatcode vm.{name} (default-deny; not on the "
+                    f"env-pinning whitelist {sorted(cenv.CHEATCODE_ALLOW)})"))
+                continue
+            # Whitelisted: mirror its literal effect into the env overrides.
+            field = cenv.CHEATCODE_ALLOW[name]
+            args = node.get("arguments") or []
+            if field == "_noop":
+                continue
+            if field == "_deal":
+                if len(args) == 2:
+                    a, amt = _literal_int(args[0]), _literal_int(args[1])
+                    if a is not None and amt is not None:
+                        scan.overrides.deals.append((a, amt))
+                        continue
+                scan.unmirrorable.append(Hit(
+                    "CHEAT-UNMIRROR", src.source,
+                    enclosing_contract_name(src.ast, node), node_src(node),
+                    f"vm.{name} with non-literal args cannot be mirrored into "
+                    "the Solidus env"))
+                continue
+            v = _literal_int(args[0]) if args else None
+            if v is None:
+                scan.unmirrorable.append(Hit(
+                    "CHEAT-UNMIRROR", src.source,
+                    enclosing_contract_name(src.ast, node), node_src(node),
+                    f"vm.{name} with a non-literal argument cannot be mirrored "
+                    "into the Solidus env (v1 requires a literal)"))
+                continue
+            if field == "_sender":
+                scan.overrides.sender = v
+            else:
+                setattr(scan.overrides, field, v)
+    return scan
+
 
 
 # ===========================================================================
 # Public entry points
 # ===========================================================================
+
+def multi_source_asts(report_files: list[Path], all_files: list[Path],
+                      solc: str = DEFAULT_SOLC) -> list[SourceAst]:
+    """Compile ``all_files`` together (so relative imports resolve) and return
+    the ASTs of ``report_files``. Used for TEST files, which import ``../src/*``
+    and therefore cannot be compiled in isolation (review P0 #3 cheatcode scan).
+    """
+    import json as _json
+    import subprocess as _sp
+
+    request = {
+        "language": "Solidity",
+        "sources": {p.resolve().as_posix(): {"content": p.read_text()}
+                    for p in all_files},
+        "settings": {"outputSelection": {"*": {"": ["ast"]}}},
+    }
+    completed = _sp.run([solc, "--standard-json"], input=_json.dumps(request),
+                        text=True, stdout=_sp.PIPE, stderr=_sp.PIPE, check=False)
+    try:
+        output = _json.loads(completed.stdout)
+    except _json.JSONDecodeError:
+        return []
+    sources = output.get("sources")
+    if not isinstance(sources, dict):
+        return []
+    out: list[SourceAst] = []
+    for p in report_files:
+        key = p.resolve().as_posix()
+        entry = sources.get(key)
+        if isinstance(entry, dict) and isinstance(entry.get("ast"), dict):
+            out.append(SourceAst(source=key, ast=entry["ast"]))
+    return out
+
 
 def get_source_asts(sources: list[Path], solc: str = DEFAULT_SOLC) -> list[SourceAst]:
     """Get the analyzed solc AST for each source (reuses the importer's

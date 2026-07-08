@@ -168,6 +168,36 @@ def main() -> int:
     results.append(("no_divergence (FULL)", ok, d))
     _print("no_divergence (FULL)", ok, d)
 
+    # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
+    # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
+    # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.
+    ok, d = run_full("fake_oracle", "NO_DIVERGENCE")
+    results.append(("fake_oracle ATTACK (FULL)", ok, d))
+    _print("fake_oracle ATTACK (FULL)", ok, d)
+
+    # P0 #2: entry returns block.timestamp -> env PINNED on both sides ->
+    # NO_DIVERGENCE (not a spurious env wrong-value).
+    ok, d = run_full("env_divergence", "NO_DIVERGENCE")
+    results.append(("env_divergence ATTACK (FULL)", ok, d))
+    _print("env_divergence ATTACK (FULL)", ok, d)
+
+    # P0 #2: entry returns blockhash(0) -> unpinnable env fact -> REJECTED_OOS
+    # (SEM-ENV), not a spurious SOUNDNESS_GAP.
+    ok, d = run_full("env_blockhash", "REJECTED_OOS")
+    results.append(("env_blockhash ATTACK (FULL)", ok, d))
+    _print("env_blockhash ATTACK (FULL)", ok, d)
+
+    # P0 #3: test forges storage via vm.store -> banned cheatcode -> REJECTED.
+    ok, d = run_full("cheatcode_banned", "REJECTED_OOS")
+    results.append(("cheatcode_banned ATTACK (FULL)", ok, d))
+    _print("cheatcode_banned ATTACK (FULL)", ok, d)
+
+    # P0 #3: test pins timestamp via vm.warp -> allowed + MIRRORED into the
+    # Solidus env -> both see 12345 -> NO_DIVERGENCE (correct verdict).
+    ok, d = run_full("cheatcode_allowed", "NO_DIVERGENCE")
+    results.append(("cheatcode_allowed ALLOWED (FULL)", ok, d))
+    _print("cheatcode_allowed ALLOWED (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:

@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "BH", "function": "bh", "args": [], "value": 0 },
+  "expected_divergence": "ATTACK: entry returns blockhash(0), an unpinnable env fact. Must be REJECTED_OOS (SEM-ENV), not a spurious SOUNDNESS_GAP.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:0" },
+  "feature": "env-blockhash-unpinnable",
+  "register_version_seen": "1.1.0"
+}

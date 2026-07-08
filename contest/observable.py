@@ -32,19 +32,30 @@ Value rendering (decimal, so it does not depend on Solidus's Repr):
     b:<hex>      dynamic bytes
     other Values fall back to r:<reprStr> (documented v1 limit).
 
-The Solidus side is computed by a Lean ``#eval`` of the helper this module
-emits (``lean_observable_helper``). The solc+EVM side is taken from the
-Forge-VALIDATED claim (``declared_observable``), because the Forge test must
-PASS on pinned solc+Foundry (design §4 step 1) before Solidus is consulted -
-so the declared value is proven real. PRECISION LIMIT: v1 does not re-parse the
-full observable tuple out of Foundry traces; it trusts the Forge-passing claim's
-normal-form string. Parsing events/state directly from Foundry is a v1.x item.
+The Solidus side is computed by a Lean ``#eval`` (``lean_eval_line``) that runs
+the entry call under a Context/BlockEnv carrying the CANONICAL pinned env
+(contest/env.py). The solc+EVM side is MEASURED from a Foundry harness that
+actually performs the entry call under the SAME pinned env and dumps the raw
+outcome + return/revert bytes (``contest/measure.py``); those raw bytes are
+decoded here (``evm_observable``) into the SAME normal form. This closes review
+defect O-1: the EVM observable is measured from the run, NOT the submitter's
+``declared_observable`` string (which is now only a sanity cross-check).
+
+PRECISION LIMITS (documented, v1 restricted launch):
+  * Custom-error reverts: the EVM side decodes Error(string)/Panic(uint256)/
+    empty precisely; a custom error decodes to ``raw:0x<selector+payload>``
+    while Solidus renders ``custom:<name>:...`` -> such a comparison is routed to
+    review, not auto-paid.
+  * Return decoding covers static words (uint/address/bool/bytesN -> w),
+    signed ints (-> i) and a single/leading dynamic bytes/string (-> b).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+
+from . import env as cenv
 
 
 # ---------------------------------------------------------------------------
@@ -90,16 +101,10 @@ def renderRevert (rd : SolidCore.Solidity.Source.RevertData) : String :=
         let s := String.mk h
         if s.length == 1 then "0" ++ s else s))
 
-/-- Run a single-contract entry call and render its §3.4 observable in the
-    contest normal form. A fail-closed Except.error (typecheck / elaboration /
-    over-reject) renders as `solidus-reject|...`, which the adjudicator maps to
-    a COVERAGE_GAP. -/
-def observeCall (fuel : Nat) (decl : SolidCore.Solidity.TypeCheck.SourceContractDecl)
-    (fname : String)
-    (state : SolidCore.Solidity.TypeCheck.CoreState)
-    (args : List SolidCore.Solidity.TypeCheck.CoreValue) : String :=
-  match SolidCore.Solidity.TypeCheck.CheckedInput.ownCall fuel decl
-      (SolidCore.Solidity.Source.CallTarget.name fname) state args with
+def renderCallResult
+    (r : Except SolidCore.Solidity.TypeCheck.TypeError
+                SolidCore.Solidity.Source.CallResult) : String :=
+  match r with
   | Except.error e => "solidus-reject|" ++ reprStr e
   | Except.ok (CallResult.returned _ vals) => "success|" ++ renderValues vals
   | Except.ok (CallResult.reverted _ rd) => "revert|" ++ renderRevert rd
@@ -112,15 +117,37 @@ end SolidCore.Solidity.Contest
 OBSERVABLE_MARKER = "CONTEST_OBS "
 
 
-def lean_eval_line(namespace: str, fuel: int, fname: str, args_lean: str) -> str:
-    """Build the ``#eval`` that prints the observable prefixed with the marker.
+def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
+                   args_lean: str, env: "cenv.EnvOverrides") -> str:
+    """Build the ``#eval`` that prints the env-pinned observable (review P0 #2).
+
+    The entry call runs through ``CheckedContract.callFunctionWithContext`` under
+    a Context derived from the imported contract's own default context with the
+    CANONICAL pinned env (block/tx/self/sender) overlaid - the SAME values the
+    Foundry measurement harness uses - so env-reading observables agree by
+    construction. This uses ONLY public semantics entry points
+    (``CheckedInput.program`` / ``CheckedProgram.contract`` /
+    ``CheckedContract.callFunctionWithContext``); it does not modify SolidCore.
 
     ``args_lean`` is a Lean list expression of CoreValue (see render_lean_args).
     """
-    decl = f"{namespace}.importedContract"
-    state = "SolidCore.Solidity.Source.State.empty"
-    call = (f"SolidCore.Solidity.Contest.observeCall {fuel} {decl} "
-            f"\"{fname}\" {state} {args_lean}")
+    TC = "SolidCore.Solidity.TypeCheck"
+    src = f"{namespace}.importedSourceUnit"
+    self_addr = env.self_addr if env.self_addr is not None else cenv.CANONICAL_SENDER
+    do_block = (
+        f"(do\n"
+        f"    let source := {src}\n"
+        f"    let program ← {TC}.CheckedInput.program source\n"
+        f"    let contract ← {TC}.CheckedProgram.contract program \"{contract}\"\n"
+        f"    let base := contract.core.context\n"
+        f"    let ctx := {{ base with\n"
+        f"      sender := {env.sender}, self := {self_addr}, value := {env.value},\n"
+        f"      accountBalances := base.accountBalances ++ {env.lean_balances()},\n"
+        f"      blockEnv := {{ base.blockEnv with {env.lean_block_fields()} }},\n"
+        f"      txEnv := {{ base.txEnv with {env.lean_tx_fields()} }} }}\n"
+        f"    {TC}.CheckedContract.callFunctionWithContext {fuel}\n"
+        f"      contract \"{fname}\" ctx SolidCore.Solidity.Source.State.empty {args_lean})")
+    call = f"SolidCore.Solidity.Contest.renderCallResult {do_block}"
     return f'#eval "{OBSERVABLE_MARKER.strip()} " ++ ({call})'
 
 
@@ -161,6 +188,82 @@ def render_lean_arg(arg: object) -> str:
 
 def render_lean_args(args: list) -> str:
     return "[" + ", ".join(render_lean_arg(a) for a in args) + "]"
+
+
+# ---------------------------------------------------------------------------
+# EVM-side observable, DECODED from the measured Foundry run (review P0 #1).
+# The measurement harness (contest/measure.py) dumps the raw entry-call
+# (ok, ret-bytes); we decode them into the SAME normal form Solidus renders, so
+# the comparator diffs two independently-computed observables.
+# ---------------------------------------------------------------------------
+
+_ERROR_SELECTOR = "08c379a0"   # Error(string)
+_PANIC_SELECTOR = "4e487b71"   # Panic(uint256)
+
+
+def _clean_type(t: str) -> str:
+    for suffix in (" memory", " storage", " calldata", " payable"):
+        t = t.replace(suffix, "")
+    return t.strip()
+
+
+def _is_dynamic(t: str) -> bool:
+    t = _clean_type(t)
+    return t in ("bytes", "string") or t.endswith("[]")
+
+
+def render_word_for_type(word: int, t: str) -> str:
+    t = _clean_type(t)
+    if t.startswith("int") and not t.startswith("uint"):
+        # two's-complement decode to a signed int (matches Solidus `i:`).
+        if word >= (1 << 255):
+            word -= (1 << 256)
+        return f"i:{word}"
+    return f"w:{word}"
+
+
+def evm_return_normal_form(ret_hex: str, return_types: list[str]) -> str:
+    """Decode ABI-encoded return bytes into `success|<v1>,<v2>,...`."""
+    data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
+    if not return_types:
+        return "success|"
+    rendered: list[str] = []
+    for i, t in enumerate(return_types):
+        head = data[i * 32:(i + 1) * 32]
+        word = int.from_bytes(head, "big") if head else 0
+        if _is_dynamic(t):
+            off = word
+            length = int.from_bytes(data[off:off + 32], "big")
+            payload = data[off + 32:off + 32 + length]
+            rendered.append("b:0x" + payload.hex())
+        else:
+            rendered.append(render_word_for_type(word, t))
+    return "success|" + ",".join(rendered)
+
+
+def evm_revert_normal_form(ret_hex: str) -> str:
+    """Decode revert bytes into `revert|empty|error:..|panic:..|raw:..`."""
+    data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
+    if len(data) == 0:
+        return "revert|empty"
+    selector = data[:4].hex()
+    if selector == _ERROR_SELECTOR and len(data) >= 4 + 64:
+        off = int.from_bytes(data[4:36], "big")
+        base = 4 + off
+        length = int.from_bytes(data[base:base + 32], "big")
+        msg = data[base + 32:base + 32 + length].decode("utf-8", errors="replace")
+        return f"revert|error:{msg}"
+    if selector == _PANIC_SELECTOR and len(data) >= 4 + 32:
+        code = int.from_bytes(data[4:36], "big")
+        return f"revert|panic:{code}"
+    return "revert|raw:0x" + data.hex()
+
+
+def evm_observable(ok: bool, ret_hex: str, return_types: list[str]) -> "Observable":
+    """Build the EVM observable in normal form from the measured raw result."""
+    if ok:
+        return parse_observable(evm_return_normal_form(ret_hex, return_types))
+    return parse_observable(evm_revert_normal_form(ret_hex))
 
 
 # ---------------------------------------------------------------------------

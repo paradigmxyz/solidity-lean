@@ -26,6 +26,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import re
+
+from . import env as cenv
 from . import observable as obs
 
 
@@ -94,16 +97,47 @@ def run_forge_test(forge_root: Path, case_tmp: Path,
     return _HARNESS.run_forge(forge_case, tools.repo, variables, timeout)
 
 
+# solc diagnostics are `<Type>Error: ...` or `Error (NNNN): ...` with an exit
+# code; warnings (`Warning: ...`) leave exit code 0. Review L-1 / P1: decide the
+# OVER_ACCEPT reject by EXIT CODE + a real error diagnostic (optionally a
+# specific error CODE), NOT a substring that a warning could satisfy.
+_SOLC_ERROR_RE = re.compile(r"(?m)^(?:\S*Error|Error \(\d+\)):|Error \((\d+)\)")
+_SOLC_ERRCODE_RE = re.compile(r"Error \((\d+)\)")
+
+
 def run_solc_rejects_source(source: Path, case_tmp: Path,
-                            contains: str = "Error:",
+                            error_code: Optional[str] = None,
                             tools: Optional[ToolPaths] = None,
                             timeout: int = 120) -> tuple[bool, str]:
-    """Assert solc REJECTS ``source`` (OVER_ACCEPT claims, design §4 step 1a)."""
+    """Assert pinned solc REJECTS ``source`` (OVER_ACCEPT claims, §4 step 1a).
+
+    Decision (review L-1 / P1): the compile must FAIL (non-zero exit) AND emit a
+    real error-level diagnostic. Warnings never count (they leave exit 0). If
+    ``error_code`` is given (e.g. "5887"), that specific solc error code must be
+    present, so the reject is pinned to a semantic cause, not free text."""
     tools = tools or ToolPaths()
     case_tmp.mkdir(parents=True, exist_ok=True)
-    case = {"solc_rejects": [{"source": str(source.resolve()), "contains": contains}]}
-    variables = _variables(tools, case_tmp, "solc-rejects")
-    return _HARNESS.run_solc_rejects(case, tools.repo, variables, timeout)
+    stdout_log = case_tmp / "solc-reject.stdout.log"
+    stderr_log = case_tmp / "solc-reject.stderr.log"
+    # --error-codes makes solc print `Error (NNNN):` so a specific error code can
+    # be matched (review L-1 / P1); without it the CLI omits the numeric code.
+    command = [tools.solc, "--error-codes", "--bin", str(source.resolve())]
+    try:
+        status = _HARNESS.run_capture(command, tools.repo, timeout,
+                                      stdout_log, stderr_log)
+    except subprocess.TimeoutExpired:
+        return False, f"timeout_after_{timeout}s"
+    output = _read_log(stdout_log) + _read_log(stderr_log)
+    if status == 0:
+        return False, "unexpected_accept_exit0"
+    if not _SOLC_ERROR_RE.search(output):
+        # non-zero exit but no error-level diagnostic (e.g. internal/CLI issue)
+        return False, f"exit_{status}_no_error_diagnostic"
+    if error_code:
+        codes = set(_SOLC_ERRCODE_RE.findall(output))
+        if error_code not in codes:
+            return False, f"error_code_{error_code}_not_found_in_{sorted(codes)}"
+    return True, f"reject_exit_{status}"
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +167,8 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
                            case_tmp: Path, namespace: str,
                            fuel: int = 64,
                            tools: Optional[ToolPaths] = None,
-                           timeout: int = 300) -> SolidusResult:
+                           timeout: int = 300,
+                           env: Optional["cenv.EnvOverrides"] = None) -> SolidusResult:
     """Import ``source``, then #eval the §3.4 observable of ``contract.fname``.
 
     Distinguishes:
@@ -143,6 +178,7 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
       * observable success/revert  -> ok, stage=run
     """
     tools = tools or ToolPaths()
+    env = env or cenv.EnvOverrides()
     case_tmp.mkdir(parents=True, exist_ok=True)
 
     # 1. Reuse the importer via the harness's run_solc_import.
@@ -173,7 +209,7 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         "",
         obs.LEAN_OBSERVABLE_HELPER,
         "",
-        obs.lean_eval_line(namespace, fuel, fname, args_lean),
+        obs.lean_eval_line(namespace, contract, fuel, fname, args_lean, env),
     ]
     lean_file = case_tmp / "contest_observable.lean"
     lean_file.write_text("\n".join(lean_lines) + "\n", encoding="utf-8")

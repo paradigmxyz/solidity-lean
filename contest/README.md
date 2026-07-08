@@ -9,6 +9,49 @@ The multi-contract reflective responder (design §3, v2) is **out of scope for
 v1**; the seam where it plugs in is documented in `multi_contract.py` and the
 temporary `V1-MULTI` gate guard rejects multi-contract submissions until then.
 
+## v1.1 hardening (2026-07-08) — the oracle is now trustworthy
+
+The adversarial review (`docs/competition-design-review.md`) found three
+CONTEST-BREAKING defects; all three P0 fixes + two P1 items are implemented
+(see the design doc's **Changelog** for the full write-up and before→after
+verdicts). In short:
+
+- **Measured, not declared (P0 #1).** The EVM observable is measured from an
+  actual Forge run (`measure.py`) and decoded (`observable.evm_observable`);
+  `claim.declared_observable` is only a misreport cross-check.
+- **Pinned environment (P0 #2).** ONE canonical env = Foundry's real defaults
+  (`env.py`), threaded identically into the Solidus `#eval`
+  (`CheckedContract.callFunctionWithContext`) and the Foundry measurement. An
+  env-fact detector (`SEM-ENV`) rejects `blockhash`/`blobhash`-derived
+  observables as out of scope.
+- **Cheatcode allow-list (P0 #3).** The TEST AST is scanned. DEFAULT-DENY.
+
+### Cheatcode policy (allow-list; everything else rejected)
+
+| Allowed (mirrored into the Solidus env) | Effect |
+|---|---|
+| `vm.roll(n)` | `block.number` |
+| `vm.warp(t)` | `block.timestamp` |
+| `vm.chainId(id)` | `block.chainid` |
+| `vm.fee(f)` | `block.basefee` |
+| `vm.prevrandao(x)` | `block.prevrandao` |
+| `vm.prank`/`vm.startPrank(a)` (+`stopPrank`) | `msg.sender` |
+| `vm.deal(a, amt)` | balance |
+
+Whitelisted cheatcodes must use **literal** arguments (so the value can be
+mirrored). `console.*` logging is an ignored no-op. **Banned** (submission
+rejected): `vm.store`, `vm.load`, `vm.mockCall`/`mockCallRevert`, `vm.ffi`,
+`vm.etch`, `vm.expectRevert`/`expectEmit`, `vm.record`, `vm.readFile`/`writeFile`,
+`vm.setNonce`, and anything else on `vm.*`/`hevm.*` (default-deny).
+
+### Canonical env (Foundry's real defaults, measured — not guessed)
+
+`block.number=1`, `block.timestamp=1`, `block.chainid=31337`, `block.basefee=0`,
+`block.coinbase=0`, `block.prevrandao=0`, `block.gaslimit=1073741824`, default
+caller / `tx.origin` `0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38`;
+`address(this)` = the measured deploy address, mirrored so it agrees by
+construction.
+
 ## Quick start
 
 ```bash

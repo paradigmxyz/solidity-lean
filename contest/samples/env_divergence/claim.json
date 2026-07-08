@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "EnvT", "function": "ts", "args": [], "value": 0 },
+  "expected_divergence": "ATTACK: entry returns block.timestamp. Post-fix env is pinned identically on both engines -> NO_DIVERGENCE (not a spurious wrong-value SOUNDNESS_GAP).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:1" },
+  "feature": "env-timestamp-pinned",
+  "register_version_seen": "1.1.0"
+}

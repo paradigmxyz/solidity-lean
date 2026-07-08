@@ -41,9 +41,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from . import env as cenv
 from . import exclusion_register as reg
 from . import harness_bridge as hb
 from . import known_gaps as kg
+from . import measure as meas
 from . import observable as obs
 from . import reject_gate as gate
 
@@ -225,12 +227,40 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     work.mkdir(parents=True, exist_ok=True)
     evidence: dict[str, Any] = {"submission": str(root), "lane_claimed": lane}
 
+    # -- Step 0b: CHEATCODE GATE over the TEST file(s) (review P0 #3) --------
+    # Scan the submission's test ASTs: default-deny every vm.*/hevm cheatcode
+    # except the env-pinning whitelist, whose literal effects we MIRROR into the
+    # canonical env used on BOTH engines.
+    env_ov = cenv.EnvOverrides()
+    env_ov.value = int(entry.get("value", 0) or 0)
+    test_asts = _test_asts(submission.root, tools.solc)
+    scan = gate.scan_test_cheatcodes(test_asts)
+    evidence["cheatcodes"] = {
+        "banned": [h.to_dict() for h in scan.banned],
+        "unmirrorable": [h.to_dict() for h in scan.unmirrorable],
+        "overrides": scan.overrides.to_dict(),
+    }
+    if scan.banned:
+        ids = ", ".join(sorted({h.reason.split("(")[0].strip() for h in scan.banned}))
+        return Report("REJECTED_OOS", reason=(
+            f"test uses banned cheatcode(s): {ids} (state/oracle-forging "
+            "cheatcodes are not allowed; default-deny)"), evidence=evidence)
+    if scan.unmirrorable:
+        return Report("REJECTED_OOS", reason=(
+            "test uses a whitelisted cheatcode with a non-literal argument that "
+            "cannot be mirrored into the Solidus env (v1 requires literals)"),
+            evidence=evidence)
+    # merge the mirrored overrides, preserving the entry value.
+    scan.overrides.value = env_ov.value
+    env_ov = scan.overrides
+
     # -- Step 1 / 1a: REAL-BEHAVIOR CHECK ------------------------------------
+    measured: Optional[meas.Measurement] = None
     if over_accept:
-        contains = claim.get("solc_reject_contains", "Error:")
-        # a single-source over-accept: assert solc rejects the (first) source
+        # error_code pins the reject to a semantic cause (review L-1 / P1).
+        code = claim.get("solc_error_code") or claim.get("solc_reject_error_code")
         ok, status = hb.run_solc_rejects_source(
-            submission.sources[0], work / "solc-rejects", contains=contains,
+            submission.sources[0], work / "solc-rejects", error_code=code,
             tools=tools, timeout=timeout)
         evidence["solc_rejects"] = status
         if not ok:
@@ -248,6 +278,26 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             return Report("INVALID", reason=(
                 "claimed behavior does not reproduce on pinned solc 0.8.35 + "
                 f"Foundry (forge={status})"), evidence=evidence)
+        # -- MEASURE the EVM observable from an actual Forge run (P0 #1) -----
+        sig = meas.entry_signature(
+            _src_for(submission.sources, entry["contract"], tools.solc)
+            or submission.sources[0], entry["contract"], entry["function"],
+            tools.solc)
+        if sig is None:
+            return Report("REJECT_MALFORMED", reason=(
+                f"entry {entry['contract']}.{entry['function']} not found / has "
+                "no function selector in the compiled AST"), evidence=evidence)
+        measured, mstatus = meas.measure_evm(
+            sig, entry.get("args", []), env_ov, work / "measure",
+            forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout)
+        evidence["evm_measurement"] = (measured.raw if measured else mstatus)
+        if measured is None:
+            return Report("INVALID", reason=(
+                f"could not measure the EVM observable from the Forge run "
+                f"({mstatus})"), evidence=evidence)
+        # Mirror the deployed entry address into the Solidus env so
+        # address(this) agrees by construction (review E-1).
+        env_ov.self_addr = measured.self_addr
     else:
         evidence["forge"] = "skipped"
 
@@ -272,7 +322,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     solidus = hb.run_solidus_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
         work / "solidus", namespace, fuel=int(claim.get("fuel", 64)),
-        tools=tools, timeout=timeout)
+        tools=tools, timeout=timeout, env=env_ov)
+    evidence["env"] = env_ov.to_dict()
     evidence["solidus"] = {
         "ok": solidus.ok, "stage": solidus.stage,
         "fail_closed": solidus.fail_closed, "message": solidus.message[:1000],
@@ -308,15 +359,22 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         _annotate_dedup(report, "C", finger, finger[2])
         return report
 
-    # (3c) Solidus ran to completion -> compare observables.
-    declared = claim.get("declared_observable", {})
-    evm_norm = declared.get("normal_form")
-    if not evm_norm:
+    # (3c) Solidus ran to completion -> compare against the MEASURED EVM
+    # observable (review P0 #1: the oracle is the Forge run, NOT the claim).
+    if measured is None:
         return Report("REJECT_MALFORMED", reason=(
-            "claim.declared_observable.normal_form is required to compare "
-            "(the Forge-validated solc+EVM observable in normal form)"),
+            "no measured EVM observable available (Forge measurement did not "
+            "run); cannot adjudicate a soundness claim without the oracle"),
             evidence=evidence)
-    evm_obs = obs.parse_observable(evm_norm)
+    evm_obs = obs.evm_observable(measured.ok, measured.ret_hex, sig.return_types)
+    evidence["evm_observable"] = evm_obs.to_dict()
+    # declared_observable is now only a sanity cross-check (misreport hint).
+    declared_norm = (claim.get("declared_observable", {}) or {}).get("normal_form")
+    if declared_norm and declared_norm.strip() != evm_obs.raw.strip():
+        evidence["declared_mismatch"] = {
+            "declared": declared_norm, "measured": evm_obs.raw,
+            "note": "submitter's declared_observable disagrees with the measured "
+                    "EVM observable; adjudication uses the MEASURED value."}
     assert solidus.observable is not None
     comparison = obs.compare_observables(solidus.observable, evm_obs)
     evidence["comparison"] = comparison.to_dict()
@@ -338,6 +396,25 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
 
 def _sanitize(name: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in name).strip("_") or "Sub"
+
+
+def _test_asts(root: Path, solc: str) -> list[gate.SourceAst]:
+    """solc ASTs of the submission's TEST files (review P0 #3 cheatcode scan).
+
+    Test files import ``../src/*``, so they are compiled together with the src
+    sources (multi_source_asts) for imports to resolve."""
+    test_dir = root / "test"
+    if not test_dir.is_dir():
+        return []
+    test_files = sorted(test_dir.glob("*.sol"))
+    src_files = sorted((root / "src").glob("*.sol")) if (root / "src").is_dir() else []
+    if not test_files:
+        return []
+    return gate.multi_source_asts(test_files, test_files + src_files, solc)
+
+
+def _src_for(sources: list[Path], contract: str, solc: str) -> Optional[Path]:
+    return _source_of_contract(sources, contract, solc)
 
 
 def _source_of_contract(sources: list[Path], contract: str, solc: str) -> Optional[Path]:

@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Optional
 
 
-REGISTER_VERSION = "1.0.0"
+REGISTER_VERSION = "1.1.0"  # v1.1: added SEM-ENV (env-observable exclusion)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -215,6 +215,22 @@ _SEMANTIC: list[ExclusionEntry] = [
             "real initcode (G22). Non-salted `new` addresses ARE in scope."
         ),
         roadmap_ref="ROADMAP.md:468; G22",
+    ),
+    ExclusionEntry(
+        id="SEM-ENV",
+        kind="semantic",
+        detector="detect_env_observable",
+        reason=(
+            "An observable derived from an UNPINNABLE env fact - blockhash(n) / "
+            "blobhash(i) - flowing into an assertion or observed return. The "
+            "canonical block/tx/self env (number, timestamp, chainid, basefee, "
+            "coinbase, prevrandao, gaslimit, msg.sender, tx.origin, "
+            "address(this)) IS pinned identically on both engines (contest/"
+            "env.py = Foundry's real defaults) and therefore compared, not "
+            "excluded; but Solidus has no historical block/blob hashes, so a "
+            "blockhash/blobhash observable would be a spurious divergence."
+        ),
+        roadmap_ref="competition-design-review.md E-1; contest/env.py",
     ),
     ExclusionEntry(
         id="SEM-CLOSEDGAS",

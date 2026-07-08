@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Fake", "function": "run", "args": [], "value": 0 },
+  "expected_divergence": "ATTACK: a lying declared observable. The test passes trivially; declared_observable claims success|w:999 but run() really returns 5. Post-fix the adjudicator measures the EVM observable and finds NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:999" },
+  "feature": "fake-oracle-attack",
+  "register_version_seen": "1.1.0"
+}
