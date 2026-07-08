@@ -3143,8 +3143,9 @@ hole discards x+1). Forge `NestedTupleAssignmentForgeTest` and the Lean
 (foo(), bar())` where `foo` returns a 2-tuple) needs the internal-call
 tuple-hoisting machinery to run inside the nested elaboration; the lane pins the
 expression-RHS forms (literals/params/reads, incl. the swap and hole), which is
-where the destructure/order/hole semantics live. Call-in-nested-position is left
-as a remaining (harmless) over-reject rather than risk a wrong value.
+where the destructure/order/hole semantics live. Call-in-nested-position was
+left as a remaining over-reject here — **now FIXED under R1 (2026-07-08 residue
+cleanup, below).**
 
 ## 2026-07-08 — G14: storage-array copy with wider/shorter source (over-reject narrowed)
 
@@ -3260,3 +3261,57 @@ Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `forge_interpreter_compare=pass` (no regression — H2 must not start panicking a
 currently-passing case, verified); lane `narrow-udvt-arithmetic` `forge=ok
 lean=ok`. Full replay is the coordinator's merge gate — not run here.
+
+## 2026-07-08 — R1 (residue cleanup): nested tuple LHS with an INTERNAL-CALL RHS (over-reject fixed)
+
+The G13 scope note left one shape as an over-reject: a NESTED tuple assignment
+LHS whose RHS contains internal function calls — `((a, b), c) = (foo(), bar())`
+where `foo` returns a 2-tuple (its result destructures into the nested target),
+and `((a, b), c) = ((g(), h()), k())` with scalar calls in nested RHS positions.
+The maintainer's residue-cleanup pass requires it fixed.
+
+**solc semantics (confirmed with the pin).** Both shapes compile (`solc --bin`).
+solc evaluates the RHS tuple components once, LEFT-to-right, each into its own
+temp (a multi-return call producing the temps for a nested target), then
+destructures against the nested target tree; a hole still evaluates its RHS
+component. Forge ground truth (`NestedTupleInternalCallForgeTest`, storage
+`order` log packed into the return): `flatMulti() == 10203012` (a,b,c = 10,20,30;
+foo before bar → order 12), `nestedCalls() == 102030345` (100,200,300; g,h,k →
+order 345), `nestedHole() == 4099967` (a=400 from `p()`, hole discards `q()` but
+`q()` still runs → order 67, c=999).
+
+**Wrong → right.** The G13 nested elaboration (`tupleAssignmentCore?`) lowered
+the whole RHS with `Expr.toCore?`, which cannot hoist internal calls out of a
+tuple, so any nested-LHS assignment with a call RHS failed to elaborate and was
+OVER-REJECTED (and the typechecker rejected a nested target whose RHS component
+was not itself a tuple literal). No wrong value — rejected up front.
+
+**Fix.**
+- `Interface.lean`: `FunctionDecl.nestedTupleRhsHoistItem?` /
+  `nestedTupleRhsHoistList?` (in the internal-call mutual block) hoist every RHS
+  leaf into a path-unique temp left-to-right (so evaluation order — and thus
+  side-effect order — matches solc's temps-then-stores), returning
+  (prefix statements, the temp-read expression replacing the component). A
+  direct MULTI-return internal call filling a nested target is captured (reusing
+  `internalCallParts?` + `captureReturn`) into per-return outer temps and
+  replaced by an `Expr.tuple` of their reads; a parenthesized sub-tuple recurses;
+  an ordinary leaf (single-return call, pure read) is hoisted like the flat
+  `tupleItemsUseCoreWithInternalCalls?`. The `Stmt.toCoreWithInternalCalls?`
+  tuple-assignment arm now dispatches to this (building nested targets via
+  `TupleItems.toCoreTupleTargets?` and one `Stmt.assignTupleNested`) when the LHS
+  `hasNestedTuple` and the flat `Stmt.toCore?` path rejected it. Helper
+  `FunctionDecl.internalCalleeReturnTys?` sizes the per-return temps.
+- `TypeCheck.lean`: `checkNestedTupleItems` gains a case for a nested LHS target
+  aligned with a NON-tuple-literal RHS component whose TYPE is a tuple (a
+  multi-return call), checked via the new `checkNestedTupleTargetsAgainstTys`
+  (leaf lvalue / writable / state-write / assignability discipline, recursing on
+  nested targets); the tuple-literal RHS subcase (scalar calls in nested
+  position) already type-checked.
+
+**Right value (Forge-verified).** Lane `nested-tuple-internal-call`:
+`flatMulti = 10203012`, `nestedCalls = 102030345`, `nestedHole = 4099967` — Lean
+`checkedOwnCallWordMatches` witnesses reproduce all three exactly, including the
+left-to-right side-effect order. `forge=ok lean=ok compare=pass`.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no regression); new lane `forge=ok lean=ok`.

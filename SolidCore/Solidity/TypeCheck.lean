@@ -7728,12 +7728,59 @@ decreasing_by
     try simp_all [sizeOf]
     try omega
 
+-- R1 (residue-cleanup): type-check a nested tuple-assignment LHS against the
+-- ELEMENT TYPES of a value whose type is a tuple (e.g. a multi-return internal
+-- call filling a nested target: `((a, b), c) = (foo(), bar())`, `foo` returning
+-- `(uint, uint)`). Each leaf target reproduces the flat leaf discipline
+-- (lvalue / writable / state-write / assignability); a nested target recurses
+-- into the matching tuple element type; a hole skips.
+def checkNestedTupleTargetsAgainstTys (env : CheckEnv) :
+    List Solidity.TupleItem -> List Ty -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | Solidity.TupleItem.hole :: lhsRest, _ :: tyRest =>
+      checkNestedTupleTargetsAgainstTys env lhsRest tyRest
+  | Solidity.TupleItem.value (Solidity.Expr.tuple lhsInner) :: lhsRest,
+      ty :: tyRest => do
+      (match ty with
+       | Ty.tuple innerTys =>
+           checkNestedTupleTargetsAgainstTys env lhsInner innerTys
+       | _ =>
+           Except.error
+             (TypeError.unsupported
+               "nested tuple assignment target needs a tuple-typed value"))
+      checkNestedTupleTargetsAgainstTys env lhsRest tyRest
+  | Solidity.TupleItem.value target :: lhsRest, ty :: tyRest => do
+      let targetChecked ← checkExpr env target
+      require targetChecked.lvalue (TypeError.expectedLValue target)
+      targetChecked.expectWritableLocation target
+      if targetChecked.stateLValue then
+        requireStateWriteAllowed env
+      else
+        Except.ok ()
+      let _ ←
+        checkTupleAssignmentTargetAgainstTy env false none
+          target targetChecked ty
+      checkNestedTupleTargetsAgainstTys env lhsRest tyRest
+  | lhsItems, tys =>
+      Except.error
+        (TypeError.arityMismatch
+          "nested tuple assignment" lhsItems.length tys.length)
+termination_by lhsItems _ => sizeOf lhsItems
+decreasing_by
+  all_goals
+    simp_wf
+    try simp_all [sizeOf]
+    try omega
+
 -- Type-check a (possibly nested) tuple-assignment LHS against a nested tuple
 -- RHS, in lockstep left-to-right (G13). A parenthesized sub-tuple target
 -- recurses into the matching sub-tuple value; a leaf target reproduces the flat
 -- path's lvalue / writable-location / state-write / assignability /
 -- mapping-copy / calldata-location discipline inline (on syntactic subterms, so
 -- termination stays structural); a hole still type-checks its RHS component.
+-- R1: a nested target whose RHS component is NOT a tuple literal but has a
+-- tuple TYPE (a multi-return internal call) is checked via
+-- `checkNestedTupleTargetsAgainstTys`.
 def checkNestedTupleItems (env : CheckEnv) :
     List Solidity.TupleItem -> Solidity.Expr -> Except TypeError Unit
   | [], Solidity.Expr.tuple [] => Except.ok ()
@@ -7742,6 +7789,21 @@ def checkNestedTupleItems (env : CheckEnv) :
         (Solidity.TupleItem.value (Solidity.Expr.tuple rhsInner) :: rhsRest) =>
       do
       checkNestedTupleItems env lhsInner (Solidity.Expr.tuple rhsInner)
+      checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
+  | Solidity.TupleItem.value (Solidity.Expr.tuple lhsInner) :: lhsRest,
+      Solidity.Expr.tuple (Solidity.TupleItem.value rhsExpr :: rhsRest) => do
+      -- R1: nested LHS target aligned with a NON-tuple-literal RHS component
+      -- whose type is a tuple (a multi-return internal call). The tuple-literal
+      -- RHS subcase was already handled by the earlier pattern; this evaluates
+      -- the component's type and destructures the nested target against it.
+      let checked ← checkExpr env rhsExpr
+      (match checked.ty with
+       | Ty.tuple innerTys =>
+           checkNestedTupleTargetsAgainstTys env lhsInner innerTys
+       | _ =>
+           Except.error
+             (TypeError.unsupported
+               "nested tuple assignment target needs a tuple-typed value"))
       checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
   | Solidity.TupleItem.value (Solidity.Expr.tuple _) :: _, _ =>
       Except.error

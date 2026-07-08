@@ -9513,6 +9513,20 @@ def FunctionDecl.findInternalCalleeReturnTyWithArgs?
     FunctionDecl.findInternalCalleeWithArgs? functions env name args
   FunctionDecl.singleReturnTy? callee
 
+/-- All return types of a resolvable internal callee (contract functions first,
+    then free functions). Used by the nested-tuple-assignment RHS hoisting (R1)
+    to size the per-return temps when a MULTI-return internal call fills a nested
+    LHS target — `((a, b), c) = (foo(), bar())` where `foo` returns a 2-tuple. -/
+def FunctionDecl.internalCalleeReturnTys?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (name : Name) (args : List Arg) : Option (List Ty) :=
+  match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
+  | some (callee, _) => some (callee.returns.map (·.ty))
+  | none =>
+      match FunctionDecl.findInternalCalleeWithArgs? freeFunctions env name args with
+      | some (callee, _) => some (callee.returns.map (·.ty))
+      | none => none
+
 /-- Single return type of a direct-call argument: a resolvable internal callee
     OR (stage C) a call through an internal function pointer, whose return type
     comes from the fn-typed variable's TYPE. Used by the call-argument hoisting
@@ -12057,6 +12071,120 @@ def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
 termination_by _ _ items _ =>
   (internalFuel, sizeOf (Expr.tuple items), 5)
 
+/-- R1 (residue-cleanup): hoist internal calls out of ONE component of a
+    nested-tuple-assignment RHS, returning (prefix statements, the temp-read
+    expression that replaces the component). Every leaf component is evaluated,
+    left-to-right, into its own uniquely named temp (`tag` encodes the tree
+    path so names never collide), preserving solc's temps-then-stores order; a
+    direct MULTI-return internal call in a nested-target position is captured
+    into per-return outer temps and replaced by an `Expr.tuple` of their reads
+    (`((a, b), c) = (foo(), bar())` with `foo` returning a 2-tuple); a
+    parenthesized sub-tuple `((foo(), bar()), baz())` recurses. -/
+def FunctionDecl.nestedTupleRhsHoistItem?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (tag : String) : TupleItem -> Option (List CoreStmt × CoreExpr)
+  | TupleItem.hole => none
+  | TupleItem.value (Expr.tuple subItems) => do
+      let (pre, exprs) ←
+        FunctionDecl.nestedTupleRhsHoistList?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions tag 0 subItems
+      some (pre, SolidCore.Solidity.Source.Expr.tuple exprs)
+  | TupleItem.value expr =>
+      let multiReturn? : Option (List CoreStmt × CoreExpr) :=
+        match expr with
+        | Expr.call (Expr.ident name) callArgs =>
+            match FunctionDecl.internalCalleeReturnTys?
+                functions freeFunctions env name callArgs with
+            | some (t0 :: t1 :: ts) => do
+                let retTys := t0 :: t1 :: ts
+                let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
+                  FunctionDecl.internalCallParts?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions name callArgs
+                if returnStorageRefs.any id then none else some ()
+                let returnNames :=
+                  returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+                if returnNames.length == retTys.length then some () else none
+                let outerNames :=
+                  (List.range retTys.length).map
+                    (fun j => tag ++ "_r" ++ toString j)
+                let outerDecls ←
+                  mapOption
+                    (fun (p : Ty × Name) => do
+                      let cty ← Ty.toCore? p.fst
+                      some
+                        (SolidCore.Solidity.Source.Stmt.varDecl cty p.snd none))
+                    (retTys.zip outerNames)
+                let copies :=
+                  (outerNames.zip returnNames).map
+                    (fun p =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        (SolidCore.Solidity.Source.LValue.var p.fst)
+                        (SolidCore.Solidity.Source.Expr.var p.snd))
+                let inner :=
+                  SolidCore.Solidity.Source.Stmt.block
+                    (prefixCore ++
+                      [SolidCore.Solidity.Source.Stmt.captureReturn
+                        returnNames bodyCore] ++ copies)
+                some
+                  ( outerDecls ++ [inner]
+                  , SolidCore.Solidity.Source.Expr.tuple
+                      (outerNames.map SolidCore.Solidity.Source.Expr.var) )
+            | _ => none
+        | _ => none
+      match multiReturn? with
+      | some result => some result
+      | none => do
+          let ty ←
+            Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env expr
+          let cty ← Ty.toCore? ty
+          let assignStmt ←
+            match Expr.toCoreAsWithEnv? storageNames env ty expr with
+            | some coreExpr =>
+                some
+                  (SolidCore.Solidity.Source.Stmt.assign
+                    (SolidCore.Solidity.Source.LValue.var tag) coreExpr)
+            | none =>
+                FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions expr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var tag)
+                      (Ty.implicitCleanupCore ty resultExpr))
+          some
+            ( [ SolidCore.Solidity.Source.Stmt.varDecl cty tag none, assignStmt ]
+            , SolidCore.Solidity.Source.Expr.var tag )
+termination_by item => (internalFuel, sizeOf item, 9)
+
+/-- List form of `nestedTupleRhsHoistItem?`: hoist a whole RHS component list,
+    left-to-right, concatenating the prefixes and collecting one replacement
+    expression per component. -/
+def FunctionDecl.nestedTupleRhsHoistList?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (tag : String) : Nat -> List TupleItem -> Option (List CoreStmt × List CoreExpr)
+  | _, [] => some ([], [])
+  | idx, item :: rest => do
+      let (headPre, headExpr) ←
+        FunctionDecl.nestedTupleRhsHoistItem?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions (tag ++ "_" ++ toString idx) item
+      let (restPre, restExprs) ←
+        FunctionDecl.nestedTupleRhsHoistList?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions tag (idx + 1) rest
+      some (headPre ++ restPre, headExpr :: restExprs)
+termination_by _ items => (internalFuel, sizeOf items, 8)
+
 def FunctionDecl.tupleReturnValuesCoreWithInternalCalls?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -12221,24 +12349,47 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
                 (Expr.tuple rhsItems))) with
       | some coreStmt => some coreStmt
-      | none => do
-          let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
-          let componentTys ←
-            mapOption
-              (fun item =>
-                match item with
-                | TupleItem.value expr =>
-                    Expr.abiTyWithInternalFunctionsEnv?
-                      functions freeFunctions env expr
-                | TupleItem.hole => none)
-              rhsItems
-          FunctionDecl.tupleItemsUseCoreWithInternalCalls?
-            internalFuel storageRefEnv env externalCallKindEnv storageNames
-            modifiers functions freeFunctions "_sol_tuple_assign_item"
-            0 componentTys rhsItems
-            (fun coreExprs =>
-              SolidCore.Solidity.Source.Stmt.assignTuple targets
-                (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+      | none =>
+          if TupleItems.hasNestedTuple lhsItems then do
+            -- R1 (residue-cleanup): NESTED LHS with an internal-call RHS —
+            -- `((a, b), c) = (foo(), bar())` (`foo` returns a 2-tuple) or
+            -- `((a, b), c) = ((foo(), bar()), baz())`. The flat `Stmt.toCore?`
+            -- nested path (`tupleAssignmentCore?`) cannot hoist internal calls
+            -- out of the RHS, so it over-rejected. Hoist every RHS leaf into a
+            -- path-unique temp left-to-right (a multi-return call captured into
+            -- per-return temps → a nested `Expr.tuple` value), preserving
+            -- solc's temps-then-stores order, then destructure the temp-read
+            -- tuple against the nested target tree with `assignTupleNested`.
+            let targets ←
+              TupleItems.toCoreTupleTargets? storageNames lhsItems
+            let (prefixStmts, replExprs) ←
+              FunctionDecl.nestedTupleRhsHoistList?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions "_sol_nested_tuple_item"
+                0 rhsItems
+            some
+              (SolidCore.Solidity.Source.Stmt.block
+                (prefixStmts ++
+                  [ SolidCore.Solidity.Source.Stmt.assignTupleNested targets
+                      (SolidCore.Solidity.Source.Expr.tuple replExprs) ]))
+          else do
+            let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+            let componentTys ←
+              mapOption
+                (fun item =>
+                  match item with
+                  | TupleItem.value expr =>
+                      Expr.abiTyWithInternalFunctionsEnv?
+                        functions freeFunctions env expr
+                  | TupleItem.hole => none)
+                rhsItems
+            FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions "_sol_tuple_assign_item"
+              0 componentTys rhsItems
+              (fun coreExprs =>
+                SolidCore.Solidity.Source.Stmt.assignTuple targets
+                  (SolidCore.Solidity.Source.Expr.tuple coreExprs))
   | Stmt.expr
       (Expr.call
         (Expr.member (Expr.call (Expr.ident name) args) "push")
