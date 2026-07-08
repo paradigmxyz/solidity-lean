@@ -24,6 +24,12 @@ class ImportError(Exception):
 
 FUNCTION_PARAM_COUNT_BY_ID: dict[int, int] = {}
 
+# Maps a FunctionDefinition AST id to its declared name. Populated per module so
+# that a user-defined operator node (`BinaryOperation`/`UnaryOperation` with a
+# non-null `function` field = solc's resolved operator function) can be lowered
+# to an ordinary internal call of that operator function.
+FUNCTION_NAME_BY_ID: dict[int, str] = {}
+
 
 SUPPORTED_NODE_TYPES: set[str] = {'Assignment', 'ArrayTypeName', 'BinaryOperation', 'Block', 'Break', 'Conditional', 'Continue', 'ContractDefinition', 'DoWhileStatement', 'ElementaryTypeName', 'ElementaryTypeNameExpression', 'EmitStatement', 'EnumDefinition', 'EnumValue', 'ErrorDefinition', 'EventDefinition', 'ExpressionStatement', 'ForStatement', 'FunctionCall', 'FunctionCallOptions', 'FunctionDefinition', 'FunctionTypeName', 'Identifier', 'IdentifierPath', 'IfStatement', 'IndexAccess', 'IndexRangeAccess', 'InheritanceSpecifier', 'Literal', 'Mapping', 'MemberAccess', 'ModifierDefinition', 'ModifierInvocation', 'NewExpression', 'OverrideSpecifier', 'ParameterList', 'PlaceholderStatement', 'PragmaDirective', 'Return', 'RevertStatement', 'SourceUnit', 'StructDefinition', 'TupleExpression', 'TryCatchClause', 'TryStatement', 'UncheckedBlock', 'UnaryOperation', 'UserDefinedTypeName', 'UserDefinedValueTypeDefinition', 'UsingForDirective', 'VariableDeclaration', 'VariableDeclarationStatement', 'WhileStatement'}
 METADATA_NODE_TYPES: set[str] = {'StructuredDocumentation'}
@@ -1091,6 +1097,19 @@ def expr_from_node(node: dict[str, Any]) -> str:
         op = node.get("operator")
         if not isinstance(sub_expression, dict) or not isinstance(op, str):
             fail("UnaryOperation missing subExpression or operator")
+        operator_function = user_defined_operator_name(node)
+        if operator_function is not None:
+            # solc bound this operator symbol to a free function via
+            # `using {f as -} for T`; it resolves `-a` to a call `f(a)` that
+            # runs with its own checked/unchecked context. Lower to that call so
+            # the internal-call boundary executes the operator body, not the
+            # built-in operator on the underlying word.
+            return (
+                "Expr.call (Expr.ident "
+                + lean_string(operator_function)
+                + ") "
+                + args_from_nodes([sub_expression])
+            )
         return (
             "Expr.unary "
             + unary_op(op, node.get("prefix"))
@@ -1181,6 +1200,20 @@ def expr_from_node(node: dict[str, Any]) -> str:
         op = node.get("operator")
         if not isinstance(left, dict) or not isinstance(right, dict) or not isinstance(op, str):
             fail("BinaryOperation missing left/right/operator")
+        operator_function = user_defined_operator_name(node)
+        if operator_function is not None:
+            # solc bound this operator symbol to a free function via
+            # `using {f as +} for T`; it resolves `a + b` to a call `f(a, b)`
+            # that runs with its own checked/unchecked context (comparison
+            # operators return `bool`). Lower to that call so the internal-call
+            # boundary executes the operator body, not the built-in operator on
+            # the underlying words.
+            return (
+                "Expr.call (Expr.ident "
+                + lean_string(operator_function)
+                + ") "
+                + args_from_nodes([left, right])
+            )
         return (
             "Expr.binary "
             + binary_op(op)
@@ -1774,6 +1807,43 @@ def collect_function_param_counts(ast: dict[str, Any]) -> dict[int, int]:
     return counts
 
 
+def collect_function_names_by_id(ast: dict[str, Any]) -> dict[int, str]:
+    names: dict[int, str] = {}
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            node_id = node.get("id")
+            if (
+                node.get("nodeType") == "FunctionDefinition"
+                and isinstance(node_id, int)
+                and isinstance(node.get("name"), str)
+            ):
+                names[node_id] = node["name"]
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(ast)
+    return names
+
+
+def user_defined_operator_name(node: dict[str, Any]) -> str | None:
+    """If this operator node resolves to a user-defined operator function
+    (solc's `function` field is a non-null FunctionDefinition id), return the
+    operator function's name; otherwise `None` for a plain built-in operator."""
+    function_id = node.get("function")
+    if not isinstance(function_id, int):
+        return None
+    name = FUNCTION_NAME_BY_ID.get(function_id)
+    if not isinstance(name, str):
+        fail(
+            f"user-defined operator references unknown function id {function_id!r}"
+        )
+    return name
+
+
 def using_decl_from_node(node: dict[str, Any]) -> str:
     if node.get("nodeType") != "UsingForDirective":
         fail("expected UsingForDirective")
@@ -1945,7 +2015,9 @@ def source_item_from_node(node: dict[str, Any], contract_def_names: dict[int, st
 
 def render_module(ast: dict[str, Any], source_name: str, contract_name: str, namespace: str, body_only: bool) -> str:
     global FUNCTION_PARAM_COUNT_BY_ID
+    global FUNCTION_NAME_BY_ID
     FUNCTION_PARAM_COUNT_BY_ID = collect_function_param_counts(ast)
+    FUNCTION_NAME_BY_ID = collect_function_names_by_id(ast)
     guard_no_unsupported_nodes(ast)
     contract = find_contract(ast, contract_name)
     contracts = contract_definitions(ast)

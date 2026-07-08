@@ -5868,6 +5868,44 @@
           }
         ]
       }
+    },
+    {
+      "name": "udvt-operator-dispatch",
+      "description": "Forge checks solc/EVM behavior for user-defined operators (`using {f as +} for T`) whose bodies DIFFER from the built-in operator: fixed-point multiply (1e18 rescale) so `500e18 + 500e18 * 0.1` is 550e18 not the built-in ~5e37, a checked operator body that panics 0x11 on overflow from an unchecked call site, an unchecked operator body that wraps modulo 2^256 from a checked call site, unary/binary minus disambiguation, and bool-returning comparison operators. Lean imports the same source and pins that each operator dispatches to its bound function with its own checked/unchecked context (finding G1).",
+      "forge": {
+        "root": "tests/forge-harness/udvt-operator-dispatch",
+        "match_contract": "UdvtOperatorDispatchForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/udvt-operator-dispatch/src/UdvtOperatorDispatch.sol",
+        "contract": "UdvtOperatorDispatch",
+        "namespace": "SolidCore.Solidity.SolcAstImport.UdvtOperatorDispatch"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.UdvtOperatorDispatch.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedOperatorDispatchValues",
+            "expr": "(do\n  let src := SolidCore.Solidity.SolcAstImport.UdvtOperatorDispatch.importedSourceUnit\n  let st := SolidCore.Solidity.Source.State.empty\n  let w := SolidCore.Solidity.Source.Value.word\n  let i := SolidCore.Solidity.Source.Value.int\n  let chk : Nat \u2192 String \u2192 List SolidCore.Solidity.Source.Value \u2192 Nat \u2192 Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args expected => do\n      let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"UdvtOperatorDispatch\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | _ => Except.ok false\n  let interest \u2190 chk 128 \"applyInterest\" [i 500000000000000000000, i 100000000000000000] 550000000000000000000\n  let dneg \u2190 chk 64 \"doubleNeg\" [i 7000000000000000000] 7000000000000000000\n  let d \u2190 chk 64 \"diff\" [i 9000000000000000000, i 4000000000000000000] 5000000000000000000\n  let lt1 \u2190 chk 64 \"less\" [i 3000000000000000000, i 4000000000000000000] 1\n  let lt0 \u2190 chk 64 \"less\" [i 4000000000000000000, i 3000000000000000000] 0\n  let eq1 \u2190 chk 64 \"equal\" [i 4000000000000000000, i 4000000000000000000] 1\n  let eq0 \u2190 chk 64 \"equal\" [i 4000000000000000000, i 5000000000000000000] 0\n  let wrap \u2190 chk 64 \"uncheckedOpWraps\" [w 115792089237316195423570985008687907853269984665640564039457584007913129639935] 0\n  Except.ok (interest && dneg && d && lt1 && lt0 && eq1 && eq0 && wrap))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedCheckedOperatorOverflowPanics",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 SolidCore.Solidity.SolcAstImport.UdvtOperatorDispatch.importedSourceUnit \"UdvtOperatorDispatch\" (SolidCore.Solidity.Source.CallTarget.name \"checkedOpOverflow\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 115792089237316195423570985008687907853269984665640564039457584007913129639935]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => Except.ok (SolidCore.Solidity.Source.wordEq code 0x11)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
