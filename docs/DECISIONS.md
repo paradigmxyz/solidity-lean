@@ -2499,3 +2499,62 @@ absent from the corpus): overloaded library internal functions referenced by
 member-form value (only the index-0 helper name is keyed); `C.f` for an
 INHERITED (non-direct) function via member-form value (direct declarations of
 the named contract only).
+
+## 2026-07-08 — Acceptance soundness: signed/unsigned + contract-hierarchy conversion boundaries (A1–A4)
+
+Four ACCEPTANCE-soundness over-accepts (this repo accepted programs pinned solc
+0.8.35 rejects) fixed in `SolidCore/Solidity/TypeCheck.lean`. Each boundary was
+read in solc `libsolidity/ast/Types.cpp` and confirmed with pinned-solc probes
+of both the now-rejected case and a still-accepted neighbor. New pinning lane:
+manifest case `signed-unsigned-contract-conversions` (5 `solc_rejects` fixtures
+under `tests/forge-harness/signed-unsigned-contract-conversions/invalid/`, plus
+8 Lean `TypeCheck.Examples` evals — a reject + an accepted neighbor per rule).
+
+**A1 — implicit `uintN → intM` (and any signed↔unsigned) is rejected.**
+- solc `IntegerType::isImplicitlyConvertibleTo` (Types.cpp:611-614): int→int
+  implicit only when `isSigned() == convertTo.isSigned()` AND `convertTo.m_bits
+  >= m_bits`. No implicit signed↔unsigned in either direction.
+- Over-accept was `Ty.canImplicitlyConvert` arm `uint actualBits → int
+  expectedBits => actualBits < expectedBits` (was ~:1060-1061). Deleted that arm.
+- Boundary: `uint8 → int16` now REJECTED; `uint8 → uint16` and `int8 → int16`
+  (same-sign widening) still accepted; explicit `int16(uint16(a))` still accepted.
+
+**A2 — non-literal mixed-sign binary op (e.g. `uint8 + int16`) is rejected.**
+- solc: no common type between a signed and unsigned integer for a binary op
+  unless an operand is a number literal that fits the other's type.
+- No separate edit needed: the mixed-sign binary path
+  (`CheckedExpr.commonOperandTy?` → `Ty.commonImplicit?`, ~:3216-3264) has no
+  direct mixed-sign arm and falls to the `canImplicitlyConvert` fallback, which
+  A1 now makes false in both directions ⇒ `none` ⇒ rejected. The LITERAL cases
+  are handled earlier in `commonArrayElementTy?` (:3270-3279) via
+  `implicitLiteralFits` and are UNAFFECTED.
+- Boundary: `uint8 a + int16 b` (both vars) REJECTED; `uint8(x) + 2` and
+  `1 + int16(x)` (number literal takes the other operand's type) still accepted.
+
+**A3 — explicit signed-int ↔ `bytesN` is rejected; unsigned same-width kept.**
+- solc `FixedBytesType::isExplicitlyConvertibleTo` (Types.cpp:1364-1365):
+  bytesN→integer only `!integerType->isSigned() && numBits == numBytes*8`;
+  `IntegerType::isExplicitlyConvertibleTo` to FixedBytes (Types.cpp:638-639):
+  only `!isSigned() && numBits == numBytes*8`. Unsigned, same bit width only.
+- Over-accept was `Ty.fixedBytesIntegerSameSize` (~:1138-1141) using
+  `integerBits?` (matches BOTH int and uint). Changed to `uintBits?` (unsigned
+  only). This predicate feeds both directions of the explicit-conversion match.
+- Boundary: `int256(bytes32)` and `bytes32(int256)` now REJECTED;
+  `uint256(bytes32)` and `bytes32(uint256)` still accepted (bytesN sizes 1..32 ⇒
+  bits are multiples of 8, so `uintBits?`'s `%8` guard never spuriously rejects).
+
+**A4 — explicit contract down-cast (base→derived) is rejected; up-cast kept.**
+- solc `ContractType::isExplicitlyConvertibleTo` (Types.cpp:1491-1500) → for a
+  contract target falls through to `isImplicitlyConvertibleTo`
+  (Types.cpp:1468-1489): allowed only when target is in the source's linearized
+  bases (an UP-cast, derived→base). base→derived is a type error.
+- Over-accept was the contract↔contract explicit arm (~:1426-1428) using the
+  SYMMETRIC `contractsRelated` (ancestor either way). Changed to
+  `contractHasAncestorPathFuel types 64 actualPath targetPath` (target must be a
+  base/ancestor of source). `contractsRelated` is now unused (kept, harmless).
+- Boundary: `Derived(baseInstance)` now REJECTED; `Base(derivedInstance)`
+  up-cast and contract↔address conversions still accepted.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` all 28 cases
+`lean=ok` / `compare=pass` (no valid corpus program newly rejected); new
+`signed-unsigned-contract-conversions` lane `solc_rejects=ok lean=ok`.
