@@ -3040,3 +3040,32 @@ frozen: only NEW lanes were added.
 
 No soundness bug found: all five pinned features already matched EVM ground
 truth; G22 is a documented out-of-scope limitation.
+
+## 2026-07-08 — H1: a negated numeric literal adopts a signed operand's type (gap/arithwidth)
+
+COMPLETENESS gap recorded incidentally in the G1 note (2026-07-08 UDVT-operator
+entry). Ground truth: pinned solc 0.8.35 + Forge. Not merged to main.
+
+solc (`Types.cpp` common-type / literal fitting) lets a numeric literal —
+including `-2`, `-1e18` — take the other operand's type in a binary arithmetic op
+if it fits. Probe: pinned solc ACCEPTS `a / 1e18`, `a / -2`, `a * 3`, `a + 5`,
+`a - 5`, `a % 7` for `int256 a`, and Forge confirms signed division truncates
+toward zero (`7 / -2 == -3`, `-7 / -2 == 3`), `-8 % 7 == -1`, and
+`type(int256).min / -1` Panics 0x11. Scope on our side: a *positive* direct
+literal already worked (`a / 1e18` → `intWord`); only a *negated* literal was
+broken — and for ALL arithmetic operators, not just `/`. Cause:
+`Expr.commonOperandTyWithEnv?` (Interface.lean) used `Expr.isDirectLiteral`,
+which matches only `Expr.literal _`, so a negated literal `-2` (whose
+`abiTyWithEnv?` reports the *magnitude* type `uint256`) failed
+`commonImplicit? int256 uint256`, dropping the op onto the untyped `toCore?`
+fallback where `-2` lowered to `-(word 2)` and checked unary `-` on an unsigned
+word spuriously Panicked 0x11. Fix: `Expr.adoptsOperandLiteralTy` (Interface.lean)
+also accepts a negated raw numeric literal; the `implicitLiteralFits` guard still
+rejects out-of-range / wrong-signed literals (e.g. `-2` against a `uintN`
+operand), so nothing is accepted beyond solc. The typechecker already types `-2`
+as `int256` (its `UnaryOp.neg` case), so this only aligns lowering with the
+accepted type. Lane: `signed-literal-arithmetic` (positive+negative literal
+divide, INT_MIN/-1 panic neighbor, and `*`/`+`/`-`/`%` neighbors).
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no regression); lane `forge=ok lean=ok`.

@@ -6399,13 +6399,31 @@ def Expr.toCoreAsWithEnvDirect? (storageNames : List Name) (env : TypeEnv)
                       let coreExpr ← Expr.toCore? storageNames expr
                       Expr.coreAsFromTy? targetTy sourceTy coreExpr
 
+/-- Operands eligible for literal-type adoption in a binary op's common-type
+    computation: a direct literal (`Expr.isDirectLiteral`) or a *negated*
+    numeric literal (`-2`, `-1e18`). solc treats a negated numeric literal as a
+    signed rational constant that adopts the other operand's type when it fits
+    (H1: `int256 x = a / -2;`). Without this, `abiTyWithEnv?` reports the
+    negation's *magnitude* type (`uint256`) — losing the sign so
+    `commonImplicit? int256 uint256` fails, dropping the whole op onto the
+    untyped `toCore?` fallback, where the operand lowers to `-(word 2)` and
+    checked unary `-` on an unsigned word spuriously Panics 0x11. The typechecker
+    already types `-2` as `int256` (the `UnaryOp.neg` case), so this only aligns
+    lowering with the accepted type; the `implicitLiteralFits` guard still
+    rejects an out-of-range or wrong-signed literal (e.g. `-2` against a `uintN`
+    operand), so nothing is accepted beyond what solc accepts. -/
+def Expr.adoptsOperandLiteralTy : Expr -> Bool
+  | Expr.literal _ => true
+  | e@(Expr.unary UnaryOp.neg _) => Expr.isRawNumberLiteralExpression e
+  | _ => false
+
 def Expr.commonOperandTyWithEnv? (env : TypeEnv)
     (lhs rhs : Expr) : Option Ty := do
   let lhsTy ← Expr.abiTyWithEnv? env lhs
   let rhsTy ← Expr.abiTyWithEnv? env rhs
-  if Expr.isDirectLiteral rhs && implicitLiteralFits lhsTy rhs then
+  if Expr.adoptsOperandLiteralTy rhs && implicitLiteralFits lhsTy rhs then
     some lhsTy
-  else if Expr.isDirectLiteral lhs && implicitLiteralFits rhsTy lhs then
+  else if Expr.adoptsOperandLiteralTy lhs && implicitLiteralFits rhsTy lhs then
     some rhsTy
   else
     Ty.commonImplicit? lhsTy rhsTy

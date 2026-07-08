@@ -5251,7 +5251,7 @@
     },
     {
       "name": "mutability-relax-override",
-      "description": "G19 pin (docs/solidus-solc-deep-comparison.md): overrides that RELAX (narrow) state mutability — base view overridden pure, base nonpayable overridden view. Pinned solc accepts both (warnings only) and virtual dispatch reaches the override bodies; ground truth from Forge (runTag(5)=7, runBump(5)=25). Lean imports the same source and own-calls the derived entrypoints, pinning acceptance + value.",
+      "description": "G19 pin (docs/solidus-solc-deep-comparison.md): overrides that RELAX (narrow) state mutability \u2014 base view overridden pure, base nonpayable overridden view. Pinned solc accepts both (warnings only) and virtual dispatch reaches the override bodies; ground truth from Forge (runTag(5)=7, runBump(5)=25). Lean imports the same source and own-calls the derived entrypoints, pinning acceptance + value.",
       "forge": {
         "match_contract": "MutabilityRelaxOverrideForgeTest",
         "match_test": "test*",
@@ -5311,7 +5311,7 @@
           {
             "expect": "Except.ok true",
             "label": "viaInt",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.callContract 4000 SolidCore.Solidity.SolcAstImport.UsingForWildcard.importedSourceUnit \"UsingForWildcardHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"viaInt\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-4))]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int value] => Except.ok (SolidCore.Solidity.Source.wordEq value (SolidCore.Solidity.Shared.signedToWord (-12)))\n  | _ => Except.ok false)"
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 4000 SolidCore.Solidity.SolcAstImport.UsingForWildcard.importedSourceUnit \"UsingForWildcardHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"viaInt\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-4))]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int value] => Except.ok (SolidCore.Solidity.Source.wordEq value (SolidCore.Solidity.Shared.signedToWord (-12)))\n  | _ => Except.ok false)"
           },
           {
             "expect": "Except.ok true",
@@ -5337,7 +5337,7 @@
     },
     {
       "name": "c99-scope-activation",
-      "description": "G21 pin (docs/solidus-solc-deep-comparison.md): C99 block-scope activation — a local is in scope only AFTER its declaration point, not hoisted to the top of its block. Each probe's value distinguishes C99 activation from whole-block hoisting: blockActivation()=1100 (inner `uint y = x` reads the OUTER x=1, not a hoisted inner x=0), selfInitFromOuter()=6 (inner `uint x = x + 1` initializer reads the OUTER x=5). Ground truth from Forge (warnings only).",
+      "description": "G21 pin (docs/solidus-solc-deep-comparison.md): C99 block-scope activation \u2014 a local is in scope only AFTER its declaration point, not hoisted to the top of its block. Each probe's value distinguishes C99 activation from whole-block hoisting: blockActivation()=1100 (inner `uint y = x` reads the OUTER x=1, not a hoisted inner x=0), selfInitFromOuter()=6 (inner `uint x = x + 1` initializer reads the OUTER x=5). Ground truth from Forge (warnings only).",
       "forge": {
         "match_contract": "C99ScopeActivationForgeTest",
         "match_test": "test*",
@@ -5392,7 +5392,7 @@
           {
             "expect": "Except.ok true",
             "label": "tryExternalFnReturnRoundTrips",
-            "expr": "(do\n  let selValue := SolidCore.Solidity.Source.ABI.selectorFromSignature \"value()\"\n  let cbValue := SolidCore.Solidity.Source.Value.externalFunction 0xbeef selValue\n  let outputA ← SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.externalFunction] [cbValue]\n  let rowA ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"getCb()\" [] [] outputA\n  let outputB ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalWordOutput 42\n  let rowB ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"value()\" [] [] outputB\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.TryExternalFnReturn.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"TryExternalFnReturnHarnessTarget\"\n  let callResult ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [rowA, rowB] []) contract \"tryGetAndCall\"\n    { contract.core.context with accountCodes := [(0xbeef, [1])] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word value] => Except.ok (SolidCore.Solidity.Source.wordEq value 42)\n  | _ => Except.ok false)"
+            "expr": "(do\n  let selValue := SolidCore.Solidity.Source.ABI.selectorFromSignature \"value()\"\n  let cbValue := SolidCore.Solidity.Source.Value.externalFunction 0xbeef selValue\n  let outputA \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.externalFunction] [cbValue]\n  let rowA \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"getCb()\" [] [] outputA\n  let outputB \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalWordOutput 42\n  let rowB \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.staticcall \"value()\" [] [] outputB\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.TryExternalFnReturn.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"TryExternalFnReturnHarnessTarget\"\n  let callResult \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [rowA, rowB] []) contract \"tryGetAndCall\"\n    { contract.core.context with accountCodes := [(0xbeef, [1])] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word value] => Except.ok (SolidCore.Solidity.Source.wordEq value 42)\n  | _ => Except.ok false)"
           }
         ],
         "imports": [
@@ -6201,6 +6201,79 @@
             "label": "g10MsgDataInFallbackAccepted",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.g10MsgDataInFallbackAccepted",
             "expect": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "signed-literal-arithmetic",
+      "description": "solc lets a numeric literal (including a negated literal) adopt a signed operand's type in a binary arithmetic op: `int256 x = a / 1e18;`, `a / -2`, `a % -8`, etc. are accepted and evaluated as signed (truncated toward zero; INT_MIN/-1 Panics 0x11). Forge pins solc/EVM; Lean checks the paired source-interpreter witnesses (H1 completeness fix).",
+      "forge": {
+        "match_contract": "SignedLiteralArithmeticForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/signed-literal-arithmetic"
+      },
+      "solc_import": {
+        "contract": "SignedLiteralArithmeticHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic",
+        "source": "tests/forge-harness/signed-literal-arithmetic/src/SignedLiteralArithmetic.sol"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "expr": "SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContractAccepted",
+            "expect": "true",
+            "label": "importedContractAccepted"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divPosLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord 5000000000000000000)] (SolidCore.Solidity.Shared.signedToWord 5)",
+            "expect": "Except.ok true",
+            "label": "divPosLitPositive"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divPosLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-5000000000000000000))] (SolidCore.Solidity.Shared.signedToWord (-5))",
+            "expect": "Except.ok true",
+            "label": "divPosLitNegativeDividend"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divNegLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord 7)] (SolidCore.Solidity.Shared.signedToWord (-3))",
+            "expect": "Except.ok true",
+            "label": "divNegLitTruncTowardZero"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divNegLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-7))] (SolidCore.Solidity.Shared.signedToWord 3)",
+            "expect": "Except.ok true",
+            "label": "divNegLitNegDividend"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divIntMin\" SolidCore.Solidity.Source.State.empty [] 0x11",
+            "expect": "Except.ok true",
+            "label": "divIntMinOverflowPanics"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"mulLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord 4)] (SolidCore.Solidity.Shared.signedToWord 12)",
+            "expect": "Except.ok true",
+            "label": "mulLit"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"addLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-2))] (SolidCore.Solidity.Shared.signedToWord 3)",
+            "expect": "Except.ok true",
+            "label": "addLit"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"subLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-2))] (SolidCore.Solidity.Shared.signedToWord (-7))",
+            "expect": "Except.ok true",
+            "label": "subLit"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"modLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-8))] (SolidCore.Solidity.Shared.signedToWord (-1))",
+            "expect": "Except.ok true",
+            "label": "modLitSignedRemainder"
           }
         ]
       }
