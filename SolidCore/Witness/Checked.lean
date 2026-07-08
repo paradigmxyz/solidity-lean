@@ -14329,8 +14329,8 @@ def checkedTransientClearedAtAbiTransactionBoundaryMatches :
       SolidCore.Solidity.Source.wordEq readValue 0 &&
       SolidCore.Solidity.Source.wordEq
         (readResult.state.loadSlot 0) 7 &&
-      writeResult.state.transient == [] &&
-      readResult.state.transient == [])
+      writeResult.state.transient.isEmpty &&
+      readResult.state.transient.isEmpty)
 
 def checkedRevertedTransientWriteDropsWrite :
     Except TypeError Bool := do
@@ -14351,7 +14351,7 @@ def checkedRevertedTransientWriteDropsWrite :
           [SolidCore.Solidity.Source.Value.word value] =>
           Except.ok
             (SolidCore.Solidity.Source.wordEq value 0 &&
-              state.transient == [])
+              state.transient.isEmpty)
       | _ => Except.ok false
   | _ => Except.ok false
 

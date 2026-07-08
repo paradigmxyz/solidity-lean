@@ -41,8 +41,8 @@ def snapshotWitnessContext : Context :=
 
 def snapshotWitnessState : State :=
   { State.empty with
-    storage := [(1, 42)]
-    transient := [(2, 9)]
+    storage := StorageMap.insertLoop {} 1 42
+    transient := StorageMap.insertLoop {} 2 9
     selfBalance := 77
     selfNonce := 3
     events :=
