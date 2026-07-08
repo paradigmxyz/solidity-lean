@@ -5,6 +5,70 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — DL1 fixed: storage / constructor / initializer order = reverse C3
+
+`docs/solc-implementation-divergences-7.md` DL1 (wrong-VALUE + wrong-ORDER
+soundness bug).
+
+**The bug.** Solidus laid out contract storage AND ran base constructors +
+inline state-variable initializers in a naive left-to-right DFS post-order
+keep-first-dedup traversal (`ContractDecl.storageOrder?` /
+`storageOrderWithFuel?`, `SolidCore/Solidity/Interface.lean`). solc lays out
+storage — and runs constructors/initializers — in `reverse(linearized
+BaseContracts)` = reverse C3 = most-base-first (Types.cpp:2168-2172;
+C3 in NameAndTypeResolver.cpp:422-497, pinned solc v0.8.35). The two orders
+diverge whenever a contract lists a direct base that is ALSO an indirect base.
+Repro `contract X{uint x;} contract Y{uint y;} contract M is X,Y{uint m;}
+contract Z is Y,M{uint z;}`: pinned solc `--combined-json ast` gives
+`C3(Z) = [Z, M, Y, X]`, so storage = reverse = `[X, Y, M, Z]` → x@0, y@1, m@2,
+z@3. The old DFS produced `[Y, X, M, Z]` → y@0, x@1 (x/y SWAPPED) — wrong slot
+(wrong read/write VALUES + wrong external layout) AND wrong constructor/
+initializer execution ORDER.
+
+**The fix (`SolidCore/Solidity/Interface.lean`).** Solidus already computes the
+correct C3 linearization for DISPATCH (`ContractDecl.dispatchOrder?`, most-
+derived-first). Storage order is simply its reverse. Deleted
+`ContractDecl.storageOrderWithFuel?` and redefined
+
+```
+def ContractDecl.storageOrder? (contracts) (decl) : Option (List ContractDecl) :=
+  (ContractDecl.dispatchOrder? contracts decl).map List.reverse
+```
+
+Single touch point: every consumer (slot assignment via `stateVars :=
+concatMapList directStateVars storageOrder`; constructor/initializer composition
+via `pieces := mapOption … storageOrder`; transient via `stateVars.filter
+isTransient`; `findImmediateDerivedInOrder?`) flows from `storageOrder?`, and all
+require only a most-base-first topological order, which the reverse preserves.
+Verified on the repro that `dispatchOrder?` = solc's C3 `[Z,M,Y,X]`, so
+`reverse` = `[X,Y,M,Z]` matches solc slot-for-slot.
+
+**Before → after slots (repro Z).** before (DFS): y@0, x@1, m@2, z@3;
+after (reverse-C3): x@0, y@1, m@2, z@3 — matches pinned solc `--combined-json
+storage-layout`. Constructor order: before ran Y before X; after runs X before Y
+(most-base-first), confirmed via an order-sensitive `trace` accumulator (correct
+1234 vs buggy 2134 on the paired shape).
+
+**Coincidence / no-regression checks.** Linear chains and simple diamonds have
+DFS = reverse-C3, so they are unaffected (smoke stayed green, identical values).
+Transient storage and cross-boundary packing inherit the same corrected
+traversal; pinned-solc probe confirms solc packs across the contract boundary in
+reverse-C3 order (e.g. `y1` from `Y` and `m1` from `M` share one slot), which the
+fix reproduces (within-contract var order unchanged).
+
+**Lane.** `tests/forge-harness/storage-order-linearization` (manifest case
+`storage-order-linearization`): the shared direct+indirect base repro (`Dl1ShZ is
+Dl1ShY, Dl1ShM` where `Dl1ShM is Dl1ShX, Dl1ShY`) plus a linear control
+(`Dl1LinC`) and simple-diamond control (`Dl1DiaG`). Asserts each var's raw slot
+(Lean `state.loadSlot` / Forge `vm.load`) AND the constructor-order `trace`
+side-effect, Forge-paired. Harness: `forge=ok lean=ok compare=pass`.
+
+**Gates.** `lake build SolidCore` green; `scripts/smoke_replay.sh` green
+(28 cases, all `lean=ok`, compare=pass, identical values); inheritance/storage/
+constructor lanes re-checked lean-only green (openzeppelin-erc20 needed
+`--timeout 900` for elaboration, then `lean=ok`). No storage-order sub-case
+remains.
+
 ## 2026-07-08 — UF1/UF2/UF3 fixed: `using ... for T global` legality
 
 `docs/solc-implementation-divergences-4.md` UF1 (live differential over-reject),

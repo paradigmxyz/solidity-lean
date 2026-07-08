@@ -6953,6 +6953,49 @@
           }
         ]
       }
+    },
+    {
+      "name": "storage-order-linearization",
+      "description": "DL1 regression: storage slot layout and base-constructor/inline-initializer execution order follow reverse(C3 linearization)=most-base-first, as solc does. Forge checks slots (vm.load) and getters on pinned solc/EVM; Lean imports the same source and checks raw-slot layout and the constructor-order trace. The shared direct+indirect base shape (Z is Y,M where M is X,Y) diverged under the old DFS; linear and diamond controls coincide.",
+      "forge": {
+        "root": "tests/forge-harness/storage-order-linearization",
+        "match_contract": "StorageOrderLinearizationForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-order-linearization/src/StorageOrderLinearization.sol",
+        "contract": "Dl1ShZ",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageOrderLinearization"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "linearControlLayoutAndOrder",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 64 SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedSourceUnit \"Dl1LinC\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ =>\n      Except.ok (\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 123 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 11 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 22 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 3) 33)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "diamondControlLayoutAndOrder",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 64 SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedSourceUnit \"Dl1DiaG\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ =>\n      Except.ok (\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 4567 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 44 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 55 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 3) 66 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 4) 77)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "sharedBaseLayoutOrderAndGetters",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 64 SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedSourceUnit \"Dl1ShZ\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let slotsOk :=\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1234 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 111 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 222 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 3) 333 &&\n        SolidCore.Solidity.Source.wordEq (state.loadSlot 4) 444\n      let traceOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedSourceUnit \"Dl1ShZ\" \"trace\" state [] 1234\n      let sxOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedSourceUnit \"Dl1ShZ\" \"sx\" state [] 111\n      let syOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.StorageOrderLinearization.importedSourceUnit \"Dl1ShZ\" \"sy\" state [] 222\n      Except.ok (slotsOk && traceOk && sxOk && syOk)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
