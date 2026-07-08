@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/storage-uninit-fn-ptr/out"
+cache_path = "../../.foundry-suites/storage-uninit-fn-ptr/cache"
+evm_version = "cancun"
