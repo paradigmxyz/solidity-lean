@@ -5263,6 +5263,21 @@ def Expr.toLValue? : Expr -> Option LValue
       some (LValue.index baseTarget idx)
   | _ => none
 
+/-- Should this assignment target receive its RHS reference-preservingly (as a
+    `Value.memoryRef` pointer, aliasing) rather than as a dereferenced/copied
+    value? True exactly when the target denotes a MEMORY location: a memory-ref
+    local, or a memory aggregate element/field (an `index` whose base is neither
+    a storage variable nor a storage-alias local). Storage / immutable targets
+    return false so storage stores keep deep-copy semantics; value-type locals
+    return false (their RHS is never a memory pointer anyway). -/
+def LValue.wantsMemoryRefRhs (target : LValue) (runtime : Runtime) : Bool :=
+  match target with
+  | LValue.var name => (runtime.lookupMemoryRef? name).isSome
+  | LValue.index base _ =>
+      let baseExpr := base.toExpr
+      ! (Expr.hasStorageRoot baseExpr || Expr.hasStorageRefRoot runtime baseExpr)
+  | _ => false
+
 /-- A component of a NESTED tuple-assignment LHS (`((a, b), c) = …`). `hole` is
     an omitted component (its RHS value is still produced, then discarded);
     `leaf` is an ordinary assignable target; `nested` is a parenthesized
@@ -6694,7 +6709,24 @@ def Expr.memoryRefOrValueWithRuntimeOrderFuel
       | fuel + 1 =>
           match expr with
           | Expr.var name =>
-              pure (runtime.lookupMemoryRef? name, none, runtime)
+              match runtime.lookupMemoryRef? name with
+              | some id => pure (some id, none, runtime)
+              | none => do
+                  -- Value-type / storage-alias var: evaluate normally (a value
+                  -- copy or storage read), so this stays TOTAL (never `none,
+                  -- none`) and callers never need a re-evaluating fallback.
+                  let (value, runtime') ←
+                    Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                  pure (none, some value, runtime')
+          | Expr.ternary cond thenExpr elseExpr => do
+              -- M1: a memory reference-type ternary aliases the chosen branch
+              -- (solc pointer-copies it). Evaluate the condition, then recurse
+              -- on the taken branch so a memory-ref branch flows as its ref id.
+              let (condValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime cond
+              let condWord ← condValue.expectWord
+              Expr.memoryRefOrValueWithRuntimeOrderFuel fuel order context
+                runtime' (if wordTruthy condWord then thenExpr else elseExpr)
           | Expr.index base idx => do
               let finish (baseValue indexValue : Value)
                   (runtime' : Runtime) :
@@ -6724,7 +6756,13 @@ def Expr.memoryRefOrValueWithRuntimeOrderFuel
                     Expr.evalWithRuntimeOrderFuel fuel order context
                       runtime' base
                   finish baseValue indexValue runtime''
-          | _ => pure (none, none, runtime)
+          | _ => do
+              -- Any other RHS shape: evaluate normally. Keeping this arm TOTAL
+              -- (returning the evaluated value rather than `none, none`) lets
+              -- the ref-preserving wrapper avoid a double-evaluation fallback.
+              let (value, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              pure (none, some value, runtime')
 
 def Expr.resolveLValueWithRuntimeOrderFuel
     (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
@@ -6823,11 +6861,82 @@ def Expr.memoryRefOrValueWithRuntimeOrder
   Expr.memoryRefOrValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
     order context runtime expr
 
+/-- Reference-preserving expression evaluation for memory-ref-valued assignment
+    RHSs (M1/M2/M3). When `expr` denotes a memory reference type (a memory local,
+    a memory aggregate element/field, or a ternary over such), it yields the
+    `Value.memoryRef` *pointer* rather than the dereferenced object, so the store
+    paths (`assignLocal?`, `memoryStoreValue`, `storeMemory?`) ALIAS it (they
+    already pass a bare `memoryRef` through unchanged) instead of allocating a
+    fresh copy. Everything else evaluates exactly as ordinary eval — value types
+    still copy, storage/calldata reads still deep-copy — because
+    `memoryRefOrValue` only produces a ref id for genuine memory pointers. -/
+def Expr.evalMemoryRefPreservingWithRuntimeOrder
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (expr : Expr) : SolI (Value × Runtime) := do
+  let (idOpt, valueOpt, runtime') ←
+    Expr.memoryRefOrValueWithRuntimeOrder order context runtime expr
+  match idOpt, valueOpt with
+  | some id, _ => pure (Value.memoryRef id, runtime')
+  | none, some value => pure (value, runtime')
+  | none, none =>
+      -- `memoryRefOrValue` is total (never `none, none`); this arm is a
+      -- defensive fallback and does not re-run side effects in practice.
+      Expr.evalWithRuntimeOrder order context runtime' expr
+
 def Expr.resolveLValueWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (ResolvedLValue × Runtime) :=
   Expr.resolveLValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
     order context runtime expr
+
+/-- Evaluate the components of a tuple-assignment RHS reference-preservingly
+    (M2). Each component paired with a memory-ref target flows as its
+    `Value.memoryRef` pointer so tuple destructuring aliases (matching solc's
+    per-component pointer store); components paired with value/storage targets
+    (or holes) evaluate normally. All components are evaluated BEFORE any write
+    (the caller writes afterwards), so `(a, b) = (b, a)` performs a genuine
+    pointer swap. Child evaluation order is honoured. -/
+def Expr.evalTupleComponentsRefPreservingFuel
+    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+    Runtime -> List (Option LValue) -> List Expr ->
+    SolI (List Value × Runtime)
+  | runtime, targets, components =>
+    match fuel with
+    | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
+    | fuel + 1 =>
+      match targets, components with
+      | [], [] => pure ([], runtime)
+      | target? :: targetsRest, comp :: compsRest =>
+          let evalOne (rt : Runtime) : SolI (Value × Runtime) :=
+            match target? with
+            | some target =>
+                if target.wantsMemoryRefRhs rt then
+                  Expr.evalMemoryRefPreservingWithRuntimeOrder order context rt
+                    comp
+                else
+                  Expr.evalWithRuntimeOrder order context rt comp
+            | none => Expr.evalWithRuntimeOrder order context rt comp
+          match order with
+          | ChildEvalOrder.leftToRight => do
+              let (value, runtime') ← evalOne runtime
+              let (values, runtime'') ←
+                Expr.evalTupleComponentsRefPreservingFuel fuel order context
+                  runtime' targetsRest compsRest
+              pure (value :: values, runtime'')
+          | ChildEvalOrder.rightToLeft => do
+              let (values, runtime') ←
+                Expr.evalTupleComponentsRefPreservingFuel fuel order context
+                  runtime targetsRest compsRest
+              let (value, runtime'') ← evalOne runtime'
+              pure (value :: values, runtime'')
+      | _, _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+
+def Expr.evalTupleComponentsRefPreserving
+    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+    (targets : List (Option LValue)) (components : List Expr) :
+    SolI (List Value × Runtime) :=
+  Expr.evalTupleComponentsRefPreservingFuel (Expr.listEvalFuel components)
+    order context runtime targets components
 
 def Expr.evalBinaryWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
@@ -7727,18 +7836,28 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
             match resolved.write context runtime' value with
             | Except.ok updated => pure (Result.normal updated)
             | Except.error err => pure (Result.reverted runtime err)
+          -- M1/M3: a memory target aliases a memory-ref RHS (ternary, index/
+          -- member, plain var) instead of deep-copying. The target's storage-
+          -- vs-memory nature is stable across RHS evaluation, so it is computed
+          -- once from the entry runtime.
+          let refPreserve := target.wantsMemoryRefRhs runtime
+          let evalRhs (rt : Runtime) : SolI (Value × Runtime) :=
+            if refPreserve then
+              Expr.evalMemoryRefPreservingWithRuntimeOrder
+                context.effectiveChildEvalOrder context rt expr
+            else
+              Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                context rt expr
           let evalTargetThenRhs : SolI Result := do
             match ← (target.resolveWithRuntime context runtime).caught with
             | Except.ok (resolved, runtime') =>
-                match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
-                    context runtime' expr).caught with
+                match ← (evalRhs runtime').caught with
                 | Except.ok (value, runtime'') =>
                     writeAssigned resolved value runtime''
                 | Except.error err => pure (Result.reverted runtime err)
             | Except.error err => pure (Result.reverted runtime err)
           let evalRhsThenTarget : SolI Result := do
-            match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
-                context runtime expr).caught with
+            match ← (evalRhs runtime).caught with
             | Except.ok (value, runtime') =>
                 match ← (target.resolveWithRuntime context runtime').caught with
                 | Except.ok (resolved, runtime'') =>
@@ -7765,15 +7884,31 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | ChildEvalOrder.leftToRight => evalTargetThenRhs
               | ChildEvalOrder.rightToLeft => evalRhsThenTarget
       | Stmt.assignTuple targets expr => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
-              context runtime expr).caught with
-          | Except.ok (Value.tuple values, runtime') =>
-              match ← (LValues.writeTupleWithRuntime context runtime' targets
-                  values).caught with
-              | Except.ok updated => pure (Result.normal updated)
+          match expr with
+          | Expr.tuple components =>
+              -- M2: destructure component-by-component reference-preservingly, so
+              -- each memory-ref component aliases its target (and `(a,b)=(b,a)`
+              -- swaps pointers). All RHS components are evaluated before any
+              -- write.
+              match ← (Expr.evalTupleComponentsRefPreserving
+                  context.effectiveChildEvalOrder context runtime targets
+                  components).caught with
+              | Except.ok (values, runtime') =>
+                  match ← (LValues.writeTupleWithRuntime context runtime' targets
+                      values).caught with
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
               | Except.error err => pure (Result.reverted runtime err)
-          | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
-          | Except.error err => pure (Result.reverted runtime err)
+          | _ =>
+              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                  context runtime expr).caught with
+              | Except.ok (Value.tuple values, runtime') =>
+                  match ← (LValues.writeTupleWithRuntime context runtime' targets
+                      values).caught with
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
+              | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime err)
       | Stmt.assignTupleNested targets expr => do
           match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
               context runtime expr).caught with
