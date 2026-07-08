@@ -626,3 +626,77 @@ responder-free interpreter path. This is a legitimate, launchable contest.
 5. **Phasing** = v1 single-contract (covers all of G1–G22 and coverage gaps,
    responder-free) ships first; the reflective driver is the v2 headline.
 ```
+
+---
+
+## Changelog
+
+### 2026-07-08 — v1.1 hardening (`contest/v1.1-hardening`): the three CONTEST-BREAKING defects closed
+
+The adversarial review (`docs/competition-design-review.md`, commit `368468a`) found
+three plan-level defects that let an adversary bank a fake `SOUNDNESS_GAP` (or
+mis-lane an honest submission). All three P0 fixes plus the two P1 items are now
+implemented and validated by attack samples in `contest/samples/`.
+
+**P0 #1 — the EVM observable is MEASURED from the Forge run, not the submitter's
+declared string.** `adjudicate.py` no longer feeds `claim.declared_observable`
+to the comparator. Instead `contest/measure.py` generates a Foundry harness that
+deploys the entry contract, performs the ENTRY call by raw calldata under the
+pinned env, and dumps the raw `(ok, ret-bytes, self, origin)`; `observable.py`
+(`evm_observable`) decodes those bytes into the normal form and the comparator
+diffs Solidus's `#eval` against THAT. `declared_observable` is kept only as a
+misreport cross-check (`evidence.declared_mismatch`). Attack: `fake_oracle/`
+(trivially-passing test, `declared_observable = success|w:999`, `run()` really
+returns 5) — **before:** SOUNDNESS_GAP(wrong-value); **after:** NO_DIVERGENCE.
+
+**P0 #2 — one canonical environment, pinned identically on both engines.** The
+canonical env is Foundry's REAL defaults, measured (not guessed) with forge
+1.5.1 + solc 0.8.35, evm_version=cancun: `block.number=1`, `block.timestamp=1`,
+`block.chainid=31337`, `block.basefee=0`, `block.coinbase=0`,
+`block.prevrandao=0`, `block.gaslimit=1073741824`, default caller/`tx.origin`
+`0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38`; `address(this)` is the deployed
+entry-contract address, measured from the run and mirrored. `contest/env.py`
+holds these; the Solidus `#eval` threads them into the Context/BlockEnv via the
+pre-existing public `CheckedContract.callFunctionWithContext` entry point (no
+change to SolidCore), and `contest/measure.py` re-pins the identical values on
+the Foundry side. A new env-fact detector (`SEM-ENV`, register bumped to
+`1.1.0`) classifies an observable derived from an UNPINNABLE env fact
+(`blockhash`/`blobhash`) as `OUT_OF_SCOPE` rather than a spurious divergence.
+Attacks: `env_divergence/` (`return block.timestamp`) — **before:**
+SOUNDNESS_GAP(wrong-value 1-vs-0); **after:** NO_DIVERGENCE. `env_blockhash/`
+(`return blockhash(0)`) — **after:** REJECTED_OOS (SEM-ENV).
+
+**P0 #3 — cheatcodes restricted; the TEST file is scanned.** `reject_gate.py`
+now scans the submission's TEST ASTs (compiled together with `src/` so imports
+resolve, `multi_source_asts`). Policy (`contest/env.py`, DEFAULT-DENY):
+allowed/mirrored env-pinning cheatcodes are `vm.roll` (number), `vm.warp`
+(timestamp), `vm.chainId`, `vm.fee` (basefee), `vm.prevrandao`,
+`vm.prank`/`vm.startPrank`(+`stopPrank`) (msg.sender), `vm.deal` (balance) —
+their literal effect is mirrored into the Solidus env; everything else on
+`vm.*`/`hevm.*` is rejected (`vm.store`, `vm.load`, `vm.mockCall(Revert)`,
+`vm.ffi`, `vm.etch`, `vm.expectRevert`/`vm.expectEmit`, `vm.record`,
+`vm.readFile`/`writeFile`, ...); a whitelisted cheatcode with a non-literal
+argument that cannot be mirrored is also rejected. `console.*` logging is an
+ignored no-op. Attacks: `cheatcode_banned/` (`vm.store` to forge storage) —
+**after:** REJECTED_OOS; `cheatcode_allowed/` (`vm.warp(12345)`) — **after:**
+allowed, mirrored, NO_DIVERGENCE (both engines see `timestamp=12345`).
+
+**P1 — `run_solc_rejects` by exit code + error code.** `harness_bridge.py`
+`run_solc_rejects_source` now requires a non-zero solc exit AND a real
+error-level diagnostic (warnings, exit 0, never count); an optional
+`claim.solc_error_code` pins the reject to a specific solc error code.
+
+**P1 — env-observable register entry** = `SEM-ENV` (above).
+
+**Validation.** `contest/run_samples.py` runs the full suite against pinned solc
++ Foundry + the built Solidus in this worktree: the original four stay green
+(`oos_gasleft`→REJECTED_OOS, `no_divergence`→NO_DIVERGENCE, plus the two
+synthetic Solidus-simulated `coverage_gap`→COVERAGE_GAP /
+`soundness_gap`→SOUNDNESS_GAP — the latter now diffs against the REAL measured
+EVM observable), and all five new attack/allowed samples classify correctly.
+
+**Scope note.** This hardens the SINGLE-CONTRACT restricted launch. The Lean
+env-threading required no SolidCore change (the `...WithContext` call family
+already accepts a `Context`). Documented v1 precision limits: custom-error revert
+comparison (EVM side decodes to `raw:`, routed to review), and the coarse
+function-level taint (review G-2) are unchanged and remain human-sign-off items.

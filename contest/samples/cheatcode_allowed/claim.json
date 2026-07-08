@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "CA", "function": "ts", "args": [], "value": 0 },
+  "expected_divergence": "ALLOWED: vm.warp(12345) is a whitelisted env-pinning cheatcode; its effect is mirrored into the Solidus env so both engines see timestamp=12345 -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:12345" },
+  "feature": "cheatcode-vm-warp-mirrored",
+  "register_version_seen": "1.1.0"
+}
