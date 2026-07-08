@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/using-for-global-nonudvt/out"
+cache_path = "../../.foundry-suites/using-for-global-nonudvt/cache"
+evm_version = "cancun"

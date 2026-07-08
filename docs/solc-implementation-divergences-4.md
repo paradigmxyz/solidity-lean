@@ -93,6 +93,13 @@ and the event/error/`abi.decode` acceptance surfaces.
 
 ## 1. NEW findings
 
+> **STATUS 2026-07-08: FIXED** on `gap/round4-uf` (see `docs/DECISIONS.md`).
+> Correction to the analysis below: a **contract** type is NOT a legal `global`
+> target — `Type::typeDefinition()` is overridden only for struct/enum/UDVT
+> (`libsolidity/ast/Types.cpp:2490/2630/2703`); a contract type returns nullptr
+> and raises 8841 (pinned-solc probe confirmed). The fix admits **struct, enum,
+> UDVT** only. Lane: `using-for-global-nonudvt`.
+
 ### UF1 — `using … for T global;` on a non-UDVT user-defined type — over-reject — CONFIRMED — NEW
 
 - **solc** `TypeChecker.cpp:3997-4021` (`endVisit(UsingForDirective)`): the only
@@ -142,6 +149,10 @@ and the event/error/`abi.decode` acceptance surfaces.
   defined in this source unit" (struct/enum/UDVT/contract), keeping the
   UDVT-only restriction for *operator* bindings only.
 
+> **STATUS 2026-07-08: FIXED** on `gap/round4-uf` (see `docs/DECISIONS.md`).
+> `matchesUserDefinedOperatorDecl` now requires `sig.params.all (· == targetTy)`.
+> Lane: `using-for-global-nonudvt` (`invalid/OperatorMixedParams.sol` + witness).
+
 ### UF2 — operator binding whose function params are not both the target type — over-accept (masked) — CONFIRMED — NEW
 
 - **solc** `TypeChecker.cpp:4158-4186` (`1884_error`): for a binary operator
@@ -167,6 +178,12 @@ and the event/error/`abi.decode` acceptance surfaces.
   `rhs : T` will not convert to `uint256`, so the operator is never resolved and
   a real `+` on `T` still fails. Since solc rejects the program outright, no AST
   is exported → **importer-masked**; same class/direction as round-3 CL1.
+
+> **STATUS 2026-07-08: FIXED** on `gap/round4-uf` (see `docs/DECISIONS.md`).
+> New directive-level `UsingDecls.checkNoDuplicateOperatorBindings` scans all
+> file-level using directives and rejects a repeated `(op, type)`. Probe
+> confirmed 4705 fires within one directive AND across two. Lane:
+> `using-for-global-nonudvt` (`invalid/DuplicateOperatorBinding.sol` + witness).
 
 ### UF3 — duplicate operator binding for the same operator+type — over-accept (masked) — INFERRED — NEW
 

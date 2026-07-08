@@ -6825,6 +6825,50 @@
      }
     ]
    }
+  },
+  {
+   "name": "using-for-global-nonudvt",
+   "description": "Forge and imported Lean execute `using {f, g} for S global;` on a STRUCT (a non-UDVT user-defined target), resolving `s.doubled()` and `s.plus(y)` through the file-level global directive (finding UF1); the imported source also carries `using {f} for E global;` on an ENUM, whose acceptance is pinned via importedContractAccepted and the common checker. Pinned solc rejects an operator binding on a struct target, a `global` directive on a built-in type, a mixed-parameter operator function (UF2), and a duplicate operator binding for one operator+type (UF3); the common checker matches via usingForGlobalNonUdvtDisciplineMatches.",
+   "forge": {
+    "root": "tests/forge-harness/using-for-global-nonudvt",
+    "match_contract": "UsingForGlobalNonUdvtForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_rejects": [
+    "tests/forge-harness/using-for-global-nonudvt/invalid/OperatorOnStructGlobal.sol",
+    "tests/forge-harness/using-for-global-nonudvt/invalid/BuiltinTargetGlobal.sol",
+    "tests/forge-harness/using-for-global-nonudvt/invalid/OperatorMixedParams.sol",
+    "tests/forge-harness/using-for-global-nonudvt/invalid/DuplicateOperatorBinding.sol"
+   ],
+   "solc_import": {
+    "source": "tests/forge-harness/using-for-global-nonudvt/src/UsingForGlobalNonUdvt.sol",
+    "contract": "UsingForGlobalNonUdvt",
+    "namespace": "SolidCore.Solidity.SolcAstImport.UsingForGlobalNonUdvt"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "commonTypecheckerUsingForGlobalNonUdvt",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.usingForGlobalNonUdvtDisciplineMatches",
+      "expect": "true"
+     },
+     {
+      "label": "importedSourceUnitAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.UsingForGlobalNonUdvt.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedGlobalUsingMemberValues",
+      "expr": "(do\n  let src := SolidCore.Solidity.SolcAstImport.UsingForGlobalNonUdvt.importedSourceUnit\n  let st := SolidCore.Solidity.Source.State.empty\n  let w := SolidCore.Solidity.Source.Value.word\n  let chk : Nat \u2192 String \u2192 List SolidCore.Solidity.Source.Value \u2192 Nat \u2192 Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args expected => do\n      let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"UsingForGlobalNonUdvt\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | _ => Except.ok false\n  let d \u2190 chk 64 \"computeDoubled\" [w 21] 42\n  let pl \u2190 chk 64 \"computePlus\" [w 21, w 8] 29\n  Except.ok (d && pl))",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
