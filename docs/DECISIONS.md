@@ -2248,3 +2248,77 @@ frame-isolation/name-resolution edge the arc's R-risks flagged; re-run clean.
 The inline-splice machinery is gone and every internal-linkage callee — value,
 memory-ref, storage-ref (params + returns), calldata-ref, and function-pointer
 — executes as a framed in-monad boundary call.
+
+## 2026-07-07 — Exec-completeness TRIO (§B4): bare-literal casts, enum conversions, contract-typed locals
+
+The §B4 audit flagged three constructs the typechecker accepts but the *checked
+executable translation* (`Expr.toCore?` / `Expr.toCoreAs?` in
+`SolidCore/Solidity/Interface.lean`) failed closed on. All three are
+over-rejects (our semantics narrower than solc), not unsoundness. Each is now
+executed and matches pinned-solc/Forge; corpus lanes pin the accepted behavior.
+
+**1. Bare-literal casts** — e.g. `uint8(uint256(0x1234))`, `int8(uint8(200))`,
+`uint8(int8(-1))`, `uint256(int256(-1))`.
+
+- Where it failed: the int/uint fail-closed guard
+  `if Ty.isIntOrUint ty && Expr.isNumberLiteralExpression expr then none`
+  (three sites: `Expr.toCore?` general cast, `Expr.toCoreAs?`, and the
+  typed-env `toCoreAs`-with-env branch). `Expr.isNumberLiteralExpression`
+  treats a `Ty(...)` conversion operand as a literal, and `numberLiteralRat?`
+  folds nested casts transparently (dropping truncation/sign), so a typed
+  conversion whose folded value doesn't fit the target (`int8(-1)` folds to
+  raw `-1`, doesn't fit `uint8`) was rejected — even though solc accepts it as
+  a reinterpreting cast and constant-folds `uint8(int8(-1)) = 255`.
+- Diagnosis: solc rejects an out-of-range *raw* literal cast (`uint8(300)` —
+  operand is `int_const 300`) but accepts a cast whose operand is a *typed*
+  conversion expression, applying runtime mod/sign semantics. The distinction
+  is raw-literal vs typed-operand, not "is it constant".
+- Fix: added `Expr.isRawNumberLiteralExpression` (numeric literal / negation /
+  arithmetic of raw literals, but NOT a `Ty(...)` conversion) and switched the
+  three int/uint guards to it. A typed-conversion operand now falls through to
+  the runtime `uintCast`/`intCast`/cleanup path, whose primitives already match
+  solc's mod-arithmetic and sign-extension. Raw out-of-range literals
+  (`uint8(300)`) still fail closed (verified) and are still typecheck-rejected.
+- solc-faithful behavior: `uint8(200)=200`, `uint8(uint256(0x1234))=52`,
+  `int8(uint8(200))=-56`, `uint8(int8(-1))=255`, `int16(int8(-1))=-1`,
+  `uint256(int256(-1))=2**256-1`.
+- Pinning lane: `literal-cast-conversions` (invalid/OutOfRangeLiteralCast.sol
+  pins the solc-reject).
+
+**2. Enum conversions** — `MyEnum(x)`, `uint8(myEnumVal)`, including the
+out-of-range Panic(0x21).
+
+- Where it failed: an enum-typed *local* declaration (`Color c = Color(x)`).
+  The initializer lowers (via `resolveEnums`) to `Expr.enumFromUInt maxValue x`
+  with abi-type `uint8`, while the declared local type resolves to `Ty.enum`.
+  `Expr.toCoreAs?`/`Expr.coreAsFromTy?` had no `Ty.enum` target case, so it hit
+  the fallthrough `Ty.canImplicitlyConvert (uint 8) (enum _) = false → none`,
+  failing the whole contract's core translation. (Inline `uint8(Color(x))`
+  without a local already worked; free vs contract-nested enum was irrelevant
+  once driven through a full `SourceUnit`, which collects free enums.)
+- Fix: added a `Ty.enum _ => some coreExpr` target case to both
+  `Expr.toCoreAs?` and `Expr.coreAsFromTy?`. Enums are represented as their
+  ordinal word in core; the operand is an already-range-checked `enumFromUInt`
+  (Panic 0x21 on out-of-range, `Interpreter.lean` `enumFromUIntValue`) or an
+  enum of the same type, stored as-is.
+- solc-faithful behavior: `Color(2)=2`, `Color(0)=0`, `uint8(Color.Blue)=2`;
+  a runtime out-of-range value (`uint8 x = 3; Color(x)`) reverts Panic(0x21);
+  the out-of-range *raw literal* `Color(3)` is a compile-time solc reject.
+- Pinning lane: `enum-conversions` (invalid/OutOfRangeLiteralEnum.sol pins the
+  solc-reject; the Forge test asserts the Panic(0x21) via `catch Panic`).
+
+**3. Contract-typed locals** — `MyContract c = MyContract(addr)`.
+
+- Turned out to be ALREADY closed at HEAD (6e3cdb4): driven through a full
+  `SourceUnit` (so the referenced contract is in scope), a contract-typed local
+  declares, round-trips, is accepted as an address argument, and its underlying
+  address answers `.balance` — all matching solc (contract value = 160-bit
+  address). No Interface/Interpreter change was needed. The earlier failure in
+  the audit reproduced only when wrapping a bare `ContractDecl` (dropping the
+  referenced contract). A pinning lane is added regardless.
+- Pinning lane: `contract-typed-locals`.
+
+Corpus additions are new lanes only (new src/*.sol + test/*.t.sol + manifest
+entries); no frozen fixture, test, or expected value was modified. All three
+lanes run Forge-paired green (solc_rejects=ok forge=ok lean=ok) against pinned
+solc 0.8.35; expected values are ground-truth-checked by the Forge/EVM side.

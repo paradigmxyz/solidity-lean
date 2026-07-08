@@ -3389,6 +3389,24 @@ def Expr.isNumberLiteralExpression : Expr -> Bool
       Expr.isNumberLiteralExpression expr
   | _ => false
 
+/-- A *raw* integer-literal operand: a numeric literal, a negation, or an
+    arithmetic combination of such — but **not** an explicit type conversion.
+    solc rejects an out-of-range raw literal cast (`uint8(300)` — the operand is
+    an `int_const`), yet accepts a cast whose operand is a *typed* conversion
+    expression (`uint8(int8(-1))`, `uint8(uint256(0x1234))`), reinterpreting /
+    truncating it exactly like a runtime cast. The fail-closed literal-cast
+    guards therefore fire only on raw literals; a `Ty(...)` conversion operand
+    falls through to the runtime `uintCast`/`intCast` path, whose primitives
+    already match solc's mod-arithmetic and sign-extension. -/
+def Expr.isRawNumberLiteralExpression : Expr -> Bool
+  | Expr.literal (Literal.number _) => true
+  | Expr.literal (Literal.unitNumber _ _) => true
+  | Expr.unary UnaryOp.neg inner => Expr.isRawNumberLiteralExpression inner
+  | Expr.binary _ lhs rhs =>
+      Expr.isRawNumberLiteralExpression lhs &&
+        Expr.isRawNumberLiteralExpression rhs
+  | _ => false
+
 -- Unsigned fit: `0 ≤ v ≤ 2^bits − 1` (rule (2) for unsigned, plus rule (3):
 -- a negative folded value fails the lower bound, matching solc's rejection of a
 -- signed literal into an unsigned type).
@@ -3854,7 +3872,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
                 | some coreExpr => some coreExpr
                 | none =>
                   if Ty.isIntOrUint ty &&
-                        Expr.isNumberLiteralExpression expr then
+                        Expr.isRawNumberLiteralExpression expr then
                       none
                     else
                       match ty with
@@ -4613,7 +4631,7 @@ def Expr.toCoreAs? (storageNames : List Name)
                 | some coreExpr => some coreExpr
                 | none =>
                     if Ty.isIntOrUint targetTy &&
-                        Expr.isNumberLiteralExpression expr then
+                        Expr.isRawNumberLiteralExpression expr then
                       none
                     else do
                       let sourceTy ← Expr.abiTy? storageNames expr
@@ -4652,6 +4670,14 @@ def Expr.toCoreAs? (storageNames : List Name)
                             some
                               (SolidCore.Solidity.Source.Expr.fixedBytesCast
                                 targetSize sourceSize coreExpr)
+                    | Ty.enum _ =>
+                        -- Enum-typed target (e.g. a local `MyEnum c = MyEnum(x)`).
+                        -- The operand is an enum value — either an
+                        -- `enumFromUInt` conversion (which already range-checks
+                        -- and Panic(0x21)s out of range) or another enum of the
+                        -- same type. Enums are represented as their ordinal
+                        -- word in core, so the lowered operand is stored as-is.
+                        some coreExpr
                     | _ =>
                         if Ty.canImplicitlyConvert sourceTy targetTy then
                           some coreExpr
@@ -6310,6 +6336,11 @@ def Expr.coreAsFromTy? (targetTy sourceTy : Ty) (coreExpr : CoreExpr) :
             some
               (SolidCore.Solidity.Source.Expr.fixedBytesCast
                 targetSize sourceSize coreExpr)
+    | Ty.enum _ =>
+        -- Enum-typed target: the operand is an enum value (an `enumFromUInt`
+        -- conversion, already range-checked, or another enum of the same
+        -- type), stored as its ordinal word. See `Expr.toCoreAs?`.
+        some coreExpr
     | _ =>
         if Ty.canImplicitlyConvert sourceTy targetTy then
           some coreExpr
@@ -6350,7 +6381,7 @@ def Expr.toCoreAsWithEnvDirect? (storageNames : List Name) (env : TypeEnv)
                 | some coreExpr => some coreExpr
                 | none =>
                     if Ty.isIntOrUint targetTy &&
-                        Expr.isNumberLiteralExpression expr then
+                        Expr.isRawNumberLiteralExpression expr then
                       none
                     else do
                       let sourceTy ← Expr.abiTyWithEnv? env expr
