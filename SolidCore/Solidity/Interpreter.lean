@@ -1665,13 +1665,22 @@ def Context.empty : Context :=
 def Context.checkMemoryAllocation (context : Context) (length : Word) :
     Except RevertData Nat :=
   let size := SolidCore.Solidity.Shared.norm length
-  match context.memoryAllocationLimit? with
-  | some limit =>
-      if size <= limit then
-        Except.ok size
-      else
-        Except.error RevertData.memoryAllocationTooLarge
-  | none => Except.ok size
+  -- solc `arrayAllocationSizeFunction` opens every `new bytes(n)` / `new T[](n)`
+  -- allocation with `if gt(length, 0xffffffffffffffff) { panic 0x41 }`
+  -- (YulUtilFunctions.cpp:2370), checked on the raw element count before it is
+  -- scaled by the element stride. This is the production-path allocation bound;
+  -- enforce it unconditionally so an oversized allocation raises Panic(0x41)
+  -- rather than materializing an unbounded object.
+  if size > 0xffffffffffffffff then
+    Except.error RevertData.memoryAllocationTooLarge
+  else
+    match context.memoryAllocationLimit? with
+    | some limit =>
+        if size <= limit then
+          Except.ok size
+        else
+          Except.error RevertData.memoryAllocationTooLarge
+    | none => Except.ok size
 
 def Context.storageField? (context : Context) (name : String) :
     Option StorageField :=
@@ -2859,7 +2868,15 @@ def storageBytesHeader? (word : Word) :
     else
       Except.error RevertData.invalidStorageByteArray
   else
-    Except.ok { length := (raw - 1) / 2, long := true }
+    let length := (raw - 1) / 2
+    -- solc `extract_byte_array_length` (YulUtilFunctions.cpp:1359) panics with
+    -- StorageEncodingError (0x22) when `eq(outOfPlaceEncoding, lt(length, 32))`.
+    -- Here the low bit is set (long / out-of-place form), so an encoded length
+    -- below 32 is a malformed word and must revert Panic(0x22).
+    if length < 32 then
+      Except.error RevertData.invalidStorageByteArray
+    else
+      Except.ok { length := length, long := true }
 
 def storageBytesLongHeader (length : Nat) : Word :=
   normWord (length * 2 + 1)
