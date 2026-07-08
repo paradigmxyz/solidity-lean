@@ -2499,3 +2499,81 @@ absent from the corpus): overloaded library internal functions referenced by
 member-form value (only the index-0 helper name is keyed); `C.f` for an
 INHERITED (non-direct) function via member-form value (direct declarations of
 the named contract only).
+
+## 2026-07-07 — sound/panics: enforce Panic(0x41) allocation bound and Panic(0x22) malformed-storage-bytes header
+
+Two INFERRED missing-Panic gaps from `docs/solc-source-coverage-review.md` (S4,
+S5). Each was probe-confirmed against pinned solc 0.8.35 / Foundry-EVM
+(ground truth) AND the interpreter BEFORE any code change; both were genuine
+divergences.
+
+### S4 — Panic(0x41) oversized memory allocation (CONFIRMED, fixed)
+
+Probe (`new bytes(n)` / `new uint256[](n)` via staticcall, panic payload
+decoded): under Forge/EVM `n = type(uint256).max` and `n = 2**64` both revert
+**Panic 0x41** for bytes and array; `n = 3` succeeds. Interpreter before the
+fix: `Context.checkMemoryAllocation` consulted `memoryAllocationLimit?`, which
+is `none` on the production path (only the witness tests set `some 3`), so it
+returned `Except.ok` for ANY size — `new bytes(2**256-1)` would try to
+materialize an unbounded `List.replicate`, never raising Panic(0x41).
+
+solc trigger (exact): `YulUtilFunctions::arrayAllocationSizeFunction`
+(`libsolidity/codegen/YulUtilFunctions.cpp:2370`) opens every memory array
+allocation with `if gt(length, 0xffffffffffffffff) { <panic 0x41> }` — checked
+on the raw element count, before scaling by the element stride, for both
+byte arrays and value-element arrays.
+
+Fix: `SolidCore/Solidity/Interpreter.lean` `Context.checkMemoryAllocation`
+(~:1665) now raises `RevertData.memoryAllocationTooLarge` (Panic 0x41)
+unconditionally when `size > 0xffffffffffffffff`, then falls through to the
+existing optional `memoryAllocationLimit?` test hook. Threshold matches solc
+exactly: `2**64-1` is accepted (as solc does; it OOGs later, out of scope),
+`2**64` and above panic.
+
+Reconciliation with `docs/bc-soundness-audit.md` §B7 "0x41 PARITY": B7's claim
+was about the panic CODE being modeled (the `0x41` catalogue entry at
+`Interpreter.lean` ~226-251 and the witness `memoryAllocationLimitedContext`
+that fires it with an artificial `some 3` limit). That machinery was real, but
+it was NEVER TRIGGERED on the production allocation path, because the real
+solc `2**64-1` bound was not enforced there. B7 was code-parity, not
+trigger-parity; S4 closes the trigger gap. No contradiction once the two senses
+are separated.
+
+Lane: `memory-allocation-overflow` (new) — Forge `MemoryAllocationOverflowForge
+Test` pins Panic 0x41 for bytes/array at `max` and `2**64` and success at 3;
+Lean drives the same solc-AST-imported contract via `ownCall` and checks
+identical Panic(0x41)/return outcomes. Forge-paired green.
+
+### S5 — Panic(0x22) malformed long-form storage byte array (CONFIRMED, fixed)
+
+This CONTRADICTED nothing but was reachable only via a crafted/adopted storage
+word (the model this repo already has for storage-dirty-words / reentrancy-
+adoption). Probe (plant a slot word with `vm.store`, read via staticcall): a
+`bytes`/`string` slot holding the long form (low bit set) with encoded length
+16 (`word = 16*2+1 = 33`) reverts **Panic 0x22** on `.length`, the auto getter,
+and a full read; encoded length 32 (`word = 65`) is well-formed and reads
+length 32. Interpreter before the fix: `storageBytesHeader?` long branch
+returned `Except.ok {length := 16, long := true}` — no panic.
+
+solc trigger (exact): `YulUtilFunctions::extractByteArrayLengthFunction`
+(`libsolidity/codegen/YulUtilFunctions.cpp:1359`) ends with
+`if eq(outOfPlaceEncoding, lt(length, 32)) { <panic 0x22> }`. With the low bit
+set (`outOfPlaceEncoding = 1`), an encoded `length < 32` is malformed and
+panics with StorageEncodingError (0x22). (The short-form arm of the same
+condition — `length >= 32` with low bit clear — was already handled by the
+existing `length <= 31` guard in the even branch.)
+
+Fix: `SolidCore/Solidity/Interpreter.lean` `storageBytesHeader?` (~:2851) long
+branch now raises `RevertData.invalidStorageByteArray` (Panic 0x22) when the
+decoded `length < 32`.
+
+Lane: `storage-bytes-encoding` (new) — Forge `StorageBytesEncodingForgeTest`
+plants word 33 with `vm.store` and pins Panic 0x22 on `dataLength()`, the
+`data()`/`text()` getters, and `readData()` for both `bytes` and `string`, plus
+valid length-32 read of word 65; Lean plants the same words with
+`State.storeSlot` on the imported contract and checks identical outcomes.
+Forge-paired green.
+
+Gates: `lake build SolidCore` green; `smoke_replay.sh` compare=pass (incl.
+`memory-allocation` and `storage-dirty-words` lean=ok); both new lanes
+Forge-paired green. Corpus: 114 cases.

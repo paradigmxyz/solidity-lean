@@ -5445,6 +5445,112 @@
         "namespace": "SolidCore.Solidity.SolcAstImport.RefsResidueFnValues",
         "source": "tests/forge-harness/refs-residue-fn-values/src/RefsResidueFnValues.sol"
       }
+    },
+    {
+      "name": "memory-allocation-overflow",
+      "description": "Forge, pinned solc, and imported Lean check solc's oversized memory-allocation guard: `new bytes(n)` / `new uint256[](n)` with an element count above 2**64-1 (type(uint256).max and 2**64) reverts with Panic(0x41) before allocation (solc arrayAllocationSizeFunction, YulUtilFunctions.cpp:2370: `if gt(length, 0xffffffffffffffff) { panic 0x41 }`), while a small allocation succeeds. Lean drives the same contract from the solc AST and checks the interpreter raises Panic(0x41) at the same 2**64-1 threshold instead of materializing an unbounded object.",
+      "forge": {
+        "root": "tests/forge-harness/memory-allocation-overflow",
+        "match_contract": "MemoryAllocationOverflowForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/memory-allocation-overflow/src/MemoryAllocationOverflow.sol",
+        "contract": "MemoryAllocationOverflow",
+        "namespace": "SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "allocBytesMaxPanics41",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"allocBytes\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word (2^256-1)]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x41)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "allocBytesJustOverThresholdPanics41",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"allocBytes\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word (2^64)]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x41)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "allocArrayMaxPanics41",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"allocArray\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word (2^256-1)]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x41)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "allocArrayJustOverThresholdPanics41",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"allocArray\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word (2^64)]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x41)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "allocArraySmallSucceeds",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.MemoryAllocationOverflow.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"allocArray\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 3)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "storage-bytes-encoding",
+      "description": "Forge plants a malformed long-form storage byte-array header with vm.store (low bit set, encoded length 16 < 32: word 33) and checks solc/EVM reverts Panic(0x22) on `.length`, the auto getter, and a full read of both `bytes` and `string`, while a well-formed long header (length 32: word 65) reads length 32 (solc extract_byte_array_length, YulUtilFunctions.cpp:1359: `if eq(outOfPlaceEncoding, lt(length, 32)) { panic 0x22 }`). Lean plants the same words with State.storeSlot on the imported contract and checks identical Panic(0x22) / valid-read outcomes.",
+      "forge": {
+        "root": "tests/forge-harness/storage-bytes-encoding",
+        "match_contract": "StorageBytesEncodingForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-bytes-encoding/src/StorageBytesEncoding.sol",
+        "contract": "StorageBytesEncoding",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageBytesEncoding"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageBytesEncoding.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "dirtyBytesLengthPanics22",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageBytesEncoding.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"dataLength\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 33) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x22)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyBytesGetterPanics22",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageBytesEncoding.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"data\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 33) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x22)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyBytesReadPanics22",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageBytesEncoding.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"readData\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 33) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x22)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dirtyStringLengthPanics22",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageBytesEncoding.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"textLength\") (SolidCore.Solidity.Source.State.empty.storeSlot 1 33) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) =>\n      Except.ok (SolidCore.Solidity.Source.wordEq code 0x22)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "longFormLength32Valid",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.StorageBytesEncoding.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"dataLength\") (SolidCore.Solidity.Source.State.empty.storeSlot 0 65) []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 32)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
