@@ -17623,16 +17623,48 @@ def ContractDecl.isInterface (decl : ContractDecl) : Bool :=
   | ContractKind.interface => true
   | _ => false
 
+-- solc (`Types.cpp:4271-4285`): `type(T).interfaceId` is exposed for any
+-- NON-deployable contract — an interface OR an abstract contract — and rejected
+-- for a concrete deployable contract.
+def ContractDecl.isNonDeployable (decl : ContractDecl) : Bool :=
+  ContractDecl.isInterface decl || decl.abstract
+
+-- A directly-declared function counts toward the external interface exactly when
+-- it is an ordinary function that is externally visible (public/external), i.e.
+-- NOT internal/private — matching solc's `isPartOfExternalInterface` filter used
+-- by `interfaceFunctionList` (`AST.cpp`). (For an interface every function is
+-- external, so this keeps the interface case identical to before.)
+def FunctionDecl.isInterfaceFunction (decl : FunctionDecl) : Bool :=
+  match decl.kind, decl.visibility with
+  | FunctionKind.function, some Visibility.internal_ => false
+  | FunctionKind.function, some Visibility.private_ => false
+  | FunctionKind.function, _ => true
+  | _, _ => false
+
+-- solc `ContractDefinition::interfaceId()` (`AST.cpp:315-321`) XORs the 4-byte
+-- selectors of `interfaceFunctionList(false)` — the externally-visible functions
+-- AND public state-variable getters declared DIRECTLY in the contract (`false`
+-- excludes inherited). Interfaces cannot have state variables so the getter fold
+-- is vacuous there (F2 unchanged); abstract contracts CAN, and solc includes
+-- their getters — verified by pinned-solc/Forge probe
+-- (`type(A).interfaceId` = foo ^ bar ^ stateVar-getter).
 def ContractDecl.interfaceId? (decl : ContractDecl) : Option Word := do
-  if ContractDecl.isInterface decl then
+  if ContractDecl.isNonDeployable decl then
     some ()
   else
     none
-  FunctionDecls.interfaceId? (ContractDecl.directOrdinaryFunctions decl)
+  let fnList := (ContractDecl.directOrdinaryFunctions decl).filter
+    FunctionDecl.isInterfaceFunction
+  let fnId ← FunctionDecls.interfaceId? fnList
+  let getterId :=
+    ((ContractDecl.directStateVars decl).filterMap
+        (fun d => (StateVarDecl.selectorEntry? d).map Prod.snd)).foldl
+      SolidCore.Solidity.Shared.xorWord 0
+  some (SolidCore.Solidity.Shared.xorWord fnId getterId)
 
 def ContractDecl.interfaceIdEntry? (decl : ContractDecl) :
     Option (Option (Name × Word)) :=
-  if ContractDecl.isInterface decl then
+  if ContractDecl.isNonDeployable decl then
     do
     let interfaceId ← ContractDecl.interfaceId? decl
     some (some (decl.name, interfaceId))

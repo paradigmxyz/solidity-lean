@@ -43,6 +43,49 @@ Lean evals. Harness: `forge=ok lean=ok forge_interpreter_compare=pass`. No
 regression: smoke green, `entrypoint-slice-control` (in-bounds slices) and
 `memory-allocation-overflow` (Panic 0x41) `lean=ok`.
 
+## 2026-07-08 — A1 Fixed: type(AbstractContract).interfaceId now lowers
+
+`docs/solc-implementation-divergences-6.md` A1 (COMPLETENESS wrong-reject,
+differentially-live): solc accepts and computes `type(T).interfaceId` for any
+NON-deployable contract — an interface **or an abstract contract** — but Solidus
+failed to LOWER it for an abstract contract (`interfaceIdEntry?` returned
+`some none` for non-interfaces, and `Ty.typeInfoExpr?` had no `interfaceId` arm),
+rejecting a program solc compiles — despite the (post-lowering) typechecker
+already accepting it (`TypeCheck.lean:5486-5499`).
+
+**solc rule** (`Types.cpp:4271-4285`: member exposed iff `!canBeDeployed()`;
+`ContractDefinition::interfaceId()` `AST.cpp:315-321`): `interfaceId` = XOR of the
+4-byte selectors of `interfaceFunctionList(false)` — the externally-visible
+functions AND public state-variable getters declared DIRECTLY in the contract
+(`false` excludes inherited); internal/private functions excluded. Probe (pinned
+solc + Forge): an abstract contract with external `foo`/`bar` and public
+`stateVar` → `interfaceId = sel(foo) ^ sel(bar) ^ sel(stateVar())`; an internal
+function does NOT contribute; a concrete deployable contract has no `.interfaceId`.
+
+**Fix** (one edit, `SolidCore/Solidity/Interface.lean`): `isNonDeployable :=
+isInterface || decl.abstract` now gates `interfaceId?`/`interfaceIdEntry?` (so the
+`interfaceIdEnv` includes abstract contracts and `resolveInterfaceIds` folds them
+to a `bytes4` literal — no `Ty.typeInfoExpr?` arm needed). `interfaceId?` was
+generalized past the interface-only shortcut: it XORs the selectors of the
+externally-visible **functions** (`FunctionDecl.isInterfaceFunction` — ordinary
+function, not internal/private) AND the public state-variable **getters**
+(`StateVarDecl.selectorEntry?`), matching `interfaceFunctionList(false)`. For an
+interface the getter fold is vacuous and every function is external, so the
+interface path (F2) is byte-for-byte unchanged.
+
+**Boundary verified** (pinned solc 0.8.35 + Forge): lane `abstract-interface-id`
+— `type(AbstractLedger).interfaceId` (external `transfer`/`balanceOf`, public
+`totalSupply`, internal `_settle`) == `0xc1b31357` ==
+`sel("transfer(address,uint256)") ^ sel("balanceOf(address)") ^ sel("totalSupply()")`;
+pinned solc rejects `type(Deployable).interfaceId` on a concrete contract
+(`invalid/ConcreteInterfaceId.sol`, "Member \"interfaceId\" not found"). Lean now
+LOWERS the source unit (`importedContractAccepted`) and `checkedCallWordMatches`
+of `abstractLedgerId()` == `0xc1b31357`.
+
+**Lane**: new manifest case `abstract-interface-id` (forge accept lane + concrete
+`solc_rejects` + solc_import + Lean accept/value evals). Harness:
+`solc_rejects=ok forge=ok lean=ok forge_interpreter_compare=pass`.
+
 ## 2026-07-08 — PK1 fixed: abi.encodePacked of a nested static array
 
 `docs/solc-implementation-divergences-3.md` PK1 (CONFIRMED, live differential

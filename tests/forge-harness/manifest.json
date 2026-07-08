@@ -6873,6 +6873,42 @@
      }
     ]
    }
+  },
+  {
+   "name": "abstract-interface-id",
+   "description": "Forge checks type(AbstractLedger).interfaceId on an ABSTRACT contract equals the XOR of its external function selectors AND its public state-variable getter selector; pinned solc rejects .interfaceId on a concrete deployable contract; Lean imports the same source unit, confirms it now LOWERS (importedContractAccepted) and computes the same interfaceId. Pins A1 (round-6): abstract-contract interfaceId lowering.",
+   "forge": {
+    "root": "tests/forge-harness/abstract-interface-id",
+    "match_contract": "AbstractInterfaceIdForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_rejects": [
+    "tests/forge-harness/abstract-interface-id/invalid/ConcreteInterfaceId.sol"
+   ],
+   "solc_import": {
+    "source": "tests/forge-harness/abstract-interface-id/src/AbstractInterfaceId.sol",
+    "contract": "AbstractInterfaceIdHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.AbstractInterfaceId"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.AbstractInterfaceId.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "abstractInterfaceIdValue",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.AbstractInterfaceId.importedSourceUnit \"AbstractInterfaceIdHarnessTarget\" \"abstractLedgerId\" SolidCore.Solidity.Source.State.empty [] 0xc1b31357",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
