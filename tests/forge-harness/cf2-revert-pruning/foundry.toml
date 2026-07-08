@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/cf2-revert-pruning/out"
+cache_path = "../../.foundry-suites/cf2-revert-pruning/cache"
+evm_version = "cancun"

@@ -66,7 +66,7 @@ program solc rejects), ranked first:
 | E2 | view/pure: `this.f.selector` in `pure`/non-view | over-reject | COMPLETENESS | CONFIRMED |
 | O1 | override: duplicate contract in `override(A,A)` | over-accept | COMPLETENESS (harmless) | CONFIRMED |
 | CF1 | control-flow: inline-asm in storage/calldata-ptr-return fn | over-reject | COMPLETENESS | CONFIRMED |
-| CF2 | control-flow: no revert-pruning of always-reverting callees | over-reject | COMPLETENESS | INFERRED |
+| CF2 | control-flow: no revert-pruning of always-reverting callees | over-reject | COMPLETENESS | **FIXED 2026-07-08** (DECISIONS.md; always-reverts fixpoint, lane `cf2-revert-pruning`) |
 | CF3 | control-flow: fuel/placeholder conservative fallback | over-reject | COMPLETENESS | INFERRED |
 | PT1 | post-type: `constant` cyclic-dependency not detected | over-accept | COMPLETENESS | INFERRED |
 | AE1 | encode-packed: `bytes[]`/`string[]` element in `abi.encodePacked` | over-accept / wrong-bytes if unguarded | COMPLETENESS/validation | INFERRED |

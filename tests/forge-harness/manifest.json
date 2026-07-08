@@ -6703,6 +6703,86 @@
      }
     ]
    }
+  },
+  {
+   "name": "cf2-revert-pruning",
+   "description": "CF2 (2026-07-08, docs/DECISIONS.md): solc's ControlFlowRevertPruner prunes the edge after a call to an always-reverting callee, so the storage-pointer-return definite-assignment check (error 3464) runs on the pruned CFG. Solidus now computes an always-reverts fixpoint and treats a call to such a callee as terminating, ACCEPTING pick(bool) returns (uint256[] storage p) whose only obligation-unmet path runs through the always-reverting helper alwaysReverts(); importedContractAccepted confirms the fix on the Lean typechecker. Forge (real EVM, pinned-solc compiled) is the value ground truth: the non-reverting path returns xs = [11,22,33] via pickLength/pickAt. (The Lean source Core interpreter does not lower an internal function that returns a storage pointer, a pre-existing limitation orthogonal to CF2, so the value is checked by Forge only.) Pinned solc 0.8.35 REJECTS the sound neighbors \u2014 a genuinely-unassigned path, a sometimes-reverting helper, a require(false) helper (require is not an always-revert terminator), and an external this.boom() callee \u2014 and the Lean witnesses confirm Solidus rejects them too.",
+   "forge": {
+    "root": "tests/forge-harness/cf2-revert-pruning",
+    "match_contract": "CF2RevertPruningForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/cf2-revert-pruning/src/CF2RevertPruning.sol",
+    "contract": "CF2RevertPruningHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.CF2RevertPruning"
+   },
+   "solc_rejects": [
+    "tests/forge-harness/cf2-revert-pruning/invalid/CF2Unassigned.sol",
+    "tests/forge-harness/cf2-revert-pruning/invalid/CF2SometimesReverts.sol",
+    "tests/forge-harness/cf2-revert-pruning/invalid/CF2RequireHelper.sol",
+    "tests/forge-harness/cf2-revert-pruning/invalid/CF2ExternalCallee.sol"
+   ],
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.TypeCheck",
+     "SolidCore.Witness.Checked",
+     "SolidCore.Witness.CF2RevertPruning"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.CF2RevertPruning.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "cf2HelperRevertAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2HelperRevertAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "cf2DirectRevertAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2DirectRevertAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "cf2TransitiveRevertAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2TransitiveRevertAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "cf2AllBranchesRevertAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2AllBranchesRevertAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "cf2UnassignedRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2UnassignedRejected",
+      "expect": "true"
+     },
+     {
+      "label": "cf2SometimesRevertsRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2SometimesRevertsRejected",
+      "expect": "true"
+     },
+     {
+      "label": "cf2RequireHelperRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2RequireHelperRejected",
+      "expect": "true"
+     },
+     {
+      "label": "cf2ExternalCalleeRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2ExternalCalleeRejected",
+      "expect": "true"
+     },
+     {
+      "label": "cf2AcceptanceBoundariesHold",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.cf2AcceptanceBoundariesHold",
+      "expect": "true"
+     }
+    ]
+   }
   }
  ]
 }

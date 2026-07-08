@@ -5,6 +5,75 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — CF2 fixed: revert-pruning of always-reverting callees
+
+`docs/solc-implementation-divergences-2.md` CF2 (INFERRED, confirmed by the
+round-2 review): solc runs `ControlFlowRevertPruner` before the
+storage/calldata-pointer-return definite-assignment check (error 3464), so a
+`returns (T storage p)` whose only obligation-unmet path runs through an
+ALWAYS-REVERTING internal callee is accepted (that path can't reach the exit).
+Solidus modelled a call as a normal returning node and over-rejected.
+
+**solc mechanism read** (`libsolidity/analysis/ControlFlowRevertPruner.cpp`
++ `ControlFlowBuilder.cpp`): a function is `AllPathsRevert` iff its CFG entry
+cannot reach the exit node (BFS over a call-graph fixpoint; leftover-unknown =
+recursion is treated as reverting). `ControlFlowBuilder::visit(FunctionCall)`:
+`revert`/`throw` → revert node; an INTERNAL call sets `functionDefinition` and
+the pruner reroutes it to the revert node iff the callee `AllPathsRevert`;
+`require`/`assert` connect to BOTH the revert node and a following node (so they
+are NOT always-revert terminators); external/member calls are never resolved,
+so never pruned.
+
+**Always-reverts definition implemented** (`SolidCore/Solidity/TypeCheck.lean`):
+a monotone Kleene fixpoint (`computeAlwaysRevertNames` / `alwaysRevertFixpoint`
+/ `alwaysRevertStep`, ~:11225-11290) over the contract's own + file-level free
+functions. A statement's `(falls, exits)` bits (`Stmt.revertFlowFuel` /
+`Stmts.revertFlowFuel`, ~:11190) are OVER-approximated so `alwaysReverts` is
+UNDER-approximated (sound): only `revert`/`selfdestruct` and a call to an
+already-known-always-reverting internal function are `(false,false)`; `return`
+is `(false,true)` (reaches the EXIT, not the revert node, so it does NOT make a
+function always-revert); `if`-without-`else`, loops, `try/catch`, inline
+assembly stay `(true,true)`. Sequencing threads control only past a
+fall-through statement and always accumulates `exits`, so a returning path is
+never lost — this is what keeps `pick` itself (which returns on one branch) out
+of the always-revert set. The set is stored in `CheckEnv.alwaysRevertNames`;
+`Stmt.pointerReturnFlowFuel`'s `Stmt.expr` arm (~:10975) now treats a call to
+such a name as terminating (no `normal?`), exactly like the pre-existing
+`revert`/`selfdestruct` terminal.
+
+**Accept/reject boundary — pinned solc 0.8.35 probed, Solidus matches (Lean
+witnesses `SolidCore/Witness/CF2RevertPruning.lean`):**
+- helper always-reverts (`alwaysReverts(); }`) → ACCEPT (the fix);
+- direct inline `revert` → ACCEPT (regression guard, pre-existing);
+- transitive helper (`outer` calls always-reverting `inner`) → ACCEPT;
+- all-branches-revert helper (`if(q) revert; else revert;`) → ACCEPT;
+- genuinely-unassigned fall-through → REJECT (3464);
+- helper that only SOMETIMES reverts (`if(q) revert;`) → REJECT;
+- `require(false)` helper → REJECT (`require` is not an always-revert terminator);
+- external callee (`this.boom()`) → REJECT (member call, not resolved/pruned).
+
+**Soundness.** Acceptance-loosening, so the risk is over-accepting; the analysis
+is a sound under-approximation of always-reverts (only provable terminators
+mark `(false,false)`; every `return` is preserved). Residual sound over-rejects
+(solc accepts, Solidus still rejects — never the reverse), matching PT1's
+per-contract-scope precedent: (a) a helper reached only via non-terminating
+recursion (solc treats unresolved recursion as reverting; our monotone fixpoint
+from `∅` never marks it); (b) an always-reverting callee that is an INHERITED
+base helper or a loop/try-catch-based always-revert (out of the per-contract +
+file-level decl scope / conservatively `(true,true)`); (c) the same divergence
+in the sibling uninitialized-LOCAL-storage-pointer check (`pointerLocalFlowFuel`)
+is left unthreaded — its large mutual block would need invasive param
+threading; it remains a sound over-reject.
+
+**Lane.** `tests/forge-harness/cf2-revert-pruning/` — Forge-paired accept lane
+(`src/CF2RevertPruning.sol`: the helper-revert `pick` returns `xs=[11,22,33]` on
+the non-reverting path; Forge is the value ground truth because the Lean source
+Core interpreter does not lower a storage-pointer-returning internal function —
+pre-existing, orthogonal to CF2) + four `invalid/` solc-reject fixtures for the
+must-still-reject neighbors. Manifest case `cf2-revert-pruning`; witnesses in
+`SolidCore.Witness.CF2RevertPruning`. `importedContractAccepted` confirms the
+Lean typechecker now accepts the fixed program.
+
 ## 2026-07-06 — Phase 1: pinned Keccak is FFI/opaque, keep the pure local spec
 
 `danrobinson/EVMYulLean @ 3c5c44a6` ships Keccak256 as an FFI symbol, not a
