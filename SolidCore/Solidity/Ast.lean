@@ -302,6 +302,12 @@ end
 structure ModifierInvocation where
   target : Path
   args : List Arg := []
+  -- Whether the source wrote an argument list at all. solc's AST distinguishes
+  -- `arguments == null` (bare modifier-style name, e.g. base `B`) from
+  -- `arguments == []` (empty parens, `B()`). A bare modifier-style
+  -- base-constructor call is a declaration error (solc 1563); `B()` is fine.
+  -- Defaults to `true` so hand-built ASTs behave like an explicit arg list.
+  hasArgList : Bool := true
   deriving Repr
 
 structure OverrideSpecifier where

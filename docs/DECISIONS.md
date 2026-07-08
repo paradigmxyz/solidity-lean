@@ -5,6 +5,85 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — PK1 fixed: abi.encodePacked of a nested static array
+
+`docs/solc-implementation-divergences-3.md` PK1 (CONFIRMED, live differential
+edge): solc **accepts** `abi.encodePacked` of a nested STATIC array whose
+ultimate element is a static value type (`uint[2][3]`, `uint[2][]`,
+`uint[2][2][2]`), rejecting only an array whose *base/element* is itself a
+dynamically-sized array. Solidus over-rejected all nested arrays.
+
+**solc rule** (`libsolidity/analysis/TypeChecker.cpp:2166-2174` gate on
+`typeSupportedByOldABIEncoder`, defined `:55-68`): an array is packed-supported
+iff its base is supported AND the base is not `(Array && isDynamicallySized)`.
+Recurses on base; structs rejected. Probe (pinned solc 0.8.35): `uint[2][3]`,
+`uint[2][]`, `uint[2][2][2]`, `bytes32[2][2]` ACCEPT; `uint[][3]`, `uint[2][][2]`,
+`bytes[]`, `string[]` REJECT (9578 "Type not supported in packed mode").
+
+**Fix** (two edits, `gap/round3-pk1-cl1`):
+- `SolidCore/Solidity/TypeCheck.lean` `Ty.isAbiEncodePackedArrayElementShape`
+  gained a `Ty.array element size` case: accept iff `size = some _` (static inner
+  dimension) and recurse on `element`; a `none` (dynamic) inner dimension stays
+  rejected. This is exactly solc's "base must not be a dynamically-sized array"
+  boundary, applied recursively.
+- `SolidCore/Solidity/Interpreter.lean` `abiEncodePackedArrayElement?` now
+  recurses into a `fixedArray` element (padding each innermost value to a 32-byte
+  word in-place, matching solc's "array elements are padded but encoded
+  in-place"); `dynamicArray`/`tuple` elements stay unencodable (rejected upstream
+  by the type-shape check).
+
+**Boundary verified**: Forge lane `packed-nested-static-array` (pinned solc
+0.8.35) — `packMatrix(uint8[2][2])` / `packDynamicOuter(uint8[2][])` equal solc's
+own `abi.encodePacked` and are 128 bytes (4 words). Lean value witnesses
+`abiEncodePackedNestedStaticArrayValueMatches` /
+`abiEncodePackedDynamicOuterStaticInnerValueMatches` pin the same padded bytes.
+Must-hold neighbors: `abiEncodePackedStaticElementArrayAccepted` (`uint8[]`) and
+`badAbiEncodePackedNestedArrayRejected` (`uint[][]`) unchanged. Over-accept guard:
+`invalid/PackedDynamicInnerArray.sol` (`uint8[][3]`) — solc-reject fixture, Lean
+witness `abiEncodePackedDynamicInnerArrayRejected`.
+
+**Lane**: new manifest case `packed-nested-static-array` — forge accept lane +
+two solc-reject fixtures (PK1 dynamic-inner, CL1 bare-modifier) + solc_import +
+Lean evals. Harness: `solc_rejects=ok forge=ok lean=ok forge_interpreter_compare=pass`.
+
+## 2026-07-08 — CL1 fixed: bare modifier-style base-constructor call rejected
+
+`docs/solc-implementation-divergences-3.md` CL1 (CONFIRMED, importer-masked
+acceptance-oracle over-accept): solc errors 1563 on a bare modifier-style
+base-constructor call (`constructor() Base {}`, no argument list); it must be
+`Base()` (or `Base(args)` in the inheritance list). Solidus accepted the bare
+form because `ModifierInvocation` could not distinguish solc's `arguments == null`
+(bare) from `[]` (`Base()`).
+
+**solc rule** (`libsolidity/analysis/ContractLevelChecker.cpp:366-382`,
+`checkBaseConstructorArguments`): for each modifier on a constructor that resolves
+to a base contract, `!modifier->arguments()` (null arg list) is **always** a 1563
+error — independent of whether the base has a constructor or how many parameters
+it takes. Probe (pinned solc 0.8.35): bare `Base` REJECT for base-with-ctor,
+base-without-ctor, and base-ctor-with-params; `Base()` and inheritance-list
+`Base(args)` ACCEPT.
+
+**Fix** (`gap/round3-pk1-cl1`):
+- `SolidCore/Solidity/Ast.lean`: `ModifierInvocation` gained `hasArgList : Bool
+  := true` (default `true` keeps hand-built ASTs behaving like an explicit arg
+  list).
+- `scripts/solc_ast_to_lean_source.py`: emits `hasArgList := isinstance(arguments,
+  list)`, preserving solc's null-vs-`[]` distinction.
+- `SolidCore/Solidity/TypeCheck.lean` `ModifierInvocation.check`: a
+  base-constructor modifier with `hasArgList = false` is rejected ("modifier-style
+  base constructor call without arguments"), before the arg-typechecking path.
+
+**Boundary verified**: this is importer-masked (solc emits no AST for the rejected
+program), so it is validated via the Lean typechecker directly. Witnesses (differ
+ONLY in `hasArgList`): `bareModifierBaseConstructorRejected` (bare, REJECT) vs
+`parenModifierBaseConstructorAccepted` (`Base()`, ACCEPT). Must-hold neighbors
+unchanged: `baseConstructorModifierArgsAccepted` (`Base(args)` modifier form) and
+`baseConstructorArgsAccepted` (inheritance-list base). Solc-reject fixture
+`invalid/BareModifierBaseConstructor.sol` (solc emits 1563).
+
+**Lane**: folded into the `packed-nested-static-array` manifest case (solc_rejects
++ the four CL1 typecheck witnesses in the discipline eval).
+
 ## 2026-07-08 — CF2 fixed: revert-pruning of always-reverting callees
 
 `docs/solc-implementation-divergences-2.md` CF2 (INFERRED, confirmed by the

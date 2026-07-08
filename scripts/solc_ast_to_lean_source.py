@@ -1406,18 +1406,23 @@ def modifier_invocation_from_node(node: dict[str, Any]) -> str:
     if node.get("nodeType") != "ModifierInvocation":
         fail("expected ModifierInvocation")
     modifier_name = node.get("modifierName")
-    args = node.get("arguments", [])
+    raw_args = node.get("arguments", None)
     if not isinstance(modifier_name, dict):
         fail("ModifierInvocation missing modifierName")
-    if args is None:
-        args = []
-    if not isinstance(args, list):
+    # solc emits `arguments: null` for a bare modifier-style name (no `()`) and
+    # `arguments: []` for empty parens. Preserve that distinction so the
+    # typechecker can reject a bare modifier-style base-constructor call (1563).
+    has_arg_list = isinstance(raw_args, list)
+    if raw_args is not None and not has_arg_list:
         fail("ModifierInvocation.arguments must be a list")
+    args = raw_args if has_arg_list else []
     return (
         "{ target := "
         + path_from_node(modifier_name)
         + ", args := "
         + args_from_nodes(args, node.get("names"))
+        + ", hasArgList := "
+        + ("true" if has_arg_list else "false")
         + " }"
     )
 

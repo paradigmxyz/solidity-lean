@@ -4260,6 +4260,16 @@ def Ty.isAbiEncodePackedArrayElementShape (types : TypeContext) :
   | _ + 1, Solidity.Ty.ufixed _ _ => true
   | _ + 1, Solidity.Ty.bytesN _ => true
   | _ + 1, Solidity.Ty.fixedBytes _ => true
+  | fuel + 1, Solidity.Ty.array element size =>
+      -- solc `typeSupportedByOldABIEncoder` (TypeChecker.cpp:61-67): an array is
+      -- rejected only when its base type is unsupported OR the base is itself a
+      -- dynamically-sized array. A nested array element is therefore allowed
+      -- iff it is STATICALLY sized (`some _`) and its own element is a valid
+      -- packed element shape. This keeps `uint[2][3]`/`uint[2][2][2]` accepted
+      -- while rejecting `uint[][3]`/`uint[2][][2]` (dynamic inner dimension).
+      match size with
+      | some _ => Ty.isAbiEncodePackedArrayElementShape types fuel element
+      | none => false
   | fuel + 1, Solidity.Ty.user path =>
       if types.isContractPath path || types.isEnumPath path then
         true
@@ -10545,6 +10555,12 @@ def ModifierInvocation.check (env : CheckEnv) (allowBaseConstructors : Bool)
       require allowBaseConstructors
         (TypeError.invalidFunctionHeader
           "base constructor invocation outside constructor")
+      -- solc 1563 (ContractLevelChecker.cpp:372-382): a modifier-style
+      -- base-constructor call with no argument list (bare `B`, not `B()`) is a
+      -- declaration error, regardless of whether the base has a constructor.
+      require invocation.hasArgList
+        (TypeError.invalidFunctionHeader
+          "modifier-style base constructor call without arguments")
       ModifierInvocation.checkBaseConstructor env invocation baseDecl
   | none =>
       let name ← ModifierInvocation.targetName invocation

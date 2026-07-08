@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/packed-nested-static-array/out"
+cache_path = "../../.foundry-suites/packed-nested-static-array/cache"
+evm_version = "cancun"
