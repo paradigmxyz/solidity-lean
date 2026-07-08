@@ -6363,6 +6363,112 @@
           }
         ]
       }
+    },
+    {
+      "name": "signed-literal-arithmetic",
+      "description": "solc lets a numeric literal (including a negated literal) adopt a signed operand's type in a binary arithmetic op: `int256 x = a / 1e18;`, `a / -2`, `a % -8`, etc. are accepted and evaluated as signed (truncated toward zero; INT_MIN/-1 Panics 0x11). Forge pins solc/EVM; Lean checks the paired source-interpreter witnesses (H1 completeness fix).",
+      "forge": {
+        "match_contract": "SignedLiteralArithmeticForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/signed-literal-arithmetic"
+      },
+      "solc_import": {
+        "contract": "SignedLiteralArithmeticHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic",
+        "source": "tests/forge-harness/signed-literal-arithmetic/src/SignedLiteralArithmetic.sol"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "expr": "SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContractAccepted",
+            "expect": "true",
+            "label": "importedContractAccepted"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divPosLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord 5000000000000000000)] (SolidCore.Solidity.Shared.signedToWord 5)",
+            "expect": "Except.ok true",
+            "label": "divPosLitPositive"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divPosLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-5000000000000000000))] (SolidCore.Solidity.Shared.signedToWord (-5))",
+            "expect": "Except.ok true",
+            "label": "divPosLitNegativeDividend"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divNegLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord 7)] (SolidCore.Solidity.Shared.signedToWord (-3))",
+            "expect": "Except.ok true",
+            "label": "divNegLitTruncTowardZero"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divNegLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-7))] (SolidCore.Solidity.Shared.signedToWord 3)",
+            "expect": "Except.ok true",
+            "label": "divNegLitNegDividend"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"divIntMin\" SolidCore.Solidity.Source.State.empty [] 0x11",
+            "expect": "Except.ok true",
+            "label": "divIntMinOverflowPanics"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"mulLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord 4)] (SolidCore.Solidity.Shared.signedToWord 12)",
+            "expect": "Except.ok true",
+            "label": "mulLit"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"addLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-2))] (SolidCore.Solidity.Shared.signedToWord 3)",
+            "expect": "Except.ok true",
+            "label": "addLit"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"subLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-2))] (SolidCore.Solidity.Shared.signedToWord (-7))",
+            "expect": "Except.ok true",
+            "label": "subLit"
+          },
+          {
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 16 SolidCore.Solidity.SolcAstImport.SignedLiteralArithmetic.importedContract \"modLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-8))] (SolidCore.Solidity.Shared.signedToWord (-1))",
+            "expect": "Except.ok true",
+            "label": "modLitSignedRemainder"
+          }
+        ]
+      }
+    },
+    {
+      "name": "narrow-udvt-arithmetic",
+      "description": "A narrow (N<256) UDVT `unwrap` yields the underlying `uintN`/`intN`, so checked arithmetic on unwrap results overflows at the narrow width (Panic 0x11) like a plain `uintN`/`intN` \u2014 including via a `using`-bound `+` operator; `unchecked{}` still wraps and a 256-bit UDVT is unaffected. Forge pins solc/EVM; Lean checks the paired source-interpreter witnesses (H2 soundness fix).",
+      "forge": {
+        "match_contract": "NarrowUdvtArithmeticForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/narrow-udvt-arithmetic"
+      },
+      "solc_import": {
+        "contract": "NarrowUdvtArithmeticHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NarrowUdvtArithmetic",
+        "source": "tests/forge-harness/narrow-udvt-arithmetic/src/NarrowUdvtArithmetic.sol"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "expr": "SolidCore.Solidity.SolcAstImport.NarrowUdvtArithmetic.importedContractAccepted",
+            "expect": "true",
+            "label": "importedContractAccepted"
+          },
+          {
+            "expr": "(do\n  let src := SolidCore.Solidity.SolcAstImport.NarrowUdvtArithmetic.importedSourceUnit\n  let st := SolidCore.Solidity.Source.State.empty\n  let w := SolidCore.Solidity.Source.Value.word\n  let i := SolidCore.Solidity.Source.Value.int\n  let callWord : Nat \u2192 String \u2192 List SolidCore.Solidity.Source.Value \u2192 Nat \u2192 Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args expected => do\n      let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"NarrowUdvtArithmeticHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | _ => Except.ok false\n  let callPanic : Nat \u2192 String \u2192 List SolidCore.Solidity.Source.Value \u2192 Nat \u2192 Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args code => do\n      let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"NarrowUdvtArithmeticHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic c) => Except.ok (SolidCore.Solidity.Source.wordEq c code)\n      | _ => Except.ok false\n  let a1 \u2190 callWord 32 \"addU8\" [w 100, w 55] 155\n  let a2 \u2190 callPanic 32 \"addU8\" [w 200, w 100] 0x11\n  let a3 \u2190 callPanic 32 \"addI8\" [i 100, i 100] 0x11\n  let a4 \u2190 callPanic 32 \"subI8\" [i (SolidCore.Solidity.Shared.signedToWord (-100)), i 100] 0x11\n  let a5 \u2190 callWord 32 \"addI8\" [i (SolidCore.Solidity.Shared.signedToWord (-100)), i 50] (SolidCore.Solidity.Shared.signedToWord (-50))\n  let a6 \u2190 callWord 32 \"addU8Unchecked\" [w 200, w 100] 44\n  let a7 \u2190 callPanic 32 \"addU8Operator\" [w 200, w 100] 0x11\n  let a8 \u2190 callWord 32 \"addBig\" [w 5, w 6] 11\n  Except.ok (a1 && a2 && a3 && a4 && a5 && a6 && a7 && a8))",
+            "expect": "Except.ok true",
+            "label": "narrowUdvtArithmeticWidthChecked"
+          }
+        ]
+      }
     }
   ]
 }
