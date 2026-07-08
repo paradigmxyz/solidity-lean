@@ -25136,6 +25136,185 @@ def a4UpCastSource : Solidity.SourceUnit :=
 def a4UpCastAccepted : Bool :=
   sourceUnitAccepted? a4UpCastSource
 
+-- ---------------------------------------------------------------------------
+-- Completeness boundaries C1–C4 (2026-07-08). solc v0.8.35 citations in each
+-- block; each pins the now-correct reject/accept boundary plus a still-valid
+-- neighbor. C1/C2(creationCode)/C3 gates predated this work; C2-interfaceId
+-- (abstract) and C4 (negative-operand constant `%`) are the genuine fixes.
+-- ---------------------------------------------------------------------------
+
+-- C1: `string.length` REJECTED. solc `ArrayType::nativeMembers` (Types.cpp)
+-- adds `length` only when `!isString()`; a `string` has no `.length` — the
+-- program must write `bytes(s).length`.
+def c1StringLengthFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params :=
+      [ { name := some "s", ty := Solidity.Ty.string
+          location := some Solidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.member (Solidity.Expr.ident "s") "length"))) }
+
+def c1StringLengthRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "C1StringLength" c1StringLengthFunction))
+
+-- C1 neighbor #1: `bytes(s).length` STILL ACCEPTED.
+def c1BytesLengthFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params :=
+      [ { name := some "s", ty := Solidity.Ty.string
+          location := some Solidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.member
+          (su_castExpr Solidity.Ty.bytes (Solidity.Expr.ident "s"))
+          "length"))) }
+
+-- C1 neighbor #2: dynamic `uint[]` `.length` STILL ACCEPTED.
+def c1ArrayLengthFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "g"
+    params :=
+      [ { name := some "a"
+          ty := Solidity.Ty.array su_uint256 none
+          location := some Solidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.member (Solidity.Expr.ident "a") "length"))) }
+
+def c1LengthNeighborsAccepted : Bool :=
+  sourceUnitAccepted?
+      (su_singleContract "C1BytesLength" c1BytesLengthFunction) &&
+    sourceUnitAccepted?
+      (su_singleContract "C1ArrayLength" c1ArrayLengthFunction)
+
+-- C2: `type(C).interfaceId` gated on deployability. solc Types.cpp:4271-4285 —
+-- a NON-deployable contract (interface OR abstract) exposes `interfaceId`; a
+-- deployable concrete contract does NOT.
+def interfaceIdReturnFunction (target : Name) : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some "f"
+    returns :=
+      [ { name := none, ty := Solidity.Ty.bytesN 4, location := none } ]
+    visibility := some Solidity.Visibility.public_
+    mutability := Solidity.StateMutability.pure
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.member
+          (Solidity.Expr.typeName
+            (Solidity.Ty.user (userPath target)))
+          "interfaceId"))) }
+
+def c2InterfaceIdSource (target : Solidity.ContractDecl) (reader : Name) :
+    Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract target
+      , Solidity.SourceItem.contract
+          { name := reader
+            items :=
+              [ Solidity.ContractItem.function
+                  (interfaceIdReturnFunction target.name) ] } ] }
+
+def c2ConcreteInterfaceIdSource : Solidity.SourceUnit :=
+  c2InterfaceIdSource { name := "C2Concrete" } "C2ConcreteReader"
+
+def c2InterfaceInterfaceIdSource : Solidity.SourceUnit :=
+  c2InterfaceIdSource
+    { kind := Solidity.ContractKind.interface, name := "C2Interface" }
+    "C2InterfaceReader"
+
+def c2AbstractInterfaceIdSource : Solidity.SourceUnit :=
+  c2InterfaceIdSource
+    { name := "C2Abstract", abstract := true } "C2AbstractReader"
+
+-- concrete contract `type(D).interfaceId` REJECTED …
+def c2ConcreteInterfaceIdRejected : Bool :=
+  Result.isError (SourceUnit.check c2ConcreteInterfaceIdSource)
+
+-- … while interface and abstract `type(T).interfaceId` STAY ACCEPTED.
+def c2NonDeployableInterfaceIdAccepted : Bool :=
+  sourceUnitAccepted? c2InterfaceInterfaceIdSource &&
+    sourceUnitAccepted? c2AbstractInterfaceIdSource
+
+-- C3: `abi.encodePacked` of an array whose element is dynamically sized
+-- (`bytes[]`, `string[]`, `T[][]`) is REJECTED in packed mode; an array of
+-- static-width elements (`uint[]`) is ACCEPTED.
+def c3PackedFunction (elementTy : Ty) (fnName : Name) :
+    Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some fnName
+    params :=
+      [ { name := some "a"
+          ty := Solidity.Ty.array elementTy none
+          location := some Solidity.DataLocation.memory } ]
+    returns :=
+      [ { name := none, ty := Solidity.Ty.bytes
+          location := some Solidity.DataLocation.memory } ]
+    visibility := some Solidity.Visibility.public_
+    mutability := Solidity.StateMutability.pure
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.call
+          (Solidity.Expr.member (Solidity.Expr.ident "abi") "encodePacked")
+          [Solidity.Arg.positional (Solidity.Expr.ident "a")]))) }
+
+def c3PackedBytesArrayRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "C3PackedBytesArray"
+        (c3PackedFunction Solidity.Ty.bytes "f")))
+
+def c3PackedStringArrayRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "C3PackedStringArray"
+        (c3PackedFunction Solidity.Ty.string "f")))
+
+def c3PackedDynamicArraysRejected : Bool :=
+  c3PackedBytesArrayRejected && c3PackedStringArrayRejected
+
+-- C3 neighbor: `abi.encodePacked(uint[])` (static-width elements) ACCEPTED.
+def c3PackedUintArrayAccepted : Bool :=
+  sourceUnitAccepted?
+    (su_singleContract "C3PackedUintArray"
+      (c3PackedFunction su_uint256 "f"))
+
+-- C4: constant `%` with a negative operand is VALID and folds to the truncated
+-- remainder (sign of the dividend). solc constant-expression evaluation;
+-- confirmed via pinned solc `int constant x = (-7) % 3` == -1.
+private def c4Neg (e : Solidity.Expr) : Solidity.Expr :=
+  Solidity.Expr.unary Solidity.UnaryOp.neg e
+private def c4Mod (x y : Solidity.Expr) : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.mod x y
+
+-- (-7) % 3 == -1 ; 7 % (-3) == 1 ; (-7) % (-3) == -1  (all truncated).
+def c4NegativeModFolds : Bool :=
+  Solidity.Executable.Expr.numberLiteralInt?
+      (c4Mod (c4Neg (numberExpr "7")) (numberExpr "3")) == some (-1) &&
+    Solidity.Executable.Expr.numberLiteralInt?
+      (c4Mod (numberExpr "7") (c4Neg (numberExpr "3"))) == some 1 &&
+    Solidity.Executable.Expr.numberLiteralInt?
+      (c4Mod (c4Neg (numberExpr "7")) (c4Neg (numberExpr "3"))) == some (-1)
+
+-- … and each is accepted into int256 (was over-rejected before the fix).
+def c4NegativeModAcceptedInt256 : Bool :=
+  (Solidity.Executable.Expr.toCoreNumericLiteralAs? (Solidity.Ty.int 256)
+    (c4Mod (c4Neg (numberExpr "7")) (numberExpr "3"))).isSome
+
+-- C4 neighbor: positive constant `%` still folds and is accepted.
+def c4PositiveModAccepted : Bool :=
+  Solidity.Executable.Expr.numberLiteralInt?
+      (c4Mod (numberExpr "7") (numberExpr "3")) == some 1 &&
+    (Solidity.Executable.Expr.toCoreNumericLiteralAs? (Solidity.Ty.uint 256)
+      (c4Mod (numberExpr "7") (numberExpr "3"))).isSome
+
 end Examples
 
 end TypeCheck
