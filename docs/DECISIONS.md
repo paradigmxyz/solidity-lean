@@ -2635,3 +2635,71 @@ Forge-paired green.
 Gates: `lake build SolidCore` green; `smoke_replay.sh` compare=pass (incl.
 `memory-allocation` and `storage-dirty-words` lean=ok); both new lanes
 Forge-paired green. Corpus: 114 cases.
+## 2026-07-08 — Value fidelity S1: regular string literals lower to UTF-8 bytes
+
+solc stores a regular (non-`unicode`) string literal as its UTF-8 bytes
+(`YulUtilFunctions`/`ASTBoogie` string handling; `unicode"..."` and `"..."`
+share the same UTF-8 storage — the only difference is which source characters
+are accepted). The repo lowered a regular `Literal.string` via
+`text.toList.map Char.toNat`, i.e. per-code-point bytes, which is wrong for any
+code point > 127. Example: `bytes("café")` — U+00E9 must become the two
+UTF-8 bytes `0xC3 0xA9`, so `bytes(...).length == 5` and
+`keccak256(bytes(...)) == keccak256(0x636166c3a9) ==
+0x9513447e2d376aacd434727887590dd448cda8f2d30c4ace903d31fe209f8ad8`. The buggy
+lowering gave `[99,97,102,233]` (length 4, wrong keccak). ASCII was unaffected,
+which is why prior tests passed.
+
+Fix (all in the string-literal lowering, `Char.toNat` → `stringUtf8Bytes` /
+`text.toUTF8`): `Interface.lean` `Literal.toCoreExpr?` (`byteArray` path,
+~:3494), `Literal.toFixedBytesWord?` (bytesN-target path, ~:2988), and
+`ABI.lean` `stringBytes` (~:475, the `Error(string)` revert-reason encoder).
+The `unicode"..."` path already used `stringUtf8Bytes`; `type(C).name` and
+identifier byte arrays stay `Char.toNat` (ASCII identifiers only). Pinned by the
+new `utf8-string-literal` lane (length/lead+cont byte/keccak/encodePacked,
+Forge-paired-green).
+
+## 2026-07-08 — Value fidelity S2: memory (not calldata) aggregate ABI params validate eagerly
+
+The original S2 framing (calldata array/tuple elements validate eagerly) is
+DISPROVEN by the frozen `abi-malformed` lane and a direct pinned-solc probe:
+`f(uint8[] calldata a)` reading only `a.length` with a dirty element SUCCEEDS
+(solc keeps the calldata reference and validates each element LAZILY on access —
+`abiDecodingFunctionCalldataArrayValueType`). The genuine bug is the
+`memory`-location counterpart: solc copies a memory reference-type parameter out
+of calldata element-by-element through each element's `<validator>`
+(`ABIFunctions::abiDecodingFunctionArray` → `abiDecodingFunctionValueType` →
+`validatorFunction(_, true)` = `revert(0,0)`), so a dirty narrow-int element
+reverts EMPTY at decode even if never read. Probe: `f(uint8[] memory a)` reading
+only `a.length` with element `256` REVERTS; the `calldata` twin SUCCEEDS
+(`YulUtilFunctions.cpp:4104` — `revert(0,0)`, not a Panic, for the decode
+validator).
+
+The repo validated all aggregate params lazily (wrapping elements in
+`Value.abiLazy`), correct for calldata but wrong for memory. Fix
+(`Interpreter.lean`): new `AbiCleanup.memoryEager` wrapper whose `accepts` is the
+recursive element check and which `AbiCleanup.lazyParamValue` resolves through
+its eager `accepts`-based fallthrough (returning `none` → empty revert at the
+dispatch boundary). `Interface.lean` wraps `memory`-location function params
+(~:16928) and constructor params (~:19505; constructor reference params are
+always memory — solc forbids `calldata` there) in `memoryEager`; calldata
+aggregates keep the lazy `dynamicArray`/`tuple` cleanups unchanged. Pinned by
+the new `abi-memory-eager` lane (memory uint8[]/struct dirty-unused element
+reverts empty; calldata twin succeeds returning 1 / 7). The frozen `abi-malformed`
+calldata-lazy pins remain green.
+
+## 2026-07-08 — Value fidelity S3: encodePacked conditional operand uses the ternary common type width
+
+solc packs `abi.encodePacked(cond ? a : b)` using the conditional's COMMON
+(mobile) type, not the then-branch's. The repo's `Expr.abiTy?` returned
+`Expr.abiTy? thenExpr` for a ternary, so `cond ? uint8(0x11) : uint16(0x2233)`
+packed 1 byte (then = uint8) instead of the common-type 2 bytes (uint16),
+yielding `keccak256(0x11)` instead of the correct `keccak256(0x0011) ==
+0xd5842eca58c06f1e59ec13dffa2151bec7fef478f0d491c263918c21fb38241e`
+(else branch: `keccak256(0x2233) ==
+0x0bea8c3dc955818b3f04b78631387a2a53f48726d725c56f6b3e3360c2011195`). Fix
+(`Interface.lean` `Expr.abiTy?` ternary case, ~:4844): combine both branch
+`abiTy?`s via the existing `Ty.commonImplicit?`, falling back to the then-type
+when the else-branch type is not structurally inferable. `abiTy?` cannot resolve
+local-variable branch types, so the pinning lane uses explicit casts
+(`uint8(0x11)`/`uint16(0x2233)`) which `abiTy?` resolves. Pinned by the new
+`packed-ternary-width` lane (both branches, Forge-paired-green).

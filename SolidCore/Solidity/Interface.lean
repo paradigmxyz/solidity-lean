@@ -2986,7 +2986,7 @@ def fixedBytesWordFromNumber? (size : Nat) (text : String) :
 
 def Literal.toFixedBytesWord? (size : Nat) : Literal -> Option Word
   | Literal.string text =>
-      fixedBytesWordFromBytes? size (text.toList.map Char.toNat)
+      fixedBytesWordFromBytes? size (stringUtf8Bytes text)
   | Literal.unicodeString text =>
       fixedBytesWordFromBytes? size (stringUtf8Bytes text)
   | Literal.hexString text => do
@@ -3493,7 +3493,7 @@ def Literal.toCoreExpr? : Literal -> Option CoreExpr
       some (SolidCore.Solidity.Source.Expr.byteArray bytes)
   | Literal.string text =>
       some (SolidCore.Solidity.Source.Expr.byteArray
-        (text.toList.map Char.toNat))
+        (stringUtf8Bytes text))
   | Literal.unicodeString text =>
       some (SolidCore.Solidity.Source.Expr.byteArray
         (stringUtf8Bytes text))
@@ -4841,7 +4841,15 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
       | BinaryOp.eq | BinaryOp.ne | BinaryOp.boolAnd | BinaryOp.boolOr =>
           some Ty.bool
       | _ => Expr.abiTy? storageNames lhs
-  | Expr.ternary _ thenExpr _ => Expr.abiTy? storageNames thenExpr
+  | Expr.ternary _ thenExpr elseExpr => do
+      -- solc packs a conditional operand of `abi.encodePacked` using the
+      -- ternary's COMMON (mobile) type, not the then-branch's width. Combine
+      -- both branch types via `Ty.commonImplicit?`; fall back to the then-type
+      -- when the else-branch type can't be inferred structurally here.
+      let thenTy ← Expr.abiTy? storageNames thenExpr
+      match Expr.abiTy? storageNames elseExpr with
+      | some elseTy => some ((Ty.commonImplicit? thenTy elseTy).getD thenTy)
+      | none => some thenTy
   | Expr.tuple items => do
       let tys ←
         mapOption
@@ -16922,8 +16930,17 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
       (fun (param : Parameter) =>
         if param.location == some DataLocation.storage then
           some SolidCore.Solidity.Source.AbiCleanup.none
-        else
-          Ty.toCoreAbiCleanup? param.ty)
+        else do
+          -- A `memory`-location aggregate parameter is copied out of calldata
+          -- at decode and each element validated eagerly (solc reverts
+          -- `revert(0,0)` on any dirty element, even an unread one); a
+          -- `calldata` aggregate keeps lazy per-access validation. Mark memory
+          -- params with `memoryEager` so decode validates them eagerly.
+          let cleanup ← Ty.toCoreAbiCleanup? param.ty
+          if param.location == some DataLocation.memory then
+            some (SolidCore.Solidity.Source.AbiCleanup.memoryEager cleanup)
+          else
+            some cleanup)
       decl.params
   let returns ← Parameters.toCoreBindings? "_ret" decl.returns
   let body ← decl.body
@@ -19487,14 +19504,28 @@ def ContractDecl.constructorFunctionFromOrders?
     ErrorDecls.namedArgEnv (contractErrors ++ visibleSourceErrors)
   let targetDecl ← ContractDecl.findByName? dispatchOrder targetName
   let payable ← ContractDecl.constructorPayable? targetDecl
-  let constructorParamTys ←
+  let constructorParams ←
     match ContractDecl.directConstructors targetDecl with
     | [] => some []
-    | [ctor] =>
-        some (ctor.params.map
-          (fun param => Ty.resolveStructs structEnv param.ty))
+    | [ctor] => some ctor.params
     | _ => none
-  let paramAbiCleanups ← Tys.toCoreAbiCleanups? constructorParamTys
+  -- Constructor reference-type parameters are always `memory` (solc forbids
+  -- `calldata` for constructor params), so they are ABI-decoded into memory
+  -- with eager per-element validation: mark `memory`-location params
+  -- `memoryEager` exactly as for regular function parameters.
+  let paramAbiCleanups ←
+    mapOption
+      (fun (param : Parameter) =>
+        if param.location == some DataLocation.storage then
+          some SolidCore.Solidity.Source.AbiCleanup.none
+        else do
+          let cleanup ←
+            Ty.toCoreAbiCleanup? (Ty.resolveStructs structEnv param.ty)
+          if param.location == some DataLocation.memory then
+            some (SolidCore.Solidity.Source.AbiCleanup.memoryEager cleanup)
+          else
+            some cleanup)
+      constructorParams
   let pieces ←
     mapOption
       (fun decl => do
