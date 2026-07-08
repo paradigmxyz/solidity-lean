@@ -3827,13 +3827,19 @@ def FunctionSig.matchesUserDefinedUnaryOperator
 def FunctionSig.matchesUserDefinedOperatorDecl (targetTy : Ty)
     (operator : Solidity.UsingOperator)
     (sig : FunctionSig) : Bool :=
+  -- solc `TypeChecker.cpp:4158-4186` (error 1884): an operator function's
+  -- parameters must ALL be exactly the target type — for a binary operator both
+  -- params are `T`, for a unary operator the single param is `T` — and it must
+  -- return the operator's result type (`T`, or `bool` for comparisons, as fixed
+  -- by `userDefinedOperatorResultTy?`). Requiring `hasParamTy` (target appears in
+  -- ≥1 position) was too weak, wrongly admitting e.g. `f(T, uint) as +`.
   match operator with
   | Solidity.UsingOperator.binary op =>
       match BinaryOp.userDefinedOperatorResultTy? targetTy op with
       | some resultTy =>
           sig.mutability == Solidity.StateMutability.pure &&
             sig.params.length == 2 &&
-            FunctionSig.hasParamTy targetTy sig.params &&
+            sig.params.all (· == targetTy) &&
             sig.returns == [resultTy]
       | none => false
   | Solidity.UsingOperator.unary op =>
@@ -3841,7 +3847,7 @@ def FunctionSig.matchesUserDefinedOperatorDecl (targetTy : Ty)
       | some resultTy =>
           sig.mutability == Solidity.StateMutability.pure &&
             sig.params.length == 1 &&
-            FunctionSig.hasParamTy targetTy sig.params &&
+            sig.params.all (· == targetTy) &&
             sig.returns == [resultTy]
       | none => false
 
@@ -12115,17 +12121,54 @@ def UsingDecl.checkFileLevel (env : CheckEnv)
     (TypeError.invalidContractHeader
       "file-level using directive requires an explicit type")
   if decl.global then
+    -- solc `TypeChecker.cpp:4006-4021`: a file-level `global` directive admits
+    -- ANY same-source-unit user-defined type whose `typeDefinition()` is
+    -- non-null — struct, enum, or UDVT (a *contract* type has no
+    -- `typeDefinition()` and is rejected with 8841; so are built-ins and
+    -- cross-file types). The UDVT-only restriction is kept ONLY for operator
+    -- bindings, enforced separately in `UsingFunction.check`.
     match decl.target with
     | some (Solidity.Ty.user path) =>
-        require (env.types.isUserValueTypePath path)
+        require (env.types.isStructPath path || env.types.isEnumPath path ||
+            env.types.isUserValueTypePath path)
           (TypeError.invalidContractHeader
-            "global using directive target is not a user value type")
+            "global using directive target is not a user-defined type")
     | _ =>
         Except.error
           (TypeError.invalidContractHeader
-            "global using directive target is not a user value type")
+            "global using directive target is not a user-defined type")
   else
     Except.ok ()
+
+/-- The `(operator, target-type)` pairs a using directive binds as operators. -/
+def UsingDecl.operatorBindings (decl : Solidity.UsingDecl) :
+    List (Solidity.UsingOperator × Ty) :=
+  match decl.target with
+  | some ty =>
+      decl.functions.filterMap (fun binding =>
+        match binding.operator? with
+        | some operator => some (operator, ty)
+        | none => none)
+  | none => []
+
+/-- solc `TypeChecker.cpp:4229-4254` (error 4705): binding the same operator for
+the same operand type more than once among the directives visible in scope is a
+directive-level error, independent of whether the operator is ever applied.
+Operator bindings must be `global` (file level), so scanning the file-level
+using directives collects every binding in scope. -/
+def UsingDecls.checkNoDuplicateOperatorBindings
+    (decls : List Solidity.UsingDecl) : Except TypeError Unit :=
+  let pairs := decls.flatMap UsingDecl.operatorBindings
+  let rec go : List (Solidity.UsingOperator × Ty) -> Except TypeError Unit
+    | [] => Except.ok ()
+    | pair :: rest =>
+        if rest.contains pair then
+          Except.error
+            (TypeError.invalidContractHeader
+              "duplicate using operator binding for the same operator and type")
+        else
+          go rest
+  go pairs
 
 def ContractItem.stateVar? :
     Solidity.ContractItem -> Option Solidity.StateVarDecl
@@ -13464,6 +13507,7 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
   checkFreeUserValueTypes freeUserValueTypes
   checkFreeConstants freeConstants
   checkSourceUsingDecls sourceUsingDecls
+  UsingDecls.checkNoDuplicateOperatorBindings sourceUsingDecls
   checkFreeFunctions freeFunctions
   checkFreeEvents freeEvents
   checkFreeErrors freeErrors

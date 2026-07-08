@@ -5,6 +5,80 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — UF1/UF2/UF3 fixed: `using ... for T global` legality
+
+`docs/solc-implementation-divergences-4.md` UF1 (live differential over-reject),
+UF2/UF3 (importer-masked over-accepts). All three concern
+`TypeChecker::endVisit(UsingForDirective)`.
+
+**UF1 — non-UDVT `global` target over-rejected (COMPLETENESS, live edge).**
+solc (`libsolidity/analysis/TypeChecker.cpp:4006-4021`): a file-level
+`using ... for T global` admits any T whose `Type::typeDefinition()` is non-null
+and defined in the same source unit. `Type::typeDefinition()` is overridden only
+for `StructType`, `EnumType`, `UserDefinedValueType` (`libsolidity/ast/Types.cpp:
+2490/2630/2703`) — so **struct, enum, UDVT** are legal `global` targets; a
+built-in / elementary type raises 8841 and a cross-file type raises 4117. A
+**contract** type has no `typeDefinition()` and is rejected (8841) — the round-4
+doc's claim that a contract is a legal target was WRONG; pinned-solc probe
+`using {f} for D global;` (D a contract) → 8841. Solidus
+(`SolidCore/Solidity/TypeCheck.lean` `UsingDecl.checkFileLevel`) gated the
+`global` target through `isUserValueTypePath`, admitting only UDVTs and rejecting
+struct/enum globals — a mainstream library idiom.
+
+**Fix** (`TypeCheck.lean` `UsingDecl.checkFileLevel`): the `global` target gate
+now accepts `isStructPath || isEnumPath || isUserValueTypePath`. The UDVT-only
+restriction stays where solc keeps it — for OPERATOR bindings, enforced
+separately in `UsingFunction.check` (unchanged), so an operator binding on a
+struct global still rejects (probe: "Operators can only be implemented for
+user-defined value types"). Built-in and cross-file globals still reject.
+
+**UF2 — operator binding params must BOTH be the target type (masked
+over-accept).** solc (`TypeChecker.cpp:4158-4186`, error 1884): an operator
+function's parameters must ALL equal the target UDVT (both params for binary, the
+one param for unary) and it must return the operator's result type. Solidus
+`FunctionSig.matchesUserDefinedOperatorDecl` required only `hasParamTy` (target
+in ≥1 position), wrongly accepting `f(T, uint) as +`. **Fix**: replaced
+`hasParamTy` with `sig.params.all (· == targetTy)` (length already pinned to 2/1;
+return-type match was already enforced). Probe: `addMixed(T,uint) as +` → 1884;
+`add(T,T) as +` accepts.
+
+**UF3 — duplicate operator binding rejected at the directive (masked
+over-accept).** solc (error 4705): binding the same operator for the same type
+more than once in visible scope is a directive-level error. Solidus caught it
+only lazily at a use site. **Fix**: new `UsingDecls.checkNoDuplicateOperator
+Bindings` collects every `(operator, targetTy)` from all file-level using
+directives and rejects a repeat; wired into `SourceUnit.checkWithEvmVersion`
+after `checkSourceUsingDecls`. Operator bindings must be `global` (file
+level), so the file-level scan covers every binding in scope. Probes: same op
+same type across one or two directives → 4705; same op different types, or
+different ops same type → accept.
+
+**Boundary verified**: new manifest case `using-for-global-nonudvt`.
+- Forge accept + VALUE lane (pinned solc 0.8.35): `using {doubled, plus} for
+  Amount global;` on a STRUCT — `computeDoubled(21)==42`, `computePlus(21,8)==29`
+  equal Forge; imported Lean `importedGlobalUsingMemberValues` pins the same
+  words. The imported source also carries `using {rank} for Color global;` on an
+  ENUM whose acceptance is pinned by `importedContractAccepted` and the common
+  checker (enum-target member DISPATCH at execution is a pre-existing
+  interpreter-layer gap unrelated to this typecheck fix, so the value lane
+  exercises the struct only).
+- solc-reject fixtures (all confirmed rejected by pinned solc AND now by the
+  common checker): `invalid/OperatorOnStructGlobal.sol` (UF1 neighbor),
+  `invalid/BuiltinTargetGlobal.sol` (UF1 neighbor), `invalid/OperatorMixedParams
+  .sol` (UF2), `invalid/DuplicateOperatorBinding.sol` (UF3).
+- Lean witness `usingForGlobalNonUdvtDisciplineMatches`
+  (`SolidCore/Witness/TypeCheck.lean`): struct/enum/library-form globals accepted;
+  operator-on-struct, built-in-global, mixed-param and first-param operator
+  functions, and single- and split-directive duplicate bindings all rejected;
+  correct UDVT operator bindings (`globalUsingPriceOperatorAccepted`) still
+  accepted.
+
+Must-hold neighbors: `library-type-uses`, `udvt-operator-dispatch`,
+`narrow-udvt-arithmetic` stay green in smoke (Lean=ok, compare=pass).
+
+**Lane**: new manifest case `using-for-global-nonudvt` — Forge accept+value lane +
+4 solc-reject fixtures + common-checker witness. UF1/UF2/UF3 marked Fixed.
+
 ## 2026-07-08 — PK1 fixed: abi.encodePacked of a nested static array
 
 `docs/solc-implementation-divergences-3.md` PK1 (CONFIRMED, live differential

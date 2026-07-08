@@ -23176,6 +23176,268 @@ def globalUsingNonUserValueSource : Solidity.SourceUnit :=
 def globalUsingNonUserValueRejected : Bool :=
   Result.isError (SourceUnit.check globalUsingNonUserValueSource)
 
+/-! ### UF1/UF2/UF3 — `using ... for T global` legality on non-UDVT targets,
+operator-binding parameter shape, and duplicate operator bindings.
+
+UF1: a file-level `global` using directive admits ANY same-source-unit
+user-defined type (struct / enum / UDVT), not only a UDVT. The UDVT-only
+restriction is kept for OPERATOR bindings and for built-in / cross-file targets.
+UF2: an operator function must have every parameter exactly the target type.
+UF3: binding the same operator for the same type twice is a directive-level
+error. All boundaries confirmed against pinned solc 0.8.35. -/
+
+def globalStructTy : Ty :=
+  Solidity.Ty.user (userPath "Amount")
+
+def globalStructDecl : Solidity.StructDecl :=
+  { name := "Amount"
+    fields := [{ name := "value", ty := uint256 }] }
+
+def globalStructDoubledFunction : Solidity.FunctionDecl :=
+  { name := some "doubled"
+    params :=
+      [{ name := some "a", ty := globalStructTy,
+         location := some Solidity.DataLocation.memory }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    mutability := Solidity.StateMutability.pure
+    body :=
+      some
+        (Solidity.Stmt.returnValues
+          (some
+            (Solidity.Expr.binary Solidity.BinaryOp.mul
+              (Solidity.Expr.member (Solidity.Expr.ident "a") "value")
+              (numberExpr "2")))) }
+
+-- UF1: `using {f} for S global` on a STRUCT — accepted (solc accepts).
+def globalUsingStructSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeStruct globalStructDecl
+      , Solidity.SourceItem.freeFunction globalStructDoubledFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions := [{ function := { segments := ["doubled"] } }]
+            target := some globalStructTy
+            global := true } ] }
+
+def globalUsingStructAccepted : Bool :=
+  sourceUnitAccepted? globalUsingStructSource
+
+def globalStructLibrary : Solidity.ContractDecl :=
+  { kind := Solidity.ContractKind.library
+    name := "AmountLib"
+    items :=
+      [ Solidity.ContractItem.function
+          { globalStructDoubledFunction with
+            name := some "tripled"
+            visibility := some Solidity.Visibility.internal_
+            body :=
+              some
+                (Solidity.Stmt.returnValues
+                  (some
+                    (Solidity.Expr.binary Solidity.BinaryOp.mul
+                      (Solidity.Expr.member (Solidity.Expr.ident "a") "value")
+                      (numberExpr "3")))) } ] }
+
+-- UF1: library-form `using L for S global` on a STRUCT — accepted.
+def globalUsingStructLibrarySource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeStruct globalStructDecl
+      , Solidity.SourceItem.contract globalStructLibrary
+      , Solidity.SourceItem.usingDecl
+          { library := userPath "AmountLib"
+            target := some globalStructTy
+            global := true } ] }
+
+def globalUsingStructLibraryAccepted : Bool :=
+  sourceUnitAccepted? globalUsingStructLibrarySource
+
+def globalEnumTy : Ty :=
+  Solidity.Ty.user (userPath "Color")
+
+def globalEnumDecl : Solidity.EnumDecl :=
+  { name := "Color", cases := ["Red", "Green", "Blue"] }
+
+def globalEnumRankFunction : Solidity.FunctionDecl :=
+  { name := some "rank"
+    params := [{ name := some "c", ty := globalEnumTy, location := none }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    mutability := Solidity.StateMutability.pure
+    body :=
+      some
+        (Solidity.Stmt.returnValues
+          (some
+            (Solidity.Expr.binary Solidity.BinaryOp.add
+              (Solidity.Expr.call
+                (Solidity.Expr.typeName uint256)
+                [Solidity.Arg.positional (Solidity.Expr.ident "c")])
+              (numberExpr "1")))) }
+
+-- UF1: `using {f} for E global` on an ENUM — accepted.
+def globalUsingEnumSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeEnum globalEnumDecl
+      , Solidity.SourceItem.freeFunction globalEnumRankFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions := [{ function := { segments := ["rank"] } }]
+            target := some globalEnumTy
+            global := true } ] }
+
+def globalUsingEnumAccepted : Bool :=
+  sourceUnitAccepted? globalUsingEnumSource
+
+def globalStructOperatorAddFunction : Solidity.FunctionDecl :=
+  { name := some "amountAdd"
+    params :=
+      [ { name := some "a", ty := globalStructTy,
+          location := some Solidity.DataLocation.memory }
+      , { name := some "b", ty := globalStructTy,
+          location := some Solidity.DataLocation.memory } ]
+    returns :=
+      [{ name := none, ty := globalStructTy,
+         location := some Solidity.DataLocation.memory }]
+    mutability := Solidity.StateMutability.pure
+    body := some (Solidity.Stmt.returnValues (some (Solidity.Expr.ident "a"))) }
+
+-- UF1 reject neighbor: an OPERATOR binding still requires a UDVT target; a
+-- struct operator binding must stay rejected.
+def globalUsingStructOperatorSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeStruct globalStructDecl
+      , Solidity.SourceItem.freeFunction globalStructOperatorAddFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["amountAdd"] }
+                 operator? := some
+                  (Solidity.UsingOperator.binary Solidity.BinaryOp.add) }]
+            target := some globalStructTy
+            global := true } ] }
+
+def globalUsingStructOperatorRejected : Bool :=
+  Result.isError (SourceUnit.check globalUsingStructOperatorSource)
+
+-- UF2: operator binding whose parameters are not BOTH the target type.
+def priceOperatorAddMixedFunction : Solidity.FunctionDecl :=
+  { name := some "priceAddMixed"
+    params :=
+      [ { name := some "left", ty := priceTy, location := none }
+      , { name := some "right", ty := uint256, location := none } ]
+    returns := [{ name := some "out", ty := priceTy, location := none }]
+    mutability := Solidity.StateMutability.pure
+    body := some (Solidity.Stmt.returnValues (some (Solidity.Expr.ident "left"))) }
+
+def badMixedParamUsingOperatorSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeUserValueType priceDecl
+      , Solidity.SourceItem.freeFunction priceOperatorAddMixedFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["priceAddMixed"] }
+                 operator? := some
+                  (Solidity.UsingOperator.binary Solidity.BinaryOp.add) }]
+            target := some priceTy
+            global := true } ] }
+
+def badMixedParamUsingOperatorRejected : Bool :=
+  Result.isError (SourceUnit.check badMixedParamUsingOperatorSource)
+
+-- UF2: first parameter not the target type either.
+def priceOperatorAddFirstMixedFunction : Solidity.FunctionDecl :=
+  { priceOperatorAddMixedFunction with
+    name := some "priceAddFirstMixed"
+    params :=
+      [ { name := some "left", ty := uint256, location := none }
+      , { name := some "right", ty := priceTy, location := none } ]
+    body := some (Solidity.Stmt.returnValues (some (Solidity.Expr.ident "right"))) }
+
+def badFirstParamUsingOperatorSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeUserValueType priceDecl
+      , Solidity.SourceItem.freeFunction priceOperatorAddFirstMixedFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["priceAddFirstMixed"] }
+                 operator? := some
+                  (Solidity.UsingOperator.binary Solidity.BinaryOp.add) }]
+            target := some priceTy
+            global := true } ] }
+
+def badFirstParamUsingOperatorRejected : Bool :=
+  Result.isError (SourceUnit.check badFirstParamUsingOperatorSource)
+
+-- UF3: two bindings of the same operator for the same type in one directive.
+def priceOperatorAdd2Function : Solidity.FunctionDecl :=
+  { priceOperatorAddFunction with name := some "priceAdd2" }
+
+def duplicateOperatorBindingSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeUserValueType priceDecl
+      , Solidity.SourceItem.freeFunction priceOperatorAddFunction
+      , Solidity.SourceItem.freeFunction priceOperatorAdd2Function
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [ { function := { segments := ["priceAdd"] }
+                  operator? := some
+                    (Solidity.UsingOperator.binary Solidity.BinaryOp.add) }
+              , { function := { segments := ["priceAdd2"] }
+                  operator? := some
+                    (Solidity.UsingOperator.binary Solidity.BinaryOp.add) } ]
+            target := some priceTy
+            global := true } ] }
+
+def duplicateOperatorBindingRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateOperatorBindingSource)
+
+-- UF3: same operator+type duplicated across two SEPARATE directives.
+def duplicateOperatorBindingSplitSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.freeUserValueType priceDecl
+      , Solidity.SourceItem.freeFunction priceOperatorAddFunction
+      , Solidity.SourceItem.freeFunction priceOperatorAdd2Function
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["priceAdd"] }
+                 operator? := some
+                  (Solidity.UsingOperator.binary Solidity.BinaryOp.add) }]
+            target := some priceTy
+            global := true }
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions :=
+              [{ function := { segments := ["priceAdd2"] }
+                 operator? := some
+                  (Solidity.UsingOperator.binary Solidity.BinaryOp.add) }]
+            target := some priceTy
+            global := true } ] }
+
+def duplicateOperatorBindingSplitRejected : Bool :=
+  Result.isError (SourceUnit.check duplicateOperatorBindingSplitSource)
+
+/-- Aggregated UF1/UF2/UF3 discipline: non-UDVT user-defined `global` targets
+are accepted (UF1); operator bindings on non-UDVT targets, built-in targets,
+mixed-parameter operator functions (UF2), and duplicate operator bindings (UF3)
+are all rejected; and the correct UDVT operator bindings stay accepted. -/
+def usingForGlobalNonUdvtDisciplineMatches : Bool :=
+  -- UF1: struct / enum / library-form global targets accepted.
+  globalUsingStructAccepted &&
+    globalUsingStructLibraryAccepted &&
+    globalUsingEnumAccepted &&
+    -- UF1 must-hold neighbors: operator-on-struct and built-in global rejected.
+    globalUsingStructOperatorRejected &&
+    globalUsingNonUserValueRejected &&
+    -- UF2: correct UDVT operator bindings stay accepted; mixed params rejected.
+    globalUsingPriceOperatorAccepted &&
+    badMixedParamUsingOperatorRejected &&
+    badFirstParamUsingOperatorRejected &&
+    -- UF3: duplicate operator bindings rejected at the directive.
+    duplicateOperatorBindingRejected &&
+    duplicateOperatorBindingSplitRejected
+
 def bytesReturnFunction : Solidity.FunctionDecl :=
   { simpleReturnFunction with
     returns :=

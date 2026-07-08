@@ -1,0 +1,6 @@
+Error: Operators can only be implemented for user-defined value types.
+  --> invalid/OperatorOnStructGlobal.sol:17:8:
+   |
+17 | using {add as +} for S global;
+   |        ^^^
+
