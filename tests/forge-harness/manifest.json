@@ -6953,6 +6953,45 @@
           }
         ]
       }
+    },
+    {
+      "name": "memory-alias-fixes",
+      "description": "Forge, pinned solc, and the imported Lean interpreter check memory reference-type alias/copy semantics for the M1-M4 memory-soundness fixes: memory-ref RHS shapes (ternary decl/assign, array-element and struct-member assignment) alias their source (M1); tuple destructuring aliases each component including declarations and pointer swap (M2); a memory ref stored into a memory struct field or array element aliases (M3); abi.encode/keccak256 of ref-nested nested-dynamic memory aggregates (bytes[], uint[][], string[], struct with a dynamic-array field) encode without spurious revert and to the solc byte lengths (M4); plus value-type copy controls and storage<->memory deep-copy independence controls to guard against over-aliasing.",
+      "timeout": 600,
+      "forge": {
+        "root": "tests/forge-harness/memory-alias-fixes",
+        "match_contract": "MemoryAliasFixesForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/memory-alias-fixes/src/MemoryAliasFixes.sol",
+        "contract": "MemoryAliasFixes",
+        "namespace": "SolidCore.Solidity.SolcAstImport.MemoryAliasFixes"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.MemoryAliasFixes.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedMemoryAliasMatrix",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.MemoryAliasFixes.importedSourceUnit\n  let target := \"MemoryAliasFixes\"\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program target\n  let word := SolidCore.Solidity.Source.Value.word\n  let wordEq := SolidCore.Solidity.Source.wordEq\n  let pairOk := fun name args ex ey => do\n    let result <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContext 1024 contract name contract.core.context SolidCore.Solidity.Source.State.empty args\n    match result with\n    | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word x, SolidCore.Solidity.Source.Value.word y] =>\n        Except.ok (wordEq x ex && wordEq y ey)\n    | _ => Except.ok false\n  let m0 <- pairOk \"ternaryDeclAlias\" [word 1] 42 42\n  let m1 <- pairOk \"ternaryAssignAlias\" [word 1] 42 42\n  let m2 <- pairOk \"indexAssignAlias\" [] 55 55\n  let m3 <- pairOk \"memberAssignAlias\" [] 88 88\n  let m4 <- pairOk \"tupleAlias\" [] 7 9\n  let m5 <- pairOk \"tupleSwap\" [] 1 99\n  let m6 <- pairOk \"tupleDecl\" [] 44 9\n  let m7 <- pairOk \"intoFieldAlias\" [] 77 77\n  let m8 <- pairOk \"intoElementAlias\" [] 66 66\n  let m9 <- pairOk \"valueCopyControl\" [] 1 7\n  let m10 <- pairOk \"valueElementCopyControl\" [] 5 9\n  let m11 <- pairOk \"storageToMemoryIndependence\" [] 1 100\n  let m12 <- pairOk \"memoryToStorageIndependence\" [SolidCore.Solidity.Source.Value.dynamicArray [word 1]] 1 7\n  Except.ok (m0 && m1 && m2 && m3 && m4 && m5 && m6 && m7 && m8 && m9 && m10 && m11 && m12))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedNestedMemoryEncode",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.MemoryAliasFixes.importedSourceUnit\n  let target := \"MemoryAliasFixes\"\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program target\n  let wordEq := SolidCore.Solidity.Source.wordEq\n  let singleOk := fun name ex => do\n    let result <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContext 1024 contract name contract.core.context SolidCore.Solidity.Source.State.empty []\n    match result with\n    | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word x] => Except.ok (wordEq x ex)\n    | _ => Except.ok false\n  let e0 <- singleOk \"encodeBytesArray\" 1\n  let e1 <- singleOk \"encodeUintMatrix\" 1\n  let e2 <- singleOk \"encodeStringArray\" 1\n  let e3 <- singleOk \"encodeBytesArrayLength\" 256\n  let e4 <- singleOk \"encodeUintMatrixLength\" 288\n  Except.ok (e0 && e1 && e2 && e3 && e4))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

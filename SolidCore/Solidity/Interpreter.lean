@@ -6302,6 +6302,9 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
           | Expr.keccak256 expr => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+              -- M4: fully materialize any memory-ref (nested) value so its bytes
+              -- can be read; an unmaterialized `memoryRef` has no `asBytes?`.
+              let value ← runtime'.derefMemoryValueDeep value
               match value.asBytes? with
               | some bytes =>
                   pure (Value.word (keccakWord bytes), runtime')
@@ -6356,6 +6359,10 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
+              -- M4: deep-materialize ref-nested memory values (e.g. `bytes[]`,
+              -- `uint[][]`, struct-with-dynamic-field) so the value-structural
+              -- encoder sees concrete element trees, not bare `memoryRef`s.
+              let values ← runtime'.derefMemoryValuesDeep values
               match abiEncodeValues? tys values with
               | some bytes => pure (Value.bytes bytes, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -6366,6 +6373,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               match values with
               | selectorValue :: argValues => do
                   let selector ← selectorValue.expectWord
+                  -- M4: deep-materialize ref-nested memory arguments.
+                  let argValues ← runtime'.derefMemoryValuesDeep argValues
                   match abiEncodeValues? tys argValues with
                   | some bytes =>
                       pure
@@ -6378,6 +6387,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let (values, runtime') ←
                 Expr.evalListWithRuntimeOrderFuel fuel order context runtime
                   exprs
+              -- M4: deep-materialize ref-nested memory values before packing.
+              let values ← runtime'.derefMemoryValuesDeep values
               match abiEncodePackedValues? widths tys values with
               | some bytes => pure (Value.bytes bytes, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
