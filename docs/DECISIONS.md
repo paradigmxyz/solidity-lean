@@ -2808,3 +2808,112 @@ matched the EVM on the first differential run.
   Cancun version → 0, matching EIP-4844's non-blob-tx behavior.
 
 No soundness bug found: all four builtins already matched EVM ground truth.
+
+## 2026-07-08 — Acceptance boundaries G2–G16 (over-accept tightenings + probes)
+
+Fixing the acceptance-boundary gaps `G2`–`G16` from
+`docs/solidus-solc-deep-comparison.md`. Ground truth: pinned solc 0.8.35 (READ-ONLY
+`/Users/dan/Projects/solidity-src`). Each fixed over-accept adds a solc-REJECT
+fixture under `tests/forge-harness/acceptance-boundaries/invalid/` plus a
+still-accepted neighbor, wired through the `acceptance-boundaries` manifest lane
+(witnesses in `SolidCore/Witness/AcceptanceBoundaries.lean`). Smoke replay stays
+all-green (28 cases, no valid corpus program newly rejected).
+
+FIXED over-accepts (Solidus was accepting programs solc rejects):
+
+- **G2 — `msg.value` in a non-payable function.** solc ViewPureChecker.cpp:270-294
+  reports payable mutability for `msg.value` and errors 5887 unless the enclosing
+  function is payable; internal/private and library functions are exempt
+  (`isConstructor() || isPublic()` and `!libraryFunction()`). Added
+  `currentVisibility` to `CheckEnv`, set from `fn.visibility`, and gated the
+  `msg.value` member arm (`TypeCheck.lean`, `msg` member arm): reject when
+  public/external/constructor, not in a library, and not payable. Pure was already
+  rejected by `requireStateReadAllowed`. Probe: view/nonpayable/constructor →
+  5887; payable and internal → ok. Boundary subtlety: the exemption for
+  internal/private functions is load-bearing (the neighbor `g2InternalMsgValueFn`
+  pins it). Modifier-body `msg.value` propagation (solc 4006) is NOT modeled — a
+  narrower, more obscure over-accept, left documented.
+
+- **G3 — `==`/`!=` on reference types.** solc TypeChecker.cpp:1694-1726 has no
+  builtin equality for bytes/string/array/mapping/struct or UDVTs (TypeError 2271);
+  value types, addresses, contracts, enums and function pointers compare. Added
+  `Ty.isEqualityComparable` and required both operands comparable in the eq/ne arm.
+  KEY subtlety found via smoke: enums flow as `Ty.user path` (not `Ty.enum`), so
+  the `user` arm allows contract OR enum paths (via `isContractPath`/`isEnumPath`)
+  and rejects UDVT paths — this exactly matches the probe (contract/enum/fnptr `==`
+  accepted, UDVT `==` rejected). Initial contract-only version over-rejected
+  `state() == State.Refunding` in `openzeppelin-refund-escrow`; the enum arm fixed
+  it.
+
+- **G4 — compile-time out-of-bounds constant index.** solc rejects `b[k]`/`a[k]`
+  when `k` is a compile-time constant `>=` the `bytesN` width / fixed-array length
+  (TypeError 1859/3383). The index arms now fold the index via
+  `Executable.Expr.numberLiteralNat?` (folds `2+3`) and require `i < size`/`i <
+  len`; dynamic arrays and non-constant indices are unaffected.
+
+- **G5 — bare `return;` with a non-empty return list.** Probe corrected the
+  writeup: solc rejects `return;` whenever the return list is non-empty, even when
+  every return is named (TypeChecker.cpp:1138, TypeError 6777) — not only the
+  unnamed case. `checkReturnExprs` now errors on `none, (_ :: _)` unconditionally.
+
+- **G6 — `super.f()` to an abstract base.** solc TypeError 9582; a bodyless base
+  declaration is not a valid super target. Added `hasBody` to `FunctionSig`
+  (default `true`, set from `fn.body.isSome` in `FunctionDecl.signature?`) and
+  filtered `superFunctions` to bodied sigs only. Regular dispatch (`functions`)
+  keeps abstract sigs, so this touches only the super chain; the neighbor
+  (`super.f()` to an implemented base) still resolves.
+
+- **G7 — qualified `emit X.g()` on a non-event member.** solc TypeError 9292.
+  `checkEventEmission` now resolves the member-call form `emit X.name(args)` by
+  `name` against `env.events` (inherited events are flattened in), and rejects any
+  other emit shape. Probe confirmed the paired risk is real — `emit A.E()` for a
+  genuine (possibly inherited) event is legal — so the fix resolves rather than
+  blanket-rejects; the neighbor pins both simple `emit E()` and member `emit C.E()`.
+
+- **G9 — inline array literal of a mapping type.** solc rejects (a memory array of
+  mappings is invalid, "only valid in storage"). The `Expr.array` arm rejects a
+  mapping common-element type.
+
+- **G10 — `msg.data` in `receive()`.** solc TypeError 7139. Added `inReceive` to
+  `CheckEnv` (set for `FunctionKind.receive`) and reject `msg.data` when
+  `inReceive`; `msg.data` in ordinary/fallback functions is unaffected.
+
+PROBED and SKIPPED (real divergence confirmed, but out-of-scope / unreachable /
+needs machinery with over-reject risk beyond the acceptance predicate):
+
+- **G8 — `revert name(args)` shadowed by a callable.** The doc's own case
+  (`revertStatement/using_function.sol`) is a *free error* `f` shadowed by a
+  *contract function* `f`; solc resolves the innermost declaration and errors 1885.
+  Two contract-level members of the same name can't coexist ("Identifier already
+  declared"), and Solidus already rejects `revert f(...)` when no matching error is
+  in `env.errors`. The genuine over-accept needs error-vs-callable *scope-shadowing
+  precedence* (free error masked by a contract member of equal arity) that Solidus
+  does not model; deferred as obscure with real over-reject risk.
+
+- **G11 — cross-contract `creationCode`/`runtimeCode` cycle.** solc TypeError 7813
+  (whole-program bytecode-dependency cycle). Confirmed solc rejects `type(C).
+  creationCode` inside `C`, but detection requires a whole-program cycle pass that
+  does not exist here; esoteric and unreachable on a solc-validated corpus.
+  Deferred.
+
+- **G12 — `_` as an identifier.** solc DeclarationError 3726 ("The name `_` is
+  reserved"). Rejected by solc at name resolution *before* AST import, so it is
+  unreachable through the solc-AST importer; the divergence can never be observed
+  by Solidus in this pipeline. Skipped per the reachability guidance.
+
+- **G16 — `try` on a library external call.** Confirmed solc ACCEPTS `try L.f()`
+  for a `public`/`external` library function (over-reject on the Solidus side).
+  External library calls (delegatecall dispatch to a separately-deployed library)
+  are outside Solidus's open-world execution model, so loosening the try-target
+  check would accept a shape the interpreter cannot execute; left as-is.
+
+DEFERRED over-rejects (G13–G15): these are *harmless* completeness over-rejects
+(Solidus rejects programs solc accepts). Unlike G2–G10 (pure acceptance
+predicates in `TypeCheck.lean`), each requires value-computing changes in
+`Interface.lean` elaboration and the interpreter, matched exactly to Forge:
+G13 nested-tuple-LHS destructuring, G14 storage-array copy with tail
+zero-fill/truncation, G15 ternary-of-literals adopting the mobile common type
+(observable as a *runtime* panic, not just acceptance). They were deliberately
+NOT attempted in this pass to avoid introducing a wrong-value soundness bug
+without full-replay validation (the coordinator's merge gate), which is a strictly
+worse outcome than a harmless over-reject. Recorded here as the next work item.
