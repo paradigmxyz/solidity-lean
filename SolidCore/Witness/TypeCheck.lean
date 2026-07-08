@@ -24930,6 +24930,212 @@ def nominalLocalUserAliasDisciplineMatches : Bool :=
       (TypeContext.qualifiedPath "Other" "Pair"))
     (Solidity.Ty.user (TypeContext.pathOfName "Pair"))
 
+-- ===========================================================================
+-- Acceptance-soundness tightening (2026-07-08): signed/unsigned integer and
+-- contract-hierarchy conversion boundaries. Each Ax mirrors a solc-REJECT
+-- fixture under tests/forge-harness/signed-unsigned-contract-conversions/
+-- plus a still-accepted neighbor. See docs/DECISIONS.md.
+-- ===========================================================================
+
+def su_uint8 : Ty := Solidity.Ty.uint 8
+def su_uint16 : Ty := Solidity.Ty.uint 16
+def su_uint256 : Ty := Solidity.Ty.uint 256
+def su_int16 : Ty := Solidity.Ty.int 16
+def su_int256 : Ty := Solidity.Ty.int 256
+def su_bytes32 : Ty := Solidity.Ty.bytesN 32
+
+def su_singleContract (name : Name) (fn : Solidity.FunctionDecl) :
+    Solidity.SourceUnit :=
+  { items :=
+      [Solidity.SourceItem.contract
+        { name := name
+          items := [Solidity.ContractItem.function fn] }] }
+
+def su_castExpr (ty : Ty) (arg : Solidity.Expr) : Solidity.Expr :=
+  Solidity.Expr.call (Solidity.Expr.typeName ty)
+    [Solidity.Arg.positional arg]
+
+-- A1: implicit uint8 -> int16 (return position) is REJECTED.
+def a1ImplicitUintToIntFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := su_uint8, location := none }]
+    returns := [{ name := none, ty := su_int16, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues (some (Solidity.Expr.ident "a"))) }
+
+def a1ImplicitUintToIntRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "A1ImplicitUintToInt" a1ImplicitUintToIntFunction))
+
+-- A1 neighbor: explicit int16(uint16(a)) STILL ACCEPTED.
+def a1ExplicitCastFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := su_uint8, location := none }]
+    returns := [{ name := none, ty := su_int16, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr su_int16 (su_castExpr su_uint16
+          (Solidity.Expr.ident "a"))))) }
+
+def a1ExplicitCastAccepted : Bool :=
+  sourceUnitAccepted?
+    (su_singleContract "A1ExplicitCast" a1ExplicitCastFunction)
+
+-- A2: uint8 + int16 with both operands non-literal is REJECTED (no common type).
+def a2MixedSignAddFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params :=
+      [ { name := some "a", ty := su_uint8, location := none }
+      , { name := some "b", ty := su_int16, location := none } ]
+    returns := [{ name := none, ty := su_int16, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.binary Solidity.BinaryOp.add
+          (Solidity.Expr.ident "a") (Solidity.Expr.ident "b")))) }
+
+def a2MixedSignAddRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "A2MixedSignAdd" a2MixedSignAddFunction))
+
+-- A2 neighbor: a number literal takes the other operand's type; uint8(x) + 2
+-- and 1 + int16(x) STILL ACCEPTED.
+def a2UintPlusLiteralFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := su_uint8, location := none }]
+    returns := [{ name := none, ty := su_uint8, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.binary Solidity.BinaryOp.add
+          (Solidity.Expr.ident "a") (numberExpr "2")))) }
+
+def a2LiteralPlusIntFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "g"
+    params := [{ name := some "b", ty := su_int16, location := none }]
+    returns := [{ name := none, ty := su_int16, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (Solidity.Expr.binary Solidity.BinaryOp.add
+          (numberExpr "1") (Solidity.Expr.ident "b")))) }
+
+def a2LiteralMixedAccepted : Bool :=
+  sourceUnitAccepted?
+      (su_singleContract "A2UintPlusLiteral" a2UintPlusLiteralFunction) &&
+    sourceUnitAccepted?
+      (su_singleContract "A2LiteralPlusInt" a2LiteralPlusIntFunction)
+
+-- A3: bytes32 -> int256 and int256 -> bytes32 explicit casts are REJECTED.
+def a3BytesToSignedIntFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "x", ty := su_bytes32, location := none }]
+    returns := [{ name := none, ty := su_int256, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr su_int256 (Solidity.Expr.ident "x")))) }
+
+def a3SignedIntToBytesFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "x", ty := su_int256, location := none }]
+    returns := [{ name := none, ty := su_bytes32, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr su_bytes32 (Solidity.Expr.ident "x")))) }
+
+def a3SignedBytesConversionsRejected : Bool :=
+  Result.isError
+      (SourceUnit.check
+        (su_singleContract "A3BytesToSignedInt" a3BytesToSignedIntFunction)) &&
+    Result.isError
+      (SourceUnit.check
+        (su_singleContract "A3SignedIntToBytes" a3SignedIntToBytesFunction))
+
+-- A3 neighbor: same-width UNSIGNED casts uint256(bytes32) and bytes32(uint256)
+-- STILL ACCEPTED.
+def a3BytesToUnsignedIntFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "x", ty := su_bytes32, location := none }]
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr su_uint256 (Solidity.Expr.ident "x")))) }
+
+def a3UnsignedIntToBytesFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "g"
+    params := [{ name := some "x", ty := su_uint256, location := none }]
+    returns := [{ name := none, ty := su_bytes32, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr su_bytes32 (Solidity.Expr.ident "x")))) }
+
+def a3UnsignedBytesConversionsAccepted : Bool :=
+  sourceUnitAccepted?
+      (su_singleContract "A3BytesToUnsignedInt" a3BytesToUnsignedIntFunction) &&
+    sourceUnitAccepted?
+      (su_singleContract "A3UnsignedIntToBytes" a3UnsignedIntToBytesFunction)
+
+-- A4: base->derived (down-cast) explicit contract conversion is REJECTED.
+def a4BaseContract : Solidity.ContractDecl :=
+  { name := "Base", items := [] }
+
+def a4DerivedContract : Solidity.ContractDecl :=
+  { name := "Derived"
+    bases := [{ base := userPath "Base" }]
+    items := [] }
+
+def a4BaseTy : Ty := Solidity.Ty.user (userPath "Base")
+def a4DerivedTy : Ty := Solidity.Ty.user (userPath "Derived")
+
+def a4DownCastFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "b", ty := a4BaseTy, location := none }]
+    returns := [{ name := none, ty := a4DerivedTy, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr a4DerivedTy (Solidity.Expr.ident "b")))) }
+
+def a4DownCastSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract a4BaseContract
+      , Solidity.SourceItem.contract a4DerivedContract
+      , Solidity.SourceItem.contract
+          { name := "A4BaseToDerived"
+            items := [Solidity.ContractItem.function a4DownCastFunction] } ] }
+
+def a4DownCastRejected : Bool :=
+  Result.isError (SourceUnit.check a4DownCastSource)
+
+-- A4 neighbor: derived->base (up-cast) STILL ACCEPTED.
+def a4UpCastFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "d", ty := a4DerivedTy, location := none }]
+    returns := [{ name := none, ty := a4BaseTy, location := none }]
+    body :=
+      some (Solidity.Stmt.returnValues
+        (some (su_castExpr a4BaseTy (Solidity.Expr.ident "d")))) }
+
+def a4UpCastSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract a4BaseContract
+      , Solidity.SourceItem.contract a4DerivedContract
+      , Solidity.SourceItem.contract
+          { name := "A4DerivedToBase"
+            items := [Solidity.ContractItem.function a4UpCastFunction] } ] }
+
+def a4UpCastAccepted : Bool :=
+  sourceUnitAccepted? a4UpCastSource
+
 end Examples
 
 end TypeCheck

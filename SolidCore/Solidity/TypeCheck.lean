@@ -1057,8 +1057,10 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
       Solidity.Ty.uint expectedBits => actualBits <= expectedBits
     | Solidity.Ty.int actualBits,
       Solidity.Ty.int expectedBits => actualBits <= expectedBits
-    | Solidity.Ty.uint actualBits,
-      Solidity.Ty.int expectedBits => actualBits < expectedBits
+    -- A1: solc IntegerType::isImplicitlyConvertibleTo (Types.cpp:611-614)
+    -- forbids ALL implicit signed<->unsigned conversions (uintN->intM and
+    -- intN->uintM). Only same-signedness widening is implicit. The former
+    -- `uint actualBits -> int expectedBits` arm was removed.
     | Solidity.Ty.fixed actualBits actualDecimals,
       Solidity.Ty.fixed expectedBits expectedDecimals =>
         Solidity.Ty.fixedPointImplicitlyConvertible
@@ -1135,8 +1137,14 @@ def Ty.integerExplicitConversionAllowed (actual target : Ty) : Bool :=
   (actual.isInteger && target.isInteger) &&
     (Ty.sameIntegerWidth actual target || Ty.sameIntegerSignedness actual target)
 
+-- A3: solc FixedBytesType::isExplicitlyConvertibleTo (Types.cpp:1364-1365)
+-- allows bytesN <-> integer only for UNSIGNED integers of the same bit width
+-- (`!integerType->isSigned() && numBits == numBytes*8`); the symmetric
+-- IntegerType::isExplicitlyConvertibleTo (Types.cpp:638-639) likewise requires
+-- `!isSigned()`. So `int256(bytes32)` / `bytes32(int256)` are rejected. Use
+-- uintBits? (unsigned only) rather than integerBits? (any integer).
 def Ty.fixedBytesIntegerSameSize (fixedTy intTy : Ty) : Bool :=
-  match fixedTy.fixedBytesSize?, intTy.integerBits? with
+  match fixedTy.fixedBytesSize?, intTy.uintBits? with
   | some size, some bits => size * 8 == bits
   | _, _ => false
 
@@ -1425,7 +1433,13 @@ def Ty.canExplicitlyConvert (types : TypeContext)
           (sourcePayable || !types.contractCanReceiveEther path)
     | Solidity.Ty.user actualPath, Solidity.Ty.user targetPath =>
         if types.isContractPath actualPath && types.isContractPath targetPath then
-          types.contractsRelated actualPath targetPath
+          -- A4: solc ContractType::isExplicitlyConvertibleTo (Types.cpp:1491)
+          -- falls through to isImplicitlyConvertibleTo (Types.cpp:1475-1486),
+          -- which permits contract->contract only when the target is in the
+          -- source's linearized bases, i.e. an UP-cast (derived->base). A
+          -- down-cast (base->derived) is a type error. Require the target to be
+          -- an ancestor (base) of the source, not merely related.
+          TypeContext.contractHasAncestorPathFuel types 64 actualPath targetPath
         else if types.isEnumPath targetPath then
           actual.isInteger
         else
