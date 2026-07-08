@@ -8744,10 +8744,31 @@ replaces each such identifier with its ID as a number literal, which
 `Expr.internalFunction` pointer literal in internal-fn-typed contexts.
 
 Positions: everywhere except the callee slot of `Expr.call`/`callWithOptions`
-(a direct call, not a value use). Known residue: member-form value uses
-(`Lib.f`, `Contract.f`) are not collected/rewritten. Locals shadowing a
-function name would be mis-collected, but solc rejects local shadowing, so
-typechecked inputs cannot contain it. -/
+(a direct call, not a value use). Member-form value uses (`Lib.f`,
+`Contract.f`) ARE collected/rewritten (boundary-completion arc, member-form
+residue): a contract-member key is the plain member name; a library-member key
+is the mangled library-helper name (a library's internal helper is elaborated
+under `libraryHelperName`, not its bare name), so both keys are probed against
+the numbering candidates. Locals shadowing a function name would be
+mis-collected, but solc rejects local shadowing, so typechecked inputs cannot
+contain it. -/
+
+/-- Mangled name a library internal helper is elaborated under (kept in sync
+    with `libraryHelperName`, defined later for the library-call surface). The
+    member-form fn-value collector/rewriter need it before that definition. -/
+def libraryHelperName (libraryName functionName : Name) : Name :=
+  "__library_" ++ libraryName ++ "_" ++ functionName
+
+/-- Both numbering keys a member-form fn-value `Base.member` could resolve to:
+    the library-helper mangling (when `Base` is a library) and the plain member
+    name (when `Base` is the current/ancestor contract). The candidate filter
+    picks whichever actually names an elaborated function. -/
+def memberFnValueKeys : Expr -> Name -> List Name
+  | Expr.typeName (Ty.user path), member =>
+      match path.segments.getLast? with
+      | some libraryName => [libraryHelperName libraryName member, member]
+      | none => [member]
+  | _, _ => []
 
 def Expr.collectInternalFnValueIdentsFuel (candidates : List Name) :
     Nat -> Expr -> List Name
@@ -8767,12 +8788,24 @@ def Expr.collectInternalFnValueIdentsFuel (candidates : List Name) :
       | Expr.call fn args =>
           (match fn with
             | Expr.ident _ => []
+            -- A member-form call `Lib.f(..)` / `Contract.f(..)` is a direct
+            -- call, NOT a value use of `f`.
+            | Expr.member (Expr.typeName _) _ => []
             | _ => go fn) ++ concatMapList goArg args
       | Expr.callWithOptions fn options args =>
           (match fn with
             | Expr.ident _ => []
+            | Expr.member (Expr.typeName _) _ => []
             | _ => go fn) ++
             concatMapList goOption options ++ concatMapList goArg args
+      -- Member-form internal-function VALUE (`Lib.f` / `Contract.f`): the same
+      -- dispatch numbering as a bare identifier, keyed by the library-helper
+      -- name (library base) or the plain member name (contract base).
+      | Expr.member (Expr.typeName tyName) member =>
+          match (memberFnValueKeys (Expr.typeName tyName) member).find?
+              candidates.contains with
+          | some key => [key]
+          | none => []
       | Expr.member base _ => go base
       | Expr.index base index => go base ++ go index
       | Expr.slice base start stop =>
@@ -8845,14 +8878,26 @@ def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
           Expr.call
             (match fn with
               | Expr.ident _ => fn
+              | Expr.member (Expr.typeName _) _ => fn
               | _ => go fn)
             (args.map goArg)
       | Expr.callWithOptions fn options args =>
           Expr.callWithOptions
             (match fn with
               | Expr.ident _ => fn
+              | Expr.member (Expr.typeName _) _ => fn
               | _ => go fn)
             (options.map goOption) (args.map goArg)
+      -- Member-form internal-function VALUE (`Lib.f` / `Contract.f`) in value
+      -- position becomes its dispatch-ID literal, under the library-helper name
+      -- (library base) or the plain member name (contract base) — the same ID
+      -- the numbering assigned.
+      | Expr.member (Expr.typeName tyName) member =>
+          (match
+              (memberFnValueKeys (Expr.typeName tyName) member).findSome?
+                (fun k => ids.lookup k) with
+            | some id => Expr.literal (Literal.number (toString id))
+            | none => Expr.member (Expr.typeName tyName) member)
       | Expr.member base member => Expr.member (go base) member
       | Expr.index base index => Expr.index (go base) (go index)
       | Expr.slice base start stop =>
@@ -8928,6 +8973,41 @@ def FunctionDecls.internalFnValueNumbering
         | none => [])
       fns
   let ordered := Names.dedupPreservingOrder uses
+  (ordered.zipIdx.map (fun p => (p.fst, p.snd + 1)))
+
+/-- Internal-dispatch numbering including value uses in MODIFIER and CONSTRUCTOR
+    bodies (boundary-completion arc, ctor/modifier residue). Ordinary-function
+    value uses are numbered FIRST (identical to `internalFnValueNumbering`), then
+    modifier-body uses, then constructor-body uses are appended; the shared
+    first-use dedup keeps the ordinary-only IDs stable, so lanes without
+    ctor/modifier fn-values are unaffected. Both the runtime-table elaboration
+    (`toCoreFromOrders?`) and the constructor elaboration
+    (`constructorFunctionFromOrders?`) call this with identical arguments so the
+    IDs stamped on the dispatch table agree with the IDs the constructor writes
+    into storage. -/
+def FunctionDecls.internalFnValueNumberingFull
+    (candidates : List Name) (fns : List FunctionDecl)
+    (modifiers : List SourceModifierDecl)
+    (constructorBodies : List Stmt) : List (Name × Nat) :=
+  let collectBody : Stmt -> List Name :=
+    Stmt.collectInternalFnValueIdentsFuel candidates defaultInlineConstantsFuel
+  let fnUses :=
+    concatMapList
+      (fun (fn : FunctionDecl) =>
+        match fn.body with
+        | some body => collectBody body
+        | none => [])
+      fns
+  let modifierUses :=
+    concatMapList
+      (fun (m : SourceModifierDecl) =>
+        match m.body with
+        | some body => collectBody body
+        | none => [])
+      modifiers
+  let constructorUses := concatMapList collectBody constructorBodies
+  let ordered :=
+    Names.dedupPreservingOrder (fnUses ++ modifierUses ++ constructorUses)
   (ordered.zipIdx.map (fun p => (p.fst, p.snd + 1)))
 
 def Parameter.runtimeName (fallbackPrefix : String) (index : Nat) : Name :=
@@ -15410,9 +15490,6 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
         freeFunctions returnTys modifierDecl invocation inner
 termination_by invocations.length
 
-def libraryHelperName (libraryName functionName : Name) : Name :=
-  "__library_" ++ libraryName ++ "_" ++ functionName
-
 def libraryHelperNameForIndex (libraryName functionName : Name)
     (index : Nat) : Name :=
   if index == 0 then
@@ -16889,6 +16966,17 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   -- fn-typed arguments/returns) become their dispatch-ID literals; the
   -- statically-aliasable local uses were already inlined above (status quo).
   let body := Stmt.rewriteInternalFnValueIdents internalFnIds body
+  -- Modifier bodies are inlined into this function during core elaboration
+  -- (`functionExpandModifiersToCoreWithInternalCallsFull?`), AFTER the body
+  -- rewrite above; rewrite their fn-value uses here too so a function-pointer
+  -- VALUE created/assigned in a modifier body becomes its dispatch-ID literal
+  -- (boundary-completion arc, ctor/modifier residue).
+  let modifiers :=
+    modifiers.map
+      (fun modifier =>
+        { modifier with
+          body :=
+            modifier.body.map (Stmt.rewriteInternalFnValueIdents internalFnIds) })
   -- Reference-signature extension: a `T storage` RETURN is a storage pointer the
   -- body re-points (`result = x`, or `return x` rewritten to `result = x;
   -- return;`). The inline-splice path registered returns in its storageRefEnv and
@@ -18632,6 +18720,7 @@ def ContractDecl.constructorBodyForDeployment?
     (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl)
     (eventArgEnv errorArgEnv : NamedArgParamEnv)
+    (internalFnIds : List (Name × Nat))
     (targetName : Name) (baseArgs : List Expr) (decl : ContractDecl) :
     Option (List CoreBindingDecl × List CoreStmt) := do
   let initStmts ←
@@ -18682,12 +18771,21 @@ def ContractDecl.constructorBodyForDeployment?
             (ModifierDecl.expandUsing
               allContracts usingFunctionScope usingDecls env)
       let body := Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv body
+      -- Rewrite function-pointer VALUE uses in the constructor body (and the
+      -- modifier bodies inlined into it) to their dispatch-ID literals, exactly
+      -- as ordinary function bodies get (boundary-completion arc, ctor/modifier
+      -- residue). `internalFnIds` is the SAME numbering the runtime dispatch
+      -- table is stamped with, so the ID the constructor writes into storage
+      -- dispatches to the intended function post-deployment.
+      let body := Stmt.rewriteInternalFnValueIdents internalFnIds body
       let modifiers :=
         modifiers.map
           (fun modifier =>
             { modifier with
-              body := modifier.body.map
-                (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
+              body :=
+                (modifier.body.map
+                  (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv)).map
+                  (Stmt.rewriteInternalFnValueIdents internalFnIds) })
       let body := Stmt.annotateAbi env body
       let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] ctor.params
       let ctorModifiers :=
@@ -18982,8 +19080,17 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let fnIdCandidates :=
     ((availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name).filter
       (fun n => !storageNames.contains n)
+  -- Include modifier- and constructor-body value uses so a function used as a
+  -- value ONLY inside a modifier or constructor still gets a dispatch ID and a
+  -- table stamp (boundary-completion arc, ctor/modifier residue). The
+  -- constructor elaboration path numbers with identical arguments.
+  let constructorBodies : List Stmt :=
+    concatMapList
+      (fun d => (ContractDecl.directConstructors d).filterMap FunctionDecl.body)
+      dispatchOrder
   let internalFnIds :=
-    FunctionDecls.internalFnValueNumbering fnIdCandidates ordinaryFunctions
+    FunctionDecls.internalFnValueNumberingFull fnIdCandidates ordinaryFunctions
+      modifiers constructorBodies
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
@@ -19356,6 +19463,20 @@ def ContractDecl.constructorFunctionFromOrders?
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
+  -- Internal-dispatch numbering, computed IDENTICALLY to `toCoreFromOrders?`
+  -- (same candidate set, same ordinary/modifier/constructor scan) so the IDs
+  -- the constructor writes into storage agree with the dispatch-table stamps
+  -- (boundary-completion arc, ctor/modifier residue).
+  let fnIdCandidates :=
+    ((availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name).filter
+      (fun n => !storageNames.contains n)
+  let constructorBodies : List Stmt :=
+    concatMapList
+      (fun d => (ContractDecl.directConstructors d).filterMap FunctionDecl.body)
+      dispatchOrder
+  let internalFnIds :=
+    FunctionDecls.internalFnValueNumberingFull fnIdCandidates ordinaryFunctions
+      modifiers constructorBodies
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
@@ -19394,7 +19515,8 @@ def ContractDecl.constructorFunctionFromOrders?
         ContractDecl.constructorBodyForDeployment?
           allContracts sourceUsingDecls baseArgUsingDecls storageNames
           constants stateEnv externalCallKindEnv modifiers availableFunctions
-          sourceFunctions eventArgEnv errorArgEnv targetName baseArgs decl)
+          sourceFunctions eventArgEnv errorArgEnv internalFnIds targetName
+          baseArgs decl)
       storageOrder
   let params := concatLists (pieces.map Prod.fst)
   let stmts := concatLists (pieces.map Prod.snd)

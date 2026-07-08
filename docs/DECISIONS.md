@@ -2221,10 +2221,11 @@ returned from an internal fn, recursion over a calldata array).
   would force every static use through the dispatch table for no semantic
   gain. (3) Modifiers stay inlined (unchanged posture).
 - Residues (recorded, all pre-existing rejections — no acceptance regressed):
-  member-form fn-value uses (`Lib.f` as a value), fn-pointer VALUES in
-  constructors and modifier bodies (fn-pointer CALLS and all other uses work),
-  and tuple-literal hoisting only for the assignment/declaration statement
-  forms.
+  member-form fn-value uses (`Lib.f` as a value) [**Fixed 2026-07-07**, see
+  entry below], fn-pointer VALUES in constructors and modifier bodies
+  (fn-pointer CALLS and all other uses work) [**Fixed 2026-07-07**, see entry
+  below], and tuple-literal hoisting only for the assignment/declaration
+  statement forms.
 - Lane `recursion-ref-signatures`: recursive linked-list walk over a mapping
   via `Node storage` (=60), recursion over `uint256[] memory` incl.
   mutation-through-pointer aliasing (=15099) — the residual recursion-gap
@@ -2414,3 +2415,87 @@ Corpus additions are new lanes only (new src/*.sol + test/*.t.sol + manifest
 entries); no frozen fixture, test, or expected value was modified. All three
 lanes run Forge-paired green (solc_rejects=ok forge=ok lean=ok) against pinned
 solc 0.8.35; expected values are ground-truth-checked by the Forge/EVM side.
+## 2026-07-07 — boundary-completion arc: the two fn-value residues closed
+
+The two FAIL-CLOSED residues the boundary-completion arc recorded (above) are
+now Fixed. Both were internal-function-pointer VALUE gaps — not call gaps — and
+both are pinned by the new differential lane `refs-residue-fn-values` (Forge
+ground truth: `new RefsResidueFnValues(bool)`; member-form dispatches equal the
+direct calls, ctor/modifier pointers call through the runtime dispatch ID).
+solc accepts all pinned shapes (compiled `--via-ir`); expected values are from
+Forge, never invented.
+
+**Residue 1 — member-form fn-value uses (`Lib.f` / `Contract.f` as a VALUE).**
+- Failed closed at TWO layers: typecheck rejected the value-position member
+  (`TypeCheck.lean` `checkExpr`, the `Expr.member (Expr.typeName ty) member`
+  arm: a library type name fails `checkTy` with `unknownType`; a contract type
+  name reached the final `unsupported "member <m>"`), and — once typecheck was
+  fixed — Interface elaboration rejected it (the value-position numbering /
+  rewrite only recognized bare identifiers, so `Lib.f`/`Contract.f` stayed a
+  member node and `toCore` failed with `unsupported checked contract …`).
+- Fix, typecheck (`SolidCore/Solidity/TypeCheck.lean`): new
+  `TypeContext.resolveInternalFunctionValueMember?` resolves a member of a
+  library or (current/ancestor) contract to an internally-callable function
+  signature; the `Expr.member (Expr.typeName ty) member` arm now tries it
+  BEFORE `checkTy` (a library type name is not a value type) and, on success,
+  yields the same `FunctionSig.internalFunctionValueTy?` a bare identifier
+  would. LIBRARY members are accepted only when the function is declared
+  `internal` (public/external library functions are delegatecall entry points —
+  solc rejects converting them to a function type: "Special functions cannot be
+  converted to function types"); CONTRACT members are gated on
+  `isCurrentOrAncestorContract` (an unrelated `Other.f` stays a solc-reject:
+  "Member f not found"). Also fixed `resolveInternalFunctionValueByNameLoop` to
+  treat same-resolution-target duplicates as non-ambiguous (mirrors the external
+  resolver / call-site `resolveLoop`) — this was what made a fn-value in a
+  MODIFIER body report `ambiguousFunction` (the modifier-body env unions
+  `functionSigsForModifierBodies` with the caller's own `functions`, doubling
+  every name).
+- Fix, elaboration (`SolidCore/Solidity/Interface.lean`): the value-position
+  collector/rewriter (`Expr.collectInternalFnValueIdentsFuel` /
+  `…rewriteInternalFnValueIdentsFuel`) now handle `Expr.member (Expr.typeName …)
+  member`, keyed by `memberFnValueKeys` — the library-helper mangling
+  `libraryHelperName Lib member` (a library helper is elaborated under
+  `__library_<Lib>_<f>`, not its bare name) OR the plain member name (contract
+  base); the numbering-candidate filter picks whichever actually names an
+  elaborated function, so `Lib.f` stamps the library-helper table entry and
+  `Contract.f` the contract function's — the same entry a direct call reaches.
+  Member-form CALLEES (`Lib.f(..)`) are excluded from value collection (they are
+  direct calls). `libraryHelperName` was hoisted above the collector (its only
+  new use site) with the later duplicate removed.
+
+**Residue 2 — fn-pointer VALUES created in constructor and modifier bodies.**
+- The value-position numbering scanned only ordinary-function bodies, and the
+  numbering-to-ID rewrite was applied only to ordinary function bodies — never
+  the constructor body or (inlined) modifier bodies. A function used as a value
+  ONLY in a ctor/modifier therefore got no dispatch ID and no table stamp, and
+  the ctor/modifier body kept a bare fn identifier that failed to elaborate in
+  fn-typed position.
+- Fix (`SolidCore/Solidity/Interface.lean`): new
+  `FunctionDecls.internalFnValueNumberingFull` scans ordinary bodies FIRST
+  (identical IDs to before — ordinary-only lanes such as `internal-fn-pointers`
+  are byte-for-byte unchanged), then appends modifier- and constructor-body
+  value uses. BOTH elaboration entry points — `toCoreFromOrders?` (runtime
+  dispatch table) and `constructorFunctionFromOrders?` (constructor) — compute
+  this numbering with IDENTICAL arguments, so the ID the constructor writes into
+  storage agrees with the table stamp a later pointer call dispatches on. The
+  rewrite is now applied to modifier bodies in `FunctionDecl.toCore?` and to the
+  constructor body + its modifier bodies in `constructorBodyForDeployment?`
+  (threaded a new `internalFnIds` parameter).
+- Verified end-to-end via deploy-then-call: `new RefsResidueFnValues(true)`
+  → `viaCtorPointer(21)=42`, `(false)` → `viaCtorPointer(4)=12`;
+  `viaModifierPointer(10)=11`.
+
+Gates: `lake build SolidCore` green; smoke replay (curated + `internal-fn-
+pointers`, `recursion-ref-signatures`, `calldata-ref-internal`,
+`library-type-uses`, `base-constructor-runtime-args`, `frontend-frontier`) all
+`lean=ok`, `status=0`, `compare=pass`; the new `refs-residue-fn-values` lane is
+Forge-paired green (`forge=ok lean=ok`). No solc-reject fixture regressed;
+internal-vs-external fn-value classification unchanged (external member fn
+values `this.f`/`addr.f` never reach the new typeName-member path, and
+`Value.externalFunction` is untouched). Corpus: 109 cases.
+
+Known small limitations (recorded, not blocking; solc rejects or the shape is
+absent from the corpus): overloaded library internal functions referenced by
+member-form value (only the index-0 helper name is keyed); `C.f` for an
+INHERITED (non-direct) function via member-form value (direct declarations of
+the named contract only).
