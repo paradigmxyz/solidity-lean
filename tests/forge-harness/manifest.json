@@ -5291,6 +5291,112 @@
         "namespace": "SolidCore.Solidity.SolcAstImport.RecursionRefSignatures",
         "source": "tests/forge-harness/recursion-ref-signatures/src/RecursionRefSignatures.sol"
       }
+    },
+    {
+      "name": "literal-cast-conversions",
+      "description": "Forge and imported Lean execute solc's constant-folded literal casts: an in-range raw literal (uint8(200)=200) and casts whose operand is a typed conversion of a literal (uint8(uint256(0x1234))=52, int8(uint8(200))=-56, uint8(int8(-1))=255, int16(int8(-1))=-1, uint256(int256(-1))=2**256-1) matching runtime mod-arithmetic/sign-extension; pinned solc and the common checker reject an out-of-range raw literal cast (uint8(300)).",
+      "forge": {
+        "root": "tests/forge-harness/literal-cast-conversions",
+        "match_contract": "LiteralCastConversionsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/literal-cast-conversions/invalid/OutOfRangeLiteralCast.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/literal-cast-conversions/src/LiteralCastConversions.sol",
+        "contract": "LiteralCastConversions",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LiteralCastConversions"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LiteralCastConversions.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedLiteralCastSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.LiteralCastConversions.importedSourceUnit\n  let target := \"LiteralCastConversions\"\n  let empty := SolidCore.Solidity.Source.State.empty\n  let cw := fun name expected => SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty [] expected\n  let u8Literal200 <- cw \"u8Literal200\" 200\n  let u8FromU256 <- cw \"u8FromU256\" 52\n  let u8FromI8Neg1 <- cw \"u8FromI8Neg1\" 255\n  let u256FromI256Neg1 <- cw \"u256FromI256Neg1\" (SolidCore.Solidity.Source.wordModulus - 1)\n  let i8Result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source target (SolidCore.Solidity.Source.CallTarget.name \"i8FromU8_200\") empty []\n  let i8Ok := match i8Result with | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => decide (SolidCore.Solidity.Shared.signedValue v = -56) | _ => false\n  let i16Result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source target (SolidCore.Solidity.Source.CallTarget.name \"i16FromI8Neg1\") empty []\n  let i16Ok := match i16Result with | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => decide (SolidCore.Solidity.Shared.signedValue v = -1) | _ => false\n  Except.ok (u8Literal200 && u8FromU256 && u8FromI8Neg1 && u256FromI256Neg1 && i8Ok && i16Ok))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "enum-conversions",
+      "description": "Forge and imported Lean execute enum conversions through an enum-typed local: an in-range integer converts to the enum and back to its ordinal (Color(2)=2, Color(0)=0, uint8(Color.Blue)=2), while a runtime out-of-range value reverts with Panic(0x21); pinned solc and the common checker reject an out-of-range raw literal enum conversion (Color(3)).",
+      "forge": {
+        "root": "tests/forge-harness/enum-conversions",
+        "match_contract": "EnumConversionsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/enum-conversions/invalid/OutOfRangeLiteralEnum.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/enum-conversions/src/EnumConversions.sol",
+        "contract": "EnumConversions",
+        "namespace": "SolidCore.Solidity.SolcAstImport.EnumConversions"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.EnumConversions.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedEnumConversionSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.EnumConversions.importedSourceUnit\n  let target := \"EnumConversions\"\n  let empty := SolidCore.Solidity.Source.State.empty\n  let cw := fun name expected => SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty [] expected\n  let enumInRange <- cw \"enumInRange\" 2\n  let enumZero <- cw \"enumZero\" 0\n  let enumMemberToUint <- cw \"enumMemberToUint\" 2\n  let outResult <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source target (SolidCore.Solidity.Source.CallTarget.name \"enumOutOfRange\") empty []\n  let outOfRangePanics := match outResult with | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => decide (code = 0x21) | _ => false\n  Except.ok (enumInRange && enumZero && enumMemberToUint && outOfRangePanics))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "contract-typed-locals",
+      "description": "Forge and imported Lean execute contract-typed local variables as their underlying 160-bit address: a local `Other o` declared from an address round-trips exactly (Other(literal)->address, address->Other->address), is accepted where an address argument is expected, and its underlying address is queried for `.balance`.",
+      "forge": {
+        "root": "tests/forge-harness/contract-typed-locals",
+        "match_contract": "ContractTypedLocalsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [],
+      "solc_import": {
+        "source": "tests/forge-harness/contract-typed-locals/src/ContractTypedLocals.sol",
+        "contract": "ContractTypedLocals",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ContractTypedLocals"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ContractTypedLocals.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedContractTypedLocalSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.ContractTypedLocals.importedSourceUnit\n  let target := \"ContractTypedLocals\"\n  let empty := SolidCore.Solidity.Source.State.empty\n  let word := SolidCore.Solidity.Source.Value.word\n  let addrOfContract <- SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target \"addrOfContract\" empty [] 0x1234567890abcdef1234\n  let roundTrip <- SolidCore.Solidity.TypeCheck.Examples.checkedCallValuesMatch 64 source target \"roundTrip\" empty [word 0xdeadbeef00112233] [word 0xdeadbeef00112233]\n  let passAsAddress <- SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target \"passAsAddress\" empty [word 0xdeadbeef00112233] 0xdeadbeef00112233\n  let balanceOfLocal <- SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target \"balanceOfLocal\" empty [word 0x9999] 0\n  Except.ok (addrOfContract && roundTrip && passAsAddress && balanceOfLocal))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
