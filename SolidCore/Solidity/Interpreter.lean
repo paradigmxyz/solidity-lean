@@ -109,6 +109,16 @@ inductive AbiCleanup where
   | fixedArray : Nat -> AbiCleanup -> AbiCleanup
   | dynamicArray : AbiCleanup -> AbiCleanup
   | tuple : List AbiCleanup -> AbiCleanup
+  /-- Wraps the cleanup of a `memory`-location aggregate ABI parameter. solc
+      copies a memory reference-type parameter out of calldata at decode time,
+      running each element's `<validator>` eagerly and reverting `revert(0,0)`
+      immediately on a dirty narrow-int/enum/bool element — even one never read
+      (verified: `f(uint8[] memory)` reverts on a dirty element when only
+      `.length` is used, whereas `f(uint8[] calldata)` succeeds). Calldata
+      aggregates keep the lazy per-access validation (`AbiCleanup.dynamicArray`
+      etc.); only `memory` params carry this wrapper. `AbiCleanup.lazyParamValue`
+      falls through to its eager `accepts`-based case for this constructor. -/
+  | memoryEager : AbiCleanup -> AbiCleanup
   deriving Repr
 
 inductive Value where
@@ -327,6 +337,7 @@ def AbiCleanup.accepts : AbiCleanup -> Value -> Bool
       AbiCleanup.acceptsAll cleanup values
   | AbiCleanup.tuple cleanups, Value.tuple values =>
       AbiCleanups.accept cleanups values
+  | AbiCleanup.memoryEager inner, value => inner.accepts value
   | cleanup, Value.abiLazy inner value =>
       inner.accepts value && cleanup.accepts value
   | _, _ => false

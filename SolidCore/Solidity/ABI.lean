@@ -473,7 +473,7 @@ def panicSelector : Word := 0x4e487b71
 def errorSelector : Word := 0x08c379a0
 
 def stringBytes (text : String) : Bytes :=
-  text.toList.map Char.toNat
+  text.toUTF8.toList.map UInt8.toNat
 
 def Contract.findErrorDecl? (contract : Contract)
     (name : String) : Option ErrorDecl :=

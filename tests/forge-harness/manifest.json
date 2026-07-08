@@ -5445,6 +5445,130 @@
         "namespace": "SolidCore.Solidity.SolcAstImport.RefsResidueFnValues",
         "source": "tests/forge-harness/refs-residue-fn-values/src/RefsResidueFnValues.sol"
       }
+    },
+    {
+      "name": "utf8-string-literal",
+      "description": "Forge and the imported Lean interpreter compare solc's UTF-8 lowering of a regular (non-`unicode`) string literal containing a non-ASCII code point (U+00E9 via a backslash-u escape): bytes length, the two UTF-8 bytes 0xC3 0xA9, keccak256 of bytes(...), and abi.encodePacked all use the UTF-8 encoding rather than the raw code point.",
+      "forge": {
+        "root": "tests/forge-harness/utf8-string-literal",
+        "match_contract": "Utf8StringLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/utf8-string-literal/src/Utf8StringLiteral.sol",
+        "contract": "Utf8StringLiteral",
+        "namespace": "SolidCore.Solidity.SolcAstImport.Utf8StringLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.Utf8StringLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "literalLengthUtf8",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.Utf8StringLiteral.importedContract \"literalLength\" SolidCore.Solidity.Source.State.empty [] 5",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "literalLeadByte",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.Utf8StringLiteral.importedContract \"literalByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3] 195",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "literalContByte",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.Utf8StringLiteral.importedContract \"literalByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 4] 169",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "literalKeccakUtf8",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.Utf8StringLiteral.importedContract \"literalHash\" SolidCore.Solidity.Source.State.empty [] 0x9513447e2d376aacd434727887590dd448cda8f2d30c4ace903d31fe209f8ad8",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "packedKeccakUtf8",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.Utf8StringLiteral.importedContract \"packedHash\" SolidCore.Solidity.Source.State.empty [] 0x9513447e2d376aacd434727887590dd448cda8f2d30c4ace903d31fe209f8ad8",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "abi-memory-eager",
+      "description": "Forge and the imported Lean interpreter compare solc's eager per-element validation of a memory-location aggregate ABI parameter versus lazy per-access validation of a calldata aggregate: a dirty (out-of-range uint8) element that is never read reverts empty for a memory uint8[]/struct parameter but succeeds for the calldata counterpart that only reads .length / a clean sibling.",
+      "forge": {
+        "root": "tests/forge-harness/abi-memory-eager",
+        "match_contract": "AbiMemoryEagerForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/abi-memory-eager/src/AbiMemoryEager.sol",
+        "contract": "AbiMemoryEager",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AbiMemoryEager"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AbiMemoryEager.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "memoryEagerVsCalldataLazyMatrix",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.AbiMemoryEager.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiMemoryEager\"\n  let encodeWord := SolidCore.Solidity.Source.ABI.encodeWord\n  let selector := fun signature => SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)\n  let dirtyArray := encodeWord 32 ++ encodeWord 1 ++ encodeWord 256\n  let dirtyPair := encodeWord 7 ++ encodeWord 256\n  let call := fun signature args => SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 256 contract SolidCore.Solidity.Source.State.empty (selector signature ++ args)\n  let memArray <- call \"memArrayLength(uint8[])\" dirtyArray\n  let cdArray <- call \"cdArrayLength(uint8[])\" dirtyArray\n  let memPair <- call \"memPairFirst((uint8,uint8))\" dirtyPair\n  let cdPair <- call \"cdPairFirst((uint8,uint8))\" dirtyPair\n  Except.ok (!memArray.success && memArray.output == [] && cdArray.success && cdArray.output == encodeWord 1 && !memPair.success && memPair.output == [] && cdPair.success && cdPair.output == encodeWord 7))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "packed-ternary-width",
+      "description": "Forge and the imported Lean interpreter compare solc's abi.encodePacked width for a conditional operand: abi.encodePacked(cond ? a : b) with a uint8 then-branch and a uint16 else-branch packs the result using the ternary's common type (uint16 -> 2 bytes) in both branches, pinned via keccak256 of the packed bytes.",
+      "forge": {
+        "root": "tests/forge-harness/packed-ternary-width",
+        "match_contract": "PackedTernaryWidthForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/packed-ternary-width/src/PackedTernaryWidth.sol",
+        "contract": "PackedTernaryWidth",
+        "namespace": "SolidCore.Solidity.SolcAstImport.PackedTernaryWidth"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.PackedTernaryWidth.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "thenBranchCommonWidth",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.PackedTernaryWidth.importedContract \"packedHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 0xd5842eca58c06f1e59ec13dffa2151bec7fef478f0d491c263918c21fb38241e",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "elseBranchCommonWidth",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.PackedTernaryWidth.importedContract \"packedHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 0x0bea8c3dc955818b3f04b78631387a2a53f48726d725c56f6b3e3360c2011195",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
