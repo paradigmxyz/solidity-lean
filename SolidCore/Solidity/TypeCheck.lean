@@ -8359,14 +8359,147 @@ def Exprs.allCompileTimeConstant (env : CheckEnv)
     (exprs : List Solidity.Expr) : Bool :=
   exprsAllCompileTimeConstant env exprs
 
+/-- solc `ViewPureChecker.cpp:194-199`: an immutable read is `Pure` **only if**
+the initializer's type category is `RationalNumber` (a pure numeric-literal
+constant / constant arithmetic thereof). Any other initializer
+(`keccak256(...)`, a `constant` reference, a `bool`/`string` literal, an
+explicit conversion like `uint(5)`, `abi.*`, `type().wrap`, …) makes the read
+`View`. This predicate models exactly the `RationalNumber` category: numeric
+(`number`/`unitNumber`) literals, unary `-`/`~` over a rational, and the
+arithmetic/bitwise/shift binary operators over rationals (comparison and logical
+operators yield `bool`, not `RationalNumber`, and ternaries are not folded to a
+rational). Probed against pinned solc 0.8.35 (`5`, `2+3`, `1 ether`, `-3`, `~1`,
+`1<<4` ACCEPT in `pure`; `keccak256("x")`, a `constant` ref, `true`, `uint(5)`,
+`3<5`, `true?1:2` REJECT with error 2527). -/
+def exprIsRationalConstant : Solidity.Expr -> Bool
+  | Solidity.Expr.literal (Solidity.Literal.number _) => true
+  | Solidity.Expr.literal (Solidity.Literal.unitNumber _ _) => true
+  | Solidity.Expr.unary op inner =>
+      match op with
+      | Solidity.UnaryOp.neg
+      | Solidity.UnaryOp.bitNot => exprIsRationalConstant inner
+      | _ => false
+  | Solidity.Expr.binary op lhs rhs =>
+      Solidity.Executable.BinaryOp.storageLayoutBaseEvalAllowed op &&
+        exprIsRationalConstant lhs &&
+        exprIsRationalConstant rhs
+  | _ => false
+
+/- Collect every identifier name syntactically referenced by an expression.
+Used only to build the `constant`-value dependency graph for solc's
+`ConstStateVarCircularReferenceChecker` (`PostTypeChecker.cpp:154-245`, error
+6161). Over-collection is harmless: the cycle detector intersects the result
+with the set of declared `constant` names, so non-constant idents (builtins,
+types, functions) drop out. -/
+mutual
+
+def collectExprIdents : Solidity.Expr -> List Name
+  | Solidity.Expr.literal _ => []
+  | Solidity.Expr.ident name => [name]
+  | Solidity.Expr.typeName _ => []
+  | Solidity.Expr.member base _ => collectExprIdents base
+  | Solidity.Expr.index base idx =>
+      collectExprIdents base ++ collectExprIdents idx
+  | Solidity.Expr.slice base start? stop? =>
+      collectExprIdents base ++
+        (match start? with | some e => collectExprIdents e | none => []) ++
+        (match stop? with | some e => collectExprIdents e | none => [])
+  | Solidity.Expr.call fn args =>
+      collectExprIdents fn ++ collectArgIdents args
+  | Solidity.Expr.callWithOptions fn opts args =>
+      collectExprIdents fn ++ collectOptionIdents opts ++ collectArgIdents args
+  | Solidity.Expr.newExpr _ args => collectArgIdents args
+  | Solidity.Expr.tuple items => collectTupleItemIdents items
+  | Solidity.Expr.array exprs => collectExprListIdents exprs
+  | Solidity.Expr.enumFromUInt _ inner => collectExprIdents inner
+  | Solidity.Expr.unary _ inner => collectExprIdents inner
+  | Solidity.Expr.binary _ lhs rhs =>
+      collectExprIdents lhs ++ collectExprIdents rhs
+  | Solidity.Expr.ternary cond thenExpr elseExpr =>
+      collectExprIdents cond ++ collectExprIdents thenExpr ++
+        collectExprIdents elseExpr
+  | Solidity.Expr.assign lhs _ rhs =>
+      collectExprIdents lhs ++ collectExprIdents rhs
+  | Solidity.Expr.payableConversion inner => collectExprIdents inner
+
+def collectExprListIdents : List Solidity.Expr -> List Name
+  | [] => []
+  | e :: rest => collectExprIdents e ++ collectExprListIdents rest
+
+def collectArgIdents : List Solidity.Arg -> List Name
+  | [] => []
+  | Solidity.Arg.positional e :: rest =>
+      collectExprIdents e ++ collectArgIdents rest
+  | Solidity.Arg.named _ e :: rest =>
+      collectExprIdents e ++ collectArgIdents rest
+
+def collectOptionIdents : List Solidity.CallOption -> List Name
+  | [] => []
+  | Solidity.CallOption.named _ e :: rest =>
+      collectExprIdents e ++ collectOptionIdents rest
+
+def collectTupleItemIdents : List Solidity.TupleItem -> List Name
+  | [] => []
+  | Solidity.TupleItem.hole :: rest => collectTupleItemIdents rest
+  | Solidity.TupleItem.value e :: rest =>
+      collectExprIdents e ++ collectTupleItemIdents rest
+
+end
+
+/-- Direct `constant`→`constant` dependency edges: the declared constant names
+referenced in `decl`'s initializer. -/
+def StateVarDecl.constantDeps (constNames : List Name)
+    (decl : Solidity.StateVarDecl) : List Name :=
+  match decl.init with
+  | some init => (collectExprIdents init).filter (fun n => constNames.contains n)
+  | none => []
+
+/-- One BFS/closure step: successors of the current reached set. -/
+def constantDepStep (adj : List (Name × List Name))
+    (reached : List Name) : List Name :=
+  reached.foldl
+    (fun acc n =>
+      match adj.find? (fun p => p.fst == n) with
+      | some p => acc ++ p.snd
+      | none => acc)
+    []
+
+/-- Whether `start` can reach itself through the `constant`-dependency graph
+`adj` (i.e. lies on a cycle). Fuel-bounded by the node count. -/
+partial def constantReachesSelf (adj : List (Name × List Name))
+    (start : Name) : Bool :=
+  let rec go (fuel : Nat) (reached : List Name) : Bool :=
+    if reached.contains start then true
+    else match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          let next :=
+            (reached ++ constantDepStep adj reached).eraseDups
+          if next.length == reached.length then false
+          else go fuel next
+  go adj.length (constantDepStep adj [start])
+
+/-- solc `ConstStateVarCircularReferenceChecker` (`PostTypeChecker.cpp:154-245`,
+error 6161): a `constant` state variable whose value expression cyclically
+depends on itself (directly or via other constants) is rejected. Detects a cycle
+among the `constant` declarations in `decls` (probed against pinned solc 0.8.35:
+`uint constant A = A;` and `uint constant A = B; uint constant B = A;` REJECT;
+`uint constant A = 5; uint constant B = A + 1;` ACCEPTS). -/
+def StateVarDecls.constantsHaveCycle
+    (decls : List Solidity.StateVarDecl) : Bool :=
+  let consts :=
+    decls.filter (fun d => d.mutability == Solidity.VarMutability.constant)
+  let names := consts.map Solidity.StateVarDecl.name
+  let adj : List (Name × List Name) :=
+    consts.map (fun d => (d.name, StateVarDecl.constantDeps names d))
+  names.any (fun start => constantReachesSelf adj start)
+
 def StateVarDecl.hasCompileTimeImmutableInit
-    (constantBindings : List (Name × Bool))
+    (_constantBindings : List (Name × Bool))
     (decl : Solidity.StateVarDecl) : Bool :=
   decl.mutability == Solidity.VarMutability.immutable &&
     match decl.init with
-    | some init =>
-        Expr.isCompileTimeConstant
-          ({ constantBindings := constantBindings } : CheckEnv) init
+    | some init => exprIsRationalConstant init
     | none => false
 
 def StateVarDecl.runtimeStateNameWith?
@@ -12218,6 +12351,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     (sourceTypes : TypeContext)
     (contract : Solidity.ContractDecl) : Except TypeError Unit := do
   let stateVars := contract.items.filterMap ContractItem.stateVar?
+  require (!StateVarDecls.constantsHaveCycle (stateVars ++ sourceConstants))
+    (TypeError.invalidVariableDecl "constant has a cyclic dependency")
   let functions := contract.items.filterMap ContractItem.function?
   let modifiers := contract.items.filterMap ContractItem.modifier?
   let events := contract.items.filterMap ContractItem.event?
@@ -13139,6 +13274,8 @@ def SourceUnit.checkWithEvmVersion (evmVersion : EvmVersion)
       ContractDecl.check freeFunctionSigs freeErrorSigs freeEventSigs
           freeConstants sourceUsingDecls sourceTypes contract
       checkContracts rest
+  require (!StateVarDecls.constantsHaveCycle freeConstants)
+    (TypeError.invalidVariableDecl "constant has a cyclic dependency")
   checkFreeStructs freeStructs
   checkFreeEnums freeEnums
   checkFreeUserValueTypes freeUserValueTypes
