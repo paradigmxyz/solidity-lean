@@ -2938,31 +2938,36 @@ FIXED over-accepts (Solidus was accepting programs solc rejects):
 PROBED and SKIPPED (real divergence confirmed, but out-of-scope / unreachable /
 needs machinery with over-reject risk beyond the acceptance predicate):
 
-- **G8 — `revert name(args)` shadowed by a callable.** The doc's own case
-  (`revertStatement/using_function.sol`) is a *free error* `f` shadowed by a
-  *contract function* `f`; solc resolves the innermost declaration and errors 1885.
-  Two contract-level members of the same name can't coexist ("Identifier already
-  declared"), and Solidus already rejects `revert f(...)` when no matching error is
-  in `env.errors`. The genuine over-accept needs error-vs-callable *scope-shadowing
-  precedence* (free error masked by a contract member of equal arity) that Solidus
-  does not model; deferred as obscure with real over-reject risk.
+- **G8 — `revert name(args)` shadowed by a callable. FIXED under R3 (2026-07-08
+  residue cleanup, below).** A free error `E` masked by a contract-level
+  non-error member `E` (function or state var) was an over-accept (Solidus
+  resolved `revert E(...)` to the free error in `env.errors`, ignoring the
+  shadow). Now rejected, matching solc (TypeError 1885).
 
-- **G11 — cross-contract `creationCode`/`runtimeCode` cycle.** solc TypeError 7813
-  (whole-program bytecode-dependency cycle). Confirmed solc rejects `type(C).
-  creationCode` inside `C`, but detection requires a whole-program cycle pass that
-  does not exist here; esoteric and unreachable on a solc-validated corpus.
-  Deferred.
+- **G11 — `creationCode`/`runtimeCode` cycle. RE-EXAMINED under R3 — Solidus is
+  already correct for the SELF cycle, no fix needed.** solc rejects `type(C).
+  creationCode`/`runtimeCode` inside `C` (circular reference). Probed Solidus
+  (hand-built AST): it REJECTS `type(C).creationCode` inside `C` (verdict matches
+  solc — accept/reject aligns; the message differs) while ACCEPTING
+  `type(Other).creationCode`. So there is NO over-accept for the single-contract
+  self cycle. A CROSS-contract cycle (C↔D) needs a whole-program bytecode-
+  dependency pass Solidus does not run, but such a program is solc-rejected and
+  therefore never reaches the solc-AST importer — unreachable in the differential
+  pipeline. Stays as an intentional whole-program OOS.
 
 - **G12 — `_` as an identifier.** solc DeclarationError 3726 ("The name `_` is
   reserved"). Rejected by solc at name resolution *before* AST import, so it is
   unreachable through the solc-AST importer; the divergence can never be observed
   by Solidus in this pipeline. Skipped per the reachability guidance.
 
-- **G16 — `try` on a library external call.** Confirmed solc ACCEPTS `try L.f()`
-  for a `public`/`external` library function (over-reject on the Solidus side).
-  External library calls (delegatecall dispatch to a separately-deployed library)
-  are outside Solidus's open-world execution model, so loosening the try-target
-  check would accept a shape the interpreter cannot execute; left as-is.
+- **G16 — `try` on a library external call. RE-CONFIRMED under R3 — stays as a
+  documented over-reject (execution-model bound).** solc ACCEPTS `try L.g()` for
+  an `external` library function. Solidus over-rejects it. Accepting it at
+  typecheck would admit a shape the interpreter cannot execute (external library
+  calls are DELEGATECALL dispatch to a separately-deployed library, which
+  Solidus's execution model does not implement) — a wrong-value/crash, strictly
+  worse than an over-reject. No corpus program uses it (unreachable on the frozen
+  corpus). Stays until external-library delegatecall execution is modeled.
 
 DEFERRED over-rejects (G13–G15): these are *harmless* completeness over-rejects
 (Solidus rejects programs solc accepts). Unlike G2–G10 (pure acceptance
@@ -3089,12 +3094,12 @@ compare=pass`.
 **Note for the arithmetic-width sibling.** The `widthPanic` observable keeps the
 operand width equal to the assignment target (`uint8 r = (…)+1`), so it fires
 through the existing narrow-cleanup path. A ternary result WIDENED before its
-overflow is observed (`uint16 r = (t?63:255)+1`) does not panic here — that is
-the pre-existing narrow-arithmetic-widened gap (`uint8+uint8` assigned to
-`uint16` yields 256 today), which lives in the binary-operand-width machinery
-the sibling owns, not in ternary typing. `untypedLiteralMobileTy?` and
-`smallest{Uint,Int}Bits?` are new shared `Executable` helpers the sibling may
-also want for literal mobile types.
+overflow is observed (`uint16 r = (t?63:255)+1`) did not panic — that was the
+pre-existing narrow-arithmetic-widened gap (`uint8+uint8` assigned to `uint16`
+yielded 256), in the binary-operand-width machinery. **Now FIXED under the
+residue cleanup (2026-07-08, "narrow-arithmetic-widened gap" entry below).**
+`untypedLiteralMobileTy?` and `smallest{Uint,Int}Bits?` are shared `Executable`
+helpers for literal mobile types.
 
 ## 2026-07-08 — G13: nested tuple LHS `((a, b), c) = …` (over-reject fixed)
 
@@ -3143,8 +3148,9 @@ hole discards x+1). Forge `NestedTupleAssignmentForgeTest` and the Lean
 (foo(), bar())` where `foo` returns a 2-tuple) needs the internal-call
 tuple-hoisting machinery to run inside the nested elaboration; the lane pins the
 expression-RHS forms (literals/params/reads, incl. the swap and hole), which is
-where the destructure/order/hole semantics live. Call-in-nested-position is left
-as a remaining (harmless) over-reject rather than risk a wrong value.
+where the destructure/order/hole semantics live. Call-in-nested-position was
+left as a remaining over-reject here — **now FIXED under R1 (2026-07-08 residue
+cleanup, below).**
 
 ## 2026-07-08 — G14: storage-array copy with wider/shorter source (over-reject narrowed)
 
@@ -3173,16 +3179,12 @@ wider dest): a DYNAMIC unsigned-integer dest with an unsigned-integer source of
 ≤ width (`uintM[] = uintN[]`, `N ≤ M`). No interpreter/elaboration change was
 needed for this subset.
 
-**Deliberately NOT accepted (left as harmless over-rejects, not wrong values).**
-The other solc-accepted shapes mis-compute in the current interpreter, so
-accepting them would be a SOUNDNESS regression (strictly worse than an
-over-reject), and were excluded from `storageArrayCopyAssignable?`:
-  * SIGNED element widening (`int8[] → int16[]`) — the sign-extended element
-    mis-cleans on the narrow-dest storage write → Panic 0x11 (observed);
-  * FIXED-length dest `T[N] = S[M]`, `N > M` — the storage write cannot yet pad
-    the tail from M to N → Panic 0x00 (observed).
-Both need the element-width storage read/write machinery (the sibling's
-BinaryOp/width domain) and a fixed-array pad-on-copy, respectively; deferred.
+**Initially NOT accepted (deferred; now FIXED under R2, 2026-07-08 residue
+cleanup, below).** The other solc-accepted shapes were left out of the first
+`storageArrayCopyAssignable?`:
+  * SIGNED element widening (`int8[] → int16[]`);
+  * FIXED-length dest `T[N] = S[M]`, `N > M`.
+Both are now accepted with Forge-verified values — see the R2 entry.
 
 **Right value (Forge-verified).** Lane `storage-array-copy-convert`:
 `widenU8toU16 = (255, 7, len 2)`, `widenU8toU256 = (1, 2, 3, len 3)`,
@@ -3260,3 +3262,209 @@ Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `forge_interpreter_compare=pass` (no regression — H2 must not start panicking a
 currently-passing case, verified); lane `narrow-udvt-arithmetic` `forge=ok
 lean=ok`. Full replay is the coordinator's merge gate — not run here.
+
+## 2026-07-08 — R1 (residue cleanup): nested tuple LHS with an INTERNAL-CALL RHS (over-reject fixed)
+
+The G13 scope note left one shape as an over-reject: a NESTED tuple assignment
+LHS whose RHS contains internal function calls — `((a, b), c) = (foo(), bar())`
+where `foo` returns a 2-tuple (its result destructures into the nested target),
+and `((a, b), c) = ((g(), h()), k())` with scalar calls in nested RHS positions.
+The maintainer's residue-cleanup pass requires it fixed.
+
+**solc semantics (confirmed with the pin).** Both shapes compile (`solc --bin`).
+solc evaluates the RHS tuple components once, LEFT-to-right, each into its own
+temp (a multi-return call producing the temps for a nested target), then
+destructures against the nested target tree; a hole still evaluates its RHS
+component. Forge ground truth (`NestedTupleInternalCallForgeTest`, storage
+`order` log packed into the return): `flatMulti() == 10203012` (a,b,c = 10,20,30;
+foo before bar → order 12), `nestedCalls() == 102030345` (100,200,300; g,h,k →
+order 345), `nestedHole() == 4099967` (a=400 from `p()`, hole discards `q()` but
+`q()` still runs → order 67, c=999).
+
+**Wrong → right.** The G13 nested elaboration (`tupleAssignmentCore?`) lowered
+the whole RHS with `Expr.toCore?`, which cannot hoist internal calls out of a
+tuple, so any nested-LHS assignment with a call RHS failed to elaborate and was
+OVER-REJECTED (and the typechecker rejected a nested target whose RHS component
+was not itself a tuple literal). No wrong value — rejected up front.
+
+**Fix.**
+- `Interface.lean`: `FunctionDecl.nestedTupleRhsHoistItem?` /
+  `nestedTupleRhsHoistList?` (in the internal-call mutual block) hoist every RHS
+  leaf into a path-unique temp left-to-right (so evaluation order — and thus
+  side-effect order — matches solc's temps-then-stores), returning
+  (prefix statements, the temp-read expression replacing the component). A
+  direct MULTI-return internal call filling a nested target is captured (reusing
+  `internalCallParts?` + `captureReturn`) into per-return outer temps and
+  replaced by an `Expr.tuple` of their reads; a parenthesized sub-tuple recurses;
+  an ordinary leaf (single-return call, pure read) is hoisted like the flat
+  `tupleItemsUseCoreWithInternalCalls?`. The `Stmt.toCoreWithInternalCalls?`
+  tuple-assignment arm now dispatches to this (building nested targets via
+  `TupleItems.toCoreTupleTargets?` and one `Stmt.assignTupleNested`) when the LHS
+  `hasNestedTuple` and the flat `Stmt.toCore?` path rejected it. Helper
+  `FunctionDecl.internalCalleeReturnTys?` sizes the per-return temps.
+- `TypeCheck.lean`: `checkNestedTupleItems` gains a case for a nested LHS target
+  aligned with a NON-tuple-literal RHS component whose TYPE is a tuple (a
+  multi-return call), checked via the new `checkNestedTupleTargetsAgainstTys`
+  (leaf lvalue / writable / state-write / assignability discipline, recursing on
+  nested targets); the tuple-literal RHS subcase (scalar calls in nested
+  position) already type-checked.
+
+**Right value (Forge-verified).** Lane `nested-tuple-internal-call`:
+`flatMulti = 10203012`, `nestedCalls = 102030345`, `nestedHole = 4099967` — Lean
+`checkedOwnCallWordMatches` witnesses reproduce all three exactly, including the
+left-to-right side-effect order. `forge=ok lean=ok compare=pass`.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no regression); new lane `forge=ok lean=ok`.
+
+## 2026-07-08 — R2 (residue cleanup): storage-array copy — signed widening + fixed-length dest (over-reject fixed)
+
+G14 deferred two storage-array-copy shapes as over-rejects. The maintainer's
+residue-cleanup pass requires them fixed. Both now compute Forge-exact values.
+
+**solc semantics (re-confirmed by probing the pin).** `ArrayType::
+isImplicitlyConvertibleTo` (`Types.cpp:1628-1665`): base implicitly convertible;
+a DYNAMIC dest accepts any source length (dynamic OR fixed source); a FIXED dest
+`T[N]` requires a FIXED source `S[M]` with `N ≥ M`. Probed accept/reject matrix
+(pin): dyn←fixed ACCEPT, fixed N<M REJECT, fixed N≥M ACCEPT, signed↔unsigned
+base REJECT, base narrowing REJECT, fixed←dyn REJECT. The runtime resizes/pads
+the dest, sign/zero-extends each element to the dest width (a widening never
+overflows → never Panic 0x11), and zero-fills the tail. Forge ground truth
+(`StorageArrayCopySignedFixedForgeTest`): `int8[]→int16[]` `[-5,127]`;
+`int8[3]→int16[5]` `[-1,100,-128,0,0]`; `uint8[2]→uint16[4]` `[200,255,0,0]`.
+
+**Fix.**
+- `TypeCheck.lean`: `Ty.storageArrayCopyAssignable?` rewritten to solc's rule —
+  dynamic dest ← any source length, fixed dest N≥M — with an INTEGER base
+  restriction (`Ty.integerArrayElemWiden?` = both integers and
+  `canImplicitlyConvert`, which already encodes same-signedness widening, so it
+  forbids signed↔unsigned and narrowing exactly as solc). Restricting to integer
+  bases keeps every accepted shape one whose copied values are Forge-verified.
+  Verified accept/reject matrix (9 cases) matches solc bit-for-bit; the
+  pointer-dest exclusion stays via the existing `stateLValue &&
+  !rebindsStoragePointer` call-site gate.
+- `Interpreter.lean`: (a) `loadStorageField` now materialises a whole
+  fixed-storage-array READ (was `typeMismatch`) via `loadStorageLayoutAt` — the
+  RHS of a fixed-array copy; (b) `Value.padFixedArrayTo` pads a shorter source
+  fixed-array to the dest length with the element default (`defaultLike`),
+  applied at the non-mutual store entry (`storeStorageField`) and in the
+  deep-clear fixed-array arm, so the value handed to the structural-recursive
+  `storeStorageLayoutAt` already has the exact length (padding elements inside
+  the mutual store would break structural recursion — verified). Signed element
+  widening needed NO copy change: the packed storage read (`intCast?` on the
+  masked field) already sign-extends, and the write (`coerceStorageWordAs` at the
+  normalized `int256` ty) packs the low bits correctly.
+- `Interface.lean` (`Expr.toCore?`): a bare negated numeric literal `-5`/`-1e18`
+  now folds to a signed constant (`Expr.intWord (signedToWord (-n))`) instead of
+  the env-less `-(word 5)`, which Panicked 0x11 under a checked unary `-` on an
+  unsigned operand. This surfaced only when POPULATING a signed dynamic array via
+  `signedArray.push(-5)` (index-writes and casts already worked); the fold makes
+  a bare `int_const` correct in every env-less position (the H1 type-directed
+  arithmetic paths are unaffected). A newly-added Witness helper
+  `checkedOwnCallIntQuintMatches` matches the 5-int fixed-dest return.
+
+**Right value (Forge-verified).** Lane `storage-array-copy-signed-fixed`:
+`signedWiden = (-5, 127, len 2)`, `fixedDestSigned = (-1, 100, -128, 0, 0)`,
+`fixedDestUnsigned = (200, 255, 0, 0)`. `forge=ok lean=ok compare=pass`. The
+prior `storage-array-copy-convert` (G14 unsigned/dynamic) lane still passes.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass` (no regression); new lane `forge=ok lean=ok`.
+
+## 2026-07-08 — R3 (residue cleanup): re-examined G8, G11, G12, G16
+
+The acceptance agent probed-and-skipped G8/G11 and flagged G12/G16 as likely
+non-issues. R3 re-examined each by probing pinned solc 0.8.35 and, where the
+solc-AST importer cannot reach the case (solc rejects it, so no AST is emitted),
+by hand-building the AST and calling `SourceUnit.check` directly (the technique
+the G2–G10 acceptance-boundary witnesses use).
+
+**G8 — free error shadowed by a contract member: FIXED (over-accept).** solc
+resolves `revert E(args)` to `E`'s innermost declaration and rejects a revert of
+a non-error: a free `error E` masked by a contract `function E` → TypeError
+"Expression has to be an error."; masked by a contract `uint E` → "This
+expression is not callable." Probed Solidus (hand-built AST): it OVER-ACCEPTED
+both (it resolved `E` against `env.errors`, which merges free + contract errors,
+ignoring that a contract member shadows the free error). Fix (`TypeCheck.lean`):
+a new `CheckEnv.contractNonErrorMemberNames` — the current contract's own +
+inherited NON-error member names (built from `visibleFunctionSigs`, NOT the
+`functions` field that also carries free functions, plus state vars / modifiers
+/ contract events) — and a guard at the top of `checkCustomErrorArgs` rejecting
+`revert E(...)` when `E` is a local variable or a contract-level non-error
+member. A genuine contract `error E` is not in that set (and never coexists with
+a same-name contract member), and free functions are excluded, so the valid
+neighbors still revert: probed `revert E()` for a contract error → accepted, for
+an unshadowed free error → accepted; the two shadow shapes → rejected. Pinned by
+the `acceptance-boundaries` lane (witnesses `g8ErrorShadowRejected` /
+`g8ErrorNeighborsAccepted`; solc-reject fixtures `G8ErrorShadowedByFunction.sol`,
+`G8ErrorShadowedByStateVar.sol`). solc-validated corpus never contains these
+(solc rejects them), so this is a defense-in-depth typechecker tightening; smoke
+28/28 confirms no valid revert regressed.
+
+**G11 — `type(C).creationCode`/`runtimeCode` cycle: already correct, no fix.**
+Probed Solidus (hand-built AST): `type(C).creationCode` inside `C` is REJECTED,
+`type(Other).creationCode` ACCEPTED — the accept/reject verdict matches solc for
+the single-contract self cycle, so there is NO over-accept. A cross-contract
+cycle (C↔D) needs a whole-program bytecode-dependency pass Solidus does not run,
+but such a program is solc-rejected and never reaches the solc-AST importer —
+unreachable in the differential pipeline. Documented as intentional whole-program
+OOS.
+
+**G12 — `_` reserved: confirmed non-issue.** solc rejects `_` as an identifier
+at name resolution, BEFORE emitting an AST, so the divergence is unobservable
+through the solc-AST importer (Solidus only ever receives programs solc already
+accepted). Unreachable in this pipeline.
+
+**G16 — `try` on a library external call: confirmed over-reject, stays.** solc
+ACCEPTS `try L.g()` for an `external` library function; Solidus over-rejects it.
+This is an over-REJECT (completeness), not an over-accept. Accepting it would
+admit a shape the interpreter cannot execute — external library functions are
+DELEGATECALL dispatch to a separately-deployed library, which Solidus's execution
+model does not implement — so acceptance would be a wrong-value/crash, strictly
+worse than an over-reject. No corpus program uses it. Stays until external-library
+delegatecall execution is modeled (recorded here so it is not lost).
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass`; the `acceptance-boundaries` lane (now G2–G10 +
+G8) `solc_rejects=ok lean=ok`.
+
+## 2026-07-08 — Sweep: narrow-arithmetic-widened gap (soundness / missing Panic 0x11 fixed)
+
+Sweeping `DECISIONS.md` for residual gaps beyond R1/R2/R3 (per the residue-cleanup
+brief) surfaced the narrow-arithmetic-widened gap the G15 note recorded and
+deferred to "the binary-operand-width machinery": a narrow integer arithmetic op
+whose result is assigned / returned / passed at a WIDER type was computed at the
+wider width and did not Panic on operand-width overflow. Probe: `uint16 f(uint8
+a, uint8 b) { return a + b; }` with `a=200, b=100` returned 300; pinned solc /
+Forge Panic 0x11.
+
+**solc semantics.** A binary arithmetic op is evaluated at the operands' common
+type regardless of a wider target; overflow at that width Panics 0x11, and the
+(checked) result is only then implicitly widened. So `uint8 + uint8` overflow
+panics even when the target is `uint16`/`uint256`.
+
+**Wrong → right (`Interface.lean`, `Expr.toCoreAsWithEnv?` binary arm).**
+`binaryToCoreWithEnvTyped?` returns the BARE op (its overflow check lives in the
+result cleanup at the operand width `sourceTy`), and `coreAsFromTy?` for a WIDER
+target applied only the TARGET-width cleanup — which can never catch the operand
+overflow (the un-narrowed sum fits the wider type). The binary arm now wraps the
+result in `Ty.implicitCleanupCore sourceTy` (the operand-width Panic 0x11) BEFORE
+`coreAsFromTy?`, but only for overflow-arithmetic ops (`+ - * / % **`);
+comparisons and bitwise ops never overflow their operand width, and a same-width
+target's `coreAsFromTy?` cleanup is then idempotent. An explicitly-256-bit-widened
+`uint16(uint256(a) + uint256(b))` keeps its non-panicking 256-bit semantics (the
+operand casts move the common type to `uint256`).
+
+**Right value (Forge-verified).** Lane `narrow-arith-widened`:
+`addU8toU16(100,55)=155`, `addU8toU16(200,100)` Panic 0x11, `mulU8toU16(20,20)`
+Panic 0x11, `addI8toI16(100,20)=120`, `addI8toI16(100,100)` Panic 0x11,
+`addWidenedOperands(200,100)=300`. `forge=ok lean=ok compare=pass`.
+
+Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
+`forge_interpreter_compare=pass`; additionally spot-ran 14 arithmetic/token/math
+lanes lean-only (checked-arithmetic, openzeppelin-{safecast,signed-math,erc20,
+checkpoints,erc20-snapshot}, solmate-erc20, uniswap-v3-math, packed-ternary-width,
+udvt-operator-dispatch, ternary-literal-mobile-type, signed-literal-arithmetic,
+narrow-udvt-arithmetic, literal-cast-conversions) — all `lean=ok compare=pass`,
+no regression from the added operand-width panics. The full 133-case replay is the
+coordinator's merge gate.

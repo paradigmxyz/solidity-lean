@@ -1099,33 +1099,40 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
             actualMutability expectedMutability
     | _, _ => false
 
--- G14: acceptance of a copy assignment INTO a (non-pointer) storage array with
--- an implicitly-convertible element type and/or a differing length. solc's rule
--- (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
--- `Types.cpp:1640-1648`) is: base implicitly convertible; dynamic dest accepts
--- any length; fixed dest `T[N]` requires fixed source `S[M]` with `N ≥ M`; the
--- copy converts elements and zero-fills the tail.
+-- G14 / R2: acceptance of a copy assignment INTO a (non-pointer) storage array
+-- with an implicitly-convertible element type and/or a differing length. solc's
+-- rule (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
+-- `Types.cpp:1628-1665`) is: base implicitly convertible; a DYNAMIC dest accepts
+-- any source length (dynamic or fixed source); a FIXED dest `T[N]` requires a
+-- FIXED source `S[M]` with `N ≥ M`. The runtime resizes/pads the dest to the
+-- source length, converts each element (sign/zero-extending an integer widening
+-- to the dest width — a widening never overflows, so never Panic 0x11), and
+-- zero-fills / pads the tail (probed against the pin, 2026-07-08):
+--   * dyn dest ← fixed src ACCEPT; fixed dest N<M REJECT; fixed dest N≥M ACCEPT;
+--   * signed↔unsigned base REJECT; base narrowing REJECT; fixed dest ← dyn src
+--     REJECT (all mirrored by the base/length checks below).
 --
--- We only ACCEPT the subset whose copied VALUES the interpreter reproduces
--- EXACTLY (verified against Forge): a DYNAMIC unsigned-integer destination with
--- an unsigned-integer source of ≤ width (`uintM[] = uintN[]`, `N ≤ M`). Here the
--- element magnitude always fits the wider dest, and the dynamic dest's
--- deep-clear write already resizes and zero-fills. The remaining solc-accepted
--- shapes are deliberately left as harmless over-rejects rather than accepted
--- with a wrong value (see the 2026-07-08 G14 DECISIONS entry):
---   * SIGNED element widening (`int8[] → int16[]`) — the sign-extended element
---     currently mis-cleans on the narrow-dest write (Panic 0x11);
---   * FIXED-length dest `T[N] = S[M]` (N > M) — the write cannot yet pad the
---     tail to N (Panic 0x00).
--- The strict same-base rule still governs pointer/memory targets and every
--- non-storage context, so this is only consulted for a storage-variable dest.
+-- The base must be an INTEGER type (uint/int) that `canImplicitlyConvert` maps
+-- (same-signedness widening — this already forbids signed↔unsigned and
+-- narrowing, exactly as solc). Restricting to integer bases keeps every accepted
+-- shape one whose copied VALUES the interpreter reproduces bit-for-bit against
+-- Forge (see the R2 DECISIONS entry). The strict same-base rule still governs
+-- pointer/memory targets and every non-storage context, so this is only
+-- consulted for a genuine storage-variable dest.
+def Ty.integerArrayElemWiden? (srcElem destElem : Ty) : Bool :=
+  srcElem.isInteger && destElem.isInteger &&
+    Ty.canImplicitlyConvert srcElem destElem
+
 def Ty.storageArrayCopyAssignable? (destTy srcTy : Ty) : Bool :=
   match destTy, srcTy with
-  | Solidity.Ty.array (Solidity.Ty.uint destBits) none,
-    Solidity.Ty.array (Solidity.Ty.uint srcBits) _ =>
-      let destBits := if destBits == 0 then 256 else destBits
-      let srcBits := if srcBits == 0 then 256 else srcBits
-      srcBits <= destBits
+  -- Dynamic dest: any source length (dynamic OR fixed source).
+  | Solidity.Ty.array destElem none,
+    Solidity.Ty.array srcElem _ =>
+      Ty.integerArrayElemWiden? srcElem destElem
+  -- Fixed dest `T[N]`: fixed source `S[M]` with N ≥ M.
+  | Solidity.Ty.array destElem (some n),
+    Solidity.Ty.array srcElem (some m) =>
+      m <= n && Ty.integerArrayElemWiden? srcElem destElem
   | _, _ => false
 
 def Ty.fixedBytesSize? : Ty -> Option Nat
@@ -1565,6 +1572,14 @@ structure CheckEnv where
   usingDecls : List Solidity.UsingDecl := []
   errors : List ErrorSig := []
   events : List EventSig := []
+  -- G8: names of the current contract's (own + inherited) NON-error members —
+  -- functions, state vars, modifiers, events. A `revert E(...)` whose `E` names
+  -- one of these resolves to a non-error declaration that shadows any free
+  -- error `E`, which solc rejects (TypeError 1885 "has to be an error" /
+  -- "not callable"). Excludes free functions/events (those do NOT shadow a
+  -- contract-level error), so a contract error `E` alongside a free function
+  -- `E` still reverts correctly.
+  contractNonErrorMemberNames : List Name := []
   contractKind : Option Solidity.ContractKind := none
   currentContractAbstract : Bool := false
   currentContract : Option Path := none
@@ -7728,12 +7743,59 @@ decreasing_by
     try simp_all [sizeOf]
     try omega
 
+-- R1 (residue-cleanup): type-check a nested tuple-assignment LHS against the
+-- ELEMENT TYPES of a value whose type is a tuple (e.g. a multi-return internal
+-- call filling a nested target: `((a, b), c) = (foo(), bar())`, `foo` returning
+-- `(uint, uint)`). Each leaf target reproduces the flat leaf discipline
+-- (lvalue / writable / state-write / assignability); a nested target recurses
+-- into the matching tuple element type; a hole skips.
+def checkNestedTupleTargetsAgainstTys (env : CheckEnv) :
+    List Solidity.TupleItem -> List Ty -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | Solidity.TupleItem.hole :: lhsRest, _ :: tyRest =>
+      checkNestedTupleTargetsAgainstTys env lhsRest tyRest
+  | Solidity.TupleItem.value (Solidity.Expr.tuple lhsInner) :: lhsRest,
+      ty :: tyRest => do
+      (match ty with
+       | Ty.tuple innerTys =>
+           checkNestedTupleTargetsAgainstTys env lhsInner innerTys
+       | _ =>
+           Except.error
+             (TypeError.unsupported
+               "nested tuple assignment target needs a tuple-typed value"))
+      checkNestedTupleTargetsAgainstTys env lhsRest tyRest
+  | Solidity.TupleItem.value target :: lhsRest, ty :: tyRest => do
+      let targetChecked ← checkExpr env target
+      require targetChecked.lvalue (TypeError.expectedLValue target)
+      targetChecked.expectWritableLocation target
+      if targetChecked.stateLValue then
+        requireStateWriteAllowed env
+      else
+        Except.ok ()
+      let _ ←
+        checkTupleAssignmentTargetAgainstTy env false none
+          target targetChecked ty
+      checkNestedTupleTargetsAgainstTys env lhsRest tyRest
+  | lhsItems, tys =>
+      Except.error
+        (TypeError.arityMismatch
+          "nested tuple assignment" lhsItems.length tys.length)
+termination_by lhsItems _ => sizeOf lhsItems
+decreasing_by
+  all_goals
+    simp_wf
+    try simp_all [sizeOf]
+    try omega
+
 -- Type-check a (possibly nested) tuple-assignment LHS against a nested tuple
 -- RHS, in lockstep left-to-right (G13). A parenthesized sub-tuple target
 -- recurses into the matching sub-tuple value; a leaf target reproduces the flat
 -- path's lvalue / writable-location / state-write / assignability /
 -- mapping-copy / calldata-location discipline inline (on syntactic subterms, so
 -- termination stays structural); a hole still type-checks its RHS component.
+-- R1: a nested target whose RHS component is NOT a tuple literal but has a
+-- tuple TYPE (a multi-return internal call) is checked via
+-- `checkNestedTupleTargetsAgainstTys`.
 def checkNestedTupleItems (env : CheckEnv) :
     List Solidity.TupleItem -> Solidity.Expr -> Except TypeError Unit
   | [], Solidity.Expr.tuple [] => Except.ok ()
@@ -7742,6 +7804,21 @@ def checkNestedTupleItems (env : CheckEnv) :
         (Solidity.TupleItem.value (Solidity.Expr.tuple rhsInner) :: rhsRest) =>
       do
       checkNestedTupleItems env lhsInner (Solidity.Expr.tuple rhsInner)
+      checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
+  | Solidity.TupleItem.value (Solidity.Expr.tuple lhsInner) :: lhsRest,
+      Solidity.Expr.tuple (Solidity.TupleItem.value rhsExpr :: rhsRest) => do
+      -- R1: nested LHS target aligned with a NON-tuple-literal RHS component
+      -- whose type is a tuple (a multi-return internal call). The tuple-literal
+      -- RHS subcase was already handled by the earlier pattern; this evaluates
+      -- the component's type and destructures the nested target against it.
+      let checked ← checkExpr env rhsExpr
+      (match checked.ty with
+       | Ty.tuple innerTys =>
+           checkNestedTupleTargetsAgainstTys env lhsInner innerTys
+       | _ =>
+           Except.error
+             (TypeError.unsupported
+               "nested tuple assignment target needs a tuple-typed value"))
       checkNestedTupleItems env lhsRest (Solidity.Expr.tuple rhsRest)
   | Solidity.TupleItem.value (Solidity.Expr.tuple _) :: _, _ =>
       Except.error
@@ -7960,6 +8037,17 @@ def checkEventArgs (env : CheckEnv)
 def checkCustomErrorArgs (env : CheckEnv)
     (name : Name) (args : List Solidity.Arg) :
     Except TypeError Unit := do
+  -- G8: `revert E(...)` where `E`'s innermost declaration is NOT an error —
+  -- a local variable, or a contract-level non-error member (function / state
+  -- var / modifier / event) shadowing a free error — is rejected by solc
+  -- (TypeError 1885). A contract-level error `E` never has a same-name
+  -- contract member, and free functions are excluded from
+  -- `contractNonErrorMemberNames`, so a valid error revert still proceeds.
+  if env.isLocalName name ||
+      Solidity.Executable.nameIn name env.contractNonErrorMemberNames then
+    Except.error
+      (TypeError.unsupported ("revert target is not an error: " ++ name))
+  else
   match checkArgs env args with
   | Except.ok checkedArgs =>
       let argInfos := checkedArgInfosFull args checkedArgs
@@ -12259,7 +12347,16 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       modifiers := ModifierDecls.signatures allModifierDecls
       modifierDecls := allModifierDecls
       errors := errorSigs ++ inheritedErrorSigs ++ visibleSourceErrors
-      events := eventSigs ++ inheritedEventSigs ++ visibleSourceEvents }
+      events := eventSigs ++ inheritedEventSigs ++ visibleSourceEvents
+      -- G8: contract-level (own + inherited) NON-error member names. Uses the
+      -- CONTRACT function sigs (`visibleFunctionSigs`), NOT the merged
+      -- `functions` (which also carries free functions), so a free function
+      -- does not spuriously shadow a contract error.
+      contractNonErrorMemberNames :=
+        visibleFunctionSigs.map (·.name) ++
+          visibleStateVars.map Solidity.StateVarDecl.name ++
+          (ModifierDecls.signatures allModifierDecls).map (·.name) ++
+          (eventSigs ++ inheritedEventSigs).map (·.name) }
   ContractDecl.checkBaseConstructorArgsForDeployment storageOrder contract
     storageOrder
   EventSigs.ensureNoDuplicateAbiSignaturesAgainst contractTypes
