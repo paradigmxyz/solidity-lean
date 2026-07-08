@@ -5906,6 +5906,109 @@
           }
         ]
       }
+    },
+    {
+      "name": "acceptance-boundaries",
+      "description": "Acceptance boundaries G2-G10 (2026-07-08). Pinned solc 0.8.35 and this typechecker both REJECT: (G2) msg.value in a non-payable public/external function (TypeError 5887; internal/library/payable exempt), (G3) ==/!= on a reference type bytes/string/array/mapping/struct/UDVT (TypeError 2271), (G4) a compile-time out-of-bounds constant index on a bytesN or fixed-size array (TypeError 1859/3383), (G5) a bare return; with a non-empty (even named) return list (TypeError 6777), (G6) super.f() resolving to an abstract/unimplemented base function (TypeError 9582), (G7) a qualified emit X.g() whose member callee is not an event (TypeError 9292), (G9) an inline array literal of a mapping element type (invalid memory type), and (G10) msg.data inside a receive function (TypeError 7139). Both still ACCEPT the neighbors: msg.value in a payable/internal function; == on address/uint; an in-bounds or dynamic index; a value-carrying/implicit return; super.f() to an implemented base; simple and member-form emits of a real event; an inline array of a value type; and msg.data in an ordinary/fallback function.",
+      "solc_rejects": [
+        "tests/forge-harness/acceptance-boundaries/invalid/G2MsgValueInView.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G3EqualityOnBytes.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G4BytesOutOfBounds.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G4ArrayOutOfBounds.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G5BareReturnNamed.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G6SuperToAbstract.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G7EmitNonEventMember.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G9InlineArrayMapping.sol",
+        "tests/forge-harness/acceptance-boundaries/invalid/G10MsgDataInReceive.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.TypeCheck",
+          "SolidCore.Witness.AcceptanceBoundaries"
+        ],
+        "evals": [
+          {
+            "label": "g2MsgValueInViewRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g2MsgValueInViewRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g2MsgValueNeighborsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g2MsgValueNeighborsAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g3EqOnBytesRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g3EqOnBytesRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g3EqNeighborsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g3EqNeighborsAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g4ConstOobRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g4ConstOobRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g4InBoundsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g4InBoundsAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g5BareReturnNamedRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g5BareReturnNamedRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g5ReturnNeighborsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g5ReturnNeighborsAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g6SuperToAbstractRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g6SuperToAbstractRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g6SuperToConcreteAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g6SuperToConcreteAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g7EmitNonEventMemberRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g7EmitNonEventMemberRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g7EmitEventNeighborsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g7EmitEventNeighborsAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g9InlineArrayMappingRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g9InlineArrayMappingRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g9InlineArrayValueAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g9InlineArrayValueAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g10MsgDataInReceiveRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g10MsgDataInReceiveRejected",
+            "expect": "true"
+          },
+          {
+            "label": "g10MsgDataInFallbackAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g10MsgDataInFallbackAccepted",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

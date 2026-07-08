@@ -1491,6 +1491,10 @@ structure FunctionSig where
   mutability : Solidity.StateMutability :=
     Solidity.StateMutability.nonpayable
   origin : Option Path := none
+  -- Whether the declaration has an implementation body. Used to keep abstract
+  -- (unimplemented) base functions out of `super.f()` resolution (G6). Defaults
+  -- to `true` so signatures built for already-concrete callables are unaffected.
+  hasBody : Bool := true
   deriving Repr
 
 structure ModifierSig where
@@ -1537,6 +1541,7 @@ structure CheckEnv where
   currentContract : Option Path := none
   ancestorPaths : List Path := []
   currentMutability : Option Solidity.StateMutability := none
+  currentVisibility : Option Solidity.Visibility := none
   returnTys : List Ty := []
   returnNames : List (Option Name) := []
   returnStorageRefs : List Bool := []
@@ -1546,6 +1551,7 @@ structure CheckEnv where
   inModifier : Bool := false
   inUnchecked : Bool := false
   inConstructor : Bool := false
+  inReceive : Bool := false
   deriving Repr
 
 def CheckEnv.lookupVar? (env : CheckEnv) (name : Name) : Option Ty :=
@@ -1913,7 +1919,8 @@ def FunctionDecl.signature? (fn : Solidity.FunctionDecl) :
           returnStorageRefs := Parameters.storageLocationFlags fn.returns
           returnDataLocations := Parameters.dataLocations fn.returns
           visibility := fn.visibility
-          mutability := fn.mutability }
+          mutability := fn.mutability
+          hasBody := fn.body.isSome }
   | _, _ => none
 
 def FunctionDecls.signatures : List Solidity.FunctionDecl ->
@@ -3343,6 +3350,27 @@ def CheckedExprs.relationalTy (left right : CheckedExpr) :
     Except TypeError Ty :=
   CheckedExprs.commonCheckedTyFor "relational expression"
     Ty.isRelationalOperand TypeError.expectedNumeric left right
+
+-- G3: `==`/`!=` are builtin-defined only on value types, contracts, enums,
+-- addresses and function pointers (solc TypeError 2271 otherwise; the reference
+-- types bytes/string/array/mapping/struct and UDVTs have no builtin equality —
+-- `Types.cpp` `binaryOperatorResult(Equal, …)` returns null for them).
+def Ty.isEqualityComparable (types : TypeContext) : Solidity.Ty -> Bool
+  | Solidity.Ty.bool => true
+  | Solidity.Ty.address _ => true
+  | Solidity.Ty.uint _ => true
+  | Solidity.Ty.int _ => true
+  | Solidity.Ty.fixed _ _ => true
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.bytesN _ => true
+  | Solidity.Ty.fixedBytes _ => true
+  | Solidity.Ty.enum _ => true
+  | Solidity.Ty.functionWithLocations _ _ _ _ _ _ => true
+  -- A `user` path is a contract, an enum, or a UDVT. Contracts (address-like)
+  -- and enums have builtin equality; UDVTs do not (need a user-defined operator).
+  | Solidity.Ty.user path =>
+      TypeContext.isContractPath types path || TypeContext.isEnumPath types path
+  | _ => false
 
 def CheckedExpr.expectUnsignedInteger (expr : CheckedExpr) :
     Except TypeError Unit :=
@@ -5221,9 +5249,32 @@ def checkExpr (env : CheckEnv) :
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident "msg") member) => do
       if member == "data" || member == "sig" then
-        Except.ok ()
+        -- G10: `msg.data` is forbidden inside a `receive` function (solc
+        -- TypeError 7139); receive has empty calldata.
+        require (!(member == "data" && env.inReceive))
+          (TypeError.unsupported "msg.data in receive function")
       else
         requireStateReadAllowed env
+      -- G2: `msg.value` sets payable mutability (ViewPureChecker.cpp:404-414). It
+      -- may only appear in a payable function; solc errors 5887 otherwise, but
+      -- exempts internal/private functions and library functions (they cannot be
+      -- payable) — `reportMutability` only fires for `isConstructor() || isPublic()`
+      -- and `!libraryFunction()` (ViewPureChecker.cpp:270-294).
+      if member == "value" then
+        let visiblePublic :=
+          match env.currentVisibility with
+          | some Solidity.Visibility.public_ => true
+          | some Solidity.Visibility.external_ => true
+          | _ => false
+        if (visiblePublic || env.inConstructor) && !env.inLibrary then
+          require
+            (env.currentMutability == some Solidity.StateMutability.payable)
+            (TypeError.mutabilityViolation
+              "msg.value in a non-payable function")
+        else
+          Except.ok ()
+      else
+        Except.ok ()
       match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
       | some ty =>
           Except.ok
@@ -5475,13 +5526,26 @@ def checkExpr (env : CheckEnv) :
               lvalue := baseChecked.lvalue || baseChecked.stateLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
-      | Solidity.Ty.bytesN _ =>
+      | Solidity.Ty.bytesN size =>
           indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
+          -- G4: compile-time out-of-bounds index on `bytesN` (solc TypeError 1859).
+          (match Solidity.Executable.Expr.numberLiteralNat? index with
+            | some i =>
+                require (i < size)
+                  (TypeError.unsupported "constant index out of bounds")
+            | none => Except.ok ())
           Except.ok
             { source := expr, ty := Solidity.Ty.bytesN 1,
               lvalue := false }
-      | Solidity.Ty.array element _ =>
+      | Solidity.Ty.array element len? =>
           indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
+          -- G4: compile-time out-of-bounds index on a fixed-size array
+          -- (solc TypeError 3383). Dynamic arrays (`len? = none`) are unchecked.
+          (match len?, Solidity.Executable.Expr.numberLiteralNat? index with
+            | some len, some i =>
+                require (i < len)
+                  (TypeError.unsupported "constant index out of bounds")
+            | _, _ => Except.ok ())
           Except.ok
             { source := expr
               ty := env.qualifyCurrentLocalUserTypes element
@@ -6816,6 +6880,14 @@ def checkExpr (env : CheckEnv) :
         | none =>
             Except.error
               (TypeError.unsupported "array literal common type")
+      -- G9: an inline array literal yields a memory array; a mapping element
+      -- type is only valid in storage, so solc rejects `[m]` (TypeError, "Type
+      -- mapping … is only valid in storage").
+      require
+        (match elementTy with
+          | Solidity.Ty.mapping _ _ => false
+          | _ => true)
+        (TypeError.unsupported "inline array of mapping type")
       checkCheckedExprsAssignableToFor env.types "array literal" checkedElements
         (List.replicate checkedElements.length elementTy)
       Except.ok
@@ -6925,6 +6997,11 @@ def checkExpr (env : CheckEnv) :
                 lhsChecked.ty rhsChecked.ty ||
               implicitLiteralFits rhsChecked.ty lhsChecked.source))
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
+          -- G3: reject `==`/`!=` on reference types (no builtin equality).
+          require
+            (Ty.isEqualityComparable env.types lhsChecked.ty &&
+              Ty.isEqualityComparable env.types rhsChecked.ty)
+            (TypeError.unsupported "equality on non-value type")
           Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.add
       | Solidity.BinaryOp.sub
@@ -8118,9 +8195,10 @@ def checkReturnExprs (env : CheckEnv)
   match expr?, env.returnTys with
   | none, [] => Except.ok ()
   | none, expected =>
-      require (returnNamesAllNamed env.returnNames &&
-          env.returnNames.length == expected.length)
-        (TypeError.returnArityMismatch expected.length 0)
+      -- G5: a bare `return;` is rejected whenever the function has a non-empty
+      -- return-parameter list, even when every return is named (solc TypeError
+      -- 6777 "Return arguments required.", TypeChecker.cpp:1138).
+      Except.error (TypeError.returnArityMismatch expected.length 0)
   | some expr, [] =>
       match expr with
       | Solidity.Expr.call
@@ -8303,9 +8381,15 @@ def checkEventEmission (env : CheckEnv)
   match expr with
   | Solidity.Expr.call (Solidity.Expr.ident name) args => do
       checkEventArgs env name args
-  | other => do
-      let _ ← checkExpr env other
-      Except.ok ()
+  -- G7: a qualified `emit A.E(...)` must still resolve its member to an event;
+  -- solc rejects a non-event member callee with TypeError 9292 ("Expression has
+  -- to be an event invocation"). Resolve the member name against in-scope events
+  -- (inherited events are flattened into `env.events`).
+  | Solidity.Expr.call (Solidity.Expr.member _ name) args => do
+      checkEventArgs env name args
+  | other =>
+      Except.error
+        (TypeError.unsupported "emit target is not an event invocation")
 
 def checkRevertCall (env : CheckEnv)
     (expr : Solidity.Expr) : Except TypeError Unit :=
@@ -11163,12 +11247,14 @@ def FunctionDecl.check (baseEnv : CheckEnv)
           baseEnv.localStorageRefs
       localDataLocations := dataLocations ++ baseEnv.localDataLocations
       currentMutability := some fn.mutability
+      currentVisibility := fn.visibility
       returnTys :=
         (Parameters.tys fn.returns).map baseEnv.qualifyCurrentLocalUserTypes
       returnNames := fn.returns.map Solidity.Parameter.name
       returnStorageRefs := Parameters.storageLocationFlags fn.returns
       returnDataLocations := Parameters.dataLocations fn.returns
-      inConstructor := fn.kind == Solidity.FunctionKind.constructor }
+      inConstructor := fn.kind == Solidity.FunctionKind.constructor
+      inReceive := fn.kind == Solidity.FunctionKind.receive }
   ModifierInvocations.check env
     (fn.kind == Solidity.FunctionKind.constructor)
     fn.modifiers
@@ -12043,7 +12129,11 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       constantBindings := visibleConstantBindings
       immutableNames := StateVarDecls.immutableNames visibleStateVars
       functions := visibleFunctionSigs ++ sourceFunctions
-      superFunctions := inheritedFunctionSigs
+      -- G6: `super.f()` must resolve to an *implemented* base function; an
+      -- abstract (bodyless) base declaration is not a valid super target
+      -- (solc TypeError 9582). Regular dispatch (`functions`) keeps the
+      -- abstract sigs; only the super chain filters them out.
+      superFunctions := inheritedFunctionSigs.filter FunctionSig.hasBody
       modifiers := ModifierDecls.signatures allModifierDecls
       modifierDecls := allModifierDecls
       errors := errorSigs ++ inheritedErrorSigs ++ visibleSourceErrors
