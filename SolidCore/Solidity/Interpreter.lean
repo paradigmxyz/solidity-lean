@@ -684,7 +684,13 @@ def sliceListByWords? {α : Type} (values : List α)
   if start <= stop && stop <= values.length then
     Except.ok ((values.drop start).take (stop - start))
   else
-    Except.error RevertData.indexOutOfBounds
+    -- A calldata slice `a[i:j]` with `i > j` or `j > a.length` reverts with
+    -- EMPTY data in solc's default (non-debug) mode: the slice bounds check
+    -- (`YulUtilFunctions.cpp:2523-2539`) routes to `revertReasonIfDebugBody`
+    -- (:4598-4605), which under `RevertStrings::Default` emits `revert(0, 0)`.
+    -- This is distinct from an array/bytes INDEX access `a[i]` OOB, which panics
+    -- 0x32 — that path (`Value.index?`/`setIndex?`) keeps `indexOutOfBounds`.
+    Except.error RevertData.empty
 
 def Value.slice? (container : Value) (start? stop? : Option Word) :
     Except RevertData Value :=

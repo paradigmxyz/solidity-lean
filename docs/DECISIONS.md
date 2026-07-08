@@ -5,6 +5,44 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — V1 Fixed: calldata-slice OOB reverts with EMPTY data (not Panic 0x32)
+
+`docs/solc-implementation-divergences-6.md` V1 (CONFIRMED, SOUNDNESS wrong-value,
+the campaign's first wrong-VALUE bug): a calldata slice `a[i:j]` with `i > j` or
+`j > a.length` must revert with **empty data** (`revert(0, 0)`) in solc's default
+(non-debug) mode; Solidus instead reverted with **Panic(0x32)** (36-byte
+returndata), reusing the array-INDEX-access OOB constant for the slice-RANGE check.
+
+**solc rule** (`libsolidity/codegen/YulUtilFunctions.cpp:2523-2539`, the slice
+bounds check `if gt(startIndex, endIndex) …` / `if gt(endIndex, length) …`): both
+route to `revertReasonIfDebugFunction`, whose body (`:4598-4605`) under
+`RevertStrings::Default` (< Debug) emits literally `revert(0, 0)` — empty
+returndata, no `Panic`. `Panic(0x32)` is emitted only for a regular array/bytes
+**index** access `a[k]` OOB (a different Yul helper), never for a slice range.
+
+**Fix** (one edit, `SolidCore/Solidity/Interpreter.lean`, `sliceListByWords?`): the
+out-of-range arm now returns `Except.error RevertData.empty` (the existing empty
+`revert(0, 0)` constructor, encoded to 0 bytes by `Contract.encodeRevertData?`
+in `ABI.lean:485`) instead of `RevertData.indexOutOfBounds` (= `panic 0x32`). The
+in-bounds value path `(drop start).take (stop - start)` and the array/bytes INDEX
+access path (`Value.index?`/`setIndex?`, still `RevertData.indexOutOfBounds`) are
+untouched.
+
+**Boundary verified** (pinned solc 0.8.35 + Forge): lane `calldata-slice-oob`
+low-level `.call`s `slice(bytes,uint256,uint256)` with `(1,100)` and `(3,1)` →
+`success == false` AND `returndata.length == 0` (empty revert); an in-bounds
+`slice(input,1,4)` returns the correct sub-array; and `indexAt(bytes,uint256)`
+with an OOB index → `returndata.length == 36` equal to
+`abi.encodeWithSignature("Panic(uint256)", 0x32)` (Panic 0x32 unchanged). Lean
+imports the same contract: OOB slice → `CallResult.reverted _ RevertData.empty`,
+in-bounds → `Value.bytes [20,30,40]`, OOB index → `RevertData.panic 0x32`.
+
+**Lane**: new manifest case `calldata-slice-oob` (forge-paired: empty-revert
+observable + in-bounds value + index-OOB Panic(0x32) neighbor) + solc_import +
+Lean evals. Harness: `forge=ok lean=ok forge_interpreter_compare=pass`. No
+regression: smoke green, `entrypoint-slice-control` (in-bounds slices) and
+`memory-allocation-overflow` (Panic 0x41) `lean=ok`.
+
 ## 2026-07-08 — PK1 fixed: abi.encodePacked of a nested static array
 
 `docs/solc-implementation-divergences-3.md` PK1 (CONFIRMED, live differential

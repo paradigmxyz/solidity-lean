@@ -6825,6 +6825,54 @@
      }
     ]
    }
+  },
+  {
+   "name": "calldata-slice-oob",
+   "description": "Forge checks that an out-of-range calldata slice a[i:j] (i>j or j>a.length) reverts with EMPTY returndata (revert(0,0)) via a low-level call, that an in-bounds slice returns the correct sub-array, and that a regular calldata byte INDEX access a[k] out of range still reverts with the 36-byte Panic(0x32); Lean imports the same contract and checks the interpreter reverts empty on the OOB slice, returns the value in-bounds, and panics 0x32 on the OOB index. Pins V1 (round-6): the slice-range OOB revert data.",
+   "forge": {
+    "root": "tests/forge-harness/calldata-slice-oob",
+    "match_contract": "CalldataSliceOobForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/calldata-slice-oob/src/CalldataSliceOob.sol",
+    "contract": "CalldataSliceOobHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.CalldataSliceOob"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.CalldataSliceOob.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "sliceEndBeyondLengthEmptyRevert",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.CalldataSliceOob.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"slice\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [10, 20, 30], SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 100]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "sliceStartAfterEndEmptyRevert",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.CalldataSliceOob.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"slice\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [10, 20, 30], SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 1]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "inBoundsSliceValue",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.CalldataSliceOob.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"slice\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [10, 20, 30, 40, 50], SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 4]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes bytes] => Except.ok (bytes == [20, 30, 40])\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "indexOobPanic32",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.CalldataSliceOob.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"indexAt\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [10, 20, 30], SolidCore.Solidity.Source.Value.word 10]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => Except.ok (SolidCore.Solidity.Source.wordEq code 0x32)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
