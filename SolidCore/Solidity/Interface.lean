@@ -18296,23 +18296,6 @@ def ContractDecl.baseDecls? (contracts : List ContractDecl)
       ContractDecl.findByName? contracts name)
     decl.bases
 
-def ContractDecl.storageOrderWithFuel?
-    (fuel : Nat) (contracts : List ContractDecl) (decl : ContractDecl) :
-    Option (List ContractDecl) :=
-  match fuel with
-  | 0 => none
-  | fuel + 1 => do
-      let bases ← ContractDecl.baseDecls? contracts decl
-      let baseOrders ←
-        mapOption
-          (fun base => ContractDecl.storageOrderWithFuel? fuel contracts base)
-          bases
-      some (appendUniqueContracts [] (concatLists baseOrders ++ [decl]))
-
-def ContractDecl.storageOrder? (contracts : List ContractDecl)
-    (decl : ContractDecl) : Option (List ContractDecl) :=
-  ContractDecl.storageOrderWithFuel? (contracts.length + 1) contracts decl
-
 def ContractDecls.nonempty : List (List ContractDecl) ->
     List (List ContractDecl)
   | [] => []
@@ -18395,6 +18378,21 @@ def ContractDecl.dispatchOrderWithFuel?
 def ContractDecl.dispatchOrder? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
   ContractDecl.dispatchOrderWithFuel? (contracts.length + 1) contracts decl
+
+/-- Storage / constructor / initializer order.
+
+    solc lays out contract storage and runs base constructors + inline
+    state-variable initializers in `reverse(linearizedBaseContracts)` order,
+    i.e. reverse C3 = most-base-first (Types.cpp:2168-2172; C3 in
+    NameAndTypeResolver.cpp:422-497 for solc v0.8.35).  `dispatchOrder?` is
+    already the correct C3 linearization (most-derived-first), so storage
+    order is simply its reverse.  Previously this used a separate naive
+    left-to-right DFS post-order dedup traversal, which diverged from solc
+    whenever a contract lists a direct base that is also an indirect base
+    (DL1: e.g. `Z is Y, M` where `M is X, Y` swapped `x`/`y`). -/
+def ContractDecl.storageOrder? (contracts : List ContractDecl)
+    (decl : ContractDecl) : Option (List ContractDecl) :=
+  (ContractDecl.dispatchOrder? contracts decl).map List.reverse
 
 def FunctionDecl.names (functions : List FunctionDecl) : List Name :=
   functions.filterMap (fun function => function.name)
