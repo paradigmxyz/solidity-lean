@@ -47,6 +47,8 @@ class Measurement:
     self_addr: int           # deployed entry-contract address (mirror -> Solidus)
     origin: int
     raw: str                 # the raw dumped line, for evidence
+    events: str = ""         # rendered events section (§3.4 component 4)
+    storage: str = ""        # rendered observed-storage section (component 5)
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +125,9 @@ def build_calldata(selector: str, args: list) -> str:
 # Harness generation + run.
 # ---------------------------------------------------------------------------
 
-_VM_IFACE = """interface CVm {
+_VM_IFACE = """struct VmLog { bytes32[] topics; bytes data; address emitter; }
+
+interface CVm {
     function roll(uint256) external;
     function warp(uint256) external;
     function chainId(uint256) external;
@@ -134,14 +138,19 @@ _VM_IFACE = """interface CVm {
     function prank(address) external;
     function startPrank(address) external;
     function stopPrank() external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (VmLog[] memory);
+    function load(address,bytes32) external view returns (bytes32);
     function writeFile(string calldata, string calldata) external;
     function toString(bytes calldata) external pure returns (string memory);
+    function toString(uint256) external pure returns (string memory);
     function toString(address) external pure returns (string memory);
 }"""
 
 
 def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
-                    ov: cenv.EnvOverrides, rel_import: str) -> str:
+                    ov: cenv.EnvOverrides, rel_import: str,
+                    slots: Optional[list[int]] = None) -> str:
     pin = [
         f"vm.roll({ov.number});",
         f"vm.warp({ov.timestamp});",
@@ -156,6 +165,16 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
         pin.append(f"vm.deal(address(this), {ov.value});")
     pin_block = "\n        ".join(pin)
     value_opt = f"{{value: {ov.value}}}" if ov.value else ""
+    # Observed storage slots (§3.4 component 5): read each declared slot with
+    # vm.load and render `slot:value` decimal, matching the Solidus renderer.
+    slots = slots or []
+    sto_parts = []
+    for i, s in enumerate(slots):
+        sep = ";" if i > 0 else ""
+        sto_parts.append(
+            f'sto = abi.encodePacked(sto, "{sep}", vm.toString(uint256({int(s)})), '
+            f'":", vm.toString(uint256(vm.load(address(target), bytes32(uint256({int(s)}))))));')
+    sto_block = "\n            ".join(sto_parts) if sto_parts else ""
     return f"""// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.35;
 
@@ -169,12 +188,30 @@ contract ContestMeasure {{
     function test_ContestMeasure() public {{
         {pin_block}
         {sig.contract} target = new {sig.contract}();
+        vm.recordLogs();
         vm.prank(address(uint160({ov.sender})));
         (bool ok, bytes memory ret) = address(target).call{value_opt}(hex"{calldata_hex}");
+        // Events (§3.4 component 4): rolled back on revert, so only on success.
+        bytes memory evt = "";
+        bytes memory sto = "";
+        if (ok) {{
+            VmLog[] memory logs = vm.getRecordedLogs();
+            for (uint i = 0; i < logs.length; i++) {{
+                bytes memory t = "t=[";
+                for (uint j = 0; j < logs[i].topics.length; j++) {{
+                    t = abi.encodePacked(t, j > 0 ? "," : "",
+                        vm.toString(uint256(logs[i].topics[j])));
+                }}
+                t = abi.encodePacked(t, "];d=", vm.toString(logs[i].data));
+                evt = abi.encodePacked(evt, i > 0 ? "~" : "", t);
+            }}
+            {sto_block}
+        }}
         string memory out = string(abi.encodePacked(
             ok ? "ok" : "revert", "|", vm.toString(ret),
             "|self=", vm.toString(address(target)),
-            "|origin=", vm.toString(tx.origin)));
+            "|origin=", vm.toString(tx.origin),
+            "|evt=", string(evt), "|sto=", string(sto)));
         vm.writeFile("{out_path}", out);
     }}
 }}
@@ -183,7 +220,8 @@ contract ContestMeasure {{
 
 def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
                 work_dir: Path, forge: str, solc: str,
-                repo: Path, timeout: int = 300) -> tuple[Optional[Measurement], str]:
+                repo: Path, timeout: int = 300,
+                slots: Optional[list[int]] = None) -> tuple[Optional[Measurement], str]:
     """Generate + run the measurement harness; parse the raw entry-call result."""
     work_dir.mkdir(parents=True, exist_ok=True)
     proj = work_dir / "measure_proj"
@@ -192,19 +230,25 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
     (proj / "src").mkdir(parents=True)
     (proj / "test").mkdir(parents=True)
 
-    # Copy the entry source (single-contract v1) into the harness project.
-    src_dst = proj / "src" / sig.source_file.name
-    shutil.copy(sig.source_file, src_dst)
+    # Copy ALL submitted src/*.sol into the harness project (review finding 6:
+    # a submission may legitimately split a library/interface across files, and
+    # copying only the entry file would fail to compile).
+    for sol in sorted(sig.source_file.parent.glob("*.sol")):
+        shutil.copy(sol, proj / "src" / sol.name)
 
-    out_path = (proj / "measure_out.txt").resolve()
+    # The measurement output lives OUTSIDE the project tree (review finding 2):
+    # the deployed submitter contract must not be able to write it. Only this
+    # single file is granted to the (maintainer-controlled) measurement test, and
+    # `ffi` stays disabled.
+    out_path = (work_dir / "measure_out.txt").resolve()
     calldata = build_calldata(sig.selector, args)
     rel_import = f"../src/{sig.source_file.name}"
     (proj / "test" / "ContestMeasure.t.sol").write_text(
-        _harness_source(sig, calldata, out_path, ov, rel_import))
+        _harness_source(sig, calldata, out_path, ov, rel_import, slots))
     (proj / "foundry.toml").write_text(
         "[profile.default]\nsrc = \"src\"\ntest = \"test\"\n"
-        "evm_version = \"cancun\"\n"
-        f"fs_permissions = [{{ access = \"read-write\", path = \"{proj.resolve()}\" }}]\n")
+        "evm_version = \"cancun\"\nffi = false\n"
+        f"fs_permissions = [{{ access = \"write\", path = \"{out_path}\" }}]\n")
 
     args_cmd = [
         forge, "test",
@@ -241,7 +285,8 @@ def _tail(path: Path, n: int = 600) -> str:
 
 
 _MEAS_RE = re.compile(
-    r"^(ok|revert)\|(0x[0-9a-fA-F]*)\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)$")
+    r"^(ok|revert)\|(0x[0-9a-fA-F]*)\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)"
+    r"(?:\|evt=(.*)\|sto=(.*))?$")
 
 
 def _parse_measurement(raw: str) -> Optional[Measurement]:
@@ -252,4 +297,7 @@ def _parse_measurement(raw: str) -> Optional[Measurement]:
     ret_hex = match.group(2)
     self_addr = int(match.group(3), 16)
     origin = int(match.group(4), 16)
-    return Measurement(ok, ret_hex, self_addr, origin, raw)
+    events = match.group(5) or ""
+    storage = match.group(6) or ""
+    return Measurement(ok, ret_hex, self_addr, origin, raw,
+                       events=events, storage=storage)

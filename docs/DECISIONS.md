@@ -68,6 +68,78 @@ side-effect, Forge-paired. Harness: `forge=ok lean=ok compare=pass`.
 constructor lanes re-checked lean-only green (openzeppelin-erc20 needed
 `--timeout 900` for elaboration, then `lean=ok`). No storage-order sub-case
 remains.
+## 2026-07-08 — M1/M2/M3/M4 fixed: memory reference-type alias/copy soundness
+
+Four memory soundness bugs from `docs/solc-memory-semantics-review.md` (M1) and
+`docs/solc-memory-semantics-review-2.md` (M2/M3/M4). M1/M2/M3 are wrong-alias
+(memory→memory reference-type assignment deep-copied where solc pointer-aliases);
+M4 is a spurious revert (abi.encode/keccak of ref-nested nested-dynamic memory).
+
+**solc ground truth (pinned solc 0.8.35 + Forge, all PASS).** Every
+reference-type memory assignment is a pointer copy
+(`libsolidity/codegen/ExpressionCompiler.cpp` `visit(Assignment)` →
+`MemoryItem::storeValue`): a memory-ref RHS (ternary, array element, struct
+member, plain var), each tuple-destructuring component, and a memory ref stored
+into a memory aggregate element/field all ALIAS the source; a later mutation
+through either name is visible through the other. abi.encode/keccak256 of a
+`bytes[]` / `uint[][]` / `string[]` memory local encodes without reverting.
+Value types still copy; storage↔memory still deep-copies. Probed and confirmed
+in `tests/forge-harness/memory-alias-fixes` (Forge PASS).
+
+**Root cause (M1/M2/M3, one defect).** The store paths already ALIAS a bare
+`Value.memoryRef` (`Runtime.memoryStoreValue`/`assignLocal?`/`storeMemory?`,
+`Interpreter.lean:~1187/1251`), but assignment RHS evaluation *dereferenced* a
+memory ref to a bare object, and the store paths then reallocate a fresh cell for
+a bare object → deep copy. The fix threads memory-ref values through as
+`Value.memoryRef` so the existing alias paths fire.
+
+**Alias-vs-copy boundary (the decision).** A ref-preserving evaluation is used
+ONLY where the assignment TARGET is a memory location; storage/immutable targets
+and value-type locals keep ordinary (dereferencing/copying) evaluation, so
+storage↔memory and value-type semantics are unchanged. The memory-target test is
+`LValue.wantsMemoryRefRhs` (`Interpreter.lean`): true for a memory-ref local
+(`lookupMemoryRef?`) or a memory aggregate element (an `index` whose base is not a
+storage/storage-alias root); false otherwise.
+
+**Fix (`SolidCore/Solidity/Interpreter.lean`).**
+- M1: `Expr.memoryRefOrValueWithRuntimeOrderFuel` gains an `Expr.ternary` arm
+  (recurse into the taken branch) and is made total (never `none,none`), so the
+  declaration path (`Stmt.memoryVarDecl`) and internal-call arg temps alias
+  ternary RHSs. New `Expr.evalMemoryRefPreservingWithRuntimeOrder` yields the
+  `memoryRef` pointer for memory-ref exprs. `Stmt.assign` evaluates the RHS
+  through it, gated by `wantsMemoryRefRhs`, covering ternary/index/member RHS into
+  a memory var. (Memory-returning internal calls and index/var already aliased
+  via the reference-signature return path — unchanged.)
+- M2: `Stmt.assignTuple` with an `Expr.tuple` RHS evaluates each component
+  ref-preservingly (per-target gate) via `Expr.evalTupleComponentsRefPreserving`,
+  all components before any write, so destructuring/declaration alias and
+  `(a,b)=(b,a)` performs a genuine pointer swap.
+- M3: subsumed by the `Stmt.assign` change — a memory ref flows as `memoryRef`
+  into `ResolvedLValue.valueIndex.write`, whose `memoryStoreValue` already
+  aliases a `memoryRef` unchanged.
+- M4: the `abi.encode` / `abi.encodeWithSelector` / `abi.encodePacked` /
+  `keccak256` arms deep-materialize their arguments (`derefMemoryValuesDeep` /
+  `derefMemoryValueDeep`) before encoding, so ref-nested memory elements resolve
+  to concrete value trees instead of hitting an unmatched `memoryRef` → revert.
+
+**Lanes (`tests/forge-harness/memory-alias-fixes`, ADDED — corpus frozen).**
+Forge-paired: M1 ternary decl/assign + index + member alias; M2 tuple + swap +
+decl; M3 into-field + into-element; M4 non-revert + solc byte-lengths for
+`bytes[]`/`uint[][]`/`string[]` (`abi.encode` length 256 / 288); plus value-copy
+controls (`valueCopyControl`, `valueElementCopyControl`) and storage↔memory
+independence controls (`storageToMemoryIndependence`, `memoryToStorageIndependence`).
+`case_result=memory-alias-fixes forge=ok lean=ok`. `scripts/smoke_replay.sh`
+green (28 cases, `forge_interpreter_compare=pass`) — no over-aliasing regression.
+
+**Residual (unfixed, importer-masked / niche).** `abi.encode` of a *struct*
+value and struct construction with a call-argument field are untranslatable by
+the solc-AST importer (pre-existing, unrelated to the memory model) — so the M4
+struct-with-dynamic-field shape is not corpus-testable here (the interpreter arm
+handles it via the same deep-deref). `string(bytes)`/`bytes(string)` reinterpret
+aliasing (M1-family, niche) is not covered — a conversion RHS is neither
+`var`/`index`/`ternary`, so it still deep-copies; flagged for a follow-up.
+try/catch/modifier end-to-end memory aliasing inherits M1/M2/M3 and was not
+probed end-to-end.
 
 ## 2026-07-08 — UF1/UF2/UF3 fixed: `using ... for T global` legality
 

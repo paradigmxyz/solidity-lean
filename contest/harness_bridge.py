@@ -74,27 +74,67 @@ def _variables(tools: ToolPaths, case_tmp: Path, name: str) -> dict[str, str]:
 # Forge (real-behavior check, design §4 step 1)
 # ---------------------------------------------------------------------------
 
+# A pinned, sandboxed Foundry profile for running UNTRUSTED submitter tests
+# (adversarial-review finding 1): `ffi` disabled and `fs_permissions` empty, so
+# a submitter's `foundry.toml` can NOT re-enable arbitrary host-process
+# execution or filesystem access. We never run the submitter's own toml.
+_SANDBOX_FOUNDRY_TOML = (
+    "[profile.default]\n"
+    "src = \"src\"\n"
+    "test = \"test\"\n"
+    "evm_version = \"cancun\"\n"
+    "ffi = false\n"
+    "fs_permissions = []\n"
+)
+
+
 def run_forge_test(forge_root: Path, case_tmp: Path,
                    match_contract: Optional[str] = None,
                    match_test: Optional[str] = None,
                    tools: Optional[ToolPaths] = None,
                    timeout: int = 300) -> tuple[bool, str]:
-    """Run the submission's Forge test. ``forge_root`` is a Foundry project
-    dir (foundry.toml + src + test) relative to the repo or absolute."""
+    """Run the submission's Forge test in a SANDBOXED copy of the project.
+
+    ``forge_root`` is the submission's Foundry project dir. We copy only its
+    ``src/`` and ``test/`` into a fresh project with a harness-generated
+    ``foundry.toml`` (``ffi`` off, ``fs_permissions`` empty) so the submitter's
+    own config cannot enable ffi/FS access on the adjudication host."""
     tools = tools or ToolPaths()
     case_tmp.mkdir(parents=True, exist_ok=True)
-    try:
-        rel = forge_root.resolve().relative_to(tools.repo.resolve())
-        root_arg = str(rel)
-    except ValueError:
-        root_arg = str(forge_root.resolve())
-    forge_case: dict[str, Any] = {"forge": {"root": root_arg, "quiet": True}}
+    proj = case_tmp / "sandbox_proj"
+    if proj.exists():
+        shutil.rmtree(proj)
+    proj.mkdir(parents=True)
+    for sub in ("src", "test"):
+        srcdir = forge_root / sub
+        if srcdir.is_dir():
+            shutil.copytree(srcdir, proj / sub)
+    (proj / "foundry.toml").write_text(_SANDBOX_FOUNDRY_TOML)
+
+    command = [
+        tools.forge, "test",
+        "--root", str(proj.resolve()),
+        "--use", tools.solc,
+        "--no-auto-detect", "--offline", "--force",
+        "--out", str((case_tmp / "forge-out").resolve()),
+        "--cache-path", str((case_tmp / "forge-cache").resolve()),
+        "-q",
+    ]
     if match_contract:
-        forge_case["forge"]["match_contract"] = match_contract
+        command += ["--match-contract", match_contract]
     if match_test:
-        forge_case["forge"]["match_test"] = match_test
-    variables = _variables(tools, case_tmp, "forge")
-    return _HARNESS.run_forge(forge_case, tools.repo, variables, timeout)
+        command += ["--match-test", match_test]
+    stdout_log = case_tmp / "forge.stdout.log"
+    stderr_log = case_tmp / "forge.stderr.log"
+    try:
+        status = _HARNESS.run_capture(command, tools.repo, timeout,
+                                      stdout_log, stderr_log)
+    except subprocess.TimeoutExpired:
+        return False, f"timeout_after_{timeout}s"
+    if status == 0:
+        return True, "pass"
+    tail = (_read_log(stdout_log) + _read_log(stderr_log))[-800:]
+    return False, f"forge_exit_{status}: {tail}"
 
 
 # solc diagnostics are `<Type>Error: ...` or `Error (NNNN): ...` with an exit
@@ -154,6 +194,11 @@ class SolidusResult:
     observable: Optional[obs.Observable]
     message: str                 # evidence / error text
     generated_source_path: Optional[Path] = None
+    # True if the Lean run TIMED OUT or otherwise failed inconclusively (not a
+    # clean importer/typecheck reject). Adjudicated as NEEDS_REVIEW, never as an
+    # automatic coverage gap (adversarial-review finding 3): a resource-exhaustion
+    # failure is not evidence of a missing feature.
+    inconclusive: bool = False
 
 
 def _read_log(path: Path) -> str:
@@ -168,7 +213,8 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
                            fuel: int = 64,
                            tools: Optional[ToolPaths] = None,
                            timeout: int = 300,
-                           env: Optional["cenv.EnvOverrides"] = None) -> SolidusResult:
+                           env: Optional["cenv.EnvOverrides"] = None,
+                           slots: Optional[list[int]] = None) -> SolidusResult:
     """Import ``source``, then #eval the §3.4 observable of ``contract.fname``.
 
     Distinguishes:
@@ -209,7 +255,8 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         "",
         obs.LEAN_OBSERVABLE_HELPER,
         "",
-        obs.lean_eval_line(namespace, contract, fuel, fname, args_lean, env),
+        obs.lean_eval_line(namespace, contract, fuel, fname, args_lean, env,
+                           slots=slots),
     ]
     lean_file = case_tmp / "contest_observable.lean"
     lean_file.write_text("\n".join(lean_lines) + "\n", encoding="utf-8")
@@ -221,9 +268,12 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         status = _HARNESS.run_capture(command, tools.repo, timeout,
                                       stdout_log, stderr_log)
     except subprocess.TimeoutExpired:
+        # A timeout is INCONCLUSIVE, not a coverage gap (review finding 3): it
+        # may be a genuinely slow-but-correct run, an attacker resource bomb, or
+        # a poisoned `fuel`. Never auto-classify it as a missing feature.
         return SolidusResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
-            message=f"lean timeout after {timeout}s",
+            message=f"lean timeout after {timeout}s", inconclusive=True,
             generated_source_path=gen_path)
 
     stdout = _read_log(stdout_log)
@@ -231,12 +281,21 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
     marker_lines = [ln for ln in stdout.splitlines() if marker in ln]
 
     if status != 0 and not marker_lines:
-        # Elaboration / execution error before the #eval printed => fail-closed.
+        # Lean exited non-zero before the #eval printed. This can be a genuine
+        # elaboration/typecheck reject of the IMPORTED PROGRAM (a coverage gap),
+        # or a failure of our generated harness / a resource issue (inconclusive).
+        # We only treat it as fail-closed here; the adjudicator decides coverage
+        # vs. needs-review from the reason class + stderr signals below.
         stderr = _read_log(stderr_log)
+        low = stderr.lower()
+        inconclusive = any(sig in low for sig in (
+            "deep recursion", "maximum recursion", "out of memory",
+            "deterministic timeout", "(interrupted)", "stack overflow",
+            "excessive memory"))
         return SolidusResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
             message=f"lean exit {status}: {stderr.strip()[:2000]}",
-            generated_source_path=gen_path)
+            inconclusive=inconclusive, generated_source_path=gen_path)
 
     if not marker_lines:
         return SolidusResult(

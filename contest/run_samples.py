@@ -5,22 +5,35 @@ Runs one submission per classification and asserts the expected verdict:
 
   * oos_gasleft    -> REJECTED_OOS  (X-GASLEFT, hidden in a callee)   [FULL run]
   * no_divergence  -> NO_DIVERGENCE (Solidus agrees with solc+EVM)    [FULL run]
+  * soundness (REAL) -> SOUNDNESS_GAP (lane S, wrong-value)           [FULL run +
+                       one-unit fault injection at the observable boundary]
   * coverage_gap   -> COVERAGE_GAP  (lane C, Solidus fail-closed)     [SIMULATED
-                       Solidus step - see below]
-  * soundness_gap  -> SOUNDNESS_GAP (lane S, wrong-value)             [SIMULATED
                        Solidus step - see below]
 
 FULL run = the real pipeline: pinned solc + Foundry + the built Solidus (Lean
 #eval) execute end-to-end.
 
-SIMULATED Solidus step = the real STRUCTURE + REAL-BEHAVIOR (Forge) + REJECT GATE
-run against pinned solc/Foundry, but `harness_bridge.run_solidus_observable` is
-monkeypatched to return a simulated Solidus result. This is necessary and
-honest: the live coverage/soundness gaps that would drive these branches are
-being FIXED on sibling branches, so there is no live gap to point at. The
-simulation exercises the exact classifier decision tree (adjudicate steps 3a/3c)
-with a representative fail-closed / mismatching Solidus observable. Clearly
-marked here and in each sample's claim.json ("synthetic": true).
+Gap-testing methodology (how we test the DETECTOR without leaving bugs in
+Solidus — the maintainer's requirement):
+
+  1. POSITIVE CONTROL (no_divergence): a real contract, full pipeline, asserts
+     the two engines AGREE. Proves the pipeline runs clean.
+  2. SOUNDNESS DETECTOR (real Solidus run + injected delta): `no_divergence` is
+     run through the ENTIRE live pipeline (real import -> typecheck -> elaborate
+     -> execute -> render on the Solidus side; real solc+Foundry measurement on
+     the EVM side), then the measured EVM observable is perturbed by ONE UNIT at
+     the observable boundary (`observable.perturb_leading_value`, via the
+     `_selftest_perturb_evm` seam). The comparator+classifier must then emit
+     SOUNDNESS_GAP(wrong-value). This exercises the full detection path against a
+     genuine Solidus execution while leaving Solidus itself BUG-FREE — the delta
+     lives in the test harness, never in SolidCore.
+  3. COVERAGE DETECTOR: driving a genuine importer/over-reject fail-closed needs
+     a real open gap as a fixture. Absent one here (they are being fixed on
+     sibling branches), the coverage branch is exercised at the classifier level
+     with a synthetic fail-closed Solidus result (clearly marked `synthetic`).
+     When a real gap is pinned as a fixture, its expected verdict FLIPS from
+     COVERAGE_GAP to NO_DIVERGENCE once fixed (via the known-fixed list) — so a
+     bug is never kept alive just to test detection.
 
 Also unit-tests the dedup fingerprint machinery (§6.2) against the pre-loaded
 G-register.
@@ -54,7 +67,7 @@ def run_full(name: str, expected_verdict: str, timeout: int = 500) -> tuple[bool
     report = adj.adjudicate(SAMPLES / name, timeout=timeout)
     ok = report.verdict == expected_verdict
     detail = (f"verdict={report.verdict} lane={report.lane} "
-              f"pays_out={report.pays_out} :: {report.reason[:160]}")
+              f"qualifies={report.qualifies} :: {report.reason[:160]}")
     return ok, detail
 
 
@@ -84,8 +97,26 @@ def run_simulated(name: str, expected_verdict: str, expected_lane: str,
     if expect_duplicate is not None:
         ok = ok and report.duplicate_of == expect_duplicate
     detail = (f"verdict={report.verdict} lane={report.lane} "
-              f"pays_out={report.pays_out} dup={report.duplicate_of} "
+              f"qualifies={report.qualifies} dup={report.duplicate_of} "
               f"fp={report.fingerprint} :: {report.reason[:160]}")
+    return ok, detail
+
+
+def run_real_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """REAL end-to-end soundness-detector test (methodology step 2).
+
+    Runs `no_divergence` through the FULL live pipeline, then injects a one-unit
+    delta into the measured EVM observable. The full comparator+classifier must
+    return SOUNDNESS_GAP(wrong-value). This proves the detection path works over
+    a genuine Solidus execution with ZERO bugs in Solidus."""
+    report = adj.adjudicate(
+        SAMPLES / "no_divergence", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} "
+              f"component={comp} qualifies={report.qualifies} :: {report.reason[:140]}")
     return ok, detail
 
 
@@ -150,16 +181,13 @@ def main() -> int:
     results.append(("coverage_gap (SIMULATED Solidus)", ok, d))
     _print("coverage_gap (SIMULATED Solidus)", ok, d)
 
-    snd_sim = hb.SolidusResult(
-        ok=True, stage="run", fail_closed=False,
-        observable=obs.parse_observable("success|w:999"),
-        message="ran to completion")
-    ok, d = run_simulated("soundness_gap", "SOUNDNESS_GAP", "S", snd_sim,
-                          expect_component="wrong-value")
-    results.append(("soundness_gap (SIMULATED Solidus)", ok, d))
-    _print("soundness_gap (SIMULATED Solidus)", ok, d)
-
     # --- FULL end-to-end runs (real solc + Foundry + Solidus/Lean) ---
+    # REAL soundness-detector test: full live pipeline + one-unit fault injection
+    # at the observable boundary (methodology step 2). No bug in Solidus.
+    ok, d = run_real_soundness_selftest()
+    results.append(("soundness-detector (REAL run + injected delta)", ok, d))
+    _print("soundness-detector (REAL run + injected delta)", ok, d)
+
     ok, d = run_full("oos_gasleft", "REJECTED_OOS")
     results.append(("oos_gasleft (FULL)", ok, d))
     _print("oos_gasleft (FULL)", ok, d)

@@ -4,7 +4,7 @@
 The register is the contract between the maintainer and entrants: it enumerates
 every place Solidus INTENTIONALLY does not model Solidity 0.8.35, so that a
 rejection or divergence traceable to one of these is OUT_OF_SCOPE, not a
-prize-winning gap.
+qualifying gap.
 
 Two kinds of entries:
 

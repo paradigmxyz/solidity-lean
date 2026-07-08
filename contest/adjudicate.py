@@ -26,9 +26,12 @@ Decision tree (halt at first terminal verdict):
   + DEDUP (§6): terminal gaps get a root-cause fingerprint; a match against the
     known-open-gaps list => DUPLICATE annotation.
 
-Paying verdicts: COVERAGE_GAP (lane C), SOUNDNESS_GAP (lane S). Everything else
-(INVALID, REJECTED_OOS, NO_DIVERGENCE, REJECT_MALFORMED) does not pay and
-returns the specific reason.
+Qualifying verdicts (count for the leaderboard): COVERAGE_GAP (lane C),
+SOUNDNESS_GAP (lane S). Everything else (INVALID, REJECTED_OOS, NO_DIVERGENCE,
+REJECT_MALFORMED) does not qualify and returns the specific reason.
+
+This is a for-fun contest: qualifying submissions earn a place on the public
+leaderboard.
 """
 
 from __future__ import annotations
@@ -69,7 +72,8 @@ class Report:
     known_gaps_version: str = kg.KNOWN_GAPS_VERSION
 
     @property
-    def pays_out(self) -> bool:
+    def qualifies(self) -> bool:
+        """True if this verdict counts for the leaderboard (a real gap)."""
         return self.verdict in ("COVERAGE_GAP", "SOUNDNESS_GAP")
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,7 +81,7 @@ class Report:
             "verdict": self.verdict,
             "lane": self.lane,
             "reason": self.reason,
-            "pays_out": self.pays_out,
+            "qualifies": self.qualifies,
             "register_version": self.register_version,
             "known_gaps_version": self.known_gaps_version,
             "evidence": self.evidence,
@@ -211,7 +215,15 @@ def _annotate_dedup(report: Report, lane: str, key: tuple, feature_token: str) -
 
 def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                work_dir: Optional[Path] = None, timeout: int = 400,
-               skip_forge: bool = False) -> Report:
+               skip_forge: bool = False,
+               _selftest_perturb_evm: Optional[Any] = None) -> Report:
+    """Adjudicate a submission (design §4).
+
+    ``_selftest_perturb_evm`` is a TEST-ONLY seam (contest/run_samples.py): a
+    callable applied to the measured EVM observable to inject a synthetic
+    divergence, so the divergence-DETECTION path can be exercised end-to-end over
+    a real Solidus run without leaving a bug in Solidus. It MUST be None in real
+    adjudication."""
     tools = tools or hb.ToolPaths()
     submission, malformed = load_submission(root)
     if malformed is not None:
@@ -227,32 +239,71 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     work.mkdir(parents=True, exist_ok=True)
     evidence: dict[str, Any] = {"submission": str(root), "lane_claimed": lane}
 
-    # -- Step 0b: CHEATCODE GATE over the TEST file(s) (review P0 #3) --------
-    # Scan the submission's test ASTs: default-deny every vm.*/hevm cheatcode
-    # except the env-pinning whitelist, whose literal effects we MIRROR into the
-    # canonical env used on BOTH engines.
+    # -- Step 0a: VALIDATE UNTRUSTED CLAIM FIELDS before any codegen ---------
+    # Names reach generated Lean; fuel reaches the interpreter; args reach the
+    # renderer. All are attacker-controlled (review findings 3/4/5).
+    if not _valid_identifier(entry.get("contract")):
+        return Report("REJECT_MALFORMED", reason=(
+            f"entry.contract is not a valid identifier: {entry.get('contract')!r}"),
+            evidence=evidence)
+    if not _valid_identifier(entry.get("function")):
+        return Report("REJECT_MALFORMED", reason=(
+            f"entry.function is not a valid identifier: {entry.get('function')!r}"),
+            evidence=evidence)
+    fuel = _valid_fuel(claim.get("fuel", 64))
+    if fuel is None:
+        return Report("REJECT_MALFORMED", reason=(
+            f"claim.fuel must be an integer in [1, {_FUEL_CAP}]"), evidence=evidence)
+    args_lean, args_err = _safe_render_args(entry.get("args", []))
+    if args_lean is None:
+        return Report("REJECT_MALFORMED", reason=args_err or "bad args",
+                      evidence=evidence)
+    slots, slots_err = _valid_slots(claim.get("observed_slots", []))
+    if slots is None:
+        return Report("REJECT_MALFORMED", reason=slots_err or "bad observed_slots",
+                      evidence=evidence)
+
+    # -- Step 0b: CHEATCODE GATE over BOTH src AND test, BEFORE any Forge run.
+    # The trust boundary is any call to the cheatcode ADDRESS from any submitted
+    # code executed under `forge test` (adversarial-review findings 1 & 2). We
+    # scan src too, because measure.py DEPLOYS and calls the entry contract — a
+    # cheatcode call from the entry contract forges the measured EVM observable.
+    # This MUST run before Forge/measurement so untrusted code never executes
+    # with a cheatcode reference the gate would have caught.
     env_ov = cenv.EnvOverrides()
     env_ov.value = int(entry.get("value", 0) or 0)
+    try:
+        src_asts = gate.get_source_asts(submission.sources, tools.solc)
+    except Exception as exc:  # solc failure on adversarial source (finding 5)
+        return Report("REJECT_MALFORMED", reason=(
+            f"solc could not analyze the submitted sources: {exc}"),
+            evidence=evidence)
     test_asts = _test_asts(submission.root, tools.solc)
-    scan = gate.scan_test_cheatcodes(test_asts)
+    src_scan = gate.scan_src_cheatcodes(src_asts)
+    test_scan = gate.scan_test_cheatcodes(test_asts)
     evidence["cheatcodes"] = {
-        "banned": [h.to_dict() for h in scan.banned],
-        "unmirrorable": [h.to_dict() for h in scan.unmirrorable],
-        "overrides": scan.overrides.to_dict(),
+        "src_banned": [h.to_dict() for h in src_scan.banned],
+        "test_banned": [h.to_dict() for h in test_scan.banned],
+        "unmirrorable": [h.to_dict() for h in
+                         (src_scan.unmirrorable + test_scan.unmirrorable)],
+        "overrides": test_scan.overrides.to_dict(),
     }
-    if scan.banned:
-        ids = ", ".join(sorted({h.reason.split("(")[0].strip() for h in scan.banned}))
+    banned = src_scan.banned + test_scan.banned
+    if banned:
+        ids = ", ".join(sorted({h.id for h in banned}))
+        where = "src" if src_scan.banned else "test"
         return Report("REJECTED_OOS", reason=(
-            f"test uses banned cheatcode(s): {ids} (state/oracle-forging "
-            "cheatcodes are not allowed; default-deny)"), evidence=evidence)
-    if scan.unmirrorable:
+            f"submission {where} references the cheatcode address / uses a "
+            f"banned cheatcode ({ids}); state/oracle-forging cheatcodes are not "
+            "allowed (default-deny)"), evidence=evidence)
+    if test_scan.unmirrorable:
         return Report("REJECTED_OOS", reason=(
             "test uses a whitelisted cheatcode with a non-literal argument that "
             "cannot be mirrored into the Solidus env (v1 requires literals)"),
             evidence=evidence)
     # merge the mirrored overrides, preserving the entry value.
-    scan.overrides.value = env_ov.value
-    env_ov = scan.overrides
+    test_scan.overrides.value = env_ov.value
+    env_ov = test_scan.overrides
 
     # -- Step 1 / 1a: REAL-BEHAVIOR CHECK ------------------------------------
     measured: Optional[meas.Measurement] = None
@@ -289,7 +340,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 "no function selector in the compiled AST"), evidence=evidence)
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
-            forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout)
+            forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
+            slots=slots)
         evidence["evm_measurement"] = (measured.raw if measured else mstatus)
         if measured is None:
             return Report("INVALID", reason=(
@@ -321,8 +373,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     namespace = f"{NAMESPACE_PREFIX}.{_sanitize(root.name)}"
     solidus = hb.run_solidus_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
-        work / "solidus", namespace, fuel=int(claim.get("fuel", 64)),
-        tools=tools, timeout=timeout, env=env_ov)
+        work / "solidus", namespace, fuel=fuel,
+        tools=tools, timeout=timeout, env=env_ov, slots=slots)
     evidence["env"] = env_ov.to_dict()
     evidence["solidus"] = {
         "ok": solidus.ok, "stage": solidus.stage,
@@ -346,6 +398,14 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
 
     # (3a) Solidus FAILS CLOSED while solc accepted+ran -> lane C coverage gap.
     if solidus.fail_closed:
+        # An INCONCLUSIVE failure (timeout / resource exhaustion / harness crash,
+        # incl. a poisoned fuel) is NOT evidence of a missing feature (review
+        # finding 3). Never auto-qualify it; route to maintainer review.
+        if solidus.inconclusive:
+            return Report("NEEDS_REVIEW", reason=(
+                "Solidus run failed inconclusively (timeout / resource "
+                f"exhaustion), not a clean reject: {solidus.message[:300]}"),
+                evidence=evidence)
         finger = coverage_fingerprint(solidus)
         if finger[1] == "excluded":
             return Report("REJECTED_OOS", reason=(
@@ -366,7 +426,12 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "no measured EVM observable available (Forge measurement did not "
             "run); cannot adjudicate a soundness claim without the oracle"),
             evidence=evidence)
-    evm_obs = obs.evm_observable(measured.ok, measured.ret_hex, sig.return_types)
+    evm_obs = obs.evm_observable(
+        measured.ok, measured.ret_hex, sig.return_types,
+        events=measured.events, storage=measured.storage)
+    if _selftest_perturb_evm is not None:  # fault-injection self-test only
+        evm_obs = _selftest_perturb_evm(evm_obs)
+        evidence["selftest_perturbed"] = True
     evidence["evm_observable"] = evm_obs.to_dict()
     # declared_observable is now only a sanity cross-check (misreport hint).
     declared_norm = (claim.get("declared_observable", {}) or {}).get("normal_form")
@@ -396,6 +461,70 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
 
 def _sanitize(name: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in name).strip("_") or "Sub"
+
+
+import re as _re
+
+_IDENT_RE = _re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+
+
+def _valid_identifier(name: object) -> bool:
+    """A Solidity identifier — enforced on entry.contract / entry.function in
+    ALL paths BEFORE either name is interpolated into generated Lean (review
+    finding 4: an unchecked name could close the Lean string literal and inject
+    code)."""
+    return isinstance(name, str) and bool(_IDENT_RE.match(name))
+
+
+_FUEL_CAP = 100_000
+
+
+def _valid_fuel(value: object) -> Optional[int]:
+    """Return a validated fuel (positive int <= cap), or None if malformed
+    (review finding 3: an attacker-controlled `fuel` of -1 / 10**12 either fails
+    to elaborate or times out, and was mis-scored as a coverage gap)."""
+    try:
+        fuel = int(value)
+    except (TypeError, ValueError):
+        return None
+    if fuel < 1 or fuel > _FUEL_CAP:
+        return None
+    return fuel
+
+
+_MAX_SLOTS = 64
+
+
+def _valid_slots(slots: object) -> tuple[Optional[list[int]], Optional[str]]:
+    """Validate claim.observed_slots: a list of <=64 non-negative uint256 storage
+    slots to compare (§3.4 component 5). Empty/absent means storage is not
+    compared. Attacker-controlled -> validated before reaching codegen."""
+    if slots is None:
+        return [], None
+    if not isinstance(slots, list) or len(slots) > _MAX_SLOTS:
+        return None, f"observed_slots must be a list of <= {_MAX_SLOTS} slots"
+    out: list[int] = []
+    for s in slots:
+        try:
+            v = int(s)
+        except (TypeError, ValueError):
+            return None, f"observed_slots entry not an integer: {s!r}"
+        if v < 0 or v >= (1 << 256):
+            return None, f"observed_slots entry out of uint256 range: {s!r}"
+        out.append(v)
+    return out, None
+
+
+def _safe_render_args(args: object) -> tuple[Optional[str], Optional[str]]:
+    """Render entry args to a Lean list, catching any malformed shape (review
+    finding 5: `render_lean_arg` raises on unsupported forms and would crash the
+    adjudicator instead of returning REJECT_MALFORMED)."""
+    if not isinstance(args, list):
+        return None, f"entry.args must be a list, got {type(args).__name__}"
+    try:
+        return obs.render_lean_args(args), None
+    except (ValueError, TypeError, KeyError) as exc:
+        return None, f"malformed entry.args: {exc}"
 
 
 def _test_asts(root: Path, solc: str) -> list[gate.SourceAst]:
@@ -455,8 +584,8 @@ def _main(argv: Optional[list[str]] = None) -> int:
         print(json.dumps(report.to_dict(), indent=2))
         print(f"\n=== VERDICT: {report.verdict}"
               + (f" (lane {report.lane})" if report.lane else "")
-              + f" | pays_out={report.pays_out} ===", file=sys.stderr)
-    return 0 if report.pays_out or report.verdict == "NO_DIVERGENCE" else 1
+              + f" | qualifies={report.qualifies} ===", file=sys.stderr)
+    return 0 if report.qualifies or report.verdict == "NO_DIVERGENCE" else 1
 
 
 if __name__ == "__main__":

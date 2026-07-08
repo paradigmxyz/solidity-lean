@@ -1,16 +1,48 @@
 # Compile-to-Yul readiness: mapping the source semantics for a composing Solidity→Yul lowering
 
-Status: design/mapping study, 2026-07-06. Read-only analysis of
-`SolidCore/Solidity/*` against `../evm-compiler` (Solidus) and the shared
-`evm-interaction` alphabet. **No source changes proposed for this document to
-land** — it is input for the orchestrator. All `file:line` anchors are as of
-this read; the interpreter/ABI/Checked files and `Interface.lean`'s `NumberRat`
-are being edited concurrently (Phase 5 / A1), so declaration names are the
-stable anchor.
+Status: design/mapping study, 2026-07-06; **revised 2026-07-08** against the
+current tree. Read-only analysis of `SolidCore/Solidity/*` against
+`../evm-compiler` (Solidus) and the shared `evm-interaction` alphabet. **No
+source changes proposed for this document to land** — it is input for the
+orchestrator. `file:line` anchors drift; declaration names are the stable
+anchor.
 
-Scope: everything **except** the external-world/interaction boundary, which is
-mid-refactor and out of scope. Where the boundary is load-bearing for a lowering
-seam it is named, but no boundary refactor is recommended here.
+**2026-07-08 status update — what has landed since the first draft:**
+- **D1 is RESOLVED** (the "boundary-completion arc"): internal calls are now
+  first-class core constructs (`Stmt.internalCall` / `Stmt.internalCallPtr`)
+  evaluated against a `FunctionTable` at call time; the inline-splice path is
+  deleted and **recursion is representable** (bounded only by interpreter
+  statement fuel). The Sc layer has a source IR to refine. Modifiers are still
+  inlined (see §1b).
+- **N1–N4 are DONE**: the ~14 dead observation-era enums are deleted; the dead
+  byte-memory shadow is deleted from `Runtime`; the in-file example defs moved
+  to `SolidCore/Witness/InterpreterExamples.lean`; `Ast.lean` now imports only
+  `Shared/{Word,Precompile}`.
+- **Phase 5 landed**: `Interaction.lean` pins the shared alphabet (verbatim
+  `EvmCompiler.Simulation.*` re-exports); `Checked.lean` carries `SolI`-tree
+  entry points (`constructFromTree`/`callTree`/…); the Context oracle residue
+  (`lowLevelCallResults`/`contractCreationResults`) is deleted;
+  `SolidityFailure.outOfFuel` is in place.
+- **Openworld/postworld landed**: `State` now carries a dynamic `selfBalance`
+  (A2 — the old "self-balance never mutates" recorded gap is fixed),
+  `selfNonce`, an adopted-world view (`envWorld?` held verbatim from answered
+  `postWorld`s, with a snapshot/adopt round-trip law), and adopted log/
+  selfdestruct prefixes.
+- **NumberRat is now signed** (`num : Int`, total `sub`) — the old
+  "non-negative, fails closed on negatives" description is obsolete.
+- **Still open**: P1 (materialize the storage-layout `E`; `resolveStoragePathSlot`
+  is still re-derived per access), V3 (`unspecifiedOrders` scaffolding still
+  present), hinder-E (`checkedExpLoop` is still O(exponent)), hinder-I/R, and
+  the recorded `requestedGas`/initCode transcript residues.
+
+Sections below are updated in place to match; stale line anchors from the
+first draft may remain where the claim itself is unchanged.
+
+Scope: everything **except** the external-world/interaction boundary, which was
+mid-refactor when first drafted (Phase 5 and openworld/postworld have since
+landed; boundary facts below are updated but not re-mapped in depth). Where the
+boundary is load-bearing for a lowering seam it is named, but no boundary
+refactor is recommended here.
 
 ---
 
@@ -41,7 +73,7 @@ Solidity side must **already** have been truncated. Practically this is the
 "the compiler cannot manufacture a fuel failure the source didn't have"
 obligation, and it dictates that **fuel exhaustion in the source semantics must
 be a distinguished, reflectable outcome** — exactly the `SolidityFailure.outOfFuel`
-constructor Phase 5 is introducing (not an `Option`/`none`).
+constructor Phase 5 introduced (not an `Option`/`none`).
 
 Three consequences fix everything downstream:
 
@@ -88,7 +120,7 @@ try/catch, `unchecked`, modifier placeholder, and `inlineAssembly : String`
 is re-derived. This is a parser-frontend artifact; it is **not** the lowering
 IR (see 2a).
 
-### 1b. Elaboration — `Interface.lean` (~19.4k lines, `namespace Executable`)
+### 1b. Elaboration — `Interface.lean` (~20.6k lines, `namespace Executable`)
 Surface `SourceUnit` → the **interpreter's own core** (`Source.CoreExpr/CoreStmt/
 CoreContract`, re-exported `Interface.lean:20`). There is no third IR: elaboration
 emits exactly what the interpreter runs. The driver is `SourceUnit.toCoreContract?`
@@ -96,11 +128,19 @@ emits exactly what the interpreter runs. The driver is `SourceUnit.toCoreContrac
 `ContractDecl.toCoreFromOrders?` (`:18195`). Compute-once at elaboration:
 - **Inheritance**: real C3 linearization (`mergeLinearizationsWithFuel?` `:17475`)
   for dispatch order; storage-append order (`storageOrder?` `:17422`).
-- **Modifiers and internal calls are inlined** by placeholder/return substitution
-  (`functionExpandModifiersToCoreWithInternalCalls?` `:10350`), bounded by
-  `defaultInternalCallInlineFuel := 64` (`:10111`), producing `Stmt.captureReturn`
-  scopes. The core has **no internal-call/modifier/`super`/inheritance
-  construct at all**.
+- **Internal calls are preserved as boundary nodes** (boundary-completion arc,
+  stage E): a resolved internal call elaborates to `Stmt.internalCall` keyed by
+  name into the contract's `FunctionTable`, and an unresolvable name is tried
+  as a call through an internal function *pointer* (`Stmt.internalCallPtr`,
+  dispatch IDs on `FunctionDef.dispatchId?`, stage C). The historical
+  inline-splice path (α-renaming callee bodies into the caller) is **deleted**;
+  `defaultInternalCallInlineFuel := 64` survives only as the nested-call-argument
+  hoisting bound for the elaboration cluster's termination measure — **recursion
+  is representable**, bounded only by the interpreter's statement fuel.
+  **Modifiers are still inlined** by placeholder substitution
+  (`functionExpandModifiersToCoreWithInternalCalls?`), so the core has no
+  modifier/`super`/inheritance construct — but it *does* have the
+  internal-call boundary.
 - **Selectors, event topics, external-fn-pointer address words** — keccak-computed
   at elaboration (`resolveSelectorsWithUnqualified` `:7733`,
   `resolveEventSelectors` `:7916`).
@@ -112,11 +152,11 @@ emits exactly what the interpreter runs. The driver is `SourceUnit.toCoreContrac
   `enum→uint256`, `struct→tuple` (field names erased), `string/bytes→bytesCalldata`,
   function types→`externalFunction`. Width survives as explicit core cast/cleanup
   nodes and packed-field metadata.
-- **`NumberRat`** (`:2624`, mid-edit): non-negative rational constant folding
-  `{num, den}`; `sub?` (`:2709`) fails closed on negative results; ops in
-  `applyNumberRat?` (`:2791`). Fractional intermediates now fold (`1.5e18`);
-  negative intermediates still don't. This is the recorded "rational constant"
-  gap being narrowed.
+- **`NumberRat`** (`:2656`): **signed** rational constant folding
+  `{num : Int, den : Nat}` with a canonicalizing `mk?` and a total `sub`.
+  Fractional and negative intermediates both fold; the old "non-negative,
+  fails closed on negative results" behavior is gone. The recorded "rational
+  constant" gap has been closed to this signed model.
 
 The output `CoreContract` (`Interpreter.lean:7768` —
 `storageFields/immutableFields/eventDecls/errorDecls/functions`) is a **closed
@@ -125,24 +165,26 @@ IR with zero surface references**. Two caveats: constructor entry points
 `:19145`), and `CheckedContract` deliberately keeps the surface `decl` beside
 `core`.
 
-### 1c. Typechecker — `TypeCheck.lean` (~12.8k lines)
+### 1c. Typechecker — `TypeCheck.lean` (~13.6k lines)
 Pure accept/reject: output is `Except TypeError CheckedSourceUnit` where
 `CheckedSourceUnit = { source : SourceUnit }` (`:12116`) — **no typed
 annotations flow downstream**; elaboration re-derives all types. Checks name
 resolution, types, data locations, overrides, mutability (`view`/`pure`),
 payable, try-catch shape, break/continue/placeholder placement. **Not
 load-bearing for interpreter soundness** — the interpreter is defensively
-dynamically typed (241 `typeMismatch` sites) — but load-bearing for
-*acceptance* (the ~309 pinned-solc rejection lanes) and for justifying
+dynamically typed (~257 `typeMismatch` sites) — but load-bearing for
+*acceptance* (the pinned-solc rejection lanes) and for justifying
 elaboration assumptions (e.g. constant exprs contain no call nodes).
 
 ### 1d. Checked entry layer — `Checked.lean` (~2k lines)
 `CheckedProgram` / `CheckedContract` bundle the invariant "typechecked +
 type-resolved + elaboration succeeded"; runtime entries delegate to the core
-(`CheckedContract.call?` → `Source.Contract.call?` on `contract.core`,
-`:255`). Phase 5 has already added `*Tree` twins returning `SolI`
-(`constructFromTree` `:473`, `callTree` `:504`, `CheckedProgram.callContractTree`
-`:796`) beside the frozen `?` adapters.
+(`CheckedContract.call?` → the core on `contract.core`, calls threaded through
+`contract.core.table`). Phase 5's `*Tree` twins returning `SolI` are landed
+(`constructFromTree` `:502`, `callTree` `:533`, plus `constructWithContextTree`/
+`callTransactionTree`/…) beside the `?` adapters. Note the tree constructor
+entries resolve the constructor from the **already-elaborated**
+`CheckedProgram` (`constructorFunctionFor?`) rather than re-running elaboration.
 
 ### 1e. Value / type model — `Interpreter.lean` + `Shared/Word.lean`
 - **`Word := Nat`** normalized mod `2^256` (`Shared/Word.lean:10,14`); every op
@@ -165,25 +207,32 @@ type-resolved + elaboration succeeded"; runtime entries delegate to the core
   Value)`).
 
 ### 1f. State model
-- **`State`** (`:760`): `storage : WordMap` (**already word-addressed**, `List
-  (Word × Word)`), `transient : WordMap`, `immutables : ImmutableMap (String ×
-  Value)` (**typed, name-keyed, not word-encoded**), `selfdestructs`,
+- **`State`**: `storage : StorageMap` (**already word-addressed**, word→word),
+  `transient : StorageMap`, `immutables : ImmutableMap` (**typed, name-keyed,
+  not word-encoded**), `selfdestructs` + `selfdestructEffects`,
   `externalInteractions : List ExternalInteraction` (recorded transcript),
-  `events`. No balances/nonces/returndata in `State` — balances/codes/codehashes
-  are read-only in `Context`; self-balance never mutates (the recorded
-  balance-accounting gap). No returndata buffer (each call's result *is* a
-  `Value.bytes`).
-- **`Context`** (`:1488`): per-call constants (self/sender/value, block/tx env,
-  account maps, contract-name maps, `gasleft` ambient constant, `childEvalOrder?`),
-  plus the **oracle residue** `lowLevelCallResults/contractCreationResults`
-  (`:1504`, Phase-5 stage-3 deletes).
-- **`Runtime`** (`:885`): `state`, `locals`, and **two disconnected memory
-  models**: (a) the live one — an **object heap** `memory : List (Nat × Value)`
-  with `memoryRef` aliasing and deep deref (`allocMemory` `:961`,
-  `derefMemoryValueDeep` `:1013`); (b) a **byte/EVM-shaped shadow**
-  (`memoryByteMap`, `memoryFreePointer` starting `0x80`) written only at
-  `newBytes`/`newDynamicArray` and **read nowhere** — vestigial footprint
-  bookkeeping. See §4 finding **hinder-M**.
+  `events`, and — since openworld/postworld — the live self-account and adopted
+  environment: **`selfBalance` is dynamic** (A2: re-based at each external
+  entry from the environment fact plus credited `msg.value`; the outgoing-call
+  debit arrives through world adoption — the old "self-balance never mutates"
+  recorded gap is **fixed**), `selfNonce` (carried so the outgoing `OpenWorld`
+  snapshot covers every `OpenAccount` field), `envWorld? : Option OpenWorld`
+  (the answered `postWorld` held **verbatim**, with `worldMutatedSinceAdoption`
+  making the snapshot/adopt round-trip law exact), and adopted log/selfdestruct
+  prefixes (`adoptedLogPrefix`/`adoptedEventCount`/`adoptedSelfdestructCount`)
+  so the canonical log series composes callee logs wholesale. No returndata
+  buffer (each call's result *is* a `Value.bytes`).
+- **`Context`**: per-call constants (self/sender/value, block/tx env, account
+  maps, contract-name maps, `gasleft` ambient constant, `childEvalOrder?`).
+  The oracle residue `lowLevelCallResults/contractCreationResults` is
+  **deleted** (Phase-5 stage 3, done) — external answers come from the
+  interaction tree.
+- **`Runtime`**: `state`, `locals`, and the live **object heap**
+  `memory : List (Nat × Value)` with `memoryRef` aliasing and deep deref
+  (`allocMemory`, `derefMemoryValueDeep`). The old dead byte/EVM-shaped shadow
+  (`memoryByteMap`/`memoryFreePointer`) is **deleted** (N2, done) — the real
+  byte model is to be built by the lowering's memory layer, from nothing rather
+  than beside an impostor. See §4 finding **hinder-M**.
 - **Rollback** is purely functional: `FunctionDef.callBodyResult` (`:7647`) maps
   `Result.reverted` to a `CallResult.reverted` carrying the **pre-call `State`
   snapshot**; storage/events/transient roll back by discarding. Pinned by
@@ -195,12 +244,12 @@ Exactly "Yul builtin + explicit overflow check". Unchecked → EvmYul-lifted wra
 `RevertData.overflow = Panic 0x11` (`checkedAdd/Sub/Mul` `:4561`);
 `checkedDiv/Mod` Panic 0x12 on zero; signed family via `Int` range check +
 `signedToWord` (`:4630`), incl. MIN/−1 (`checkedSignedDiv` `:4659`);
-`addmod/mulmod` (`:4675`). Sub-256-bit checked arithmetic = full-word op +
+`addmod/mulmod`. Sub-256-bit checked arithmetic = full-word op +
 `uintCleanup?/intCleanup?` (Panic on out-of-range) — matching solc's cleanup
 discipline. `BinaryOp` (`:4346`) is 20 ops incl. `shl/shr/sar`, dispatched
 signed/unsigned by operand mode. **No fixed-point** (also unimplemented in solc).
 No rationals in the interpreter. One naïveté: `checkedExp` is an O(exponent)
-loop (`:4598`) — semantically fine, but see §4 **hinder-E**.
+loop (`checkedExpLoop` `:5315`) — semantically fine, but see §4 **hinder-E**.
 
 ### 1h. Storage layout — spec-owned, solc-exact
 `StorageLayout` (`:1182`) = `scalar|packedScalar|struct|fixedArray|dynamicArray|
@@ -211,7 +260,7 @@ Slot derivation with **real keccak** (`mappingStorageSlot = keccak(key‖slot)`
 form exactly (`storageBytesHeader?` `:2248`, long chunks at `keccak(slot)+i`).
 One recursive load/store/clear family per layout
 (`State.loadStorageLayoutAt`/`storeStorageLayoutAt`/deep-clear on shrink), and
-the resolver `State.resolveStoragePathSlot` (`:3320`) that turns
+the resolver `State.resolveStoragePathSlot` (`:3985`) that turns
 `storagePathRef name indexes` into a concrete `(slot, layout)`. **This resolver
 *is* the layout encoding `E : (typed access) → word slot` a lowering needs** —
 but it is re-derived per access, not a standalone compiled artifact (§4
@@ -221,12 +270,18 @@ code-substitution model — abstract vs the EVM's code-embedded immutables (§4
 **hinder-I**).
 
 ### 1i. Control flow / functions / dispatch
-`Expr` (`:4458`, ~60 ctors) and `Stmt` (`:6205`, ~55 ctors) are a **desugared,
-monomorphic core**: storage/memory locations explicit, ABI/encode/cast/cleanup
-nodes explicit. `Result` (`:6271`) is six-way `normal|returned|selfdestructed|
-reverted|broke|continued`, each carrying `Runtime`. `FunctionDef` (`:7560`) →
-`Contract` (`:7768`) a **flat `List FunctionDef`** found by name or selector
-(dispatch resolved statically at elaboration). Try-catch
+`Expr` (~60 ctors) and `Stmt` (~55 ctors) are a **desugared, monomorphic
+core**: storage/memory locations explicit, ABI/encode/cast/cleanup nodes
+explicit, and — since the boundary-completion arc — **internal calls explicit**
+(`Stmt.internalCall targets callee args` and `Stmt.internalCallPtr` for calls
+through internal function pointers, `:7118`/`:7126`). `Result` is six-way
+`normal|returned|selfdestructed|reverted|broke|continued`, each carrying
+`Runtime`. `FunctionDef` (now carrying `dispatchId?` for function-pointer
+words) → `Contract` a **flat `List FunctionDef`** found by name or selector,
+projected by `Contract.table` (`:8916`) to the `FunctionTable` that
+`Stmt.eval` threads and `internalCall` looks up at call time
+(`FunctionTable.lookup?`/`lookupById?`; a miss — including the uninitialized
+pointer ID 0 — is a runtime check, `:7123`). Try-catch
 (`Stmt.tryExternalCall`/`tryContractCreate` `:6246`) branches on the
 environment-answered result's `success`; catch dispatch matches
 `Error(string)`/`Panic(uint)`/low-level bytes on the answer (`:6478`); the callee
@@ -277,18 +332,20 @@ surface references, `Interpreter.lean` importing only `Shared.*` (clean
 dependency floor). This is the natural anchor for the lowering's top layer.
 
 **Hinders / seam risk.**
-- **Internal calls and modifiers are inlined away before the core**
-  (`:10350`, fuel 64). A faithful Yul lowering keeps Solidity internal functions
-  as **Yul functions** (that is the whole point of the Functions layer below).
-  The core has erased the very construct the first lowering layer would preserve,
-  and **internal recursion is unrepresentable** (inline-fuel exhaustion →
-  elaboration `none`). This is the single biggest structural mismatch: the
-  source-of-truth "function" boundary is gone by the time we have the IR. See
-  recommendation **D1**.
-- **Constructor entry re-runs elaboration per construction** (`:19145`) — fine
-  for an executable oracle, but it means "construct" is not a fixed IR artifact;
-  a creation lowering theorem would want the elaborated creation-frame object
-  once.
+- ~~Internal calls and modifiers are inlined away before the core~~ —
+  **RESOLVED for internal calls** (boundary-completion arc): internal calls and
+  internal-function-pointer calls are core constructs evaluated against the
+  `FunctionTable`, recursion is representable, and the inline-splice path is
+  deleted (see §1b, D1). The **residual** mismatch is smaller: **modifiers are
+  still inlined** by placeholder substitution, so a lowering either accepts the
+  inlined form or reconstructs a modifier split — a much shallower question
+  than the old function-boundary erasure, since inlined modifiers neither hide
+  recursion nor erase the call-graph structure the Sc proof inducts over.
+- **Legacy `?` constructor entries re-run elaboration per construction**
+  (`SourceUnit.constructContract?`) — fine for an executable oracle. The
+  Phase-5 tree entries (`constructFromTree`) instead resolve the constructor
+  from the already-elaborated `CheckedProgram`, which is the fixed-artifact
+  shape a creation lowering theorem wants.
 - String-keyed storage/locals at core level (`Expr.storage : String`,
   `Value.storageRef : String`) — a lowering must map these to slots/stack, which
   the layout resolver already computes but per-access (see 2d).
@@ -302,14 +359,13 @@ dependency floor). This is the natural anchor for the lowering's top layer.
 pick a memory layout (head/tail, length-prefixed) for these and prove the
 structural operations refine the pointer-arithmetic Yul emits. The interpreter's
 **object-heap memory** (`memory : List (Nat × Value)` with aliasing) does **not**
-correspond to Yul's flat `ByteArray` memory + free-memory-pointer at all — and
-the byte-shadow that *would* correspond (`memoryByteMap`/`memoryFreePointer`)
-is **dead** (§4 **hinder-M**). This is the memory-model translation layer the
-lowering will need; the current abstract heap is convenient for execution but is
-*not* the representation a memory-refinement proof wants. Per the roadmap this
-is deliberately deferred (memory layout is not spec-owned; it reaches queries
-only via ABI-encoded calldata bytes, which the ABI layer already concretizes).
-The recommendation is only to **not entrench the dead byte-shadow** (§4 M).
+correspond to Yul's flat `ByteArray` memory + free-memory-pointer at all (the
+old dead byte-shadow that superficially resembled it has been **deleted**, N2).
+This is the memory-model translation layer the lowering will need; the current
+abstract heap is convenient for execution but is *not* the representation a
+memory-refinement proof wants. Per the roadmap this is deliberately deferred
+(memory layout is not spec-owned; it reaches queries only via ABI-encoded
+calldata bytes, which the ABI layer already concretizes).
 
 ### 2c. Arithmetic
 **Helps, strongly.** Word ops are definitionally `EvmYul.UInt256` ops, and the
@@ -330,7 +386,7 @@ solc-exact with real keccak. Per the roadmap this is spec-owned and in scope.
 The done-relation's `OpenWorld` storage is word→word; `State.storage` is
 word→word; the snapshot is a near-direct read. This is the area where the source
 semantics is *already* at the Yul level.
-**Neither-S.** The layout encoding `E` (`resolveStoragePathSlot` `:3320`) exists
+**Neither-S.** The layout encoding `E` (`resolveStoragePathSlot` `:3985`) exists
 but is **re-derived per access** rather than materialized once as a
 `CoreContract → (path → slot)` artifact. For a lowering proof you want a single
 named total function (the "compiler-generated layout" the skill insists must
@@ -365,8 +421,8 @@ change recommended.
 ### 2g. Gas / fuel / truncation
 **Helps.** `gasleft` is an ambient constant and the alphabet already reserves
 `Query.resource gas`; Yul's `gas()` is `Query.resource .gas`, so un-deferring is
-additive on both sides. Fuel exhaustion is becoming `SolidityFailure.outOfFuel`
-(a distinguished, reflectable outcome), which is exactly what
+additive on both sides. Fuel exhaustion is `SolidityFailure.outOfFuel`
+(a distinguished, reflectable outcome, landed), which is exactly what
 `ForwardRel.trans`'s `hReflect` needs (§0). **This is the correct shape** — do
 not let it regress to `Option`.
 **Recorded residue (not to fix now):** `requestedGas` gas-key erasure (no-gas vs
@@ -455,11 +511,14 @@ object:
       done-rel: OpenWorld + return values (as words/memory refs) + control outcome
                 (normal/return/revert), quantified over the call graph by induction
                 on source fuel / the evaluation derivation.
-      size: LARGE and HARDEST — and today it has NOTHING to refine, because
-            elaboration has already INLINED internal calls and modifiers away
-            (fuel 64) before CoreContract exists (§2a, D1). This layer's source IR
-            must be RECONSTRUCTED (keep functions as functions upstream) or the
-            layer is impossible and recursion stays unsupported. See D1.
+      size: LARGE and still the HARDEST proof (induction on source fuel over
+            the call graph) — but since the boundary-completion arc it HAS a
+            source IR to refine: internal functions are `FunctionTable` entries,
+            call sites are `Stmt.internalCall`/`internalCallPtr` core nodes, and
+            recursion is representable (D1 resolved). Residual: modifiers are
+            still inlined at elaboration, so this seam sees post-modifier
+            function bodies — a stated, shallow fragment worth naming in the
+            theorem, not a structural break.
 
   Sm  MEMORY-LAYOUT layer         structural values (tuple/array/bytes/string, memoryRef)
       abstracts: aggregate values as regions of a flat byte memory.
@@ -524,8 +583,9 @@ more concrete (memory offsets, slot arithmetic, stack-free but layout-explicit).
 
 ### Where the elaborated CoreContract actually sits
 
-**Not at the top of a short hop — mid-tower, with some layers already collapsed
-and one prematurely destroyed.** Concretely:
+**Not at the top of a short hop — mid-tower, with some layers already
+collapsed.** (First draft: "and one prematurely destroyed" — no longer true;
+the Sc source has been restored.) Concretely:
 - CoreContract has **already applied Sy-input and Sk-input shape**: storage
   access is explicit typed paths (good — Sy's source), arithmetic is explicit
   word ops with cleanup nodes (good — Sk's source). For these seams the core is
@@ -533,31 +593,30 @@ and one prematurely destroyed.** Concretely:
 - CoreContract has **already partly collapsed Sm**: values are still structural
   (`tuple/array/bytes`), so Sm's *source* is present — but memory is an object
   heap, so there is representation work, not just a layout choice.
-- CoreContract has **destroyed Sc's source**: internal calls and modifiers are
-  inlined away and recursion is unrepresentable (§2a). The calling-convention
-  layer has **no IR to refine** unless a function-preserving representation is
-  kept upstream. This is the tower's structural break, not a detail.
+- CoreContract now **carries Sc's source** (boundary-completion arc): internal
+  functions are `FunctionTable` entries, call sites are `Stmt.internalCall`/
+  `internalCallPtr`, function pointers have dispatch IDs, and recursion is
+  representable. The remaining collapse is modifiers-inlined-at-elaboration —
+  a stated fragment, not a missing layer.
 - CoreContract **is** roughly Sd's source (flat function list + selector table),
   so the dispatch layer sits naturally on it.
 
-So the honest picture: the current core is a good **Sy/Sk/Sd** anchor, an
-**adequate-but-heap-mismatched Sm/Sx** anchor, and a **broken Sc** anchor. A
-real tower would either (a) re-introduce a function-structured IR above the
-current inlined core, or (b) explicitly scope the lowering to non-recursive
-internal calls and accept inlining — a stated fragment, which the
-verified-compiler discipline warns against doing silently.
+So the honest picture: the current core is a good **Sy/Sk/Sd/Sc** anchor
+(Sc modulo the stated modifier-inlining fragment) and an
+**adequate-but-heap-mismatched Sm/Sx** anchor.
 
 ### Hardest seams (ranked)
 
-1. **Sc (calling convention / function boundary)** — hardest, and currently
-   *impossible on the existing IR* because the boundary is inlined away and
-   recursion is unrepresentable. Needs the source IR reconstructed (D1). Its
-   proof is the induction-on-source-fuel/derivation over the call graph — the
-   one place the skill insists you must not use an "all callees preserve"
-   oracle.
+1. **Sc (calling convention / function boundary)** — hardest *proof* (the
+   induction-on-source-fuel/derivation over the call graph — the one place the
+   skill insists you must not use an "all callees preserve" oracle), but no
+   longer blocked: the source IR exists (D1 resolved; `FunctionTable` +
+   `internalCall`/`internalCallPtr`, recursion representable). Residual stated
+   fragment: modifiers inlined.
 2. **Sm (memory layout)** — full translation layer; the object-heap memory has
-   no correspondence to Yul's flat bytes, and the would-be byte model is dead
-   code. New model + invariant + per-type layout proofs. Interlocks with Sx.
+   no correspondence to Yul's flat bytes (the old dead byte-shadow is deleted,
+   so the byte model is built fresh here). New model + invariant + per-type
+   layout proofs. Interlocks with Sx.
 3. **Sx (ABI codec) on the memory model** — faithful spec exists, but relating
    it to Yul's codec over concrete memory rides on Sm and touches the public
    done-relation (revert/return bytes).
@@ -582,32 +641,28 @@ representation already lives at the Yul level for both.
   open-world calls.
 - **neither-S (layout artifact)** — `E` exists but is re-derived per access, not
   a materialized spec-owned function. → **P1**.
-- **hinder-D1 (function boundary)** — modifiers/internal-calls inlined,
-  recursion unrepresentable, before the core IR exists. The one deep mismatch. → **D1**.
-- **hinder-M (memory)** — live memory is an object heap unlike Yul's flat bytes;
-  the byte-shadow that *would* correspond is **dead code**. → **M** (delete/keep-out).
+- **hinder-D1 (function boundary)** — **RESOLVED** (boundary-completion arc):
+  internal calls/pointer-calls are core constructs over a `FunctionTable`,
+  recursion representable, inline-splice deleted. Residual stated fragment:
+  modifiers still inlined. → **D1** (now a record of the resolution).
+- **hinder-M (memory)** — live memory is an object heap unlike Yul's flat
+  bytes. The dead byte-shadow is **deleted** (N2 done); the real byte model is
+  a lowering-project artifact. Still the biggest representation gap.
 - **hinder-I (immutables)** — name-keyed typed values, no code-substitution
   model; abstract vs EVM code-embedded immutables. Lowering-era concern; note only.
 - **hinder-R (revert)** — structured `RevertData` vs Yul bytes; encoder exists,
   done-rel carries the encode. Keep structured; note only.
 - **hinder-E (exp)** — `checkedExp` O(exponent) loop; lower to Yul `exp`, prove
   equal. Cheaper against a closed-form. Note only.
-- **vestigial-1** — **~14 dead classifier enums** (observation-era vocabulary
-  outliving Phase 4): `LowLevelCallEvaluationStatus` (`:6085`),
-  `ContractCreationEvaluationStatus` (`:6096`), `ShortCircuitDecision` (`:6107`),
-  `TerminalEvaluationKind/Status`, `RequireCheckKind`, `RevertPayloadKind`,
-  `IfBranchSelection`, `WhileLoopStep/ForLoopStep`, `EvalMode`,
-  `TryExternalCallEvaluationStatus/TryContractCreateEvaluationStatus`,
-  `FunctionEntryKind`, `ExternalResolutionKind`, `StorageFieldAccessKind`,
-  `ResultMode`, `CallExitMode` — zero non-definition references. → **V1**.
-- **vestigial-2** — the dead byte-memory shadow (= hinder-M). → **M**.
+- **vestigial-1** — the ~14 dead observation-era classifier enums
+  (`LowLevelCallEvaluationStatus`, `ShortCircuitDecision`, …) — **DELETED** (N1 done).
+- **vestigial-2** — the dead byte-memory shadow — **DELETED** (N2 done).
 - **vestigial-3** — `ChildEvalOrder.unspecifiedOrders` singleton +
   `callUnspecifiedResults`/`CallsUnspecified` machinery: the unspecified-order
   latitude has collapsed to a single deterministic order but the quantification
   scaffolding remains. → **V3** (evaluate; low priority).
-- **vestigial-4** — end-of-file example/witness defs in `Interpreter.lean`
-  (`compositionalControlExample … writesThenRevertsCall`, `:7939–8113`) living
-  in the semantics file rather than `Witness/`. → **V4** (trivial move).
+- **vestigial-4** — the end-of-file example/witness defs — **MOVED** to
+  `SolidCore/Witness/InterpreterExamples.lean` (N3 done).
 - **clean** — zero `partial`/`sorry`/`axiom` in `Interpreter.lean`; no
   nondeterminism (single deterministic evaluation order); rollback purely
   functional and pinned by a theorem.
@@ -616,56 +671,23 @@ representation already lives at the Yul level for both.
 
 ## 5. Recommended prep refactorings
 
-Separated into "worth doing now (during this cleanup, while the files are in
-motion)" and "defer to the lowering project." Each anchored to code. **None of
-these should race the in-flight Phase 5 / A1 edits** — the ones touching
-`Interpreter.lean`/`Interface.lean` should land after Phase 5 settles or be
-scoped to untouched regions; that ordering note is part of each item.
+Separated into "worth doing now" and "defer to the lowering project."
 
-### Do now (cheap, and now beats later)
+### Do now (cheap, and now beats later) — ALL DONE as of 2026-07-08
 
 **N1 — Delete the ~14 dead observation-era classifier enums (vestigial-1).**
-*Rationale:* they are the exact "speculative interface built for a future proof,
-used in zero theorems" the roadmap and skill both say to delete — a second,
-smaller instance of the already-deleted observation layer. Leaving them invites
-someone to "maintain" them per semantic change. *Cost:* ~1 hour; pure deletion,
-build-checked (they have no non-definition references). *Now-beats-later:* Phase
-4 already tuned the deletion tooling for exactly this pattern; the tree is
-already being churned so the diff is cheap to review. *Ordering:* independent of
-Phase 5's live edits (these enums are not on the SolI path) — but coordinate to
-land after Phase 5 to avoid merge noise. Anchor: `Interpreter.lean:6085–7709`
-enumerated in §4 vestigial-1.
+**DONE** — deleted; no non-definition references remained.
 
-**N2 — Retire the dead byte-memory shadow, or mark it explicitly (hinder-M / V2).**
-*Rationale:* `memoryByteMap`/`memoryBytesUsed`/`memoryFreePointer`/
-`memoryAllocations` with readers `loadMemoryByte?/readMemoryBytes?` that have
-**zero call sites** are dead weight that will actively **mislead** the lowering
-project — it looks like the Yul-shaped memory model but is unwired and only
-partially populated. Either delete it, or (if the alloc-limit guard genuinely
-needs the counter) reduce it to just the counter with a comment saying it is
-*not* a memory semantics. *Cost:* 1–2 hours (verify the alloc-limit guard's real
-dependency first). *Now-beats-later:* the future memory-refinement layer will
-want to *build* the real byte model; a half-built impostor in `Runtime` is worse
-than nothing. *Ordering:* `Runtime` is on the Phase-5 path — do after it settles.
-Anchor: `Interpreter.lean:676, 924, 940, 944, 961`.
+**N2 — Retire the dead byte-memory shadow (hinder-M / V2).**
+**DONE** — `memoryByteMap`/`memoryFreePointer`/readers deleted from `Runtime`;
+the future memory-refinement layer builds the real byte model from scratch.
 
 **N3 — Move the in-file example defs to `Witness/` (V4).**
-*Rationale:* the roadmap's "no mixed-concern file" rule; `compositionalControlExample
-… writesThenRevertsCall` are witnesses living in the semantics module. *Cost:*
-~30 min, verbatim move (Phase-3a pattern). *Now-beats-later:* trivial now, and
-keeps the semantics file to semantics as the lowering carves it up. Anchor:
-`Interpreter.lean:7939–8113`.
+**DONE** — now `SolidCore/Witness/InterpreterExamples.lean`.
 
-**N4 — Coarse import edge: `Ast.lean` imports `ABI.lean` (hence the whole
-interpreter) for just `Word`/`Byte`/precompile names.**
-*Rationale:* the surface AST should not depend on the interpreter; this inverts
-the clean core-first dependency floor and would force the lowering's frontend to
-drag the interpreter. *Cost:* ~1 hour — point `Ast.lean` at `Shared/Word.lean`
-(and a small precompile-names module) instead of `ABI.lean`. *Now-beats-later:*
-the dependency graph is being actively reshaped this cleanup; fixing the edge now
-avoids re-plumbing later. *Ordering:* `Ast.lean` and `ABI.lean` are both touched
-by concurrent agents — confirm current imports before editing; low urgency, can
-wait for Phase 6. Anchor: `Ast.lean:8`.
+**N4 — Fix the coarse import edge (`Ast.lean` → `ABI.lean`).**
+**DONE** — `Ast.lean` now imports only `SolidCore.Solidity.Shared.Precompile`
+and `SolidCore.Solidity.Shared.Word`.
 
 ### Consider now (higher value, higher care — flag for the orchestrator)
 
@@ -673,7 +695,7 @@ wait for Phase 6. Anchor: `Ast.lean:8`.
 function (neither-S).** *Rationale:* the lowering's storage seam needs a single
 named total `CoreContract →ᴱ (storage path → word slot + packing)` with a checked
 constructor (the skill's "compiler-generated evidence must be constructed").
-Today the logic lives inside `resolveStoragePathSlot` (`:3320`) and the
+Today the logic lives inside `resolveStoragePathSlot` (`:3985`) and the
 elaboration-side slot assignment (`toCoreStorageFieldsFromSlot` `Interface.lean:17611`),
 re-derived per access. Extracting it now — as a definition the interpreter
 *uses* (proving the per-access path equals `E`) rather than a parallel copy —

@@ -2,8 +2,8 @@
 """Known-gaps dedup registry + fingerprints (design §6.1b, §6.2).
 
 Every terminal gap gets a ROOT-CAUSE fingerprint (not exact source text) so that
-a resubmission of an already-recorded gap is flagged DUPLICATE (no payout to a
-second finder of G1). We dedup against TWO registries:
+a resubmission of an already-recorded gap is flagged DUPLICATE (no leaderboard
+credit to a second finder of G1). We dedup against TWO registries:
 
   (i)  the exclusion register (§1) - an OOS hit is not a gap (handled by the
        gate; a submission the gate rejects never reaches dedup); and

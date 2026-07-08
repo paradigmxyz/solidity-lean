@@ -240,10 +240,13 @@ def detect_msize(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
 
 
 def detect_storage_layout_specifier(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+    # Match the node type PRECISELY (review X-1): the old `"storageLayout" in
+    # node` clause fired on any node that merely carried a `storageLayout` field
+    # for unrelated reasons, falsely rejecting legitimate submissions.
     hits = []
     for node in iter_nodes(src.ast):
         nt = node.get("nodeType")
-        if nt in ("StorageLayoutSpecifier",) or "storageLayout" in node:
+        if nt == "StorageLayoutSpecifier":
             hits.append(Hit(entry.id, src.source,
                             enclosing_contract_name(src.ast, node),
                             node_src(node), entry.reason))
@@ -469,21 +472,33 @@ def detect_closed_world_gas_observable(entry: reg.ExclusionEntry, src: SourceAst
 
 def detect_v1_multi(sources: list[SourceAst]) -> list[Hit]:
     concrete: list[tuple[SourceAst, dict[str, Any]]] = []
+    base_ids: set[int] = set()
     for src in sources:
         for node in iter_nodes(src.ast):
             if node.get("nodeType") != "ContractDefinition":
                 continue
+            # Every id referenced in ANY contract's linearized base chain (other
+            # than the contract itself) is a base, not a separately-deployed
+            # contract (review finding 6): ordinary inheritance from a concrete
+            # base must not trip V1-MULTI.
+            for bid in node.get("linearizedBaseContracts", []) or []:
+                if bid != node.get("id"):
+                    base_ids.add(bid)
             if node.get("contractKind") != "contract":
                 continue  # skip library / interface
             if node.get("abstract"):
                 continue
             concrete.append((src, node))
-    if len(concrete) <= 1:
+    # Count only concrete contracts that are NOT a base of some other contract,
+    # i.e. the actually-deployable "leaf" contracts.
+    deployable = [(src, n) for src, n in concrete if n.get("id") not in base_ids]
+    if len(deployable) <= 1:
         return []
-    # v1: any 2+ concrete deployable contracts trigger the guard. (A precise
+    # v1: 2+ independently-deployable contracts trigger the guard. (A precise
     # mutual-call-reachability analysis is the v2 refinement; the conservative
-    # v1 rule rejects all multi-concrete-contract submissions - see seam in
+    # v1 rule rejects multi-deployable submissions - see seam in
     # multi_contract.py.)
+    concrete = deployable
     names = ", ".join(f"{n.get('name')}@{src.source}" for src, n in concrete)
     reason = ("v1 ships single-contract only (design §3.3): the reflective "
               "multi-contract responder is a v2 feature. Submission has "
@@ -518,14 +533,36 @@ _SEMANTIC_DETECTORS: dict[str, Callable[[reg.ExclusionEntry, SourceAst], list[Hi
 
 
 # ===========================================================================
-# TEST-FILE cheatcode scan (review P0 #3). The submission's TEST is NOT a
-# source Solidus imports, but it drives what the EVM measures. A test using a
-# state/oracle-forging cheatcode (vm.store/mockCall/ffi/etch/...) can fabricate
-# a divergence Solidus (run from a clean env) can never reproduce. Policy
-# (contest/env.py): DEFAULT-DENY every vm.*/hevm cheatcode except the
-# env-pinning/setup whitelist, whose literal effects are MIRRORED into the
-# Solidus env. Returns (banned_hits, overrides, unmirrorable_hits).
+# Cheatcode scan (review P0 #3 + adversarial-review findings 1 & 2). The trust
+# boundary is NOT "a call written as `vm.foo(...)` in the test file" — it is
+# "ANY call to the Foundry cheatcode address from ANY submitted code executed
+# under `forge test`". The old identifier-name detector was bypassable by
+# aliasing the handle (`CVm cheat = CVm(HEVM_ADDRESS); cheat.ffi(...)`) or by a
+# raw `address(0x7109...).call(...)`, and it never scanned `src/` (which the
+# measurement harness DEPLOYS and calls, so a cheatcode call from the entry
+# contract itself forges the measured EVM observable).
+#
+# This detector is re-centered on the cheatcode ADDRESS:
+#   * The cheat address literal (0x7109709E...) or the `"hevm cheat code"` seed
+#     string, appearing ANYWHERE, is a cheat reference.
+#   * In `src/`: any cheat reference is banned (entry contracts have no
+#     legitimate reason to touch the cheatcode address).
+#   * In `test/`: a cheat reference is allowed ONLY inside a `vm`/`hevm` handle
+#     DECLARATION's initializer; the handle may then be used for whitelisted,
+#     literal-argument, env-pinning cheatcodes (mirrored into the Solidus env).
+#     Every other cheat reference, every non-whitelisted member call on a
+#     handle, and every raw `.call/.staticcall/.delegatecall` whose receiver
+#     reaches a handle/the cheat address, is banned.
+# Defence in depth: the adjudicator ALSO runs forge under a harness-generated
+# `foundry.toml` with `ffi` disabled and `fs_permissions` empty, so even a
+# missed reference cannot reach the host FS or shell.
 # ===========================================================================
+
+# address(uint160(uint256(keccak256("hevm cheat code")))).
+CHEAT_ADDR = 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D
+CHEAT_CODE_STRING = "hevm cheat code"
+_LOWLEVEL_CALLS = ("call", "staticcall", "delegatecall")
+
 
 def _literal_int(node: Any) -> Optional[int]:
     """Extract an integer from a Literal / simple address wrapper, else None."""
@@ -552,9 +589,51 @@ def _literal_int(node: Any) -> Optional[int]:
     return None
 
 
-def _vm_call_name(node: dict[str, Any]) -> Optional[str]:
-    """If ``node`` is a `vm.<member>(...)` / `hevm.<member>(...)` /
-    `console.<member>(...)` call, return the member name."""
+def _is_cheat_ref(node: Any) -> bool:
+    """True if ``node`` is a literal that names the cheatcode address — either
+    the numeric address itself, or the ``"hevm cheat code"`` keccak seed used to
+    derive it."""
+    if not isinstance(node, dict) or node.get("nodeType") != "Literal":
+        return False
+    if node.get("kind") == "string" and node.get("value") == CHEAT_CODE_STRING:
+        return True
+    iv = _literal_int(node)
+    return iv is not None and iv == CHEAT_ADDR
+
+
+def _subtree_cheat_refs(node: Any) -> list[dict[str, Any]]:
+    return [n for n in iter_nodes(node) if _is_cheat_ref(n)]
+
+
+def _cheat_handles(ast: dict[str, Any]) -> tuple[set[str], set[int]]:
+    """Return (handle_names, sanctioned_ref_ids). A *handle* is a variable whose
+    declaration initializer references the cheat address (plus the conventional
+    builtins ``vm``/``hevm``); the cheat references INSIDE those initializers are
+    ``sanctioned`` (allowed). Every other cheat reference is a bypass."""
+    handles: set[str] = {"vm", "hevm"}
+    sanctioned: set[int] = set()
+    for n in iter_nodes(ast):
+        nt = n.get("nodeType")
+        init = None
+        names: list[Optional[str]] = []
+        if nt == "VariableDeclaration" and n.get("value") is not None:
+            init, names = n.get("value"), [n.get("name")]
+        elif nt == "VariableDeclarationStatement":
+            init = n.get("initialValue")
+            names = [d.get("name") for d in (n.get("declarations") or [])
+                     if isinstance(d, dict)]
+        if init is None:
+            continue
+        refs = _subtree_cheat_refs(init)
+        if refs:
+            handles.update(nm for nm in names if nm)
+            sanctioned.update(id(r) for r in refs)
+    return handles, sanctioned
+
+
+def _handle_member_call(node: dict[str, Any], handles: set[str]) -> Optional[str]:
+    """If ``node`` is ``<handle>.<member>(...)`` with ``<handle>`` a cheat handle
+    identifier, return the member name."""
     if node.get("nodeType") != "FunctionCall":
         return None
     callee = node.get("expression")
@@ -563,9 +642,19 @@ def _vm_call_name(node: dict[str, Any]) -> Optional[str]:
     base = callee.get("expression")
     if not isinstance(base, dict) or base.get("nodeType") != "Identifier":
         return None
-    if base.get("name") not in ("vm", "hevm", "console", "console2"):
+    if base.get("name") not in handles:
         return None
     return callee.get("memberName")
+
+
+def _receiver_reaches_cheat(recv: Any, handles: set[str]) -> bool:
+    for n in iter_nodes(recv):
+        if _is_cheat_ref(n):
+            return True
+        if isinstance(n, dict) and n.get("nodeType") == "Identifier" \
+                and n.get("name") in handles:
+            return True
+    return False
 
 
 @dataclass
@@ -579,28 +668,60 @@ class CheatcodeScan:
         return bool(self.banned or self.unmirrorable)
 
 
-def scan_test_cheatcodes(test_asts: list[SourceAst]) -> CheatcodeScan:
+def scan_cheatcodes(asts: list[SourceAst], is_test: bool) -> CheatcodeScan:
+    """Address-centred cheatcode scan (see the section header).
+
+    ``is_test=False`` (src): any cheat reference is banned. ``is_test=True``
+    (test): cheat references are allowed only inside handle declarations, and
+    whitelisted literal-argument env cheatcodes are mirrored into the env."""
     scan = CheatcodeScan()
-    for src in test_asts:
-        base_call = None
-        for node in iter_nodes(src.ast):
-            name = _vm_call_name(node)
-            if name is None:
+    for src in asts:
+        handles, sanctioned = (_cheat_handles(src.ast) if is_test
+                               else ({"vm", "hevm"}, set()))
+
+        # (1) Any cheat reference outside a sanctioned handle declaration.
+        for n in iter_nodes(src.ast):
+            if _is_cheat_ref(n) and id(n) not in sanctioned:
+                scan.banned.append(Hit(
+                    "CHEAT-ADDR", src.source,
+                    enclosing_contract_name(src.ast, n), node_src(n),
+                    "reference to the Foundry cheatcode address outside a "
+                    "sanctioned vm-handle declaration (aliasing / raw-call "
+                    "bypass); default-deny"))
+
+        # (2) Raw low-level call whose receiver reaches a handle or the address.
+        for n in iter_nodes(src.ast):
+            if n.get("nodeType") != "FunctionCall":
                 continue
-            # console.* logging is a harmless observ-ability no-op.
-            call_base = node.get("expression", {}).get("expression", {})
-            if isinstance(call_base, dict) and call_base.get("name") in ("console", "console2"):
+            callee = n.get("expression")
+            if not isinstance(callee, dict) or callee.get("nodeType") != "MemberAccess":
+                continue
+            if callee.get("memberName") in _LOWLEVEL_CALLS \
+                    and _receiver_reaches_cheat(callee.get("expression"), handles):
+                scan.banned.append(Hit(
+                    "CHEAT-RAWCALL", src.source,
+                    enclosing_contract_name(src.ast, n), node_src(n),
+                    "raw call to the cheatcode address (bypasses member "
+                    "dispatch); default-deny"))
+
+        # (3) Whitelisted member calls on a handle (test side only).
+        if not is_test:
+            continue
+        for node in iter_nodes(src.ast):
+            name = _handle_member_call(node, handles)
+            if name is None:
                 continue
             if name in cenv.CHEATCODE_IGNORE:
                 continue
+            if name in _LOWLEVEL_CALLS:
+                continue  # handled by (2)
             if name not in cenv.CHEATCODE_ALLOW:
                 scan.banned.append(Hit(
                     "CHEAT-DENY", src.source,
                     enclosing_contract_name(src.ast, node), node_src(node),
-                    f"banned cheatcode vm.{name} (default-deny; not on the "
+                    f"banned cheatcode .{name} (default-deny; not on the "
                     f"env-pinning whitelist {sorted(cenv.CHEATCODE_ALLOW)})"))
                 continue
-            # Whitelisted: mirror its literal effect into the env overrides.
             field = cenv.CHEATCODE_ALLOW[name]
             args = node.get("arguments") or []
             if field == "_noop":
@@ -614,7 +735,7 @@ def scan_test_cheatcodes(test_asts: list[SourceAst]) -> CheatcodeScan:
                 scan.unmirrorable.append(Hit(
                     "CHEAT-UNMIRROR", src.source,
                     enclosing_contract_name(src.ast, node), node_src(node),
-                    f"vm.{name} with non-literal args cannot be mirrored into "
+                    f".{name} with non-literal args cannot be mirrored into "
                     "the Solidus env"))
                 continue
             v = _literal_int(args[0]) if args else None
@@ -622,7 +743,7 @@ def scan_test_cheatcodes(test_asts: list[SourceAst]) -> CheatcodeScan:
                 scan.unmirrorable.append(Hit(
                     "CHEAT-UNMIRROR", src.source,
                     enclosing_contract_name(src.ast, node), node_src(node),
-                    f"vm.{name} with a non-literal argument cannot be mirrored "
+                    f".{name} with a non-literal argument cannot be mirrored "
                     "into the Solidus env (v1 requires a literal)"))
                 continue
             if field == "_sender":
@@ -630,6 +751,16 @@ def scan_test_cheatcodes(test_asts: list[SourceAst]) -> CheatcodeScan:
             else:
                 setattr(scan.overrides, field, v)
     return scan
+
+
+def scan_test_cheatcodes(test_asts: list[SourceAst]) -> CheatcodeScan:
+    """Back-compat wrapper: scan test ASTs (whitelist + mirror)."""
+    return scan_cheatcodes(test_asts, is_test=True)
+
+
+def scan_src_cheatcodes(src_asts: list[SourceAst]) -> CheatcodeScan:
+    """Scan src ASTs: any cheatcode-address reference is banned."""
+    return scan_cheatcodes(src_asts, is_test=False)
 
 
 

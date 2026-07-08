@@ -1,8 +1,11 @@
 # Divergence Contest — Design (coverage + soundness lanes, exclusion gate)
 
-**Status:** design, decisions made. **Scope:** a public contest where entrants
-submit Forge tests that demonstrate a divergence between **Solidus** (this repo's
-executable Lean Solidity 0.8.35 semantics) and real **solc 0.8.35 / Foundry-EVM**.
+**Status:** design, decisions made. **Scope:** a public, for-fun contest where
+entrants submit Forge tests that demonstrate a divergence between **Solidus**
+(this repo's executable Lean Solidity 0.8.35 semantics) and real **solc 0.8.35 /
+Foundry-EVM**. Qualifying submissions earn a place on a public leaderboard; there
+is no monetary component. The adjudicator is fully programmatic so counterexamples
+can be checked automatically on submission.
 
 This document is the plan of record: the versioned exclusion register with
 machine-checkable detectors, the reject-gate pipeline, the recommended
@@ -39,7 +42,7 @@ solc+EVM produce observable O, but Solidus produces O′ ≠ O (or Solidus canno
 the program at all)."* The contest exists because Solidus is validated **only** by
 its differential corpus (`tests/forge-harness/manifest.json`, 128 lanes) — it has
 no end-to-end soundness theorem — so out-of-corpus divergences are the live risk
-the contest is designed to surface and pay for.
+the contest is designed to surface and rank on the leaderboard.
 
 The two lanes:
 
@@ -63,7 +66,7 @@ consulted (§4). A submission that misreports what real solc does is invalid.
 
 The register is the contract between the maintainer and entrants: it enumerates
 every place Solidus **intentionally** does not model 0.8.35, so that a rejection
-or divergence traceable to one of these is **out of scope**, not a prize-winning
+or divergence traceable to one of these is **out of scope**, not a qualifying
 gap. It is **versioned** (`REGISTER_VERSION`, semver) and **shrinks** as gaps are
 fixed; each submission is adjudicated against the register version in force at its
 submission timestamp (§6).
@@ -372,7 +375,7 @@ For each submission, in order (halt at the first terminal verdict):
    (c) Solidus RUNS to completion:
          - Compute Solidus observable (§3.4). Compute solc+EVM observable from the
            Forge run.
-         - Observables EQUAL      ⇒ NO_DIVERGENCE  (agree; rejected, not a prize).
+         - Observables EQUAL      ⇒ NO_DIVERGENCE  (agree; rejected, not a gap).
          - Observables DIFFER     ⇒ **SOUNDNESS_GAP (lane S, wrong-observable).**
            Sub-kind by which component differs: wrong-value / wrong-revert /
            wrong-panic / revert-vs-success / wrong-state / wrong-events.  [terminal]
@@ -385,9 +388,9 @@ For each submission, in order (halt at the first terminal verdict):
        scoring/dedup (§6); both are lane C.
 ```
 
-Terminal verdicts that pay out: **COVERAGE_GAP** (lane C) and **SOUNDNESS_GAP**
-(lane S). Everything else (INVALID, REJECTED_OOS, NO_DIVERGENCE, REJECT_MALFORMED)
-does not pay and returns the specific reason.
+Terminal verdicts that qualify for the leaderboard: **COVERAGE_GAP** (lane C) and
+**SOUNDNESS_GAP** (lane S). Everything else (INVALID, REJECTED_OOS,
+NO_DIVERGENCE, REJECT_MALFORMED) does not qualify and returns the specific reason.
 
 **Precise "observable" and how equality is checked** — see §3.4. The equality
 check *requires* the closed-world reflective execution of §3 whenever the entry
@@ -463,7 +466,7 @@ the top return value. Nothing in the Forge/solc/import/lean *plumbing* changes.
   gap; and (ii) the **known-open-gaps list** — the G/H/S findings
   (`docs/solidus-solc-deep-comparison.md` G1–G22, plus any W/H items). A submission
   whose root cause matches an already-recorded open gap is **DUPLICATE** (no
-  payout to a second finder of G1). Dedup is by *root cause*, not by source text
+  leaderboard credit to a second finder of G1). Dedup is by *root cause*, not by source text
   (§6.2). The known-gaps list is versioned alongside the register.
 - **(c) Doesn't run on real solc/EVM** — step 1 (Forge must PASS on pinned
   solc+Foundry) rejects any submission whose claimed behavior is fabricated.
@@ -534,7 +537,7 @@ established).
   the gate picks up automatically — no drift.
 - Contest fairness invariant: a submission is judged only against features that
   were *declared out of scope at submission time*. Shrinking the register later
-  never retroactively invalidates a paid gap; it only affects future submissions.
+  never retroactively invalidates an already-credited gap; it only affects future submissions.
 
 ---
 
@@ -630,6 +633,55 @@ responder-free interpreter path. This is a legitimate, launchable contest.
 ---
 
 ## Changelog
+
+### 2026-07-08 — v1.2: leaderboard reframing, RCE/oracle-forgery fixes, events+storage observable
+
+Reframed as a **for-fun leaderboard** (no monetary component; `Report.pays_out` →
+`Report.qualifies`). A second adversarial pass (harness-level) found defects the
+v1.1 pass did not close; all are now fixed in `contest/*.py` and validated by
+`contest/run_samples.py`.
+
+**Security — untrusted execution (see `docs/contest-security-and-sandbox.md`).**
+- **Cheatcode detection re-centred on the cheatcode ADDRESS**, over BOTH `src/`
+  and `test/`, *before* any Forge run (`reject_gate.scan_cheatcodes`). Catches
+  the two bypasses the identifier-name detector missed — an aliased handle
+  (`CVm c = CVm(HEVM_ADDRESS); c.ffi()`) and a raw
+  `address(0x7109…).call(...)` — and closes the `src/`-forges-the-oracle hole
+  (the measurement deploys and calls the entry contract, so a cheatcode call
+  from `src` could rewrite the measured EVM observable).
+- **Forge never runs the submitter's `foundry.toml`.** Both the real-behavior
+  check and the measurement generate a pinned profile with `ffi = false` and a
+  minimal `fs_permissions`; the measurement output now lives OUTSIDE the project
+  tree so the deployed contract cannot write it.
+- **Untrusted claim fields validated before codegen**: `entry.contract` /
+  `entry.function` must be identifiers in ALL paths (blocks Lean string
+  injection, incl. OVER_ACCEPT); `fuel ∈ [1, 100000]`; `entry.args` /
+  `observed_slots` shape/range-checked → `REJECT_MALFORMED`, not a crash.
+- **Inconclusive Solidus failures** (timeout / resource exhaustion / poisoned
+  `fuel`) → new non-qualifying **`NEEDS_REVIEW`** verdict, never an automatic
+  `COVERAGE_GAP`.
+- **V1-MULTI** no longer counts base contracts in the entry's inheritance chain
+  (ordinary inheritance from a concrete base was wrongly rejected);
+  **X-STORAGELAYOUT** matches the node type precisely.
+
+**Observable — components 4 (events) and 5 (storage) are now COMPARED (§3.4).**
+The Lean helper (`observable.renderFull` / `renderEvents` / `renderStorage`)
+extracts events and a declared set of storage slots from the post-call `State`
+and renders them in a tokenized normal form (`…##EVT##…##STO##…`); the EVM side
+measures the same via `vm.recordLogs`/`getRecordedLogs` and `vm.load`
+(`measure.py`). The comparator diffs component-by-component, adding sub-kinds
+`wrong-events` and `wrong-state`. Events/storage are compared only on success
+(the EVM rolls both back on revert). Submissions declare storage slots via
+`claim.observed_slots`. Validated end-to-end against the built Solidus.
+
+**Gap-testing without leaving bugs in Solidus.** The soundness detector is now
+tested by a REAL end-to-end run (`run_real_soundness_selftest`): the full live
+pipeline executes a real contract, then a **one-unit delta is injected at the
+observable boundary** (`observable.perturb_leading_value`, via the
+`_selftest_perturb_evm` seam) so the divergence-detection path is exercised over
+a genuine Solidus execution while Solidus stays bug-free. When a real coverage
+gap is available it is pinned as a fixture whose expected verdict flips to
+NO_DIVERGENCE once fixed — a bug is never kept alive to test detection.
 
 ### 2026-07-08 — v1.1 hardening (`contest/v1.1-hardening`): the three CONTEST-BREAKING defects closed
 

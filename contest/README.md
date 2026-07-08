@@ -93,9 +93,15 @@ submission/
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:5" },
   "feature": "minimal-triggering-feature",       // used for dedup
   "register_version_seen": "1.0.0",
-  "mode": "OVER_ACCEPT"                            // optional: solc-rejects sub-case
+  "mode": "OVER_ACCEPT",                          // optional: solc-rejects sub-case
+  "observed_slots": [0, 1],                       // optional: storage slots to compare
+  "fuel": 64                                      // optional: interpreter fuel (1..100000)
 }
 ```
+
+`observed_slots` (optional) lists the storage slots compared as observable
+component 5. `fuel` (optional, default 64, capped at 100000) bounds the Solidus
+interpreter; out-of-range values are rejected `REJECT_MALFORMED`.
 
 **Entry args** (`observable.render_lean_arg`): `2` → `uint`; `{"int": -8}` →
 signed `int256`; `true`/`false` → bool; `{"word": n}`; `{"bytes": "0x…"}`.
@@ -111,9 +117,16 @@ Compared, in order, with **exact** equality; **gas is never included**:
 1. outcome — success / revert / panic
 2. return data (success)
 3. revert/panic data (Error(string) / Panic(code) / custom / empty / raw)
-4. events *(v1: reserved in the normal form; comparator checks 1–3, which cover
-   every G1–G22 value/revert divergence)*
-5. observed storage *(same status as events in v1)*
+4. events — ordered `(topics, data)` emitted by the entry call (compared on
+   success; the EVM rolls them back on revert)
+5. observed storage — the values at the slots the submission declares in
+   `claim.observed_slots` (compared on success)
+
+Events (4) and storage (5) are now measured on both engines and compared
+component-by-component (sub-kinds `wrong-events` / `wrong-state`): the Solidus
+side extracts them from the post-call `State` (`observable.renderFull`), the EVM
+side via `vm.recordLogs`/`getRecordedLogs` and `vm.load` (`measure.py`). Both are
+rendered in the same tokenized normal form (`…##EVT##…##STO##…`).
 
 **Normal form** (a single canonical line, independent of Solidus's `Repr`):
 
@@ -172,20 +185,28 @@ adversary bank a fake divergence, so the bias is correct (design §1.2, §8).
 
 ## How the adjudicator classifies (design §4)
 
-Four verdicts, two paying lanes:
+Two qualifying lanes (COVERAGE_GAP, SOUNDNESS_GAP); everything else is
+non-qualifying. This is a **for-fun leaderboard** — qualifying submissions earn a
+place on the public leaderboard, there is no monetary component. For the
+untrusted-execution / sandbox requirements of a public deployment see
+`docs/contest-security-and-sandbox.md`.
 
-* **REJECT_MALFORMED** — structure check failed (missing src/test/claim/entry).
+* **REJECT_MALFORMED** — structure check failed (missing src/test/claim/entry) or
+  an invalid claim field (bad identifier, out-of-range fuel/slots, malformed args).
 * **INVALID** — the claimed behavior does not reproduce on pinned solc+Foundry
   (Forge did not PASS; or an OVER_ACCEPT claim where solc did not reject).
-* **REJECTED_OOS** — the reject gate fired (intentional exclusion).
+* **REJECTED_OOS** — the reject gate fired (intentional exclusion, or a banned
+  cheatcode / cheatcode-address reference in src or test).
+* **NEEDS_REVIEW** — Solidus failed *inconclusively* (timeout / resource
+  exhaustion), not a clean reject; routed to a human, never auto-qualified.
 * **COVERAGE_GAP (lane C)** — Solidus **fails closed** (importer `unimplemented`
   / typecheck / elaboration reject; incl. **over-reject**) on an in-scope,
-  solc-accepted program. *Pays out.*
+  solc-accepted program. *Qualifies for the leaderboard.*
 * **NO_DIVERGENCE** — Solidus runs and its observable **equals** solc+EVM's (or
   both reject).
 * **SOUNDNESS_GAP (lane S)** — Solidus **runs** but the observable **differs**
   (wrong-value / wrong-panic / wrong-revert / revert-vs-success), **or**
-  over-accept (Solidus runs a program solc rejects). *Pays out.*
+  over-accept (Solidus runs a program solc rejects). *Qualifies for the leaderboard.*
 
 **EVM-side observable — precision limit.** v1 takes the solc+EVM observable from
 the Forge-**validated** `declared_observable.normal_form` (the Forge test must

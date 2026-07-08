@@ -16,7 +16,7 @@ references are to the files as read on 2026-07-08.
 
 **Readiness verdict: v1 is NOT launchable as an open, paid, automated contest in its
 current form.** Two independent CONTEST-BREAKING defects let an adversary bank a fake
-`SOUNDNESS_GAP` payout, and a third systematically mis-lanes or mis-pays honest
+`SOUNDNESS_GAP` leaderboard credit, and a third systematically mis-lanes or mis-pays honest
 submissions. All three are **plan-level** (not merely v1 wiring): they follow from
 design decisions in §3.4/§4/§5, not from a stub. The multi-contract machinery (§3,
 v2) is correctly deferred and not the blocker; the blocker is the *single-contract*
@@ -25,7 +25,7 @@ oracle, which is the part §8 calls "a legitimate, launchable contest."
 The good news: every defect below has a bounded fix that stays inside the existing
 architecture, and the plan's structural spine (whole-submission AST scan, importer
 `EXCLUDED_NODE_TYPES` reuse, Forge-must-pass) is sound. With the top-3 fixed and a
-manual maintainer sign-off gate on every paying verdict, a **restricted** launch
+manual maintainer sign-off gate on every qualifying verdict, a **restricted** launch
 (single-contract, curated invitees, human-in-the-loop) is defensible.
 
 ### Top CONTEST-BREAKING risks (fix before any launch)
@@ -57,8 +57,8 @@ manual maintainer sign-off gate on every paying verdict, a **restricted** launch
    (CONFIRMED). Combined with #1 this is a second, independent way to fabricate a
    divergence. CONFIRMED.
 
-Any one of #1–#3 is sufficient to win the prize with a non-bug. Together they mean the
-current automated verdict cannot be trusted to pay out.
+Any one of #1–#3 is sufficient to win the win with a non-bug. Together they mean the
+current automated verdict cannot be trusted to qualify.
 
 ### Pre-launch checklist (prioritized)
 
@@ -81,8 +81,8 @@ current automated verdict cannot be trusted to pay out.
 - [ ] **P1 — Make `run_solc_rejects` error-vs-warning and version robust** for the
   OVER_ACCEPT lane (match on solc error *codes* + non-zero exit, not substring
   `"Error:"`). (Finding S3)
-- [ ] **P1 — Human sign-off gate** on every paying verdict for the initial contest
-  window; treat the automated verdict as a *candidate*, not a payout.
+- [ ] **P1 — Human sign-off gate** on every qualifying verdict for the initial contest
+  window; treat the automated verdict as a *candidate*, not a leaderboard credit.
 - [ ] **P2 — Tighten the taint approximation** (function-level co-location is both
   over- and under-inclusive; see G-2) and **fix over-reject/missing-feature
   mislabeling** in `coverage_fingerprint` (stage≠cause; see D-1).
@@ -135,7 +135,7 @@ dirty-high-bits handling of `bytesN`/`uintN` at ABI boundaries, `keccak` of memo
 sub-call left non-zeroed, ordering of side effects the spec leaves unspecified — an
 EVM-observed value can differ from a defensible source-semantics reading and be scored
 as a Solidus *soundness* bug. **Severity:** HIGH (unfair rejections *and* dubious
-payouts). **Plan or v1?** Plan. **Fix.** Publish an "oracle caveats" annex: enumerate
+leaderboard credit). **Plan or v1?** Plan. **Fix.** Publish an "oracle caveats" annex: enumerate
 behaviors where solc-EVM is authoritative vs where the source spec is; route disputes
 to maintainer review; keep the optimizer **off** (`--optimize` disabled) in the pinned
 Foundry profile to shrink the codegen-quirk surface, and pin that in `foundry.toml`.
@@ -299,7 +299,7 @@ failures are lane C by rule.
 other lean failure → `("elaboration","elab_reject",…)` (`adjudicate.py:141-161`), and
 `adjudicate.py:304` sets `sub_kind = "over_reject" if stage=="run" else "missing_feature"`.
 But a fail-closed at *execution* can be a genuine **missing feature**, not an
-over-reject; the label (and the payout weight, §6.4, which scores over-reject *below*
+over-reject; the label (and the leaderboard credit weight, §6.4, which scores over-reject *below*
 missing-feature) is therefore frequently wrong. **Severity:** MEDIUM (unfair scoring /
 mis-dedup). **Fix.** Classify by the importer/typecheck **reason class** already
 available (`unimplemented`/`unclassified`/typecheck sentinel), not by which stage
@@ -309,8 +309,8 @@ emitted the failure.
 Lane-C dedup identity is a single token scraped after `"present:"` or the first
 capitalized alnum word (`adjudicate.py:164-181`). Two genuinely different gaps that both
 bottom out in, say, `Mapping` produce the same token → **false DUPLICATE** (a real novel
-gap denied payout). Conversely one root cause reported via two different importer
-messages yields two tokens → **false NOVEL** (double payout). **Severity:** MEDIUM
+gap denied leaderboard credit). Conversely one root cause reported via two different importer
+messages yields two tokens → **false NOVEL** (double leaderboard credit). **Severity:** MEDIUM
 (both false-dup and false-novel are unfair/gameable). **Fix.** Fingerprint on the full
 `(node_type, field, reason_class)` triple from the importer's structured fail record,
 not a scraped word.
@@ -383,6 +383,6 @@ The *structure* of the contest is sound; the *oracle* is not yet trustworthy. Th
 P0 items (measure-don't-declare the EVM observable, pin-and-thread one environment,
 restrict cheatcodes) are the difference between "an adversary can bank a fake win in an
 afternoon" and "a defensible differential contest." Fix those three, add a human
-sign-off on payouts for the opening window, and launch **restricted** (single-contract,
+sign-off on leaderboard credit for the opening window, and launch **restricted** (single-contract,
 optimizer-off, curated entrants). The remaining findings are tractable hardening that can
 land during the contest under the versioning discipline the plan already defines.
