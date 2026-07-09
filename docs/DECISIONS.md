@@ -5,6 +5,50 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — EU1: `using {f} for E` on an ENUM now dispatches member calls (`e.f(args)` → `f(e, args)`)
+
+Fixes a confirmed incompleteness/over-reject at execution, verified against
+pinned solc 0.8.35 (`--ir` shows `c.rank()` lowering to `fun_rank(c)`) and a
+Forge run. Acceptance of `using {f} for E global;` on an enum was already pinned
+(typecheck + importer), but member DISPATCH at execution was unimplemented: the
+member call `e.f(args)` was left unrewritten by `expandUsing`, so it could not
+execute. solc lowers `e.f(args)` to a call of the bound function with the enum
+value as the first argument — exactly the rewrite `expandUsing` already performs
+for struct and UDVT targets.
+
+Root cause: the using-for rewrite path is gated by
+`UsingDecl.targetMatchesWithInternalFunctions?` and
+`Parameter.matchesArgWithInternalFunctions?`, both of which decide type
+compatibility via `Ty.matchesShape`. Enum types are erased to `Ty.enum
+maxValue` by the `resolveEnums` pass (line ~19800) on BOTH the using target and
+the receiver's env type — but `Ty.matchesShape` had no `Ty.enum` case, so both
+the target-match and the first-parameter match fell through to `_, _ => false`
+and the rewrite never fired. Structs/UDVTs match via the existing
+`Ty.user`/`Ty.struct` cases, which is why only enums regressed.
+
+Fix (one line, `SolidCore/Solidity/Interface.lean`, `Ty.matchesShape`): add
+`| Ty.enum lhs, Ty.enum rhs => lhs == rhs`. Since `resolveEnums` has already
+erased nominal identity to the ordinal max, matching on `maxValue` is the
+strongest discriminator available and is consistent with how the rest of the
+system treats enums (uint8-shaped). This single case covers all three binding
+forms — file-level `using {rank} for Color global;`, contract-level brace
+`using {shift} for Color;`, and attached-library `using ColorLib for Color;` —
+because every form routes through `matchesShape`.
+
+Decisions / notes:
+
+- Only the enum-target case was ADDED; struct/UDVT using-for behavior is
+  untouched (already correct).
+- New Forge-paired manifest lane `using-for-enum`
+  (`tests/forge-harness/using-for-enum/`): enum `Color`, free `rank(Color)`,
+  free `shift(Color, uint256)`, library `ColorLib.libRank(Color)`, all three
+  binding forms, calls `c.rank()`/`c.shift(n)`/`c.libRank()` exposed. Forge
+  ground truth vs the imported Lean witness: viaRank(2)=3, viaShift(1,5)=6,
+  viaLib(2)=20. `forge=ok lean=ok forge_interpreter_compare=pass`.
+- FULL `lake build` green (1103 jobs, incl. FuelMonotonicity + Witness.*).
+  `scripts/smoke_replay.sh SMOKE_JOBS=6` green (28 cases, using-for lanes
+  included), no regressions.
+
 ## 2026-07-09 — OV1: free functions shadowed by same-named contract members are removed from the overload candidate set
 
 Fixes a confirmed overload-resolution divergence (`docs/solc-overload-resolution-review.md`,
