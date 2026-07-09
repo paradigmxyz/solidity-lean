@@ -27,13 +27,15 @@ Solidus — the maintainer's requirement):
      SOUNDNESS_GAP(wrong-value). This exercises the full detection path against a
      genuine Solidus execution while leaving Solidus itself BUG-FREE — the delta
      lives in the test harness, never in SolidCore.
-  3. COVERAGE DETECTOR: driving a genuine importer/over-reject fail-closed needs
-     a real open gap as a fixture. Absent one here (they are being fixed on
-     sibling branches), the coverage branch is exercised at the classifier level
-     with a synthetic fail-closed Solidus result (clearly marked `synthetic`).
-     When a real gap is pinned as a fixture, its expected verdict FLIPS from
-     COVERAGE_GAP to NO_DIVERGENCE once fixed (via the known-fixed list) — so a
-     bug is never kept alive just to test detection.
+  3. COVERAGE DETECTOR (real run + injected fail-closed): `no_divergence` is run
+     through the ENTIRE live pipeline (real solc + Foundry + Solidus import ->
+     typecheck -> execute), then a fail-closed is INJECTED at the Solidus result
+     boundary (`_selftest_perturb_solidus`) — the "inserted bug": Solidus fails
+     closed on a solc-accepted program, exactly what a coverage gap is. The
+     classifier must emit COVERAGE_GAP (lane C). Real pipeline, bug-free Solidus.
+     When a genuine open importer/over-reject gap is available it can be pinned as
+     a fixture whose expected verdict FLIPS to NO_DIVERGENCE once fixed (via the
+     known-fixed list) — so a real bug is never kept alive just to test detection.
 
 Also unit-tests the dedup fingerprint machinery (§6.2) against the pre-loaded
 G-register.
@@ -120,6 +122,33 @@ def run_real_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
     return ok, detail
 
 
+def run_real_coverage_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """REAL end-to-end coverage-detector test (methodology step 3, bug-injection).
+
+    Runs `no_divergence` through the FULL live pipeline (real solc + Foundry +
+    Solidus import/typecheck/execute), then INJECTS a fail-closed at the Solidus
+    result boundary (the "inserted bug": Solidus fails closed on a solc-accepted
+    program, which is exactly what a coverage gap looks like). The classifier must
+    return COVERAGE_GAP (lane C). This exercises the lane-C detection path over a
+    genuine pipeline run with ZERO bugs in Solidus — the injected fail-closed
+    lives in the test harness, never in SolidCore."""
+    def inject_bug(_solidus: hb.SolidusResult) -> hb.SolidusResult:
+        return hb.SolidusResult(
+            ok=False, stage="import", fail_closed=True, observable=None,
+            message=("importer exit_1: unimplemented Solidity AST nodes present: "
+                     "SelfTestInjectedCoverageProbe"),
+            inconclusive=False)
+
+    report = adj.adjudicate(SAMPLES / "no_divergence", timeout=timeout,
+                            _selftest_perturb_solidus=inject_bug)
+    ok = (report.verdict == "COVERAGE_GAP" and report.lane == "C"
+          and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} "
+              f"qualifies={report.qualifies} fp={report.fingerprint} "
+              f":: {report.reason[:140]}")
+    return ok, detail
+
+
 def dedup_unit_tests() -> tuple[bool, str]:
     """Directly exercise the dedup fingerprint machinery (§6.2)."""
     checks = []
@@ -172,21 +201,16 @@ def main() -> int:
     results.append(("dedup-fingerprints (unit)", ok, d))
     _print("dedup-fingerprints (unit)", ok, d)
 
-    # --- SIMULATED-Solidus classifier paths (real gate + forge) ---
-    cov_sim = hb.SolidusResult(
-        ok=False, stage="import", fail_closed=True, observable=None,
-        message="importer exit_1: unimplemented Solidity AST nodes present: "
-                "SyntheticUnsupportedNode")
-    ok, d = run_simulated("coverage_gap", "COVERAGE_GAP", "C", cov_sim)
-    results.append(("coverage_gap (SIMULATED Solidus)", ok, d))
-    _print("coverage_gap (SIMULATED Solidus)", ok, d)
-
     # --- FULL end-to-end runs (real solc + Foundry + Solidus/Lean) ---
-    # REAL soundness-detector test: full live pipeline + one-unit fault injection
-    # at the observable boundary (methodology step 2). No bug in Solidus.
+    # REAL detector tests: full live pipeline + fault injection at the result
+    # boundary (methodology steps 2 & 3). No bug in Solidus.
     ok, d = run_real_soundness_selftest()
     results.append(("soundness-detector (REAL run + injected delta)", ok, d))
     _print("soundness-detector (REAL run + injected delta)", ok, d)
+
+    ok, d = run_real_coverage_selftest()
+    results.append(("coverage-detector (REAL run + injected fail-closed)", ok, d))
+    _print("coverage-detector (REAL run + injected fail-closed)", ok, d)
 
     ok, d = run_full("oos_gasleft", "REJECTED_OOS")
     results.append(("oos_gasleft (FULL)", ok, d))
@@ -195,6 +219,11 @@ def main() -> int:
     ok, d = run_full("no_divergence", "NO_DIVERGENCE")
     results.append(("no_divergence (FULL)", ok, d))
     _print("no_divergence (FULL)", ok, d)
+
+    # X-EXTCALL: external calls are unmodeled in v1 -> REJECTED_OOS (not a gap).
+    ok, d = run_full("external_call", "REJECTED_OOS")
+    results.append(("external_call OOS (FULL)", ok, d))
+    _print("external_call OOS (FULL)", ok, d)
 
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM

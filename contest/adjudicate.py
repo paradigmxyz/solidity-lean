@@ -216,14 +216,16 @@ def _annotate_dedup(report: Report, lane: str, key: tuple, feature_token: str) -
 def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                work_dir: Optional[Path] = None, timeout: int = 400,
                skip_forge: bool = False,
-               _selftest_perturb_evm: Optional[Any] = None) -> Report:
+               _selftest_perturb_evm: Optional[Any] = None,
+               _selftest_perturb_solidus: Optional[Any] = None) -> Report:
     """Adjudicate a submission (design §4).
 
-    ``_selftest_perturb_evm`` is a TEST-ONLY seam (contest/run_samples.py): a
-    callable applied to the measured EVM observable to inject a synthetic
-    divergence, so the divergence-DETECTION path can be exercised end-to-end over
-    a real Solidus run without leaving a bug in Solidus. It MUST be None in real
-    adjudication."""
+    ``_selftest_perturb_evm`` / ``_selftest_perturb_solidus`` are TEST-ONLY seams
+    (contest/run_samples.py): callables applied to the measured EVM observable /
+    the real Solidus result to INJECT a synthetic divergence, so the
+    divergence-DETECTION paths (SOUNDNESS_GAP / COVERAGE_GAP) can be exercised
+    end-to-end over a real pipeline run WITHOUT leaving a bug in Solidus. Both
+    MUST be None in real adjudication."""
     tools = tools or hb.ToolPaths()
     submission, malformed = load_submission(root)
     if malformed is not None:
@@ -375,6 +377,9 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         src, entry["contract"], entry["function"], entry.get("args", []),
         work / "solidus", namespace, fuel=fuel,
         tools=tools, timeout=timeout, env=env_ov, slots=slots)
+    if _selftest_perturb_solidus is not None:  # coverage bug-injection self-test
+        solidus = _selftest_perturb_solidus(solidus)
+        evidence["selftest_solidus_perturbed"] = True
     evidence["env"] = env_ov.to_dict()
     evidence["solidus"] = {
         "ok": solidus.ok, "stage": solidus.stage,

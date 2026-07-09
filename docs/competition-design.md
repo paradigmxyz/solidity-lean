@@ -298,13 +298,18 @@ proved adoption law verbatim.
 ### 3.3 v1 fallback
 
 If the reflective driver is not ready at launch, **v1 ships single-contract-only**
-(§8): the entry contract may call *precompiles* and may read env facts, but any
-external call to another **submitted** contract is disallowed by the gate (a new
-temporary syntactic guard `V1-MULTI`: reject submissions with >1 non-library
-`ContractDefinition` that are mutually call-reachable). This is honest and still
-covers the entire G-register (G1–G22 are all single-contract) and every coverage
-gap that is not intrinsically multi-contract. The multi-contract driver is the
-headline v2 feature.
+(§8): the entry contract may read env facts, but **any external call is disallowed
+by the gate**. The v1 responder-free path answers every external call with a fixed
+default (the call fails / returns empty) rather than executing a callee or a real
+EVM interaction, so an external call — low-level `.call`/precompile, a high-level
+call to another contract, `this.f()`, a `new C()` create, or a `try` — would
+diverge for a NON-semantic reason. Two guards enforce this: `X-EXTCALL` (any
+external call, incl. precompiles, is OOS until the v2 responder lands) and the
+`V1-MULTI` guard (reject >1 independently-deployable `ContractDefinition`). This
+is honest and still covers the entire G-register (G1–G22 are all single-contract,
+external-call-free) and every coverage gap that is not intrinsically
+multi-contract. The multi-contract + real-external-call driver is the headline v2
+feature; retire both guards then.
 
 ### 3.4 Definition of "observable" and equality
 

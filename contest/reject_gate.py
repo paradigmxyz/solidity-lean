@@ -253,6 +253,46 @@ def detect_storage_layout_specifier(entry: reg.ExclusionEntry, src: SourceAst) -
     return hits
 
 
+_LOWLEVEL_CALL_MEMBERS = {"call", "staticcall", "delegatecall", "transfer", "send"}
+
+
+def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+    """Flag any EXTERNAL call — unmodeled in the v1 responder-free path (X-EXTCALL).
+
+    Conservative (errs toward OOS). A hit is any of:
+      * a low-level member call ``.call/.staticcall/.delegatecall/.transfer/.send``;
+      * a high-level call ``recv.f(...)`` where ``recv`` is a contract/interface
+        instance (its ``typeString`` starts with ``contract `` — this includes
+        ``this.f()`` and ``I(a).f()``, both external);
+      * a ``new C(...)`` creation (``NewExpression``);
+      * a ``try`` statement (always wraps an external call).
+    Internal calls (``Identifier`` callee), library ``using-for`` calls (base
+    typeString is the value type, not ``contract ``), and builtins like
+    ``abi.encode`` / ``keccak256`` / ``msg.sender`` do NOT match."""
+    hits: list[Hit] = []
+
+    def add(node: dict[str, Any], what: str) -> None:
+        hits.append(Hit(entry.id, src.source,
+                        enclosing_contract_name(src.ast, node),
+                        node_src(node), f"{entry.reason} [{what}]"))
+
+    for node in iter_nodes(src.ast):
+        nt = node.get("nodeType")
+        if nt == "MemberAccess" and node.get("memberName") in _LOWLEVEL_CALL_MEMBERS:
+            add(node, f"low-level .{node.get('memberName')}")
+        elif nt == "NewExpression":
+            add(node, "new-creation")
+        elif nt == "TryStatement":
+            add(node, "try/external-call")
+        elif nt == "FunctionCall":
+            callee = node.get("expression")
+            if isinstance(callee, dict) and callee.get("nodeType") == "MemberAccess":
+                base = callee.get("expression")
+                if isinstance(base, dict) and type_string(base).startswith("contract "):
+                    add(node, "high-level external call")
+    return hits
+
+
 def detect_executable_fixed_point(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
     hits = []
     for node in iter_nodes(src.ast):
@@ -521,6 +561,7 @@ _SYNTACTIC_DETECTORS: dict[str, Callable[[reg.ExclusionEntry, SourceAst], list[H
     "detect_msize": detect_msize,
     "detect_storage_layout_specifier": detect_storage_layout_specifier,
     "detect_executable_fixed_point": detect_executable_fixed_point,
+    "detect_external_call": detect_external_call,
 }
 
 _SEMANTIC_DETECTORS: dict[str, Callable[[reg.ExclusionEntry, SourceAst], list[Hit]]] = {

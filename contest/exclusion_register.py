@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Optional
 
 
-REGISTER_VERSION = "1.1.0"  # v1.1: added SEM-ENV (env-observable exclusion)
+REGISTER_VERSION = "1.2.0"  # v1.2: added X-EXTCALL (external calls unmodeled in v1)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -169,6 +169,23 @@ _SYNTACTIC: list[ExclusionEntry] = [
             "is impossible, so a submission asserting one is OOS by construction."
         ),
         roadmap_ref="docs/rational-constants-audit.md; fixed-point-boundary lane",
+    ),
+    ExclusionEntry(
+        id="X-EXTCALL",
+        kind="syntactic",
+        detector="detect_external_call",
+        reason=(
+            "External calls are not modeled in the v1 single-contract path: the "
+            "responder-free interpreter answers every external call with a fixed "
+            "default (the call fails / returns empty) rather than executing a "
+            "callee or a real EVM interaction. So a low-level call to an EOA "
+            "(EVM: success-empty), a precompile (EVM: real output), a high-level "
+            "call to another contract, `this.f()`, a `new C()` create, or a "
+            "try/catch over an external call all diverge for a NON-semantic "
+            "reason. Out of scope until the v2 reflective responder lands "
+            "(design §3, multi_contract.py seam); retire this row then."
+        ),
+        roadmap_ref="competition-design.md §3.2/§3.3; multi_contract.py",
     ),
 ]
 

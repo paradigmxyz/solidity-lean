@@ -1,0 +1,20 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "Ext",
+    "function": "probe",
+    "args": [
+      {
+        "word": 4660
+      }
+    ],
+    "value": 0
+  },
+  "expected_divergence": "Low-level external call to an EOA: real EVM returns success (true); but external calls are unmodeled in the v1 responder-free path (default fail), so this is X-EXTCALL out-of-scope, not a gap.",
+  "declared_observable": {
+    "kind": "return_value",
+    "normal_form": "success|w:1"
+  },
+  "feature": "external-call-try-catch",
+  "register_version_seen": "1.2.0"
+}
