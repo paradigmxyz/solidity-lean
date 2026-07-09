@@ -568,6 +568,13 @@ def main() -> int:
     results.append(("cheatcode_allowed ALLOWED (FULL)", ok, d))
     _print("cheatcode_allowed ALLOWED (FULL)", ok, d)
 
+    # Round 11 probe: checked uint256 overflow (2^256-1 + 1) must revert with
+    # Panic(0x11) on BOTH engines -> revert|panic:17 -> NO_DIVERGENCE. Guards
+    # panic-code parity so a code mismatch can't bank a fake wrong-revert gap.
+    ok, d = run_full("panic_overflow", "NO_DIVERGENCE")
+    results.append(("panic_overflow PARITY (FULL)", ok, d))
+    _print("panic_overflow PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
