@@ -7230,6 +7230,72 @@
       }
     },
     {
+      "name": "constructor-intermediate-base-args",
+      "description": "CTOR-RESIDUE gap (a): base-constructor arguments supplied by an INTERMEDIATE contract's own constructor modifier. MidD is MidC is MidB; MidD supplies MidC(5), and the intermediate MidC supplies its base via a constructor modifier MidB(y * 2) where y is MidC's constructor parameter (bound to 5). solc resolves each base's arguments from the direct inheritor and evaluates them in that inheritor's frame, so bVal == 10 and cVal == 5. Forge deploys MidD on pinned solc/EVM and asserts the getters; Lean imports the same source, constructs MidD, and checks bVal == 10 and cVal == 5. The pre-fix lowering resolved base arguments only from the deployment target's own modifiers/inheritance list, so MidB's modifier-supplied argument on the intermediate MidC was never found and the constructor failed to lower (over-reject).",
+      "forge": {
+        "root": "tests/forge-harness/constructor-intermediate-base-args",
+        "match_contract": "ConstructorIntermediateBaseArgsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/constructor-intermediate-base-args/src/ConstructorIntermediateBaseArgs.sol",
+        "contract": "MidD",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedIntermediateBaseArgs",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let cOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" \"cVal\" state [] 5\n      let bOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" \"bVal\" state [] 10\n      Except.ok (cOk && bOk)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "constructor-init-internal-call",
+      "description": "CTOR-RESIDUE gap (b): inline state-variable initializers that call internal functions. ConstructorInitInternalCall declares uint256 y = setY() and uint256 z = double(y); initializers run in declaration order, whole hierarchy base->derived, before the constructor body, so y == 7, z == double(7) == 14, then the body sets w = y + z == 21. Forge deploys the contract on pinned solc/EVM and asserts the getters; Lean imports the same source, constructs it, and checks y == 7, z == 14, w == 21. The pre-fix lowering ran initializers through the plain expression lowering (no internal-call machinery), so an initializer containing an internal call failed to lower (over-reject).",
+      "forge": {
+        "root": "tests/forge-harness/constructor-init-internal-call",
+        "match_contract": "ConstructorInitInternalCallForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/constructor-init-internal-call/src/ConstructorInitInternalCall.sol",
+        "contract": "ConstructorInitInternalCall",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedInitInternalCall",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let yOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"y\" state [] 7\n      let zOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"z\" state [] 14\n      let wOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"w\" state [] 21\n      Except.ok (yOk && zOk && wOk)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "memory-alias-fixes",
       "description": "Forge, pinned solc, and the imported Lean interpreter check memory reference-type alias/copy semantics for the M1-M4 memory-soundness fixes: memory-ref RHS shapes (ternary decl/assign, array-element and struct-member assignment) alias their source (M1); tuple destructuring aliases each component including declarations and pointer swap (M2); a memory ref stored into a memory struct field or array element aliases (M3); abi.encode/keccak256 of ref-nested nested-dynamic memory aggregates (bytes[], uint[][], string[], struct with a dynamic-array field) encode without spurious revert and to the solc byte lengths (M4); plus value-type copy controls and storage<->memory deep-copy independence controls to guard against over-aliasing.",
       "timeout": 600,

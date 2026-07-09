@@ -18806,8 +18806,16 @@ def ContractDecl.baseConstructorModifierArgs? (targetDecl baseDecl : ContractDec
         baseDecl baseCtor? targetCtor.modifiers
 
 def ContractDecl.baseConstructorArgsForDeployment?
-    (targetDecl immediateDerived baseDecl : ContractDecl) :
+    (immediateDerived baseDecl : ContractDecl) :
     Option (List Expr) := do
+  -- solc resolves each base's constructor arguments wherever the DIRECTLY
+  -- inheriting contract declares them — either its inheritance-list specifier
+  -- (`contract C is B(expr)`) or its own constructor modifier
+  -- (`constructor(...) B(expr)`). Both are read from `immediateDerived` (the
+  -- direct inheritor of `baseDecl`), NOT from the deployment target: in a chain
+  -- `D is C is B` where C supplies B's args, C is the direct inheritor of B and
+  -- the only contract that may pass them. In the two-contract case the direct
+  -- inheritor IS the target, so this is unchanged.
   let spec ← ContractDecl.baseSpecifierFor? immediateDerived baseDecl
   let baseCtor? ← ContractDecl.directConstructor? baseDecl
   let baseParams :=
@@ -18815,7 +18823,7 @@ def ContractDecl.baseConstructorArgsForDeployment?
     | some ctor => ctor.params
     | none => []
   let modifierArgs? ←
-    ContractDecl.baseConstructorModifierArgs? targetDecl baseDecl
+    ContractDecl.baseConstructorModifierArgs? immediateDerived baseDecl
   match modifierArgs? with
   | some args =>
       match spec.args with
@@ -19459,6 +19467,47 @@ def StateVarDecl.toCoreInit? (storageNames : List Name)
         initCore)
   | _, _ => some SolidCore.Solidity.Source.Stmt.skip
 
+/-- Lower a state-variable initializer with the SAME internal-call-capable
+    machinery a constructor-body assignment gets (CTOR-RESIDUE gap (b)).
+
+    solc runs inline state-variable initializers as part of the constructor with
+    full expression support, so an initializer that calls an internal function
+    (`T y = setY();`) or otherwise needs internal-call hoisting must lower.
+    `StateVarDecl.toCoreInit?` only used the plain `Expr.toCore?` path and thus
+    over-rejected such initializers.
+
+    Behaviour-preserving: the plain path is tried FIRST, so every initializer
+    that already lowered keeps its exact previous core. Only initializers the
+    plain path rejects reach the internal-call route, where `<name> = <expr>` is
+    lowered through `Stmt.toCoreWithInternalCalls?` — the same assignment
+    lowering constructor bodies use, which resolves `<name>` to the identical
+    storage/immutable LValue and applies the same coercion. Initializers are
+    contract-scoped (no constructor parameters in scope), so `storageRefEnv` is
+    empty and `env` carries only `this` plus the hierarchy's members/state. -/
+def StateVarDecl.toCoreInitWithInternalCalls?
+    (internalFuel : Nat) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (constants : ConstantEnv)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (decl : StateVarDecl) : Option CoreStmt :=
+  match StateVarDecl.toCoreInit? storageNames constants decl with
+  | some coreStmt => some coreStmt
+  | none =>
+      match decl.mutability, decl.init with
+      | VarMutability.mutable, some expr
+      | VarMutability.transient, some expr
+      | VarMutability.immutable, some expr =>
+          let expr := Expr.inlineConstants constants expr
+          let sourceStmt :=
+            Stmt.expr
+              (Expr.assign (Expr.ident decl.name) AssignOp.assign expr)
+          let sourceStmt := Stmt.annotateAbi env sourceStmt
+          Stmt.toCoreWithInternalCalls?
+            internalFuel [] env externalCallKindEnv storageNames modifiers
+            functions freeFunctions [] sourceStmt
+      | _, _ => none
+
 mutual
 
 /-- Collect the callee keys of every `Stmt.internalCall` node in a core
@@ -19679,7 +19728,8 @@ def ContractDecl.constructorBodyForDeployment?
     (functions freeFunctions : List FunctionDecl)
     (eventArgEnv errorArgEnv : NamedArgParamEnv)
     (internalFnIds : List (Name × Nat))
-    (targetName : Name) (baseArgs : List Expr) (decl : ContractDecl) :
+    (targetName : Name) (supplyingParams : List Parameter)
+    (baseArgs : List Expr) (decl : ContractDecl) :
     Option (List CoreBindingDecl × List CoreStmt × List CoreStmt × List CoreStmt) := do
   -- Returns the per-contract pieces the deployment constructor is assembled
   -- from, kept SEPARATE so the caller can reproduce solc's legacy ordering:
@@ -19693,18 +19743,22 @@ def ContractDecl.constructorBodyForDeployment?
   --   descent (legacy `appendBaseConstructor`: eval args, then recurse).
   -- * `bodyStmts`   — this contract's constructor body (+ param cleanups for
   --   the most-derived contract). Bodies run base->derived.
+  let initEnv := TypeEnv.extendThis stateEnv (some targetName)
   let initStmts ←
     mapOption
-      (StateVarDecl.toCoreInit? storageNames constants)
+      (StateVarDecl.toCoreInitWithInternalCalls?
+        defaultInternalCallInlineFuel initEnv externalCallKindEnv storageNames
+        constants modifiers functions freeFunctions)
       (ContractDecl.directStateVars decl)
   let baseArgs := baseArgs.map (Expr.inlineConstants constants)
-  let targetDecl ← ContractDecl.findByName? allContracts targetName
-  let targetCtor? ← ContractDecl.directConstructor? targetDecl
-  let baseArgEnv := TypeEnv.extendThis stateEnv (some targetName)
-  let baseArgEnv :=
-    match targetCtor? with
-    | some targetCtor => FunctionDecl.typeEnv baseArgEnv targetCtor
-    | none => baseArgEnv
+  -- Base-constructor arguments are evaluated in the SUPPLYING (immediate-derived)
+  -- contract's frame: its constructor parameters are in scope (a middle contract
+  -- can pass its own base's args via `C(...) B(c * 2)`), while `this` stays the
+  -- most-derived contract being deployed. `supplyingParams` are that supplying
+  -- contract's constructor params (empty for the most-derived contract, which
+  -- receives no incoming base args). In the two-contract case the supplying
+  -- contract IS the target, so this is identical to the prior target-frame env.
+  let baseArgEnv := Parameters.extendTypeEnv "_arg" initEnv supplyingParams
   match ContractDecl.directConstructors decl with
   | [] => some ([], initStmts, [], [])
   | [ctor] => do
@@ -20512,23 +20566,29 @@ def ContractDecl.constructorFunctionFromOrders?
       (fun decl => do
         let baseArgsAndUsing ←
           if decl.name == targetName then
-            some ([], constructorUsingDecls)
+            some ([], constructorUsingDecls, ([] : List Parameter))
           else
             let derived ←
               ContractDecl.findImmediateDerivedInOrder?
                 storageOrder decl
             let baseArgs ←
               ContractDecl.baseConstructorArgsForDeployment?
-                targetDecl derived decl
+                derived decl
             let baseArgUsingDecls :=
               ContractDecl.directUsingDecls derived ++ constructorUsingDecls
-            some (baseArgs, baseArgUsingDecls)
-        let (baseArgs, baseArgUsingDecls) := baseArgsAndUsing
+            -- Args flow in the direct inheritor's frame, so its constructor
+            -- params are the ones in scope while evaluating them.
+            let supplyingParams :=
+              match ContractDecl.directConstructors derived with
+              | [ctor] => ctor.params
+              | _ => []
+            some (baseArgs, baseArgUsingDecls, supplyingParams)
+        let (baseArgs, baseArgUsingDecls, supplyingParams) := baseArgsAndUsing
         ContractDecl.constructorBodyForDeployment?
           allContracts sourceUsingDecls baseArgUsingDecls storageNames
           constants stateEnv externalCallKindEnv modifiers availableFunctions
           sourceFunctions eventArgEnv errorArgEnv internalFnIds targetName
-          baseArgs decl)
+          supplyingParams baseArgs decl)
       storageOrder
   -- `pieces` are in storage order (base->derived). Reproduce solc's LEGACY
   -- constructor lowering (`ContractCompiler::appendInitAndConstructorCode`):

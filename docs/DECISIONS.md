@@ -5,6 +5,72 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — CTOR-RESIDUE: two constructor-elaboration over-rejects closed (intermediate base-args; internal-call initializers)
+
+Two over-rejects in the executable-checked constructor path
+(`SolidCore/Solidity/Interface.lean`), both surfaced while closing the DIV-CTOR
+arc. solc accepts and runs both shapes; solidity-lean could not lower them.
+Verified against pinned solc 0.8.35 + Forge (LEGACY codegen ground truth); only
+solidity-lean moved.
+
+**(a) Base-constructor arguments supplied by an INTERMEDIATE contract's own
+constructor modifier.** `ContractDecl.baseConstructorArgsForDeployment?` read a
+base's modifier-supplied arguments from the deployment TARGET
+(`baseConstructorModifierArgs? targetDecl baseDecl`) rather than from the
+contract that DIRECTLY inherits that base. In a chain `MidD is MidC is MidB`
+where `MidC` supplies `MidB`'s argument via a `constructor(uint256 y) MidB(y*2)`
+modifier, `MidB`'s argument lives on the intermediate `MidC`, not on `MidD`, so
+it was never found — `MidB`'s one parameter matched zero args and the whole
+constructor failed to lower.
+
+solc resolves each base's arguments wherever the DIRECTLY inheriting contract
+declares them (its inheritance-list specifier OR its own constructor modifier),
+evaluated in that inheritor's frame
+(`ContractCompiler::appendBaseConstructor`). The inheritance-list `spec` lookup
+already used the direct inheritor (`immediateDerived`); the fix aligns the
+modifier lookup to the same contract — `baseConstructorModifierArgs?
+immediateDerived baseDecl` — and drops the now-unused `targetDecl` parameter
+(the two-contract case is unchanged: the direct inheritor IS the target). The
+argument-evaluation FRAME is corrected in step with it: base args are lowered in
+the SUPPLYING contract's frame (its constructor params in scope, `this` still
+the most-derived contract), so `MidB`'s `y*2` sees `y == 5`
+(`constructorBodyForDeployment?` now takes `supplyingParams` and builds
+`baseArgEnv` from them instead of the target's ctor). This preserves DIV-CTOR-1
+(args in the supplying frame during the derived→base descent).
+
+**(b) State-variable initializer that calls an internal function.**
+`StateVarDecl.toCoreInit?` lowered initializer expressions through the plain
+`Expr.toCore?` path, which has no internal-call machinery, so
+`uint256 y = setY();` / `uint256 z = double(y);` did not lower. solc runs inline
+initializers as part of the constructor with full expression support. New
+`StateVarDecl.toCoreInitWithInternalCalls?` tries the plain path FIRST
+(behaviour-preserving: every initializer that already lowered keeps its exact
+core) and only for the rejected shapes lowers `<name> = <expr>` through
+`Stmt.toCoreWithInternalCalls?` — the identical internal-call-capable assignment
+lowering constructor bodies use, which resolves `<name>` to the same
+storage/immutable LValue and applies the same coercion. Initializers stay in the
+per-contract `initStmts`, so the DIV-CTOR-2 order (all inits, whole hierarchy
+base→derived, before any body) is preserved. Env is `this` + hierarchy
+members/state (contract-scoped; no ctor params).
+
+Decisions / notes:
+
+- The inheritance-list-vs-modifier SCOPE nuance (inherited members excluded from
+  inheritance-list base-args, available in modifier base-args) is a name-resolution
+  distinction that only rejects solc-INVALID programs; it does not change values
+  for any solc-valid program, so it is intentionally not modelled here (the corpus
+  is solc-valid; the goal is closing over-rejects, not adding over-rejects).
+- Two new Forge-paired manifest lanes:
+  `constructor-intermediate-base-args` (`MidD is MidC is MidB`; deploy `MidD`,
+  `cVal == 5`, `bVal == 10`) and `constructor-init-internal-call`
+  (`y = setY() == 7`, `z = double(y) == 14`, body `w = y + z == 21`). Both
+  `forge=ok lean=ok forge_interpreter_compare=pass`.
+- Regression check: `constructor-deploy`, `inheritance-base`,
+  `base-constructor-runtime-args`, `constructor-base-arg-order`,
+  `constructor-inits-before-bodies` all `forge=ok lean=ok` after the change.
+- FULL `lake build` green (1103 jobs, incl. FuelMonotonicity + Witness.*).
+  `scripts/smoke_replay.sh SMOKE_JOBS=6` green (29 cases), no regressions.
+
 ## 2026-07-09 — EU1: `using {f} for E` on an ENUM now dispatches member calls (`e.f(args)` → `f(e, args)`)
 
 Fixes a confirmed incompleteness/over-reject at execution, verified against

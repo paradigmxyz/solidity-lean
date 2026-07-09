@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/constructor-init-internal-call/out"
+cache_path = "../../.foundry-suites/constructor-init-internal-call/cache"
+evm_version = "cancun"
