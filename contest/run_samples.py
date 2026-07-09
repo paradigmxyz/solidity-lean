@@ -293,6 +293,23 @@ def hardening_unit_tests() -> tuple[bool, str]:
           "rightExpression": lit(1)}
     checks.append(("cheat-runtime", G._is_cheat_ref(rt) is False))
 
+    # bytesN parity (round 2): EVM left-aligned head word must render to the same
+    # right-aligned w: value solidity-lean emits.
+    checks.append(("bytes4-align",
+                   obs.render_word_for_type(0x01020304 << 224, "bytes4") == "w:16909060"))
+    checks.append(("bytes1-align",
+                   obs.render_word_for_type(0xAB << 248, "bytes1") == f"w:{0xAB}"))
+    checks.append(("bytes32-noshift",
+                   obs.render_word_for_type(0x01020304, "bytes32") == "w:16909060"))
+    checks.append(("uint-unchanged",
+                   obs.render_word_for_type(42, "uint256") == "w:42"))
+    # function-pointer returns are out of the comparable subset.
+    checks.append(("fn-return-oos",
+                   adj._comparable_return_type("function () external") is False))
+    checks.append(("uint-return-ok",
+                   adj._comparable_return_type("uint256") is True and
+                   adj._comparable_return_type("bytes4") is True))
+
     ok = all(v for _n, v in checks)
     detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
     return ok, detail
@@ -382,6 +399,12 @@ def main() -> int:
     ok, d = run_full("array_return", "REJECTED_OOS")
     results.append(("array_return X-RETABI (FULL)", ok, d))
     _print("array_return X-RETABI (FULL)", ok, d)
+
+    # bytesN (N<32) return parity (audit round 2): a bytes4 return must classify
+    # NO_DIVERGENCE, not a fake SOUNDNESS_GAP from EVM left- vs Lean right-alignment.
+    ok, d = run_full("bytesn_return", "NO_DIVERGENCE")
+    results.append(("bytesn_return parity (FULL)", ok, d))
+    _print("bytesn_return parity (FULL)", ok, d)
 
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.

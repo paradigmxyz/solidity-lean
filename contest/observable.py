@@ -296,8 +296,28 @@ def _is_dynamic(t: str) -> bool:
     return t in ("bytes", "string") or t.endswith("[]")
 
 
+def _fixed_bytes_n(t: str) -> Optional[int]:
+    """Return N for a `bytesN` (1..32) type, else None. `bytes` (dynamic) -> None."""
+    if t.startswith("bytes") and t[5:].isdigit():
+        n = int(t[5:])
+        if 1 <= n <= 32:
+            return n
+    return None
+
+
 def render_word_for_type(word: int, t: str) -> str:
     t = _clean_type(t)
+    n = _fixed_bytes_n(t)
+    if n is not None:
+        # bytesN parity (audit round 2, CONTEST-BREAKING): EVM ABI LEFT-aligns
+        # bytesN in the 32-byte head word, but solidity-lean's internal convention
+        # is RIGHT-aligned (meaningful bytes low; Interpreter.lean:468-475 stores
+        # `norm value % 2^(8N)`). Its observable renders that right-aligned word as
+        # `w:`, so we shift the EVM head word right by (256-8N) to match — else a
+        # `bytes4` return / custom-error arg like 0x01020304 rendered as
+        # w:16909060 (Lean) vs w:(0x01020304<<224) (EVM), a fake SOUNDNESS_GAP.
+        # N=32 -> shift 0 (full word, left==right).
+        return f"w:{word >> (256 - 8 * n)}"
     if t.startswith("int") and not t.startswith("uint"):
         # two's-complement decode to a signed int (matches solidity-lean `i:`).
         if word >= (1 << 255):

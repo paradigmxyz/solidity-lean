@@ -710,6 +710,10 @@ def _comparable_return_type(t: str) -> bool:
         return False
     if t.startswith("tuple"):      # explicit tuple type
         return False
+    if t.startswith("function"):   # function pointer (audit round 2): Solidus
+        # renders it via the `r:reprStr` fallback while the EVM ABI-encodes it as
+        # a static word -> a spurious `wrong-value`. Out of scope until unified.
+        return False
     return True
 
 

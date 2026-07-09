@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "BytesN", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none - bytesN return parity regression (audit round 2). A bytes4 return renders w: right-aligned on both engines after the EVM-decode alignment fix (observable.render_word_for_type). BEFORE the fix this was a fake SOUNDNESS_GAP (EVM left-aligned w:(0x01020304<<224) vs solidity-lean w:16909060).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:16909060" },
+  "feature": "bytesN-return-parity",
+  "register_version_seen": "1.0.0"
+}
