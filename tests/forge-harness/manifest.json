@@ -7648,6 +7648,55 @@
       }
     },
     {
+      "name": "create-order",
+      "description": "Forge checks contract-creation option/argument evaluation ORDER (gaps DIV-CREATE-1/2): solc 0.8.35 evaluates the `{...}` creation options in written (source) order FIRST, then the constructor argument LAST -- yielding order-trace 123 for `{value,salt}` and 213 for `{salt,value}`, identically for the plain `new` expression and the statement `try new` forms. Lean imports the same source and, driving the paired source-interpreter (a matching success responder for the plain forms, a fail-open responder caught by the empty `catch` for the try forms), checks the same order-trace (value=1, salt=2, arg=3, each appending its digit).",
+      "forge": {
+        "root": "tests/forge-harness/create-order",
+        "match_contract": "CreateOrderForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/create-order/src/CreateOrder.sol",
+        "contract": "CreateOrder",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CreateOrder"
+      },
+      "solc_rejects": [],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CreateOrder.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "plainValueFirstOrder123",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let constructorArgs ← SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0]\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Target\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"plainValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 123)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainSaltFirstOrder213",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let constructorArgs ← SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0]\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Target\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"plainSaltFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 213)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "tryValueFirstOrder123",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"tryValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 123)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "trySaltFirstOrder213",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"trySaltFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 213)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "catch-dispatch-by-kind",
       "description": "Forge checks try/catch clause dispatch by revert KIND (gaps CB1+A2): a 36-byte Error-selector+zeros payload is NOT Error(string) (< solc's 0x44 minimum) and routes to catch(bytes); a well-formed Error(\"x\") routes to catch Error(string) with \"x\"; a Panic routes to catch Panic; a Panic with no Panic clause falls through to catch(bytes) (kind-based, not source-order). Lean imports the caller and drives it under a responder supplying each revert payload, checking the same routing.",
       "forge": {

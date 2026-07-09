@@ -48,6 +48,58 @@ Decisions / notes:
 - FULL `lake build` green (1103 jobs, incl. FuelMonotonicity + Witness.*).
   `scripts/smoke_replay.sh SMOKE_JOBS=6` green (28 cases, using-for lanes
   included), no regressions.
+## 2026-07-09 — DIV-CREATE-1/2 fixed: contract-creation option/argument evaluation ORDER
+
+Two wrong-ORDER divergences in contract creation (`new C{value, salt}(args)`),
+the create-boundary analog of EO1.
+
+**solc-confirmed behavior (probed pinned solc 0.8.35 + Foundry).** For
+`new C{value: v(), salt: s()}(a())` solc evaluates the `{…}` FunctionCallOptions
+in their WRITTEN (source) order FIRST, then the constructor ARGUMENT LAST
+(`ExpressionCompiler.cpp` Creation/FunctionCallOptions paths). A side-effecting
+order-trace (value=1, salt=2, arg=3, each appending a digit) gives `123` for
+written order `{value, salt}` and `213` for `{salt, value}` — identically for
+the plain `new` expression and the statement-form `try new`.
+
+**The bugs (`SolidCore/Solidity/Interpreter.lean`).**
+1. **DIV-CREATE-1 (try-create).** `Stmt.tryContractCreate` sequenced the top-
+   level sub-expressions args → value → salt (args-FIRST), ignoring the pinned
+   child order and disagreeing with solc (args-last) AND with the plain-create
+   handler.
+2. **DIV-CREATE-2 (plain-create).** The lowering
+   (`CallOptions.contractCreationValueSalt?` / `…SaltCore?`) collapsed both
+   `{value, salt}` and `{salt, value}` to the same unordered `(value?, salt?)`
+   pair, and `Expr.contractCreate`'s handler evaluated `[args, value, salt]`
+   right-to-left (always salt→value→args). So `{salt, value}` happened to match
+   solc but `{value, salt}` came out with value/salt swapped.
+
+**The fix (mirror of EO1).** `Expr.contractCreate` and `Stmt.tryContractCreate`
+gained a `valueBeforeSalt : Bool` field carrying the option source order,
+threaded from lowering (mirroring `gasFirst` for external calls). Both handlers
+now evaluate the options strictly in source order (`valueBeforeSalt ?
+value,salt : salt,value`), then the constructor arguments LAST — the FIXED
+top-level order is imposed sequentially while each component's OWN inner
+children keep the ambient child-eval order. The two handlers now agree with
+each other and with solc. `FuelMonotonicity.lean`'s `tryContractCreate` case was
+updated to the new options-first control flow (a `split` on the option-eval
+result, mirroring the EO1 `tryExternalCall` case); full build green incl.
+`FuelMonotonicity` + all `SolidCore.Witness.*`.
+
+**Forge-verified observable / lane.** New lane
+`tests/forge-harness/create-order` (`CreateOrder`): four functions build the
+order-trace in a single storage slot (value/salt/arg each append a digit via an
+embedded assignment expression, `* 0` so the option/arg value stays zero — no
+funding needed and the create deploys for real). Forge ground truth:
+`plainValueFirst = tryValueFirst = 123`, `plainSaltFirst = trySaltFirst = 213`.
+The paired Lean witnesses import the same source and drive the source-
+interpreter (a matching success responder for the plain forms so the create
+returns; a fail-open responder caught by the empty `catch` for the try forms),
+asserting the identical order-trace. Note the plain forms use a bare `new C…;`
+statement rather than binding the result to a contract-typed local: reading such
+a local triggers the (correct) extcodesize existence guard on the fresh open-
+world address and reverts, which is orthogonal to this order test. `lake build`
+green (1103 jobs); smoke replay green (no regressions in contract-creation /
+create-options / call-option-eval-order); lane `forge=ok lean=ok compare=pass`.
 
 ## 2026-07-09 — OV1: free functions shadowed by same-named contract members are removed from the overload candidate set
 

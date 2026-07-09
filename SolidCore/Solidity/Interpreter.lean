@@ -5291,7 +5291,10 @@ inductive Expr where
   | abiDecode : List Ty -> List AbiCleanup -> Expr -> Expr
   | lowLevelCall :
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool -> Expr
-  | contractCreate : String -> Expr -> Expr -> Option Expr -> Expr
+  -- `contractCreate contractName args value salt? valueBeforeSalt`: the final
+  -- `Bool` records whether the `{value, salt}` options were written value-before-
+  -- salt in source (solc evaluates the options in source order — DIV-CREATE-2).
+  | contractCreate : String -> Expr -> Expr -> Option Expr -> Bool -> Expr
   | newBytes : Expr -> Expr
   | newDynamicArray : Ty -> Expr -> Expr
   | externalHash : ExternalHashKind -> Expr -> Expr
@@ -6015,7 +6018,7 @@ def Expr.orderFuel : Expr -> Nat
           (match gas? with
           | some gas => Expr.orderFuel gas
           | none => 0) + 1
-  | Expr.contractCreate _ args value salt? =>
+  | Expr.contractCreate _ args value salt? _ =>
       Expr.orderFuel args + Expr.orderFuel value +
         (match salt? with
         | some salt => Expr.orderFuel salt
@@ -6584,52 +6587,63 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     state := adoptedState }.recordExternalInteraction
                     (ExternalInteraction.lowLevelCall result) )
           | Expr.contractCreate contractName constructorArgsExpr valueExpr
-              saltExpr? => do
-              let (values, runtime') ←
-                match saltExpr? with
-                | none =>
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
-                      runtime [constructorArgsExpr, valueExpr]
-                | some saltExpr =>
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
-                      runtime [constructorArgsExpr, valueExpr, saltExpr]
-              match values with
-              | [argsValue, valueValue] => do
-                  let constructorArgs ←
-                    match argsValue.asBytes? with
-                    | some bytes => pure bytes
-                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-                  let value ← valueValue.expectWord
-                  let (result, adoptedState) ←
-                    emitContractCreation context runtime'.state
-                      contractName constructorArgs value none
-                  if result.success then
-                    pure
-                      ( Value.word result.address
-                      , { runtime' with
-                          state := adoptedState }.recordExternalInteraction
-                          (ExternalInteraction.contractCreation result) )
-                  else
-                    throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
-              | [argsValue, valueValue, saltValue] => do
-                  let constructorArgs ←
-                    match argsValue.asBytes? with
-                    | some bytes => pure bytes
-                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-                  let value ← valueValue.expectWord
-                  let salt ← saltValue.expectWord
-                  let (result, adoptedState) ←
-                    emitContractCreation context runtime'.state
-                      contractName constructorArgs value (some salt)
-                  if result.success then
-                    pure
-                      ( Value.word result.address
-                      , { runtime' with
-                          state := adoptedState }.recordExternalInteraction
-                          (ExternalInteraction.contractCreation result) )
-                  else
-                    throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+              saltExpr? valueBeforeSalt => do
+              -- solc (v0.8.35) evaluates `new C{opts}(args)` as: the
+              -- FunctionCallOptions in their WRITTEN order (value/salt ordered by
+              -- `valueBeforeSalt`), THEN the constructor arguments LAST.  This
+              -- top-level order is FIXED (it does not inherit the ambient
+              -- child-eval order); each component's own inner children keep the
+              -- ambient `order`.  The old code evaluated `[args, value, salt]`
+              -- right-to-left (salt→value→args), which ignored the option source
+              -- order (gap DIV-CREATE-2).
+              let (value, salt?, runtimeOpts) ←
+                (match saltExpr? with
+                | none => do
+                    let (valueValue, runtimeValue) ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtime valueExpr
+                    let value ← valueValue.expectWord
+                    pure (value, none, runtimeValue)
+                | some saltExpr => do
+                    if valueBeforeSalt then
+                      let (valueValue, runtimeValue) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtime valueExpr
+                      let value ← valueValue.expectWord
+                      let (saltValue, runtimeSalt) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtimeValue saltExpr
+                      let salt ← saltValue.expectWord
+                      pure (value, some salt, runtimeSalt)
+                    else
+                      let (saltValue, runtimeSalt) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtime saltExpr
+                      let salt ← saltValue.expectWord
+                      let (valueValue, runtimeValue) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtimeSalt valueExpr
+                      let value ← valueValue.expectWord
+                      pure (value, some salt, runtimeValue) :
+                  SolI (Word × Option Word × Runtime))
+              let (argsValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context
+                  runtimeOpts constructorArgsExpr
+              let constructorArgs ←
+                match argsValue.asBytes? with
+                | some bytes => pure bytes
+                | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+              let (result, adoptedState) ←
+                emitContractCreation context runtime'.state
+                  contractName constructorArgs value salt?
+              if result.success then
+                pure
+                  ( Value.word result.address
+                  , { runtime' with
+                      state := adoptedState }.recordExternalInteraction
+                      (ExternalInteraction.contractCreation result) )
+              else
+                throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
           | Expr.newBytes lengthExpr => do
               let (lengthValue, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime
@@ -7379,8 +7393,10 @@ inductive Stmt where
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool ->
       Bool -> List BindingDecl -> List AbiCleanup -> Stmt ->
       List TryCatchClause -> Stmt
+  -- `tryContractCreate contractName args value salt? valueBeforeSalt …`: the
+  -- `Bool` records value-before-salt source order of the options (DIV-CREATE-1/2).
   | tryContractCreate :
-      String -> Expr -> Expr -> Option Expr -> List BindingDecl -> Stmt ->
+      String -> Expr -> Expr -> Option Expr -> Bool -> List BindingDecl -> Stmt ->
       List TryCatchClause -> Stmt
   | break : Stmt
   | continue : Stmt
@@ -8734,77 +8750,114 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                 | Except.error err => pure (Result.reverted runtime' err)
             | Except.error err => pure (Result.reverted runtime err)
         | Stmt.tryContractCreate contractName constructorArgsExpr valueExpr
-            saltExpr? returns successBody catchClauses =>
-            match constructorArgsExpr.evalWithRuntimeByContext context runtime with
-            | Except.ok (argsValue, runtime') =>
-                match argsValue.asBytes? with
-                | some constructorArgs =>
-                    match valueExpr.evalWithRuntimeByContext context runtime' with
-                    | Except.ok (valueValue, runtime'') =>
+            saltExpr? valueBeforeSalt returns successBody catchClauses =>
+            -- solc (v0.8.35) evaluates `new C{opts}(args)` as: the
+            -- FunctionCallOptions in their WRITTEN order (value/salt ordered by
+            -- `valueBeforeSalt`), THEN the constructor arguments LAST.  The old
+            -- code forced args→value→salt (gap DIV-CREATE-1); now it is
+            -- options-first, args-last — matching the plain-create handler above
+            -- and solc.  The option eval carries its threaded runtime in the
+            -- error so a mid-option revert reports the right post-effect runtime.
+            let optionsResult? :
+                Except (Runtime × RevertData)
+                  (Word × Option Word × Runtime) :=
+              match saltExpr? with
+              | none =>
+                  match valueExpr.evalWithRuntimeByContext context runtime with
+                  | Except.ok (valueValue, runtimeValue) =>
+                      match valueValue.expectWord with
+                      | Except.ok value => Except.ok (value, none, runtimeValue)
+                      | Except.error err => Except.error (runtimeValue, err)
+                  | Except.error err => Except.error (runtime, err)
+              | some saltExpr =>
+                  if valueBeforeSalt then
+                    match valueExpr.evalWithRuntimeByContext context runtime with
+                    | Except.ok (valueValue, runtimeValue) =>
                         match valueValue.expectWord with
                         | Except.ok value =>
-                            let saltResult? :
-                                Except RevertData (Option Word × Runtime) :=
-                              match saltExpr? with
-                              | some saltExpr => do
-                                  let (saltValue, runtime''') ←
-                                    saltExpr.evalWithRuntimeByContext context runtime''
-                                  let salt ← saltValue.expectWord
-                                  Except.ok (some salt, runtime''')
-                              | none => Except.ok (none, runtime'')
-                            match saltResult? with
-                            | Except.ok (salt?, runtime''') =>
-                                emitContractCreation context runtime'''.state
-                                    contractName constructorArgs value salt? >>=
-                                  fun (createResult, adoptedState) =>
-                              let runtimeWithInteraction :=
-                                { runtime''' with
-                                  state :=
-                                    adoptedState }.recordExternalInteraction
-                                  (ExternalInteraction.contractCreation
-                                    createResult)
-                              let success := createResult.success
-                              let output := createResult.output.map normByte
-                              if success then
-                                let address := createResult.address
-                                let values :=
-                                  if returns.isEmpty then
-                                    []
-                                  else
-                                    [Value.word address]
-                                match BindingDecl.bindArgs? returns values with
-                                | some frame => do
-                                    let result ← Stmt.eval fuel table context
-                                          (runtimeWithInteraction.withFrame frame)
-                                          successBody
-                                    pure
-                                      (result.mapRuntime
-                                        Runtime.popScope)
-                                  | none =>
-                                      pure
-                                        (Result.reverted runtimeWithInteraction
-                                          RevertData.typeMismatch)
-                                else
-                                  match TryCatchClause.findMatch?
-                                      output catchClauses with
-                                  | some (frame, body) => do
-                                      let result ← Stmt.eval fuel table context
-                                          (runtimeWithInteraction.withFrame frame)
-                                          body
-                                      pure
-                                        (result.mapRuntime
-                                          Runtime.popScope)
-                                  | none =>
-                                      pure
-                                        (Result.reverted runtimeWithInteraction
-                                          (RevertData.fromRawBytes output))
-                            | Except.error err =>
-                                pure (Result.reverted runtime'' err)
-                        | Except.error err => pure (Result.reverted runtime'' err)
-                    | Except.error err => pure (Result.reverted runtime' err)
-                | none =>
-                    pure (Result.reverted runtime' RevertData.typeMismatch)
-            | Except.error err => pure (Result.reverted runtime err)
+                            match saltExpr.evalWithRuntimeByContext
+                                context runtimeValue with
+                            | Except.ok (saltValue, runtimeSalt) =>
+                                match saltValue.expectWord with
+                                | Except.ok salt =>
+                                    Except.ok (value, some salt, runtimeSalt)
+                                | Except.error err =>
+                                    Except.error (runtimeSalt, err)
+                            | Except.error err => Except.error (runtimeValue, err)
+                        | Except.error err => Except.error (runtimeValue, err)
+                    | Except.error err => Except.error (runtime, err)
+                  else
+                    match saltExpr.evalWithRuntimeByContext context runtime with
+                    | Except.ok (saltValue, runtimeSalt) =>
+                        match saltValue.expectWord with
+                        | Except.ok salt =>
+                            match valueExpr.evalWithRuntimeByContext
+                                context runtimeSalt with
+                            | Except.ok (valueValue, runtimeValue) =>
+                                match valueValue.expectWord with
+                                | Except.ok value =>
+                                    Except.ok (value, some salt, runtimeValue)
+                                | Except.error err =>
+                                    Except.error (runtimeValue, err)
+                            | Except.error err => Except.error (runtimeSalt, err)
+                        | Except.error err => Except.error (runtimeSalt, err)
+                    | Except.error err => Except.error (runtime, err)
+            match optionsResult? with
+            | Except.ok (value, salt?, runtimeOpts) =>
+                match constructorArgsExpr.evalWithRuntimeByContext
+                    context runtimeOpts with
+                | Except.ok (argsValue, runtime''') =>
+                    match argsValue.asBytes? with
+                    | some constructorArgs =>
+                        emitContractCreation context runtime'''.state
+                            contractName constructorArgs value salt? >>=
+                          fun (createResult, adoptedState) =>
+                      let runtimeWithInteraction :=
+                        { runtime''' with
+                          state :=
+                            adoptedState }.recordExternalInteraction
+                          (ExternalInteraction.contractCreation
+                            createResult)
+                      let success := createResult.success
+                      let output := createResult.output.map normByte
+                      if success then
+                        let address := createResult.address
+                        let values :=
+                          if returns.isEmpty then
+                            []
+                          else
+                            [Value.word address]
+                        match BindingDecl.bindArgs? returns values with
+                        | some frame => do
+                            let result ← Stmt.eval fuel table context
+                                  (runtimeWithInteraction.withFrame frame)
+                                  successBody
+                            pure
+                              (result.mapRuntime
+                                Runtime.popScope)
+                          | none =>
+                              pure
+                                (Result.reverted runtimeWithInteraction
+                                  RevertData.typeMismatch)
+                        else
+                          match TryCatchClause.findMatch?
+                              output catchClauses with
+                          | some (frame, body) => do
+                              let result ← Stmt.eval fuel table context
+                                  (runtimeWithInteraction.withFrame frame)
+                                  body
+                              pure
+                                (result.mapRuntime
+                                  Runtime.popScope)
+                          | none =>
+                              pure
+                                (Result.reverted runtimeWithInteraction
+                                  (RevertData.fromRawBytes output))
+                    | none =>
+                        pure (Result.reverted runtime''' RevertData.typeMismatch)
+                | Except.error err => pure (Result.reverted runtimeOpts err)
+            | Except.error (runtimeErr, err) =>
+                pure (Result.reverted runtimeErr err)
       | Stmt.break => pure (Result.broke runtime)
       | Stmt.continue => pure (Result.continued runtime)
       | Stmt.returnValues exprs => do
