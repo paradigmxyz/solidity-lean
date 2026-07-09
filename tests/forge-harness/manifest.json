@@ -7266,6 +7266,105 @@
           }
         ]
       }
+    },
+    {
+      "name": "fixedbytes-shl-shr-mask",
+      "description": "FB1: solc re-cleans every `bytesN <<` result to the byte lane, so `(b << 4) >> 4` on `bytes1(0xff)` is `0x0f`; Forge and imported Lean pin the right-aligned lane cleanup the interpreter now applies after `<<`.",
+      "forge": {
+        "root": "tests/forge-harness/fixedbytes-shl-shr-mask",
+        "match_contract": "FixedBytesShlShrMaskForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/fixedbytes-shl-shr-mask/src/FixedBytesShlShrMask.sol",
+        "contract": "FixedBytesShlShrMask",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FixedBytesShlShrMask"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedFixedBytesShlShrMaskAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.FixedBytesShlShrMask.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFixedBytesShlShrMaskSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.FixedBytesShlShrMask.importedSourceUnit\n  let target := \"FixedBytesShlShrMask\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let empty := SolidCore.Solidity.Source.State.empty\n  let callWord := fun name args expected =>\n    SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty args expected\n  let result <- callWord \"shlThenShr\" [word 0xff] 0x0f\n  Except.ok result)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fixedbytes-shl-eq",
+      "description": "FB1: `(b << 4) == bytes1(0xf0)` with `b = 0xff` is `true` on solc because `b << 4` is cleaned to the byte lane before the full-word comparison; Forge and imported Lean pin the interpreter's `<<` lane cleanup on the comparison path.",
+      "forge": {
+        "root": "tests/forge-harness/fixedbytes-shl-eq",
+        "match_contract": "FixedBytesShlEqForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/fixedbytes-shl-eq/src/FixedBytesShlEq.sol",
+        "contract": "FixedBytesShlEq",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FixedBytesShlEq"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedFixedBytesShlEqAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.FixedBytesShlEq.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFixedBytesShlEqSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.FixedBytesShlEq.importedSourceUnit\n  let target := \"FixedBytesShlEq\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let empty := SolidCore.Solidity.Source.State.empty\n  let callWord := fun name args expected =>\n    SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty args expected\n  let result <- callWord \"shlEquals\" [word 0xff] 1\n  Except.ok result)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fixedbytes-not-eq",
+      "description": "FB1: `(~b) == bytes1(0xf0)` with `b = 0x0f` is `true` on solc because `~b` is cleaned to the byte lane (solc wraps `not` in `cleanup_t_bytesN`); Forge and imported Lean pin the interpreter's unary-not lane cleanup.",
+      "forge": {
+        "root": "tests/forge-harness/fixedbytes-not-eq",
+        "match_contract": "FixedBytesNotEqForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/fixedbytes-not-eq/src/FixedBytesNotEq.sol",
+        "contract": "FixedBytesNotEq",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FixedBytesNotEq"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedFixedBytesNotEqAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.FixedBytesNotEq.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFixedBytesNotEqSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.FixedBytesNotEq.importedSourceUnit\n  let target := \"FixedBytesNotEq\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let empty := SolidCore.Solidity.Source.State.empty\n  let callWord := fun name args expected =>\n    SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty args expected\n  let result <- callWord \"notEquals\" [word 0x0f] 1\n  Except.ok result)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

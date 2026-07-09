@@ -3238,7 +3238,23 @@ def Ty.implicitCleanupCore? (targetTy : Ty) (expr : CoreExpr) :
           some (SolidCore.Solidity.Source.Expr.intCleanup bits expr)
       else
         none
-  | _ => some expr
+  | _ =>
+      -- FB1: `bytesN` is stored right-aligned, but solc stores it left-aligned
+      -- and re-cleans every `bytesN <<` result back into its byte lane
+      -- (`cleanup_t_bytesN` around `shl`). Under the right-aligned convention a
+      -- left shift is exactly what pushes meaningful bits *above* the low
+      -- `size`-byte lane, so the result must be masked to `2^(8*size)` — i.e. a
+      -- no-op `fixedBytesCast size size` (identity for `size = 32`). `>>` keeps
+      -- values in-lane and needs no mask (matching solc's already-agreeing
+      -- right-shift path). This top-level arm is defense-in-depth; the recursive
+      -- `Expr.toCoreFixedBytesBitOp?` walk handles nested shifts and `~`.
+      match Ty.fixedBytesSize? targetTy with
+      | some size =>
+          if isLeftShift then
+            some (SolidCore.Solidity.Source.Expr.fixedBytesCast size size expr)
+          else
+            some expr
+      | none => some expr
 
 def Ty.implicitCleanupCore (targetTy : Ty) (expr : CoreExpr) :
     CoreExpr :=
@@ -6513,6 +6529,86 @@ def Expr.toCoreAsWithEnvDirect? (storageNames : List Name) (env : TypeEnv)
                       let coreExpr ← Expr.toCore? storageNames expr
                       Expr.coreAsFromTy? targetTy sourceTy coreExpr
 
+/-- FB1: a `bytesN`-typed expression whose top node is a shift or bitwise
+    operator. These are the shapes whose right-aligned lowering can carry (or
+    hide) bits above the low `size`-byte lane, so they are routed through
+    `Expr.toCoreFixedBytesBitOp?` for solc-faithful per-op lane cleanup. -/
+def Expr.isFixedBytesBitOpShape : Expr -> Bool
+  | Expr.binary BinaryOp.shl _ _ => true
+  | Expr.binary BinaryOp.shr _ _ => true
+  | Expr.binary BinaryOp.bitAnd _ _ => true
+  | Expr.binary BinaryOp.bitOr _ _ => true
+  | Expr.binary BinaryOp.bitXor _ _ => true
+  | Expr.unary UnaryOp.bitNot _ => true
+  | _ => false
+
+/-- FB1: lower a `bytesN`-typed shift/bitwise subtree, inserting the lane
+    cleanup solc emits after every `bytesN <<` and `~bytesN`.
+
+    solc stores `bytesN` **left-aligned** and wraps every `<<` and `~` result in
+    `cleanup_t_bytesN`. Solidus stores `bytesN` **right-aligned** (meaningful
+    bytes low), so `<<` and `~` are exactly the operators that push meaningful
+    bits *above* the low `size`-byte lane. Each such result is masked back with
+    `fixedBytesCast size size` (take the low `size` bytes — a no-op for
+    `size = 32`). `>>`, `&`, `|`, `^` keep in-lane values in-lane and get no
+    extra mask, but the subtree is still walked so a nested `<<`/`~` beneath them
+    is cleaned (e.g. `(b << 4) >> 4`). Leaves fall back to the ordinary typed
+    lowering at `bytesN size`; shift counts (`rhs`) are `uint`, lowered as usual. -/
+def Expr.toCoreFixedBytesBitOp? (storageNames : List Name) (env : TypeEnv)
+    (size : Nat) : Expr -> Option CoreExpr
+  | Expr.binary BinaryOp.shl lhs rhs => do
+      let lhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size lhs
+      let rhsCore ← Expr.toCore? storageNames rhs
+      some
+        (SolidCore.Solidity.Source.Expr.fixedBytesCast size size
+          (SolidCore.Solidity.Source.Expr.binary
+            SolidCore.Solidity.Source.BinaryOp.shl lhsCore rhsCore))
+  | Expr.binary BinaryOp.shr lhs rhs => do
+      let lhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size lhs
+      let rhsCore ← Expr.toCore? storageNames rhs
+      some
+        (SolidCore.Solidity.Source.Expr.binary
+          SolidCore.Solidity.Source.BinaryOp.shr lhsCore rhsCore)
+  | Expr.binary BinaryOp.bitAnd lhs rhs => do
+      let lhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size lhs
+      let rhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size rhs
+      some
+        (SolidCore.Solidity.Source.Expr.binary
+          SolidCore.Solidity.Source.BinaryOp.bitAnd lhsCore rhsCore)
+  | Expr.binary BinaryOp.bitOr lhs rhs => do
+      let lhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size lhs
+      let rhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size rhs
+      some
+        (SolidCore.Solidity.Source.Expr.binary
+          SolidCore.Solidity.Source.BinaryOp.bitOr lhsCore rhsCore)
+  | Expr.binary BinaryOp.bitXor lhs rhs => do
+      let lhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size lhs
+      let rhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size rhs
+      some
+        (SolidCore.Solidity.Source.Expr.binary
+          SolidCore.Solidity.Source.BinaryOp.bitXor lhsCore rhsCore)
+  | Expr.unary UnaryOp.bitNot inner => do
+      let innerCore ← Expr.toCoreFixedBytesBitOp? storageNames env size inner
+      some
+        (SolidCore.Solidity.Source.Expr.fixedBytesCast size size
+          (SolidCore.Solidity.Source.Expr.unary
+            SolidCore.Solidity.Source.UnaryOp.bitNot innerCore))
+  | expr => Expr.toCoreAsWithEnvDirect? storageNames env (Ty.bytesN size) expr
+termination_by expr => sizeOf expr
+
+/-- FB1: typed lowering to `targetTy` that routes `bytesN` shift/bitwise
+    subtrees through `Expr.toCoreFixedBytesBitOp?` (solc-faithful lane cleanup),
+    and otherwise behaves exactly like `Expr.toCoreAsWithEnvDirect?`. -/
+def Expr.toCoreAsWithEnvBitAware? (storageNames : List Name) (env : TypeEnv)
+    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match Ty.fixedBytesSize? targetTy with
+  | some size =>
+      if Expr.isFixedBytesBitOpShape expr then
+        Expr.toCoreFixedBytesBitOp? storageNames env size expr
+      else
+        Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+  | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+
 /-- Operands eligible for literal-type adoption in a binary op's common-type
     computation: a direct literal (`Expr.isDirectLiteral`) or a *negated*
     numeric literal (`-2`, `-1e18`). solc treats a negated numeric literal as a
@@ -6552,8 +6648,11 @@ def Expr.binaryToCoreWithEnvTyped? (storageNames : List Name) (env : TypeEnv)
   | _ => do
       let coreOp ← BinaryOp.toCore? op
       let operandTy ← Expr.commonOperandTyWithEnv? env lhs rhs
-      let lhsCore ← Expr.toCoreAsWithEnvDirect? storageNames env operandTy lhs
-      let rhsCore ← Expr.toCoreAsWithEnvDirect? storageNames env operandTy rhs
+      -- FB1: a `bytesN` operand that is itself a `<<`/`~` (e.g. `(b << 4) == …`,
+      -- `(~b) == …`) must be lane-cleaned before the full-word comparison, or the
+      -- bits `<<`/`~` pushed above the byte lane make the comparison diverge.
+      let lhsCore ← Expr.toCoreAsWithEnvBitAware? storageNames env operandTy lhs
+      let rhsCore ← Expr.toCoreAsWithEnvBitAware? storageNames env operandTy rhs
       let resultTy :=
         match op with
         | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
@@ -6604,6 +6703,20 @@ def Expr.peelToOverflowArithmetic? :
 
 def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  -- FB1: a `bytesN`-targeted expression whose top node is a shift/bitwise op
+  -- (e.g. `return (b << 4) >> 4;`, `bytes1 c = ~b;`) is lowered with per-op lane
+  -- cleanup so bits pushed above the byte lane by `<<`/`~` are re-masked, exactly
+  -- as solc's `cleanup_t_bytesN`. Non-`bytesN` targets and non-bit-op shapes fall
+  -- through unchanged.
+  match (match Ty.fixedBytesSize? targetTy with
+    | some size =>
+        if Expr.isFixedBytesBitOpShape expr then
+          Expr.toCoreFixedBytesBitOp? storageNames env size expr
+        else
+          none
+    | none => none) with
+  | some coreExpr => some coreExpr
+  | none =>
   match Expr.toCoreIncDecWithEnv? storageNames env expr with
   | some coreExpr => some coreExpr
   | none =>
