@@ -5494,6 +5494,69 @@
       }
     },
     {
+      "name": "fnptr-internal-eq-derived",
+      "description": "Pin for internal function-pointer equality/inequality on pointers PRODUCED through a ternary initializer or a STORAGE-field read (#53, FP-EQ-2; follow-up to #50 FP-EQ / the fnptr-internal-eq lane which covers only direct-name assignment). solc 0.8.35 legacy (optimizer=false) compiles `fp == g` / `fp != g` to a dispatch-identity compare regardless of how `fp` was produced; solidity-lean previously lowered a ternary/storage-derived pointer to a plain Value.word and reverted/mis-typed on comparison (internalFunction == word -> typeMismatch). The FP-EQ-2 fix carries Value.internalFunction through every typed lowering context. Covers ternary-init eq/ne (both branches) and storage round-trip eq/ne.",
+      "forge": {
+        "match_contract": "FnptrInternalEqDerivedForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/fnptr-internal-eq-derived"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "ternEqTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"ternEq\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 1"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "ternEqFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"ternEq\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 0"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "ternNeTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"ternNe\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 0"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "ternNeFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"ternNe\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 1"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "storeThenEqSame",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"storeThenEqSame\" SolidCore.Solidity.Source.State.empty [] 1"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "storeThenEqDiff",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"storeThenEqDiff\" SolidCore.Solidity.Source.State.empty [] 0"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "storeThenNe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived.importedContract \"storeThenNe\" SolidCore.Solidity.Source.State.empty [] 1"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "FnptrInternalEqDerivedHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FnptrInternalEqDerived",
+        "source": "tests/forge-harness/fnptr-internal-eq-derived/src/FnptrInternalEqDerived.sol"
+      }
+    },
+    {
       "name": "storage-uninit-fn-ptr",
       "description": "G17 pin (docs/solidity-lean-solc-deep-comparison.md): an internal function pointer held in a never-assigned STORAGE state variable (and one left unset on an untaken constructor branch) has the zero dispatch value; calling it panics 0x51. Storage-default counterpart of the already-laned local-uninitialized pointer call; ground truth from pinned-solc/EVM Forge (both revert with Panic(0x51)).",
       "forge": {

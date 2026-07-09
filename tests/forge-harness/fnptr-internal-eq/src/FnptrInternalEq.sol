@@ -11,10 +11,9 @@ pragma solidity ^0.8.35;
 //
 // NOTE: this lane covers pointers produced by DIRECT-name assignment (the
 // representation the fixed arm handles). Pointers produced through a ternary
-// initializer or a storage-field read are NOT compared here — solc compiles
-// those too, but solidity-lean's Source->Core lowering does not yet carry the
-// internalFunction representation through those paths (they still revert). That
-// is a separate lowering gap recorded in docs/DECISIONS.md (2026-07-09).
+// initializer or a storage-field read are covered by the sibling lane
+// `fnptr-internal-eq-derived` (#53/FP-EQ-2, docs/DECISIONS.md 2026-07-09),
+// which carries the internalFunction representation through those paths.
 contract FnptrInternalEqHarnessTarget {
     function a() internal pure {}
     function b() internal pure {}
