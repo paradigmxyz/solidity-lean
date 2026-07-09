@@ -3591,65 +3591,6 @@ def checkedUnspecifiedTupleOrderAbiContextEvaluationMatches :
   let right ← checkedUnspecifiedTupleOrderAbiContextRightToLeftMatches
   Except.ok (left && right)
 
-def checkedUnspecifiedTupleOrderFunctionUnspecifiedResultsMatch :
-    Except TypeError Bool := do
-  let checkedContract ←
-    CheckedInput.ownContract
-      Executable.Examples.unspecifiedTupleOrderContract
-  let results :=
-    CheckedContract.callFunctionUnspecifiedResults 32 checkedContract
-      "runTuple" checkedContract.core.context
-      SolidCore.Solidity.Source.State.empty []
-  match results with
-  | [ SolidCore.Solidity.Source.CallResult.returned state
-        [ SolidCore.Solidity.Source.Value.word first
-        , SolidCore.Solidity.Source.Value.word second ] ] =>
-      Except.ok
-        (SolidCore.Solidity.Source.wordEq first 5 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
-          SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
-  | _ => Except.ok false
-
-def checkedUnspecifiedTupleOrderAbiUnspecifiedResultsMatch :
-    Except TypeError Bool := do
-  let checkedContract ←
-    CheckedInput.ownContract
-      Executable.Examples.unspecifiedTupleOrderContract
-  let calldata ←
-    CheckedContract.functionCalldata checkedContract "runTuple" []
-  let results :=
-    CheckedContract.callCalldataAtFromUnspecifiedResults 32 checkedContract
-      checkedContract.core.context SolidCore.Solidity.Source.State.empty
-      0 0 0 calldata
-  match results with
-  | [result] =>
-      if result.success then
-        let values ←
-          optionToExcept "ABI tuple order yul-compatible decode"
-            (SolidCore.Solidity.Source.abiDecodeValues?
-              [ SolidCore.Solidity.Source.Ty.uint256
-              , SolidCore.Solidity.Source.Ty.uint256 ]
-              result.output)
-        match values with
-        | [ SolidCore.Solidity.Source.Value.word first
-          , SolidCore.Solidity.Source.Value.word second ] =>
-            Except.ok
-              (SolidCore.Solidity.Source.wordEq first 5 &&
-                SolidCore.Solidity.Source.wordEq second 0 &&
-                SolidCore.Solidity.Source.wordEq
-                  (result.state.loadSlot 0) 5)
-        | _ => Except.ok false
-      else Except.ok false
-  | _ => Except.ok false
-
-def checkedUnspecifiedTupleOrderUnspecifiedResultsMatch :
-    Except TypeError Bool := do
-  let functionResults ←
-    checkedUnspecifiedTupleOrderFunctionUnspecifiedResultsMatch
-  let abiResults ←
-    checkedUnspecifiedTupleOrderAbiUnspecifiedResultsMatch
-  Except.ok (functionResults && abiResults)
-
 def checkedUnspecifiedLValueIndexOrderRunWithContextEval
     (order : SolidCore.Solidity.Source.ChildEvalOrder) :
     Except TypeError (Option (Word × Word × Word)) := do

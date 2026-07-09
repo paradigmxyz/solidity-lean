@@ -6962,18 +6962,16 @@ def Context.withChildEvalOrder
 def Context.withoutChildEvalOrder (context : Context) : Context :=
   { context with childEvalOrder? := none }
 
+/-- The pinned child-evaluation order of this semantics: right-to-left, matching
+    the target Yul interpreter's argument evaluation (EvmYulLean). Solidity
+    leaves sibling order unspecified; this repo resolves that latitude to this
+    single order, permanently — there is deliberately no quantification over
+    other orders. -/
 def ChildEvalOrder.yulCompatible : ChildEvalOrder :=
   ChildEvalOrder.rightToLeft
 
 def Context.effectiveChildEvalOrder (context : Context) : ChildEvalOrder :=
   context.childEvalOrder?.getD ChildEvalOrder.yulCompatible
-
-def ChildEvalOrder.unspecifiedOrders : List ChildEvalOrder :=
-  [ChildEvalOrder.yulCompatible]
-
-def Context.withUnspecifiedChildEvalOrders
-    (context : Context) : List Context :=
-  ChildEvalOrder.unspecifiedOrders.map context.withChildEvalOrder
 
 /-- Fold an *expression*-level `SolI` tree back to `Except RevertData`, answering
     queries from `Context`. `fuel` is safe because the number of queries an
@@ -8980,23 +8978,6 @@ def FunctionExitKind.ofBodyResult : Result -> FunctionExitKind
   | Result.reverted _ _ => FunctionExitKind.revertRollsBack
   | Result.broke _ => FunctionExitKind.invalidControlReverts
   | Result.continued _ => FunctionExitKind.invalidControlReverts
-
-def FunctionDef.callUnspecifiedResults (fuel : Nat) (table : FunctionTable)
-    (context : Context)
-    (function : FunctionDef) (state : State) (args : List Value) :
-    List CallResult :=
-  context.withUnspecifiedChildEvalOrders.filterMap
-    (fun orderedContext =>
-      function.call? fuel table orderedContext state args)
-
-def FunctionDef.CallsUnspecified (fuel : Nat) (table : FunctionTable)
-    (context : Context)
-    (function : FunctionDef) (state : State) (args : List Value)
-    (result : CallResult) : Prop :=
-  function.call? fuel table
-      (context.withChildEvalOrder ChildEvalOrder.yulCompatible)
-      state args =
-    some result
 
 theorem FunctionDef.call?_reverted_rolls_back
     {fuel : Nat} {table : FunctionTable} {context : Context}

@@ -707,24 +707,6 @@ def Contract.callCalldataAtFromWithContext? (fuel : Nat)
       Contract.callReceiveOrFallbackAtFromWithContext? fuel contract base state
         self sender value calldata
 
-def Contract.callCalldataAtFromUnspecifiedResults (fuel : Nat)
-    (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) : List AbiCallResult :=
-  base.withUnspecifiedChildEvalOrders.filterMap
-    (fun orderedContext =>
-      Contract.callCalldataAtFromWithContext?
-        fuel contract orderedContext state self sender value calldata)
-
-def Contract.CalldataCallUnspecified (fuel : Nat)
-    (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes)
-    (result : AbiCallResult) : Prop :=
-  Contract.callCalldataAtFromWithContext?
-      fuel contract
-        (base.withChildEvalOrder ChildEvalOrder.yulCompatible)
-        state self sender value calldata =
-    some result
-
 def Contract.callCalldataAtFrom? (fuel : Nat) (contract : Contract)
     (state : State) (self sender value : Word) (calldata : Bytes) :
     Option AbiCallResult :=
@@ -770,14 +752,6 @@ def Contract.callCalldataTransactionAtFromWithContext? (fuel : Nat)
     Contract.callCalldataAtFromWithContext?
       fuel contract base state.clearTransient self sender value calldata
   some result.clearTransient
-
-def Contract.callCalldataTransactionAtFromUnspecifiedResults (fuel : Nat)
-    (contract : Contract) (base : Context) (state : State)
-    (self sender value : Word) (calldata : Bytes) : List AbiCallResult :=
-  base.withUnspecifiedChildEvalOrders.filterMap
-    (fun orderedContext =>
-      Contract.callCalldataTransactionAtFromWithContext?
-        fuel contract orderedContext state self sender value calldata)
 
 def Contract.callCalldataTransactionAtFrom? (fuel : Nat)
     (contract : Contract) (state : State) (self sender value : Word)
