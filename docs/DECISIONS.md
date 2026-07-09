@@ -3927,3 +3927,55 @@ slot 0 offset 27; `uint96[]` packs 2/slot; `bytes3[]` packs 10/slot;
 `(index % perSlot) * widthBytes`. Verified identical to solc for uint72/uint96/
 bytes3/uint128 (slot counts and per-element slot+offset). **Lane:**
 `storage-array-packing`.
+
+## 2026-07-08 — Bug-batch triage: items #3/#4/#5/#7/#8/#9/#10/#11 ALREADY-FAITHFUL
+
+Investigated with pinned solc 0.8.35 + Forge ground truth and end-to-end Lean
+witnesses (importer → checker → interpreter). None diverge; recorded here so the
+list is not re-opened.
+
+- **#3 narrow signed div/neg overflow.** Probe: `int8(-128)/int8(-1)` and
+  `-int8(-128)` → checked Panic 0x11, unchecked wrap to -128. `checkedSignedDiv`/
+  `checkedSignedNeg` only special-case the 256-bit min, but the narrow overflow
+  is caught by the enclosing `intCleanup` the importer inserts: for a binary op
+  via `implicitCleanupCore` at the operand width (`isOverflowArithmetic` includes
+  `div`/`mod`); for unary neg via the return/target-type cleanup. Witness:
+  divUnchecked→-128, divChecked→panic, negUnchecked→-128, negChecked→panic. All
+  match.
+- **#4 modifier placeholder `_` inside nested blocks.** The active lowering
+  `Stmt.toCoreReplacingModifierPlaceholder?` (Interface.lean) recurses through
+  block/if/while/for/try/unchecked, so a nested `_` is substituted. The
+  top-level-only `Stmt.replaceTopLevelModifierPlaceholder` has NO call sites
+  (dead code). Probe (modifier with `_` inside `if`): solc and Solidus both
+  return 121.
+- **#5 abi.encode of narrow uintN/intN.** solc always cleans before encoding;
+  Solidus maintains the clean-value invariant (eager cleanup on every
+  arithmetic/cast/decode), so `abiEncode` never sees dirty high bits. Probe:
+  `uint8 x=200; unchecked{x=x+100;}` (wraps to 44) → both encode 0x2c. Dirt only
+  arises via inline assembly, outside importer/corpus scope.
+- **#7 transient storage (EIP-1153) clearing granularity.** `clearTransient` is
+  applied at the TRANSACTION boundary only: `Contract.callTransaction` clears
+  before and maps `CallResult.clearTransient` over the result;
+  `ContractCallKind.messageCall` preserves transient across nested calls within a
+  tx. Correct tx-scoped semantics (not per-call, not never).
+- **#8 `require(cond, CustomError(...))` (0.8.26+).** solc accepts. NOT
+  over-rejected: the Python importer emits the two-arg `require`, the Lean matcher
+  lowers it to `Stmt.requireCustom`, and the interpreter reverts with
+  `RevertData.custom name args` on failure. Witness: `require(a>10, Bad(a))`
+  f(15)→returns 15, f(5)→reverted custom "Bad"[5]; `require(c, Plain())`
+  false→"Plain"[]. (Independently cross-checked faithful by a sibling agent.)
+- **#9 signed `<=`/`>=` derivation.** `applySignedWord` routes `le`→`!sgt`,
+  `ge`→`!slt` (i.e. SLE/SGE). Witness: -5<=3 true, -5>=3 false, 3<=-5 false,
+  -5<=-5 true. All match solc.
+- **#10 intN ABI-decode canonical-form validation.** solc's `validator_revert_t_*`
+  reverts (empty data) on a non-canonical intN/uintN in `abi.decode`. Solidus
+  wraps decoded narrow values in `Value.abiLazy cleanup`; `AbiCleanup.accepts`
+  reconstructs the canonical form and `AbiCleanup.forceValue` reverts
+  `RevertData.empty` on mismatch (pinned by the existing abi-malformed lanes).
+  Probe: dirty int8 → solc reverts; Solidus reverts empty. Match.
+- **#11 fixed-array-of-dynamic head-offset base, nested one level.** Encoder
+  bases inner head offsets on the fixed array's own data region. Unit test:
+  `abi.encode(uint256[][2])` with `[[0xaa],[0xbb,0xcc]]` → Solidus words
+  `[0x20,0x40,0x80,1,0xaa,2,0xbb,0xcc]`, byte-identical to solc/Forge. (A
+  separate `uint256[][2] memory` + `new uint256[]` init probe hit an unrelated
+  memory-array-allocation limitation — M-series territory, not this ABI item.)
