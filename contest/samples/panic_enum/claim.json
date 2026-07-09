@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Enumer", "function": "f", "args": [5], "value": 0 },
+  "expected_divergence": "none expected - enum-conversion panic probe: f(5) converts to a 3-member enum out of range and reverts with Panic(0x21); both engines must render revert|panic:33.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|panic:33##EVT####STO##" },
+  "feature": "enum-conversion-panic",
+  "register_version_seen": "1.2.0"
+}

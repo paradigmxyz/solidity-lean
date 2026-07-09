@@ -629,6 +629,14 @@ def main() -> int:
     results.append(("int_bare_negative MALFORMED (FULL)", ok, d))
     _print("int_bare_negative MALFORMED (FULL)", ok, d)
 
+    # Round 17 probe: out-of-range enum conversion (f(5) -> Color(5) on a 3-member
+    # enum) must revert with Panic(0x21) -> revert|panic:33 on BOTH engines. A
+    # DISTINCT panic path (enum bounds on conversion) + enum conversion / uint8(enum)
+    # cast, all end-to-end. Return type uint256 keeps the panic the observable.
+    ok, d = run_full("panic_enum", "NO_DIVERGENCE")
+    results.append(("panic_enum PARITY (FULL)", ok, d))
+    _print("panic_enum PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
