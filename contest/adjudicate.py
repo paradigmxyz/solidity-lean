@@ -717,7 +717,15 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "note": "submitter's declared_observable disagrees with the measured "
                     "EVM observable; adjudication uses the MEASURED value."}
     assert solidity_lean.observable is not None
-    comparison = obs.compare_observables(solidity_lean.observable, evm_obs)
+    # Canonicalize a `revert|raw:0x..` outcome on EITHER side by re-decoding the
+    # bytes through the same selector decoder: solidity-lean renders a dynamically
+    # built string revert as raw bytes while the EVM side always decodes, so the
+    # SAME revert data compared unequal (raw:0x08c379a0.. vs error:..) and banked a
+    # fabricated wrong-revert SOUNDNESS_GAP. Symmetric; real byte differences still
+    # decode to different forms, so genuine divergences are preserved.
+    sl_obs = obs.canonicalize_raw_revert(solidity_lean.observable, error_defs)
+    evm_cmp = obs.canonicalize_raw_revert(evm_obs, error_defs)
+    comparison = obs.compare_observables(sl_obs, evm_cmp)
     evidence["comparison"] = comparison.to_dict()
 
     if comparison.equal:

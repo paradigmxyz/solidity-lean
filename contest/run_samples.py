@@ -392,6 +392,32 @@ def hardening_unit_tests() -> tuple[bool, str]:
                    _succ.outcome_line == "success|w:5" and
                    _succ.events == "t=[1,2];d=0xabcd" and _succ.storage == "7:42"))
 
+    # raw-vs-decoded revert canonicalization: solidity-lean renders a dynamically
+    # built string revert as `raw:0x08c379a0..` while the EVM side decodes to
+    # `error:..` -- SAME bytes -> must compare EQUAL after canonicalize_raw_revert
+    # (was a fabricated wrong-revert SOUNDNESS_GAP).
+    _err_bytes = ("0x08c379a0" + "00" * 31 + "20" + "00" * 31 + "04"
+                  + "fffe6f6b" + "00" * 28)
+    _lean_raw = _obs.parse_observable(f"revert|raw:{_err_bytes}##EVT####STO##")
+    _evm_dec = _obs.parse_observable("revert|error:��ok##EVT####STO##")
+    checks.append(("raw-revert-canonicalized-equal",
+                   _obs.compare_observables(
+                       _obs.canonicalize_raw_revert(_lean_raw),
+                       _obs.canonicalize_raw_revert(_evm_dec)).equal))
+    # a genuinely DIFFERENT raw revert still decodes to a different form (not masked).
+    _diff_bytes = ("0x08c379a0" + "00" * 31 + "20" + "00" * 31 + "04"
+                   + "41424344" + "00" * 28)   # "ABCD"
+    _lean_diff = _obs.parse_observable(f"revert|raw:{_diff_bytes}##EVT####STO##")
+    checks.append(("raw-revert-real-diff-preserved",
+                   not _obs.compare_observables(
+                       _obs.canonicalize_raw_revert(_lean_diff),
+                       _obs.canonicalize_raw_revert(_evm_dec)).equal))
+    # an unknown-selector raw revert is left untouched (no spurious decode).
+    _unk = _obs.parse_observable("revert|raw:0xdeadbeef##EVT####STO##")
+    checks.append(("raw-revert-unknown-selector-untouched",
+                   _obs.canonicalize_raw_revert(_unk).outcome_line
+                   == "revert|raw:0xdeadbeef"))
+
     # claim-field type confusion: a non-object claim.json / non-object entry must
     # be REJECT_MALFORMED, not an uncaught crash (audit finding).
     import tempfile as _tf, json as _json
@@ -683,6 +709,15 @@ def main() -> int:
     ok, d = run_full("revert_marker_injection", "NO_DIVERGENCE")
     results.append(("revert_marker_injection HARDENING (FULL)", ok, d))
     _print("revert_marker_injection HARDENING (FULL)", ok, d)
+
+    # Round 21 hardening: a non-UTF-8 revert reason (revert(string(abi.encodePacked(
+    # 0xff,0xfe,"ok")))). solidity-lean renders the dynamically-built string revert
+    # as raw:0x08c379a0.. while the EVM side decodes to error:.. -- SAME bytes. The
+    # raw-revert canonicalization re-decodes both -> NO_DIVERGENCE (was a fabricated
+    # SOUNDNESS_GAP, a REAL false positive).
+    ok, d = run_full("revert_nonutf8", "NO_DIVERGENCE")
+    results.append(("revert_nonutf8 HARDENING (FULL)", ok, d))
+    _print("revert_nonutf8 HARDENING (FULL)", ok, d)
 
     print("\n=== SUMMARY ===")
     all_ok = True

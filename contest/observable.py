@@ -495,6 +495,37 @@ def parse_observable(text: str) -> Observable:
     return Observable(raw=text.strip())
 
 
+def canonicalize_raw_revert(
+        o: "Observable",
+        errors: Optional[dict[str, tuple[str, list[str]]]] = None) -> "Observable":
+    """Re-decode a ``revert|raw:0x<hex>`` outcome through the SAME revert decoder
+    the EVM side uses, so identical revert BYTES canonicalize to identical normal
+    forms regardless of which engine happened to emit a structured vs raw revert.
+
+    solidity-lean models a *literal-string* ``require``/``revert`` as a structured
+    ``RevertData.error`` (renders ``error:s``), but a *dynamically-built* string
+    revert (``revert(string(abi.encodePacked(..)))``) as ``RevertData.raw`` bytes
+    (renders ``raw:0x08c379a0..``). The EVM side ALWAYS decodes by selector. Those
+    are the SAME revert data, so comparing ``raw:0x08c379a0..`` against ``error:..``
+    fabricated a wrong-revert SOUNDNESS_GAP. Decoding the raw bytes here removes the
+    representation asymmetry; a genuinely different byte string still decodes to a
+    different form, so real divergences are preserved (never masked)."""
+    outcome, events, storage = _split_sections(o.raw)
+    prefix = "revert|raw:0x"
+    if not outcome.startswith(prefix):
+        return o
+    hexbody = outcome[len(prefix):]
+    try:
+        decoded = evm_revert_normal_form("0x" + hexbody, errors=errors)
+    except Exception:
+        return o  # undecodable -> leave the raw form untouched
+    if decoded.startswith("revert|raw:"):
+        return o  # selector unrecognized; no canonical gain, keep original
+    if events is None and storage is None:
+        return Observable(raw=decoded)
+    return Observable(raw=f"{decoded}{_EVT_SEP}{events or ''}{_STO_SEP}{storage or ''}")
+
+
 def perturb_leading_value(o: "Observable") -> "Observable":
     """Return a copy of ``o`` with its leading ``w:N`` value incremented by one.
 
