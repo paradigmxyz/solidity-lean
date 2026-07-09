@@ -511,6 +511,14 @@ def main() -> int:
     results.append(("multi_return mixed-scalar parity (FULL)", ok, d))
     _print("multi_return mixed-scalar parity (FULL)", ok, d)
 
+    # mapping-slot + indexed-event differential probe (round 9): deposit() writes
+    # balances[0x1234]=100 and emits Deposit(indexed who, amount). Both engines must
+    # agree on the keccak-derived mapping slot AND the indexed/non-indexed event
+    # topics/data -> NO_DIVERGENCE (keccak storage-slot + event parity).
+    ok, d = run_full("map_event", "NO_DIVERGENCE")
+    results.append(("map_event mapping+event parity (FULL)", ok, d))
+    _print("map_event mapping+event parity (FULL)", ok, d)
+
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
     ok, d = run_full("arg_count_mismatch", "REJECT_MALFORMED")

@@ -1,0 +1,19 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "MapEvent",
+    "function": "deposit",
+    "args": [
+      4660,
+      100
+    ],
+    "value": 0
+  },
+  "expected_divergence": "none expected - mapping-slot + indexed-event differential probe: both engines agree on the keccak-derived mapping slot for balances[0x1234] and the Deposit(indexed who, amount) event topic0/topics/data.",
+  "declared_observable": {
+    "kind": "success",
+    "normal_form": "success|##EVT##t=[102222681472383059465863322013072701928378550215632170212813623808969952268444,4660];d=0x0000000000000000000000000000000000000000000000000000000000000064##STO##110336139452806081405069343840860127994419505884627922841905626668596794748105:100"
+  },
+  "feature": "mapping-write-plus-indexed-event",
+  "register_version_seen": "1.2.0"
+}
