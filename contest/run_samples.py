@@ -719,6 +719,13 @@ def main() -> int:
     results.append(("revert_nonutf8 HARDENING (FULL)", ok, d))
     _print("revert_nonutf8 HARDENING (FULL)", ok, d)
 
+    # Round 22 probe: revert() yields zero-length revert data -> both engines must
+    # render revert|empty (not one emitting raw:0x, the round-21 asymmetry class).
+    # NO_DIVERGENCE confirms empty-revert parity (require(false) no-msg is identical).
+    ok, d = run_full("revert_empty", "NO_DIVERGENCE")
+    results.append(("revert_empty PARITY (FULL)", ok, d))
+    _print("revert_empty PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:

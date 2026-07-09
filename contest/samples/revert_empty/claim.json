@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Emptier", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - empty-revert probe: revert() yields zero-length revert data; both engines must render revert|empty.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|empty" },
+  "feature": "empty-revert",
+  "register_version_seen": "1.2.0"
+}
