@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "MultiReturn", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - mixed-scalar multi-return differential probe: int256 -7, uint128 42, address 0x1234, bytes4 0xAABBCCDD must render identically on both engines (i:-7, w:42, w:4660, w:2864434397).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|i:-7,w:42,w:4660,w:2864434397" },
+  "feature": "mixed-scalar-multi-return",
+  "register_version_seen": "1.2.0"
+}

@@ -503,6 +503,14 @@ def main() -> int:
     results.append(("bytesn_return parity (FULL)", ok, d))
     _print("bytesn_return parity (FULL)", ok, d)
 
+    # mixed-scalar multi-return differential probe (round 8): a single tuple return
+    # of int256/uint128/address/bytes4 must render identically on both engines
+    # (i:-7,w:42,w:4660,w:2864434397) -> NO_DIVERGENCE. Exercises signed-int,
+    # sub-256 uint, address, and bytesN rendering TOGETHER (no other sample does).
+    ok, d = run_full("multi_return", "NO_DIVERGENCE")
+    results.append(("multi_return mixed-scalar parity (FULL)", ok, d))
+    _print("multi_return mixed-scalar parity (FULL)", ok, d)
+
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
     ok, d = run_full("arg_count_mismatch", "REJECT_MALFORMED")
