@@ -5418,26 +5418,24 @@ def StateMutability.externalCallOptionsCore? (storageNames : List Name)
     | none =>
         CallOptions.lowLevelCallValueGasCore? storageNames options
 
-def Expr.externalCallTargetNeedsCodeCheckWithEnv
-    (env : TypeEnv) : Expr -> Bool
-  | Expr.ident name =>
-      match generatedLibraryAddressName? name with
-      | some _ => true
-      | none =>
-          match TypeEnv.lookup? env name with
-          | some (Ty.user _) => true
-          | _ => false
-  | Expr.call (Expr.typeName (Ty.user _)) [_] => true
-  | _ => false
-
-def Expr.externalCallNeedsCodeCheckWithEnv (env : TypeEnv)
+def Expr.externalCallNeedsCodeCheckWithEnv (_env : TypeEnv)
     (returnTys : List Ty) : Expr -> Bool
-  | Expr.call (Expr.member target _) _ =>
-      returnTys.isEmpty &&
-        Expr.externalCallTargetNeedsCodeCheckWithEnv env target
-  | Expr.callWithOptions (Expr.member target _) _ _ =>
-      returnTys.isEmpty &&
-        Expr.externalCallTargetNeedsCodeCheckWithEnv env target
+  -- solc (v0.8.35, `ExpressionCompiler.cpp` `appendExternalFunctionCall`)
+  -- emits the `extcodesize`/existence guard for every high-level external
+  -- call whose `funKind` is `External`/`DelegateCall` (i.e. any contract/
+  -- interface/library-typed receiver) when the ABI head size of the return
+  -- types is 0 — i.e. exactly when there are NO return values (`encodedHeadSize
+  -- == 0`).  With return values solc relies on its separate returndata-size
+  -- check instead, so the extcodesize guard is skipped there.  The guard does
+  -- NOT depend on the *shape* of the receiver expression: `contracts[i].f()`,
+  -- `s.field.f()`, `m[k].f()` and `factory.get().f()` are all guarded exactly
+  -- like an `ident` / `C(x)` receiver (gap A3).  Any member call reaching this
+  -- point is already a high-level typed external call — low-level
+  -- `.call`/`.staticcall`/`.delegatecall`/`.send`/`.transfer` are filtered out
+  -- upstream by `toExternalCallWithKindEnv?`, so no code check is emitted for
+  -- them.
+  | Expr.call (Expr.member _ _) _ => returnTys.isEmpty
+  | Expr.callWithOptions (Expr.member _ _) _ _ => returnTys.isEmpty
   | _ => false
 
 def Expr.externalCallAbiWithKindEnv? (storageNames : List Name)

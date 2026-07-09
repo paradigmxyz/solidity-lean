@@ -519,49 +519,50 @@ private theorem eval_mono_step (n m : Nat)
             | some calldata =>
               rw [h4] at hnf
               try simp only [] at hnf ⊢
-              -- The `do`-notation lifted the `missingCode` `if` over its
-              -- continuation, so at source both branches already bind their own
-              -- prefix. Split the `if`; each branch is then a plain bind sharing
-              -- the same fuel-dependent continuation.
-              split <;> rename_i hmc <;> simp only [hmc, Bool.false_eq_true, if_true, if_false] at hnf ⊢ <;>
-                refine SolI.bind_fuel_congr hnf ?_
-              all_goals
-                intro w hw
-                obtain ⟨callResult, adoptedState⟩ := w
+              -- gap A1/A3: the `extcodesize` existence guard now reverts the
+              -- caller UNCATCHABLY *before* the CALL.  Split it: the missing-code
+              -- branch is a fuel-free `Result.reverted` (closed by `simp` as a
+              -- reflexivity goal), so only the has-code branch — which performs
+              -- the CALL — carries the fuel-dependent continuation.
+              split <;> rename_i hmc <;>
+                simp only [hmc, Bool.false_eq_true, if_true, if_false] at hnf ⊢
+              refine SolI.bind_fuel_congr hnf ?_
+              intro w hw
+              obtain ⟨callResult, adoptedState⟩ := w
+              try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
+              cases hs : callResult.success with
+              | false =>
+                rw [hs] at hw
                 try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                cases hs : callResult.success with
-                | false =>
-                  rw [hs] at hw
+                cases hcm : TryCatchClause.findMatch?
+                    (callResult.output.map normByte) catchClauses with
+                | none => rfl
+                | some fb =>
+                  obtain ⟨frame, body⟩ := fb
+                  rw [hcm] at hw
                   try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                  cases hcm : TryCatchClause.findMatch?
-                      (callResult.output.map normByte) catchClauses with
-                  | none => rfl
-                  | some fb =>
-                    obtain ⟨frame, body⟩ := fb
-                    rw [hcm] at hw
-                    try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                    rw [hEval _ _ _ _ hw.of_bind]
-                | true =>
-                  rw [hs] at hw
+                  rw [hEval _ _ _ _ hw.of_bind]
+              | true =>
+                rw [hs] at hw
+                try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
+                cases habi : abiDecodeValues? (rets.map BindingDecl.ty)
+                    (callResult.output.map normByte) with
+                | none => rfl
+                | some decoded =>
+                  rw [habi] at hw
                   try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                  cases habi : abiDecodeValues? (rets.map BindingDecl.ty)
-                      (callResult.output.map normByte) with
-                  | none => rfl
-                  | some decoded =>
-                    rw [habi] at hw
+                  cases hacc : AbiCleanups.acceptOrUnspecified
+                      retCleanups decoded with
+                  | false => rfl
+                  | true =>
+                    rw [hacc] at hw
                     try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                    cases hacc : AbiCleanups.acceptOrUnspecified
-                        retCleanups decoded with
-                    | false => rfl
-                    | true =>
-                      rw [hacc] at hw
+                    cases hbind : BindingDecl.bindArgs? rets decoded with
+                    | none => rfl
+                    | some frame =>
+                      rw [hbind] at hw
                       try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                      cases hbind : BindingDecl.bindArgs? rets decoded with
-                      | none => rfl
-                      | some frame =>
-                        rw [hbind] at hw
-                        try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                        rw [hEval _ _ _ _ hw.of_bind]
+                      rw [hEval _ _ _ _ hw.of_bind]
         next runtimeFailed err heq => rfl
   case tryContractCreate contractName ctorArgsExpr valueExpr saltExprOpt
       rets successBody catchClauses =>
