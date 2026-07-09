@@ -7167,6 +7167,39 @@
           }
         ]
       }
+    },
+    {
+      "name": "aggregate-bytesn-mapping-key",
+      "description": "Forge checks solc/EVM that a bytes4 mapping key hashes LEFT-aligned (keccak(bytes32(bytes4(key)).slot)), the right-aligned preimage stays empty, a uint32 value-key control stays right-aligned, and a nested bytes4 inner key hashes left-aligned; Lean imports the same source and checks the abstract storage words at the solc-computed slots.",
+      "forge": {
+        "root": "tests/forge-harness/aggregate-bytesn-mapping-key",
+        "match_contract": "AggregateBytesNMappingKeyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/aggregate-bytesn-mapping-key/src/AggregateBytesNMappingKey.sol",
+        "contract": "AggregateBytesNMappingKeyHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AggregateBytesNMappingKey"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AggregateBytesNMappingKey.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedBytesNMappingKeyLeftAligned",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AggregateBytesNMappingKey.importedContract\n  let state \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 contract \"setKeys\" SolidCore.Solidity.Source.State.empty []\n  Except.ok\n    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0x0010a2704e41d117fdcad5eec91d62a8dead46ff279dde52ed2097be7863b7cd) 111 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0x8d659e9d412e4465065372eb81559c28144a76a498e6bd8b10afd601bfa296b6) 0 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0x5f2fbca641dd650c3ae3f5628e6aee5c8edb73d34af6bfdf4cea0dcc661ee032) 222 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0x93a28b10b9ea82577b23e273a9dedc9617f7fa286363242876781e1aeefea8f3) 333))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
