@@ -418,6 +418,22 @@ def hardening_unit_tests() -> tuple[bool, str]:
                    _obs.canonicalize_raw_revert(_unk).outcome_line
                    == "revert|raw:0xdeadbeef"))
 
+    # measurement ret_hex must be EVEN-length hex: it is later bytes.fromhex'd
+    # (evm_observable decoders + custom-error gate), which raises an UNCAUGHT
+    # ValueError on an odd-length string. An odd-length / malformed ret_hex must
+    # fail safe to INVALID (None) at parse, never crash the adjudicator.
+    import contest.measure as _meas
+    checks.append(("meas-even-hex-ok",
+                   _meas._parse_measurement("ok|0x08c379a0|self=0x01|origin=0x02")
+                   is not None))
+    checks.append(("meas-empty-ret-ok",
+                   _meas._parse_measurement("ok|0x|self=0x01|origin=0x02") is not None))
+    checks.append(("meas-odd-hex-failsafe",
+                   _meas._parse_measurement("ok|0xabc|self=0x01|origin=0x02") is None))
+    checks.append(("meas-odd-revert-failsafe",
+                   _meas._parse_measurement("revert|0x08c379a0f|self=0x01|origin=0x02")
+                   is None))
+
     # claim-field type confusion: a non-object claim.json / non-object entry must
     # be REJECT_MALFORMED, not an uncaught crash (audit finding).
     import tempfile as _tf, json as _json

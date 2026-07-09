@@ -395,8 +395,14 @@ def _tail(path: Path, n: int = 600) -> str:
         return ""
 
 
+# ret_hex (group 2) MUST be even-length hex: it is later `bytes.fromhex`'d (in
+# evm_observable's decoders and adjudicate.py's custom-error gate), which raises an
+# UNCAUGHT ValueError on an odd-length string. `0x[0-9a-fA-F]*` admitted an odd count
+# (e.g. `0xabc`), so a malformed measurement would crash the adjudicator instead of
+# failing safe. Requiring pairs `(?:..){2}` makes a malformed ret_hex simply not
+# match -> _parse_measurement returns None -> INVALID (fail-safe), never a crash.
 _MEAS_RE = re.compile(
-    r"^(ok|revert)\|(0x[0-9a-fA-F]*)\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)"
+    r"^(ok|revert)\|(0x(?:[0-9a-fA-F]{2})*)\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)"
     r"(?:\|evt=(.*)\|sto=(.*))?$")
 
 
