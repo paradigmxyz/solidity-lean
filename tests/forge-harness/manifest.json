@@ -927,6 +927,102 @@
       }
     },
     {
+      "name": "enum-ordered-compare",
+      "description": "Forge checks solc/EVM ordered comparisons (`<`/`<=`/`>`/`>=`) on same-enum operands returning bool by ordinal, in both true and false cases plus a require(state < State.Done) gate over an enum parameter; pinned solc rejects a DIFFERENT-enum ordered comparison (TypeError 2271); Lean imports the same source contract from solc AST and checks that the common typechecker now accepts same-enum ordered comparison (previously an over-reject: isRelationalOperand omitted enums) and the interpreter compares enum ordinals unsigned, matching solc's bools.",
+      "forge": {
+        "root": "tests/forge-harness/enum-ordered-compare",
+        "match_contract": "EnumOrderedCompareForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/enum-ordered-compare/invalid/DifferentEnumCompare.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/enum-ordered-compare/src/EnumOrderedCompare.sol",
+        "contract": "EnumOrderedCompareHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.EnumOrderedCompare"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "ltTrue__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"ltTrue\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ltFalse__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"ltFalse\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "gtTrue__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"gtTrue\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "gtFalse__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"gtFalse\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "leTrueLt__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"leTrueLt\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "leTrueEq__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"leTrueEq\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "leFalse__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"leFalse\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "geTrue__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"geTrue\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "geTrueEq__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"geTrueEq\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "geFalse__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"geFalse\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "gate_0_eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"gate\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "gate_1_eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"gate\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "gate_2_eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.EnumOrderedCompare.importedContract \"gate\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2] 0",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "loop-control",
       "description": "Forge checks solc/EVM while/for loop control; pinned solc and the common checker reject break/continue outside loops; Lean imports the same source contract from solc AST and checks source break/continue behavior.",
       "forge": {
