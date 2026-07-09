@@ -8169,6 +8169,88 @@
           }
         ]
       }
+    },
+    {
+      "name": "struct-array-copy-legacy-reject",
+      "description": "CP1/#48: solc 0.8.35 LEGACY codegen rejects at compile time a copy into a storage array whose element is a struct when the source is a memory or calldata array (ArrayUtils.cpp:80-84). The corpus pins legacy, so such a program is not ground truth and solidity-lean must reject it (was an over-accept). solc_rejects pins solc's compile-time rejection of the three struct-element shapes; Forge pins the runtime values of the accepted controls (string[]/uint256[][]/S[][]/top-level struct copies); Lean witnesses pin both the rejection and the precision boundary (accepted controls stay accepted).",
+      "forge": {
+        "root": "tests/forge-harness/struct-array-copy-legacy-reject",
+        "match_contract": "StructArrayCopyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/struct-array-copy-legacy-reject/src/StructArrayCopy.sol",
+        "contract": "StructArrayCopyHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StructArrayCopy"
+      },
+      "solc_rejects": [
+        {
+          "source": "tests/forge-harness/struct-array-copy-legacy-reject/invalid/DynStructMemToStorage.sol",
+          "contains": "not supported in legacy"
+        },
+        {
+          "source": "tests/forge-harness/struct-array-copy-legacy-reject/invalid/FixedStructMemToStorage.sol",
+          "contains": "not supported in legacy"
+        },
+        {
+          "source": "tests/forge-harness/struct-array-copy-legacy-reject/invalid/StructCalldataToStorage.sol",
+          "contains": "not supported in legacy"
+        }
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.StructArrayCopyReject"
+        ],
+        "evals": [
+          {
+            "label": "acceptedControlsTypecheck",
+            "expr": "SolidCore.Solidity.SolcAstImport.StructArrayCopy.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "dynStructMemRejected",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.dynStructMemRejected",
+            "expect": "true"
+          },
+          {
+            "label": "fixedStructMemRejected",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.fixedStructMemRejected",
+            "expect": "true"
+          },
+          {
+            "label": "structCalldataRejected",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.structCalldataRejected",
+            "expect": "true"
+          },
+          {
+            "label": "stringArrMemAccepted",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.stringArrMemAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "uintNestedMemAccepted",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.uintNestedMemAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "nestedStructMemAccepted",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.nestedStructMemAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "topLevelStructAccepted",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.topLevelStructAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "storageToStorageAccepted",
+            "expr": "SolidCore.Solidity.Executable.StructArrayCopy.storageToStorageAccepted",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

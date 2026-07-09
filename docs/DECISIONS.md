@@ -5,6 +5,64 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — CP1/#48: struct-element array copy INTO storage rejected under legacy codegen (over-accept closed)
+
+A confirmed over-accept (from `docs/solc-array-copy-delete-review.md`). solc
+0.8.35 LEGACY codegen (optimizer off, no via-ir — the corpus ground truth)
+REJECTS at compile time a copy INTO a storage array whose ELEMENT type is a
+struct when the source is a MEMORY or CALLDATA array. solidity-lean previously
+ACCEPTED and executed such a program, returning a value — an over-accept, since
+the program does not compile under the pinned toolchain.
+
+**solc's exact predicate** — `ArrayUtils::copyArrayToStorage`
+(`libsolidity/codegen/ArrayUtils.cpp:44-85`). The target is asserted to be a
+storage array (`:50`). Two branches on the source array's base-type category:
+
+  * base is an ARRAY (`:61`): `solUnimplementedAssert` fires only for
+    `fromCalldata && isDynamicallyEncoded && sourceBaseArrayType.isDynamicallySized`
+    ("Copying nested calldata dynamic arrays ...") — a memory nested array is
+    NOT rejected here.
+  * base is NOT an array (`else`, `:80-84`):
+    `solUnimplementedAssert(baseType->isValueType() || !fromMemoryOrCalldata, ...)`
+    with `fromMemoryOrCalldata = location == Memory || location == CallData`.
+    The message is "Copying of type ... to storage is not supported in legacy
+    (only supported by the IR pipeline)."
+
+The only non-array, non-value base type is a STRUCT (mappings can't be
+memory/calldata; enums, contracts, UDVTs, fixed-bytes, integers are value
+types). So branch 2 ⟺ "the source array's IMMEDIATE element is a struct AND the
+source is memory or calldata." Confirmed on pinned solc: `S[] memory`,
+`S[2] memory`, `S[] calldata` -> storage all REJECT (branch 2; fixed vs dynamic
+source is irrelevant); `string[]`/`bytes[]`/`uint256[][]`/`uint256[] memory`,
+top-level `S memory -> S storage` (a struct, not an array), `S[] storage ->
+storage` (storage source), and — critically — `S[][] memory -> storage` all
+ACCEPT (the last takes branch 1, whose memory source is not rejected). The fix
+keys on the IMMEDIATE element only and must NOT recurse, else `S[][] memory`
+would over-reject.
+
+**Fix (`SolidCore/Solidity/TypeCheck.lean`).** At the plain-assign site (the
+`AssignOp.assign` case, ~`:7349`), before the G14 storage-array accept path, a
+copy into a genuine storage array (`stateLValue && !rebindsStoragePointer`)
+whose element is a struct (`TypeContext.storageStructArrayElem?`) from a
+memory/calldata source (`CheckedExpr.locationIsMemoryOrCalldata`) is now a
+`TypeError.unsupported`, mirroring solc's compile-time reject at the typecheck
+boundary (accept/reject decision, not an execution trap). Location note: a
+memory parameter carries `dataLocation? = none` in this checker (only
+storage/calldata are tracked as data locations), so "memory or calldata" is
+implemented as "not a storage reference" — `!stateLValue` (with an explicit
+`!= some storage` guard for intent). This keeps storage->storage struct-array
+copies accepted, matching solc.
+
+**Lane** `struct-array-copy-legacy-reject`: `solc_rejects` pins solc's
+compile-time rejection of the three struct-element shapes (message substring
+"not supported in legacy"); a Forge test pins the runtime values of the accepted
+controls (`string[]`, `uint256[][]`, `S[][]`, top-level struct copies); the
+`SolidCore.Witness.StructArrayCopyReject` witnesses pin both the three rejections
+and the five-shape precision boundary on the Lean side (each via
+`sourceUnitAccepted?`). Full `lake build` green (1104 jobs) incl.
+FuelMonotonicity + Witness.*; smoke replay green (29 cases, no regressions);
+lane green (`solc_rejects=ok forge=ok lean=ok`).
+
 ## 2026-07-09 — CTOR-RESIDUE: two constructor-elaboration over-rejects closed (intermediate base-args; internal-call initializers)
 
 Two over-rejects in the executable-checked constructor path
