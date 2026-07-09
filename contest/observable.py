@@ -42,12 +42,14 @@ defect O-1: the EVM observable is measured from the run, NOT the submitter's
 ``declared_observable`` string (which is now only a sanity cross-check).
 
 PRECISION LIMITS (documented, v1 restricted launch):
-  * Custom-error reverts: the EVM side decodes Error(string)/Panic(uint256)/
-    empty precisely; a custom error decodes to ``raw:0x<selector+payload>``
-    while Solidus renders ``custom:<name>:...`` -> such a comparison is routed to
-    review, not auto-scored.
-  * Return decoding covers static words (uint/address/bool/bytesN -> w),
-    signed ints (-> i) and a single/leading dynamic bytes/string (-> b).
+  * Custom-error reverts ARE now decoded: given the submission's error
+    definitions (name + params + the AST ``errorSelector``), the EVM side renders
+    ``revert|custom:<Name>:<v1>,...`` in the same normal form Solidus produces, so
+    they are compared automatically. A custom error whose selector is not among
+    the submission's definitions still falls back to ``raw:0x...``.
+  * Return / custom-error arg decoding covers static words (uint/address/bool/
+    bytesN/enum/contract -> w), signed ints (-> i) and a single/leading dynamic
+    bytes/string (-> b).
 """
 
 from __future__ import annotations
@@ -267,13 +269,13 @@ def render_word_for_type(word: int, t: str) -> str:
     return f"w:{word}"
 
 
-def evm_return_normal_form(ret_hex: str, return_types: list[str]) -> str:
-    """Decode ABI-encoded return bytes into `success|<v1>,<v2>,...`."""
-    data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
-    if not return_types:
-        return "success|"
+def _decode_abi_values(data: bytes, types: list[str]) -> list[str]:
+    """Decode ABI head/tail-encoded ``data`` for ``types`` into normal-form value
+    strings (w:/i:/b:), matching the Solidus ``renderValues`` renderer. Static
+    words go in the head; a dynamic bytes/string is read via its head offset.
+    Addresses/enums/contracts are static words -> ``w:`` (as Solidus renders)."""
     rendered: list[str] = []
-    for i, t in enumerate(return_types):
+    for i, t in enumerate(types):
         head = data[i * 32:(i + 1) * 32]
         word = int.from_bytes(head, "big") if head else 0
         if _is_dynamic(t):
@@ -283,11 +285,27 @@ def evm_return_normal_form(ret_hex: str, return_types: list[str]) -> str:
             rendered.append("b:0x" + payload.hex())
         else:
             rendered.append(render_word_for_type(word, t))
-    return "success|" + ",".join(rendered)
+    return rendered
 
 
-def evm_revert_normal_form(ret_hex: str) -> str:
-    """Decode revert bytes into `revert|empty|error:..|panic:..|raw:..`."""
+def evm_return_normal_form(ret_hex: str, return_types: list[str]) -> str:
+    """Decode ABI-encoded return bytes into `success|<v1>,<v2>,...`."""
+    data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
+    if not return_types:
+        return "success|"
+    return "success|" + ",".join(_decode_abi_values(data, return_types))
+
+
+def evm_revert_normal_form(
+        ret_hex: str,
+        errors: Optional[dict[str, tuple[str, list[str]]]] = None) -> str:
+    """Decode revert bytes into `revert|empty|error:..|panic:..|custom:..|raw:..`.
+
+    ``errors`` maps a 4-byte selector (8 lowercase hex, no 0x) to
+    ``(error_name, [param_type, ...])`` for the submission's user-defined errors;
+    a matching selector is decoded into ``revert|custom:<Name>:<v1>,...`` in the
+    SAME normal form Solidus's ``renderRevert`` produces, so custom-error reverts
+    are compared automatically instead of routed to review."""
     data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
     if len(data) == 0:
         return "revert|empty"
@@ -301,12 +319,20 @@ def evm_revert_normal_form(ret_hex: str) -> str:
     if selector == _PANIC_SELECTOR and len(data) >= 4 + 32:
         code = int.from_bytes(data[4:36], "big")
         return f"revert|panic:{code}"
+    if errors and selector in errors:
+        name, types = errors[selector]
+        try:
+            vals = _decode_abi_values(data[4:], types)
+            return f"revert|custom:{name}:" + ",".join(vals)
+        except Exception:
+            pass  # fall through to raw on any decode issue
     return "revert|raw:0x" + data.hex()
 
 
 def evm_observable(ok: bool, ret_hex: str, return_types: list[str],
                    events: Optional[str] = None,
-                   storage: Optional[str] = None) -> "Observable":
+                   storage: Optional[str] = None,
+                   errors: Optional[dict[str, tuple[str, list[str]]]] = None) -> "Observable":
     """Build the EVM observable in normal form from the measured raw result.
 
     ``events``/``storage`` are the measured §3.4 components 4/5 (empty string
@@ -316,7 +342,7 @@ def evm_observable(ok: bool, ret_hex: str, return_types: list[str],
     if ok:
         line = evm_return_normal_form(ret_hex, return_types)
     else:
-        line = evm_revert_normal_form(ret_hex)
+        line = evm_revert_normal_form(ret_hex, errors=errors)
     if events is not None or storage is not None:
         line = f"{line}{_EVT_SEP}{events or ''}{_STO_SEP}{storage or ''}"
     return parse_observable(line)

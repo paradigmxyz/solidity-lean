@@ -442,9 +442,13 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "no measured EVM observable available (Forge measurement did not "
             "run); cannot adjudicate a soundness claim without the oracle"),
             evidence=evidence)
+    # Custom-error definitions (name + params + selector) from the entry source,
+    # so a custom-error revert decodes to custom:<Name>:... instead of raw:.
+    error_defs = meas.error_definitions(sig.source_file, tools.solc)
+    evidence["custom_errors"] = {sel: name for sel, (name, _t) in error_defs.items()}
     evm_obs = obs.evm_observable(
         measured.ok, measured.ret_hex, sig.return_types,
-        events=measured.events, storage=measured.storage)
+        events=measured.events, storage=measured.storage, errors=error_defs)
     if _selftest_perturb_evm is not None:  # fault-injection self-test only
         evm_obs = _selftest_perturb_evm(evm_obs)
         evidence["selftest_perturbed"] = True

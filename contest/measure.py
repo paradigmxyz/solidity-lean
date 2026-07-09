@@ -80,6 +80,31 @@ def _param_type(p: dict[str, Any]) -> str:
     return str(td.get("typeString") or "")
 
 
+def error_definitions(source: Path, solc: str) -> dict[str, tuple[str, list[str]]]:
+    """Map each user-defined error's 4-byte selector (8 lowercase hex, no 0x) to
+    ``(name, [param_type, ...])`` from the compiled AST, so the EVM side can
+    decode a custom-error revert into the ``custom:<Name>:...`` normal form.
+
+    Uses solc's own ``errorSelector`` on each ``ErrorDefinition`` node (no keccak
+    dependency); errors without a selector are skipped."""
+    out: dict[str, tuple[str, list[str]]] = {}
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return out
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "ErrorDefinition":
+            continue
+        sel = node.get("errorSelector")
+        name = node.get("name")
+        if not sel or not name:
+            continue
+        types = [_param_type(p) for p in
+                 node.get("parameters", {}).get("parameters", [])]
+        out[str(sel).lower()] = (str(name), types)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Python-side ABI encoding of the entry args (from claim.json) into calldata.
 # Supports the same v1 arg forms the Solidus renderer supports: word / int /
