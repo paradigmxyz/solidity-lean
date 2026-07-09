@@ -590,6 +590,13 @@ def main() -> int:
     results.append(("panic_oob PARITY (FULL)", ok, d))
     _print("panic_oob PARITY (FULL)", ok, d)
 
+    # Round 14 probe: a failing assert() (f(0) fails assert(a != 0)) must revert
+    # with Panic(0x01) -> revert|panic:1 on BOTH engines. The assertion-failure
+    # code path -> confirms it renders as Panic(0x01), NOT Error(string)/empty.
+    ok, d = run_full("panic_assert", "NO_DIVERGENCE")
+    results.append(("panic_assert PARITY (FULL)", ok, d))
+    _print("panic_assert PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
