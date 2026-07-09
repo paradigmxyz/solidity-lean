@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Asserter", "function": "f", "args": [0], "value": 0 },
+  "expected_divergence": "none expected - assert panic probe: f(0) fails assert(a != 0) and reverts with Panic(0x01); both engines must render revert|panic:1.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|panic:1##EVT####STO##" },
+  "feature": "assert-panic",
+  "register_version_seen": "1.2.0"
+}
