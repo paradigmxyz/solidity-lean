@@ -225,6 +225,12 @@ def main() -> int:
     results.append(("external_call OOS (FULL)", ok, d))
     _print("external_call OOS (FULL)", ok, d)
 
+    # events + storage parity control: emits an event + writes storage; Solidus
+    # and solc+EVM must agree on event topics/data and observed slots.
+    ok, d = run_full("events_storage", "NO_DIVERGENCE")
+    results.append(("events_storage parity (FULL)", ok, d))
+    _print("events_storage parity (FULL)", ok, d)
+
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
     # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.

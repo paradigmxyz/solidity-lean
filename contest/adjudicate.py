@@ -49,6 +49,7 @@ from . import exclusion_register as reg
 from . import harness_bridge as hb
 from . import known_gaps as kg
 from . import measure as meas
+from . import minimality as minim
 from . import observable as obs
 from . import reject_gate as gate
 
@@ -368,6 +369,11 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         return Report("REJECTED_OOS", reason=(
             f"reject gate fired: {ids} (intentional exclusion, out of scope)"),
             evidence=evidence)
+
+    # Minimality / shrink advisory (§6.3): flag dead code / haystack. Advisory
+    # only — annotates evidence, never changes the verdict.
+    evidence["minimality"] = minim.minimality_report(
+        submission.sources, entry["contract"], entry["function"], tools.solc)
 
     # -- Step 3: RUN SOLIDUS -------------------------------------------------
     # (v1 single-contract: the responder-free ownCall path.)
