@@ -11448,6 +11448,59 @@ termination_by _ args => (sizeOf args, 0, 3)
 
 end
 
+/-- Fresh temp name for the RHS of a `base[<internal call>] = rhs` assignment,
+    bound (and thus evaluated) *before* the hoisted index call so evaluation
+    order matches solc (RHS is evaluated before the LHS index). -/
+def indexAssignRhsTempName : Name := "_sol_index_assign_rhs"
+
+/-- Build an index-access **read** `CoreExpr` from a source `base` and an
+    already-lowered index `CoreExpr`, mirroring the `Expr.index` cases of
+    `Expr.toCore?` (state-var `storageIndex`, `fixedBytesIndex`, general
+    `index`). Returns a *builder* so the index — only available inside the
+    internal-call hoisting continuation — is plugged in last. Used to lower
+    `base[<internal call>]` in an rvalue (e.g. `return m[idu8(k)]`). -/
+def Expr.indexReadCoreBuilder? (storageNames : List Name) (base : Expr) :
+    Option (CoreExpr -> CoreExpr) :=
+  match base with
+  | Expr.ident name =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
+          some (fun idx => SolidCore.Solidity.Source.Expr.storageIndex key idx)
+      | none => do
+          let baseCore ← Expr.toCore? storageNames (Expr.ident name)
+          some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+  | _ =>
+      match Expr.abiTy? storageNames base with
+      | some ty =>
+          match Ty.fixedBytesSize? ty with
+          | some size => do
+              let baseCore ← Expr.toCore? storageNames base
+              some (fun idx =>
+                SolidCore.Solidity.Source.Expr.fixedBytesIndex size baseCore idx)
+          | none => do
+              let baseCore ← Expr.toCore? storageNames base
+              some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+      | none => do
+          let baseCore ← Expr.toCore? storageNames base
+          some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+
+/-- LValue counterpart of `Expr.indexReadCoreBuilder?`, mirroring the
+    `Expr.index` cases of `Expr.toCoreLValue?` (state-var `storageIndex`,
+    general `index`). Used to lower the target of `base[<internal call>] = rhs`. -/
+def Expr.indexLValueCoreBuilder? (storageNames : List Name) (base : Expr) :
+    Option (CoreExpr -> CoreLValue) :=
+  match base with
+  | Expr.ident name =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
+          some (fun idx => SolidCore.Solidity.Source.LValue.storageIndex key idx)
+      | none => do
+          let baseCore ← Expr.toCoreLValue? storageNames (Expr.ident name)
+          some (fun idx => SolidCore.Solidity.Source.LValue.index baseCore idx)
+  | _ => do
+      let baseCore ← Expr.toCoreLValue? storageNames base
+      some (fun idx => SolidCore.Solidity.Source.LValue.index baseCore idx)
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -13369,6 +13422,47 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
       | none => Stmt.toCore? storageNames (Stmt.expr expr)
+  | Stmt.expr
+      (Expr.assign
+        (Expr.index base (Expr.call (Expr.ident iname) iargs))
+        AssignOp.assign rhs) =>
+      -- MI1: an INTERNAL function-call result used as a mapping/array INDEX in
+      -- the assignment target `base[idu8(k)] = rhs`. The plain LValue lowering
+      -- (`Expr.toCoreLValue?`) has no internal-call fallback for the index
+      -- operand, so this used to over-reject at Executable lowering. Hoist the
+      -- index call into a temp and thread the temp through the LValue. solc
+      -- evaluates the RHS before the LHS index (verified: `m[idx()] = val()`
+      -- runs val() first), so the RHS is bound to a temp *before* the hoisted
+      -- index call. When the index is not an internal call this pattern still
+      -- matches but the hoist returns `none`, so we fall back to the ordinary
+      -- lowering — no behaviour change for non-internal-call indices.
+      let original :=
+        Stmt.expr
+          (Expr.assign
+            (Expr.index base (Expr.call (Expr.ident iname) iargs))
+            AssignOp.assign rhs)
+      match
+          (do
+            let targetTy ←
+              Expr.abiTyWithEnv? env
+                (Expr.index base (Expr.call (Expr.ident iname) iargs))
+            let targetCoreTy ← Ty.toCore? targetTy
+            let rhsCore ← Expr.toCoreAsWithEnv? storageNames env targetTy rhs
+            let buildLV ← Expr.indexLValueCoreBuilder? storageNames base
+            let hoisted ←
+              FunctionDecl.internalSingleReturnCallCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions iname iargs
+                (fun idxCore =>
+                  SolidCore.Solidity.Source.Stmt.assign (buildLV idxCore)
+                    (SolidCore.Solidity.Source.Expr.var indexAssignRhsTempName))
+            some
+              (SolidCore.Solidity.Source.Stmt.block
+                [ SolidCore.Solidity.Source.Stmt.varDecl
+                    targetCoreTy indexAssignRhsTempName (some rhsCore)
+                , hoisted ])) with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames original
   | Stmt.expr (Expr.assign lhs AssignOp.assign
       expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.toCoreLValue? storageNames lhs,
@@ -14544,6 +14638,30 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
       | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+  | Stmt.returnValues
+      (some (Expr.index base (Expr.call (Expr.ident iname) iargs))) =>
+      -- MI1 (rvalue): `return base[idu8(k)]` — an internal-call result used as a
+      -- mapping/array INDEX in a read position. The plain index-read lowering
+      -- (`Expr.toCore?`) has no internal-call fallback for the index operand, so
+      -- this used to over-reject. Hoist the index call into a temp and build the
+      -- index read with the temp (the base is a pure storage/local reference, so
+      -- base-before-index order is preserved). Non-internal-call indices still
+      -- match this pattern but the hoist returns `none`, so we fall back to the
+      -- ordinary return lowering — no behaviour change.
+      let original :=
+        Stmt.returnValues
+          (some (Expr.index base (Expr.call (Expr.ident iname) iargs)))
+      match
+          (do
+            let buildRead ← Expr.indexReadCoreBuilder? storageNames base
+            FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions iname iargs
+              (fun idxCore =>
+                SolidCore.Solidity.Source.Stmt.returnValues
+                  [buildRead idxCore])) with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames original
   | Stmt.returnValues (some expr) =>
       match returnValuesCoreWithReturnTys? storageNames env returnTys expr with
       | some coreStmt => some coreStmt

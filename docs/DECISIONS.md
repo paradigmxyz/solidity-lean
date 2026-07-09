@@ -5,6 +5,56 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — MI1: internal-function-call result used as a mapping/array INDEX (over-reject closed)
+
+An over-reject surfaced by the #47 verification (flagged as the out-of-scope
+"incidental observation" in `docs/solc-storage-mapping-pointer-review.md`): an
+INTERNAL function-call result used AS a mapping or array INDEX —
+`m[idu8(k)] = v` (lvalue) and `return m[idu8(k)]` (rvalue) — failed at Executable
+lowering with `TypeError.unsupported "checked executable …"`, before any value
+was produced. The same internal call in a non-index position lowered and ran
+fine. solc accepts the inline form (ordinary Solidity); solidity-lean
+over-rejected it.
+
+**Root cause.** In `Stmt.toCoreWithInternalCalls?` (`SolidCore/Solidity/Interface.lean`)
+every internal-call-capable statement shape (assignment RHS, condition, return
+value, call argument, tuple component) tries the plain lowering first and, on
+`none`, hoists the internal call into a temp via `FunctionDecl.internal*UseCore?`.
+The INDEX operand of an index-access never took that fallback: both the rvalue
+read (`Expr.toCore?`, the `Expr.index` cases) and the lvalue target
+(`Expr.toCoreLValue?`) lower the index with the plain `Expr.toCore?`, which has
+no case for an internal call and returns `none` → `Expr.index`/`storageIndex`
+lowering fails → the whole contract fails to lower (`Checked.lean:18-24`).
+
+**Fix (minimal, behavior-preserving).** Two new statement arms plus two
+non-recursive builder helpers (`Expr.indexReadCoreBuilder?`,
+`Expr.indexLValueCoreBuilder?`) that mirror the plain `Expr.index` /
+`storageIndex` / `fixedBytesIndex` construction but take the index `CoreExpr`
+pre-lowered:
+- lvalue `Expr.assign (Expr.index base (Expr.call (Expr.ident iname) iargs)) …`:
+  hoist the index call through `FunctionDecl.internalSingleReturnCallCore?` and
+  thread its temp into the LValue.
+- rvalue `Stmt.returnValues (some (Expr.index base (Expr.call (Expr.ident iname) iargs)))`:
+  same hoist, threaded into the read builder.
+Both patterns also match a non-internal-call index, but then the hoist returns
+`none` and control falls back to the ordinary lowering — so nothing changes for
+non-internal-call indices. When the RHS *also* contains an internal call
+(double hoist) the RHS lowering returns `none` and the case falls back (still an
+over-reject, out of scope; deliberately not widened here).
+
+**Evaluation order.** solc evaluates the assignment RHS before the LHS index
+(verified on pinned solc/EVM: `m[bump()] = log + 100` with `log==0` stores 100,
+not 105; `m[idx()] = val()` runs `val()` first). The fix binds the RHS to a temp
+BEFORE emitting the hoisted index call, so the observable order matches solc.
+The base of an index-access is a pure storage/local reference in these shapes,
+so base-before-index is preserved.
+
+New paired lane `mapping-index-internal-call` (mapping lvalue+rvalue with getter
+and default, narrow uint8-valued mapping, dynamic array, and the order probe):
+`forge=ok lean=ok forge_interpreter_compare=pass`. Full `lake build` green (1103
+jobs incl. FuelMonotonicity + Witness.*); smoke replay clean. Only
+solidity-lean moved.
+
 ## 2026-07-09 — CTOR-RESIDUE: two constructor-elaboration over-rejects closed (intermediate base-args; internal-call initializers)
 
 Two over-rejects in the executable-checked constructor path
