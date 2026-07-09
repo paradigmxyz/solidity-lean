@@ -1,0 +1,14 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "CtorArgs",
+    "function": "get",
+    "args": [],
+    "constructor_args": [21],
+    "value": 0
+  },
+  "expected_divergence": "Control for constructor ARGUMENTS. Deployed with x=21, so v=42 on both engines; get() returns 42 and slot0=42 agree -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:42" },
+  "feature": "constructor-arguments",
+  "register_version_seen": "1.2.0"
+}

@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "OwnerC", "function": "getOwner", "args": [], "value": 0 },
+  "expected_divergence": "Regression guard for msg.sender inside the constructor. The deploy is pranked to the canonical sender on both engines, so owner (== canonical sender) agrees -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:0" },
+  "feature": "constructor-msg-sender",
+  "register_version_seen": "1.2.0"
+}

@@ -262,6 +262,18 @@ def main() -> int:
     results.append(("ctor_storage broad-storage (FULL)", ok, d))
     _print("ctor_storage broad-storage (FULL)", ok, d)
 
+    # constructor ARGUMENTS: both engines deploy with the same decoded args
+    # (EVM appends to creationCode; Solidus -> constructWithContext).
+    ok, d = run_full("ctor_args", "NO_DIVERGENCE")
+    results.append(("ctor_args (FULL)", ok, d))
+    _print("ctor_args (FULL)", ok, d)
+
+    # regression: msg.sender inside the constructor must be the canonical sender
+    # on both engines (the EVM deploy is pranked), not the test-harness address.
+    ok, d = run_full("ctor_msg_sender", "NO_DIVERGENCE")
+    results.append(("ctor_msg_sender (FULL)", ok, d))
+    _print("ctor_msg_sender (FULL)", ok, d)
+
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
     # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.

@@ -184,7 +184,8 @@ OBSERVABLE_MARKER = "CONTEST_OBS "
 
 def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
                    args_lean: str, env: "cenv.EnvOverrides",
-                   slots: Optional[list[int]] = None) -> str:
+                   slots: Optional[list[int]] = None,
+                   ctor_args_lean: str = "[]") -> str:
     """Build the ``#eval`` that prints the env-pinned observable (review P0 #2).
 
     The entry call runs through ``CheckedContract.callFunctionWithContext`` under
@@ -220,7 +221,7 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
         # this post-construction State rather than State.empty, so contracts with
         # initialized storage/immutables do NOT produce a spurious divergence.
         f"    let deployState ← match ← {TC}.CheckedContract.constructWithContext {fuel}\n"
-        f"        contract ctx SolidCore.Solidity.Source.State.empty {env.sender} 0 [] with\n"
+        f"        contract ctx SolidCore.Solidity.Source.State.empty {env.sender} 0 {ctor_args_lean} with\n"
         f"      | SolidCore.Solidity.Source.CallResult.returned st _ => pure st\n"
         # A constructor that reverts means the deployment failed: on the EVM the
         # contract never comes into existence. Surface the ctor revert as the

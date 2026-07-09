@@ -132,7 +132,11 @@ def _encode_arg(arg: Any) -> tuple[bool, bytes]:
     raise ValueError(f"unsupported entry arg form for calldata: {arg!r}")
 
 
-def build_calldata(selector: str, args: list) -> str:
+def _encode_args_abi(args: list) -> bytes:
+    """ABI-encode a positional arg list (head+tail), WITHOUT any selector prefix.
+
+    Shared by the entry calldata (prepended with the 4-byte selector) and the
+    constructor-argument tail appended to a contract's creationCode."""
     encoded = [_encode_arg(a) for a in args]
     head = b""
     tail = b""
@@ -143,7 +147,11 @@ def build_calldata(selector: str, args: list) -> str:
             tail += enc
         else:
             head += enc
-    return selector + (head + tail).hex()
+    return head + tail
+
+
+def build_calldata(selector: str, args: list) -> str:
+    return selector + _encode_args_abi(args).hex()
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +185,8 @@ interface CVm {
 
 def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
                     ov: cenv.EnvOverrides, rel_import: str,
-                    slots: Optional[list[int]] = None) -> str:
+                    slots: Optional[list[int]] = None,
+                    ctor_args_hex: str = "") -> str:
     pin = [
         f"vm.roll({ov.number});",
         f"vm.warp({ov.timestamp});",
@@ -200,6 +209,20 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
     # away by the Python comparator (observable._parse_storage_map), so no dedup is
     # needed here. This mirrors the Solidus side, which dumps its whole storage map.
     _ = slots  # retained for signature compatibility; superseded by vm.accesses
+    # Deployment: `new C()` for a no-arg constructor; otherwise deploy from the
+    # contract's creationCode with the ABI-encoded constructor args appended (the
+    # exact bytes solc would append), via a low-level CREATE. This mirrors the
+    # Solidus side, which runs `constructWithContext` with the same decoded args.
+    if ctor_args_hex:
+        deploy_block = (
+            f'bytes memory _init = abi.encodePacked('
+            f'type({sig.contract}).creationCode, hex"{ctor_args_hex}");\n'
+            f'        address _addr;\n'
+            f'        assembly {{ _addr := create(0, add(_init, 0x20), mload(_init)) }}\n'
+            f'        require(_addr != address(0), "constructor deploy reverted");\n'
+            f'        {sig.contract} target = {sig.contract}(_addr);')
+    else:
+        deploy_block = f'{sig.contract} target = new {sig.contract}();'
     return f"""// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.35;
 
@@ -214,7 +237,12 @@ contract ContestMeasure {{
         {pin_block}
         // Arm storage recording BEFORE the deploy so constructor SSTOREs count.
         vm.record();
-        {sig.contract} target = new {sig.contract}();
+        // Prank the DEPLOY too (vm.prank applies to the next CALL or CREATE), so
+        // the constructor's msg.sender is the canonical sender — the same value
+        // Solidus threads into constructWithContext. Without this the ctor would
+        // see the test-harness address and `owner = msg.sender` would diverge.
+        vm.prank(address(uint160({ov.sender})));
+        {deploy_block}
         vm.recordLogs();
         vm.prank(address(uint160({ov.sender})));
         (bool ok, bytes memory ret) = address(target).call{value_opt}(hex"{calldata_hex}");
@@ -254,7 +282,8 @@ contract ContestMeasure {{
 def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
                 work_dir: Path, forge: str, solc: str,
                 repo: Path, timeout: int = 300,
-                slots: Optional[list[int]] = None) -> tuple[Optional[Measurement], str]:
+                slots: Optional[list[int]] = None,
+                constructor_args: Optional[list] = None) -> tuple[Optional[Measurement], str]:
     """Generate + run the measurement harness; parse the raw entry-call result."""
     work_dir.mkdir(parents=True, exist_ok=True)
     proj = work_dir / "measure_proj"
@@ -275,9 +304,11 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
     # `ffi` stays disabled.
     out_path = (work_dir / "measure_out.txt").resolve()
     calldata = build_calldata(sig.selector, args)
+    ctor_args_hex = _encode_args_abi(constructor_args or []).hex()
     rel_import = f"../src/{sig.source_file.name}"
     (proj / "test" / "ContestMeasure.t.sol").write_text(
-        _harness_source(sig, calldata, out_path, ov, rel_import, slots))
+        _harness_source(sig, calldata, out_path, ov, rel_import, slots,
+                        ctor_args_hex=ctor_args_hex))
     (proj / "foundry.toml").write_text(
         "[profile.default]\nsrc = \"src\"\ntest = \"test\"\n"
         "evm_version = \"cancun\"\nffi = false\n"

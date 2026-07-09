@@ -274,6 +274,15 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     if args_lean is None:
         return Report("REJECT_MALFORMED", reason=args_err or "bad args",
                       evidence=evidence)
+    # Constructor args (optional): deployed to BOTH engines (measure.py appends
+    # them to creationCode; Solidus passes them to constructWithContext). Same
+    # untrusted arg forms as entry args, so validate them identically.
+    ctor_args = entry.get("constructor_args", []) or []
+    ctor_args_lean, ctor_err = _safe_render_args(ctor_args)
+    if ctor_args_lean is None:
+        return Report("REJECT_MALFORMED",
+                      reason=f"constructor_args: {ctor_err or 'bad args'}",
+                      evidence=evidence)
     slots, slots_err = _valid_slots(claim.get("observed_slots", []))
     if slots is None:
         return Report("REJECT_MALFORMED", reason=slots_err or "bad observed_slots",
@@ -357,7 +366,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
             forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
-            slots=slots)
+            slots=slots, constructor_args=ctor_args)
         evidence["evm_measurement"] = (measured.raw if measured else mstatus)
         if measured is None:
             return Report("INVALID", reason=(
@@ -404,7 +413,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     solidus = hb.run_solidus_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
         work / "solidus", namespace, fuel=fuel,
-        tools=tools, timeout=timeout, env=env_ov, slots=slots)
+        tools=tools, timeout=timeout, env=env_ov, slots=slots,
+        constructor_args=ctor_args)
     if _selftest_perturb_solidus is not None:  # coverage bug-injection self-test
         solidus = _selftest_perturb_solidus(solidus)
         evidence["selftest_solidus_perturbed"] = True

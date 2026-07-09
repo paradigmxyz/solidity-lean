@@ -214,7 +214,8 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
                            tools: Optional[ToolPaths] = None,
                            timeout: int = 300,
                            env: Optional["cenv.EnvOverrides"] = None,
-                           slots: Optional[list[int]] = None) -> SolidusResult:
+                           slots: Optional[list[int]] = None,
+                           constructor_args: Optional[list] = None) -> SolidusResult:
     """Import ``source``, then #eval the §3.4 observable of ``contract.fname``.
 
     Distinguishes:
@@ -246,6 +247,7 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
 
     # 2. Build the Lean file: imports + heartbeats + generated + our helper + eval
     args_lean = obs.render_lean_args(args)
+    ctor_args_lean = obs.render_lean_args(constructor_args or [])
     lean_lines = [
         "import SolidCore.Solidity.Checked",
         "import SolidCore.Witness.Checked",
@@ -256,7 +258,7 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         obs.LEAN_OBSERVABLE_HELPER,
         "",
         obs.lean_eval_line(namespace, contract, fuel, fname, args_lean, env,
-                           slots=slots),
+                           slots=slots, ctor_args_lean=ctor_args_lean),
     ]
     lean_file = case_tmp / "contest_observable.lean"
     lean_file.write_text("\n".join(lean_lines) + "\n", encoding="utf-8")
