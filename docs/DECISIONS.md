@@ -60,6 +60,55 @@ Decisions / notes:
   (1103 jobs, incl. `FuelMonotonicity` + `SolidCore.Witness.*`); smoke replay
   (`SMOKE_JOBS=6`) pass, no regressions; the new lane passes with Forge
   (`solc_rejects=ok forge=ok lean=ok`).
+## 2026-07-09 — SB1: `bytes.concat` rejects `string`-typed values (accepts only string literals)
+
+Fixes a confirmed over-accept (`docs/solc-string-bytes-ops-review.md`, Finding 1),
+verified against pinned solc 0.8.35. solc's `typeCheckBytesConcatFunction`
+(`libsolidity/analysis/TypeChecker.cpp:2378-2393`) accepts a `bytes.concat`
+argument only when it is implicitly convertible to `bytes32` or `bytes memory`
+(and not a rational-number literal). A `string memory` array converts to neither,
+so `bytes.concat(<string variable>)` is rejected with Error 8015 ("bytes or fixed
+bytes type is required, but string memory provided"). A string *literal*
+(`StringLiteralType`) converts to both, so `bytes.concat("abc")` and
+`bytes.concat(unicode"é")` compile.
+
+solidity-lean over-accepted: this frontend types both string literals and string
+variables as `Ty.string` (`Literal.abiTy?`), and the `bytes.concat` gate was
+`Ty`-only (`Ty.isBytesConcatArg` had `| Ty.string => true`), so a string variable
+passed the check and lowered to `abiEncodePacked`, compiling and executing a
+program solc rejects.
+
+- **Fix** (`SolidCore/Solidity/TypeCheck.lean`, `checkBytesConcatArgs`): the gate
+  now inspects the *argument expression*, not only its `Ty`. A `Ty.string`
+  argument is accepted only when its `source` is a syntactic string literal
+  (`Literal.string` or `Literal.unicodeString`, via the new `exprIsStringLiteral`),
+  matching solc's StringLiteralType path; every other type keeps the existing
+  `Ty.isBytesConcatArg` decision (`bytes`, `bytesN`/`fixedBytes` ≤ 32; number
+  literals still rejected). `string.concat` is unaffected — it legitimately
+  accepts `string` values via the separate `checkStringConcatArgs`/
+  `isStringConcatArg` path.
+
+Decisions / notes:
+
+- `Ty.isBytesConcatArg` (`Interface.lean`) was left unchanged; it is also read by
+  `Tys.allBytesConcatArgs` in lowering, which is only reached *after* the checker
+  passes, so gating at the checker is sufficient and keeps the lowering-side
+  predicate honest about the type-level packing rule. The literal/value
+  distinction is inherently expression-level, so it belongs at the check site
+  that has the argument expressions.
+- Unicode string literals (`unicode"…"`, also `Ty.string` here) are accepted —
+  verified `bytes.concat(unicode"é")` compiles under pinned solc (StringLiteralType).
+- Pin: new differential lane `bytes-concat-string-literal`. Accept path is
+  Forge-paired (`src/BytesConcatStringLiteral.sol`: `joinLiteral()` →
+  `bytes.concat("abc", bytes4(0x01020304))` = `0x61626301020304`, `joinUnicode()`
+  → `bytes.concat(unicode"é")` = `0xc3a9`, both Forge-verified and re-checked via
+  the imported Lean AST). Reject path is solc-verified (`invalid/
+  BytesConcatStringVar.sol`, `invalid/BytesConcatMixedStringVar.sol` in
+  `solc_rejects`) and Lean-verified at the frontend
+  (`Examples.bytesConcatStringArgDisciplineMatches` in `Witness/TypeCheck.lean`:
+  string/unicode literal accepted, string-variable and mixed-with-string-variable
+  rejected). The reject cases are not solc-compilable, so they are frontend
+  accept/reject checks, not Forge-paired.
 
 ## 2026-07-09 — extcodesize existence guard: uncatchable pre-CALL, all receiver shapes
 

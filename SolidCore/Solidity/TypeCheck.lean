@@ -4362,11 +4362,28 @@ def checkAbiEncodePackedArgs (types : TypeContext) :
       expr.expectAbiEncodePackedEncodable types
       checkAbiEncodePackedArgs types rest
 
+/-- A syntactic string-literal expression (`"abc"` or `unicode"abc"`).
+solc types these as `StringLiteralType`, which is implicitly convertible to
+both `bytes32` and `bytes memory`, so they are valid `bytes.concat` arguments —
+unlike `string`-typed *values* (variables / calldata / return values), which
+solc rejects (Error 8015). This frontend types both forms as `Ty.string`, so a
+`Ty`-only gate cannot tell them apart; inspect the argument expression. -/
+def exprIsStringLiteral : Solidity.Expr -> Bool
+  | Solidity.Expr.literal (Solidity.Literal.string _) => true
+  | Solidity.Expr.literal (Solidity.Literal.unicodeString _) => true
+  | _ => false
+
+/-- A `bytes.concat` argument is valid when it is `bytes`, a `bytesN`/fixed-bytes
+value (`N ≤ 32`), or a *string literal*. A `string`-typed non-literal value is
+rejected, matching solc's `typeCheckBytesConcatFunction`. -/
 def checkBytesConcatArgs : List CheckedExpr -> Except TypeError Unit
   | [] => Except.ok ()
   | expr :: rest => do
-      require (Solidity.Executable.Ty.isBytesConcatArg expr.ty)
-        (TypeError.invalidAbiType expr.ty)
+      let ok :=
+        match expr.ty with
+        | Solidity.Ty.string => exprIsStringLiteral expr.source
+        | ty => Solidity.Executable.Ty.isBytesConcatArg ty
+      require ok (TypeError.invalidAbiType expr.ty)
       checkBytesConcatArgs rest
 
 def checkStringConcatArgs : List CheckedExpr -> Except TypeError Unit
