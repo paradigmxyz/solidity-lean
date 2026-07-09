@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "BadStr", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - non-utf8 revert-reason hardening probe: identical Error(string) bytes on both engines; both must render the reason identically.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|error:��ok##EVT####STO##" },
+  "feature": "revert-nonutf8-reason",
+  "register_version_seen": "1.2.0"
+}
