@@ -264,7 +264,10 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
       * a high-level call ``recv.f(...)`` where ``recv`` is a contract/interface
         instance (its ``typeString`` starts with ``contract `` — this includes
         ``this.f()`` and ``I(a).f()``, both external);
-      * a ``new C(...)`` creation (``NewExpression``);
+      * a ``new C(...)`` CONTRACT creation (a ``NewExpression`` whose ``typeName``
+        is a ``UserDefinedTypeName``); memory allocations ``new T[](n)`` /
+        ``new bytes(n)`` / ``new string(n)`` (array/elementary typeName) are NOT
+        external and do NOT match;
       * a ``try`` statement (always wraps an external call).
     Internal calls (``Identifier`` callee), library ``using-for`` calls (base
     typeString is the value type, not ``contract ``), and builtins like
@@ -281,7 +284,12 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
         if nt == "MemberAccess" and node.get("memberName") in _LOWLEVEL_CALL_MEMBERS:
             add(node, f"low-level .{node.get('memberName')}")
         elif nt == "NewExpression":
-            add(node, "new-creation")
+            # Only `new <Contract>()` is an external creation. `new T[](n)`
+            # (ArrayTypeName) and `new bytes/string(n)` (ElementaryTypeName) are
+            # in-memory allocations with no call, and must not be excluded.
+            tn = node.get("typeName") or {}
+            if tn.get("nodeType") == "UserDefinedTypeName":
+                add(node, "new-contract-creation")
         elif nt == "TryStatement":
             add(node, "try/external-call")
         elif nt == "FunctionCall":

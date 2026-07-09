@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "MemAlloc", "function": "sum", "args": [3], "value": 0 },
+  "expected_divergence": "Regression guard: `new uint256[](n)` and `new bytes(n)` are memory allocations, not external creations, so X-EXTCALL must NOT fire. Returns scalar 9 (3 + 1+2+3) -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:9" },
+  "feature": "memory-allocation-new",
+  "register_version_seen": "1.2.0"
+}

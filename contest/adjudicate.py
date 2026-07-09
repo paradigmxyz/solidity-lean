@@ -363,6 +363,20 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             return Report("REJECT_MALFORMED", reason=(
                 f"entry {entry['contract']}.{entry['function']} not found / has "
                 "no function selector in the compiled AST"), evidence=evidence)
+        # Scope check (X-RETABI): the return type must be in the faithfully
+        # comparable ABI subset. Array/struct returns are not yet decoded to match
+        # Solidus's rendering and would raise a spurious divergence, so they are
+        # out of scope. Entry-function-specific, hence checked here (not the gate).
+        uncomparable = [t for t in sig.return_types
+                        if not _comparable_return_type(t)]
+        if uncomparable:
+            e = reg.entry_by_id("X-RETABI")
+            if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
+                evidence["return_type_scope"] = {"uncomparable": uncomparable}
+                return Report("REJECTED_OOS", reason=(
+                    f"reject gate fired: X-RETABI (intentional exclusion, out of "
+                    f"scope) — entry return type(s) {uncomparable} not in the "
+                    f"faithfully-comparable ABI subset"), evidence=evidence)
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
             forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
@@ -528,6 +542,26 @@ def _valid_identifier(name: object) -> bool:
     finding 4: an unchecked name could close the Lean string literal and inject
     code)."""
     return isinstance(name, str) and bool(_IDENT_RE.match(name))
+
+
+def _comparable_return_type(t: str) -> bool:
+    """True iff an entry return type is in the faithfully-comparable ABI subset
+    (X-RETABI). The EVM decoder + Solidus renderer agree exactly on scalars
+    (int/uint/bool/address/enum/contract/bytesN), dynamic bytes/string, and flat
+    tuples of those. Array (`T[]`, `T[N]`) and struct returns are NOT yet decoded
+    to match Solidus's `[..]`/`(..)` rendering and would raise a spurious
+    divergence, so they are out of scope."""
+    t = str(t).strip()
+    for suffix in (" memory", " calldata", " storage", " payable"):
+        t = t.replace(suffix, "")
+    t = t.strip()
+    if t.endswith("]"):            # any array — dynamic T[] or fixed T[N]
+        return False
+    if t.startswith("struct "):    # struct return (Solidus renders a tuple)
+        return False
+    if t.startswith("tuple"):      # explicit tuple type
+        return False
+    return True
 
 
 _FUEL_CAP = 100_000

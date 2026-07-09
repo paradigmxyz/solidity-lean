@@ -216,6 +216,27 @@ _SYNTACTIC: list[ExclusionEntry] = [
         ),
         roadmap_ref="competition-design.md §3.2/§3.3; multi_contract.py",
     ),
+    ExclusionEntry(
+        id="X-RETABI",
+        kind="syntactic",
+        # Entry-function-return-type specific, so it is checked by the adjudicator
+        # (which knows the entry function), NOT by a whole-source gate detector.
+        # The gate skips register rows whose detector is absent from its table.
+        detector="adjudicator:entry_return_type",
+        since_version="1.2.0",
+        reason=(
+            "The entry function's return type is outside the faithfully-comparable "
+            "ABI subset. The observable comparator decodes the EVM return bytes and "
+            "matches them against Solidus's value rendering EXACTLY for scalars "
+            "(int/uint/bool/address/enum/contract/bytesN), dynamic bytes/string, "
+            "and flat tuples (multiple returns) of those. ARRAY return types "
+            "(`T[]`, `T[N]`) and STRUCT return types are not yet decoded to match "
+            "Solidus's `[..]`/`(..)` rendering, so comparing them would raise a "
+            "spurious divergence. Out of scope until the recursive ABI decoder "
+            "lands; restructure the entry to return scalars/bytes/string meanwhile."
+        ),
+        roadmap_ref="competition-design.md §3.4; observable._decode_abi_values",
+    ),
 ]
 
 

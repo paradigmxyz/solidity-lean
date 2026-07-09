@@ -274,6 +274,17 @@ def main() -> int:
     results.append(("ctor_msg_sender (FULL)", ok, d))
     _print("ctor_msg_sender (FULL)", ok, d)
 
+    # regression: `new T[](n)` / `new bytes(n)` are memory allocations, NOT
+    # external creations — X-EXTCALL must not fire (returns a scalar -> compared).
+    ok, d = run_full("mem_alloc", "NO_DIVERGENCE")
+    results.append(("mem_alloc (FULL)", ok, d))
+    _print("mem_alloc (FULL)", ok, d)
+
+    # array return type is outside the comparable ABI subset -> REJECTED_OOS.
+    ok, d = run_full("array_return", "REJECTED_OOS")
+    results.append(("array_return X-RETABI (FULL)", ok, d))
+    _print("array_return X-RETABI (FULL)", ok, d)
+
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
     # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.
