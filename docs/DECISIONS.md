@@ -282,6 +282,61 @@ and default, narrow uint8-valued mapping, dynamic array, and the order probe):
 jobs incl. FuelMonotonicity + Witness.*); smoke replay clean. Only
 solidity-lean moved.
 
+## 2026-07-09 — TUP-IDX: tuple-assignment LHS component indexed by an internal call (over-reject closed)
+
+The explicitly-out-of-scope residual of MI1 (above), flagged with 99% confidence
+in `docs/solc-tuple-assignment-review.md` (D1). A tuple **assignment** whose LHS
+component is an array/mapping index whose index/key is an INTERNAL function call
+— `(xs[f()], z) = (3, 4)`, `(m[k()], z) = (8, 9)` — failed at Executable lowering
+with `TypeError.unsupported "checked executable checked contract …"`, before any
+value was produced. solc accepts and runs these (the index call runs once).
+Verified on pinned solc 0.8.35 + Forge (LEGACY): `runArray` → logv=1, xs[0]=3,
+z=4; `runMapping` → logv=7, m[2]=8, z=9. Only solidity-lean moved.
+
+**Root cause.** MI1 added internal-call index hoisting only for the single-assign
+lvalue `Expr.assign (Expr.index base (call)) …` and the `returnValues` rvalue.
+The tuple-LHS path is separate: `tupleAssignmentCore?` →
+`TupleItems.toCoreLValueTargets?` → `Expr.toCoreLValue?` lower each index with the
+pure `Expr.toCore?` (no internal-call case → `none`), and the tuple-literal-RHS
+arm of `Stmt.toCoreWithInternalCalls?` built its targets with the same
+`toCoreLValueTargets?`. So a call-valued LHS index made the whole target list —
+and the contract — fail to lower.
+
+**Fix (minimal, behavior-preserving).** One new non-recursive-per-item helper
+`FunctionDecl.tupleLhsIndexCallHoistTargets?` walks the flat tuple-LHS items and,
+for each `base[iname(iargs)]` component, hoists the index call into a per-
+component temp (`_sol_lhs_index_call_<i>`) via the MI1 helper
+`FunctionDecl.internalSingleReturnCallCore?` and builds the target from the temp
+read with the existing `Expr.indexLValueCoreBuilder?`; a `hole` stays `hole`, and
+every other component (plain lvalue, or index over a param/storage-read/constant)
+keeps the pure `Expr.toCoreLValue?` path unchanged. The tuple-literal-RHS arm now
+routes through this helper: if the RHS is call-free it stays inline
+(`assignTuple targets rhsCore`, order-unobservable), else it binds RHS temps
+first via `tupleItemsUseCoreWithInternalCalls?`. When no LHS index is a call the
+helper returns an empty prefix and the same targets as before — no change to the
+existing tuple-RHS-hoist (Stage B) or plain paths.
+
+**Evaluation order.** solc evaluates the RHS components left-to-right FIRST, then
+the LHS index expressions left-to-right (measured 3412 on Forge for
+`(xs[tick(1)], ys[tick1(2)]) = (rhs(3), rhs(4))`). The fix sequences the LHS
+index-call temps AFTER the RHS (RHS inline pure in the call-free-RHS case; RHS
+temps bound before the LHS prefix in the call-RHS case), and the final
+`assignTuple` reads only temps — so the observable order matches solc. This
+also closes the "call in BOTH an LHS index and the RHS" variant that MI1 left out
+(`(xs[keyf()], z) = (rhs(3), 9)` → logv=37; covered by `runBoth`).
+
+New paired lane `tuple-lhs-index-call` (array form, mapping form, two-call-index
++ RHS-call order probe, both-positions probe, with getters):
+`forge=ok lean=ok forge_interpreter_compare=pass`. Full `lake build` green (1105
+jobs incl. FuelMonotonicity + Witness.*); smoke replay clean. Eval structure
+(`Interpreter.lean`) untouched — only lowering emits existing `block`/`varDecl`/
+`assign`/`assignTuple` constructors, so FuelMonotonicity needed no change.
+
+Scope: the fix covers flat tuple-assignment LHSs with tuple-literal RHS. A
+single-call RHS returning a tuple (`(xs[f()], z) = g()`) with a call-valued LHS
+index is not in the tuple-literal arm and remains as before (not observed in the
+review's scope).
+
 ## 2026-07-09 — CTOR-RESIDUE: two constructor-elaboration over-rejects closed (intermediate base-args; internal-call initializers)
 
 Two over-rejects in the executable-checked constructor path
