@@ -19667,7 +19667,19 @@ def ContractDecl.constructorBodyForDeployment?
     (eventArgEnv errorArgEnv : NamedArgParamEnv)
     (internalFnIds : List (Name × Nat))
     (targetName : Name) (baseArgs : List Expr) (decl : ContractDecl) :
-    Option (List CoreBindingDecl × List CoreStmt) := do
+    Option (List CoreBindingDecl × List CoreStmt × List CoreStmt × List CoreStmt) := do
+  -- Returns the per-contract pieces the deployment constructor is assembled
+  -- from, kept SEPARATE so the caller can reproduce solc's legacy ordering:
+  --   (constructorParams, initStmts, ownArgCore, bodyStmts)
+  -- * `initStmts`   — this contract's inline state-variable initializers; the
+  --   caller hoists ALL of them (base->derived) ahead of every constructor
+  --   body (legacy `ContractCompiler::appendInitAndConstructorCode`).
+  -- * `ownArgCore`  — statements binding THIS contract's constructor params to
+  --   the arguments its immediate-derived contract supplied; the caller emits
+  --   them inside the deriving contract's frame during the derived->base
+  --   descent (legacy `appendBaseConstructor`: eval args, then recurse).
+  -- * `bodyStmts`   — this contract's constructor body (+ param cleanups for
+  --   the most-derived contract). Bodies run base->derived.
   let initStmts ←
     mapOption
       (StateVarDecl.toCoreInit? storageNames constants)
@@ -19681,7 +19693,7 @@ def ContractDecl.constructorBodyForDeployment?
     | some targetCtor => FunctionDecl.typeEnv baseArgEnv targetCtor
     | none => baseArgEnv
   match ContractDecl.directConstructors decl with
-  | [] => some ([], initStmts)
+  | [] => some ([], initStmts, [], [])
   | [ctor] => do
       let ctor := FunctionDecl.inlineConstants constants ctor
       let (params, baseArgCore) ←
@@ -19749,13 +19761,15 @@ def ContractDecl.constructorBodyForDeployment?
           storageNames [] modifiers functions freeFunctions [] ctorModifiers body
       let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" ctor.params
       if decl.name == targetName then
-        some (params, paramCleanups ++ initStmts ++ [bodyCore])
+        -- Most-derived contract: params are ABI-decoded (bound via `params`);
+        -- `paramCleanups` sanitize them ahead of the body. No incoming
+        -- base-constructor args (nothing derives this contract).
+        some (params, initStmts, [], paramCleanups ++ [bodyCore])
       else
-        some
-          (params,
-            initStmts ++
-              [SolidCore.Solidity.Source.Stmt.block
-                (baseArgCore ++ [bodyCore])])
+        -- Base contract: its params are bound by `baseArgCore` (the args the
+        -- deriving contract supplied), which the caller emits in the deriving
+        -- contract's frame during the derived->base descent.
+        some (params, initStmts, baseArgCore, [bodyCore])
   | _ => none
 
 def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
@@ -20159,6 +20173,32 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       errorDecls := errorDecls
       functions := functions }
 
+/-- Assemble the constructor-body statements from the per-contract pieces in
+    DESCENT order (most-derived first), reproducing solc's legacy control flow
+    (`ContractCompiler::appendBaseConstructor` + the constructor `visit`): at
+    each level evaluate the immediate base's supplied arguments in the current
+    (deriving) contract's frame, recurse into the base, then run the current
+    contract's constructor body. Net effect for a chain `D is B is A`:
+    base-ctor arguments are evaluated derived->base during descent, and the
+    constructor bodies run base->derived. Each contract's `ownArgCore` (its own
+    incoming argument bindings) is emitted inside its deriving contract's block,
+    so the argument expressions see the deriving contract's frame and the bound
+    parameters stay in scope for the base body. -/
+def buildNestedConstructorBody
+    (pieces :
+      List (List CoreBindingDecl × List CoreStmt × List CoreStmt × List CoreStmt)) :
+    List CoreStmt :=
+  match pieces with
+  | [] => []
+  | [p] =>
+      let (_, _, ownArgCore, bodyStmts) := p
+      ownArgCore ++ bodyStmts
+  | p :: rest =>
+      let (_, _, ownArgCore, bodyStmts) := p
+      ownArgCore ++
+        [SolidCore.Solidity.Source.Stmt.block (buildNestedConstructorBody rest)] ++
+        bodyStmts
+
 def ContractDecl.constructorFunctionFromOrders?
     (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
@@ -20477,8 +20517,17 @@ def ContractDecl.constructorFunctionFromOrders?
           sourceFunctions eventArgEnv errorArgEnv internalFnIds targetName
           baseArgs decl)
       storageOrder
-  let params := concatLists (pieces.map Prod.fst)
-  let stmts := concatLists (pieces.map Prod.snd)
+  -- `pieces` are in storage order (base->derived). Reproduce solc's LEGACY
+  -- constructor lowering (`ContractCompiler::appendInitAndConstructorCode`):
+  --   (1) run ALL state-variable initializers, whole hierarchy, base->derived,
+  --       BEFORE any constructor body;
+  --   (2) then the constructor bodies, base->derived, with each base's
+  --       arguments evaluated in the supplying (more-derived) contract's frame
+  --       during the derived->base descent (see `buildNestedConstructorBody`).
+  let params := concatLists (pieces.map (fun p => p.1))
+  let allInits := concatLists (pieces.map (fun p => p.2.1))
+  let bodyStmts := buildNestedConstructorBody pieces.reverse
+  let stmts := allInits ++ bodyStmts
   some
     { name := "__constructor"
       selector? := none

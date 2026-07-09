@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/constructor-inits-before-bodies/out"
+cache_path = "../../.foundry-suites/constructor-inits-before-bodies/cache"
+evm_version = "cancun"
