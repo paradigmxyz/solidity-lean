@@ -10962,6 +10962,37 @@ def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
               let _ ← checkStmt modifierEnv body
               Except.ok ()
 
+/-- Base-constructor paths whose arguments are already supplied by a NON-EMPTY
+    inheritance-list specifier anywhere in the current contract's linearization
+    (the current contract plus all of its ancestors).  solc rejects
+    ("Base constructor arguments given twice.") when a constructor's own
+    modifier list re-supplies args for any such base; seeding these into the
+    "seen" set makes the checker reject the second supply.  Only NON-EMPTY
+    specifier args count: `contract C is B { constructor() B(2){} }` (empty
+    `is B`) is NOT a double supply and must still be accepted. -/
+def CheckEnv.inheritanceSuppliedBaseCtorPaths (env : CheckEnv) : List Path :=
+  match env.currentContract with
+  | none => []
+  | some path =>
+      match env.types.lookupContractDecl? path with
+      | none => []
+      | some decl =>
+          let order :=
+            match Solidity.Executable.ContractDecl.dispatchOrder?
+                (env.types.contractDecls.map Prod.snd) decl with
+            | some o => o
+            | none => [decl]
+          order.foldr
+            (fun c acc =>
+              (c.bases.filterMap
+                (fun spec =>
+                  match spec.args with
+                  | [] => none
+                  | _ :: _ =>
+                      (Solidity.Executable.pathLast? spec.base).map
+                        TypeContext.pathOfName)) ++ acc)
+            []
+
 def ModifierInvocations.checkWithSeen (env : CheckEnv)
     (allowBaseConstructors : Bool) (seenBaseConstructors : List Path) :
     List Solidity.ModifierInvocation -> Except TypeError Unit
@@ -10982,7 +11013,8 @@ def ModifierInvocations.checkWithSeen (env : CheckEnv)
 def ModifierInvocations.check (env : CheckEnv)
     (allowBaseConstructors : Bool) :
     List Solidity.ModifierInvocation -> Except TypeError Unit :=
-  ModifierInvocations.checkWithSeen env allowBaseConstructors []
+  ModifierInvocations.checkWithSeen env allowBaseConstructors
+    (if allowBaseConstructors then env.inheritanceSuppliedBaseCtorPaths else [])
 
 def ModifierInvocations.checkBodiesForCaller (env : CheckEnv) :
     List Solidity.ModifierInvocation -> Except TypeError Unit
@@ -12389,24 +12421,50 @@ def UsingFunction.check (env : CheckEnv)
               sig.matchesUserDefinedOperatorDecl targetTy operator))
       require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
   | none =>
-      let candidates ←
-        if libraryPath.segments.isEmpty then
-          Except.ok
-            ((FunctionSigs.nonPrivate env.functions).filter
-              (fun sig => sig.name == functionName))
-        else
-          let libraryDecl ←
-            match env.types.lookupContractDecl? libraryPath with
-            | some libraryDecl => Except.ok libraryDecl
-            | none => Except.error (TypeError.unknownType libraryPath)
-          require (libraryDecl.kind == Solidity.ContractKind.library)
-            (TypeError.invalidContractHeader "using target is not a library")
-          Except.ok
-            ((FunctionSigs.nonPrivate
-              (ContractDecl.directFunctionSigsQualifiedLocalTypes
-                libraryDecl)).filter
-                (fun sig => sig.name == functionName))
-      require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
+      if libraryPath.segments.isEmpty then
+        -- Free-function brace binding (`using {f} for T;`).  solc validates
+        -- this EAGERLY: `f` must resolve to a UNIQUE free function that is
+        -- ATTACHABLE to the target type (non-empty parameter list whose first
+        -- parameter the target implicitly converts to).  The library form
+        -- (`using L for T;`) is validated lazily and is handled below.
+        let candidates :=
+          (FunctionSigs.nonPrivate env.functions).filter
+            (fun sig => sig.name == functionName)
+        match candidates with
+        | [] => Except.error (TypeError.unknownFunction functionName)
+        | _ :: _ :: _ =>
+            -- Overloaded name: not unique.
+            Except.error (TypeError.ambiguousFunction functionName)
+        | [sig] =>
+            match target? with
+            | none => Except.ok ()
+            | some targetTy =>
+                match sig.params with
+                | [] =>
+                    Except.error
+                      (TypeError.invalidContractHeader
+                        ("using function \"" ++ functionName ++
+                          "\" does not have any parameters"))
+                | selfTy :: _ =>
+                    require
+                      (TypeContext.canImplicitlyConvert env.types
+                        targetTy selfTy)
+                      (TypeError.invalidContractHeader
+                        ("using function \"" ++ functionName ++
+                          "\" cannot be attached to the target type"))
+      else
+        let libraryDecl ←
+          match env.types.lookupContractDecl? libraryPath with
+          | some libraryDecl => Except.ok libraryDecl
+          | none => Except.error (TypeError.unknownType libraryPath)
+        require (libraryDecl.kind == Solidity.ContractKind.library)
+          (TypeError.invalidContractHeader "using target is not a library")
+        let candidates :=
+          (FunctionSigs.nonPrivate
+            (ContractDecl.directFunctionSigsQualifiedLocalTypes
+              libraryDecl)).filter
+              (fun sig => sig.name == functionName)
+        require (!candidates.isEmpty) (TypeError.unknownFunction functionName)
 
 def UsingFunctions.check (env : CheckEnv)
     (target? : Option Ty) (global : Bool) :

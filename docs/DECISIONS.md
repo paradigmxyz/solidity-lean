@@ -5,6 +5,60 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — ACCEPT-BOUNDARY: two reject-fidelity over-accepts closed (base ctor args twice; eager brace using-for)
+
+Two independent, well-localized over-accepts where SolidCore accepted a program
+pinned solc 0.8.35 rejects at compile time. Both fixed in `TypeCheck.lean`;
+neither touches lowering or the deployment resolver. New sanctioned lane
+`accept-boundary` pins all four rejections (via `solc_rejects`) and all
+rejections + accept controls in Lean via
+`Examples.acceptBoundaryDisciplineMatches` (Witness/TypeCheck.lean ~:9484).
+
+### DIV-DUP-INH-MOD #81 — base constructor arguments given twice
+
+solc REJECTS ("Base constructor arguments given twice.") when a base's
+constructor args are supplied BOTH in the inheritance list and in a constructor
+modifier — directly (`contract C is B(1) { constructor() B(2) {} }`) or across
+the linearization (`A{ctor(uint)} ; B is A(1) ; C is B { constructor() A(2){} }`).
+SolidCore accepted both: `ModifierInvocations.checkWithSeen` only detected
+duplicates WITHIN the constructor's own modifier list, never cross-checking the
+inheritance-list specifiers; the resolver `baseConstructorArgsAndSupplier?`
+silently preferred inheritance-list args.
+
+Fix (`TypeCheck.lean` ~:10965): new `CheckEnv.inheritanceSuppliedBaseCtorPaths`
+gathers every base whose args are supplied by a NON-EMPTY inheritance-list
+specifier across the FULL linearization (current contract + all ancestors, via
+`dispatchOrder?`). `ModifierInvocations.check` seeds `checkWithSeen`'s "seen" set
+with these paths (only for constructors, `allowBaseConstructors = true`), so a
+re-supply in the modifier list reuses the existing duplicate-base-ctor rejection.
+Boundary: REJECT when args appear in both places (direct or indirect); ACCEPT
+when supplied in only one place; an EMPTY inheritance specifier (`is B` with no
+args, args re-supplied in the modifier) is NOT a double supply and stays
+accepted. Preserved: pure double-modifier `constructor() B(1) B(2)` and
+same-base-twice-in-inheritance-list still reject (handled elsewhere).
+
+### USINGFOR-BRACE #82 — brace-form using-for not eagerly validated
+
+solc validates a free-function brace binding `using {f} for T;` EAGERLY: `f` must
+resolve UNIQUELY and be ATTACHABLE (non-empty params whose first the target
+implicitly converts to). It REJECTS a non-attachable `f(bool)` ("cannot be
+attached ... cannot be implicitly converted to the first argument"), a zero-param
+`f` ("does not have any parameters"), and an overloaded name ("Identifier is not
+a function name or not unique."). SolidCore's `UsingFunction.check` non-operator
+branch filtered candidates by NAME only and merely required the list be
+non-empty, so all three were accepted.
+
+Fix (`TypeCheck.lean` ~:12423): in the FREE-FUNCTION brace path
+(`libraryPath.segments.isEmpty`) only, match on the name-filtered candidate list —
+`[]` → `unknownFunction`; two-or-more → `ambiguousFunction` (not unique); exactly
+one → require attachability against the target type (empty params →
+`invalidContractHeader "does not have any parameters"`; else
+`canImplicitlyConvert target params[0]`), mirroring `usingMemberCandidate?`. The
+LIBRARY-form path (`using L for T;`) is deliberately UNCHANGED — solc is LAZY
+there, so an unused, mismatched library function stays accepted by both solc and
+Lean (pinned by `accBndUnusedLibraryAccepted`). Attachability is only enforced
+when a concrete target type is present (`target? = some T`).
+
 ## 2026-07-09 — SB-A (#80): non-UTF-8 plain string literal now imports (import-stage over-reject fix)
 
 Import-stage over-reject. A plain double-quoted string literal whose bytes are

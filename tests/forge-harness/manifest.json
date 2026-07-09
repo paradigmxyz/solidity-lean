@@ -9472,6 +9472,28 @@
           }
         ]
       }
+    },
+    {
+      "name": "accept-boundary",
+      "description": "Two reject-fidelity fixes vs pinned solc 0.8.35. DIV-DUP-INH-MOD #81: base-constructor arguments given twice (once in the inheritance list, once in a constructor modifier), directly and across the linearization, are rejected. USINGFOR-BRACE #82: the brace-form using-for is validated eagerly — a non-attachable free function and a non-unique (overloaded) name are rejected. Pinned solc rejects all four invalid sources; the accept controls (single-supply base ctor, attachable+unique brace binding, unused library-form using-for which stays LAZY) plus every rejection are pinned in Lean via acceptBoundaryDisciplineMatches.",
+      "solc_rejects": [
+        "tests/forge-harness/accept-boundary/invalid/BaseArgsTwice.sol",
+        "tests/forge-harness/accept-boundary/invalid/BaseArgsTwiceIndirect.sol",
+        "tests/forge-harness/accept-boundary/invalid/UsingBraceNonAttachable.sol",
+        "tests/forge-harness/accept-boundary/invalid/UsingBraceNonUnique.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Witness.TypeCheck"
+        ],
+        "evals": [
+          {
+            "label": "acceptBoundaryDisciplineMatches",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.acceptBoundaryDisciplineMatches",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

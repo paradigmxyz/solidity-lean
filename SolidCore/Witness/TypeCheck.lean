@@ -9315,6 +9315,183 @@ def duplicateBaseConstructorArgsSource : Solidity.SourceUnit :=
 def duplicateBaseConstructorArgsRejected : Bool :=
   Result.isError (SourceUnit.check duplicateBaseConstructorArgsSource)
 
+-- ACCEPT-BOUNDARY (gap/accept-boundary): base-constructor arguments supplied
+-- twice and eager brace-form using-for validation.  These pin the two
+-- reject-fidelity fixes against solc 0.8.35.
+
+-- DIV-DUP-INH-MOD #81, indirect variant: `A` has `constructor(uint)`, `B is
+-- A(1)` supplies A's args in ITS inheritance list, and `C is B` then re-supplies
+-- via a constructor modifier `A(2)`.  solc rejects ("Base constructor arguments
+-- given twice."); the inheritance-supplied set must be gathered across the whole
+-- linearization, not just the direct contract.
+def accBndCtorBaseA : Solidity.ContractDecl :=
+  { name := "AccBndCtorA"
+    items :=
+      [ Solidity.ContractItem.function
+          { kind := Solidity.FunctionKind.constructor
+            params := [{ name := some "x", ty := uint256, location := none }]
+            body := some Solidity.Stmt.empty } ] }
+
+def accBndCtorBaseB : Solidity.ContractDecl :=
+  { name := "AccBndCtorB"
+    bases :=
+      [{ base := userPath "AccBndCtorA"
+         args := [Solidity.Arg.positional (numberExpr "1")] }]
+    items := [] }
+
+def accBndCtorDerivedIndirect : Solidity.ContractDecl :=
+  { name := "AccBndCtorC"
+    bases := [{ base := userPath "AccBndCtorB" }]
+    items :=
+      [ Solidity.ContractItem.function
+          { kind := Solidity.FunctionKind.constructor
+            modifiers :=
+              [ { target := userPath "AccBndCtorA"
+                  args := [Solidity.Arg.positional (numberExpr "2")] } ]
+            body := some Solidity.Stmt.empty }
+      , Solidity.ContractItem.function simpleReturnFunction ] }
+
+def accBndIndirectDoubleBaseCtorSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract accBndCtorBaseA
+      , Solidity.SourceItem.contract accBndCtorBaseB
+      , Solidity.SourceItem.contract accBndCtorDerivedIndirect ] }
+
+def accBndIndirectDoubleBaseCtorRejected : Bool :=
+  Result.isError (SourceUnit.check accBndIndirectDoubleBaseCtorSource)
+
+-- Single-supply control: args given ONLY in the inheritance list (`C is B(1)`
+-- with a no-arg constructor) — solc and Lean both ACCEPT.
+def accBndSingleSupplyDerived : Solidity.ContractDecl :=
+  { name := "AccBndSingleC"
+    bases :=
+      [{ base := userPath "AccBndCtorA"
+         args := [Solidity.Arg.positional (numberExpr "1")] }]
+    items :=
+      [ Solidity.ContractItem.function
+          { kind := Solidity.FunctionKind.constructor
+            body := some Solidity.Stmt.empty }
+      , Solidity.ContractItem.function simpleReturnFunction ] }
+
+def accBndSingleSupplySource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract accBndCtorBaseA
+      , Solidity.SourceItem.contract accBndSingleSupplyDerived ] }
+
+def accBndSingleSupplyAccepted : Bool :=
+  sourceUnitAccepted? accBndSingleSupplySource
+
+-- USINGFOR-BRACE #82: a UDVT target for the brace-form using-for cases.
+def accBndUdvt : Ty := Solidity.Ty.user (userPath "AccBndT")
+
+def accBndUdvtItem : Solidity.SourceItem :=
+  Solidity.SourceItem.freeUserValueType
+    { name := "AccBndT", underlying := uint256 }
+
+def accBndSurfaceContract : Solidity.ContractDecl :=
+  { name := "AccBndSurface"
+    items := [Solidity.ContractItem.function simpleReturnFunction] }
+
+-- Non-attachable brace binding: `f(bool)` cannot be attached to a UDVT target.
+-- solc rejects eagerly ("the function cannot be attached ... cannot be
+-- implicitly converted to the first argument").
+def accBndBoolFreeFunction : Solidity.FunctionDecl :=
+  { name := some "accBndBoolF"
+    params := [{ name := some "x", ty := Solidity.Ty.bool, location := none }]
+    returns := [{ name := none, ty := Solidity.Ty.bool, location := none }]
+    mutability := Solidity.StateMutability.pure
+    body :=
+      some (Solidity.Stmt.returnValues (some (Solidity.Expr.ident "x"))) }
+
+def accBndBraceNonAttachableSource : Solidity.SourceUnit :=
+  { items :=
+      [ accBndUdvtItem
+      , Solidity.SourceItem.freeFunction accBndBoolFreeFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions := [{ function := { segments := ["accBndBoolF"] } }]
+            target := some accBndUdvt }
+      , Solidity.SourceItem.contract accBndSurfaceContract ] }
+
+def accBndBraceNonAttachableRejected : Bool :=
+  Result.isError (SourceUnit.check accBndBraceNonAttachableSource)
+
+-- Non-unique brace binding: two free `f` overloads make `{f}` ambiguous.
+-- solc rejects ("Identifier is not a function name or not unique.").
+def accBndUdvtFreeFunction : Solidity.FunctionDecl :=
+  { name := some "accBndF"
+    params := [{ name := some "a", ty := accBndUdvt, location := none }]
+    returns := [{ name := none, ty := uint256, location := none }]
+    mutability := Solidity.StateMutability.pure
+    body := some (Solidity.Stmt.returnValues (some (numberExpr "1"))) }
+
+def accBndBoolOverloadFreeFunction : Solidity.FunctionDecl :=
+  { accBndBoolFreeFunction with name := some "accBndF" }
+
+def accBndBraceNonUniqueSource : Solidity.SourceUnit :=
+  { items :=
+      [ accBndUdvtItem
+      , Solidity.SourceItem.freeFunction accBndUdvtFreeFunction
+      , Solidity.SourceItem.freeFunction accBndBoolOverloadFreeFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions := [{ function := { segments := ["accBndF"] } }]
+            target := some accBndUdvt }
+      , Solidity.SourceItem.contract accBndSurfaceContract ] }
+
+def accBndBraceNonUniqueRejected : Bool :=
+  Result.isError (SourceUnit.check accBndBraceNonUniqueSource)
+
+-- Attachable + unique brace binding: `f(AccBndT)` — solc and Lean ACCEPT.
+def accBndBraceAttachableSource : Solidity.SourceUnit :=
+  { items :=
+      [ accBndUdvtItem
+      , Solidity.SourceItem.freeFunction accBndUdvtFreeFunction
+      , Solidity.SourceItem.usingDecl
+          { library := { segments := [] }
+            functions := [{ function := { segments := ["accBndF"] } }]
+            target := some accBndUdvt }
+      , Solidity.SourceItem.contract accBndSurfaceContract ] }
+
+def accBndBraceAttachableAccepted : Bool :=
+  sourceUnitAccepted? accBndBraceAttachableSource
+
+-- Library-form using-for is validated LAZILY: an unused library function whose
+-- self type does not match the target is accepted by BOTH solc and Lean.  This
+-- guards that the eager fix touches ONLY the brace form.
+def accBndUnusedLibrary : Solidity.ContractDecl :=
+  { kind := Solidity.ContractKind.library
+    name := "AccBndLib"
+    items :=
+      [ Solidity.ContractItem.function
+          { accBndBoolFreeFunction with
+            name := some "libBool"
+            visibility := some Solidity.Visibility.internal_ } ] }
+
+def accBndUnusedLibrarySource : Solidity.SourceUnit :=
+  { items :=
+      [ accBndUdvtItem
+      , Solidity.SourceItem.contract accBndUnusedLibrary
+      , Solidity.SourceItem.usingDecl
+          { library := userPath "AccBndLib"
+            target := some accBndUdvt }
+      , Solidity.SourceItem.contract accBndSurfaceContract ] }
+
+def accBndUnusedLibraryAccepted : Bool :=
+  sourceUnitAccepted? accBndUnusedLibrarySource
+
+-- Combined discipline: both reject-fidelity fixes and their accept controls.
+def acceptBoundaryDisciplineMatches : Bool :=
+  -- DIV-DUP-INH-MOD #81
+  duplicateBaseConstructorArgsRejected &&
+    accBndIndirectDoubleBaseCtorRejected &&
+    accBndSingleSupplyAccepted &&
+    -- USINGFOR-BRACE #82
+    accBndBraceNonAttachableRejected &&
+    accBndBraceNonUniqueRejected &&
+    accBndBraceAttachableAccepted &&
+    accBndUnusedLibraryAccepted
+
 def abstractMissingBaseConstructorArgs :
     Solidity.ContractDecl :=
   { name := "AbstractMissingCtorArgs"
