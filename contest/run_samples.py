@@ -370,6 +370,28 @@ def hardening_unit_tests() -> tuple[bool, str]:
     checks.append(("bare-nonneg-int-still-ok",
                    adj._arg_domain_error(5, "int8", {}) is None))
 
+    # marker injection: a submitter-controlled raw string (Error(string) reason /
+    # custom-error string arg) can embed the literal ##EVT##/##STO## section
+    # markers. _split_sections must key on the TRAILING structural markers (rsplit)
+    # so an injected outcome is preserved -> two DIFFERENT reasons sharing a
+    # pre-marker prefix must compare UNEQUAL (else a real wrong-revert gap is masked).
+    import contest.observable as _obs
+    _inj_a = _obs.parse_observable("revert|error:BUG##EVT##lean-tail##EVT####STO##")
+    _inj_b = _obs.parse_observable("revert|error:BUG##EVT##evm-DIFFERENT##EVT####STO##")
+    checks.append(("marker-injection-not-masked",
+                   not _obs.compare_observables(_inj_a, _inj_b).equal))
+    checks.append(("marker-injection-outcome-preserved",
+                   _inj_a.outcome_line == "revert|error:BUG##EVT##lean-tail"))
+    # identical marker-laden reasons still compare EQUAL (no fabricated divergence).
+    _inj_c = _obs.parse_observable("revert|error:a|b##EVT##c##STO##d##EVT####STO##")
+    checks.append(("marker-injection-identical-equal",
+                   _obs.compare_observables(_inj_c, _inj_c).equal))
+    # a real success with events+storage still splits correctly (rsplit regression).
+    _succ = _obs.parse_observable("success|w:5##EVT##t=[1,2];d=0xabcd##STO##7:42")
+    checks.append(("rsplit-success-sections-ok",
+                   _succ.outcome_line == "success|w:5" and
+                   _succ.events == "t=[1,2];d=0xabcd" and _succ.storage == "7:42"))
+
     # claim-field type confusion: a non-object claim.json / non-object entry must
     # be REJECT_MALFORMED, not an uncaught crash (audit finding).
     import tempfile as _tf, json as _json
@@ -652,6 +674,15 @@ def main() -> int:
     ok, d = run_full("immutable_read", "NO_DIVERGENCE")
     results.append(("immutable_read PARITY (FULL)", ok, d))
     _print("immutable_read PARITY (FULL)", ok, d)
+
+    # Round 20 hardening: a revert reason packed with the |, ##EVT##, ##STO##
+    # delimiters + fake outcome tokens. Both engines render it identically (raw
+    # concat is symmetric -> no fabricated divergence) -> NO_DIVERGENCE; and the
+    # rsplit fix keeps the injected outcome intact so a real tail-divergence
+    # can't be masked (guarded by the marker-injection unit checks above).
+    ok, d = run_full("revert_marker_injection", "NO_DIVERGENCE")
+    results.append(("revert_marker_injection HARDENING (FULL)", ok, d))
+    _print("revert_marker_injection HARDENING (FULL)", ok, d)
 
     print("\n=== SUMMARY ===")
     all_ok = True
