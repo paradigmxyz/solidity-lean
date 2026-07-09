@@ -30,10 +30,15 @@ anchor.
   selfdestruct prefixes.
 - **NumberRat is now signed** (`num : Int`, total `sub`) — the old
   "non-negative, fails closed on negatives" description is obsolete.
-- **Still open**: P1 (materialize the storage-layout `E`; `resolveStoragePathSlot`
-  is still re-derived per access), V3 (`unspecifiedOrders` scaffolding still
-  present), hinder-E (`checkedExpLoop` is still O(exponent)), hinder-I/R, and
-  the recorded `requestedGas`/initCode transcript residues.
+- **V3 is DONE (2026-07-08)**: the unspecified-order quantification scaffolding
+  (`unspecifiedOrders`, `withUnspecifiedChildEvalOrders`, `callUnspecifiedResults`,
+  `CallsUnspecified`, the ABI/Checked wrappers and their witnesses) is deleted;
+  the order is pinned to `ChildEvalOrder.yulCompatible` permanently (doc comment
+  at the definition records this).
+- **Still open**: P1 (materialize the storage-layout `E`; in flight), fuel
+  monotonicity for the eval cluster (in flight), hinder-E (`checkedExpLoop`
+  O(exponent); in flight), hinder-I/R, and the recorded `requestedGas`/initCode
+  transcript residues (intentional at this layer).
 
 Sections below are updated in place to match; stale line anchors from the
 first draft may remain where the claim itself is unchanged.
@@ -658,10 +663,10 @@ representation already lives at the Yul level for both.
 - **vestigial-1** — the ~14 dead observation-era classifier enums
   (`LowLevelCallEvaluationStatus`, `ShortCircuitDecision`, …) — **DELETED** (N1 done).
 - **vestigial-2** — the dead byte-memory shadow — **DELETED** (N2 done).
-- **vestigial-3** — `ChildEvalOrder.unspecifiedOrders` singleton +
-  `callUnspecifiedResults`/`CallsUnspecified` machinery: the unspecified-order
-  latitude has collapsed to a single deterministic order but the quantification
-  scaffolding remains. → **V3** (evaluate; low priority).
+- **vestigial-3** — the unspecified-order quantification scaffolding —
+  **DELETED** (V3 done, 2026-07-08): order pinned to `yulCompatible` forever;
+  the two-order evaluator and its left/right witnesses are kept as
+  order-sensitivity pins.
 - **vestigial-4** — the end-of-file example/witness defs — **MOVED** to
   `SolidCore/Witness/InterpreterExamples.lean` (N3 done).
 - **clean** — zero `partial`/`sorry`/`axiom` in `Interpreter.lean`; no
@@ -723,15 +728,15 @@ the nested-call-argument hoisting bound in elaboration's termination measure.
 *Residual:* modifiers are still inlined by placeholder substitution — a
 stated, shallow fragment to name in the Sc theorem, not a structural break.
 
-**V3 — Evaluate collapsing the `unspecifiedOrders` scaffolding (vestigial-3).**
-*Rationale:* the latitude machinery (`callUnspecifiedResults`,
-`CalldataCallUnspecified`, the `unspecifiedOrders := [yulCompatible]` singleton)
-quantifies over one deterministic order. If the design intent is "evaluation
-order is fixed and Yul-compatible" (which the lowering *needs*), the
-quantification is dead generality; if it is "we might re-open order latitude,"
-it should be documented as such. *Cost:* ~half a day to trace all users and
-decide. *Now-vs-later:* low priority; harmless. Flag, likely defer. Anchors:
-`Interpreter.lean:6851, 8838`.
+**V3 — Collapse the `unspecifiedOrders` scaffolding (vestigial-3). DONE
+(2026-07-08).** The decision was made to pin the evaluation order to
+`ChildEvalOrder.yulCompatible` permanently; all quantification machinery
+(`unspecifiedOrders`, `withUnspecifiedChildEvalOrders`,
+`callUnspecifiedResults`/`CallsUnspecified`, the ABI
+`callCalldataAtFromUnspecifiedResults`/`CalldataCallUnspecified`/transaction
+variant, the Checked wrappers, and the three consuming witnesses) is deleted.
+The two-order evaluator (`ChildEvalOrder`, `withChildEvalOrder`) and the
+left/right witness pairs are retained as order-sensitivity pins.
 
 ### Defer to the lowering project (do NOT build now)
 
