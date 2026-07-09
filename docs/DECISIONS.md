@@ -6210,3 +6210,74 @@ New sanctioned lane `call-position` pins the closed cases: `for`/`while`/
 own-call, incl. a `while`+`continue` re-check and nested loops), and a bare
 external `while (this.stillBelow(i))` (acceptance + Forge/EVM execution).
 
+
+## 2026-07-09 — EMIT-QUAL (#74): qualified event emit `emit Base.E(a)` / `emit C.E(a)` now lowered (over-reject fix)
+
+Over-reject. solc 0.8.35 accepts a member-access event callee (`emit Base.E(a)`,
+self `emit C.E(a)`); the solc AST importer renders the qualifier as
+`Expr.member (Expr.typeName (Ty.user {..})) E`. The type checker
+(`checkEventEmission`) already ACCEPTED the member form (it resolves the
+UNQUALIFIED event name against the contract's flattened events — own + inherited
++ free), but three executable passes only handled a bare-ident callee, so the
+whole function failed to lower:
+
+1. `Expr.rewriteBaseCalls` (Interface.lean `Stmt.rewriteBaseCallsFuel`) mangled
+   `Base.E(a)` / `C.E(a)` into the static base helper `__base_Base_E` (the
+   linearization includes self), exactly as it does for an explicit base FUNCTION
+   call `Base.f(a)`. A new `rewriteEventErrorCall` helper keeps the emit/revert
+   member callee UNMANGLED and rewrites only its arguments.
+2. `Expr.annotateAbi` (`Stmt.annotateAbiInSeqFuel`) routed the member callee
+   through the ABI-wrapping member-CALL arm, double-encoding the event arguments
+   so `EventDecl.encodeFields?` failed (revert `panic 0` / `typeMismatch`). A new
+   `annotateEventErrorCall` helper annotates emit/revert event/error arguments
+   PLAINLY, matching the bare-ident path.
+3. `Stmt.toCore?` matched only `Stmt.emitEvent (Expr.call (Expr.ident name) …)`;
+   added a sibling `Expr.member _ name` arm keying the downstream `emitEvent` by
+   the same unqualified name.
+
+The bare-ident arm/paths are byte-identical; the new arms activate only for the
+previously-over-rejected member callee, and only after the checker (the gate) has
+resolved the event. Library-qualified events (`L.E`) stay declined — the
+checker rejects them because a library's events are not in the contract's
+flattened event scope, so lowering is never reached.
+
+## 2026-07-09 — REVERT-QUAL (#77): base-/self-qualified custom-error revert & require now accepted+lowered; library-qualified DECLINED
+
+Over-reject (partial close). solc 0.8.35 accepts `revert Base.Err(a)`,
+`revert C.Err(a)`, `require(cond, Base.Err(a))`, and `revert L.Bad(a)` (library).
+Unlike emit, the type checker did NOT already accept the member form: the
+importer renders `revert Base.Err(a)` as
+`Stmt.revertCall (Expr.call (Expr.member (Expr.typeName (Ty.user {..})) Err) …)`,
+and `checkRevertCall`'s fallback `checkExpr` rejected it with `unknownFunction`.
+
+Decision: close the SOUND subset — base-/self-/inherited-qualified errors, whose
+UNQUALIFIED name is in the contract's flattened error table (own + inherited +
+free). DECLINE library-/interface-qualified errors (`L.Bad`, `I.Err`): their
+declaration is NOT in the contract's error table (`env.errors` /
+`ContractDecl.toCore`'s `errorDecls` carry only own + inherited + free errors),
+so neither name-resolution nor the external ABI selector could be produced
+soundly from the contract without a larger cross-scope resolution + selector-
+table change. A sound subset beats an over-broad, unsound one.
+
+Checker (`TypeCheck.lean`): mirror the emit checker. `checkRevertCall` gains a
+`Expr.call (Expr.member _ name) args` arm resolving via `checkCustomErrorArgs`
+(accepts base/self errors, rejects library errors and non-errors — matching
+solc). The require-statement checker gains a member arm with the SAME
+error-not-in-scope FALLBACK the bare-ident arm has, so a non-error member reason
+— e.g. `require(cond, string.concat(a, b))`, which solc accepts as a string
+reason — is NOT newly over-rejected.
+
+Lowering (`Interface.lean`): the same three passes as EMIT-QUAL, for the revert
+and require-custom forms. The revert/emit member arms match any member qualifier
+(`Expr.member _ name`, gated by the checker). The require-form member arms
+(lowering ×2, rewrite, annotate) are restricted to a user-type qualifier
+`Expr.member (Expr.typeName (Ty.user _)) name` so that a builtin member reason
+(`string.concat`, `abi.*`) keeps its ordinary string-reason path — the runtime
+`Stmt.revert`/`Stmt.requireCustom` carry the unqualified name and argument values
+directly, so no error-decl lookup is needed at revert time. New sanctioned lane
+`qualified-callee` exercises `emit Base.E`, self `emit C.E`, `revert Base.Err`,
+self `revert C.Err`, and `require(cond, Base.Err(a))` end-to-end (solc AST import
+→ checker accept → executable interpret → event topics/data and custom-error
+name+args). Library-qualified `revert L.Bad(a)` is intentionally omitted from the
+passing lane (declined form).
+

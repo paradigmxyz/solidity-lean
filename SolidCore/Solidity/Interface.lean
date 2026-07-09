@@ -584,11 +584,45 @@ def Stmt.rewriteBaseCallsFuel (baseNames : List Name) :
       let rewriteExpr := Expr.rewriteBaseCallsFuel baseNames fuel
       let rewriteStmt := Stmt.rewriteBaseCallsFuel baseNames fuel
       let rewriteClause := CatchClause.rewriteBaseCallsFuel baseNames fuel
+      let rewriteArg : Arg -> Arg
+        | Arg.positional e => Arg.positional (rewriteExpr e)
+        | Arg.named n e => Arg.named n (rewriteExpr e)
+      -- QUAL-CALLEE (#74/#77): a base-/self-qualified event or custom-error
+      -- invocation `Base.E(a)` / `C.Err(a)` shares the surface syntax of an
+      -- explicit base FUNCTION call `Base.f(a)`, which `Expr.rewriteBaseCalls`
+      -- mangles into the static base helper `__base_Base_f`. Events and errors
+      -- must NOT be mangled — the qualifier only selects the declaration, whose
+      -- UNQUALIFIED name keys the flattened event/error table (own + inherited).
+      -- So for the emit/revert/require callee, rewrite only the ARGUMENTS (which
+      -- may themselves contain base calls) and keep the member callee intact.
+      let rewriteEventErrorCall (callExpr : Expr) : Expr :=
+        match callExpr with
+        | Expr.call (Expr.member target member) args =>
+            Expr.call (Expr.member (rewriteExpr target) member)
+              (args.map rewriteArg)
+        | other => rewriteExpr other
       match stmt with
       | Stmt.empty => Stmt.empty
       | Stmt.block body => Stmt.block (body.map rewriteStmt)
       | Stmt.varDecl bindings init =>
           Stmt.varDecl bindings (init.map rewriteExpr)
+      -- QUAL-CALLEE (#77), require form: keep the base-/self-qualified
+      -- custom-error callee unmangled (see `rewriteEventErrorCall`). Restricted
+      -- to a user-type qualifier (`Ty.user`, i.e. a contract/library) so a
+      -- builtin member reason such as `require(cond, string.concat(a, b))`
+      -- keeps its ordinary path.
+      | Stmt.expr
+          (Expr.call (Expr.ident "require")
+            [Arg.positional cond,
+             Arg.positional
+               (Expr.call
+                 (Expr.member (Expr.typeName (Ty.user path)) name) errorArgs)]) =>
+          Stmt.expr
+            (Expr.call (Expr.ident "require")
+              [ Arg.positional (rewriteExpr cond)
+              , Arg.positional
+                  (Expr.call (Expr.member (Expr.typeName (Ty.user path)) name)
+                    (errorArgs.map rewriteArg)) ])
       | Stmt.expr expr => Stmt.expr (rewriteExpr expr)
       | Stmt.ifElse cond thenBranch elseBranch =>
           Stmt.ifElse (rewriteExpr cond) (rewriteStmt thenBranch)
@@ -605,8 +639,8 @@ def Stmt.rewriteBaseCallsFuel (baseNames : List Name) :
       | Stmt.tryCatchReturns expr returns success clauses =>
           Stmt.tryCatchReturns (rewriteExpr expr) returns
             (rewriteStmt success) (clauses.map rewriteClause)
-      | Stmt.emitEvent expr => Stmt.emitEvent (rewriteExpr expr)
-      | Stmt.revertCall expr => Stmt.revertCall (rewriteExpr expr)
+      | Stmt.emitEvent expr => Stmt.emitEvent (rewriteEventErrorCall expr)
+      | Stmt.revertCall expr => Stmt.revertCall (rewriteEventErrorCall expr)
       | Stmt.returnValues expr? => Stmt.returnValues (expr?.map rewriteExpr)
       | Stmt.break => Stmt.break
       | Stmt.continue => Stmt.continue
@@ -6299,6 +6333,22 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
       some
         (SolidCore.Solidity.Source.Stmt.requireCustom
           condCore name coreArgs)
+  -- REVERT-QUAL (#77), require form in the effect-position lowering (e.g.
+  -- `require(a > 0, Base.Err(a))` used as a returned effect): resolve the
+  -- base-/self-qualified member-access error callee by its UNQUALIFIED `name`,
+  -- mirroring the bare-ident `requireCustom` arm. Must precede the generic
+  -- `[cond, reason]` arm. Gated by the require-custom checker's member arm,
+  -- which only accepts errors in the contract's flattened error table;
+  -- library/interface-qualified errors are DECLINED upstream.
+  | Expr.call (Expr.ident "require")
+      [Arg.positional cond,
+       Arg.positional
+         (Expr.call (Expr.member (Expr.typeName (Ty.user _)) name) args)] => do
+      let condCore ← Expr.toCore? storageNames cond
+      let coreArgs ← Args.toCoreExprs? storageNames args
+      some
+        (SolidCore.Solidity.Source.Stmt.requireCustom
+          condCore name coreArgs)
   | Expr.call (Expr.ident "require")
       [Arg.positional cond, Arg.positional reason] => do
       let condCore ← Expr.toCore? storageNames cond
@@ -6457,6 +6507,22 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       let coreArgs ← Args.toCoreExprs? storageNames args
       some (SolidCore.Solidity.Source.Stmt.requireCustom
         condCore name coreArgs)
+  -- REVERT-QUAL (#77), require form: `require(a > 0, Base.Err(a))` with a
+  -- base-/self-qualified member-access error callee. Mirrors the bare-ident
+  -- `requireCustom` arm by the UNQUALIFIED `name` (the require-custom checker
+  -- member arm resolves it the same way); must precede the generic
+  -- `[cond, reason]` fallback below, which would otherwise degrade to
+  -- `requireErrorExpr` whose member-call `toCore` returns `none` (over-reject).
+  -- Gated by the checker; library/interface-qualified errors are DECLINED.
+  | Stmt.expr
+      (Expr.call (Expr.ident "require")
+        [Arg.positional cond,
+         Arg.positional
+           (Expr.call (Expr.member (Expr.typeName (Ty.user _)) name) args)]) => do
+      let condCore ← Expr.toCore? storageNames cond
+      let coreArgs ← Args.toCoreExprs? storageNames args
+      some (SolidCore.Solidity.Source.Stmt.requireCustom
+        condCore name coreArgs)
   | Stmt.expr
       (Expr.call (Expr.ident "require")
         [Arg.positional cond, Arg.positional reason]) => do
@@ -6548,6 +6614,21 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.emitEvent (Expr.call (Expr.ident name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
       some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
+  -- EMIT-QUAL (#74): a qualified event emit `emit Base.E(a)` / `emit C.E(a)`
+  -- has a member-access callee (`Expr.member (Expr.typeName …) E` from the solc
+  -- AST importer, or `Expr.member (Expr.ident …) E` from the hand-written AST).
+  -- The type checker (`checkEventEmission`) already ACCEPTS the member form and
+  -- resolves it against the contract's flattened in-scope events (own +
+  -- inherited + free) by its UNQUALIFIED `name`; a qualifier whose event is not
+  -- in that scope (e.g. a library-declared event) is rejected there and never
+  -- reaches lowering. So lowering mirrors the bare-ident arm exactly (same
+  -- selector/topic + arg ABI encoding), keying `emitEvent` by the same
+  -- unqualified name. The `_` target admits any qualifier shape because the
+  -- checker is the gate; unresolved qualifiers are already rejected upstream.
+  | Stmt.emitEvent
+      (Expr.call (Expr.member _ name) args) => do
+      let coreArgs ← Args.toCoreExprs? storageNames args
+      some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
   | Stmt.revertCall (Expr.call (Expr.ident "revert") []) =>
       some (SolidCore.Solidity.Source.Stmt.revertError none)
   | Stmt.revertCall
@@ -6559,6 +6640,21 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
       let reasonCore ← Expr.toCore? storageNames reason
       some (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
   | Stmt.revertCall (Expr.call (Expr.ident name) args) => do
+      let coreArgs ← Args.toCoreExprs? storageNames args
+      some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
+  -- REVERT-QUAL (#77): a base-/self-qualified custom-error revert
+  -- `revert Base.Err(a)` / `revert C.Err(a)` has a member-access callee. The
+  -- checker's member arm in `checkRevertCall` accepts it by resolving the
+  -- UNQUALIFIED `name` against the contract's flattened errors (own + inherited
+  -- + free), so lowering mirrors the bare-ident custom-error arm (same selector
+  -- + arg ABI encoding), keying `revert` by the same unqualified name. The `_`
+  -- target is gated by that checker resolution: a qualifier whose error is not
+  -- in the contract's error table (e.g. a LIBRARY-declared error `L.Bad`) is
+  -- rejected upstream and never reaches here — library/interface-qualified
+  -- errors remain DECLINED (see docs/DECISIONS.md) because their selector could
+  -- not be soundly encoded from the contract's error table anyway.
+  | Stmt.revertCall
+      (Expr.call (Expr.member _ name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
       some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
   | Stmt.returnValues
@@ -7724,6 +7820,26 @@ def Stmt.annotateAbiInSeqFuel :
             let clauseEnv := Parameters.extendTypeEnv "_catch" env params
             CatchClause.clause name params
               ((Stmt.annotateAbiInSeqFuel fuel clauseEnv body).fst)
+      -- QUAL-CALLEE (#74/#77): emit/revert/require whose event/error callee is a
+      -- MEMBER access (`Base.E`, `C.Err`) must annotate its arguments PLAINLY,
+      -- exactly like the bare-ident callee (which hits the `Expr.call fn args`
+      -- fallback below). The general `Expr.call (Expr.member target name) args`
+      -- arm ABI-WRAPS arguments (for `abi.encode`/external-call callees); event
+      -- and custom-error arguments must NOT be wrapped — `EventDecl.encodeFields?`
+      -- / the custom-error ABI encoder do that from the field types. Without
+      -- this, a qualified emit/revert double-encodes and reverts with
+      -- `typeMismatch` (panic 0) or carries wrapped argument values.
+      let annotatePlainArgs (args : List Arg) : List Arg :=
+        args.map (fun a =>
+          match a with
+          | Arg.positional e => Arg.positional (annotateExpr e)
+          | Arg.named n e => Arg.named n (annotateExpr e))
+      let annotateEventErrorCall (callExpr : Expr) : Expr :=
+        match callExpr with
+        | Expr.call (Expr.member target name) args =>
+            Expr.call (Expr.member (annotateExpr target) name)
+              (annotatePlainArgs args)
+        | other => annotateExpr other
       match stmt with
       | Stmt.empty => (Stmt.empty, env)
       | Stmt.block body =>
@@ -7733,6 +7849,23 @@ def Stmt.annotateAbiInSeqFuel :
           let init' := init.map annotateExpr
           let env' := VarBindings.extendTypeEnv env bindings
           (Stmt.varDecl bindings init', env')
+      -- QUAL-CALLEE (#77), require form: `require(cond, Base.Err(a))` — annotate
+      -- the member-access custom-error callee's args plainly (see
+      -- `annotateEventErrorCall`), not via the ABI-wrapping member-call arm.
+      -- Restricted to a user-type qualifier (`Ty.user`) so a builtin member
+      -- reason like `require(cond, string.concat(a, b))` keeps its ordinary path.
+      | Stmt.expr
+          (Expr.call (Expr.ident "require")
+            [Arg.positional cond,
+             Arg.positional
+               (Expr.call
+                 (Expr.member (Expr.typeName (Ty.user path)) name) errorArgs)]) =>
+          (Stmt.expr
+            (Expr.call (Expr.ident "require")
+              [ Arg.positional (annotateExpr cond)
+              , Arg.positional
+                  (Expr.call (Expr.member (Expr.typeName (Ty.user path)) name)
+                    (annotatePlainArgs errorArgs)) ]), env)
       | Stmt.expr expr => (Stmt.expr (annotateExpr expr), env)
       | Stmt.ifElse cond thenBranch elseBranch =>
           let thenBranch' := annotateStmt thenBranch
@@ -7761,8 +7894,9 @@ def Stmt.annotateAbiInSeqFuel :
           let success' := (Stmt.annotateAbiInSeqFuel fuel successEnv success).fst
           (Stmt.tryCatchReturns (annotateExpr expr) returns success'
             (clauses.map annotateClause), env)
-      | Stmt.emitEvent expr => (Stmt.emitEvent (annotateExpr expr), env)
-      | Stmt.revertCall expr => (Stmt.revertCall (annotateExpr expr), env)
+      | Stmt.emitEvent expr => (Stmt.emitEvent (annotateEventErrorCall expr), env)
+      | Stmt.revertCall expr =>
+          (Stmt.revertCall (annotateEventErrorCall expr), env)
       | Stmt.returnValues expr? =>
           (Stmt.returnValues (expr?.map annotateExpr), env)
       | Stmt.break => (Stmt.break, env)

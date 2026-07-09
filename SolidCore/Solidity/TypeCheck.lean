@@ -9059,6 +9059,20 @@ def checkRevertCall (env : CheckEnv)
       Except.ok ()
   | Solidity.Expr.call (Solidity.Expr.ident name) args => do
       checkCustomErrorArgs env name args
+  -- REVERT-QUAL (#77): a base-/self-qualified custom-error revert
+  -- `revert Base.Err(a)` / `revert C.Err(a)` has a member-access callee
+  -- (`Expr.member (Expr.typeName …) Err` from the solc AST importer, or
+  -- `Expr.member (Expr.ident …) Err`). solc resolves the member to an error
+  -- visible through the qualifier; mirror the emit checker
+  -- (`checkEventEmission`) by resolving the UNQUALIFIED `name` against the
+  -- contract's flattened errors via `checkCustomErrorArgs`. This accepts errors
+  -- in the contract's own/inherited/free error scope (base/self-qualified) and
+  -- naturally REJECTS a qualifier whose error is not in that scope (e.g. a
+  -- library-declared error `L.Bad`, which `env.errors` does not carry) — those
+  -- stay DECLINED, matching the executable lowering which could not soundly
+  -- encode a library error's selector from the contract's error table.
+  | Solidity.Expr.call (Solidity.Expr.member _ name) args => do
+      checkCustomErrorArgs env name args
   | other => do
       let _ ← checkExpr env other
       Except.ok ()
@@ -9476,6 +9490,39 @@ def checkStmt (env : CheckEnv) :
                 , Solidity.Arg.positional
                     (Solidity.Expr.call
                       (Solidity.Expr.ident errorName)
+                      errorArgs) ])
+            Except.ok { source := stmt }
+  -- REVERT-QUAL (#77), require form: `require(cond, Base.Err(a))` with a
+  -- base-/self-qualified member-access error callee. Mirror the bare-ident
+  -- require-custom arm above and `checkRevertCall`'s member arm: resolve the
+  -- UNQUALIFIED error name against the contract's flattened errors. An error
+  -- not in that scope (e.g. library-declared `L.Bad`) is DECLINED here.
+  -- If the member name is NOT a known error, fall back to the ordinary
+  -- expression check (exactly as the bare-ident arm) so a member-call STRING
+  -- reason like `require(cond, string.concat(a, b))` is still accepted rather
+  -- than newly over-rejected.
+  | stmt@(Solidity.Stmt.expr
+      (Solidity.Expr.call
+        (Solidity.Expr.ident "require")
+        [ Solidity.Arg.positional cond
+        , Solidity.Arg.positional
+            (Solidity.Expr.call
+              (Solidity.Expr.member target errorName) errorArgs) ])) => do
+      let condChecked ← checkExpr env cond
+      condChecked.expectBool
+      match checkCustomErrorArgs env errorName errorArgs with
+      | Except.ok _ => Except.ok { source := stmt }
+      | Except.error err =>
+          if env.errors.any (fun sig => sig.name == errorName) then
+            Except.error err
+          else
+            let _ ← checkExpr env
+              (Solidity.Expr.call
+                (Solidity.Expr.ident "require")
+                [ Solidity.Arg.positional cond
+                , Solidity.Arg.positional
+                    (Solidity.Expr.call
+                      (Solidity.Expr.member target errorName)
                       errorArgs) ])
             Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.expr expr) => do

@@ -1363,6 +1363,39 @@
       }
     },
     {
+      "name": "qualified-callee",
+      "description": "QUAL-CALLEE (#74/#77): emit/revert/require whose callee is a MEMBER access (Base.BaseHit, Base.BaseErr, self QualifiedCalleeHarnessTarget.LocalHit/LocalErr) rather than a bare identifier. solc 0.8.35 accepts these; solidity-lean previously over-rejected them (emit at the executable lowering; base-/self-qualified revert and require at the type checker AND lowering). Lean imports the same source unit from solc AST and checks the qualified-callee emit event topics/data and the base-/self-qualified custom-error revert name+args, including the require(cond, Base.Err(a)) form. Library-/interface-qualified errors (L.Bad) remain declined (see docs/DECISIONS.md).",
+      "forge": {
+        "root": "tests/forge-harness/qualified-callee",
+        "match_contract": "QualifiedCalleeForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/qualified-callee/src/QualifiedCallee.sol",
+        "contract": "QualifiedCalleeHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.QualifiedCallee"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedQualifiedCalleeAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.QualifiedCallee.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedQualifiedCalleeSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.QualifiedCallee.importedSourceUnit\n  let word := SolidCore.Solidity.Source.Value.word\n  let empty := SolidCore.Solidity.Source.State.empty\n  let target := \"QualifiedCalleeHarnessTarget\"\n  let callName := fun (fn : String) (args : List SolidCore.Solidity.Source.Value) =>\n    SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source target (SolidCore.Solidity.Source.CallTarget.name fn) empty args\n  let eventOk := fun (result : SolidCore.Solidity.Source.CallResult) (name : String) (signature : String) (v : Nat) =>\n    match result with\n    | SolidCore.Solidity.Source.CallResult.returned state [] =>\n        match state.events with\n        | [event] => event.name == name && event.topics == [SolidCore.Solidity.Source.Keccak.digestWord signature] && event.dataBytes == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n        | _ => false\n    | _ => false\n  let revertOk := fun (result : SolidCore.Solidity.Source.CallResult) (name : String) (v : Nat) =>\n    match result with\n    | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom errName [SolidCore.Solidity.Source.Value.word w]) =>\n        errName == name && SolidCore.Solidity.Source.wordEq w v\n    | _ => false\n  let baseEmit <- callName \"emitBaseHit\" [word 4]\n  let selfEmit <- callName \"emitSelfHit\" [word 9]\n  let baseRevert <- callName \"revertBaseErr\" [word 5]\n  let selfRevert <- callName \"revertSelfErr\" [word 6]\n  let reqRevert <- callName \"requireBaseErr\" [word 0]\n  Except.ok\n    (eventOk baseEmit \"BaseHit\" \"BaseHit(uint256)\" 4 &&\n     eventOk selfEmit \"LocalHit\" \"LocalHit(uint256)\" 9 &&\n     revertOk baseRevert \"BaseErr\" 5 &&\n     revertOk selfRevert \"LocalErr\" 6 &&\n     revertOk reqRevert \"BaseErr\" 0))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "function-calls",
       "description": "Forge checks solc/EVM internal function calls and named returns; Lean imports the same source contract from solc AST and checks source call/return behavior.",
       "forge": {
