@@ -519,6 +519,14 @@ def main() -> int:
     results.append(("map_event mapping+event parity (FULL)", ok, d))
     _print("map_event mapping+event parity (FULL)", ok, d)
 
+    # delimiter-laden string-return probe (round 10): f() returns "a|b:c##EVT##d".
+    # Both engines must HEX-encode it (b:0x617c623a632323455654232364) so the
+    # embedded |/:/##EVT## cannot desync the comparator, and solidity-lean must
+    # model the string as Value.bytes (not the r: reprStr fallback) -> NO_DIVERGENCE.
+    ok, d = run_full("string_return", "NO_DIVERGENCE")
+    results.append(("string_return delimiter-safety (FULL)", ok, d))
+    _print("string_return delimiter-safety (FULL)", ok, d)
+
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
     ok, d = run_full("arg_count_mismatch", "REJECT_MALFORMED")
