@@ -4998,8 +4998,38 @@ def Expr.toCoreInternalFunctionValueLiteralAs? (targetTy : Ty) :
         none
   | _ => none
 
+/-- AL-EXEC (executable lowering of an inline array literal into a fixed-size
+    memory-array target). solc types an inline array literal bottom-up (smallest
+    common mobile element type — `[1,2,3] : uint8[3]`) and a fixed→fixed
+    memory-array conversion requires the target's element type to EQUAL that
+    bottom-up element type (`ArrayType::isImplicitlyConvertibleTo`, non-copy
+    branch; the AL1 typechecker enforces exactly this before we lower). The
+    env-less `abiTy?` of a bare number literal is `uint256`, so the generic
+    `toCoreAs?` array path (which requires the inferred source array type to
+    equal the target) fails whenever the elements are undecorated narrow-int
+    literals (`uint8[3] x = [1,2,3]`, `uint8[2][2] x = [[1,2],[3,4]]`), even
+    though solc accepts and runs them. Here the target element type is the
+    AL1-verified element type, so each element is lowered directly at `elemTy`
+    (left-to-right, `arrayLiteralCoreExprsAs?` → `toCoreAs?`), and the whole
+    literal becomes a fresh fixed memory array. Nested/multidim literals recurse
+    because each element's `toCoreAs? elemTy` re-enters this arm. -/
+def Expr.fixedArrayLiteralAs? (storageNames : List Name)
+    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match targetTy, expr with
+  | Ty.array elemTy (some n), Expr.array elems =>
+      if elems.length == n then
+        (Expr.arrayLiteralCoreExprsAs? storageNames elemTy elems).map
+          SolidCore.Solidity.Source.Expr.fixedArray
+      else
+        none
+  | _, _ => none
+termination_by (sizeOf expr, 0)
+
 def Expr.toCoreAs? (storageNames : List Name)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match Expr.fixedArrayLiteralAs? storageNames targetTy expr with
+  | some coreExpr => some coreExpr
+  | none =>
   match Expr.toCoreStorageArrayAs? storageNames targetTy expr with
   | some coreExpr => some coreExpr
   | none =>

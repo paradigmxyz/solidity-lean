@@ -5,6 +5,44 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — #58/AL-EXEC: execute inline array literals used in function bodies (executable over-reject closed)
+
+Follow-up to #56/AL1 (the `array-literal-widen` typing boundary). AL1 pinned the
+accepted controls' runtime values via Forge only, noting the interpreter "does not
+run inline-array-literal functions." Verified this was a REAL executable
+over-reject, not a harness artifact: running the imported `array-literal-widen`
+contract (and minimal single-function contracts) through
+`TypeCheck.CheckedInput.ownCall` failed with `unsupported "checked executable
+checked contract"` for `uint8[3] = [1,2,3]` and `uint8[2][2] = [[1,2],[3,4]]`,
+while every uint256 / typed-lead / bytesN / bool / address shape already ran.
+
+Root cause: the env-less `abiTy?` of a bare number literal is `uint256`, so
+`arrayLiteralTy? [1,2,3] = uint256[3]`; the typed `Expr.toCoreAs?` fixed→fixed
+array path requires the inferred source array type to EQUAL the target, and
+`uint256[3] ≠ uint8[3]` (not implicitly convertible) returned `none`, aborting
+the whole contract's Core lowering (`toCoreContractFor? = none`) — one bad
+function poisons its siblings.
+
+Decision / fix (`SolidCore/Solidity/Interface.lean`): added sibling
+`Expr.fixedArrayLiteralAs?` in the `toCore?`/`toCoreAs?` mutual block, consulted
+first by `Expr.toCoreAs?`. For a fixed-size array target it lowers each element
+directly at the target element type (which, post-AL1, equals solc's bottom-up
+literal element type), left-to-right, and wraps a fresh `Source.Expr.fixedArray`;
+nested/multidim recurse via each element's `toCoreAs? elemTy`. This reroutes ALL
+fixed-array-literal assignments (incl. the previously-working uint256 ones)
+through the element-wise path; runtime values are unchanged (verified against the
+Forge-pinned `array-literal-widen` values: 10203/40606/255002/1234). Only the
+executable lowering changed; the AL1 accept/reject typing boundary is untouched.
+
+New paired lane `inline-array-literal-exec`
+(`tests/forge-harness/inline-array-literal-exec/`): a `src`/`test` Forge harness
+(6 tests) plus manifest `solc_import` + interpreter `ownCall` evals asserting the
+interpreter reproduces the exact Forge/EVM values for var-init narrow (10203),
+multidim narrow (1234), index-of-literal (20), inline-literal-as-internal-argument
+(18), direct return of a fixed memory-array literal ([1,2,3]), and an
+order-sensitive int8 negative-leading literal (255002).
+`forge=ok lean=ok forge_interpreter_compare=pass`.
+
 ## 2026-07-09 — #53/FP-EQ-2: internal fn-pointer equality on ternary/storage-derived pointers (FP-EQ follow-up closed)
 
 Follow-up to #50/FP-EQ (the `fnptr-internal-eq` lane), which gave `BinaryOp.apply`
