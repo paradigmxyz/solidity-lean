@@ -5,6 +5,49 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — FB1 fixed: `bytesN <<` and `~bytesN` re-clean to the byte lane
+
+`docs/solc-fixedbytes-ops-review.md` FB1 (wrong-VALUE family, Fable-confirmed).
+
+**The bug.** solc stores `bytesN` **left-aligned** and wraps every `bytesN <<`
+and `~bytesN` result in `cleanup_t_bytesN` (keep only the top-N-byte lane).
+Solidus stores `bytesN` **right-aligned** (`SolidCore/Solidity/Interpreter.lean:468-475`),
+so under its convention `<<` and `~` are exactly the ops that push meaningful
+bits *above* the low N-byte lane — they must be masked to `2^(8*N)` afterward.
+Solidus applied no such mask: runtime `shlWord`/`notWord` are raw 256-bit ops
+(`Interpreter.lean:5511`, `~5658`), and `Ty.implicitCleanupCore?` inserted a
+truncating cast only for `uint`/`int`, letting `fixedBytes` fall through with no
+cleanup. Escaped bits are dropped by ABI-encode/return and index access (so
+`return b << 4;` alone agreed) but became observable under comparison, a
+following shift/bitwise op, or `&`/`|`/`^`. Three confirmed divergences (solc via
+`--ir`): `(b<<4)>>4` on `bytes1(0xff)` → solc `0x0f`, Solidus `0xff`;
+`(b<<4)==bytes1(0xf0)` with `b=0xff` → solc `true`, Solidus `false`;
+`(~b)==bytes1(0xf0)` with `b=0x0f` → solc `true`, Solidus `false`.
+
+**The fix (`SolidCore/Solidity/Interface.lean`).** The lane mask is
+`fixedBytesCast size size` — it takes the low `size` bytes (a no-op for
+`size = 32`, so full-width `bytes32` never over-masks). Because the env-less
+`toCore?` shift/bitwise lowering is type-blind, a *nested* `<<` (divergence 1's
+`(b<<4)>>4`) needs a typed recursive walk, added as
+`Expr.toCoreFixedBytesBitOp?`: it lowers a `bytesN` shift/bitwise subtree,
+wrapping every `<<` and `~` result in `fixedBytesCast size size`, recursing
+through `>>`/`&`/`|`/`^` (no extra mask — those keep in-lane values in-lane) so a
+nested `<<`/`~` beneath them is still cleaned, and delegating leaves to the
+ordinary typed lowering at `bytesN size`. It is dispatched via
+`Expr.toCoreAsWithEnvBitAware?` from (a) the top of `Expr.toCoreAsWithEnv?`
+(returns/assignments/args — divergence 1) and (b) `Expr.binaryToCoreWithEnvTyped?`
+operand lowering (comparison/bitwise operands — divergences 2, 3). As
+defense-in-depth for any raw top-level `bytesN <<` reaching the cleanup helper,
+`Ty.implicitCleanupCore?` also gained a `fixedBytes` arm that masks a left-shift
+result (and leaves `>>` untouched). `>>` alone, index access, and ABI-encode
+were verified unchanged (they already took the low N bytes and agreed).
+
+**Pinned.** Three Forge-paired lanes (`fixedbytes-shl-shr-mask`,
+`fixedbytes-shl-eq`, `fixedbytes-not-eq`), one per divergence, each a minimal
+contract whose public function returns the observably-diverging value; the
+differential harness (pinned solc 0.8.35 + Forge + imported Lean) now agrees
+`forge=ok lean=ok` on all three.
+
 ## 2026-07-08 — DL1 fixed: storage / constructor / initializer order = reverse C3
 
 `docs/solc-implementation-divergences-7.md` DL1 (wrong-VALUE + wrong-ORDER
