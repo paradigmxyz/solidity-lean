@@ -298,6 +298,34 @@ def match_relaxed(lane: str, feature_token: str) -> Optional[GapFingerprint]:
     return None
 
 
+def cluster_by_delta(lane: str, component: str, delta_shape: str) -> list[str]:
+    """ADVISORY lane-S cluster hint: IDs of known-open gaps sharing the
+    ADJUDICATOR-derived ``(observable_component, delta_shape)`` — elements 0 and 2
+    of the lane-S fingerprint, which the submitter does NOT control (unlike the
+    middle ``feature`` token that both ``match_fingerprint`` and ``match_relaxed``
+    key on).
+
+    Purpose (audit finding): a submitter can re-skin a KNOWN gap with a novel
+    ``claim.feature`` string to dodge both matches and score it as novel
+    (leaderboard novelty-inflation). This hint surfaces every known gap with the
+    same observable delta family so a maintainer can spot the re-skin.
+
+    ADVISORY ONLY — the caller must NOT turn this into ``duplicate_of``: deduping
+    on the delta alone would OVER-CLUSTER genuinely distinct gaps (e.g. G2..G12
+    all share ``(over_accept, over-accept)`` but are different mechanisms), and
+    over-clustering would wrongly auto-deny a legitimately novel submission. Bias
+    stays toward under-clustering; a human confirms."""
+    if lane != "S":
+        return []
+    ids: list[str] = []
+    for g in ALL_KNOWN:
+        if g.status != "open" or g.lane != lane or len(g.key) < 3:
+            continue
+        if g.key[0] == component and g.key[2] == delta_shape:
+            ids.append(g.id)
+    return ids
+
+
 def registry_summary() -> dict:
     return {
         "known_gaps_version": KNOWN_GAPS_VERSION,

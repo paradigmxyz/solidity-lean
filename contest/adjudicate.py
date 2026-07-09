@@ -237,6 +237,19 @@ def _annotate_dedup(report: Report, lane: str, key: tuple, feature_token: str) -
     if hit is not None:
         report.duplicate_of = hit.id
         report.reason += (f"  [DUPLICATE of known gap {hit.id}: {hit.feature}]")
+    # ADVISORY delta-shape cluster hint (lane S). match_fingerprint/match_relaxed
+    # both key on the SUBMITTER-CONTROLLED middle `feature` token, so a known gap
+    # re-skinned with a novel feature dodges them and scores as novel (leaderboard
+    # novelty-inflation, audit finding). This lists known-open gaps sharing the
+    # ADJUDICATOR-derived (component, delta_shape) so a maintainer can catch the
+    # re-skin. It NEVER sets duplicate_of (delta alone over-clusters distinct gaps,
+    # e.g. G2..G12 all share `over_accept/over-accept`) and does NOT change
+    # `qualifies` — a hint on the evidence only, biased to under-cluster.
+    if lane == "S" and len(key) >= 3:
+        cluster = [gid for gid in kg.cluster_by_delta(lane, key[0], key[2])
+                   if gid != report.duplicate_of]
+        if cluster:
+            report.fingerprint["delta_cluster_hint"] = cluster
 
 
 # ---------------------------------------------------------------------------
