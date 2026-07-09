@@ -191,8 +191,23 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
         f"      accountBalances := base.accountBalances ++ {env.lean_balances()},\n"
         f"      blockEnv := {{ base.blockEnv with {env.lean_block_fields()} }},\n"
         f"      txEnv := {{ base.txEnv with {env.lean_tx_fields()} }} }}\n"
+        # Deploy the contract first: run the (possibly synthesized) constructor,
+        # which applies state-variable initializers AND explicit constructor
+        # bodies, producing the post-construction State. The EVM measurement side
+        # deploys with `new C()` (no args, zero value), so we mirror that exactly
+        # (empty ctor args, value 0). The entry function is then called against
+        # this post-construction State rather than State.empty, so contracts with
+        # initialized storage/immutables do NOT produce a spurious divergence.
+        f"    let deployState ← match ← {TC}.CheckedContract.constructWithContext {fuel}\n"
+        f"        contract ctx SolidCore.Solidity.Source.State.empty {env.sender} 0 [] with\n"
+        f"      | SolidCore.Solidity.Source.CallResult.returned st _ => pure st\n"
+        # A constructor that reverts means the deployment failed: on the EVM the
+        # contract never comes into existence. Surface the ctor revert as the
+        # observable outcome (short-circuit the entry call).
+        f"      | rr@(SolidCore.Solidity.Source.CallResult.reverted _ _) =>\n"
+        f"          return rr\n"
         f"    {TC}.CheckedContract.callFunctionWithContext {fuel}\n"
-        f"      contract \"{fname}\" ctx SolidCore.Solidity.Source.State.empty {args_lean})")
+        f"      contract \"{fname}\" ctx deployState {args_lean})")
     call = (f"SolidCore.Solidity.Contest.renderFull "
             f"{self_addr} {slots_lean} {do_block}")
     return f'#eval "{OBSERVABLE_MARKER.strip()} " ++ ({call})'
