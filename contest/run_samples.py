@@ -645,6 +645,14 @@ def main() -> int:
     results.append(("panic_pop PARITY (FULL)", ok, d))
     _print("panic_pop PARITY (FULL)", ok, d)
 
+    # Round 19 probe: a constructor-set immutable read by a view function.
+    # Immutables are spliced into the deployed runtime bytecode (not a storage
+    # slot) -> f() returns 42 -> success|w:42 on BOTH engines. Distinct
+    # codegen/read path from storage-backed state.
+    ok, d = run_full("immutable_read", "NO_DIVERGENCE")
+    results.append(("immutable_read PARITY (FULL)", ok, d))
+    _print("immutable_read PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
