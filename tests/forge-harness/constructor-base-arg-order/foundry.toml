@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/constructor-base-arg-order/out"
+cache_path = "../../.foundry-suites/constructor-base-arg-order/cache"
+evm_version = "cancun"

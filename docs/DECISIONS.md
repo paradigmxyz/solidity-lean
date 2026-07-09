@@ -5,6 +5,64 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — DIV-CTOR-1/2: legacy constructor init/base-arg ordering
+
+Acting on `docs/solc-modifier-inheritance-review.md`. The deployment
+constructor lowering (`ContractDecl.constructorFunctionFromOrders?` +
+`constructorBodyForDeployment?` in `Interface.lean`) assembled one piece per
+contract in storage order (base→derived) as `initStmts ++ [block(baseArgCore
+++ [bodyCore])]` and concatenated them. That reproduced neither of two legacy
+(optimizer=false, no via-ir — the corpus ground truth) ordering rules from
+`ContractCompiler.cpp`:
+
+- **DIV-CTOR-1** — base-constructor ARGUMENT evaluation order. solc evaluates
+  the arguments a contract supplies to its base in the SUPPLYING (more-derived)
+  frame during the derived→base descent (`appendBaseConstructor` evaluates a
+  base's args, then recurses into that base before any body;
+  `visit(FunctionDefinition)` calls the base ctor before the body), and runs
+  bodies base→derived. The old code evaluated each base's incoming args at that
+  base's own (earlier) storage position.
+- **DIV-CTOR-2** — all inline state-variable initializers across the WHOLE
+  hierarchy run base→derived BEFORE any constructor body
+  (`appendInitAndConstructorCode` runs `initializeStateVariables` for every
+  contract before `appendConstructor`). The old code emitted each contract's
+  inits inside that contract's base-first piece, interleaving inits with bodies
+  (matching --via-ir, not the legacy corpus).
+
+Fix: `constructorBodyForDeployment?` now returns the four pieces separately
+`(params, initStmts, ownArgCore, bodyStmts)`. `constructorFunctionFromOrders?`
+emits ALL `initStmts` (storage order, base→derived) first, then a right-nested
+descent built by the new `buildNestedConstructorBody` (fed `pieces.reverse`,
+most-derived first): at each level it emits the immediate base's `ownArgCore`
+(so the arg expressions run in the deriving contract's frame and the bound
+params stay in scope for the base body), recurses into the base, then runs the
+contract's own body. Single-contract behavior is unchanged (the target's
+`paramCleanups ++ [bodyCore]` now follow the hoisted inits instead of preceding
+them; inline initializers cannot reference constructor params, so the swap is
+unobservable — confirmed by the constructor-deploy lane and the smoke set).
+
+Decisions / residue:
+
+- The pinning lanes use shapes the checked-executable path can actually lower.
+  The review's exact repros exercise *other, pre-existing* gaps and were NOT
+  used: (a) an intermediate contract supplying its base's args via a
+  constructor-modifier is not resolved by `baseConstructorArgsForDeployment?`
+  (only the target's own modifiers and inheritance-list args resolve), and
+  (b) `StateVarDecl.toCoreInit?` lowers initializers via plain `Expr.toCore?`,
+  which has no internal-call machinery, so a side-effecting `y = setY()`
+  initializer does not lower. Both are separate divergences, out of scope for
+  this ordering fix, and left untouched.
+- DIV-CTOR-1 is pinned with the multi-base shape `CtorArgD is CtorArgB,
+  CtorArgC` whose two base args are supplied by CtorArgD's OWN modifier list
+  (`CtorArgB(r(2)) CtorArgC(r(4))`, resolvable) and call the inherited internal
+  `r`; solc/legacy trace = 42135, old lowering = 21435.
+- DIV-CTOR-2 is pinned with `CtorInitD is CtorInitBase` where CtorInitD's inline
+  `observed = trace` reads the inherited `trace` (a pure, lowerable expression);
+  legacy runs it before the base body so `observed == 0` (base body later sets
+  `trace = 7`); old lowering read `observed == 7`.
+- Both new lanes pass Forge (pinned solc 0.8.35, legacy) and the imported Lean
+  witness; the full replay curated smoke set stayed green.
+
 ## 2026-07-08 — CE-family: constant folder re-derived over signed rationals with solc's resource caps
 
 Acting on `docs/solc-const-eval-env-review.md`. solc's `ConstantEvaluator`

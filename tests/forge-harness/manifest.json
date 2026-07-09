@@ -7089,6 +7089,72 @@
       }
     },
     {
+      "name": "constructor-base-arg-order",
+      "description": "DIV-CTOR-1: base-constructor ARGUMENT evaluation order. CtorArgD is CtorArgB, CtorArgC supplies a side-effecting expression to each base constructor via its own constructor-modifier list (CtorArgB(r(2)) CtorArgC(r(4))). solc (LEGACY codegen, the corpus ground truth) evaluates each base's supplied args in the most-derived supplying frame during the descent through the C3 linearization, then runs bodies base->derived; the order trace is 42135 (r(4),r(2),r(1),r(3),r(5)). Forge deploys CtorArgD on pinned solc/EVM and asserts 42135; Lean imports the same source, constructs CtorArgD, and checks the trace getter equals 42135. The pre-fix lowering evaluated each base's args at that base's own earlier storage position, giving 21435.",
+      "forge": {
+        "root": "tests/forge-harness/constructor-base-arg-order",
+        "match_contract": "ConstructorBaseArgOrderForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/constructor-base-arg-order/src/ConstructorBaseArgOrder.sol",
+        "contract": "CtorArgD",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ConstructorBaseArgOrder"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ConstructorBaseArgOrder.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedBaseArgOrderTrace",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorBaseArgOrder.importedSourceUnit \"CtorArgD\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let traceOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorBaseArgOrder.importedSourceUnit \"CtorArgD\" \"trace\" state [] 42135\n      Except.ok traceOk\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "constructor-inits-before-bodies",
+      "description": "DIV-CTOR-2: inline state-variable initializers across the whole hierarchy run before any constructor body under LEGACY codegen (the corpus ground truth). CtorInitBase's constructor sets trace = 7; CtorInitD's inline initializer observed = trace reads the inherited trace. Legacy runs all inline initializers first, so observed reads 0 (the base body has not run yet) while trace ends at 7. Forge deploys CtorInitD on pinned solc/EVM and asserts trace == 7 and observed == 0; Lean imports the same source, constructs CtorInitD, and checks the trace and observed getters. The pre-fix lowering ran each contract's initializer immediately before its own body (matching --via-ir), which would read observed == 7, diverging from the legacy corpus.",
+      "forge": {
+        "root": "tests/forge-harness/constructor-inits-before-bodies",
+        "match_contract": "ConstructorInitsBeforeBodiesForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/constructor-inits-before-bodies/src/ConstructorInitsBeforeBodies.sol",
+        "contract": "CtorInitD",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ConstructorInitsBeforeBodies"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ConstructorInitsBeforeBodies.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedInitsBeforeBodies",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorInitsBeforeBodies.importedSourceUnit \"CtorInitD\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let traceOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitsBeforeBodies.importedSourceUnit \"CtorInitD\" \"trace\" state [] 7\n      let observedOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitsBeforeBodies.importedSourceUnit \"CtorInitD\" \"observed\" state [] 0\n      Except.ok (traceOk && observedOk)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "memory-alias-fixes",
       "description": "Forge, pinned solc, and the imported Lean interpreter check memory reference-type alias/copy semantics for the M1-M4 memory-soundness fixes: memory-ref RHS shapes (ternary decl/assign, array-element and struct-member assignment) alias their source (M1); tuple destructuring aliases each component including declarations and pointer swap (M2); a memory ref stored into a memory struct field or array element aliases (M3); abi.encode/keccak256 of ref-nested nested-dynamic memory aggregates (bytes[], uint[][], string[], struct with a dynamic-array field) encode without spurious revert and to the solc byte lengths (M4); plus value-type copy controls and storage<->memory deep-copy independence controls to guard against over-aliasing.",
       "timeout": 600,
