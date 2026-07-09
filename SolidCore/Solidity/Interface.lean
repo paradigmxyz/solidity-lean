@@ -11700,6 +11700,96 @@ def Stmt.listMentionsBareContinue : List Stmt -> Bool
       Stmt.mentionsBareContinue s || Stmt.listMentionsBareContinue rest
 end
 
+/-- CLUSTER-B #7 (extcall-binary): recognise an EXTERNAL/member single-return
+    call in a binary operand and report its single declared return type. Only
+    high-level typed member calls (`t.f(..)` / `t.f{..}(..)`) with EXACTLY ONE
+    declared return are matched; low-level `.call`/`.staticcall`/etc. and
+    reserved members are filtered upstream by `toExternalCallWithKindEnv?` and
+    have no declared-return entry, so they return `none` here (and the caller
+    then preserves the prior over-reject rather than emitting unsound code). -/
+def Expr.externalMemberSingleReturnCallTy? (storageNames : List Name)
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv) :
+    Expr -> Option Ty
+  | expr@(Expr.call (Expr.member _ _) _)
+  | expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
+      match
+          Expr.externalCallDeclaredReturnTysWithKindEnv?
+            storageNames env externalCallKindEnv expr with
+      | some [ty] => some ty
+      | _ => none
+  | _ => none
+
+/-- CLUSTER-B #7 (extcall-binary): hoist a single EXTERNAL/member single-return
+    call out of a BINARY operand into a prefix `tryExternalCall` statement,
+    mirroring exactly the internal-call binary hoister
+    (`internalBinarySingleReturnUseCore?`) but using the existing external-call
+    lowering (`externalCallSingleReturnCoreWithKindEnv?`). Only handles the case
+    where EXACTLY ONE operand is an external member call and the OTHER operand is
+    a pure expression (`Expr.toCore?` succeeds); every other shape (both
+    external, or the non-call operand containing its own nested call) returns
+    `none` so the caller falls back to the prior behaviour. solc legacy
+    left-to-right order is preserved: the external call is emitted in its source
+    position (call-on-the-left → hoisted first; call-on-the-right → the pure lhs
+    is evaluated into a temp first, then the call). For `&&`/`||` with the call
+    on the RIGHT the short-circuit is materialised as an `ifElse` on the lhs
+    temp so the (effectful) external call is skipped exactly when solc skips it;
+    with the call on the LEFT the pure rhs has no observable effect, so a plain
+    `binary` reproduces the result without a branch (matching the internal
+    hoister's call-on-the-left arm). -/
+def externalBinarySingleReturnUseCore?
+    (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (functions freeFunctions : List FunctionDecl)
+    (op : BinaryOp) (lhs rhs : Expr) (useResult : CoreExpr -> CoreStmt) :
+    Option CoreStmt :=
+  let lhsExt? :=
+    Expr.externalMemberSingleReturnCallTy? storageNames env externalCallKindEnv lhs
+  let rhsExt? :=
+    Expr.externalMemberSingleReturnCallTy? storageNames env externalCallKindEnv rhs
+  match lhsExt?, rhsExt? with
+  | some lhsTy, none => do
+      -- External call on the LEFT, pure operand on the RIGHT.
+      let coreOp ← BinaryOp.toCore? op
+      let rhsCore ← Expr.toCore? storageNames rhs
+      Expr.externalCallSingleReturnCoreWithKindEnv?
+        storageNames env externalCallKindEnv lhsTy lhs
+        (fun retExpr =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.binary coreOp retExpr rhsCore))
+  | none, some rhsTy => do
+      -- Pure operand on the LEFT, external call on the RIGHT. Evaluate the pure
+      -- lhs into a temp first (source order), then perform the external call.
+      let coreOp ← BinaryOp.toCore? op
+      let lhsCore ← Expr.toCore? storageNames lhs
+      let lhsTy ←
+        Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env lhs
+      let lhsCoreTy ← Ty.toCore? lhsTy
+      let lhsTmp := "_sol_bin_ext_lhs"
+      let rhsCallCore ←
+        Expr.externalCallSingleReturnCoreWithKindEnv?
+          storageNames env externalCallKindEnv rhsTy rhs
+          (fun retExpr =>
+            useResult
+              (SolidCore.Solidity.Source.Expr.binary coreOp
+                (SolidCore.Solidity.Source.Expr.var lhsTmp) retExpr))
+      let branchCore :=
+        match op with
+        | BinaryOp.boolAnd =>
+            SolidCore.Solidity.Source.Stmt.ifElse
+              (SolidCore.Solidity.Source.Expr.var lhsTmp)
+              rhsCallCore
+              (useResult (SolidCore.Solidity.Source.Expr.word 0))
+        | BinaryOp.boolOr =>
+            SolidCore.Solidity.Source.Stmt.ifElse
+              (SolidCore.Solidity.Source.Expr.var lhsTmp)
+              (useResult (SolidCore.Solidity.Source.Expr.word 1))
+              rhsCallCore
+        | _ => rhsCallCore
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          [ SolidCore.Solidity.Source.Stmt.varDecl lhsCoreTy lhsTmp (some lhsCore)
+          , branchCore ])
+  | _, _ => none
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -12699,7 +12789,18 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
           FunctionDecl.internalExprSingleReturnUseCore?
             internalFuel storageRefEnv env externalCallKindEnv storageNames
             modifiers functions freeFunctions lhs lhsThen
-  | none, none => do
+  | none, none =>
+    -- CLUSTER-B #7 (extcall-binary): before the generic nested-internal-call
+    -- path, try hoisting a single EXTERNAL/member call out of one operand (the
+    -- other operand pure). Declines (→ `none`) for every non-external shape, so
+    -- the existing internal-call handling below is reached unchanged and no
+    -- previously-accepted program regresses.
+    match
+        externalBinarySingleReturnUseCore?
+          env externalCallKindEnv storageNames functions freeFunctions
+          op lhs rhs useResult with
+    | some coreStmt => some coreStmt
+    | none => do
       let coreOp ← BinaryOp.toCore? op
       let lhsTy ←
         Expr.abiTyWithInternalFunctionsEnv?

@@ -1335,6 +1335,34 @@
       }
     },
     {
+      "name": "extcall-binary",
+      "description": "CLUSTER-B #7 (extcall-binary) over-rejects: an EXTERNAL/member single-return call nested inside a BINARY operand (`require(t.balanceOf(a) >= amt)`, `uint y = t.n() + 1`, `x = t.n() + 1`, `while (i < t.limit())`, `if (t.ok() && cond)`, `if (cond || t.ok())`, `return t.n() + g`) had no expression lowering — the recursive binary/condition hoister recognised only INTERNAL ident calls, so solidity-lean over-rejected whole functions solc accepts. The fix widens the same seam: when exactly one operand is a single external member call and the other is pure, the call is lowered via the existing tryExternalCall machinery in its source position (solc legacy left-to-right), bound to a temp, and the operand replaced by the temp; `&&`/`||` with the call on the right materialise the short-circuit as an ifElse on the pure-lhs temp. Uses external `this.`-self-calls (STATICCALLs), so importedContractAccepted pins acceptance (lowering) and the Forge test exercises real solc/EVM execution.",
+      "forge": {
+        "root": "tests/forge-harness/extcall-binary",
+        "match_contract": "ExtcallBinaryForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/extcall-binary/src/ExtcallBinary.sol",
+        "contract": "ExtcallBinaryHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExtcallBinary"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExtcallBinary.importedContractAccepted",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
       "name": "function-calls",
       "description": "Forge checks solc/EVM internal function calls and named returns; Lean imports the same source contract from solc AST and checks source call/return behavior.",
       "forge": {

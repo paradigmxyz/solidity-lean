@@ -5,6 +5,56 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — EXTCALL-BINARY (Cluster B #7): external/member single-return call nested in a BINARY operand now hoisted (over-reject fix)
+
+Over-reject. The Executable core represents user calls as STATEMENTS
+(`captureReturn` internal, `tryExternalCall` external), so a call nested inside a
+larger expression must be hoisted into a prefix statement binding a temp. The
+recursive binary/condition hoister (`Interface.lean`
+`FunctionDecl.internalBinarySingleReturnUseCore?`, reached from require/assert
+args, var-decl inits, assignment RHS, `return`, and `if`/loop conditions)
+detected operand calls ONLY via `Expr.internalSingleReturnCallConversion?`, which
+recognises internal *ident* calls exclusively. Any EXTERNAL/member call nested in
+a binary — `require(t.balanceOf(a) >= amt)` (THE canonical ERC20 balance guard),
+`uint y = t.n() + 1`, `x = t.n() + 1`, `while (i < t.limit())`,
+`if (t.ok() && cond)`, `if (cond || t.ok())`, `return t.n() + g` — over-rejected
+the whole function even though solc 0.8.35 accepts every one.
+
+Fixed by widening the SAME seam rather than adding a parallel one. Two new
+standalone helpers before the big lowering `mutual`:
+`Expr.externalMemberSingleReturnCallTy?` recognises a high-level typed member
+call (`t.f(..)`/`t.f{..}(..)`) with exactly one declared return type (low-level
+`.call`/`.staticcall`/etc. and reserved members have no declared-return entry and
+return `none`); `externalBinarySingleReturnUseCore?` handles the case where
+EXACTLY ONE operand is such an external call and the OTHER is pure
+(`Expr.toCore?` succeeds), lowering the call via the existing
+`Expr.externalCallSingleReturnCoreWithKindEnv?` (`tryExternalCall`) machinery in
+its source position. solc legacy left-to-right order is preserved: call-on-the-
+left is hoisted first with a plain `binary` (the pure rhs has no observable
+effect, matching the internal hoister's call-on-the-left arm); call-on-the-right
+evaluates the pure lhs into a temp first, then the call, and for `&&`/`||`
+materialises the short-circuit as an `ifElse` on the lhs temp so the effectful
+external call is skipped exactly when solc skips it. The helper is invoked ONLY
+in the `none, none` arm of `internalBinarySingleReturnUseCore?` (both internal
+detectors `none`) and returns `none` for every non-external / multi-external /
+mixed shape, so the existing internal-call handling below is reached unchanged
+and no previously-accepted program regresses.
+
+Scope: single external call per operand across require/assert args, var-decl
+init, assignment RHS, `return`, `if`-condition, and loop-condition (all funnel
+through the one binary helper). Left open (declined, still over-reject, unchanged
+behaviour): both operands external (multi-call in one binary); the non-call
+operand itself containing a nested call (mixed internal+external); and the other
+Cluster B items (chained `a.b().c()` receiver-is-a-call #8, external call with a
+call-valued ARG #9, index-read #5, array-literal #6, compound-assign RHS #4).
+
+Pinned by the new sanctioned lane `extcall-binary` (uses external `this.`-self-
+calls / STATICCALLs; `importedContractAccepted` pins acceptance/lowering, the
+Forge test exercises real solc/EVM execution of every position). Full `lake
+build` clean incl. FuelMonotonicity and all witnesses; no witness asserted the
+old over-reject. `--only extcall-binary` green; `call-position`,
+`branch-require`, `function-calls` re-run green (no hoister regression).
+
 ## 2026-07-09 — ARRAY-OOB-CONV: compile-time constant OOB index check no longer folds through explicit conversions (over-reject fix)
 
 Over-reject. The compile-time constant out-of-bounds index checks for fixed-size
