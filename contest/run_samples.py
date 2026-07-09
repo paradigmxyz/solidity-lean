@@ -518,6 +518,94 @@ def hardening_unit_tests() -> tuple[bool, str]:
     return ok, detail
 
 
+def dedup_replay_unit_tests() -> tuple[bool, str]:
+    """Fix-time dedup via replay against a reference build (contest/dedup_replay.py).
+    Pure classifier + collapse logic, plus the injectable E0/E1 replay flow."""
+    from . import dedup_replay as dr
+    checks: list[tuple[str, bool]] = []
+
+    class _R:  # minimal Report stand-in (qualifies/verdict/fingerprint)
+        def __init__(self, verdict, fp=None):
+            self.verdict = verdict
+            self.fingerprint = fp
+            self.evidence = {}
+        @property
+        def qualifies(self):
+            return self.verdict in ("COVERAGE_GAP", "SOUNDNESS_GAP")
+
+    fpA = {"key_str": "revert_data|A|wrong-revert"}
+    fpB = {"key_str": "return_value|B|wrong-value"}
+
+    # E0 qualifies, E1 closes it -> DUPLICATE (a known-gap fix covered it).
+    v = dr.classify_dedup(_R("SOUNDNESS_GAP", fpA), _R("NO_DIVERGENCE"))
+    checks.append(("closed-under-E1-is-duplicate", v.dedup_class == dr.DUPLICATE))
+    # E0 qualifies, E1 still qualifies same fingerprint -> NOVEL.
+    v = dr.classify_dedup(_R("SOUNDNESS_GAP", fpA), _R("SOUNDNESS_GAP", fpA))
+    checks.append(("persists-same-fp-is-novel", v.dedup_class == dr.NOVEL))
+    # E0 qualifies, E1 qualifies but DIFFERENT fingerprint -> SHIFTED (review).
+    v = dr.classify_dedup(_R("SOUNDNESS_GAP", fpA), _R("SOUNDNESS_GAP", fpB))
+    checks.append(("persists-diff-fp-is-shifted", v.dedup_class == dr.SHIFTED))
+    # E1 inconclusive -> INCONCLUSIVE (never silently collapse or keep).
+    v = dr.classify_dedup(_R("SOUNDNESS_GAP", fpA), _R("NEEDS_REVIEW"))
+    checks.append(("E1-inconclusive-is-inconclusive",
+                   v.dedup_class == dr.INCONCLUSIVE))
+    # Non-qualifying E0 -> NOT_IN_POOL.
+    v = dr.classify_dedup(_R("NO_DIVERGENCE"), _R("NO_DIVERGENCE"))
+    checks.append(("nonqualifying-E0-not-in-pool",
+                   v.dedup_class == dr.NOT_IN_POOL))
+    # A COVERAGE_GAP that E1 now runs (feature added) -> DUPLICATE, uniform logic.
+    v = dr.classify_dedup(_R("COVERAGE_GAP", {"key_str": "import|unimpl|X"}),
+                          _R("NO_DIVERGENCE"))
+    checks.append(("coverage-closed-under-E1-duplicate",
+                   v.dedup_class == dr.DUPLICATE))
+
+    # collapse_classes: two re-skins of one novel defect (same fp) -> ONE class;
+    # a duplicate collapses away; a distinct novel gets its own class.
+    items = [
+        ("sub1", dr.classify_dedup(_R("SOUNDNESS_GAP", fpA), _R("SOUNDNESS_GAP", fpA))),
+        ("sub2", dr.classify_dedup(_R("SOUNDNESS_GAP", fpA), _R("SOUNDNESS_GAP", fpA))),
+        ("sub3", dr.classify_dedup(_R("SOUNDNESS_GAP", fpB), _R("NO_DIVERGENCE"))),
+        ("sub4", dr.classify_dedup(_R("SOUNDNESS_GAP", fpB), _R("SOUNDNESS_GAP", fpB))),
+    ]
+    classes = dr.collapse_classes(items)
+    by_key = {c.key: c.members for c in classes}
+    checks.append(("reskins-collapse-to-one-class",
+                   by_key.get("revert_data|A|wrong-revert") == ["sub1", "sub2"]))
+    checks.append(("duplicate-collapses-away",
+                   all("sub3" not in m for m in by_key.values())))
+    checks.append(("distinct-novel-own-class",
+                   by_key.get("return_value|B|wrong-value") == ["sub4"]))
+    checks.append(("first-to-file-order-preserved",
+                   classes[0].members[0] == "sub1"))
+
+    # replay_against_reference with injected adjudicate_fn (no Lean build needed):
+    # E0 qualifies then E1 closes -> DUPLICATE, and E1 only runs when E0 qualifies.
+    calls: list[dict] = []
+    def _fake_adj(root, tools=None, **kw):
+        calls.append({"tools": tools})
+        return _R("NO_DIVERGENCE") if tools is not None else _R("SOUNDNESS_GAP", fpA)
+    v = dr.replay_against_reference(
+        Path("/x"), Path("/ref"), adjudicate_fn=_fake_adj,
+        tool_factory=lambda repo: ("REFTOOLS", repo))
+    checks.append(("replay-e0-qualifies-e1-closes-duplicate",
+                   v.dedup_class == dr.DUPLICATE))
+    checks.append(("replay-ran-both-builds", len(calls) == 2))
+    # Non-qualifying E0 short-circuits (no expensive E1 run).
+    calls.clear()
+    def _fake_adj_noqual(root, tools=None, **kw):
+        calls.append({"tools": tools})
+        return _R("NO_DIVERGENCE")
+    v = dr.replay_against_reference(
+        Path("/x"), Path("/ref"), adjudicate_fn=_fake_adj_noqual,
+        tool_factory=lambda repo: ("REFTOOLS", repo))
+    checks.append(("replay-nonqualifying-skips-E1",
+                   v.dedup_class == dr.NOT_IN_POOL and len(calls) == 1))
+
+    failed = [n for n, ok in checks if not ok]
+    detail = ", ".join(f"{n}={'ok' if ok else 'FAIL'}" for n, ok in checks)
+    return (len(failed) == 0, detail)
+
+
 def main() -> int:
     results: list[tuple[str, bool, str]] = []
 
@@ -537,6 +625,10 @@ def main() -> int:
     ok, d = hardening_unit_tests()
     results.append(("false-positive-hardening (unit)", ok, d))
     _print("false-positive-hardening (unit)", ok, d)
+
+    ok, d = dedup_replay_unit_tests()
+    results.append(("dedup-replay (unit)", ok, d))
+    _print("dedup-replay (unit)", ok, d)
 
     # --- FULL end-to-end runs (real solc + Foundry + solidity-lean/Lean) ---
     # REAL detector tests: full live pipeline + fault injection at the result
