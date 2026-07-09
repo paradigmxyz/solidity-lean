@@ -500,6 +500,23 @@ def Expr.rewriteBaseCallsFuel (baseNames : List Name) :
           else
             Expr.call (Expr.member (Expr.ident baseName) member)
               (args.map rewriteArg)
+      | Expr.call (Expr.member (Expr.typeName (Ty.user path)) member) args =>
+          -- The solc importer renders an explicit base-qualified call `Base.f()`
+          -- with the base contract as `Expr.typeName (Ty.user path)` rather than
+          -- `Expr.ident`.  When the single-segment path names a base contract in
+          -- the linearization, route it to the same static base helper so the
+          -- override is bypassed; otherwise leave it untouched.
+          match path.segments with
+          | [baseName] =>
+              if nameIn baseName baseNames then
+                Expr.call (Expr.ident (baseHelperName baseName member))
+                  (args.map rewriteArg)
+              else
+                Expr.call (Expr.member (Expr.typeName (Ty.user path)) member)
+                  (args.map rewriteArg)
+          | _ =>
+              Expr.call (Expr.member (Expr.typeName (Ty.user path)) member)
+                (args.map rewriteArg)
       | Expr.call fn args => Expr.call (rewrite fn) (args.map rewriteArg)
       | Expr.callWithOptions fn options args =>
           Expr.callWithOptions (rewrite fn) (options.map rewriteOption)

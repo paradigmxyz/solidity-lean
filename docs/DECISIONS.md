@@ -5,6 +5,57 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — #55/BASE-CALL: explicit base-qualified call `Base.f()` accepted (over-reject closed)
+
+A confirmed over-reject (from `docs/solc-inheritance-dispatch-review.md`). solc
+0.8.35 ACCEPTS an explicit base-qualified call `Base.f()` that statically
+dispatches to a specific base's implementation, bypassing the derived override
+(verified: `A.f()` returns A's body `1` even when B overrides `f` to return `2`;
+the unqualified `f()` returns the most-derived `2`; a diamond `D is B, C` with
+`A.g()`/`B.g()`/`C.g()` each runs that base's body — Forge lane confirms
+1/2 and 10/20/30/40). solidity-lean rejected the whole contract with
+`TypeError.unsupported "member call f"`.
+
+**Root cause — AST-shape mismatch, not missing machinery.** The
+`__base_<Base>_<fn>` static-dispatch machinery (Interface base-helpers + the
+typecheck explicit-base branch) already existed and is correct for the
+hand-written `Expr.member (Expr.ident "A") …` shape (existing witnesses
+`checkedExplicitBaseCallMatches` etc.). But the solc importer renders a base
+contract name as `Expr.member (Expr.typeName (Ty.user path)) …` (dumped: `A.f()`
+→ `Expr.call (Expr.member (Expr.typeName (Ty.user { segments := ["A"] })) "f")
+[]`). The two `Expr.ident`-only recognition sites never fired on that shape, so
+the call fell through to the non-library contract-type member-call reject.
+
+**Fix — two sites, both gated on "is a base contract".**
+1. Typechecker (`TypeCheck.lean`, the `Expr.member (Expr.typeName targetTy)`
+   member-call arm): in the `Ty.user path` → non-library-contract case, before
+   rejecting, if `TypeContext.pathIn path env.ancestorPaths` and the path is a
+   single segment `[baseName]`, route to the SAME
+   `resolveExplicitBaseMemberFunctionChecked` /
+   `checkExplicitBaseMemberCallArgsContextual` handlers the `Expr.ident` branch
+   already uses. A non-base type
+   name is still rejected (falls through the `pathIn ancestorPaths` guard).
+2. Interface lowering (`Expr.rewriteBaseCallsFuel`): added an arm matching
+   `Expr.call (Expr.member (Expr.typeName (Ty.user path)) member) args`; for a
+   single-segment path whose name `nameIn baseNames`, rewrite to the existing
+   `baseHelperName baseName member` helper (static dispatch, override bypassed),
+   exactly as the `Expr.ident` arm does; otherwise leave untouched (so library
+   calls `L.f()`, which are also `Expr.typeName` but not in `baseNames`, are
+   unaffected).
+
+**No interpreter change.** Base/super dispatch is resolved entirely at the
+Interface lowering by name-mangled helper functions in the flattened function
+table; the interpreter only does a name lookup. Fixing the two recognition
+sites is sufficient — confirmed end-to-end through
+`checkedCallWordMatches` on the imported source unit.
+
+**dispatchCallRewriteKind left untouched** — it is dead code (defined, never
+referenced), so extending it would add noise without effect.
+
+**New lane `base-qualified-call`** (linear `A.f()` bypass + `viaDyn` control and
+a diamond calling each base explicitly): `forge=ok lean=ok
+forge_interpreter_compare=pass`.
+
 ## 2026-07-09 — #52/EC-CMP: ordered comparison on same-enum operands accepted (over-reject closed)
 
 A confirmed over-reject (from `docs/solc-enum-review.md`). solc 0.8.35 ACCEPTS

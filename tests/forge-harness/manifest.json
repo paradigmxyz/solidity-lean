@@ -1978,6 +1978,64 @@
       }
     },
     {
+      "name": "base-qualified-call",
+      "description": "Forge checks solc/EVM explicit base-qualified calls `Base.f()` that statically bypass a derived override (both a linear base and a diamond); Lean imports the same source from solc AST and checks that each explicit base call runs that base's body while an unqualified call runs the most-derived override.",
+      "forge": {
+        "root": "tests/forge-harness/base-qualified-call",
+        "match_contract": "BaseQualifiedCallForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/base-qualified-call/src/BaseQualifiedCall.sol",
+        "contract": "BqcDiamondD",
+        "namespace": "SolidCore.Solidity.SolcAstImport.BaseQualifiedCall"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "BqcDerivedB.viaBase==1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 32 SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedSourceUnit \"BqcDerivedB\" \"viaBase\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "BqcDerivedB.viaDyn==2",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 32 SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedSourceUnit \"BqcDerivedB\" \"viaDyn\" SolidCore.Solidity.Source.State.empty [] 2",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "BqcDiamondD.callA==10",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 32 SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedSourceUnit \"BqcDiamondD\" \"callA\" SolidCore.Solidity.Source.State.empty [] 10",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "BqcDiamondD.callB==20",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 32 SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedSourceUnit \"BqcDiamondD\" \"callB\" SolidCore.Solidity.Source.State.empty [] 20",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "BqcDiamondD.callC==30",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 32 SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedSourceUnit \"BqcDiamondD\" \"callC\" SolidCore.Solidity.Source.State.empty [] 30",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "BqcDiamondD.callDyn==40",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 32 SolidCore.Solidity.SolcAstImport.BaseQualifiedCall.importedSourceUnit \"BqcDiamondD\" \"callDyn\" SolidCore.Solidity.Source.State.empty [] 40",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "create-options",
       "description": "Forge checks solc/EVM contract creation with value and salt; pinned solc and the common checker reject invalid creation option names, salt types, and duplicate salts; Lean imports the same source contracts from solc AST and checks the abstract source creation options.",
       "forge": {
