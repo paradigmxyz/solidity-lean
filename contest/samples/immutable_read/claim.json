@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Immut", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - immutable-read probe: f() returns the constructor-set immutable X=42; both engines must render success|w:42.",
+  "declared_observable": { "kind": "success", "normal_form": "success|w:42##EVT####STO##" },
+  "feature": "immutable-read",
+  "register_version_seen": "1.2.0"
+}
