@@ -5,6 +5,74 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — CE-family: constant folder re-derived over signed rationals with solc's resource caps
+
+Acting on `docs/solc-const-eval-env-review.md`. solc's `ConstantEvaluator`
+folds constants over signed rationals ℚ (not `Nat`); Solidus's folder gated
+several ops on `exactNat?` and lacked unary `~`, over-rejecting a family of
+valid constants, and lacked solc's resource caps, over-accepting another
+family (and, for base-0/1/−1 exponents, risking a non-terminating import).
+All fixes are op-for-op faithful to `ConstantEvaluator.cpp` /
+`Types.cpp` / `libsolutil/Numeric.cpp` (thresholds read from source, not
+guessed); every folded value was cross-checked against the pinned solc AST.
+
+Differentially-live over-rejects now accepted (folder in `Interface.lean`):
+
+- **CE-1** negative constant exponents. `NumberRat.expRat?` folds `**` over
+  `exactInt?`, short-circuits bases 0/1/−1 *before* size checks (so `0**-1 = 0`,
+  `4*2**-1 = 2`, `2**-2*16 = 4`), and inverts for negative exponents. The
+  checker's `exp` arm no longer requires an unsigned-typed exponent when both
+  operands are constant literals (solc types the exponent as `int_const`, not a
+  signed integer *type*).
+- **CE-2a** unary `~`. Added a `bitNot` arm to `Expr.numberLiteralRat?`
+  (`~x = −x−1` on integer rationals): `~5 = −6`, `~(−3) = 2`, `~5 & 0xFF = 250`.
+- **CE-3** negative operands in shifts/bitwise. `bitAnd?/bitOr?/bitXor?` fold
+  over `exactInt?` via two's-complement (`intBitLand/Lor/Xor`, derived from the
+  `Nat` bit ops since Lean core lacks `Int.land`); `shl?` allows a negative lhs;
+  `sar?` implements solc's floor rounding (`-7 >> 1 = −4`, not −3) and the
+  past-msb `−1`/`0` rule. `>>` (both `shr` and `sar`) maps to SAR, as solc does.
+- **CE-4** fractional `%` = `x − trunc(x/y)·y` (`7 % 2.5 = 2`); integer parity
+  with `Int.tmod` preserved.
+- **CE-5** fractional denominated literals. `literalTy?` gates `unitNumber` on
+  `parseUnitNumberRat?` (was the integer-only `…Nat?`), so `0.5 wei * 2 = 1`.
+- **CE-6b (non-termination hazard)** removed: the base-0/1/−1 short-circuit in
+  `expRat?` returns the value without materializing the exponent, so
+  `1**(2**100)`, `0**(10**60)`, `(-1)**(2**100)` compile instantly.
+
+Importer-masked over-accepts now rejected (solc's exact caps):
+
+- **CE-6a** — `fitsPrecisionExp` (per-`**`, 4096-bit), `fitsPrecisionBase2`
+  (per-shift), the uint32 exponent/shift bound, the 4096-bit post-op cap
+  (`within4096`, on the reduced rational), and the int32 + `fitsPrecisionBase10`
+  literal-exponent rule reject `2**5000/2**5000`, `10**1025/…`, `1e2000/…`,
+  `(1<<4200)>>4200`, `0<<2**33`. `~0` into an unsigned type fails closed
+  (`bitNot` added to `isRawNumberLiteralExpression` +
+  `exprIsUntypedNumberLiteralExpression`), matching solc's `int_const −1`
+  rejection while `~0` into a *signed* type still folds to −1. Comparisons with
+  no common mobile type (`2**300 < 2**301`, `1/2 < 1`) are rejected by a checker
+  gate (`Expr.numberComparisonFoldable?`) mirroring solc's `mobileType` rule,
+  while `1 < 2` and `1/2 == 0.5` still fold.
+
+Decisions / residue:
+
+- The 4096-bit post-op cap checks the *reduced* rational (gcd-normalized) to
+  match solc, which reduces at `makeRational`; `NumberRat` is otherwise
+  unreduced.
+- `fitsPrecisionBase10`'s `floor(exp·log2 10)` uses an exact 16-digit rational
+  for `log2 10` rather than solc's `double`; this can disagree only at the
+  (importer-masked) 4096-bit boundary, far from any lane.
+- **CE-7** (depth-32 constant-eval limit) and **CE-8** (hex + denomination) are
+  left as residue: both are importer-masked (solc rejects first) and neither is
+  made easy by the cap machinery. CE-7 needs a constant-eval depth counter;
+  CE-8 a scanner-level hex-denomination ban.
+
+Lane `cefamily` (accepts contract imported from the solc AST + 7 solc-rejected
+`invalid/` files + 25 named witnesses): `solc_rejects=ok forge=ok lean=ok`,
+`forge_interpreter_compare=pass`. Smoke replay + 8 folder-adjacent lanes
+(rational-constants, signed-literal-arithmetic, ternary-literal-mobile-type,
+exp-by-squaring, compound-exponential-no-error, narrow-arith-widened,
+fixed-point-boundary, literal-cast-conversions): all `lean=ok`, no regressions.
+
 ## 2026-07-08 — AGG1/AGG2 fixed, AGG3 locked: storage aggregate layout + bytesN mapping-key hashing
 
 Acting on `docs/solc-storage-aggregate-layout-review.md`. All three verified

@@ -2698,6 +2698,84 @@ def NumberRat.exactNat? (value : NumberRat) : Option Nat := do
   let i ← value.exactInt?
   if i < 0 then none else some i.toNat
 
+-- solc constant-evaluator resource caps (`ConstantEvaluator.cpp`,
+-- `libsolutil/Numeric.cpp`, `ast/Types.cpp`). solc folds constants in unbounded
+-- signed rationals but rejects any operation whose operands/result would exceed
+-- these bit budgets; we replicate the exact thresholds so Solidus rejects the
+-- same programs solc does (closing the CE-6a over-accept family).
+def uint32MaxNat : Nat := 4294967295          -- std::numeric_limits<uint32_t>::max()
+def int32MaxNat : Nat := 2147483647           -- std::numeric_limits<int32_t>::max()
+def int32MinAbsNat : Nat := 2147483648        -- |std::numeric_limits<int32_t>::min()|
+
+-- `fitsPrecisionExp` (ConstantEvaluator.cpp:46-64): does `base ** exp` fit into
+-- 4096 bits, using the most-significant-bit of the (non-negative) base.
+def fitsPrecisionExp (base exp : Nat) : Bool :=
+  if base == 0 then true
+  else
+    let msb := Nat.log2 base
+    if msb == 0 then true            -- base == 1
+    else if msb > 4096 then false    -- base >= 2 ^ 4096
+    else exp * (msb + 1) <= 4096
+
+-- `fitsPrecisionBaseX` (libsolutil/Numeric.cpp:25-40): does
+-- `mantissa * (base ** exp)` fit into 4096 bits, where `log2OfBaseNum/den`
+-- approximates log2(base). `bitsNeeded = msb(mantissa) + floor(exp*log2(base)) + 1`.
+def fitsPrecisionBaseX (mantissa exp log2Num log2Den : Nat) : Bool :=
+  if mantissa == 0 then true
+  else
+    let msb := Nat.log2 mantissa
+    if msb > 4096 then false
+    else
+      -- floor(exp * log2(base)) via exact Nat rational arithmetic.
+      let floorTerm := (exp * log2Num) / log2Den
+      msb + floorTerm + 1 <= 4096
+
+-- `fitsPrecisionBase2` (ConstantEvaluator.cpp:67-70): log2(2) = 1.
+def fitsPrecisionBase2 (mantissa exp : Nat) : Bool :=
+  fitsPrecisionBaseX mantissa exp 1 1
+
+-- `fitsPrecisionBase10` (Types.cpp:65-70): log2(10) ≈ 3.3219280948873624; solc
+-- uses this double, we use a 16-digit rational that agrees on the floor away from
+-- the (unreachable-through-the-importer) bit-budget boundary.
+def fitsPrecisionBase10 (mantissa exp : Nat) : Bool :=
+  fitsPrecisionBaseX mantissa exp 33219280948873624 10000000000000000
+
+-- 4096-bit post-operation cap (Types.cpp:1130-1132): after every binary op solc
+-- reduces the rational and requires `max(msb(|num|), msb(|den|)) <= 4096`.
+def NumberRat.within4096 (v : NumberRat) : Bool :=
+  if v.num == 0 then true
+  else
+    let g := Nat.gcd v.num.natAbs v.den
+    let n := if g == 0 then v.num.natAbs else v.num.natAbs / g
+    let d := if g == 0 then v.den else v.den / g
+    Nat.max (Nat.log2 n) (Nat.log2 d) <= 4096
+
+-- Signed two's-complement bitwise operators over `Int` (boost's bigint `& | ^`,
+-- ConstantEvaluator.cpp:80-94). Lean core lacks `Int.land`/`lor`/`xor`, so we
+-- derive them from `Nat` bit ops via the two's-complement identities. For x < 0,
+-- `~x = -x-1 >= 0` is the magnitude of x's complemented bits.
+-- `Nat.ldiff a b = a AND (NOT b)` = clear from `a` the bits set in `b`. Lean core
+-- has no `Nat.ldiff`, so we use the identity `a AND ~b = a XOR (a AND b)`.
+def natLdiff (a b : Nat) : Nat := Nat.xor a (Nat.land a b)
+
+def intBitLand (a b : Int) : Int :=
+  if a ≥ 0 && b ≥ 0 then Int.ofNat (Nat.land a.toNat b.toNat)
+  else if a ≥ 0 then Int.ofNat (natLdiff a.toNat (-b - 1).toNat)
+  else if b ≥ 0 then Int.ofNat (natLdiff b.toNat (-a - 1).toNat)
+  else -(Int.ofNat (Nat.lor (-a - 1).toNat (-b - 1).toNat)) - 1
+
+def intBitLor (a b : Int) : Int :=
+  if a ≥ 0 && b ≥ 0 then Int.ofNat (Nat.lor a.toNat b.toNat)
+  else if a ≥ 0 then -(Int.ofNat (natLdiff (-b - 1).toNat a.toNat)) - 1
+  else if b ≥ 0 then -(Int.ofNat (natLdiff (-a - 1).toNat b.toNat)) - 1
+  else -(Int.ofNat (Nat.land (-a - 1).toNat (-b - 1).toNat)) - 1
+
+def intBitXor (a b : Int) : Int :=
+  if a ≥ 0 && b ≥ 0 then Int.ofNat (Nat.xor a.toNat b.toNat)
+  else if a ≥ 0 then -(Int.ofNat (Nat.xor a.toNat (-b - 1).toNat)) - 1
+  else if b ≥ 0 then -(Int.ofNat (Nat.xor (-a - 1).toNat b.toNat)) - 1
+  else Int.ofNat (Nat.xor (-a - 1).toNat (-b - 1).toNat)
+
 def decimalValueWithScaleRat? (digits : List Nat) (fractionDigits : Nat)
     (exponent? : Option (Bool × Nat)) : Option NumberRat :=
   let value := digitsToNat 10 0 digits
@@ -2705,12 +2783,23 @@ def decimalValueWithScaleRat? (digits : List Nat) (fractionDigits : Nat)
   | none =>
       NumberRat.mk? value (10 ^ fractionDigits)
   | some (false, exponent) =>
-      if fractionDigits <= exponent then
+      -- solc rejects a literal whose base-10 exponent overflows int32 or whose
+      -- scaled mantissa would exceed 4096 bits (Types.cpp:940-962). `0E...` is
+      -- always zero and short-circuits before the precision check.
+      if value != 0 &&
+          (exponent > int32MaxNat || !(fitsPrecisionBase10 value exponent)) then
+        none
+      else if fractionDigits <= exponent then
         some (NumberRat.ofNat (value * (10 ^ (exponent - fractionDigits))))
       else
         NumberRat.mk? value (10 ^ (fractionDigits - exponent))
   | some (true, exponent) =>
-      NumberRat.mk? value (10 ^ (fractionDigits + exponent))
+      if value != 0 &&
+          (exponent > int32MinAbsNat ||
+            !(fitsPrecisionBase10 (10 ^ fractionDigits) exponent)) then
+        none
+      else
+        NumberRat.mk? value (10 ^ (fractionDigits + exponent))
 
 def parseDecimalRatChars? (chars : List Char) : Option NumberRat := do
   let split ← splitDecimalExponent? chars
@@ -2795,45 +2884,110 @@ def NumberRat.div? (lhs rhs : NumberRat) : Option NumberRat :=
   else
     NumberRat.mk? (lhs.num * (Int.ofNat rhs.den)) ((Int.ofNat lhs.den) * rhs.num)
 
-def NumberRat.mod? (lhs rhs : NumberRat) : Option NumberRat := do
-  -- solc folds constant `%` for signed operands too: the result is the truncated
-  -- remainder (`Int.tmod`), whose sign follows the dividend (Types.cpp / literal
-  -- constant evaluation). Both operands must reduce to exact integers.
-  let lhsInt ← lhs.exactInt?
-  let rhsInt ← rhs.exactInt?
-  if rhsInt == 0 then
+def NumberRat.mod? (lhs rhs : NumberRat) : Option NumberRat :=
+  -- solc folds constant `%` over rationals (ConstantEvaluator.cpp:103-113): for
+  -- fractional operands `x % y = x − trunc(x/y)·y`; the integer case is boost's
+  -- truncated remainder. Both collapse to `x − trunc(x/y)·y`, which reproduces
+  -- `Int.tmod` on integers (sign of the dividend) and folds `7 % 2.5 = 2`.
+  if rhs.num == 0 then
     none
   else
-    some (NumberRat.ofInt (Int.tmod lhsInt rhsInt))
+    match lhs.div? rhs with
+    | some quotient =>
+        let qTrunc : Int := Int.tdiv quotient.num (Int.ofNat quotient.den)
+        some (lhs.sub (rhs.mul (NumberRat.ofInt qTrunc)))
+    | none => none
 
-def NumberRat.pow (base : NumberRat) (exponent : Nat) : NumberRat :=
-  { num := base.num ^ exponent
-    den := base.den ^ exponent }
+-- solc's `Exp` (ConstantEvaluator.cpp:114-159). The exponent must be an integer
+-- (denominator 1). Bases 0, 1, −1 short-circuit *before* the size/precision
+-- checks — so `0**-1 = 0` and `1**(2**100)` both fold without ever materializing
+-- the exponent (closing the CE-6b non-termination hazard). Otherwise |exp| must
+-- fit uint32 and `fitsPrecisionExp` must hold; a negative exponent inverts.
+def NumberRat.expRat? (base exp : NumberRat) : Option NumberRat := do
+  let e ← exp.exactInt?
+  if e == 0 then
+    some (NumberRat.ofNat 1)
+  else if base.num == 0 then
+    -- base == 0 (incl. the `0**-1 = 0` quirk): solc returns `_left`.
+    some (NumberRat.ofInt 0)
+  else if base.num == Int.ofNat base.den then
+    -- base == 1
+    some (NumberRat.ofNat 1)
+  else if base.num == -(Int.ofNat base.den) then
+    -- base == −1: result is ±1 by exponent parity.
+    some (NumberRat.ofInt (if e % 2 == 0 then 1 else -1))
+  else
+    let absE := e.natAbs
+    if absE > uint32MaxNat then
+      none
+    else if !(fitsPrecisionExp base.num.natAbs absE &&
+        fitsPrecisionExp base.den absE) then
+      none
+    else
+      let numP : Int := base.num ^ absE
+      let denP : Nat := base.den ^ absE
+      if e ≥ 0 then
+        some { num := numP, den := denP }
+      else
+        -- invert: solc `makeRational(denominator, numerator)`.
+        NumberRat.mk? (Int.ofNat denP) numP
 
+-- Bitwise ops fold over the signed numerators (ConstantEvaluator.cpp:80-94); they
+-- reject fractional operands. Negative operands are handled via two's complement,
+-- so `-4 | 1 = -3` and `~5 & 0xFF = 250` fold correctly.
 def NumberRat.bitAnd? (lhs rhs : NumberRat) : Option NumberRat := do
-  let lhsNat ← lhs.exactNat?
-  let rhsNat ← rhs.exactNat?
-  some (NumberRat.ofNat (Nat.land lhsNat rhsNat))
+  let l ← lhs.exactInt?
+  let r ← rhs.exactInt?
+  some (NumberRat.ofInt (intBitLand l r))
 
 def NumberRat.bitOr? (lhs rhs : NumberRat) : Option NumberRat := do
-  let lhsNat ← lhs.exactNat?
-  let rhsNat ← rhs.exactNat?
-  some (NumberRat.ofNat (Nat.lor lhsNat rhsNat))
+  let l ← lhs.exactInt?
+  let r ← rhs.exactInt?
+  some (NumberRat.ofInt (intBitLor l r))
 
 def NumberRat.bitXor? (lhs rhs : NumberRat) : Option NumberRat := do
-  let lhsNat ← lhs.exactNat?
-  let rhsNat ← rhs.exactNat?
-  some (NumberRat.ofNat (Nat.xor lhsNat rhsNat))
+  let l ← lhs.exactInt?
+  let r ← rhs.exactInt?
+  some (NumberRat.ofInt (intBitXor l r))
 
+-- SHL (ConstantEvaluator.cpp:161-179): non-fractional operands; rhs ∈ [0, uint32].
+-- The lhs may be negative. `0 << n` short-circuits to 0 *after* the rhs bound
+-- check (so `0 << 2**33` still rejects). Otherwise `fitsPrecisionBase2` guards the
+-- result width.
 def NumberRat.shl? (lhs rhs : NumberRat) : Option NumberRat := do
-  let lhsNat ← lhs.exactNat?
-  let rhsNat ← rhs.exactNat?
-  some (NumberRat.ofNat (lhsNat * 2 ^ rhsNat))
+  let l ← lhs.exactInt?
+  let r ← rhs.exactInt?
+  if r < 0 || r > Int.ofNat uint32MaxNat then
+    none
+  else if l == 0 then
+    some (NumberRat.ofInt 0)
+  else
+    let exp := r.toNat
+    if fitsPrecisionBase2 l.natAbs exp then
+      some (NumberRat.ofInt (l * (2 : Int) ^ exp))
+    else
+      none
 
-def NumberRat.shr? (lhs rhs : NumberRat) : Option NumberRat := do
-  let lhsNat ← lhs.exactNat?
-  let rhsNat ← rhs.exactNat?
-  some (NumberRat.ofNat (lhsNat / 2 ^ rhsNat))
+-- SAR (ConstantEvaluator.cpp:182-213): non-fractional; rhs ∈ [0, uint32].
+-- Shifting past the most-significant bit gives −1 (negative lhs) or 0. Negative
+-- values round toward −∞ via `(x+1)/2^n − 1`, so `-7 >> 1 = -4` (floor), not −3.
+def NumberRat.sar? (lhs rhs : NumberRat) : Option NumberRat := do
+  let l ← lhs.exactInt?
+  let r ← rhs.exactInt?
+  if r < 0 || r > Int.ofNat uint32MaxNat then
+    none
+  else if l == 0 then
+    some (NumberRat.ofInt 0)
+  else
+    let exp := r.toNat
+    if exp > Nat.log2 l.natAbs then
+      some (NumberRat.ofInt (if l < 0 then -1 else 0))
+    else
+      let p : Int := (2 : Int) ^ exp
+      if l < 0 then
+        some (NumberRat.ofInt (Int.tdiv (l + 1) p - 1))
+      else
+        some (NumberRat.ofInt (Int.tdiv l p))
 
 -- Both denominators are strictly positive, so cross-multiplication preserves
 -- ordering; comparison is over signed numerators.
@@ -2851,7 +3005,7 @@ def NumberRat.eq (lhs rhs : NumberRat) : Bool :=
 def NumberRat.le (lhs rhs : NumberRat) : Bool :=
   NumberRat.lt lhs rhs || NumberRat.eq lhs rhs
 
-def BinaryOp.applyNumberRat? (op : BinaryOp)
+def BinaryOp.applyNumberRatRaw? (op : BinaryOp)
     (lhs rhs : NumberRat) : Option NumberRat :=
   match op with
   | BinaryOp.add => some (lhs.add rhs)
@@ -2859,16 +3013,47 @@ def BinaryOp.applyNumberRat? (op : BinaryOp)
   | BinaryOp.mul => some (lhs.mul rhs)
   | BinaryOp.div => lhs.div? rhs
   | BinaryOp.mod => lhs.mod? rhs
-  | BinaryOp.exp => do
-      let exponent ← rhs.exactNat?
-      some (lhs.pow exponent)
+  | BinaryOp.exp => lhs.expRat? rhs
   | BinaryOp.bitAnd => lhs.bitAnd? rhs
   | BinaryOp.bitOr => lhs.bitOr? rhs
   | BinaryOp.bitXor => lhs.bitXor? rhs
   | BinaryOp.shl => lhs.shl? rhs
-  | BinaryOp.shr => lhs.shr? rhs
-  | BinaryOp.sar => lhs.shr? rhs
+  | BinaryOp.shr => lhs.sar? rhs
+  | BinaryOp.sar => lhs.sar? rhs
   | _ => none
+
+-- solc enforces the 4096-bit precision cap after *every* folded binary op
+-- (Types.cpp:1130-1132); we apply it to the result uniformly.
+def BinaryOp.applyNumberRat? (op : BinaryOp)
+    (lhs rhs : NumberRat) : Option NumberRat := do
+  let result ← BinaryOp.applyNumberRatRaw? op lhs rhs
+  if result.within4096 then some result else none
+
+-- `RationalNumberType::integerType()` (Types.cpp:1218-1232): an integer constant
+-- has an integer mobile type only when it fits the union of the s256/u256 ranges,
+-- i.e. `−2^255 ≤ v ≤ 2^256 − 1`.
+def NumberRat.integerMobile? (v : NumberRat) : Option Int := do
+  let i ← v.exactInt?
+  if -(2 ^ 255 : Int) ≤ i && i ≤ (2 ^ 256 - 1 : Int) then some i else none
+
+-- solc does not fold comparisons: both operands are converted to their mobile
+-- types and compared (Types.cpp:1117-1126). The comparison is well-typed only
+-- when those mobile types share a common type. We reproduce that gate so Solidus
+-- rejects the same programs: two integers both need an integer mobile type and a
+-- common integer type (mixed-sign requires the positive side ≤ 2^255−1); two
+-- fractionals always share a common fixed type; a mix of integer and fractional
+-- has no common type.
+def NumberRat.comparisonFoldable (lhs rhs : NumberRat) : Bool :=
+  match lhs.exactInt?, rhs.exactInt? with
+  | some i, some j =>
+      match lhs.integerMobile?, rhs.integerMobile? with
+      | some _, some _ =>
+          if i ≥ 0 && j ≥ 0 then true
+          else if i < 0 && j < 0 then true
+          else max i j ≤ (2 ^ 255 - 1 : Int)
+      | _, _ => false
+  | none, none => true
+  | _, _ => false
 
 def BinaryOp.applyNumberBool? (op : BinaryOp)
     (lhs rhs : NumberRat) : Option Bool :=
@@ -2893,6 +3078,12 @@ def Expr.numberLiteralRat? : Expr -> Option NumberRat
   | Expr.unary UnaryOp.neg inner => do
       let value ← Expr.numberLiteralRat? inner
       some { value with num := -value.num }
+  | Expr.unary UnaryOp.bitNot inner => do
+      -- solc folds `~` on any integer rational (ConstantEvaluator.cpp:223-227):
+      -- `~x = −x − 1`; rejects fractional operands.
+      let value ← Expr.numberLiteralRat? inner
+      let i ← value.exactInt?
+      some (NumberRat.ofInt (-i - 1))
   | Expr.binary op lhs rhs => do
       let lhsValue ← Expr.numberLiteralRat? lhs
       let rhsValue ← Expr.numberLiteralRat? rhs
@@ -2909,6 +3100,16 @@ def Expr.numberLiteralBool? : Expr -> Option Bool
   | _ => none
 
 end
+
+-- Whether a comparison of two constant number-literal operands is well-typed per
+-- solc's mobile-type rule. Returns `true` for any non-literal comparison (the
+-- normal typed rule applies there); only a pure literal-vs-literal comparison
+-- whose operands lack a common mobile type is rejected (e.g. `2**300 < 2**301`,
+-- `1/2 < 1`), matching solc while still folding `1 < 2` and `1/2 == 0.5`.
+def Expr.numberComparisonFoldable? (lhs rhs : Expr) : Bool :=
+  match Expr.numberLiteralRat? lhs, Expr.numberLiteralRat? rhs with
+  | some l, some r => NumberRat.comparisonFoldable l r
+  | _, _ => true
 
 def parseHexStringChars? : List Char -> Option (List Byte)
   | [] => some []
@@ -3300,6 +3501,10 @@ def Expr.untypedNumberLiteralRat? : Expr -> Option NumberRat
   | Expr.unary UnaryOp.neg inner => do
       let value ← Expr.untypedNumberLiteralRat? inner
       some { value with num := -value.num }
+  | Expr.unary UnaryOp.bitNot inner => do
+      let value ← Expr.untypedNumberLiteralRat? inner
+      let i ← value.exactInt?
+      some (NumberRat.ofInt (-i - 1))
   | Expr.binary op lhs rhs => do
       let lhsValue ← Expr.untypedNumberLiteralRat? lhs
       let rhsValue ← Expr.untypedNumberLiteralRat? rhs
@@ -3395,6 +3600,7 @@ def Expr.isNumberLiteralExpression : Expr -> Bool
   | Expr.literal (Literal.number _) => true
   | Expr.literal (Literal.unitNumber _ _) => true
   | Expr.unary UnaryOp.neg inner => Expr.isNumberLiteralExpression inner
+  | Expr.unary UnaryOp.bitNot inner => Expr.isNumberLiteralExpression inner
   | Expr.binary _ lhs rhs =>
       Expr.isNumberLiteralExpression lhs &&
         Expr.isNumberLiteralExpression rhs
@@ -3415,6 +3621,10 @@ def Expr.isRawNumberLiteralExpression : Expr -> Bool
   | Expr.literal (Literal.number _) => true
   | Expr.literal (Literal.unitNumber _ _) => true
   | Expr.unary UnaryOp.neg inner => Expr.isRawNumberLiteralExpression inner
+  -- `~lit` is a raw integer-constant operand too: `uint x = ~0;` must fail closed
+  -- (solc rejects int_const −1 into an unsigned type) rather than evaluate `~0`
+  -- through the 256-bit runtime path (closing the CE-2b over-accept).
+  | Expr.unary UnaryOp.bitNot inner => Expr.isRawNumberLiteralExpression inner
   | Expr.binary _ lhs rhs =>
       Expr.isRawNumberLiteralExpression lhs &&
         Expr.isRawNumberLiteralExpression rhs

@@ -7266,6 +7266,168 @@
           }
         ]
       }
+    },
+    {
+      "name": "cefamily",
+      "description": "Forge checks solc/EVM values of the CE-family folded constants: negative exponents (4*2**-1=2, 0**-1=0), unary ~ (~5=-6, ~5&0xFF=250), negative shift/bitwise operands with SAR floor ((-1)<<2=-4, -7>>1=-4, -1>>100=-1, -4|1=-3), fractional % (7%2.5=2), a fractional denominated literal (0.5 wei*2=1), and the base-0/1/-1 exponent exemption (1**(2**100)=1, no importer hang). Pinned solc rejects the CE-6a over-accepts (~0 into uint, the 4096-bit/uint32 resource caps, and comparisons with no common mobile type); Lean imports the same accepts contract (now typechecks and folds without hanging) and pins each fold value and rejection boundary via named witnesses.",
+      "forge": {
+        "root": "tests/forge-harness/cefamily",
+        "match_contract": "CeFamilyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/cefamily/src/CeFamily.sol",
+        "contract": "CeFamilyHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CeFamily"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/cefamily/invalid/TildeZeroIntoUint.sol",
+        "tests/forge-harness/cefamily/invalid/ExpPrecision.sol",
+        "tests/forge-harness/cefamily/invalid/LiteralExponent.sol",
+        "tests/forge-harness/cefamily/invalid/ShiftPrecision.sol",
+        "tests/forge-harness/cefamily/invalid/ShiftExponentCap.sol",
+        "tests/forge-harness/cefamily/invalid/CompareOutOfRange.sol",
+        "tests/forge-harness/cefamily/invalid/CompareNoCommonType.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.CeFamily"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CeFamily.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "p1Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p1Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p17Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p17Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p2Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p2Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p10Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p10Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p15Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p15Folds",
+            "expect": "true"
+          },
+          {
+            "label": "x250Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.x250Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p6Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p6Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p7Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p7Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p8Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p8Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p12Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p12Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p9Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p9Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p14Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p14Folds",
+            "expect": "true"
+          },
+          {
+            "label": "p5Folds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.p5Folds",
+            "expect": "true"
+          },
+          {
+            "label": "pzpFolds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.pzpFolds",
+            "expect": "true"
+          },
+          {
+            "label": "pnpFolds",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.pnpFolds",
+            "expect": "true"
+          },
+          {
+            "label": "cmp1lt2Foldable",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.cmp1lt2Foldable",
+            "expect": "true"
+          },
+          {
+            "label": "cmpHalfEqFoldable",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.cmpHalfEqFoldable",
+            "expect": "true"
+          },
+          {
+            "label": "tildeZeroIntoUintRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.tildeZeroIntoUintRejected",
+            "expect": "true"
+          },
+          {
+            "label": "tildeZeroIntoIntAccepted",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.tildeZeroIntoIntAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "expPrecisionRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.expPrecisionRejected",
+            "expect": "true"
+          },
+          {
+            "label": "literalExponentRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.literalExponentRejected",
+            "expect": "true"
+          },
+          {
+            "label": "shiftPrecisionRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.shiftPrecisionRejected",
+            "expect": "true"
+          },
+          {
+            "label": "shiftExponentCapRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.shiftExponentCapRejected",
+            "expect": "true"
+          },
+          {
+            "label": "compareOutOfRangeRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.compareOutOfRangeRejected",
+            "expect": "true"
+          },
+          {
+            "label": "compareNoCommonTypeRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.compareNoCommonTypeRejected",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

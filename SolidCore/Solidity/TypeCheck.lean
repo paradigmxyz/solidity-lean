@@ -1360,6 +1360,8 @@ def exprIsUntypedNumberLiteralExpression :
       (Solidity.Literal.unitNumber _ _) => true
   | Solidity.Expr.unary Solidity.UnaryOp.neg inner =>
       exprIsUntypedNumberLiteralExpression inner
+  | Solidity.Expr.unary Solidity.UnaryOp.bitNot inner =>
+      exprIsUntypedNumberLiteralExpression inner
   | Solidity.Expr.binary _ lhs rhs =>
       exprIsUntypedNumberLiteralExpression lhs &&
         exprIsUntypedNumberLiteralExpression rhs
@@ -4074,7 +4076,11 @@ def literalTy? : Solidity.Literal -> Option Ty
       let _ ← Solidity.Executable.parseNumberRat? text
       some (Solidity.Ty.uint 256)
   | Solidity.Literal.unitNumber text unit => do
-      let _ ← Solidity.Executable.parseUnitNumberNat? text unit
+      -- A denominated literal may be fractional (`0.5 wei`); solc scales the
+      -- rational and only later requires the *folded* result to be integral
+      -- (`0.5 wei * 2 = 1`). Gate the literal on the rational parse, not the
+      -- integer one, so fractional denominated literals are typeable (CE-5).
+      let _ ← Solidity.Executable.parseUnitNumberRat? text unit
       some (Solidity.Ty.uint 256)
   | literal => Solidity.Executable.Literal.abiTy? literal
 
@@ -7077,10 +7083,19 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.gt
       | Solidity.BinaryOp.le
       | Solidity.BinaryOp.ge =>
+          -- solc compares constant literals via their mobile types; a pair with
+          -- no common mobile type (`2**300 < 2**301`, `1/2 < 1`) is a type error
+          -- rather than a folded bool (CE-6a comparison cap).
+          require
+            (Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
+            (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
           let _ ← CheckedExprs.relationalTy lhsChecked rhsChecked
           Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.eq
       | Solidity.BinaryOp.ne =>
+          require
+            (Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
+            (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
           require
             ((TypeContext.canImplicitlyConvert env.types
                 rhsChecked.ty lhsChecked.ty ||
@@ -7103,9 +7118,18 @@ def checkExpr (env : CheckEnv) :
           let ty ← CheckedExprs.arithmeticTy lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.exp =>
-          lhsChecked.expectInteger
-          rhsChecked.expectUnsignedInteger
-          Except.ok { source := expr, ty := lhsChecked.ty }
+          -- A `**` whose base and exponent are both constant number literals is
+          -- folded by solc in the rational domain, where the exponent's type is
+          -- `int_const` (not a signed integer *type*) — so solc imposes no
+          -- unsigned-exponent restriction and even inverts negative exponents
+          -- (`4 * 2**-1 = 2`, `0**-1 = 0`). Only the non-constant case carries the
+          -- `expectUnsignedInteger` rule (CE-1).
+          if (Solidity.Executable.Expr.numberLiteralRat? expr).isSome then
+            Except.ok { source := expr, ty := lhsChecked.ty }
+          else do
+            lhsChecked.expectInteger
+            rhsChecked.expectUnsignedInteger
+            Except.ok { source := expr, ty := lhsChecked.ty }
       | Solidity.BinaryOp.bitAnd
       | Solidity.BinaryOp.bitOr
       | Solidity.BinaryOp.bitXor =>
