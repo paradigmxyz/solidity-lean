@@ -360,6 +360,16 @@ def hardening_unit_tests() -> tuple[bool, str]:
     checks.append(("bytes-dyn-ok",
                    adj._arg_domain_error({"bytes": "0x1122"}, "bytes", {}) is None))
 
+    # a BARE negative int is the ill-formed word form (renders `Value.word -5` ->
+    # Lean elaboration failure -> NEEDS_REVIEW crash); must be REJECT_MALFORMED,
+    # directing to {"int": n}. The explicit signed form stays legal.
+    checks.append(("bare-negative-int-rejected",
+                   adj._arg_domain_error(-5, "int8", {}) is not None))
+    checks.append(("signed-int-form-ok",
+                   adj._arg_domain_error({"int": -5}, "int8", {}) is None))
+    checks.append(("bare-nonneg-int-still-ok",
+                   adj._arg_domain_error(5, "int8", {}) is None))
+
     # claim-field type confusion: a non-object claim.json / non-object entry must
     # be REJECT_MALFORMED, not an uncaught crash (audit finding).
     import tempfile as _tf, json as _json
@@ -604,6 +614,20 @@ def main() -> int:
     ok, d = run_full("payable_value", "NO_DIVERGENCE")
     results.append(("payable_value PARITY (FULL)", ok, d))
     _print("payable_value PARITY (FULL)", ok, d)
+
+    # Round 16 probe: signed narrow-int return render. f({"int":-5}) returns
+    # int8(-5) -> EVM sign-extends to 0xff..fb, solidity-lean renders i:-5 ->
+    # success|i:-5 on BOTH. Confirms the signed-narrow render path is parity-safe.
+    ok, d = run_full("int8_negative", "NO_DIVERGENCE")
+    results.append(("int8_negative RENDER (FULL)", ok, d))
+    _print("int8_negative RENDER (FULL)", ok, d)
+
+    # Round 16 fix guard: a BARE negative int arg (should be {"int":-5}) is an
+    # ill-formed word that crashes the Lean renderer (Value.word -5) -> was a
+    # NEEDS_REVIEW crash; now REJECT_MALFORMED before any measurement.
+    ok, d = run_full("int_bare_negative", "REJECT_MALFORMED")
+    results.append(("int_bare_negative MALFORMED (FULL)", ok, d))
+    _print("int_bare_negative MALFORMED (FULL)", ok, d)
 
     print("\n=== SUMMARY ===")
     all_ok = True

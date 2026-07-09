@@ -831,6 +831,16 @@ def _arg_domain_error(arg: object, ptype: str,
     legal call and would fabricate a divergence, so it is rejected as malformed.
     Returns the sentinel ``"__OOS__"`` for a scalar family we cannot validate
     from the type string (the caller maps that to an X-RETABI exclusion)."""
+    # A bare JSON integer denotes the UNSIGNED word form (render_lean_arg maps it
+    # to `Value.word n`, which requires a Nat). A bare NEGATIVE integer is thus an
+    # ill-formed word: measure._encode_arg two's-complements it (0xff..fb) while the
+    # Lean renderer emits `Value.word -5` and FAILS TO ELABORATE (exit 1 -> a
+    # NEEDS_REVIEW that burns human review), an encode/render asymmetry. Signed
+    # values MUST use the explicit {"int": n} form. Reject uniformly, pre-dispatch.
+    if isinstance(arg, int) and not isinstance(arg, bool) and arg < 0:
+        return (f"a bare negative integer ({arg}) is ambiguous (the plain-int form "
+                f"is the unsigned word form); use the {{\"int\": {arg}}} form for "
+                f"signed values")
     t = _clean_param_type(ptype)
     # dynamic bytes/string: must be the {bytes} form
     if t in ("bytes", "string"):

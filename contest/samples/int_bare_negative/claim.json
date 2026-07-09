@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Signer", "function": "f", "args": [-5], "value": 0 },
+  "expected_divergence": "ATTACK - bare negative int arg (should be {\"int\": -5}); the harness must REJECT_MALFORMED, not crash Lean into NEEDS_REVIEW.",
+  "declared_observable": { "kind": "success", "normal_form": "success|i:-5##EVT####STO##" },
+  "feature": "bare-negative-int-malformed",
+  "register_version_seen": "1.2.0"
+}
