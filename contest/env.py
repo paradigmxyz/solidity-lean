@@ -122,6 +122,24 @@ class EnvOverrides:
         self.self_addr = self_addr
         return self
 
+    def effective_deals(self) -> list[tuple[int, int]]:
+        """The deals normalized to Foundry's ``vm.deal`` semantics: it SETS a
+        balance, so a repeated deal to the SAME address is last-wins.
+
+        Both engines MUST see this normalized list or they diverge for a
+        non-semantic reason (audit finding, CONTEST-BREAKING): the Foundry side
+        already gets last-wins for free (it replays each ``vm.deal`` in order,
+        the last SET winning), but the solidity-lean side reads
+        ``accountBalances`` via ``lookupWord?``, which is FIRST-wins — so
+        ``vm.deal(A,100); vm.deal(A,200)`` left the solidity-lean balance at 100
+        while the EVM measured 200, fabricating a ``wrong-value`` SOUNDNESS_GAP
+        for any entry reading ``A.balance``. Dedup to the LAST amount per
+        address (preserving last-occurrence order) so both sides agree."""
+        last: dict[int, int] = {}
+        for addr, amt in self.deals:
+            last[addr] = amt   # later assignment overwrites -> last-wins
+        return list(last.items())
+
     # -- Lean literals (threaded into the #eval Context/BlockEnv) --------------
 
     def lean_block_fields(self) -> str:
@@ -134,7 +152,10 @@ class EnvOverrides:
         return f"gasprice := {self.gasprice}, origin := {self.origin}"
 
     def lean_balances(self) -> str:
-        rows = ", ".join(f"({a}, {amt})" for a, amt in self.deals)
+        # Use the last-wins-normalized deals (effective_deals) so the solidity-lean
+        # FIRST-wins list lookup returns the SAME balance the EVM's last-wins
+        # vm.deal SET (see effective_deals).
+        rows = ", ".join(f"({a}, {amt})" for a, amt in self.effective_deals())
         return f"[{rows}]"
 
     def to_dict(self) -> dict:
