@@ -1,0 +1,16 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "StrReturn",
+    "function": "f",
+    "args": [],
+    "value": 0
+  },
+  "expected_divergence": "none expected - delimiter-laden string-return probe: both engines hex-encode the string (b:0x..) so the |/:/##EVT## content sits inside the hex and cannot desync the comparator; confirms solidity-lean models a string return as Value.bytes, not the r: fallback.",
+  "declared_observable": {
+    "kind": "return_value",
+    "normal_form": "success|b:0x617c623a632323455654232364##EVT####STO##"
+  },
+  "feature": "string-return-with-delimiters",
+  "register_version_seen": "1.2.0"
+}
