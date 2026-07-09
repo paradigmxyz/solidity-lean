@@ -767,6 +767,14 @@ def main() -> int:
     results.append(("revert_empty PARITY (FULL)", ok, d))
     _print("revert_empty PARITY (FULL)", ok, d)
 
+    # Round 25 guard: the round-16 bare-negative-int guard must cover CONSTRUCTOR
+    # args too (same _arg_domain_error path). A bare -5 ctor arg -> REJECT_MALFORMED
+    # (not a Lean-render crash); the {"int":-5} form runs fine (verified NO_DIVERGENCE
+    # separately). Confirms ctor-arg domain-validation parity with entry args.
+    ok, d = run_full("ctor_bare_negative", "REJECT_MALFORMED")
+    results.append(("ctor_bare_negative MALFORMED (FULL)", ok, d))
+    _print("ctor_bare_negative MALFORMED (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
