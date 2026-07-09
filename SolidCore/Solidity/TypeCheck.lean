@@ -12770,22 +12770,14 @@ def ContractDecl.checkBaseConstructorArgsForDeployment
         ContractDecl.checkBaseConstructorArgsForDeployment storageOrder target
           rest
       else
-        let immediateDerived ←
-          match Solidity.Executable.ContractDecl.findImmediateDerivedInOrder?
-              storageOrder baseDecl with
-          | some decl => Except.ok decl
-          | none =>
-              Except.error
-                (TypeError.invalidContractHeader
-                  "base constructor has no immediate derived contract")
         let args ←
-          match Solidity.Executable.ContractDecl.baseConstructorArgsForDeployment?
-              immediateDerived baseDecl with
-          | some args => Except.ok args
+          match Solidity.Executable.ContractDecl.baseConstructorArgsAndSupplier?
+              storageOrder baseDecl with
+          | some (args, _) => Except.ok args
           | none =>
               Except.error
                 (TypeError.invalidContractHeader
-                  "base constructor arguments specified twice")
+                  "base constructor arguments could not be resolved")
         let sig := ContractDecl.constructorSignature baseDecl
         if args.length == sig.params.length then
           ContractDecl.checkBaseConstructorArgsForDeployment storageOrder

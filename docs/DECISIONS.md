@@ -5591,3 +5591,74 @@ pinned by the Forge harness (EVM side), not by an interpreter `ownCall` comparis
 boundary. `solc_rejects=ok forge=ok lean=ok forge_interpreter_compare=pass`. Full
 `lake build` green (1106 jobs, incl. FuelMonotonicity + SolidCore.Witness.*);
 `smoke_replay.sh` green (29 cases, no regressions).
+
+## 2026-07-09 — #66/CTOR-RESIDUE-REGRESSION: base-ctor args may be supplied by ANY derived contract, not just the direct inheritor (7 OpenZeppelin fixtures un-regressed)
+
+The CTOR-RESIDUE fix (commit 51e2e77) restricted base-constructor argument
+resolution to the base's DIRECT inheritor (`immediateDerived`). That over-tight
+rule regressed 7 OpenZeppelin fixtures — `openzeppelin-erc20-snapshot`,
+`openzeppelin-erc20-capped-pausable`, `openzeppelin-erc721-enumerable`,
+`openzeppelin-erc1155-supply`, `openzeppelin-erc1155-pausable-supply`,
+`openzeppelin-erc721-royalty`, `openzeppelin-erc721-uri-storage` — all rejected
+with `TypeError.arityMismatch "base constructor <Name>" 2 0` (or `1 0`).
+
+Bisect (pinned solc 0.8.35, `--skip-forge`): `openzeppelin-erc721-enumerable`
+PASSES at `51e2e77~1` and FAILS at HEAD → CTOR-RESIDUE is the culprit.
+
+**The pattern CTOR-RESIDUE missed.** These OZ fixtures deploy a concrete harness
+that supplies an INDIRECT base's constructor arguments via a constructor
+modifier:
+
+```solidity
+contract OpenZeppelinERC721EnumerableHarness is OpenZeppelinERC721Enumerable {
+    constructor() OpenZeppelinEnumerableERC721("Enumerable NFT", "ENFT") {}
+}
+```
+
+`OpenZeppelinEnumerableERC721` is NOT the harness's direct base
+(`OpenZeppelinERC721Enumerable` is); the harness names its INDIRECT base in a
+constructor modifier. CTOR-RESIDUE only read a base's modifier args from that
+base's direct inheritor (`OpenZeppelinERC721Enumerable`), which supplies
+nothing, so the two-parameter base constructor was matched against zero
+arguments — the exact `arityMismatch … 2 0`. CTOR-RESIDUE's own lane
+`constructor-intermediate-base-args` happened to work only because there the
+supplier (`MidC`) IS the direct inheritor of the base (`MidB`); it is the
+OPPOSITE case — the OZ supplier is MORE derived than the direct inheritor.
+
+**solc's actual rule.** A base constructor's arguments may be given either (1) in
+an inheritance-list specifier `contract C is B(args)` — which must sit on the
+DIRECT inheritor of B and is evaluated in that contract's frame, or (2) in a
+constructor modifier `constructor(...) B(args)` — which may sit on ANY derived
+contract (including the most-derived deployment target naming an indirect base)
+and is evaluated in THAT contract's frame. The most-derived supplier wins; solc
+forbids supplying a base's args twice.
+
+**Reconciliation (preferred over revert).** New
+`ContractDecl.baseConstructorArgsAndSupplier? storageOrder baseDecl`
+(`SolidCore/Solidity/Interface.lean`) replaces the `immediateDerived`-only
+`baseConstructorArgsForDeployment?`. It returns the args AND the SUPPLYING
+contract (whose ctor params / using-decls form the evaluation frame): inline
+inheritance-specifier args are still read from the direct inheritor; when there
+are none, `baseConstructorModifierSupplier?` walks the linearization
+(`ContractDecls.afterDecl storageOrder baseDecl` reversed — most-derived first)
+for a constructor modifier naming `baseDecl`, returning the first match. The
+lowering caller (`constructorFunctionFromOrders?`) and the typechecker's arity
+check (`ContractDecl.checkBaseConstructorArgsForDeployment`,
+`SolidCore/Solidity/TypeCheck.lean`) both switch to it, so args, `supplyingParams`
+frame, and using-decls all come from the real supplier. Both CTOR-RESIDUE lanes
+(`constructor-intermediate-base-args`, `constructor-init-internal-call`) STILL
+pass — the intermediate case is subsumed (there the direct inheritor is the
+supplier and is found first among the more-derived candidates).
+
+New Forge-paired manifest lane `constructor-target-supplies-indirect-base`
+(`Target is Mid is Base`, `Mid` abstract and supplying nothing, `Target`'s
+constructor modifier `Base(3, 4)` supplying the indirect base): deploy `Target`,
+assert `a == 3`, `b == 4`, `m == 7`. `lean=ok`, minimal reduction of the OZ
+pattern so a future smoke run catches this regression class.
+
+Verification: full `lake build` green (1106 jobs, incl. FuelMonotonicity +
+SolidCore.Witness.*). Full replay (pinned solc, `--jobs 6`): all 7 OZ fixtures
+`lean=ok`, both CTOR-RESIDUE lanes `lean=ok`. Remaining failures are unrelated
+and out of scope: `memory-allocation` and `entrypoint-slice-control`
+(pre-existing) and `reference-via-ir-memory-storage` (a separate regression
+fixed on `main`, not yet in this worktree's base).

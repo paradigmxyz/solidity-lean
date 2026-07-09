@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/constructor-target-supplies-indirect-base/out"
+cache_path = "../../.foundry-suites/constructor-target-supplies-indirect-base/cache"
+evm_version = "cancun"
