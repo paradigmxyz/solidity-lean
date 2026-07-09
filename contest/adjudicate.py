@@ -288,6 +288,50 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         return Report("REJECT_MALFORMED", reason=slots_err or "bad observed_slots",
                       evidence=evidence)
 
+    # -- Step 0a': VALIDATE entry.args AGAINST the entry function SIGNATURE -----
+    # The args reach the EVM as ABI calldata (decoded per the real parameter
+    # types) AND Solidus as direct CoreValues. If they do not match the function's
+    # parameter list the two engines receive DIFFERENT logical calls and diverge
+    # for a NON-semantic reason. Critically, a wrong arg COUNT makes Solidus fail
+    # closed on the call while the EVM still runs — which the classifier would
+    # score as a bogus qualifying COVERAGE_GAP (a submitter could fabricate a
+    # "gap" from a malformed call). So a signature mismatch is a MALFORMED claim,
+    # never a gap. Skipped for OVER_ACCEPT (its program is solc-rejected and has
+    # no runnable signature).
+    entry_sig: Optional[meas.EntrySig] = None
+    if not over_accept:
+        try:
+            entry_sig = meas.entry_signature(
+                _src_for(submission.sources, entry["contract"], tools.solc)
+                or submission.sources[0], entry["contract"], entry["function"],
+                tools.solc)
+        except Exception as exc:
+            return Report("REJECT_MALFORMED", reason=(
+                f"could not resolve entry signature: {exc}"), evidence=evidence)
+        if entry_sig is None:
+            return Report("REJECT_MALFORMED", reason=(
+                f"entry {entry['contract']}.{entry['function']} not found / has "
+                "no function selector in the compiled AST"), evidence=evidence)
+        n_args, n_params = len(entry.get("args", [])), len(entry_sig.param_types)
+        if n_args != n_params:
+            return Report("REJECT_MALFORMED", reason=(
+                f"entry.args count ({n_args}) does not match "
+                f"{entry['contract']}.{entry['function']} parameter count "
+                f"({n_params}): {entry_sig.param_types}"), evidence=evidence)
+        # Array/struct PARAMETERS are outside the faithfully-encodable ABI subset
+        # (symmetric to array/struct returns): the arg forms cannot represent them
+        # and a partial encoding would diverge. Out of scope (X-RETABI).
+        bad_params = [t for t in entry_sig.param_types
+                      if not _comparable_return_type(t)]
+        if bad_params:
+            e = reg.entry_by_id("X-RETABI")
+            if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
+                evidence["arg_type_scope"] = {"unsupported_params": bad_params}
+                return Report("REJECTED_OOS", reason=(
+                    f"reject gate fired: X-RETABI (intentional exclusion, out of "
+                    f"scope) — entry parameter type(s) {bad_params} not in the "
+                    f"faithfully-encodable ABI subset"), evidence=evidence)
+
     # -- Step 0b: CHEATCODE GATE over BOTH src AND test, BEFORE any Forge run.
     # The trust boundary is any call to the cheatcode ADDRESS from any submitted
     # code executed under `forge test` (adversarial-review findings 1 & 2). We
@@ -355,7 +399,9 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 "claimed behavior does not reproduce on pinned solc 0.8.35 + "
                 f"Foundry (forge={status})"), evidence=evidence)
         # -- MEASURE the EVM observable from an actual Forge run (P0 #1) -----
-        sig = meas.entry_signature(
+        # Reuse the signature resolved + validated in step 0a' (recompute only if
+        # that path was skipped, e.g. a future caller that bypasses it).
+        sig = entry_sig or meas.entry_signature(
             _src_for(submission.sources, entry["contract"], tools.solc)
             or submission.sources[0], entry["contract"], entry["function"],
             tools.solc)

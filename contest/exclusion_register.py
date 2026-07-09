@@ -225,15 +225,16 @@ _SYNTACTIC: list[ExclusionEntry] = [
         detector="adjudicator:entry_return_type",
         since_version="1.2.0",
         reason=(
-            "The entry function's return type is outside the faithfully-comparable "
-            "ABI subset. The observable comparator decodes the EVM return bytes and "
-            "matches them against Solidus's value rendering EXACTLY for scalars "
+            "An entry function PARAMETER or RETURN type is outside the faithfully "
+            "encodable/comparable ABI subset. The harness represents args as direct "
+            "CoreValues to Solidus and as ABI calldata to the EVM, and decodes EVM "
+            "return bytes back to Solidus's value rendering, EXACTLY for scalars "
             "(int/uint/bool/address/enum/contract/bytesN), dynamic bytes/string, "
-            "and flat tuples (multiple returns) of those. ARRAY return types "
-            "(`T[]`, `T[N]`) and STRUCT return types are not yet decoded to match "
-            "Solidus's `[..]`/`(..)` rendering, so comparing them would raise a "
-            "spurious divergence. Out of scope until the recursive ABI decoder "
-            "lands; restructure the entry to return scalars/bytes/string meanwhile."
+            "and flat tuples (multiple returns) of those. ARRAY (`T[]`, `T[N]`) and "
+            "STRUCT types are not yet encoded/decoded to match Solidus's "
+            "`[..]`/`(..)` form on either side, so using them would raise a spurious "
+            "divergence. Out of scope until the recursive ABI codec lands; "
+            "restructure the entry to use scalars/bytes/string meanwhile."
         ),
         roadmap_ref="competition-design.md §3.4; observable._decode_abi_values",
     ),

@@ -319,6 +319,12 @@ def main() -> int:
     results.append(("array_return X-RETABI (FULL)", ok, d))
     _print("array_return X-RETABI (FULL)", ok, d)
 
+    # fabricated gap: args count != function param count -> REJECT_MALFORMED,
+    # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
+    ok, d = run_full("arg_count_mismatch", "REJECT_MALFORMED")
+    results.append(("arg_count_mismatch (FULL)", ok, d))
+    _print("arg_count_mismatch (FULL)", ok, d)
+
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
     # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.
