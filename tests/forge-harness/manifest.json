@@ -1282,6 +1282,59 @@
       }
     },
     {
+      "name": "call-position",
+      "description": "CALL-POSITION over-rejects: a user function call nested in a for/do-while/while CONDITION had no expression lowering and was never wired to the internal-call hoisting machinery, so solidity-lean over-rejected loops solc accepts. The fix desugars a call-bearing condition into the same while(1){ if(cond) ...; body; post } shape used for bare while(f()), re-evaluating the hoisted call each iteration; gated so call-free conditions keep today's loop node, and (for/do-while) only when the body has no bare continue. Internal-call conditions pin acceptance and runtime semantics via own-call execution; a bare external call in a while condition pins acceptance.",
+      "forge": {
+        "root": "tests/forge-harness/call-position",
+        "match_contract": "CallPositionForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/call-position/src/CallPosition.sol",
+        "contract": "CallPositionHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CallPosition"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CallPosition.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedForCondInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallPosition.importedContract \"forCondInternal\" SolidCore.Solidity.Source.State.empty [] 10",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWhileCondInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallPosition.importedContract \"whileCondInternal\" SolidCore.Solidity.Source.State.empty [] 10",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedWhileContinueInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallPosition.importedContract \"whileContinueInternal\" SolidCore.Solidity.Source.State.empty [] 13",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedDoWhileCondInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallPosition.importedContract \"doWhileCondInternal\" SolidCore.Solidity.Source.State.empty [] 10",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedNestedForCondInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallPosition.importedContract \"nestedForCondInternal\" SolidCore.Solidity.Source.State.empty [] 5",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "function-calls",
       "description": "Forge checks solc/EVM internal function calls and named returns; Lean imports the same source contract from solc AST and checks source call/return behavior.",
       "forge": {

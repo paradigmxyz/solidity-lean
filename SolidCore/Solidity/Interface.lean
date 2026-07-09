@@ -11672,6 +11672,34 @@ def Expr.indexLValueCoreBuilder? (storageNames : List Name) (base : Expr) :
       let baseCore ← Expr.toCoreLValue? storageNames base
       some (fun idx => SolidCore.Solidity.Source.LValue.index baseCore idx)
 
+-- CALL-POSITION: does this statement contain a `continue` that binds to the
+-- *enclosing* loop (i.e. one not captured by a nested `while`/`for`/`do-while`)?
+-- Used to guard the loop-condition call-hoisting desugar: when the condition
+-- of a `for`/`do-while` loop contains a call, we rewrite the loop into a
+-- `while(1) { … if(cond) …; body; post }` form, and that rewrite only
+-- preserves `continue` semantics when the body has no bare `continue` (a bare
+-- `continue` in the desugared form would skip the condition re-check / `post`
+-- step). Nested loops capture their own `continue`, so we do NOT descend into
+-- them. `try`/`tryCatchReturns` are treated conservatively as "may contain"
+-- — returning `true` only *disables* the new acceptance (falling back to the
+-- prior behaviour), so it can never produce wrong output.
+mutual
+def Stmt.mentionsBareContinue : Stmt -> Bool
+  | Stmt.continue => true
+  | Stmt.block body => Stmt.listMentionsBareContinue body
+  | Stmt.ifElse _ t none => Stmt.mentionsBareContinue t
+  | Stmt.ifElse _ t (some e) =>
+      Stmt.mentionsBareContinue t || Stmt.mentionsBareContinue e
+  | Stmt.unchecked s => Stmt.mentionsBareContinue s
+  | Stmt.tryCatch _ _ => true
+  | Stmt.tryCatchReturns _ _ _ _ => true
+  | _ => false
+def Stmt.listMentionsBareContinue : List Stmt -> Bool
+  | [] => false
+  | s :: rest =>
+      Stmt.mentionsBareContinue s || Stmt.listMentionsBareContinue rest
+end
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -15056,7 +15084,6 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           some (SolidCore.Solidity.Source.Stmt.whileLoop
             condCore bodyCore)
   | Stmt.whileLoop cond body => do
-      let condCore ← Expr.toCore? storageNames cond
       let bodyCore ←
         Stmt.toCoreWithInternalCalls?
           (internalFuel := internalFuel)
@@ -15069,7 +15096,30 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (freeFunctions := freeFunctions)
           (returnTys := returnTys)
           (stmt := body)
-      some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
+      match Expr.toCore? storageNames cond with
+      | some condCore =>
+          -- call-free condition: keep today's `whileLoop` node unchanged.
+          some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
+      | none =>
+          -- CALL-POSITION (#3): the condition contains a call the pure lowering
+          -- can't hoist. Desugar `while (cond) body` into the same `while(1) {
+          -- if(cond') body else break }` shape already used for bare
+          -- `while(f())`, evaluating the hoisted call statements at the top of
+          -- every iteration (re-evaluation matches solc). `continue` in `body`
+          -- jumps to the `while(1)` top and re-checks the condition — exactly
+          -- `while` semantics — so no `continue` guard is needed here.
+          match
+              FunctionDecl.conditionUseCoreWithInternalCalls?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions cond
+                (fun condCore =>
+                  SolidCore.Solidity.Source.Stmt.ifElse
+                    condCore bodyCore SolidCore.Solidity.Source.Stmt.break) with
+          | some stepCore =>
+              some
+                (SolidCore.Solidity.Source.Stmt.whileLoop
+                  (SolidCore.Solidity.Source.Expr.word 1) stepCore)
+          | none => none
   | Stmt.doWhile body cond => do
       let bodyCore ←
         Stmt.toCoreWithInternalCalls?
@@ -15083,8 +15133,33 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (freeFunctions := freeFunctions)
           (returnTys := returnTys)
           (stmt := body)
-      let condCore ← Expr.toCore? storageNames cond
-      some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
+      match Expr.toCore? storageNames cond with
+      | some condCore =>
+          -- call-free condition: keep today's `doWhile` node unchanged.
+          some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
+      | none =>
+          -- CALL-POSITION (#2): the post-body condition contains a call. Desugar
+          -- `do body while(cond)` into `while(1) { body; <hoist>; if(cond') {}
+          -- else break }`. This is sound only when `body` has no bare
+          -- `continue` (a `continue` must re-check `cond`, but in the desugared
+          -- form it would jump to the `while(1)` top, skipping the check); when
+          -- it does, fall back to the prior (over-reject) behaviour.
+          if Stmt.mentionsBareContinue body then none
+          else
+            match
+                FunctionDecl.conditionUseCoreWithInternalCalls?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions cond
+                  (fun condCore =>
+                    SolidCore.Solidity.Source.Stmt.ifElse
+                      condCore SolidCore.Solidity.Source.Stmt.skip
+                      SolidCore.Solidity.Source.Stmt.break) with
+            | some checkCore =>
+                some
+                  (SolidCore.Solidity.Source.Stmt.whileLoop
+                    (SolidCore.Solidity.Source.Expr.word 1)
+                    (SolidCore.Solidity.Source.Stmt.block [bodyCore, checkCore]))
+            | none => none
   | Stmt.forLoop init cond post body => do
       let initCore ←
         match init with
@@ -15101,10 +15176,6 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (returnTys := returnTys)
               (stmt := stmt)
         | none => some SolidCore.Solidity.Source.Stmt.skip
-      let condCore ←
-        match cond with
-        | some expr => Expr.toCore? storageNames expr
-        | none => some (SolidCore.Solidity.Source.Expr.word 1)
       let postCore ←
         match post with
         | some expr =>
@@ -15132,8 +15203,55 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (freeFunctions := freeFunctions)
           (returnTys := returnTys)
           (stmt := body)
-      some (SolidCore.Solidity.Source.Stmt.forLoop
-        initCore condCore postCore bodyCore)
+      -- Try the pure lowering of the condition first: a call-free (or `none`)
+      -- condition keeps today's `forLoop` node unchanged (no behaviour change).
+      let purecond? : Option CoreExpr :=
+        match cond with
+        | some expr => Expr.toCore? storageNames expr
+        | none => some (SolidCore.Solidity.Source.Expr.word 1)
+      match purecond? with
+      | some condCore =>
+          some (SolidCore.Solidity.Source.Stmt.forLoop
+            initCore condCore postCore bodyCore)
+      | none =>
+          -- CALL-POSITION (#1): the condition contains a call. Desugar
+          -- `for (init; cond; post) body` into
+          -- `{ init; while(1) { <hoist>; if(cond') {} else break; body; post } }`.
+          -- Sound only when `body` has no bare `continue` (a `continue` must run
+          -- `post` then re-check `cond`; in the desugared form it would jump to
+          -- the `while(1)` top, skipping `post`). Otherwise fall back to the
+          -- prior (over-reject) behaviour.
+          match cond with
+          | none => none  -- unreachable: `none` cond succeeds above
+          | some condExpr =>
+              if Stmt.mentionsBareContinue body then none
+              else
+                -- The condition is in the scope of the for-init declaration, so
+                -- extend the type env with any init bindings before hoisting the
+                -- call (the hoister needs the type of a non-call operand like the
+                -- loop counter `i` in `i < f()`).
+                let condEnv :=
+                  match init with
+                  | some (Stmt.varDecl bindings _) =>
+                      VarBindings.extendTypeEnv env bindings
+                  | _ => env
+                match
+                    FunctionDecl.conditionUseCoreWithInternalCalls?
+                      internalFuel storageRefEnv condEnv externalCallKindEnv
+                      storageNames modifiers functions freeFunctions condExpr
+                      (fun condCore =>
+                        SolidCore.Solidity.Source.Stmt.ifElse
+                          condCore SolidCore.Solidity.Source.Stmt.skip
+                          SolidCore.Solidity.Source.Stmt.break) with
+                | some checkCore =>
+                    some
+                      (SolidCore.Solidity.Source.Stmt.block
+                        [ initCore
+                        , SolidCore.Solidity.Source.Stmt.whileLoop
+                            (SolidCore.Solidity.Source.Expr.word 1)
+                            (SolidCore.Solidity.Source.Stmt.block
+                              [checkCore, bodyCore, postCore]) ])
+                | none => none
   | Stmt.tryCatch expr clauses => do
       match Expr.toExternalCallWithKindEnv?
           storageNames env externalCallKindEnv expr with

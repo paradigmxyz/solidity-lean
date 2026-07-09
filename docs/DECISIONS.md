@@ -6046,3 +6046,62 @@ narrow LValues, the `unchecked` wraps (44 and 4), and accepted controls (in-rang
 narrow `+=` == 155, `uint256 +=` == 3000000). Isolated `--skip-forge --only
 compound-cleanup` → `lean=ok`.
 
+
+## 2026-07-09 — CALL-POSITION: user calls in `for`/`do-while`/`while` conditions now lower (were over-rejected)
+
+Over-reject family (issues #70/#73/#64/#51, "Cluster A" positions #1/#2/#3).
+The Executable core represents user calls as STATEMENTS, so a call nested in a
+loop CONDITION has no pure-expression lowering. The three generic loop arms of
+`Stmt.toCoreWithInternalCalls?` lowered their condition via the env-less pure
+`Expr.toCore?`, which returns `none` on any user internal/external/free call, so
+the whole function failed to lower and solidity-lean over-rejected loops solc
+accepts — `for (uint i; i < f(); i++)`, `do { … } while (i < f());`,
+`while (i < f())` (nested, not just bare `while(f())`), and a bare external call
+`while (t.ok())`. solc 0.8.35 accepts all (confirmed `--bin` exit 0).
+
+Fix (Interface.lean, the three loop arms of `Stmt.toCoreWithInternalCalls?`):
+each arm now tries the pure `Expr.toCore?` of the condition FIRST — a call-free
+condition keeps today's `whileLoop`/`doWhile`/`forLoop` core node completely
+unchanged (zero behaviour change; any condition the pure path already lowered is
+untouched, and any it already rejected can only newly become accepted, never
+regress). Only when the pure path returns `none` (a call is present) is the loop
+desugared, reusing the SAME `while(1) { … }` shape already proven for bare
+`while(f())` and the existing `conditionUseCoreWithInternalCalls?` hoister:
+- `while (cond) body` → `while(1) { <hoist cond>; if(cond') body else break }`.
+  `continue` in `body` jumps to the `while(1)` top and re-checks the condition —
+  exactly `while` semantics — so no guard is needed.
+- `do body while(cond)` → `while(1) { body; <hoist cond>; if(cond') {} else break }`.
+- `for (init; cond; post) body` →
+  `{ init; while(1) { <hoist cond>; if(cond') {} else break; body; post } }`,
+  with the type env extended by the `init` bindings so the hoister can type a
+  non-call operand like the counter `i` in `i < f()`.
+Evaluation order matches solc legacy: the hoisted call statements run at the top
+of each iteration (re-evaluation), left-to-right, before the comparison.
+
+Soundness guard: the `do-while`/`for` desugars are only applied when the body
+has no bare `continue` (a new `Stmt.mentionsBareContinue` helper that does NOT
+descend into nested loops, and treats `try` conservatively as "may contain").
+A bare `continue` must re-run the condition (do-while) or `post`+condition
+(for), but in the `while(1)` form it would jump to the top and skip them; when
+present, the desugar declines and falls back to the prior (over-reject)
+behaviour rather than emit wrong code. Returning `true` from the helper only
+ever *disables* the new acceptance, so it can never produce unsound output.
+
+Proofs/witnesses: no updates needed — the desugar emits only pre-existing core
+nodes (`whileLoop`/`block`/`ifElse`/`break`) that the core interpreter and its
+fuel/monotonicity proofs already cover, and it changes NO already-accepted
+program's lowering. Full `lake build` (all 1107 jobs, incl. FuelMonotonicity and
+witnesses) green.
+
+STILL OPEN (left for follow-up, deliberately not attempted in this pass):
+Cluster A #4 (compound-assign RHS `x += f()`), #5 (index read `arr[f()]`), #6
+(array literal `[f(), g()]`); and all of Cluster B — #7 external/free call
+nested in a binary operand (`require(t.balanceOf(a) >= amt)`; the condition
+binary hoister `internalBinarySingleReturnUseCore?` is still internal-only, so
+`i < t.limit()` in a loop condition is NOT yet accepted — only a *bare* external
+condition is), #8 chained member calls, #9 external call with a call-valued arg.
+New sanctioned lane `call-position` pins the closed cases: `for`/`while`/
+`do-while` conditions with an internal call (acceptance + runtime semantics via
+own-call, incl. a `while`+`continue` re-check and nested loops), and a bare
+external `while (this.stillBelow(i))` (acceptance + Forge/EVM execution).
+
