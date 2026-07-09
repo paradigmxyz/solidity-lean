@@ -7417,36 +7417,84 @@ def TryCatchClause.matchLowLevel? (raw : List Byte)
   | [_] => BindingDecl.bindArgs? params [Value.bytes raw]
   | _ => none
 
-def TryCatchClause.match? (raw : List Byte) :
-    TryCatchClause -> Option (Frame × Stmt)
-  | TryCatchClause.clause (some "Error") params body => do
-      let selector ← revertBytesSelector? raw
-      if wordEq selector externalErrorSelector then
+/-- The kind of an external-call revert, as solc classifies it before choosing a
+    catch clause. An `Error(string)` classification requires — matching solc's
+    `tryDecodeErrorMessage` (YulUtilFunctions.cpp:4676-4713,
+    IRGeneratorForStatements.cpp:3460-3521) — that the revert data be at least
+    0x44 (68) bytes (selector + head-offset word + length word) AND decode as a
+    standard ABI string; a shorter/undecodable `Error`-selector payload (e.g. a
+    36-byte `selector‖32 zero bytes`) is NOT an `Error(string)` and routes to the
+    byte / catch-all clause (gap CB1). `Panic(uint256)` likewise needs >= 0x24
+    (36) bytes. -/
+inductive RevertKind where
+  | errorString
+  | panic
+  | lowLevel
+  deriving Repr, BEq
+
+def revertClassify (raw : List Byte) : RevertKind :=
+  match revertBytesSelector? raw with
+  | some selector =>
+      if wordEq selector externalErrorSelector
+          && raw.length ≥ 68
+          && (abiDecodeValues? [Ty.bytesCalldata]
+                (raw.drop selectorBytes)).isSome then
+        RevertKind.errorString
+      else if wordEq selector externalPanicSelector
+          && raw.length ≥ 36
+          && (abiDecodeValues? [Ty.uint256]
+                (raw.drop selectorBytes)).isSome then
+        RevertKind.panic
+      else
+        RevertKind.lowLevel
+  | none => RevertKind.lowLevel
+
+def TryCatchClause.errorClause? :
+    List TryCatchClause -> Option (List BindingDecl × Stmt)
+  | [] => none
+  | TryCatchClause.clause (some "Error") params body :: _ => some (params, body)
+  | _ :: rest => TryCatchClause.errorClause? rest
+
+def TryCatchClause.panicClause? :
+    List TryCatchClause -> Option (List BindingDecl × Stmt)
+  | [] => none
+  | TryCatchClause.clause (some "Panic") params body :: _ => some (params, body)
+  | _ :: rest => TryCatchClause.panicClause? rest
+
+def TryCatchClause.catchAllClause? :
+    List TryCatchClause -> Option (List BindingDecl × Stmt)
+  | [] => none
+  | TryCatchClause.clause none params body :: _ => some (params, body)
+  | _ :: rest => TryCatchClause.catchAllClause? rest
+
+/-- Dispatch a reverted external call to a catch clause BY the revert KIND
+    (not source-order first-match, gap A2): classify the revert data, run the
+    matching typed clause if one is present, otherwise fall through to the
+    byte / catch-all (`catch (bytes …)` / `catch { }`) clause; `none` means no
+    clause matched and the revert propagates (re-reverts). This routing is
+    independent of the clauses' written order and matches solc's per-kind
+    guarded branches. -/
+def TryCatchClause.findMatch? (raw : List Byte)
+    (clauses : List TryCatchClause) : Option (Frame × Stmt) :=
+  let typed? : Option (Frame × Stmt) :=
+    match revertClassify raw with
+    | RevertKind.errorString => do
+        let (params, body) ← TryCatchClause.errorClause? clauses
         let values ← abiDecodeValues? [Ty.bytesCalldata] (raw.drop selectorBytes)
         let frame ← BindingDecl.bindArgs? params values
         some (frame, body)
-      else
-        none
-  | TryCatchClause.clause (some "Panic") params body => do
-      let selector ← revertBytesSelector? raw
-      if wordEq selector externalPanicSelector then
+    | RevertKind.panic => do
+        let (params, body) ← TryCatchClause.panicClause? clauses
         let values ← abiDecodeValues? [Ty.uint256] (raw.drop selectorBytes)
         let frame ← BindingDecl.bindArgs? params values
         some (frame, body)
-      else
-        none
-  | TryCatchClause.clause (some _) _ _ => none
-  | TryCatchClause.clause none params body => do
+    | RevertKind.lowLevel => none
+  match typed? with
+  | some matched => some matched
+  | none => do
+      let (params, body) ← TryCatchClause.catchAllClause? clauses
       let frame ← TryCatchClause.matchLowLevel? raw params
       some (frame, body)
-
-def TryCatchClause.findMatch? (raw : List Byte) :
-    List TryCatchClause -> Option (Frame × Stmt)
-  | [] => none
-  | head :: rest =>
-      match head.match? raw with
-      | some matched => some matched
-      | none => TryCatchClause.findMatch? raw rest
 
 def TryCatchClause.name? : TryCatchClause -> Option String
   | TryCatchClause.clause name? _ _ => name?

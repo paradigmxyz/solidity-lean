@@ -5,6 +5,52 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — CB1 + A2 fixed: try/catch dispatch by revert kind
+
+Gap CB1 (wrong-branch + wrong-value) and gap A2 (dispatch order), both in the
+try/catch clause matcher (`SolidCore/Solidity/Interpreter.lean`).
+
+**solc-confirmed behavior (probed pinned solc 0.8.35 + Foundry).** solc's
+`tryDecodeErrorMessage` (YulUtilFunctions.cpp:4676-4713,
+IRGeneratorForStatements.cpp:3460-3521) treats revert data as `Error(string)`
+ONLY when `returndatasize() >= 0x44` (68 bytes: selector + head-offset word +
+length word) AND it decodes as a standard ABI string; otherwise the
+`Error(string)` clause does NOT match. A callee reverting with a hand-crafted
+36-byte `Error`-selector‖32 zero bytes routes to `catch (bytes …)` with the
+raw 36 bytes (NOT `Error` with reason `""`); a well-formed `Error("x")`
+(>= 68 bytes) routes to `catch Error(string)` with `"x"`; a `Panic(0x12)`
+routes to `catch Panic`. Dispatch is by the revert KIND, so a revert whose
+kind has no typed clause falls through to the byte / catch-all clause
+regardless of clause source order (a `Panic` with no `Panic` clause →
+`catch (bytes …)`).
+
+**The bug.** `TryCatchClause.match?`/`findMatch?` re-derived the `Error` match
+with the interpreter's ABI codec, whose structural minimum is 36 bytes
+(selector + one word). A 36-byte `Error`-selector‖zeros payload therefore
+matched the `Error(string)` clause with reason `""` (should route to
+`catch (bytes)`), and matching walked the clauses in source order taking the
+first structural match rather than dispatching by kind.
+
+**The fix (`~:7429-7510`).** Added `RevertKind` + `revertClassify`: an
+`errorString` classification now requires `raw.length ≥ 68` AND a successful
+standard decode; `panic` requires `raw.length ≥ 36` AND a successful decode;
+everything else is `lowLevel`. Rewrote `TryCatchClause.findMatch?` to dispatch
+by that kind — run the matching typed clause if present, else fall through to
+the `catch (bytes …)`/`catch { }` clause, else propagate — independent of the
+clauses' written order.
+
+**Forge-verified observable / lane.** New lane
+`tests/forge-harness/catch-dispatch-by-kind` (`CatchDispatch` + assembly
+reverters kept in a separate `Reverters.sol` so the Lean-imported caller stays
+assembly-free). Forge ground truth: 36-byte Error+zeros → `catch(bytes)`
+(tag 4, len 36); `Error("x")` → `catch Error` (tag 2, "x"); `Panic` →
+`catch Panic` (tag 3); custom error → `catch(bytes)`; `Panic` with no `Panic`
+clause → `catch(bytes)` (tag 4). The paired Lean witnesses import the caller
+and drive it under a responder supplying each revert payload, asserting the
+identical routing. `lake build SolidCore` green; smoke replay green (the one
+non-`ok` case was a sibling-contention timeout, verified `lean=ok` in
+isolation); lane `forge=ok lean=ok compare=pass`.
+
 ## 2026-07-08 — EO1 fixed: external-call argument/option evaluation ORDER
 
 Gap EO1 (wrong-ORDER soundness bug) in the external-call boundary.

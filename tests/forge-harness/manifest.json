@@ -7084,6 +7084,55 @@
      }
     ]
    }
+  },
+  {
+   "name": "catch-dispatch-by-kind",
+   "description": "Forge checks try/catch clause dispatch by revert KIND (gaps CB1+A2): a 36-byte Error-selector+zeros payload is NOT Error(string) (< solc's 0x44 minimum) and routes to catch(bytes); a well-formed Error(\"x\") routes to catch Error(string) with \"x\"; a Panic routes to catch Panic; a Panic with no Panic clause falls through to catch(bytes) (kind-based, not source-order). Lean imports the caller and drives it under a responder supplying each revert payload, checking the same routing.",
+   "forge": {
+    "root": "tests/forge-harness/catch-dispatch-by-kind",
+    "match_contract": "CatchDispatchForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/catch-dispatch-by-kind/src/CatchDispatch.sol",
+    "contract": "CatchDispatch",
+    "namespace": "SolidCore.Solidity.SolcAstImport.CatchDispatch"
+   },
+   "solc_rejects": [],
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedSourceUnitAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.CatchDispatch.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "shortErrorRoutesToBytes",
+      "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] (SolidCore.Solidity.Source.ABI.encodeSelector SolidCore.Solidity.Source.ABI.errorSelector ++ List.replicate 32 0) 0 none false\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"route\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.bytes reason, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 4 && reason == [] && SolidCore.Solidity.Source.wordEq len 36)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "errorRoutesToErrorClause",
+      "expr": "(match SolidCore.Solidity.Executable.Examples.externalErrorBytes? \"x\" with\n | none => Except.ok false\n | some out =>\n  (do\n  let result ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] out 0 none false\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"route\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.bytes reason, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 2 && reason == [120] && SolidCore.Solidity.Source.wordEq len 0)\n  | _ => Except.ok false))",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "panicRoutesToPanicClause",
+      "expr": "(match SolidCore.Solidity.Executable.Examples.externalPanicBytes? 0x12 with\n | none => Except.ok false\n | some out =>\n  (do\n  let result ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] out 0 none false\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"route\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.bytes _reason, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 3 && true && SolidCore.Solidity.Source.wordEq len 0)\n  | _ => Except.ok false))",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "panicFallsThroughToBytes",
+      "expr": "(match SolidCore.Solidity.Executable.Examples.externalPanicBytes? 0x12 with\n | none => Except.ok false\n | some out =>\n  (do\n  let result ← SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] out 0 none false\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"routeNoPanic\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 4 && SolidCore.Solidity.Source.wordEq len 36)\n  | _ => Except.ok false))",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
