@@ -94,14 +94,16 @@ submission/
   "feature": "minimal-triggering-feature",       // used for dedup
   "register_version_seen": "1.0.0",
   "mode": "OVER_ACCEPT",                          // optional: solc-rejects sub-case
-  "observed_slots": [0, 1],                       // optional: storage slots to compare
+  "observed_slots": [0, 1],                       // vestigial: storage is now compared in full
   "fuel": 64                                      // optional: interpreter fuel (1..100000)
 }
 ```
 
-`observed_slots` (optional) lists the storage slots compared as observable
-component 5. `fuel` (optional, default 64, capped at 100000) bounds the Solidus
-interpreter; out-of-range values are rejected `REJECT_MALFORMED`.
+`observed_slots` is **no longer required** — storage divergence is auto-detected
+across the WHOLE storage map (see component 5 below); the field is accepted for
+backward compatibility but ignored. `fuel` (optional, default 64, capped at
+100000) bounds the Solidus interpreter; out-of-range values are rejected
+`REJECT_MALFORMED`.
 
 **Entry args** (`observable.render_lean_arg`): `2` → `uint`; `{"int": -8}` →
 signed `int256`; `true`/`false` → bool; `{"word": n}`; `{"bytes": "0x…"}`.
@@ -119,14 +121,25 @@ Compared, in order, with **exact** equality; **gas is never included**:
 3. revert/panic data (Error(string) / Panic(code) / custom / empty / raw)
 4. events — ordered `(topics, data)` emitted by the entry call (compared on
    success; the EVM rolls them back on revert)
-5. observed storage — the values at the slots the submission declares in
-   `claim.observed_slots` (compared on success)
+5. observed storage — the WHOLE post-call storage map (every non-zero slot the
+   constructor, initializer, or entry call wrote), compared on success. No
+   declaration required; mappings/dynamic arrays are covered via their
+   keccak-derived slots.
 
-Events (4) and storage (5) are now measured on both engines and compared
+Events (4) and storage (5) are measured on both engines and compared
 component-by-component (sub-kinds `wrong-events` / `wrong-state`): the Solidus
-side extracts them from the post-call `State` (`observable.renderFull`), the EVM
-side via `vm.recordLogs`/`getRecordedLogs` and `vm.load` (`measure.py`). Both are
-rendered in the same tokenized normal form (`…##EVT##…##STO##…`).
+side extracts them from the post-call `State` (`observable.renderFull` /
+`renderStorageAll`), the EVM side via `vm.recordLogs`/`getRecordedLogs` for
+events and `vm.record`/`vm.accesses` + `vm.load` for the full storage map
+(`measure.py`). Storage is normalized to a `{slot: value}` map (zeros dropped,
+order-independent) before diffing. Both are rendered in the same tokenized
+normal form (`…##EVT##…##STO##…`).
+
+**Contract deployment:** the entry call runs against the **post-construction**
+state — Solidus runs the (possibly synthesized) constructor and state-variable
+initializers via `constructWithContext` before calling the entry function,
+mirroring the EVM side's `new C()`. Contracts with initialized storage therefore
+do not produce a spurious divergence.
 
 **Normal form** (a single canonical line, independent of Solidus's `Repr`):
 

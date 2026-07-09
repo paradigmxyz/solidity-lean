@@ -670,14 +670,22 @@ v1.1 pass did not close; all are now fixed in `contest/*.py` and validated by
   **X-STORAGELAYOUT** matches the node type precisely.
 
 **Observable — components 4 (events) and 5 (storage) are now COMPARED (§3.4).**
-The Lean helper (`observable.renderFull` / `renderEvents` / `renderStorage`)
-extracts events and a declared set of storage slots from the post-call `State`
+The Lean helper (`observable.renderFull` / `renderEvents` / `renderStorageAll`)
+extracts events and the WHOLE post-call storage map from the post-call `State`
 and renders them in a tokenized normal form (`…##EVT##…##STO##…`); the EVM side
-measures the same via `vm.recordLogs`/`getRecordedLogs` and `vm.load`
-(`measure.py`). The comparator diffs component-by-component, adding sub-kinds
-`wrong-events` and `wrong-state`. Events/storage are compared only on success
-(the EVM rolls both back on revert). Submissions declare storage slots via
-`claim.observed_slots`. Validated end-to-end against the built Solidus.
+measures the same via `vm.recordLogs`/`getRecordedLogs` for events and
+`vm.record`/`vm.accesses` + `vm.load` for the full storage map (`measure.py`).
+The comparator diffs component-by-component, adding sub-kinds `wrong-events` and
+`wrong-state`; storage is normalized to an order-independent `{slot: value}` map
+(zeros dropped) before diffing. Events/storage are compared only on success (the
+EVM rolls both back on revert). **Storage divergence is auto-detected across all
+slots** — no `claim.observed_slots` declaration is needed (the field is accepted
+but ignored), and mappings/dynamic arrays are covered via their keccak-derived
+slots. The entry call runs against the **post-construction** state: Solidus runs
+the constructor + initializers (`constructWithContext`) before the entry call,
+mirroring the EVM `new C()`, so initialized storage is not a false divergence.
+Validated end-to-end against the built Solidus (`ctor_storage` sample +
+`run_real_storage_selftest`).
 
 **Gap-testing without leaving bugs in Solidus.** The soundness detector is now
 tested by a REAL end-to-end run (`run_real_soundness_selftest`): the full live
