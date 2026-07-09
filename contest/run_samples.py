@@ -459,6 +459,22 @@ def hardening_unit_tests() -> tuple[bool, str]:
     checks.append(("unescape-quote", _hb._unescape_lean_repr(r'a\"b') == 'a"b'))
     checks.append(("unescape-backslash", _hb._unescape_lean_repr(r'x\\y') == r'x\y'))
 
+    # _parse_storage_map fail-safety (broad-storage is a qualifying wrong-state
+    # channel, so a crash / mis-compare here would fabricate a SOUNDNESS_GAP).
+    # Malformed pairs are DROPPED (not a crash), zero-values dropped symmetrically,
+    # and duplicate slots last-win -- which is safe because the EVM dump emits
+    # slot:vm.load(slot) (post-call FINAL value) so any duplicate carries the SAME
+    # value, matching solidity-lean's once-per-slot HashMap dump.
+    _psm = _obs._parse_storage_map
+    checks.append(("storage-normal", _psm("5:10;7:20") == {5: 10, 7: 20}))
+    checks.append(("storage-zero-dropped", _psm("5:0;7:20") == {7: 20}))
+    checks.append(("storage-dup-same-value-safe", _psm("5:7;5:7") == {5: 7}))
+    checks.append(("storage-malformed-dropped",
+                   _psm("abc:5;5:xyz;1:2:3;9:") == {} and _psm("junk") == {}))
+    checks.append(("storage-huge-value-no-crash",
+                   _psm(f"5:{2**300}") == {5: 2**300}))
+    checks.append(("storage-empty", _psm("") == {} and _psm("   ") == {}))
+
     # claim-field type confusion: a non-object claim.json / non-object entry must
     # be REJECT_MALFORMED, not an uncaught crash (audit finding).
     import tempfile as _tf, json as _json
