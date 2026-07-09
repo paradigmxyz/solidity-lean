@@ -110,7 +110,7 @@ a tower, not one hop — see §3.
 
 ## 1. Internal-semantics map (the "rest")
 
-### 1a. Surface AST — `Ast.lean` (441 lines)
+### 1a. Surface AST — `Ast.lean` (~450 lines)
 Untyped, permissive, solc-shaped: full surface `Ty` grammar (arbitrary
 `uint n`/`int n`, `fixed`/`ufixed`, `bytesN`, structs, mappings, function types
 with data locations/visibility/mutability), `Literal` keeping numbers as **raw
@@ -404,7 +404,8 @@ reconcile.
 **Hinders.** `broke`/`continued`/`returned`/`selfdestructed` as `Result` values
 vs Yul's `Checkpoint`/`leave`/halt encoding is a control-encoding translation,
 but a routine one (Solidus already relates structured control to label jumps).
-The inlined modifiers/internal-calls (2a) are the real issue, not the loop forms.
+With the internal-call boundary now preserved in the core (2a), this is routine
+throughout; the only residual erasure is inlined modifiers.
 
 ### 2f. Events / errors
 **Helps.** `Event.toLogEntry` already produces the EVM-observable
@@ -700,40 +701,27 @@ elaboration-side slot assignment (`toCoreStorageFieldsFromSlot` `Interface.lean:
 re-derived per access. Extracting it now — as a definition the interpreter
 *uses* (proving the per-access path equals `E`) rather than a parallel copy —
 both cleans the semantics and pre-builds the lowering's most important artifact.
-*Cost:* 1–2 days; must be behavior-preserving (corpus is the arbiter) and must
-not race Phase 5's storage reads. *Now-vs-later:* genuinely optional now; the
+*Cost:* 1–2 days; must be behavior-preserving (corpus is the arbiter).
+*Now-vs-later:* genuinely optional now; the
 logic is correct and present. Do it now only if the orchestrator wants the
 storage seam de-risked early; otherwise it is a clean early task for the lowering
 project. Recommend: **flag, lean toward deferring** unless storage is the first
 lowering layer.
 
-**D1 — The function-boundary gap destroys an entire tower layer's source IR —
-DESIGN NOTE, not a refactor to execute now.** *Rationale (sharpened per §3):*
-this is not merely "one deep mismatch" among the seams — it is the tower's
-**structural break**. The realistic Solidity→Yul tower has a dedicated
-**calling-convention layer Sc** (Solidity internal functions → real Yul
-functions; internal calls → Yul calls; modifiers → caller/callee split), whose
-entire *point* is to preserve and lower the function boundary, and whose
-correctness proof is the induction-on-source-fuel over the call graph. That
-layer needs a function-structured source IR to refine. The current elaboration
-**inlines internal calls and modifiers away (fuel 64) before `CoreContract`
-exists**, so Sc has **nothing to refine** and **recursion is unrepresentable**
-end-to-end (inline-fuel exhaustion → elaboration `none`, silently rejecting deep
-or recursive call graphs). Every other seam (Sy/Sk/Sm/Sx/Sd) has a viable source
-in the current core; Sc alone does not. *Options:* (a) keep inlining and scope
-the lowering to non-recursive internal calls — a *stated accepted-fragment*,
-which the verified-compiler discipline permits only if named in the theorem, not
-smuggled; (b) keep a function-structured IR **above** the inlined core (a new top
-layer that lowers to today's core by an inlining refinement, or replaces it) so
-Sc has a boundary to preserve. *Recommendation:* **do NOT build it now** —
-speculative construction violates the roadmap's "no new speculative interfaces,"
-and the right design belongs to the lowering project. But **record it now, as
-the #1 lowering-design question**, and additionally **treat the current
-recursion/deep-call-graph rejection as a candidate recorded semantic gap** (a
-paired lane would pin whether solc accepts programs this elaboration silently
-drops) — because that boundary limits what the *current* semantics can claim
-irrespective of any lowering. *Cost now:* zero (documentation). *Cost later:*
-large, load-bearing, and gating the hardest seam.
+**D1 — The function-boundary gap. RESOLVED (boundary-completion arc).**
+The first draft identified this as the tower's structural break: elaboration
+inlined internal calls and modifiers away (fuel 64) before `CoreContract`
+existed, so the calling-convention layer Sc had nothing to refine and recursion
+was unrepresentable. The resolution took option (b)-in-place: the core IR now
+**preserves the function boundary** — internal functions live in a
+`FunctionTable` (projected from the flat `FunctionDef` list by
+`Contract.table`), call sites elaborate to `Stmt.internalCall` /
+`Stmt.internalCallPtr` (function pointers via `dispatchId?` words), the
+inline-splice path is deleted, and recursion depth is bounded only by the
+interpreter's statement fuel. `defaultInternalCallInlineFuel` survives only as
+the nested-call-argument hoisting bound in elaboration's termination measure.
+*Residual:* modifiers are still inlined by placeholder substitution — a
+stated, shallow fragment to name in the Sc theorem, not a structural break.
 
 **V3 — Evaluate collapsing the `unspecifiedOrders` scaffolding (vestigial-3).**
 *Rationale:* the latitude machinery (`callUnspecifiedResults`,
@@ -743,7 +731,7 @@ order is fixed and Yul-compatible" (which the lowering *needs*), the
 quantification is dead generality; if it is "we might re-open order latitude,"
 it should be documented as such. *Cost:* ~half a day to trace all users and
 decide. *Now-vs-later:* low priority; harmless. Flag, likely defer. Anchors:
-`Interpreter.lean:6053, 7735, 7742`, `ABI.lean:703, 711`.
+`Interpreter.lean:6851, 8838`.
 
 ### Defer to the lowering project (do NOT build now)
 
@@ -777,13 +765,14 @@ core to Yul), each an adjacent `ForwardRel` with its own done-relation:
   `OpenWorld` + output/revert bytes + logs (this *is* the composition seam's
   top done-relation — observable values, no layout). MEDIUM.
 - **Sc — calling convention / function boundary**: internal fns → Yul functions,
-  internal calls → Yul calls, modifiers → caller/callee. done-rel: `OpenWorld` +
-  return values + control outcome, by induction on source fuel. **LARGE, HARDEST,
-  and currently has no source IR to refine (D1).**
+  internal calls → Yul calls. done-rel: `OpenWorld` + return values + control
+  outcome, by induction on source fuel. **LARGE, HARDEST proof — but the source
+  IR now exists** (`FunctionTable` + `internalCall`/`internalCallPtr`, recursion
+  representable; D1 resolved). Stated fragment: modifiers inlined.
 - **Sm — memory layout**: structural values/`bytes` → flat Yul memory + FMP +
   head/tail. done-rel: value ≅ memory region under an invariant; final
   `memory`/`activeWords` match. LARGE — full translation layer (our memory is an
-  object heap; the would-be byte model is dead).
+  object heap; the byte model is built fresh here).
 - **Sx — ABI codec**: encode/decode/dispatch → byte/memory ops. done-rel:
   byte-identical bytes. MEDIUM, rides on Sm.
 - **Sy — storage layout**: typed paths/mappings/arrays/packing → slot arithmetic
@@ -806,31 +795,23 @@ layer*:
   parts of *every* seam (transcript, truncation) well-defined. These are the
   expensive-to-get-right primitives, and they are right.
 - **Full translation layer (representation mismatch):** *Sm (memory)* — the
-  object-heap memory has no correspondence to Yul's flat bytes and the would-be
-  byte model is dead code (a new model, invariant, and per-type layout proofs);
-  *Sx (ABI)* rides on it. *Sd (dispatch)* is a moderate structural map.
-- **Broken source (no IR to refine):** *Sc (calling convention)* — the function
-  boundary is inlined away and recursion is unrepresentable before the core
-  exists. This is the tower's structural break, not a wart.
+  object-heap memory has no correspondence to Yul's flat bytes (a new model,
+  invariant, and per-type layout proofs); *Sx (ABI)* rides on it. *Sd
+  (dispatch)* is a moderate structural map.
+- **Hardest proof, source now in place:** *Sc (calling convention)* — the
+  function boundary is preserved in the core (boundary-completion arc) and
+  recursion is representable; what remains is the genuinely hard call-graph
+  induction, plus the stated modifiers-inlined fragment.
 
-So the current core is a strong **Sy/Sk/Sd** anchor, an adequate-but-mismatched
-**Sm/Sx** anchor, and a **broken Sc** anchor — mid-tower, with layers collapsed
-and one prematurely destroyed, not the top of a single short hop.
+So the current core is a strong **Sy/Sk/Sd/Sc** anchor (Sc modulo the modifier
+fragment) and an adequate-but-mismatched **Sm/Sx** anchor — mid-tower, not the
+top of a single short hop, but with no structural break remaining.
 
-**Top 3–5 "do it now" refactorings:**
-1. **N1** — delete the ~14 dead observation-era classifier enums (second, smaller
-   observation-layer; zero uses; skill+roadmap both say delete).
-2. **N2** — retire/mark the dead byte-memory shadow in `Runtime` (unwired, and
-   actively misleading to the future memory-refinement layer).
-3. **N3** — move in-file example defs to `Witness/` (no mixed-concern file).
-4. **N4** — fix `Ast.lean`'s import of `ABI.lean` (surface AST should not depend
-   on the interpreter; keeps the core-first dependency floor clean).
-5. **D1 (record, don't build)** — the inlined-function-boundary /
-   unrepresentable-recursion mismatch destroys the source IR for the tower's
-   hardest layer (Sc, calling convention); record it as the #1 lowering-design
-   question **and** a candidate recorded semantic gap (recursion/deep-call-graph
-   silent rejection). **P1** (materialize the storage-layout `E`, the Sy artifact)
-   as optional early de-risking, lean toward deferring.
+**The "do it now" refactorings (N1–N4) are all DONE**, and **D1 is resolved**
+in the source (boundary-completion arc). Still open from this study's ledger:
+**P1** (materialize the storage-layout `E`, the Sy artifact — optional early
+de-risking, lean toward deferring), **V3** (`unspecifiedOrders` scaffolding),
+and the deliberately-deferred lowering-era items below.
 
 Everything genuinely lowering-shaped (memory layout, revert-bytes relation, exp,
 immutables, gas/initCode alignment, elaboration correctness) is deferred, per the
