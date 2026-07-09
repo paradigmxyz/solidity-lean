@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Reverter", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - scalar custom-error revert parity control: solidity-lean and solc+EVM both render revert|custom:Bad:w:42,w:1 (proves the scalar custom-error revert compares, not a fabricated gap).",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|custom:Bad:w:42,w:1" },
+  "feature": "scalar-custom-error-revert",
+  "register_version_seen": "1.2.0"
+}

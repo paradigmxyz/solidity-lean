@@ -434,6 +434,15 @@ def main() -> int:
     results.append(("external_call OOS (FULL)", ok, d))
     _print("external_call OOS (FULL)", ok, d)
 
+    # scalar custom-error revert parity (audit round 3 left the scalar path only
+    # unit-tested): f() reverts with `Bad(42, true)` (uint256 + bool, both in the
+    # faithfully-comparable ABI subset, so X-RETABI does NOT fire). Both engines
+    # render `revert|custom:Bad:w:42,w:1` -> NO_DIVERGENCE (proves the scalar
+    # custom-error revert compares end-to-end, not a fabricated wrong-revert gap).
+    ok, d = run_full("custom_error_scalar", "NO_DIVERGENCE")
+    results.append(("custom_error_scalar revert parity (FULL)", ok, d))
+    _print("custom_error_scalar revert parity (FULL)", ok, d)
+
     # events + storage parity control: emits an event + writes storage; solidity-lean
     # and solc+EVM must agree on event topics/data and observed slots.
     ok, d = run_full("events_storage", "NO_DIVERGENCE")
