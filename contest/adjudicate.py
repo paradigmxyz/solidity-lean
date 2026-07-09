@@ -455,13 +455,15 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
 
     # (3a) Solidus FAILS CLOSED while solc accepted+ran -> lane C coverage gap.
     if solidus.fail_closed:
-        # An INCONCLUSIVE failure (timeout / resource exhaustion / harness crash,
-        # incl. a poisoned fuel) is NOT evidence of a missing feature (review
-        # finding 3). Never auto-qualify it; route to maintainer review.
+        # An INCONCLUSIVE failure (timeout / resource exhaustion / harness crash /
+        # build or toolchain/environment error, incl. a poisoned fuel) is NOT
+        # evidence of a missing feature (review finding 3). Never auto-qualify it;
+        # route to maintainer review.
         if solidus.inconclusive:
             return Report("NEEDS_REVIEW", reason=(
                 "Solidus run failed inconclusively (timeout / resource "
-                f"exhaustion), not a clean reject: {solidus.message[:300]}"),
+                "exhaustion / build or environment error), not a clean reject: "
+                f"{solidus.message[:300]}"),
                 evidence=evidence)
         finger = coverage_fingerprint(solidus)
         if finger[1] == "excluded":

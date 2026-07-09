@@ -208,6 +208,36 @@ def observable_unit_tests() -> tuple[bool, str]:
     return ok, detail
 
 
+def inconclusive_classification_unit_tests() -> tuple[bool, str]:
+    """A non-zero Lean exit from a BUILD / TOOLCHAIN / ENVIRONMENT error (or
+    resource exhaustion) must be flagged INCONCLUSIVE, never a clean fail-closed
+    that would mint a bogus COVERAGE_GAP. A genuine program-level reject must NOT
+    be flagged inconclusive."""
+    checks = []
+    env_errors = [
+        "error: evm-interaction: package directory not found: /x/../evm-interaction",
+        "error: no such file or directory (os error 2)",
+        "lake: unknown package 'SolidCore'",
+        "unknown constant 'SolidCore.Solidity.Checked'",
+    ]
+    for msg in env_errors:
+        checks.append((msg[:28], hb.lean_failure_inconclusive(msg)))
+    resource = ["(deep recursion detected)", "deterministic timeout reached"]
+    for msg in resource:
+        checks.append((msg[:20], hb.lean_failure_inconclusive(msg)))
+    # A real program-level reject must be treated as a CLEAN fail (not inconclusive).
+    program_rejects = [
+        "error: unsupported Solidity AST node: Mapping",
+        "error: type mismatch: expected Nat, got String",
+        "error: function 'foo' has unsupported return type",
+    ]
+    for msg in program_rejects:
+        checks.append(("clean:" + msg[7:22], not hb.lean_failure_inconclusive(msg)))
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
 def main() -> int:
     results: list[tuple[str, bool, str]] = []
 
@@ -215,6 +245,10 @@ def main() -> int:
     ok, d = observable_unit_tests()
     results.append(("observable-comparator (unit)", ok, d))
     _print("observable-comparator (unit)", ok, d)
+
+    ok, d = inconclusive_classification_unit_tests()
+    results.append(("inconclusive-classification (unit)", ok, d))
+    _print("inconclusive-classification (unit)", ok, d)
 
     ok, d = dedup_unit_tests()
     results.append(("dedup-fingerprints (unit)", ok, d))

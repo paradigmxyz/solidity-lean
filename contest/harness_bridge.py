@@ -32,7 +32,13 @@ from . import env as cenv
 from . import observable as obs
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+# The repo root used for the Lean/lake build, the importer, and the harness
+# scripts. Normally the checkout this package lives in. When the contest code is
+# run from a git WORKTREE (whose sibling `../evm-interaction` and `.lake` build
+# are absent), set CONTEST_REPO_ROOT to a fully-built checkout so lean/forge
+# resolve there while the Python package still loads from the worktree.
+_REPO_ROOT = Path(
+    os.environ.get("CONTEST_REPO_ROOT") or Path(__file__).resolve().parents[1])
 DEFAULT_SOLC = "/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35"
 DEFAULT_FORGE = "/Users/dan/.foundry/bin/forge"
 DEFAULT_LAKE = shutil.which("lake") or "lake"
@@ -208,6 +214,42 @@ def _read_log(path: Path) -> str:
         return ""
 
 
+# Substrings in Lean's stderr that mark a NON-program failure: the run is
+# inconclusive, not evidence of a missing Solidus feature. Two families:
+#  * RESOURCE exhaustion — a slow-but-correct run, an attacker resource bomb, or
+#    a poisoned `fuel`.
+#  * BUILD / TOOLCHAIN / ENVIRONMENT — the generated file imports ONLY the fixed
+#    SolidCore.* modules, so a package/import/toolchain resolution failure is an
+#    environment problem (stale build, wrong cwd, missing sibling dependency),
+#    never Lean rejecting the imported PROGRAM. Misclassifying either as a clean
+#    fail-closed would mint a bogus qualifying COVERAGE_GAP from a flaky build
+#    (found via a worktree run where `../evm-interaction` was absent).
+_INCONCLUSIVE_LEAN_SIGNATURES: tuple[str, ...] = (
+    # resource
+    "deep recursion", "maximum recursion", "out of memory",
+    "deterministic timeout", "(interrupted)", "stack overflow",
+    "excessive memory",
+    # build / toolchain / environment
+    "package directory not found", "unknown package",
+    "no such file or directory", "failed to load",
+    "could not resolve import", "unknown module",
+    "error: build failed", "lake:", "toolchain",
+    "unknown constant 'solidcore", "unknown identifier 'solidcore",
+    "unknown namespace 'solidcore",
+)
+
+
+def lean_failure_inconclusive(stderr: str) -> bool:
+    """True iff a non-zero Lean exit is a resource/build/environment failure (an
+    INCONCLUSIVE run) rather than Lean cleanly rejecting the imported program.
+
+    A clean program-level reject (unsupported node, type mismatch, elaboration
+    error about the generated source) is a real coverage gap; the signatures
+    above are the toolchain/resource noise that must NOT auto-qualify."""
+    low = stderr.lower()
+    return any(sig in low for sig in _INCONCLUSIVE_LEAN_SIGNATURES)
+
+
 def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
                            case_tmp: Path, namespace: str,
                            fuel: int = 64,
@@ -289,15 +331,11 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         # We only treat it as fail-closed here; the adjudicator decides coverage
         # vs. needs-review from the reason class + stderr signals below.
         stderr = _read_log(stderr_log)
-        low = stderr.lower()
-        inconclusive = any(sig in low for sig in (
-            "deep recursion", "maximum recursion", "out of memory",
-            "deterministic timeout", "(interrupted)", "stack overflow",
-            "excessive memory"))
         return SolidusResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
             message=f"lean exit {status}: {stderr.strip()[:2000]}",
-            inconclusive=inconclusive, generated_source_path=gen_path)
+            inconclusive=lean_failure_inconclusive(stderr),
+            generated_source_path=gen_path)
 
     if not marker_lines:
         return SolidusResult(
