@@ -5,6 +5,27 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — TYPEMIN: `type(intN).min` for N < 256 now lowers to the two's-complement negative word, not a raw positive
+
+Soundness gap. `Ty.typeInfoExpr?`'s int `"min"` arm pushed
+`Expr.intWord (2 ^ (bits - 1))` — the raw positive magnitude `+2^(bits-1)` —
+instead of the two's-complement negative `-2^(bits-1)`. For N = 256 this is
+accidentally correct (`2^255` already IS `int256.min`'s word), but for every
+narrower width it produced a positive `int` that fails to compare, does wrong
+signed arithmetic, and ABI-encodes the wrong bytes. e.g. `type(int8).min`
+became `0x…0080` (= +128) so `type(int8).min == -128` was FALSE and returning
+it as `int256`/`int8` encoded `0x00…80` instead of solc's `0xff…ff80`.
+Verified against pinned solc 0.8.35 `--asm`: `type(int8).min` pushes
+`0xff…ff80` (= 2^256−128), `type(int128).min` pushes `0xff…ff80…00`
+(= 2^256−2^127), `type(int256).min` pushes `0x80…00` (= 2^255). Fixed by
+mirroring the negative-literal lowering: the arm now emits
+`Expr.intWord (signedToWord (-(2^(bits-1))))`, a proper `Value.int` negative
+that compares, wraps, and encodes like solc. The adjacent int `"max"` arm and
+the `uint` `"min"`/`"max"` arms were already correct and are untouched. New
+sanctioned lane `typemin-bounds` pins the fix: int8/int128/int256 `.min` as
+int256 and at their own width, `type(int8).min == -128` → true, and
+`type(int8).min + 1 == -127`, all cross-checked Forge/EVM vs imported Lean.
+
 ## 2026-07-09 — NEG-NARROW: unary `-x` of a narrow signed operand widened to a wider int now checks overflow at the OPERAND width (the unary analogue of the G15 narrow-arithmetic-widened fix)
 
 Soundness gap. solc 0.8.35 emits `negate_t_intN` for unary `-x`, which negates at

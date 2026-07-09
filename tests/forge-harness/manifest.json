@@ -1,6 +1,39 @@
 {
   "cases": [
     {
+      "name": "typemin-bounds",
+      "description": "TYPEMIN: `type(intN).min` for N < 256 must lower to the two's-complement negative word `2^256 - 2^(N-1)`, not the raw positive `2^(N-1)`. solc pushes 0xff..ff80 for int8.min (=-128), 0xff..ff80..00 for int128.min (=-2^127), 0x80..00 for int256.min (=-2^255); `type(int8).min == -128` is true and `type(int8).min + 1 == -127`. Forge and imported Lean pin the interpreter's signed-min lowering, comparison, arithmetic, and return ABI-encoding.",
+      "forge": {
+        "root": "tests/forge-harness/typemin-bounds",
+        "match_contract": "TypeMinBoundsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/typemin-bounds/src/TypeMinBounds.sol",
+        "contract": "TypeMinBounds",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TypeMinBounds"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedTypeMinBoundsAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TypeMinBounds.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedTypeMinBoundsSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.TypeMinBounds.importedSourceUnit\n  let target := \"TypeMinBounds\"\n  let empty := SolidCore.Solidity.Source.State.empty\n  let word := SolidCore.Solidity.Source.Value.word\n  let sint := fun (v : Int) => SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord v)\n  let callVals := fun (name : String) (expected : List SolidCore.Solidity.Source.Value) =>\n    SolidCore.Solidity.TypeCheck.Examples.checkedCallValuesMatch 64 source target name empty [] expected\n  let r1 <- callVals \"int8Min\" [sint (-128)]\n  let r2 <- callVals \"int128Min\" [sint (-(2^127 : Int))]\n  let r3 <- callVals \"int256Min\" [sint (-(2^255 : Int))]\n  let r4 <- callVals \"int8MinNarrow\" [sint (-128)]\n  let r5 <- callVals \"int128MinNarrow\" [sint (-(2^127 : Int))]\n  let r6 <- callVals \"int8MinEqNeg128\" [word 1]\n  let r7 <- callVals \"int8MinPlusOne\" [sint (-127)]\n  Except.ok (r1 && r2 && r3 && r4 && r5 && r6 && r7))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "checked-arithmetic",
       "description": "Forge checks solc/EVM checked and unchecked arithmetic behavior; pinned solc and the common checker reject nested unchecked blocks; Lean checks the paired Solidity source-interpreter witnesses.",
       "forge": {

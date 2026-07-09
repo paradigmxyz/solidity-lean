@@ -3752,7 +3752,8 @@ def Ty.typeInfoExpr? (ty : Ty) (member : Name) : Option CoreExpr := do
           | "min" =>
               some
                 (SolidCore.Solidity.Source.Expr.intWord
-                  (2 ^ (bits - 1)))
+                  (SolidCore.Solidity.Shared.signedToWord
+                    (-(Int.ofNat (2 ^ (bits - 1))))))
           | "max" =>
               some
                 (SolidCore.Solidity.Source.Expr.intWord
