@@ -582,6 +582,14 @@ def main() -> int:
     results.append(("panic_divzero PARITY (FULL)", ok, d))
     _print("panic_divzero PARITY (FULL)", ok, d)
 
+    # Round 13 probe: array out-of-bounds read (f(5) on a length-2 storage array)
+    # must revert with Panic(0x32) -> revert|panic:50 on BOTH engines. A NON-
+    # arithmetic panic path (bounds check) + a constructor-populated dynamic
+    # storage array read -> confirms panic-code parity generalizes beyond math.
+    ok, d = run_full("panic_oob", "NO_DIVERGENCE")
+    results.append(("panic_oob PARITY (FULL)", ok, d))
+    _print("panic_oob PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
