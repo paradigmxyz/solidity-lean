@@ -6409,52 +6409,65 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   | none => throw <| SolidityFailure.revert RevertData.empty
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr
-              gasExpr? _gasFirst => do
-              let (values, runtime') ←
-                match gasExpr? with
-                | none =>
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
-                      runtime [targetExpr, calldataExpr, valueExpr]
-                | some gasExpr =>
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
-                      runtime [targetExpr, calldataExpr, valueExpr, gasExpr]
-              match values with
-              | [targetValue, calldataValue, valueValue] => do
-                  let target ← targetValue.expectWord
-                  let calldata ←
-                    match calldataValue.asBytes? with
-                    | some bytes => pure bytes
-                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-                  let value ← valueValue.expectWord
-                  let (result, adoptedState) ←
-                    emitLowLevelCall context runtime'.state
-                      kind target calldata value none
-                  pure
-                    ( Value.tuple
-                        [ Value.word (boolWord result.success)
-                        , Value.bytes result.output ]
-                    , { runtime' with
-                        state := adoptedState }.recordExternalInteraction
-                        (ExternalInteraction.lowLevelCall result) )
-              | [targetValue, calldataValue, valueValue, gasValue] => do
-                  let target ← targetValue.expectWord
-                  let calldata ←
-                    match calldataValue.asBytes? with
-                    | some bytes => pure bytes
-                    | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-                  let value ← valueValue.expectWord
-                  let gas ← gasValue.expectWord
-                  let (result, adoptedState) ←
-                    emitLowLevelCall context runtime'.state
-                      kind target calldata value (some gas)
-                  pure
-                    ( Value.tuple
-                        [ Value.word (boolWord result.success)
-                        , Value.bytes result.output ]
-                    , { runtime' with
-                        state := adoptedState }.recordExternalInteraction
-                        (ExternalInteraction.lowLevelCall result) )
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+              gasExpr? gasFirst => do
+              -- solc (v0.8.35) evaluates a low-level call as: the base/target
+              -- expression, then the FunctionCallOptions in their WRITTEN order
+              -- (gas/value ordered by `gasFirst`), then the calldata argument.
+              -- This top-level order is FIXED (it does not inherit the ambient
+              -- child-eval order), so evaluate the components sequentially in
+              -- that order; each component's own inner children keep the ambient
+              -- `order`.  The old code evaluated calldata before the options and
+              -- ignored `gasFirst` entirely (gap EO1).
+              let (targetValue, runtimeTarget) ←
+                Expr.evalWithRuntimeOrderFuel fuel order context runtime targetExpr
+              let target ← targetValue.expectWord
+              let (value, gas?, runtimeOpts) ←
+                (match gasExpr? with
+                | none => do
+                    let (valueValue, runtimeValue) ←
+                      Expr.evalWithRuntimeOrderFuel fuel order context
+                        runtimeTarget valueExpr
+                    let value ← valueValue.expectWord
+                    pure (value, none, runtimeValue)
+                | some gasExpr => do
+                    if gasFirst then
+                      let (gasValue, runtimeGas) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtimeTarget gasExpr
+                      let gas ← gasValue.expectWord
+                      let (valueValue, runtimeValue) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtimeGas valueExpr
+                      let value ← valueValue.expectWord
+                      pure (value, some gas, runtimeValue)
+                    else
+                      let (valueValue, runtimeValue) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtimeTarget valueExpr
+                      let value ← valueValue.expectWord
+                      let (gasValue, runtimeGas) ←
+                        Expr.evalWithRuntimeOrderFuel fuel order context
+                          runtimeValue gasExpr
+                      let gas ← gasValue.expectWord
+                      pure (value, some gas, runtimeGas) :
+                  SolI (Word × Option Word × Runtime))
+              let (calldataValue, runtime') ←
+                Expr.evalWithRuntimeOrderFuel fuel order context
+                  runtimeOpts calldataExpr
+              let cdata ←
+                match calldataValue.asBytes? with
+                | some bytes => pure bytes
+                | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+              let (result, adoptedState) ←
+                emitLowLevelCall context runtime'.state
+                  kind target cdata value gas?
+              pure
+                ( Value.tuple
+                    [ Value.word (boolWord result.success)
+                    , Value.bytes result.output ]
+                , { runtime' with
+                    state := adoptedState }.recordExternalInteraction
+                    (ExternalInteraction.lowLevelCall result) )
           | Expr.contractCreate contractName constructorArgsExpr valueExpr
               saltExpr? => do
               let (values, runtime') ←
@@ -8410,74 +8423,78 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
             | Except.ok (targetValue, runtime') =>
                 match targetValue.expectWord with
                 | Except.ok target =>
-                    match calldataExpr.evalWithRuntimeByContext context runtime' with
-                    | Except.ok (calldataValue, runtime'') =>
-                        match calldataValue.asBytes? with
-                        | some calldata =>
-                            let valueGasResult? :
-                                Except (Runtime × RevertData)
-                                  (Word × Option Word × Runtime) :=
-                              match gasExpr? with
-                              | none =>
-                                  match valueExpr.evalWithRuntimeByContext context runtime'' with
-                                  | Except.ok (valueValue, runtimeValue) =>
-                                      match valueValue.expectWord with
-                                      | Except.ok value =>
-                                          Except.ok (value, none, runtimeValue)
-                                      | Except.error err =>
-                                          Except.error (runtimeValue, err)
-                                  | Except.error err =>
-                                      Except.error (runtime'', err)
-                              | some gasExpr =>
-                                  if gasFirst then
-                                    match gasExpr.evalWithRuntimeByContext context runtime'' with
+                    -- solc (v0.8.35) evaluates a try-call as: the target, then
+                    -- the call options in written order (gas/value ordered by
+                    -- `gasFirst`), then the calldata argument.  The old code
+                    -- evaluated calldata before the options (gap EO1).
+                    let valueGasResult? :
+                        Except (Runtime × RevertData)
+                          (Word × Option Word × Runtime) :=
+                      match gasExpr? with
+                      | none =>
+                          match valueExpr.evalWithRuntimeByContext context runtime' with
+                          | Except.ok (valueValue, runtimeValue) =>
+                              match valueValue.expectWord with
+                              | Except.ok value =>
+                                  Except.ok (value, none, runtimeValue)
+                              | Except.error err =>
+                                  Except.error (runtimeValue, err)
+                          | Except.error err =>
+                              Except.error (runtime', err)
+                      | some gasExpr =>
+                          if gasFirst then
+                            match gasExpr.evalWithRuntimeByContext context runtime' with
+                            | Except.ok (gasValue, runtimeGas) =>
+                                match gasValue.expectWord with
+                                | Except.ok gas =>
+                                    match valueExpr.evalWithRuntimeByContext
+                                        context runtimeGas with
+                                    | Except.ok
+                                        (valueValue, runtimeValue) =>
+                                        match valueValue.expectWord with
+                                        | Except.ok value =>
+                                            Except.ok
+                                              (value, some gas,
+                                                runtimeValue)
+                                        | Except.error err =>
+                                            Except.error
+                                              (runtimeValue, err)
+                                    | Except.error err =>
+                                        Except.error (runtimeGas, err)
+                                | Except.error err =>
+                                    Except.error (runtimeGas, err)
+                            | Except.error err =>
+                                Except.error (runtime', err)
+                          else
+                            match valueExpr.evalWithRuntimeByContext
+                                context runtime' with
+                            | Except.ok (valueValue, runtimeValue) =>
+                                match valueValue.expectWord with
+                                | Except.ok value =>
+                                    match gasExpr.evalWithRuntimeByContext
+                                        context runtimeValue with
                                     | Except.ok (gasValue, runtimeGas) =>
                                         match gasValue.expectWord with
                                         | Except.ok gas =>
-                                            match valueExpr.evalWithRuntimeByContext
-                                                context runtimeGas with
-                                            | Except.ok
-                                                (valueValue, runtimeValue) =>
-                                                match valueValue.expectWord with
-                                                | Except.ok value =>
-                                                    Except.ok
-                                                      (value, some gas,
-                                                        runtimeValue)
-                                                | Except.error err =>
-                                                    Except.error
-                                                      (runtimeValue, err)
-                                            | Except.error err =>
-                                                Except.error (runtimeGas, err)
+                                            Except.ok
+                                              (value, some gas,
+                                                runtimeGas)
                                         | Except.error err =>
-                                            Except.error (runtimeGas, err)
+                                            Except.error
+                                              (runtimeGas, err)
                                     | Except.error err =>
-                                        Except.error (runtime'', err)
-                                  else
-                                    match valueExpr.evalWithRuntimeByContext
-                                        context runtime'' with
-                                    | Except.ok (valueValue, runtimeValue) =>
-                                        match valueValue.expectWord with
-                                        | Except.ok value =>
-                                            match gasExpr.evalWithRuntimeByContext
-                                                context runtimeValue with
-                                            | Except.ok (gasValue, runtimeGas) =>
-                                                match gasValue.expectWord with
-                                                | Except.ok gas =>
-                                                    Except.ok
-                                                      (value, some gas,
-                                                        runtimeGas)
-                                                | Except.error err =>
-                                                    Except.error
-                                                      (runtimeGas, err)
-                                            | Except.error err =>
-                                                Except.error
-                                                  (runtimeValue, err)
-                                        | Except.error err =>
-                                            Except.error (runtimeValue, err)
-                                    | Except.error err =>
-                                        Except.error (runtime'', err)
-                            match valueGasResult? with
-                            | Except.ok (value, gas?, runtime''') => do
+                                        Except.error
+                                          (runtimeValue, err)
+                                | Except.error err =>
+                                    Except.error (runtimeValue, err)
+                            | Except.error err =>
+                                Except.error (runtime', err)
+                    match valueGasResult? with
+                    | Except.ok (value, gas?, runtimeOpts) =>
+                        match calldataExpr.evalWithRuntimeByContext context runtimeOpts with
+                        | Except.ok (calldataValue, runtime''') =>
+                            match calldataValue.asBytes? with
+                            | some calldata => do
                                     let missingCode :=
                                       checkTargetCode &&
                                         !(runtime'''.state.envAccountHasCode
@@ -8545,11 +8562,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                                               (Result.reverted
                                                 runtimeWithInteraction
                                                 (RevertData.fromRawBytes output))
-                            | Except.error (runtimeFailed, err) =>
-                                pure (Result.reverted runtimeFailed err)
-                        | none =>
-                            pure (Result.reverted runtime'' RevertData.typeMismatch)
-                    | Except.error err => pure (Result.reverted runtime' err)
+                            | none =>
+                                pure (Result.reverted runtime''' RevertData.typeMismatch)
+                        | Except.error err => pure (Result.reverted runtimeOpts err)
+                    | Except.error (runtimeFailed, err) =>
+                        pure (Result.reverted runtimeFailed err)
                 | Except.error err => pure (Result.reverted runtime' err)
             | Except.error err => pure (Result.reverted runtime err)
         | Stmt.tryContractCreate contractName constructorArgsExpr valueExpr

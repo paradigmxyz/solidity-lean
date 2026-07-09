@@ -5,6 +5,49 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — EO1 fixed: external-call argument/option evaluation ORDER
+
+Gap EO1 (wrong-ORDER soundness bug) in the external-call boundary.
+
+**solc-confirmed behavior (probed pinned solc 0.8.35 + Foundry).** For
+`base.call{gas: g(), value: v()}(payload)` solc evaluates: the base/target
+expression FIRST, then the FunctionCallOptions in their WRITTEN order
+(gas-vs-value by whichever option is written first), then the calldata argument
+LAST. A side-effecting order-trace (`t()`,`g()`,`v()`,`p()` each appending a
+digit) gives `1234` for written order `{gas, value}` and `1324` for
+`{value, gas}` — identically for the expression low-level `.call` and the
+statement-form `try` call.
+
+**The bug (`SolidCore/Solidity/Interpreter.lean`).** Two divergences:
+1. The EXPRESSION low-level call (`Expr.lowLevelCall`, ~:6411) evaluated the
+   component list as `[target, calldata, value, gas]` and IGNORED the
+   `gasFirst` flag entirely. Worse, it threaded the ambient child-eval order
+   (`yulCompatible` ≈ right-to-left) into that list, so the components came out
+   scrambled (observed order-trace `321…`, calldata evaluated first, target
+   last).
+2. The STATEMENT external call (`Stmt.tryExternalCall`, ~:8419) respected
+   gas-vs-value but evaluated the calldata BEFORE the options.
+
+**The fix.** Both paths now evaluate the components strictly in solc order:
+target, then options in written order (`gasFirst ? gas,value : value,gas`),
+then calldata. The expression path was rewritten to evaluate each component
+sequentially (rather than through the ambient-ordered `evalList`), so the
+FIXED top-level order is imposed while each component's OWN inner children keep
+the ambient child-eval order. The statement path moved the option evaluation
+ahead of the calldata evaluation.
+
+**Forge-verified observable / lane.** New lane
+`tests/forge-harness/call-option-eval-order` (`CallOptionEvalOrder`): four
+functions build the order-trace in a single storage slot (each of
+target/gas/value/calldata appends its digit via an embedded assignment
+expression). Forge ground truth: `exprGasFirst = tryGasFirst = 1234`,
+`exprValueFirst = tryValueFirst = 1324`. The paired Lean witnesses import the
+same source and, under a fail-open responder, assert the source-interpreter
+returns the identical order-trace. Before the fix the expression witnesses
+returned a scrambled trace (and the statement witnesses `1423`-style); after,
+all four return `1234`/`1324`. `lake build SolidCore` green; smoke replay green
+with identical values; lane `forge=ok lean=ok compare=pass`.
+
 ## 2026-07-08 — DL1 fixed: storage / constructor / initializer order = reverse C3
 
 `docs/solc-implementation-divergences-7.md` DL1 (wrong-VALUE + wrong-ORDER
