@@ -2,10 +2,12 @@ import EvmYul.FFI.ffi
 import SolidCore.Solidity.Keccak
 
 /-!
-Byte-parity witness: this repo's pure Keccak-256 (`SolidCore.Solidity.Source.Keccak`,
-a verbatim relocation of the former local shim) vs the pinned
-`danrobinson/EVMYulLean @ 3c5c44a6` FFI hash (`ffi.KEC`, backed by the native
-`keccak256` extern symbol).
+Byte-parity witness: the pure Keccak-256 (`SolidCore.Solidity.Source.Keccak`,
+since pin `b08573c` a re-export of `EvmYul.SpongeHash.Keccak256` — the same
+definition that is now the Lean body of `ffi.keccak256`) vs the NATIVE
+`keccak256` extern symbol the compiled path actually executes. Logically the
+two sides are the same function; this witness checks the native code agrees
+with the Lean body byte-for-byte.
 
 The pinned hash is native-only, so it cannot be evaluated from the total
 interpreter or the harness `#eval` path; this executable links the pinned

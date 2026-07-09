@@ -1,75 +1,41 @@
 #!/usr/bin/env python3
-"""Guarantee the extracted shared-interaction package has not drifted.
+"""Guarantee the interaction alphabet stays single-sourced.
 
-The `evm-interaction` sibling package vendors evm-compiler's
-`EvmCompiler/Simulation/*.lean` verbatim so both repos program against a
-definitionally identical composition alphabet (Query/Answer/OpenWorld/ForwardRel).
-This script proves byte-for-byte identity between the sibling's copies and
-evm-compiler's live sources. It reads `../evm-compiler` read-only and never
-writes to it.
-
-Exit 0 iff every tracked Simulation file matches; non-zero with a diff summary
-otherwise. Run from this repo root (or anywhere: paths are resolved relative to
-this file).
+Since 2026-07-09, evm-compiler consumes the `evm-interaction` package directly:
+its `EvmCompiler/Simulation/{Interaction,OpenWorld,Outcome}.lean` are re-export
+stubs (`import EvmInteraction.Simulation.X` and nothing else), and the real
+sources live only in `../evm-interaction/EvmInteraction/Simulation/`. The old
+byte-identity check between two live copies is obsolete; this script now
+asserts single-sourcing instead:
+  * each evm-compiler stub contains exactly one import of the package module
+    and NO declarations (def/theorem/structure/inductive/class/instance);
+  * each package source file exists and is non-trivial.
+Reads both sibling repos read-only. Exit 0 iff single-sourced.
 """
 
 from __future__ import annotations
-
-import hashlib
-import sys
+import re, sys
 from pathlib import Path
 
-# Repo layout: this file lives at <solidity-lean>/scripts/.
-REPO = Path(__file__).resolve().parent.parent
-SIBLING = REPO.parent / "evm-interaction"
-UPSTREAM = REPO.parent / "evm-compiler"
+HERE = Path(__file__).resolve().parent.parent
+EC = HERE.parent / "evm-compiler" / "EvmCompiler" / "Simulation"
+EI = HERE.parent / "evm-interaction" / "EvmInteraction" / "Simulation"
+DECL = re.compile(r"^\s*(def|theorem|structure|inductive|class|instance|abbrev|opaque|axiom)\b")
 
-# The verbatim-extracted files, relative to each package root.
-TRACKED = [
-    "EvmCompiler/Simulation/Interaction.lean",
-    "EvmCompiler/Simulation/OpenWorld.lean",
-    "EvmCompiler/Simulation/Outcome.lean",
-]
+ok = True
+for name in ["Interaction", "OpenWorld", "Outcome"]:
+    stub = EC / f"{name}.lean"
+    src = EI / f"{name}.lean"
+    if not src.exists() or len(src.read_text()) < 1000:
+        print(f"FAIL: package source missing/trivial: {src}", file=sys.stderr); ok = False
+        continue
+    text = stub.read_text() if stub.exists() else ""
+    text = re.sub(r"/-.*?-/", "", text, flags=re.DOTALL)  # strip block comments
+    text = "\n".join(l for l in text.splitlines() if not l.strip().startswith("--"))
+    imports = [l for l in text.splitlines() if l.startswith("import ")]
+    if imports != [f"import EvmInteraction.Simulation.{name}"] or any(DECL.match(l) for l in text.splitlines()):
+        print(f"FAIL: {stub} is not a pure re-export stub of the package module", file=sys.stderr); ok = False
 
-
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def main() -> int:
-    if not UPSTREAM.is_dir():
-        print(f"shared_interaction_hashes=skip (no upstream at {UPSTREAM})")
-        # Not a hard failure: the check is only meaningful when the reference
-        # checkout is present. CI with the reference present will enforce it.
-        return 0
-    if not SIBLING.is_dir():
-        print(f"shared_interaction_hashes=fail (no sibling package at {SIBLING})")
-        return 1
-
-    mismatches = 0
-    for rel in TRACKED:
-        theirs = UPSTREAM / rel
-        ours = SIBLING / rel
-        if not theirs.exists():
-            print(f"  {rel}: MISSING upstream ({theirs})")
-            mismatches += 1
-            continue
-        if not ours.exists():
-            print(f"  {rel}: MISSING sibling ({ours})")
-            mismatches += 1
-            continue
-        th, oh = sha256(theirs), sha256(ours)
-        if th == oh:
-            print(f"  {rel}: ok ({th[:12]})")
-        else:
-            print(f"  {rel}: DRIFT sibling={oh[:12]} upstream={th[:12]}")
-            mismatches += 1
-
-    print("tracked_files=" + str(len(TRACKED)))
-    print("mismatches=" + str(mismatches))
-    print("shared_interaction_hashes=" + ("pass" if mismatches == 0 else "fail"))
-    return 0 if mismatches == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+if ok:
+    print("single-source OK: evm-compiler stubs re-export the evm-interaction package; no duplicate alphabet sources.")
+sys.exit(0 if ok else 1)

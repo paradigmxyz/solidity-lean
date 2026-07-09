@@ -2,7 +2,7 @@ import Lake
 open Lake DSL
 
 require evmyul from git
-  "https://github.com/danrobinson/EVMYulLean.git" @ "3c5c44a62f4e7964bd1bc648caa708a111664c84"
+  "https://github.com/danrobinson/EVMYulLean.git" @ "b08573c65e33feb5331abe2b7c1d76be89bb8eff"
 
 -- The shared "language of composition": the interaction monad, Query/Answer,
 -- OpenWorld, and ForwardRel, extracted verbatim from evm-compiler. Consumed as a

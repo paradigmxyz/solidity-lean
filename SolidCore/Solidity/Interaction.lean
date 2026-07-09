@@ -7,9 +7,9 @@ boundary. The names below are the exact `EvmCompiler.Simulation.*` declarations
 extracted verbatim from evm-compiler — identical types, so any future cross-repo
 statement is definitionally well-formed.
 -/
-import EvmCompiler.Simulation.Interaction
-import EvmCompiler.Simulation.OpenWorld
-import EvmCompiler.Simulation.Outcome
+import EvmInteraction.Simulation.Interaction
+import EvmInteraction.Simulation.OpenWorld
+import EvmInteraction.Simulation.Outcome
 
 namespace SolidCore
 namespace Solidity
