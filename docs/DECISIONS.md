@@ -4766,3 +4766,53 @@ abi-encodecall-selector` = 29 cases `forge_interpreter_compare=pass`; the new
 lane also passes with Forge on (`forge=ok lean=ok`); all four encodeCall-using
 lanes (`abi-encodecall-selector`, `abi-malformed`, `function-member-kinds`,
 `receive-fallback-dispatch`) re-verified green.
+
+## 2026-07-09 — M5: `string(bytesMemory)` / `bytes(stringMemory)` reinterpret — NO fix needed (solidity-lean already aliases, matching solc)
+
+Investigated the M1–M4 memory-alias residue hypothesis: that a `string(b)` /
+`bytes(s)` conversion of a MEMORY reference deep-copies in solidity-lean where
+solc treats string and bytes as the same memory layout and pointer-REINTERPRETS
+(aliases). Conclusion: **the divergence does not exist.** solc aliases (confirmed
+observable), and solidity-lean ALSO aliases for every lowerable memory→memory
+form. No semantic change was made.
+
+**STEP 1 — observability (solc ground truth).** A Forge test under pinned solc
+0.8.35 confirms aliasing IS observable: with `bytes memory b; string memory s =
+string(b); b[0] = 0xff;`, reading `bytes(s)[0]` yields `0xff` (mutation through
+the bytes view is visible through the string view); the reverse (`bytes b =
+bytes(s); b[0]='Z'` then `keccak256(bytes(s)) == keccak256("Zbc")`) also holds.
+So this is NOT an unobservable difference — solc genuinely reinterprets the
+pointer.
+
+**Why solidity-lean already matches.** The candidate-bug premise (the conversion
+RHS is "none of var/index/ternary, so it deep-copies") is FALSE for the
+reachable cases. The importer/lowering
+(`Interface.lean`, `Expr.call (Expr.typeName Ty.string|Ty.bytes)
+[Arg.positional (Expr.ident name)]`) collapses `string(identVar)` /
+`bytes(identVar)` on a bare identifier to `sourceIdentCore … name`, i.e. a plain
+`Source.Expr.var name` — the exact var-RHS shape the M1 ref-preserving path
+(`Expr.memoryRefOrValueWithRuntimeOrderFuel`, `Expr.var` arm) already aliases.
+The conversion wrapper never survives lowering, so there is no distinct
+"conversion RHS" arm that could deep-copy. Verified by running the programs
+through the real pipeline (`CheckedContract.callFunctionWithContext`):
+
+  - `string(b)` decl form (mutate via `b`, observe via `bytes(s)`): solc `(255,255)`,
+    solidity-lean `(255,255)` — aliases.
+  - `bytes(s)` decl form (reverse direction): solc `(90,90)`, solidity-lean `(90,90)` — aliases.
+  - assignment form `s = string(b)` (not just decl): solidity-lean `(11,11)` — aliases.
+
+Non-identifier conversion sources (e.g. `string(arr[i])`) do not lower to a
+deep-copy either — they are simply unsupported at import (returns `none`), so no
+alias-vs-copy divergence can arise there.
+
+**Decision: no semantic change, no new lane.** Changing behavior to "fix" a
+non-divergence risks regressions for no benefit (per the standing policy). The
+existing `memory-alias-fixes` lane already exercises the M1 var/index/ternary/
+member ref-preserving paths that this conversion reduces to.
+
+Adjacent observation (out of M5 scope, NOT fixed here): `bytes(string(storageBytes))`
+— a nested conversion reading a STORAGE `bytes`/`string` into memory — is
+currently OVER-REJECTED at import (`TypeError.unsupported`) rather than executed
+as a storage→memory copy. This is a distinct lowering gap in nested
+conversions of storage bytes, unrelated to the memory→memory alias question M5
+asked about; left for a separate lane.
