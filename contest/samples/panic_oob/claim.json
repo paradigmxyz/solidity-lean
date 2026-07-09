@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Indexer", "function": "f", "args": [5], "value": 0 },
+  "expected_divergence": "none expected - array-OOB panic probe: f(5) on a length-2 storage array reverts with Panic(0x32); both engines must render revert|panic:50.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|panic:50##EVT####STO##" },
+  "feature": "array-oob-panic",
+  "register_version_seen": "1.2.0"
+}
