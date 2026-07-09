@@ -3512,6 +3512,29 @@ def TypeContext.resolveContractMemberFunctionChecked
   | some sigs => FunctionSigs.resolveChecked types sigs member args
   | none => Except.error (TypeError.unknownFunction member)
 
+-- EC1: an `abi.encodeCall` function pointer must reference a UNIQUE function.
+-- solc resolves it by name alone (NOT by argument type) and separately checks
+-- each argument implicitly convertible to its parameter; a narrower integer or
+-- an integer literal argument must therefore not be rejected at resolution. The
+-- general contextual (type-exact) resolver over-rejected those. Resolve by
+-- name + arity here without inspecting argument types (arity distinguishes the
+-- legitimate no-overload case; a genuine same-arity overload is ambiguous, as in
+-- solc). The per-argument assignability check happens at the call site.
+def TypeContext.resolveEncodeCallPointerSig
+    (types : TypeContext) (path : Path) (member : Name) (argCount : Nat) :
+    Except TypeError FunctionSig :=
+  match types.lookupContractExternalFunctionSigs? path with
+  | some sigs =>
+      match sigs.filter
+          (fun s => s.name == member && s.params.length == argCount) with
+      | [] => Except.error (TypeError.unknownFunction member)
+      | first :: rest =>
+          if rest.all (fun s => FunctionSig.sameResolutionTarget first s) then
+            Except.ok first
+          else
+            Except.error (TypeError.ambiguousFunction member)
+  | none => Except.error (TypeError.unknownFunction member)
+
 def ModifierSig.matchesCheckedArgs
     (types : TypeContext) (sig : ModifierSig)
     (args : List CheckedArgInfo) : Bool :=
@@ -5920,9 +5943,16 @@ def checkExpr (env : CheckEnv) :
                 require (env.types.isContractValuePath path)
                   (TypeError.invalidAbiCall
                     "abi.encodeCall cannot use a library function")
+                -- EC1: an `abi.encodeCall` function pointer references a UNIQUE
+                -- function; solc resolves it by name (not by argument type) and
+                -- separately checks each argument implicitly convertible to its
+                -- parameter (below). Resolve by name+arity here so an argument
+                -- that is only implicitly convertible to its parameter (a
+                -- narrower integer, a literal) is not spuriously rejected. The
+                -- contextual (type-exact) resolver over-rejected those.
                 let sig ←
-                  TypeContext.resolveContractMemberFunctionContextual
-                    env path member tupleArgs
+                  env.types.resolveEncodeCallPointerSig
+                    path member tupleArgs.length
                 require sig.externallyCallable
                   (TypeError.invalidAbiCall
                     "abi.encodeCall expects an external function")
@@ -5934,9 +5964,10 @@ def checkExpr (env : CheckEnv) :
                     require (env.types.isContractValuePath path)
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects a contract function value")
+                    -- EC1: resolve by name+arity (see the typeName branch).
                     let sig ←
-                      TypeContext.resolveContractMemberFunctionContextual
-                        env path member tupleArgs
+                      env.types.resolveEncodeCallPointerSig
+                        path member tupleArgs.length
                     require sig.externallyCallable
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects an external function")
