@@ -5059,3 +5059,51 @@ currently OVER-REJECTED at import (`TypeError.unsupported`) rather than executed
 as a storage→memory copy. This is a distinct lowering gap in nested
 conversions of storage bytes, unrelated to the memory→memory alias question M5
 asked about; left for a separate lane.
+
+## 2026-07-09 — FP-EQ: internal function-pointer equality/inequality spurious revert closed (direct-name case)
+
+`docs/solc-function-types-review.md` flagged internal function-pointer
+comparison (`fp == g`, `fp != h`) as a confirmed spurious revert: the
+typechecker accepts the comparison (`Ty.isEqualityComparable` is true for
+function types) but `BinaryOp.apply`'s `eq`/`ne` arms
+(`SolidCore/Solidity/Interpreter.lean`) only matched `word`/`int`/
+`externalFunction` operands. Two `Value.internalFunction` operands fell through
+to `RevertData.typeMismatch` (`Panic(0)`), whereas solc 0.8.35 legacy
+(optimizer=false) compiles the comparison to an id/code-pointer comparison
+returning a bool.
+
+**Fix (minimal).** Added a `Value.internalFunction lhsId, Value.internalFunction
+rhsId` arm to both the `eq` and `ne` cases, mirroring the `externalFunction`
+arm: internal function pointers are dispatch IDs, so equality is
+`wordEq lhsId rhsId` (`eq` -> `boolWord` of it, `ne` -> its negation). No other
+operand handling changed. `BinaryOp.apply` is fuel-independent and is not
+unfolded by `FuelMonotonicity`, so no proof update was needed; full `lake build`
+stays green at 1103 jobs.
+
+Ground truth confirmed with pinned solc 0.8.35 + Forge (LEGACY, optimizer=false):
+`eqSame`=true, `eqDiff`=false, `neDiff`=true, `neSame`=false, `eqTwoSame`=true,
+`eqAfterReassign`=true — all 6 Forge assertions pass. (solc emits only a warning
+that internal-fn-pointer comparison "can yield unexpected results ... with the
+optimizer ENABLED"; with the optimizer off the comparison is well-defined and is
+our pinned ground truth.) New paired lane `fnptr-internal-eq`
+(`tests/forge-harness/fnptr-internal-eq/`, manifest entry inserted after
+`internal-fn-pointers`) reaches `forge=ok lean=ok forge_interpreter_compare=pass`.
+
+**Follow-up gap discovered (NOT closed here) — ternary/storage fn-pointer value
+representation.** While building the lane I found that a pointer produced through
+a ternary initializer (`function() internal pure g = pick ? a : b; return g ==
+a;`) or read back from a storage field (`fp == a` where `fp` is a storage
+internal-fn) STILL reverts with `Panic(0)`: the fixed `eq`/`ne` arm is correct,
+but the pointer's runtime value arrives as a plain `Value.word` rather than
+`Value.internalFunction`, so the comparison is `word` vs `internalFunction` and
+mis-types. Root cause is in the Source->Core lowering (`Interface.lean`), NOT in
+`BinaryOp.apply`: the number-literal-to-`Expr.internalFunction` elaboration
+(`Expr.toCoreAsWithEnv?` internal-fn-typed context) is applied for a direct-name
+initializer (`g = a` works) but the internalFunction representation is not
+carried through a ternary initializer or a storage read into comparison
+position. Calling such a pointer still works (dispatch only needs the numeric
+id), which is why the existing `internal-fn-pointers` lane's `viaStorage`
+(ternary-into-storage-into-CALL) passes. This is a distinct root cause; the
+`fnptr-internal-eq` lane therefore covers only direct-name-derived pointers and
+explicitly does not assert the ternary/storage comparison. Recorded for a
+follow-up lowering fix.

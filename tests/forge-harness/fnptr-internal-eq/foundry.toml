@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/fnptr-internal-eq/out"
+cache_path = "../../.foundry-suites/fnptr-internal-eq/cache"
+evm_version = "cancun"

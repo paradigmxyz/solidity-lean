@@ -4124,7 +4124,7 @@
     },
     {
       "name": "bytes-concat-string-literal",
-      "description": "Forge, pinned solc, and imported Lean pin SB1: `bytes.concat` accepts string/unicode *literals* (StringLiteralType) plus bytesN values with the correct raw-byte packing, but solc rejects `string`-typed *values* (Error 8015) — SolidCore now rejects them too, at the frontend, inspecting the argument expression's literal-ness rather than only its `Ty`.",
+      "description": "Forge, pinned solc, and imported Lean pin SB1: `bytes.concat` accepts string/unicode *literals* (StringLiteralType) plus bytesN values with the correct raw-byte packing, but solc rejects `string`-typed *values* (Error 8015) \u2014 SolidCore now rejects them too, at the frontend, inspecting the argument expression's literal-ness rather than only its `Ty`.",
       "forge": {
         "root": "tests/forge-harness/bytes-concat-string-literal",
         "match_contract": "BytesConcatStringLiteralForgeTest",
@@ -5289,6 +5289,64 @@
         "contract": "InternalFnPointersHarnessTarget",
         "namespace": "SolidCore.Solidity.SolcAstImport.InternalFnPointers",
         "source": "tests/forge-harness/internal-fn-pointers/src/InternalFnPointers.sol"
+      }
+    },
+    {
+      "name": "fnptr-internal-eq",
+      "description": "Pin for internal function-pointer equality/inequality (#50, FP-EQ): `fp == g` / `fp != h` compare dispatch identity and return a bool; solc 0.8.35 legacy (optimizer=false) compiles them, whereas solidity-lean previously reverted with Panic(0)/typeMismatch (BinaryOp.apply eq/ne arms lacked a Value.internalFunction case). Covers direct-name eq/ne, two pointers to the same function, and reassignment. Ternary-initialized and storage-read pointer comparison is a separate lowering gap (docs/DECISIONS.md 2026-07-09) and is not asserted here.",
+      "forge": {
+        "match_contract": "FnptrInternalEqForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/fnptr-internal-eq"
+      },
+      "lean": {
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContractAccepted",
+            "label": "importedContractTypechecks"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "eqSame",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContract \"eqSame\" SolidCore.Solidity.Source.State.empty [] 1"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "eqDiff",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContract \"eqDiff\" SolidCore.Solidity.Source.State.empty [] 0"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "neDiff",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContract \"neDiff\" SolidCore.Solidity.Source.State.empty [] 1"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "neSame",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContract \"neSame\" SolidCore.Solidity.Source.State.empty [] 0"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "eqTwoSame",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContract \"eqTwoSame\" SolidCore.Solidity.Source.State.empty [] 1"
+          },
+          {
+            "expect": "Except.ok true",
+            "label": "eqAfterReassign",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.FnptrInternalEq.importedContract \"eqAfterReassign\" SolidCore.Solidity.Source.State.empty [] 1"
+          }
+        ],
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ]
+      },
+      "solc_import": {
+        "contract": "FnptrInternalEqHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FnptrInternalEq",
+        "source": "tests/forge-harness/fnptr-internal-eq/src/FnptrInternalEq.sol"
       }
     },
     {
@@ -7035,7 +7093,7 @@
           },
           {
             "label": "importedEnumUsingMemberDispatch",
-            "expr": "(do\n  let src := SolidCore.Solidity.SolcAstImport.UsingForEnum.importedSourceUnit\n  let st := SolidCore.Solidity.Source.State.empty\n  let w := SolidCore.Solidity.Source.Value.word\n  let chk : Nat → String → List SolidCore.Solidity.Source.Value → Nat → Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args expected => do\n      let r ← SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"UsingForEnumHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | _ => Except.ok false\n  let a ← chk 128 \"viaRank\" [w 2] 3\n  let b ← chk 128 \"viaShift\" [w 1, w 5] 6\n  let c ← chk 128 \"viaLib\" [w 2] 20\n  Except.ok (a && b && c))",
+            "expr": "(do\n  let src := SolidCore.Solidity.SolcAstImport.UsingForEnum.importedSourceUnit\n  let st := SolidCore.Solidity.Source.State.empty\n  let w := SolidCore.Solidity.Source.Value.word\n  let chk : Nat \u2192 String \u2192 List SolidCore.Solidity.Source.Value \u2192 Nat \u2192 Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args expected => do\n      let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"UsingForEnumHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | _ => Except.ok false\n  let a \u2190 chk 128 \"viaRank\" [w 2] 3\n  let b \u2190 chk 128 \"viaShift\" [w 1, w 5] 6\n  let c \u2190 chk 128 \"viaLib\" [w 2] 20\n  Except.ok (a && b && c))",
             "expect": "Except.ok true"
           }
         ]
@@ -7261,7 +7319,7 @@
           },
           {
             "label": "importedIntermediateBaseArgs",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let cOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" \"cVal\" state [] 5\n      let bOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" \"bVal\" state [] 10\n      Except.ok (cOk && bOk)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let cOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" \"cVal\" state [] 5\n      let bOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorIntermediateBaseArgs.importedSourceUnit \"MidD\" \"bVal\" state [] 10\n      Except.ok (cOk && bOk)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           }
         ]
@@ -7294,7 +7352,7 @@
           },
           {
             "label": "importedInitInternalCall",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let yOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"y\" state [] 7\n      let zOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"z\" state [] 14\n      let wOk ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"w\" state [] 21\n      Except.ok (yOk && zOk && wOk)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.constructContract 256 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ => do\n      let yOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"y\" state [] 7\n      let zOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"z\" state [] 14\n      let wOk \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 SolidCore.Solidity.SolcAstImport.ConstructorInitInternalCall.importedSourceUnit \"ConstructorInitInternalCall\" \"w\" state [] 21\n      Except.ok (yOk && zOk && wOk)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           }
         ]
@@ -7746,22 +7804,22 @@
           },
           {
             "label": "plainValueFirstOrder123",
-            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let constructorArgs ← SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0]\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Target\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"plainValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 123)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let constructorArgs \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0]\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Target\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"plainValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 123)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           },
           {
             "label": "plainSaltFirstOrder213",
-            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let constructorArgs ← SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0]\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Target\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"plainSaltFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 213)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let constructorArgs \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0]\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Target\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"plainSaltFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 213)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           },
           {
             "label": "tryValueFirstOrder123",
-            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"tryValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 123)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"tryValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 123)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           },
           {
             "label": "trySaltFirstOrder213",
-            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"trySaltFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 213)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CreateOrder\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"trySaltFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 213)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           }
         ]
@@ -8067,7 +8125,7 @@
     },
     {
       "name": "overload-shadow",
-      "description": "OV1 free-function shadowing (2026-07-09). solc removes a file-level (free) function from a contract's name scope whenever a member function (the contract's own — any visibility — or a non-private inherited one) declares the same NAME (name-based shadowing, warning 2519); a single same-named member removes ALL free overloads of that name. Mirrors the shadowing this frontend already implements for errors/events (ErrorSigs/EventSigs.withoutNamesOf) via the new FunctionSigs.withoutNamesOf applied when building env.functions. Over-ACCEPT direction (solc REJECTS): free f(uint256) + member f(string), bare call f(5) has no viable in-scope candidate — now REJECTED (invalid/OV1FreeShadowedByMember.sol; ov1FreeShadowedByMemberRejected). Neighbors stay ACCEPTED: the same shadowing with call f(\"hi\") runs the member, and an unshadowed free f(5) stays callable (ov1ShadowNeighborsAccepted). Over-REJECT direction (solc ACCEPTS): free f(uint256) + same-signature member f(uint256), bare call f(5) runs the MEMBER body (s + 9 == 14, not the free a + 1 == 6); pinned by the real contract's Forge run (testMemberShadowsFree), the frontend now accepting the whole source unit (importedContractAccepted), and the interpreter running g() to 14 (checkedOwnCallWordMatches).",
+      "description": "OV1 free-function shadowing (2026-07-09). solc removes a file-level (free) function from a contract's name scope whenever a member function (the contract's own \u2014 any visibility \u2014 or a non-private inherited one) declares the same NAME (name-based shadowing, warning 2519); a single same-named member removes ALL free overloads of that name. Mirrors the shadowing this frontend already implements for errors/events (ErrorSigs/EventSigs.withoutNamesOf) via the new FunctionSigs.withoutNamesOf applied when building env.functions. Over-ACCEPT direction (solc REJECTS): free f(uint256) + member f(string), bare call f(5) has no viable in-scope candidate \u2014 now REJECTED (invalid/OV1FreeShadowedByMember.sol; ov1FreeShadowedByMemberRejected). Neighbors stay ACCEPTED: the same shadowing with call f(\"hi\") runs the member, and an unshadowed free f(5) stays callable (ov1ShadowNeighborsAccepted). Over-REJECT direction (solc ACCEPTS): free f(uint256) + same-signature member f(uint256), bare call f(5) runs the MEMBER body (s + 9 == 14, not the free a + 1 == 6); pinned by the real contract's Forge run (testMemberShadowsFree), the frontend now accepting the whole source unit (importedContractAccepted), and the interpreter running g() to 14 (checkedOwnCallWordMatches).",
       "forge": {
         "root": "tests/forge-harness/overload-shadow",
         "match_contract": "OverloadShadowForgeTest",
@@ -8159,12 +8217,12 @@
           },
           {
             "label": "storageNestedLength",
-            "expr": "(do\n  let state1 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"seed\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"storageNestedLength\" state1 [] 5)",
+            "expr": "(do\n  let state1 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"seed\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"storageNestedLength\" state1 [] 5)",
             "expect": "Except.ok true"
           },
           {
             "label": "storageNestedIndependent",
-            "expr": "(do\n  let state1 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"seed\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"storageNestedIndependent\" state1 [] 1)",
+            "expr": "(do\n  let state1 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"seed\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"storageNestedIndependent\" state1 [] 1)",
             "expect": "Except.ok true"
           }
         ]
