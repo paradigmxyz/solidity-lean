@@ -853,15 +853,23 @@ def get_source_asts(sources: list[Path], solc: str = DEFAULT_SOLC) -> list[Sourc
 
 
 def run_gate_on_asts(sources: list[SourceAst],
-                     enforce_v1_multi: bool = True) -> GateVerdict:
+                     enforce_v1_multi: bool = True,
+                     at_version: Optional[str] = None) -> GateVerdict:
+    """Scan every source against the exclusion register IN FORCE AT ``at_version``
+    (the §7 fairness invariant). ``at_version`` is the register version in force
+    at the submission's timestamp — server-authoritative, NOT the submitter's
+    self-declared ``register_version_seen`` (which cannot be trusted to select
+    the version, or an adversary would claim an old version to dodge a newer
+    exclusion). ``None`` means the current register."""
+    effective = at_version or reg.REGISTER_VERSION
     hits: list[Hit] = []
-    for entry in reg.syntactic_entries():
+    for entry in reg.syntactic_entries(effective):
         detector = _SYNTACTIC_DETECTORS.get(entry.detector)
         if detector is None:
             continue
         for src in sources:
             hits.extend(detector(entry, src))
-    for entry in reg.semantic_entries():
+    for entry in reg.semantic_entries(effective):
         detector = _SEMANTIC_DETECTORS.get(entry.detector)
         if detector is None:
             continue
@@ -871,14 +879,16 @@ def run_gate_on_asts(sources: list[SourceAst],
         hits.extend(detect_v1_multi(sources))
 
     if hits:
-        return GateVerdict("OUT_OF_SCOPE", reg.REGISTER_VERSION, hits)
-    return GateVerdict("PASS", reg.REGISTER_VERSION)
+        return GateVerdict("OUT_OF_SCOPE", effective, hits)
+    return GateVerdict("PASS", effective)
 
 
 def run_gate(sources: list[Path], solc: str = DEFAULT_SOLC,
-             enforce_v1_multi: bool = True) -> GateVerdict:
+             enforce_v1_multi: bool = True,
+             at_version: Optional[str] = None) -> GateVerdict:
     asts = get_source_asts(sources, solc=solc)
-    return run_gate_on_asts(asts, enforce_v1_multi=enforce_v1_multi)
+    return run_gate_on_asts(asts, enforce_v1_multi=enforce_v1_multi,
+                            at_version=at_version)
 
 
 def _main(argv: Optional[list[str]] = None) -> int:

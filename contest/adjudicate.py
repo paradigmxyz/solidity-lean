@@ -221,9 +221,18 @@ def _annotate_dedup(report: Report, lane: str, key: tuple, feature_token: str) -
 def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                work_dir: Optional[Path] = None, timeout: int = 400,
                skip_forge: bool = False,
+               at_version: Optional[str] = None,
                _selftest_perturb_evm: Optional[Any] = None,
                _selftest_perturb_solidus: Optional[Any] = None) -> Report:
     """Adjudicate a submission (design §4).
+
+    ``at_version`` is the exclusion-register version in force at the submission's
+    timestamp (§7 fairness invariant), used to select which exclusions apply. It
+    is SERVER-AUTHORITATIVE (the portal sets it from the recorded submission
+    time); ``None`` means the current register. The submitter's self-declared
+    ``claim.register_version_seen`` is only cross-checked, never trusted to select
+    the version — otherwise an adversary could claim an old version to dodge a
+    newer exclusion (e.g. X-EXTCALL).
 
     ``_selftest_perturb_evm`` / ``_selftest_perturb_solidus`` are TEST-ONLY seams
     (contest/run_samples.py): callables applied to the measured EVM observable /
@@ -361,8 +370,17 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         evidence["forge"] = "skipped"
 
     # -- Step 2: REJECT GATE (whole submission) ------------------------------
+    # Judge against the register in force at submission time (§7). at_version is
+    # server-authoritative; the claim's register_version_seen is only cross-checked.
+    effective_version = at_version or reg.REGISTER_VERSION
+    seen = claim.get("register_version_seen")
+    if seen and str(seen) != effective_version:
+        evidence["register_version_note"] = {
+            "declared_seen": seen, "adjudicated_at": effective_version,
+            "note": "adjudication uses the register in force at submission time "
+                    "(server-authoritative), not the claim's declared version."}
     gate_verdict = gate.run_gate(submission.sources, solc=tools.solc,
-                                 enforce_v1_multi=True)
+                                 enforce_v1_multi=True, at_version=effective_version)
     evidence["gate"] = gate_verdict.to_dict()
     if not gate_verdict.is_pass:
         ids = ", ".join(sorted({h.id for h in gate_verdict.hits}))
