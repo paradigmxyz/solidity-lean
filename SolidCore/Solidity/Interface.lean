@@ -3849,10 +3849,15 @@ def CallOptions.lowLevelGasOnlyLoop? (seenGas : Bool) :
 def CallOptions.lowLevelGasOnly? (options : List CallOption) : Option Unit :=
   CallOptions.lowLevelGasOnlyLoop? false options
 
+-- The final `Bool` (`valueBeforeSalt`) records whether the `value` option was
+-- written before the `salt` option in source; solc evaluates the creation
+-- options in source order (DIV-CREATE-2), so the order must be preserved.  It is
+-- `true` when `value` heads the remaining options (and for the value-only /
+-- salt-only / empty cases, where it is unobserved).
 def CallOptions.contractCreationValueSaltLoop?
     (seenValue seenSalt : Bool) :
-    List CallOption -> Option (Option Expr × Option Expr)
-  | [] => some (none, none)
+    List CallOption -> Option (Option Expr × Option Expr × Bool)
+  | [] => some (none, none, true)
   | CallOption.named name expr :: rest =>
       if name == "value" then
         if seenValue then
@@ -3861,7 +3866,7 @@ def CallOptions.contractCreationValueSaltLoop?
           match
             CallOptions.contractCreationValueSaltLoop?
               true seenSalt rest with
-          | some (none, salt?) => some (some expr, salt?)
+          | some (none, salt?, _) => some (some expr, salt?, true)
           | _ => none
       else if name == "salt" then
         if seenSalt then
@@ -3870,13 +3875,13 @@ def CallOptions.contractCreationValueSaltLoop?
           match
             CallOptions.contractCreationValueSaltLoop?
               seenValue true rest with
-          | some (value?, none) => some (value?, some expr)
+          | some (value?, none, _) => some (value?, some expr, false)
           | _ => none
       else
         none
 
 def CallOptions.contractCreationValueSalt? :
-    List CallOption -> Option (Option Expr × Option Expr) :=
+    List CallOption -> Option (Option Expr × Option Expr × Bool) :=
   CallOptions.contractCreationValueSaltLoop? false false
 
 def Ty.contractName? : Ty -> Option Name
@@ -4308,10 +4313,10 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           contractName
           (SolidCore.Solidity.Source.Expr.abiEncode coreTys coreExprs)
           (SolidCore.Solidity.Source.Expr.word 0)
-          none)
+          none true)
   | Expr.callWithOptions (Expr.newExpr ty []) options args => do
       let contractName ← Ty.contractName? ty
-      let (valueCore?, saltCore?) ←
+      let (valueCore?, saltCore?, valueBeforeSalt) ←
         CallOptions.contractCreationValueSaltCore? storageNames options
       let valueCore :=
         match valueCore? with
@@ -4322,7 +4327,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         (SolidCore.Solidity.Source.Expr.contractCreate
           contractName
           (SolidCore.Solidity.Source.Expr.abiEncode coreTys coreExprs)
-          valueCore saltCore?)
+          valueCore saltCore? valueBeforeSalt)
   | Expr.call (Expr.member target "call") [Arg.positional payload] => do
       let targetCore ← Expr.toCore? storageNames target
       let payloadCore ← Expr.toCore? storageNames payload
@@ -4803,23 +4808,26 @@ def CallOptions.lowLevelDelegateGasCore? (storageNames : List Name) :
   | _ => none
 termination_by options => (sizeOf options, 0)
 
+-- Returns `(value?, salt?, valueBeforeSalt)`; `valueBeforeSalt` preserves the
+-- source order of the two options (solc evaluates them in source order —
+-- DIV-CREATE-2).  It is only observed when both options are present.
 def CallOptions.contractCreationValueSaltCore? (storageNames : List Name) :
-    List CallOption -> Option (Option CoreExpr × Option CoreExpr)
-  | [] => some (none, none)
+    List CallOption -> Option (Option CoreExpr × Option CoreExpr × Bool)
+  | [] => some (none, none, true)
   | [CallOption.named "value" value] => do
       let valueCore ← Expr.toCore? storageNames value
-      some (some valueCore, none)
+      some (some valueCore, none, true)
   | [CallOption.named "salt" salt] => do
       let saltCore ← Expr.toCore? storageNames salt
-      some (none, some saltCore)
+      some (none, some saltCore, true)
   | [CallOption.named "value" value, CallOption.named "salt" salt] => do
       let valueCore ← Expr.toCore? storageNames value
       let saltCore ← Expr.toCore? storageNames salt
-      some (some valueCore, some saltCore)
+      some (some valueCore, some saltCore, true)
   | [CallOption.named "salt" salt, CallOption.named "value" value] => do
       let saltCore ← Expr.toCore? storageNames salt
       let valueCore ← Expr.toCore? storageNames value
-      some (some valueCore, some saltCore)
+      some (some valueCore, some saltCore, false)
   | _ => none
 termination_by options => (sizeOf options, 0)
 
@@ -5543,9 +5551,11 @@ def Expr.toExternalCall? (storageNames : List Name) :
           Option CoreExpr × Bool) :=
   Expr.toExternalCallWithKindEnv? storageNames [] []
 
+-- The trailing `Bool` is `valueBeforeSalt` — the source order of the creation
+-- options, threaded into `Expr.contractCreate` (DIV-CREATE-2).
 def Expr.toContractCreationWithKindEnv? (storageNames : List Name)
     (externalCallKindEnv : ExternalCallKindEnv) :
-    Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr)
+    Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr × Bool)
   | Expr.newExpr ty args => do
       let contractName ← Ty.contractName? ty
       let (coreTys, coreExprs) ←
@@ -5560,10 +5570,11 @@ def Expr.toContractCreationWithKindEnv? (storageNames : List Name)
         ( contractName
         , SolidCore.Solidity.Source.Expr.abiEncode coreTys coreExprs
         , SolidCore.Solidity.Source.Expr.word 0
-        , none )
+        , none
+        , true )
   | Expr.callWithOptions (Expr.newExpr ty []) options args => do
       let contractName ← Ty.contractName? ty
-      let (value?, salt?) ←
+      let (value?, salt?, valueBeforeSalt) ←
         CallOptions.contractCreationValueSalt? options
       let valueCore ←
         match value? with
@@ -5587,22 +5598,23 @@ def Expr.toContractCreationWithKindEnv? (storageNames : List Name)
         ( contractName
         , SolidCore.Solidity.Source.Expr.abiEncode coreTys coreExprs
         , valueCore
-        , saltCore? )
+        , saltCore?
+        , valueBeforeSalt )
   | _ => none
 
 def Expr.toContractCreation? (storageNames : List Name) :
-    Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr) :=
+    Expr -> Option (Name × CoreExpr × CoreExpr × Option CoreExpr × Bool) :=
   Expr.toContractCreationWithKindEnv? storageNames []
 
 def Expr.toContractCreationCoreWithKindEnv? (storageNames : List Name)
     (externalCallKindEnv : ExternalCallKindEnv) (expr : Expr) :
     Option CoreExpr := do
-  let (contractName, argsCore, valueCore, saltCore?) ←
+  let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
     Expr.toContractCreationWithKindEnv?
       storageNames externalCallKindEnv expr
   some
     (SolidCore.Solidity.Source.Expr.contractCreate
-      contractName argsCore valueCore saltCore?)
+      contractName argsCore valueCore saltCore? valueBeforeSalt)
 
 def Ty.toExternalReturnBinding? (namePrefix : String) (index : Nat)
     (ty : Ty) : Option CoreBindingDecl := do
@@ -6398,12 +6410,12 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
               checkTargetCode [] []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
-          let (contractName, argsCore, valueCore, saltCore?) ←
+          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
             Expr.toContractCreation? storageNames expr
           let catchCore ← CatchClause.listToCore? storageNames clauses
           some
             (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? []
+              contractName argsCore valueCore saltCore? valueBeforeSalt []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
@@ -6422,13 +6434,13 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
               checkTargetCode returnBindings returnAbiCleanups
               successCore catchCore)
       | none => do
-          let (contractName, argsCore, valueCore, saltCore?) ←
+          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
             Expr.toContractCreation? storageNames expr
           let successCore ← Stmt.toCore? storageNames success
           let catchCore ← CatchClause.listToCore? storageNames clauses
           some
             (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? returnBindings
+              contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
               successCore catchCore)
   | Stmt.emitEvent (Expr.call (Expr.ident name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
@@ -7638,11 +7650,11 @@ def Stmt.toCoreReplacingModifierPlaceholder?
               checkTargetCode [] []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
       | none => do
-          let (contractName, argsCore, valueCore, saltCore?) ←
+          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
             Expr.toContractCreation? storageNames expr
           some
             (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? []
+              contractName argsCore valueCore saltCore? valueBeforeSalt []
               SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
@@ -7665,11 +7677,11 @@ def Stmt.toCoreReplacingModifierPlaceholder?
               checkTargetCode returnBindings returnAbiCleanups
               successCore catchCore)
       | none => do
-          let (contractName, argsCore, valueCore, saltCore?) ←
+          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
             Expr.toContractCreation? storageNames expr
           some
             (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? returnBindings
+              contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
               successCore catchCore)
   | Stmt.unchecked body => do
       let bodyCore ←
@@ -14715,7 +14727,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   true [] []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
           | none => do
-              let (contractName, argsCore, valueCore, saltCore?) ←
+              let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
                 Expr.toContractCreationWithKindEnv?
                   storageNames externalCallKindEnv expr
               let catchCore ←
@@ -14724,7 +14736,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   modifiers functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryContractCreate
-                  contractName argsCore valueCore saltCore? []
+                  contractName argsCore valueCore saltCore? valueBeforeSalt []
                   SolidCore.Solidity.Source.Stmt.skip catchCore)
   | Stmt.tryCatchReturns expr returns success clauses => do
       let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
@@ -14785,7 +14797,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   checkTargetCode returnBindings returnAbiCleanups
                   successCore catchCore)
           | none => do
-              let (contractName, argsCore, valueCore, saltCore?) ←
+              let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
                 Expr.toContractCreationWithKindEnv?
                   storageNames externalCallKindEnv expr
               let successCore ←
@@ -14806,7 +14818,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   modifiers functions freeFunctions returnTys clauses
               some
                 (SolidCore.Solidity.Source.Stmt.tryContractCreate
-                  contractName argsCore valueCore saltCore? returnBindings
+                  contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                   successCore catchCore)
   | Stmt.unchecked body => do
       let bodyCore ←
@@ -15908,7 +15920,7 @@ def ContractCreation.abiSource? (storageNames : List Name)
 def ContractCreation.optionsCore? (storageNames : List Name)
     (options : List CallOption) :
     Option (CoreExpr × Option CoreExpr) := do
-  let (value?, salt?) ← CallOptions.contractCreationValueSalt? options
+  let (value?, salt?, _) ← CallOptions.contractCreationValueSalt? options
   let valueCore ←
     match value? with
     | some value => Expr.toCore? storageNames value
@@ -16155,12 +16167,12 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                       true [] []
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
               | none => do
-                  let (contractName, argsCore, valueCore, saltCore?) ←
+                  let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
                     Expr.toContractCreationWithKindEnv?
                       storageNames externalCallKindEnv expr
                   some
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
-                      contractName argsCore valueCore saltCore? []
+                      contractName argsCore valueCore saltCore? valueBeforeSalt []
                       SolidCore.Solidity.Source.Stmt.skip catchCore)
       | Stmt.tryCatchReturns expr returns success clauses => do
           let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
@@ -16199,12 +16211,12 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                       checkTargetCode returnBindings returnAbiCleanups
                       successCore catchCore)
               | none => do
-                  let (contractName, argsCore, valueCore, saltCore?) ←
+                  let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
                     Expr.toContractCreationWithKindEnv?
                       storageNames externalCallKindEnv expr
                   some
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
-                      contractName argsCore valueCore saltCore? returnBindings
+                      contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                       successCore catchCore)
       | Stmt.unchecked body => do
           let bodyCore ←
@@ -19478,7 +19490,7 @@ def CoreStmt.collectInternalCallKeys : CoreStmt -> List Name
       _ _ _ _ _ _ _ _ _ body clauses =>
       CoreStmt.collectInternalCallKeys body ++
         CoreTryCatchClauses.collectInternalCallKeys clauses
-  | SolidCore.Solidity.Source.Stmt.tryContractCreate _ _ _ _ _ body clauses =>
+  | SolidCore.Solidity.Source.Stmt.tryContractCreate _ _ _ _ _ _ body clauses =>
       CoreStmt.collectInternalCallKeys body ++
         CoreTryCatchClauses.collectInternalCallKeys clauses
   | SolidCore.Solidity.Source.Stmt.checked body =>

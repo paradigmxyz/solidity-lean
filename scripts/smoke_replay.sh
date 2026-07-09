@@ -40,6 +40,7 @@ EXTERNAL_CASES=(
   try-catch
   contract-creation
   create-options
+  create-order
   high-level-call-options
   low-level-call-options
   uniswap-transfer-helper

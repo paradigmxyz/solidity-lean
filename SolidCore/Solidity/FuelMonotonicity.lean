@@ -565,60 +565,53 @@ private theorem eval_mono_step (n m : Nat)
                       rw [hEval _ _ _ _ hw.of_bind]
         next runtimeFailed err heq => rfl
   case tryContractCreate contractName ctorArgsExpr valueExpr saltExprOpt
-      rets successBody catchClauses =>
-    cases h1 : ctorArgsExpr.evalWithRuntimeByContext context runtime with
-    | error err => rfl
-    | ok p1 =>
-      obtain ⟨argsValue, runtime'⟩ := p1
-      rw [h1] at hnf
+      valueBeforeSalt rets successBody catchClauses =>
+    -- New eval order (gap DIV-CREATE-1/2): the creation options (value/salt
+    -- ordered by `valueBeforeSalt`) are evaluated BEFORE the constructor args.
+    -- Split the options result FIRST, thread its runtime (`runtimeOpts`) into
+    -- the args evaluation, then `asBytes?`, and finally the two bind branches.
+    split
+    next value saltOpt runtimeOpts heq =>
+      rw [heq] at hnf
       try simp only [] at hnf ⊢
-      cases h2 : argsValue.asBytes? with
-      | none => rfl
-      | some constructorArgs =>
-        rw [h2] at hnf
+      cases h1 : ctorArgsExpr.evalWithRuntimeByContext context runtimeOpts with
+      | error err => rfl
+      | ok p1 =>
+        obtain ⟨argsValue, runtime'''⟩ := p1
+        rw [h1] at hnf
         try simp only [] at hnf ⊢
-        cases h3 : valueExpr.evalWithRuntimeByContext context runtime' with
-        | error err => rfl
-        | ok p2 =>
-          obtain ⟨valueValue, runtime''⟩ := p2
-          rw [h3] at hnf
+        cases h2 : argsValue.asBytes? with
+        | none => rfl
+        | some constructorArgs =>
+          rw [h2] at hnf
           try simp only [] at hnf ⊢
-          cases h4 : valueValue.expectWord with
-          | error err => rfl
-          | ok value =>
-            rw [h4] at hnf
-            try simp only [] at hnf ⊢
-            split
-            next saltOpt runtime''' heq =>
-              rw [heq] at hnf
-              try simp only [] at hnf ⊢
-              refine SolI.bind_fuel_congr hnf ?_
-              intro w hw
-              obtain ⟨createResult, adoptedState⟩ := w
+          refine SolI.bind_fuel_congr hnf ?_
+          intro w hw
+          obtain ⟨createResult, adoptedState⟩ := w
+          try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
+          cases hs : createResult.success with
+          | false =>
+            rw [hs] at hw
+            try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
+            cases hcm : TryCatchClause.findMatch?
+                (createResult.output.map normByte) catchClauses with
+            | none => rfl
+            | some fb =>
+              obtain ⟨frame, body⟩ := fb
+              rw [hcm] at hw
               try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-              cases hs : createResult.success with
-              | false =>
-                rw [hs] at hw
-                try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                cases hcm : TryCatchClause.findMatch?
-                    (createResult.output.map normByte) catchClauses with
-                | none => rfl
-                | some fb =>
-                  obtain ⟨frame, body⟩ := fb
-                  rw [hcm] at hw
-                  try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                  rw [hEval _ _ _ _ hw.of_bind]
-              | true =>
-                rw [hs] at hw
-                simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                cases hB : BindingDecl.bindArgs? rets
-                    (if rets.isEmpty then [] else [Value.word createResult.address]) with
-                | none => rfl
-                | some frame =>
-                  rw [hB] at hw
-                  simp only [] at hw ⊢
-                  rw [hEval _ _ _ _ hw.of_bind]
-            next err heq => rfl
+              rw [hEval _ _ _ _ hw.of_bind]
+          | true =>
+            rw [hs] at hw
+            simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
+            cases hB : BindingDecl.bindArgs? rets
+                (if rets.isEmpty then [] else [Value.word createResult.address]) with
+            | none => rfl
+            | some frame =>
+              rw [hB] at hw
+              simp only [] at hw ⊢
+              rw [hEval _ _ _ _ hw.of_bind]
+    next runtimeErr err heq => rfl
   case checked body =>
     exact hEval _ _ _ _ hnf
   case unchecked body =>
