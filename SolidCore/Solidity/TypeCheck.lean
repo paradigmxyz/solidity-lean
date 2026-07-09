@@ -1144,30 +1144,6 @@ def Ty.storageArrayCopyAssignable? (destTy srcTy : Ty) : Bool :=
       m <= n && Ty.integerArrayElemWiden? srcElem destElem
   | _, _ => false
 
--- CP1/#48: solc 0.8.35 LEGACY codegen REJECTS at compile time any copy INTO a
--- storage array whose ELEMENT (base) type is a struct when the source is a
--- MEMORY or CALLDATA array. The guard is `ArrayUtils::copyArrayToStorage`
--- (ArrayUtils.cpp:80-84): with the source array's base type NOT itself an array,
--- `solUnimplementedAssert(baseType->isValueType() || !fromMemoryOrCalldata, ...)`
--- fires (message "Copying of type ... to storage is not supported in legacy
--- (only supported by the IR pipeline)"). The only non-array, non-value base is a
--- struct, so the predicate is exactly "IMMEDIATE element is a struct". It keys
--- on the immediate element only: `S[][] memory -> storage` has an ARRAY element,
--- takes the sibling `baseType()->category() == Array` branch, and solc ACCEPTS
--- it for a memory source — so this must NOT recurse. `string[]`/`bytes[]`/
--- `uint256[][]` (element is not a struct), the top-level struct assignment
--- (`S memory -> S storage`, not an array), and a storage->storage copy (source
--- not memory/calldata) all stay accepted.
-def TypeContext.isStructTy (types : TypeContext) : Ty -> Bool
-  | Solidity.Ty.user path => types.isStructPath path
-  | _ => false
-
-def TypeContext.storageStructArrayElem? (types : TypeContext) (destTy : Ty) :
-    Bool :=
-  match destTy with
-  | Solidity.Ty.array elem _ => types.isStructTy elem
-  | _ => false
-
 def Ty.fixedBytesSize? : Ty -> Option Nat
   | Solidity.Ty.bytesN size =>
       if 0 < size && size <= 32 then some size else none
@@ -3078,18 +3054,6 @@ def FunctionSig.checkedResult (sig : FunctionSig)
 
 def CheckedExpr.locationIsCalldata (expr : CheckedExpr) : Bool :=
   expr.dataLocation? == some Solidity.DataLocation.calldata
-
--- CP1/#48: solc's `fromMemoryOrCalldata` (ArrayUtils.cpp:79) — a source array
--- whose data location is memory or calldata (the reference-type sources that a
--- struct-element storage copy rejects under legacy codegen). A storage source
--- (state variable or storage-pointer local) is a reference rebind / storage copy
--- and is NOT rejected. `stateLValue` is exactly the storage-reference flag (set
--- for `isState || isStorageRef`); a memory parameter carries `dataLocation? =
--- none` here, so the reliable "not storage" test is `!stateLValue` (the explicit
--- `!= some storage` conjunct documents intent and is belt-and-suspenders).
-def CheckedExpr.locationIsMemoryOrCalldata (expr : CheckedExpr) : Bool :=
-  !expr.stateLValue &&
-    expr.dataLocation? != some Solidity.DataLocation.storage
 
 def CheckedExpr.locationAssignableTo
     (expr : CheckedExpr)
@@ -7496,20 +7460,6 @@ def checkExpr (env : CheckEnv) :
                   Solidity.AssignOp.assign _ => do
                   env.requireNoMappingStorageCopy lhs lhsChecked
                     rhsChecked.stateLValue
-                  -- CP1/#48: solc 0.8.35 LEGACY codegen rejects at compile time
-                  -- a copy INTO a genuine storage array whose ELEMENT is a
-                  -- struct when the source is a MEMORY or CALLDATA array
-                  -- (ArrayUtils.cpp:80-84). Reject to match ground truth (the
-                  -- corpus pins legacy); the accept path below never sees it.
-                  if lhsChecked.stateLValue && !rebindsStoragePointer &&
-                      env.types.storageStructArrayElem? lhsChecked.ty &&
-                      rhsChecked.locationIsMemoryOrCalldata then
-                    Except.error (TypeError.unsupported
-                      ("copying a memory/calldata array whose element is a " ++
-                        "struct into a storage array is not supported in " ++
-                        "legacy codegen (only supported by the IR pipeline)"))
-                  else
-                    Except.ok ()
                   -- G14: a copy into a genuine storage-array variable accepts a
                   -- base-convertible / shorter source (solc's less-restrictive
                   -- storage-copy rule); the strict rule still governs pointer

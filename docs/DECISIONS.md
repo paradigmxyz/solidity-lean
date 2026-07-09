@@ -5,6 +5,30 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — CP1/#48 REVERTED: struct-array memory/calldata->storage copy restored to ACCEPTED (via-IR behavior)
+
+CP1 (commit db4ac58, entry dated 2026-07-09 below) added a TypeCheck guard that
+REJECTED a copy INTO a storage array whose immediate element is a struct when
+the source is a memory/calldata array, to mirror solc 0.8.35 LEGACY codegen
+(`ArrayUtils.cpp:80-84`). This was a mistaken over-correction: the project
+deliberately models the VIA-IR (more-capable) behavior for this construct, as
+pinned by the pre-existing reference fixture `reference-via-ir-memory-storage`
+(originated June, commit e53af67), which runs Forge with `--via-ir` and EXPECTS
+the copy to be ACCEPTED and executed. CP1's legacy-reject broke that fixture in
+the full-replay audit (`failure=reference-via-ir-memory-storage ... TypeError.
+unsupported "copying a memory/calldata array whose element is a struct into a
+storage array is not supported in legacy codegen ..."`).
+
+Reverted surgically (the tree had moved since db4ac58, so not a blind
+`git revert`): removed the plain-assign reject guard and its three helper defs
+(`TypeContext.isStructTy`, `TypeContext.storageStructArrayElem?`,
+`CheckedExpr.locationIsMemoryOrCalldata` — all used only by the guard, verified
+by grep), deleted `SolidCore/Witness/StructArrayCopyReject.lean` and its import,
+and removed the `struct-array-copy-legacy-reject` fixture + manifest lane (that
+lane asserted the wrong reject behavior). A memory/calldata array-of-struct
+copied into a storage array is once again ACCEPTED and lowered/executed,
+restoring pre-CP1 (via-IR) behavior. The CP1 entry below is retained as history.
+
 ## 2026-07-09 — #58/AL-EXEC: execute inline array literals used in function bodies (executable over-reject closed)
 
 Follow-up to #56/AL1 (the `array-literal-widen` typing boundary). AL1 pinned the
