@@ -7803,6 +7803,53 @@
           }
         ]
       }
+    },
+    {
+      "name": "overload-shadow",
+      "description": "OV1 free-function shadowing (2026-07-09). solc removes a file-level (free) function from a contract's name scope whenever a member function (the contract's own — any visibility — or a non-private inherited one) declares the same NAME (name-based shadowing, warning 2519); a single same-named member removes ALL free overloads of that name. Mirrors the shadowing this frontend already implements for errors/events (ErrorSigs/EventSigs.withoutNamesOf) via the new FunctionSigs.withoutNamesOf applied when building env.functions. Over-ACCEPT direction (solc REJECTS): free f(uint256) + member f(string), bare call f(5) has no viable in-scope candidate — now REJECTED (invalid/OV1FreeShadowedByMember.sol; ov1FreeShadowedByMemberRejected). Neighbors stay ACCEPTED: the same shadowing with call f(\"hi\") runs the member, and an unshadowed free f(5) stays callable (ov1ShadowNeighborsAccepted). Over-REJECT direction (solc ACCEPTS): free f(uint256) + same-signature member f(uint256), bare call f(5) runs the MEMBER body (s + 9 == 14, not the free a + 1 == 6); pinned by the real contract's Forge run (testMemberShadowsFree), the frontend now accepting the whole source unit (importedContractAccepted), and the interpreter running g() to 14 (checkedOwnCallWordMatches).",
+      "forge": {
+        "root": "tests/forge-harness/overload-shadow",
+        "match_contract": "OverloadShadowForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/overload-shadow/src/OverloadShadow.sol",
+        "contract": "OverloadShadowTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.OverloadShadow"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/overload-shadow/invalid/OV1FreeShadowedByMember.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked",
+          "SolidCore.Witness.OverloadShadow"
+        ],
+        "evals": [
+          {
+            "label": "ov1FreeShadowedByMemberRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.ov1FreeShadowedByMemberRejected",
+            "expect": "true"
+          },
+          {
+            "label": "ov1ShadowNeighborsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.ov1ShadowNeighborsAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.OverloadShadow.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedMemberBodyRunsToFourteen",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 16 SolidCore.Solidity.SolcAstImport.OverloadShadow.importedContract \"g\" SolidCore.Solidity.Source.State.empty [] 14",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

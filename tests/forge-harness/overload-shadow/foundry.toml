@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/overload-shadow/out"
+cache_path = "../../.foundry-suites/overload-shadow/cache"
+evm_version = "cancun"

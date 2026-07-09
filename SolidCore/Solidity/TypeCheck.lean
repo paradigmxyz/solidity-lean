@@ -2995,6 +2995,20 @@ def ErrorSigs.withoutNamesOf (locals : List ErrorSig) :
       else
         sig :: ErrorSigs.withoutNamesOf locals rest
 
+-- OV1: solc removes a file-level (free) function from a contract's name scope
+-- whenever a member function (the contract's own — any visibility — or a
+-- non-private inherited one) declares the SAME NAME (name-based shadowing,
+-- warning 2519). A single same-named member removes ALL free overloads of that
+-- name. Mirror `ErrorSigs.withoutNamesOf`/`EventSigs.withoutNamesOf`.
+def FunctionSigs.withoutNamesOf (locals : List FunctionSig) :
+    List FunctionSig -> List FunctionSig
+  | [] => []
+  | sig :: rest =>
+      if locals.any (fun localSig => localSig.name == sig.name) then
+        FunctionSigs.withoutNamesOf locals rest
+      else
+        sig :: FunctionSigs.withoutNamesOf locals rest
+
 def Expr.directIdentName? : Solidity.Expr -> Option Name
   | Solidity.Expr.ident name => some name
   | _ => none
@@ -12675,6 +12689,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let errorSigs := errors.map ErrorDecl.signature
   let visibleSourceErrors := ErrorSigs.withoutNamesOf errorSigs sourceErrors
   let visibleSourceEvents := EventSigs.withoutNamesOf eventSigs sourceEvents
+  let visibleSourceFunctions :=
+    FunctionSigs.withoutNamesOf functionSigs sourceFunctions
   let currentPath := TypeContext.pathOfName contract.name
   let currentStateVarTypes :=
     StateVarDecls.namedTypesQualifiedLocalTypes
@@ -12690,7 +12706,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         StateVarDecls.runtimeStateNamesWith currentConstantBindings stateVars
       constantBindings := currentConstantBindings
       immutableNames := StateVarDecls.immutableNames stateVars
-      functions := functionSigs ++ sourceFunctions
+      functions := functionSigs ++ visibleSourceFunctions
       modifiers := modifierSigs
       modifierDecls := modifiers
       usingDecls := UsingDecls.dedup (usingDecls ++ sourceUsingDecls)
@@ -12766,6 +12782,11 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let visibleFunctionSigs :=
     FunctionSigs.addNonPrivateAllIfNewSignature
       functionSigs inheritedFunctionSigs
+  -- OV1: shadow free functions by the contract's visible member function names
+  -- (own — any visibility — plus non-private inherited, exactly the set solc
+  -- keeps in the contract's name scope).
+  let visibleSourceFunctions :=
+    FunctionSigs.withoutNamesOf visibleFunctionSigs sourceFunctions
   FunctionSigs.ensureNoDuplicateExternalAbiSelectors contractTypes
     (ContractDecl.externalFunctionSigsFromOrder contractTypes dispatchOrder)
   let visibleStateVars := stateVars ++ inheritedStateVars
@@ -12783,7 +12804,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
           visibleStateVars
       constantBindings := visibleConstantBindings
       immutableNames := StateVarDecls.immutableNames visibleStateVars
-      functions := visibleFunctionSigs ++ sourceFunctions
+      functions := visibleFunctionSigs ++ visibleSourceFunctions
       -- G6: `super.f()` must resolve to an *implemented* base function; an
       -- abstract (bodyless) base declaration is not a valid super target
       -- (solc TypeError 9582). Regular dispatch (`functions`) keeps the
