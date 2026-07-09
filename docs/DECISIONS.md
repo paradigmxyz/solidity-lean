@@ -5956,3 +5956,54 @@ SolidCore.Witness.*). Full replay (pinned solc, `--jobs 6`): all 7 OZ fixtures
 and out of scope: `memory-allocation` and `entrypoint-slice-control`
 (pre-existing) and `reference-via-ir-memory-storage` (a separate regression
 fixed on `main`, not yet in this worktree's base).
+
+## 2026-07-09 — COMPOUND-CLEANUP: compound assignment (`+= *= <<= …`) to a narrow (`< 256`-bit) int/uint LValue now applies the LValue-type-width cleanup, mirroring inc/dec and plain assignment
+
+Soundness gap (over-accept + wrong value). For a compound assignment `lhs OP= rhs`
+to a narrow scalar LValue, solc 0.8.35 cleans the read-modify-write RESULT to the
+LValue's type width exactly as it does for a plain assignment: `checked_add/sub/mul_t_uintN`
+(Panic 0x11 on overflow) for the arithmetic ops in a checked block, `wrapping_*`
+(mask to width) in an `unchecked` block, and — for `<<=` — a TRUNCATING `cleanup_t_uintN`
+around `shl` with no overflow check even in a checked block. Verified with `--ir`:
+`uint8 x=16; x<<=4` → `shift_left_t_uint8_t_uint8` masks `16<<4 == 256` to `0`;
+`uint8 bal=200; bal+=100` → `checked_add_t_uint8` Panics 0x11 (300 > 255); its
+`unchecked` sibling → `wrapping_add_t_uint8` == 44; `uint8 x=16; x*=17` →
+`checked_mul_t_uint8` Panics 0x11 (272 > 255).
+
+solidity-lean lowered compound-assign STATEMENTS through the raw `Source.Stmt.assignOp`
+node (`Stmt.toCore?`, Interface.lean assign-op arm), which does `BinaryOp.apply` then
+writes the result with NO width cleanup — so `checkedAdd` only guarded 2^256 and
+narrow (`< 256`-bit) `+=`/`*=` stored the un-truncated over-width value (missing the
+Panic, wrong value), and `<<=` stored the un-masked shift result. `uint256`/`int256`
+and `-=` underflow were already faithful. Inc/dec already had a dedicated cleanup
+arm in `Stmt.toCoreWithInternalCalls?` (via `Expr.toCoreIncDecWithEnv?` →
+`incDecCleanup`), but compound-assign had no analogous arm and fell through to the
+un-cleaned default.
+
+Root: `Stmt.toCoreWithInternalCalls?` had no compound-assign arm. The env-aware
+expression lowering `Expr.toCoreAssignOpWithEnv?` (emitting `assignOpCleanupExpr`
+carrying the LValue-width `ValueCleanup`) already existed and was already used for
+compound-assign-as-EXPRESSION, and the interpreter's `assignOpCleanupExpr` already
+applies the cleanup correctly — checked-vs-unchecked from `context.checked`, and a
+FORCED-unchecked (truncating) cleanup for `BinaryOp.shl` — so only the statement
+lowering needed to route through it.
+
+Fix (`SolidCore/Solidity/Interface.lean`): a new arm in `Stmt.toCoreWithInternalCalls?`,
+placed immediately after the inc/dec arm and mirroring it, matching each compound
+`AssignOp` (`addAssign … sarAssign`, but NOT plain `assign`) and lowering via
+`Expr.toCoreAssignOpWithEnv?` to an `exprStmt (assignOpCleanupExpr …)`; on `none`
+(e.g. an internal/external-call RHS the env-less lowering can't handle) it falls back
+to `Stmt.toCore? (Stmt.expr expr)` exactly as before — no regression to the plain
+compound-assign or the separately-tracked call-in-compound-assign paths, and plain
+`AssignOp.assign` is deliberately not matched so the later tuple/call assign arms and
+the raw-`assignOp` default are untouched. Cleanup covers all narrow scalar LValue
+forms (local, storage var, mapping value, array element, struct field) via
+`Expr.abiTyWithEnv?` + `Ty.toCoreValueCleanup?`; `uint256`/`int256` map to a 256-bit
+`ValueCleanup` that is a runtime no-op, so those already-correct cases are unchanged.
+
+Sanctioned lane: `compound-cleanup` (`tests/forge-harness/compound-cleanup/`), pinning
+`<<=` truncation to 0, `+=`/`*=` overflow Panic 0x11 for local/mapping/array/struct
+narrow LValues, the `unchecked` wraps (44 and 4), and accepted controls (in-range
+narrow `+=` == 155, `uint256 +=` == 3000000). Isolated `--skip-forge --only
+compound-cleanup` → `lean=ok`.
+

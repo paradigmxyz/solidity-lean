@@ -13183,6 +13183,32 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
       | none => Stmt.toCore? storageNames (Stmt.expr expr)
+  -- Compound assignment (`+= -= *= /= %= &= |= ^= <<= >>= >>>=`) to a narrow
+  -- (`< 256`-bit) int/uint LValue must apply the LValue-type-width cleanup that
+  -- solc emits for the read-modify-write result — a checked cleanup (Panic
+  -- 0x11 on overflow) for the arithmetic ops, and a *truncating* cast for
+  -- `<<=` (which never overflow-checks, even in a checked block). Route these
+  -- through the env-aware `Expr.toCoreAssignOpWithEnv?` (which emits
+  -- `assignOpCleanupExpr` carrying the width cleanup) exactly as inc/dec above
+  -- routes through `Expr.toCoreIncDecWithEnv?`. The plain-`assign` op is *not*
+  -- matched here (only the compound ops), so the later tuple/call assign arms
+  -- and the raw-`assignOp` default are untouched; when the RHS is a call the
+  -- env-less lowering returns `none` and we fall back exactly as before.
+  | Stmt.expr expr@(Expr.assign _ AssignOp.addAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.subAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.mulAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.divAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.modAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.bitAndAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.bitOrAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.bitXorAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.shlAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.shrAssign _)
+  | Stmt.expr expr@(Expr.assign _ AssignOp.sarAssign _) =>
+      match Expr.toCoreAssignOpWithEnv? storageNames env expr with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+      | none => Stmt.toCore? storageNames (Stmt.expr expr)
   | Stmt.expr
       (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
         (Expr.call (Expr.ident name) args)) => do
