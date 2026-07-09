@@ -5964,6 +5964,64 @@
       }
     },
     {
+      "name": "ternary-bytesn-common-type",
+      "description": "Forge and the imported Lean interpreter compare a conditional `c ? x : y` whose branches are `bytesN` of different widths (bytes4 then, bytes2 else). solc inserts the implicit conversion of each branch to the common type bytes4; because bytesN is left-aligned, widening bytes2 0xaabb to bytes4 keeps content in the HIGH bytes -> 0xaabb0000 for the return value, abi.encode, and abi.encodePacked. An integer-ternary control (uint8/uint256) locks in that narrow-int branches are unaffected.",
+      "forge": {
+        "root": "tests/forge-harness/ternary-bytesn-common-type",
+        "match_contract": "TernaryBytesNCommonTypeForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/ternary-bytesn-common-type/src/TernaryBytesNCommonType.sol",
+        "contract": "TernaryBytesNCommonType",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "returnElseWidensLeftAligned",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContract \"f\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0x11223344, SolidCore.Solidity.Source.Value.word 0xaabb] 0xaabb0000",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "returnThenUnchanged",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContract \"f\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 0x11223344, SolidCore.Solidity.Source.Value.word 0xaabb] 0x11223344",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "encodeElseWidensLeftAligned",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallBytesMatches 96 SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContract \"enc\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0x11223344, SolidCore.Solidity.Source.Value.word 0xaabb] ([0xaa, 0xbb, 0x00, 0x00] ++ List.replicate 28 0)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "packedElseWidensLeftAligned",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallBytesMatches 96 SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContract \"packed\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0x11223344, SolidCore.Solidity.Source.Value.word 0xaabb] ([0xaa, 0xbb, 0x00, 0x00])",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "integerControlThen",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContract \"g\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 0x11, SolidCore.Solidity.Source.Value.word 7] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "integerControlElse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryBytesNCommonType.importedContract \"g\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0x11, SolidCore.Solidity.Source.Value.word 7] 7",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "completeness-boundaries",
       "description": "Completeness boundaries C1-C4 (2026-07-08). Pinned solc 0.8.35 and this repo's typechecker both REJECT: (C1) `string.length` (must use `bytes(s).length`), (C2) `type(ConcreteContract).interfaceId` (only interface/abstract are non-deployable and expose interfaceId), (C3) `abi.encodePacked` of an array whose element is dynamically sized (`bytes[]`,`string[]`). Both still ACCEPT the neighbors: `bytes(s).length` and `uint[].length`; `type(Interface).interfaceId` and `type(Abstract).interfaceId`; `abi.encodePacked(uint[])`. C4: constant `%` with a negative operand is VALID and folds to the truncated remainder (sign of dividend): (-7)%3==-1, 7%(-3)==1, (-7)%(-3)==-1 (was over-rejected). solc source: Types.cpp ArrayType::nativeMembers (string has no length), Types.cpp:4271-4285 (type(C) member set gated on deployability), packed-mode nested-dynamic rejection, and constant-expression `%` folding.",
       "solc_rejects": [
