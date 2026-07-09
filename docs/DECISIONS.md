@@ -5,6 +5,62 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — OV1: free functions shadowed by same-named contract members are removed from the overload candidate set
+
+Fixes a confirmed overload-resolution divergence (`docs/solc-overload-resolution-review.md`,
+Finding 1), verified against pinned solc 0.8.35 (`libsolidity/analysis`) and the
+binary. solc removes a file-level (free) function from a contract's name scope
+whenever a member function declares the same NAME (name-based shadowing,
+warning 2519); a single same-named member removes ALL free overloads of that
+name, and the shadow set is the contract's own members (any visibility) plus its
+non-private inherited members. solidity-lean previously built
+`env.functions := visibleFunctionSigs ++ sourceFunctions` with the free-function
+list UNFILTERED, producing two symptoms:
+
+- **Over-accept:** free `f(uint256)` + member `f(string)`, call `f(5)` — solc
+  REJECTS (5 not convertible to the only in-scope candidate `string`); the
+  frontend resolved to the shadowed free `f(uint256)` and accepted.
+- **Over-reject:** free `f(uint256)` + member `f(uint256)`, call `f(5)` — solc
+  ACCEPTS (member shadows free, runs the member body); the frontend saw two
+  candidates (differing in `visibility`, so not `sameResolutionTarget`) and
+  reported `ambiguousFunction`.
+
+The fix mirrors the shadowing already implemented for errors/events
+(`ErrorSigs.withoutNamesOf` / `EventSigs.withoutNamesOf`): a new
+`FunctionSigs.withoutNamesOf` (`TypeCheck.lean`, beside the error/event
+versions) drops every free function whose name collides with a member function
+name. It is applied at both `env.functions` build sites in `ContractDecl.check`:
+the pre-inheritance `baseEnv` filters by the contract's own `functionSigs`, and
+the final `baseEnv` filters by `visibleFunctionSigs` (own + non-private
+inherited) — exactly solc's scope set.
+
+Decisions / notes:
+
+- Shadow set confirmed by probe: an inherited member DOES shadow a free function
+  in the derived contract (`f(5)` rejected), but a `private` base member does
+  NOT (the free `f` stays callable) — matching `visibleFunctionSigs`, which
+  carries own (all visibilities) + non-private inherited via
+  `addNonPrivateAllIfNewSignature`. No change to `using for`, and contract-member
+  overloads among themselves are unaffected.
+- `baseSpecifierEnv` (base-specifier argument scope) was left as
+  `functions := sourceFunctions`: it carries no member functions, so no member
+  name can shadow there.
+- `alwaysRevertNames` (CF2) still folds in `sourceFreeFunctions` unfiltered; it
+  is name-keyed and only ever under-detects reverting callees (sound, never an
+  over-accept), and is orthogonal to overload resolution — left untouched.
+- Pinned by a new Forge-paired manifest lane `overload-shadow`
+  (`tests/forge-harness/overload-shadow/`) and witness
+  `SolidCore/Witness/OverloadShadow.lean`. Over-accept → now REJECTED
+  (`invalid/OV1FreeShadowedByMember.sol`; `ov1FreeShadowedByMemberRejected`),
+  with neighbors staying accepted (`ov1ShadowNeighborsAccepted`). Over-reject →
+  now ACCEPTED: the real `OverloadShadowTarget.g()` runs the member body (Forge
+  ground truth `testMemberShadowsFree`: `g() == 14`, not the free `6`), the
+  frontend accepts the whole source unit (`importedContractAccepted`), and the
+  interpreter runs `g()` to 14 (`checkedOwnCallWordMatches`). Full build green
+  (1103 jobs, incl. `FuelMonotonicity` + `SolidCore.Witness.*`); smoke replay
+  (`SMOKE_JOBS=6`) pass, no regressions; the new lane passes with Forge
+  (`solc_rejects=ok forge=ok lean=ok`).
+
 ## 2026-07-09 — extcodesize existence guard: uncatchable pre-CALL, all receiver shapes
 
 Fixes two confirmed soundness divergences in the external-call existence guard,
