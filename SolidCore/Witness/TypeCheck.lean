@@ -23899,6 +23899,125 @@ def badBytesConcatNamedSource : Solidity.SourceUnit :=
 def badBytesConcatNamedRejected : Bool :=
   Result.isError (SourceUnit.check badBytesConcatNamedSource)
 
+-- SB1 pin: `bytes.concat` accepts string *literals* (solc's StringLiteralType is
+-- implicitly convertible to both `bytes32` and `bytes memory`) but REJECTS
+-- `string`-typed *values*.  Pinned solc 0.8.35 rejects `bytes.concat(<string
+-- variable>)` with Error 8015 ("bytes or fixed bytes type is required, but string
+-- memory provided").  This frontend types both forms as `Ty.string`, so the gate
+-- must inspect the argument expression's literal-ness.
+
+def bytesConcatStringLiteralSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "BytesConcatStringLiteral"
+            items :=
+              [ Solidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "bytes")
+                                "concat")
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.literal
+                                    (Solidity.Literal.string "abc"))
+                              , Solidity.Arg.positional
+                                  (Solidity.Expr.call
+                                    (Solidity.Expr.typeName bytes4)
+                                    [Solidity.Arg.positional
+                                      zeroExpr]) ]))) } ] } ] }
+
+def bytesConcatStringLiteralAccepted : Bool :=
+  sourceUnitAccepted? bytesConcatStringLiteralSource
+
+def bytesConcatUnicodeLiteralSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "BytesConcatUnicodeLiteral"
+            items :=
+              [ Solidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "bytes")
+                                "concat")
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.literal
+                                    (Solidity.Literal.unicodeString "é")) ]))) }
+              ] } ] }
+
+def bytesConcatUnicodeLiteralAccepted : Bool :=
+  sourceUnitAccepted? bytesConcatUnicodeLiteralSource
+
+def stringParamBytesReturnFunction : Solidity.FunctionDecl :=
+  { bytesReturnFunction with
+    params :=
+      [ { name := some "s"
+          ty := Solidity.Ty.string
+          location := some Solidity.DataLocation.memory } ] }
+
+def badBytesConcatStringVarSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "BadBytesConcatStringVar"
+            items :=
+              [ Solidity.ContractItem.function
+                  { stringParamBytesReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "bytes")
+                                "concat")
+                              [Solidity.Arg.positional
+                                (Solidity.Expr.ident "s")]))) } ] } ] }
+
+def badBytesConcatStringVarRejected : Bool :=
+  Result.isError (SourceUnit.check badBytesConcatStringVarSource)
+
+def badBytesConcatMixedStringVarSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "BadBytesConcatMixedStringVar"
+            items :=
+              [ Solidity.ContractItem.function
+                  { stringParamBytesReturnFunction with
+                    name := some "join"
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "bytes")
+                                "concat")
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.literal
+                                    (Solidity.Literal.string "abc"))
+                              , Solidity.Arg.positional
+                                  (Solidity.Expr.ident "s") ]))) } ] } ] }
+
+def badBytesConcatMixedStringVarRejected : Bool :=
+  Result.isError (SourceUnit.check badBytesConcatMixedStringVarSource)
+
+def bytesConcatStringArgDisciplineMatches : Bool :=
+  bytesConcatStringLiteralAccepted &&
+    bytesConcatUnicodeLiteralAccepted &&
+    badBytesConcatStringVarRejected &&
+    badBytesConcatMixedStringVarRejected
+
 def stringReturnFunction : Solidity.FunctionDecl :=
   { simpleReturnFunction with
     returns :=

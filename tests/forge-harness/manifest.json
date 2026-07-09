@@ -4118,6 +4118,48 @@
       }
     },
     {
+      "name": "bytes-concat-string-literal",
+      "description": "Forge, pinned solc, and imported Lean pin SB1: `bytes.concat` accepts string/unicode *literals* (StringLiteralType) plus bytesN values with the correct raw-byte packing, but solc rejects `string`-typed *values* (Error 8015) — SolidCore now rejects them too, at the frontend, inspecting the argument expression's literal-ness rather than only its `Ty`.",
+      "forge": {
+        "root": "tests/forge-harness/bytes-concat-string-literal",
+        "match_contract": "BytesConcatStringLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/bytes-concat-string-literal/invalid/BytesConcatStringVar.sol",
+        "tests/forge-harness/bytes-concat-string-literal/invalid/BytesConcatMixedStringVar.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/bytes-concat-string-literal/src/BytesConcatStringLiteral.sol",
+        "contract": "BytesConcatStringLiteral",
+        "namespace": "SolidCore.Solidity.SolcAstImport.BytesConcatStringLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "bytesConcatStringArgDisciplineMatches",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.bytesConcatStringArgDisciplineMatches",
+            "expect": "true"
+          },
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.BytesConcatStringLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedBytesConcatStringLiteralSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.BytesConcatStringLiteral.importedSourceUnit\n  let target := \"BytesConcatStringLiteral\"\n  let callBytes := fun fuel name expected => do\n    let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel source target (SolidCore.Solidity.Source.CallTarget.name name) SolidCore.Solidity.Source.State.empty []\n    match result with\n    | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes actual] => Except.ok (actual == expected)\n    | _ => Except.ok false\n  let joinLiteral <- callBytes 256 \"joinLiteral\" [0x61, 0x62, 0x63, 0x01, 0x02, 0x03, 0x04]\n  let joinUnicode <- callBytes 256 \"joinUnicode\" [0xc3, 0xa9]\n  Except.ok (joinLiteral && joinUnicode))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "abi-coder-modes",
       "description": "Forge, pinned solc, and imported Lean check ABI coder mode selection: `abicoder v1` accepts dynamic arrays of static elements, rejects v2-only structs and nested dynamic arrays, bad or duplicate coder pragmas are invalid, and solc's accepted `abicoder v2` before legacy `experimental ABIEncoderV2` directive ordering is preserved.",
       "forge": {
