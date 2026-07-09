@@ -5,6 +5,46 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — NEG-NARROW: unary `-x` of a narrow signed operand widened to a wider int now checks overflow at the OPERAND width (the unary analogue of the G15 narrow-arithmetic-widened fix)
+
+Soundness gap. solc 0.8.35 emits `negate_t_intN` for unary `-x`, which negates at
+the OPERAND width: it `cleanup_t_intN`-truncates and, in a checked context, guards
+`if eq(value, intN.min) { panic_error_0x11() }`, BEFORE any implicit widening or
+explicit cast to a wider `int`. So for `x = type(int8).min`, `int16 f() { return -x; }`
+and `return int16(-x)` Panic 0x11 in a checked block and wrap to `int8.min = -128`
+in an `unchecked` block (verified with `--ir`: `negate_t_int8` guards `int8.min`
+then `convert_t_int8_to_t_int16`; `negate_wrapping_t_int8` does
+`cleanup_t_int8(sub(0, value))`). solidity-lean instead ran `checkedSignedNeg`, which
+validates only the int256 range (`-(-128) = 128` is in range, no panic), and the
+importer's widening cleanup `coreAsFromTy?` then cleaned at the TARGET width (int16,
+where 128 fits) — so it returned 128 in BOTH modes.
+
+Root asymmetry: the binary G15 fix applies an operand-width `implicitCleanupCore
+sourceTy` for `BinaryOp.isOverflowArithmetic` before widening, but `toCoreAsWithEnv?`
+had no `Expr.unary UnaryOp.neg` arm — unary neg fell through to `coreAsFromTy?`
+(target-width clean only) — and `peelToOverflowArithmetic?` only peels binary ops,
+so the explicit-cast path `int16(-x)` missed it too.
+
+Fix (`SolidCore/Solidity/Interface.lean`), mirroring the binary path exactly:
+(1) a new `Expr.unary UnaryOp.neg inner` arm in `toCoreAsWithEnv?` — when the
+operand's type is a narrow (`N < 256`) SIGNED int, lower the operand at its own
+width, negate, apply `Ty.implicitCleanupCore operandTy` (the operand-width checked
+cleanup — Panic 0x11 in a checked block, wrap to `intN.min` in an `unchecked` one,
+decided at runtime by the `intCleanup` node, same as the binary path), then widen
+via `coreAsFromTy?`. Non-narrow (`int256`) operands, unsigned operands, and negative
+number literals fall through unchanged. (2) A new `Expr.peelToNarrowNeg?` helper +
+cast-arm handling for `intN(-x)`: `annotateAbi` re-wraps the explicit cast
+(`int16(-x)` → `int16(int16(-x))`), so the arm peels redundant narrow casts to reach
+the `-inner`, negates at the operand width with its checked cleanup, then applies the
+EXPLICIT truncating `intCast`/`uintCast` to the cast width (mirroring the binary H2
+cast arm). The operand is lowered with `toCoreAsWithEnvBitAware?` (what binary
+operands use) so the new arm introduces no non-structural self-recursion.
+
+New sanctioned lane `neg-narrow-widened` (forge fixture + manifest): checked
+`negI8toI16`/`castNegI8toI16`/`negI128toI256` of the narrow min Panic 0x11; the
+`unchecked` variants wrap to `intN.min`; a non-min control widens correctly. Full
+`lake build` green (1106 jobs); full pinned-solc replay green (0 failures).
+
 ## 2026-07-09 — SLICE-MEMCOPY: calldata-slice -> memory-local copy no longer spuriously reverts Panic(0) (fuel off-by-one in the memory-ref value fallback)
 
 Full-replay regression: `entrypoint-slice-control` evals

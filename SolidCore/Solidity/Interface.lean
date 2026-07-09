@@ -7040,6 +7040,20 @@ def Expr.peelToOverflowArithmetic? :
       | none => none
   | _ => none
 
+/-- NEG-NARROW: peel whole-expression narrow-int casts off `expr` to reach a
+    unary `-inner` underneath, returning `inner`. `annotateAbi` re-wraps a
+    conversion argument in a redundant same-type cast (`int16(-x)` →
+    `int16(int16(-x))`), so the unary negation can sit under one or more narrow
+    casts; only casts wrapping the *entire* expression are stripped, exactly like
+    `Expr.peelToOverflowArithmetic?`. -/
+def Expr.peelToNarrowNeg? : Expr -> Option Expr
+  | Expr.unary UnaryOp.neg inner => some inner
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.narrowIntCastTarget? castTy with
+      | some _ => Expr.peelToNarrowNeg? inner
+      | none => none
+  | _ => none
+
 /-- TC1: lower an `abi.encode`/`abi.encodePacked` CONDITIONAL argument whose two
     branches are `bytesN` of DIFFERENT widths. The conditional takes the
     ternary's COMMON type (the wider `bytesN`); solc inserts the implicit
@@ -7180,7 +7194,44 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                   | none =>
                       Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
               | _, _ =>
-                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+                  -- NEG-NARROW (cast path): an explicit narrow cast whose argument
+                  -- is a unary `-x` of a narrow signed operand, e.g. `int16(-x)`.
+                  -- `peelToOverflowArithmetic?` only peels binary ops, so this
+                  -- shape reached the direct fallback (which negates at 256 bits
+                  -- and drops the operand-width Panic 0x11). Mirror the binary cast
+                  -- arm above: negate at the operand width with its checked
+                  -- cleanup, then apply the EXPLICIT (truncating) cast to the cast
+                  -- width. Everything else keeps the direct path.
+                  (match Ty.narrowIntCastTarget? castTy,
+                        Expr.peelToNarrowNeg? argExpr with
+                   | some (castSigned, castBits), some inner =>
+                       (match Expr.abiTyWithEnv? env inner with
+                        | some operandTy =>
+                            (match Ty.narrowIntCastTarget? operandTy,
+                                  Expr.toCoreAsWithEnvBitAware?
+                                    storageNames env operandTy inner with
+                             | some (true, _), some innerCore =>
+                                 let checkedNeg :=
+                                   Ty.implicitCleanupCore operandTy
+                                     (SolidCore.Solidity.Source.Expr.unary
+                                       SolidCore.Solidity.Source.UnaryOp.neg
+                                       innerCore)
+                                 some
+                                   (if castSigned then
+                                     SolidCore.Solidity.Source.Expr.intCast
+                                       castBits checkedNeg
+                                   else
+                                     SolidCore.Solidity.Source.Expr.uintCast
+                                       castBits checkedNeg)
+                             | _, _ =>
+                                 Expr.toCoreAsWithEnvDirect?
+                                   storageNames env targetTy expr)
+                        | none =>
+                            Expr.toCoreAsWithEnvDirect?
+                              storageNames env targetTy expr)
+                   | _, _ =>
+                       Expr.toCoreAsWithEnvDirect?
+                         storageNames env targetTy expr))
           | Expr.ternary cond thenExpr elseExpr => do
               let condCore ←
                 Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
@@ -7217,6 +7268,35 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                   Expr.coreAsFromTy? targetTy sourceTy coreExpr
               | none =>
                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+          | Expr.unary UnaryOp.neg inner =>
+              -- NEG-NARROW (SOUNDNESS): unary `-x` of a narrow (`N < 256`) signed
+              -- operand is evaluated by solc at the OPERAND width
+              -- (`negate_t_intN`), which in a checked context Panics 0x11 when x is
+              -- `type(intN).min`, BEFORE any implicit widening to a wider
+              -- return/assignment/argument target. This is the unary analogue of
+              -- the binary `isOverflowArithmetic` path just above: lower the
+              -- operand at its own width, negate, apply the operand-width checked
+              -- cleanup (the Panic 0x11 in a checked block, the wrap to `intN.min`
+              -- in an `unchecked` block — the `intCleanup` node decides at runtime),
+              -- and only then widen via `coreAsFromTy?`. Non-narrow (`int256`)
+              -- operands fall through unchanged (`checkedSignedNeg` already checks
+              -- at full width), as do unsigned operands (unary minus on an unsigned
+              -- integer is a type error) and negative number literals (`-5` is not
+              -- narrow-typed), all of which keep the existing direct path.
+              (match Expr.abiTyWithEnv? env inner with
+               | some operandTy =>
+                   (match Ty.narrowIntCastTarget? operandTy,
+                         Expr.toCoreAsWithEnv? storageNames env operandTy inner with
+                    | some (true, _), some innerCore =>
+                        let checkedNeg :=
+                          Ty.implicitCleanupCore operandTy
+                            (SolidCore.Solidity.Source.Expr.unary
+                              SolidCore.Solidity.Source.UnaryOp.neg innerCore)
+                        Expr.coreAsFromTy? targetTy operandTy checkedNeg
+                    | _, _ =>
+                        Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+               | none =>
+                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.literal (Literal.number text) =>
               -- Stage C: a function identifier in value position was rewritten
               -- to its dispatch-ID literal (`rewriteInternalFnValueIdents`);

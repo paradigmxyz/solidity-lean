@@ -7455,6 +7455,74 @@
       }
     },
     {
+      "name": "neg-narrow-widened",
+      "description": "NEG-NARROW (unary analogue of the G15 narrow-arithmetic-widened gap): solc emits negate_t_intN, which negates at the OPERAND width and, in a checked context, guards `if eq(value, intN.min) { panic_error_0x11() }` BEFORE any implicit widening or explicit cast to a wider int. So `-x` of type(intN).min Panics 0x11 in a checked block and wraps to intN.min in an unchecked block, even when returned/assigned/cast as a wider int. solidity-lean formerly ran the checked int256 negation (which never overflows for a narrow intN.min) and cleaned only at the wider target width, silently producing -intN.min in both modes. Forge (real EVM, pinned solc) is the value ground truth: checked -x / int16(-x) of int8.min (and -x of int128.min) Panic 0x11; the unchecked variants wrap to intN.min; a non-min control widens correctly. Lean imports the same contract from the solc AST.",
+      "forge": {
+        "root": "tests/forge-harness/neg-narrow-widened",
+        "match_contract": "NegNarrowWidenedForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/neg-narrow-widened/src/NegNarrowWidened.sol",
+        "contract": "NegNarrowWidenedHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NegNarrowWidened"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "negNoOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"negI8toI16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-100))] (SolidCore.Solidity.Shared.signedToWord 100)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castNegNoOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"castNegI8toI16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-100))] (SolidCore.Solidity.Shared.signedToWord 100)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negMinPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"negI8toI16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-128))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castNegMinPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"castNegI8toI16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-128))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negUncheckedWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"negI8toI16Unchecked\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-128))] (SolidCore.Solidity.Shared.signedToWord (-128))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castNegUncheckedWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"castNegI8toI16Unchecked\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-128))] (SolidCore.Solidity.Shared.signedToWord (-128))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negI128MinPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"negI128toI256\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-170141183460469231731687303715884105728))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negI128UncheckedWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.NegNarrowWidened.importedContract \"negI128toI256Unchecked\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-170141183460469231731687303715884105728))] (SolidCore.Solidity.Shared.signedToWord (-170141183460469231731687303715884105728))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "cf2-revert-pruning",
       "description": "CF2 (2026-07-08, docs/DECISIONS.md): solc's ControlFlowRevertPruner prunes the edge after a call to an always-reverting callee, so the storage-pointer-return definite-assignment check (error 3464) runs on the pruned CFG. solidity-lean now computes an always-reverts fixpoint and treats a call to such a callee as terminating, ACCEPTING pick(bool) returns (uint256[] storage p) whose only obligation-unmet path runs through the always-reverting helper alwaysReverts(); importedContractAccepted confirms the fix on the Lean typechecker. Forge (real EVM, pinned-solc compiled) is the value ground truth: the non-reverting path returns xs = [11,22,33] via pickLength/pickAt. (The Lean source Core interpreter does not lower an internal function that returns a storage pointer, a pre-existing limitation orthogonal to CF2, so the value is checked by Forge only.) Pinned solc 0.8.35 REJECTS the sound neighbors — a genuinely-unassigned path, a sometimes-reverting helper, a require(false) helper (require is not an always-revert terminator), and an external this.boom() callee — and the Lean witnesses confirm solidity-lean rejects them too.",
       "forge": {
