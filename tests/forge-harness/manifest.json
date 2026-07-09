@@ -8111,6 +8111,64 @@
           }
         ]
       }
+    },
+    {
+      "name": "nested-conversion-lowering",
+      "description": "Forge and imported Lean execute bytes(...)/string(...) conversions applied to a non-bare-identifier operand: an element of a memory string[] (D-MEM-1 shape 1) and a storage-nested bytes(string(storage)) deep copy (D-MEM-1 shape 2), plus a memory alias-through-conversion; each returns solc's value.",
+      "forge": {
+        "root": "tests/forge-harness/nested-conversion-lowering",
+        "match_contract": "NestedConversionLoweringForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/nested-conversion-lowering/src/NestedConversionLowering.sol",
+        "contract": "NestedConversionLowering",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NestedConversionLowering"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "memElemLength",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"memElemLength\" SolidCore.Solidity.Source.State.empty [] 2",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "memElemEmptyFlag",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"memElemEmptyFlag\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "keccakBytesElemMatch",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"keccakBytesElemMatch\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "memAliasThroughConv",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"memAliasThroughConv\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "storageNestedLength",
+            "expr": "(do\n  let state1 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"seed\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"storageNestedLength\" state1 [] 5)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "storageNestedIndependent",
+            "expr": "(do\n  let state1 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"seed\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 64 SolidCore.Solidity.SolcAstImport.NestedConversionLowering.importedContract \"storageNestedIndependent\" state1 [] 1)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

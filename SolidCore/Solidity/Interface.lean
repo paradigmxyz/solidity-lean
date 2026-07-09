@@ -4010,6 +4010,37 @@ def TypeEnv.lookupExternalCallKind? (env : TypeEnv)
     TypeEnv.lookupExternalMutability? env contractName functionName paramTys
   some (StateMutability.externalFunctionCallKind mutability)
 
+/-- Special-case lowering for the operand of a `bytes(...)`/`string(...)`
+    dynamic conversion. Handles exactly the operand shapes that must NOT be
+    lowered by the generic recursion because they need a dedicated core node
+    or an identity read:
+    * a bare identifier -- a storage `bytes`/`string` lowers to `storageBytes`
+      (its length-prefixed layout), any other identifier to its plain core;
+    * a `bytes`/`string` literal;
+    * a `bytes(ident)`/`string(ident)` re-wrap (same storage/memory split).
+    Returns `none` for a general operand (index / member / call / nested
+    conversion / ternary), which the caller lowers by the ordinary recursion
+    (string<->bytes being a pointer reinterpret, i.e. identity, in the core
+    model). This mirrors the previous inline `match expr` cases so their
+    behavior is preserved exactly; factoring them out lets the caller keep the
+    recursive call off a `match expr` wildcard (needed for termination). -/
+def Expr.bytesStringSpecialCore? (storageNames : List Name) :
+    Expr -> Option CoreExpr
+  | Expr.ident name =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (SolidCore.Solidity.Source.Expr.storageBytes key)
+      | none => some (sourceIdentCore storageNames name)
+  | Expr.literal literal =>
+      match Literal.abiTy? literal with
+      | some Ty.bytes | some Ty.string => Literal.toCoreExpr? literal
+      | _ => none
+  | Expr.call (Expr.typeName Ty.bytes) [Arg.positional (Expr.ident name)]
+  | Expr.call (Expr.typeName Ty.string) [Arg.positional (Expr.ident name)] =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (SolidCore.Solidity.Source.Expr.storageBytes key)
+      | none => some (sourceIdentCore storageNames name)
+  | _ => none
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -4165,37 +4196,38 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
                     else
                       match ty with
                       | Ty.bytes | Ty.string =>
-                          match expr with
-                          | Expr.ident name =>
-                              match stateNameRuntimeKey? name storageNames with
-                              | some key =>
-                                some
-                                  (SolidCore.Solidity.Source.Expr.storageBytes
-                                    key)
-                              | none =>
-                                some (sourceIdentCore storageNames name)
-                          | Expr.literal literal => do
-                              let sourceTy ← Expr.abiTy? storageNames expr
-                              match sourceTy with
-                              | Ty.bytes | Ty.string =>
-                                  Literal.toCoreExpr? literal
-                              | _ => none
-                          | Expr.call (Expr.typeName sourceTy)
-                              [Arg.positional (Expr.ident name)] =>
-                              match sourceTy with
-                              | Ty.bytes | Ty.string =>
-                                  match stateNameRuntimeKey? name storageNames with
-                                  | some key =>
-                                    some
-                                      (SolidCore.Solidity.Source.Expr.storageBytes
-                                        key)
-                                  | none =>
-                                    some (sourceIdentCore storageNames name)
-                              | _ => none
-                          | _ => do
-                              let sourceTy ← Expr.abiTy? storageNames expr
-                              match sourceTy with
-                              | _ => none
+                          -- `bytes(...)`/`string(...)` of a dynamic operand.
+                          -- The special-case operands (a bare identifier,
+                          -- a `bytes`/`string` literal, or a
+                          -- `bytes(ident)`/`string(ident)` re-wrap -- including
+                          -- storage bytes/string that must lower to
+                          -- `storageBytes`) are handled by
+                          -- `Expr.bytesStringSpecialCore?`, preserving prior
+                          -- behavior exactly. Any OTHER operand (index / member
+                          -- / call / nested conversion / ternary / etc.) is a
+                          -- pointer REINTERPRET (string<->bytes is identity in
+                          -- the core model), so we lower it by the normal
+                          -- recursion and return its core expr directly. The
+                          -- underlying node decides copy vs alias: a memory read
+                          -- (`Expr.index`) aliases, a storage read
+                          -- (`storageIndex`/`storageBytes`) deep-copies into
+                          -- memory, and a calldata descriptor is reinterpreted
+                          -- -- matching solc. The recursion sits directly under
+                          -- the `Expr.bytesStringSpecialCore?` match (not a
+                          -- `match expr`) so the well-founded subterm fact stays
+                          -- available. We recurse unconditionally: this is
+                          -- already the `bytes`/`string` conversion TARGET, so
+                          -- the operand is a dynamic bytes/string (guaranteed by
+                          -- the typechecker) and the reinterpret is identity.
+                          -- `annotateAbi` renders the operand as
+                          -- `<sourceTy>(inner)` (e.g. `bytes(string(s[0]))`),
+                          -- whose element type the env-free `Expr.abiTy?` cannot
+                          -- always recover, so it must not gate the recursion.
+                          -- If the operand cannot be lowered the recursion still
+                          -- yields `none`, exactly as before.
+                          match Expr.bytesStringSpecialCore? storageNames expr with
+                          | some core => some core
+                          | none => Expr.toCore? storageNames expr
                       | _ =>
                           match Ty.uintBits? ty with
                           | some bits =>
