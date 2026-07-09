@@ -105,6 +105,49 @@ def error_definitions(source: Path, solc: str) -> dict[str, tuple[str, list[str]
     return out
 
 
+def constructor_param_types(source: Path, contract: str,
+                            solc: str) -> list[str]:
+    """The parameter typeStrings of ``contract``'s constructor (``[]`` if it has
+    none / an implicit no-arg constructor), so the adjudicator can validate
+    constructor_args the same way it validates entry args."""
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return []
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "ContractDefinition" or \
+                node.get("name") != contract:
+            continue
+        for item in node.get("nodes", []):
+            if item.get("nodeType") == "FunctionDefinition" and \
+                    item.get("kind") == "constructor":
+                return [_param_type(p) for p in
+                        item.get("parameters", {}).get("parameters", [])]
+    return []
+
+
+def enum_member_counts(source: Path, solc: str) -> dict[str, int]:
+    """Map each enum's canonical name (e.g. ``C.E``) to its MEMBER COUNT, so the
+    adjudicator can validate that an enum-typed entry arg is a legal member.
+
+    solc's external ABI decoder reverts on an out-of-range enum input, so an arg
+    >= the member count is not a legal high-level call (it would fabricate a
+    divergence). Enums without a resolvable name are skipped."""
+    out: dict[str, int] = {}
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return out
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "EnumDefinition":
+            continue
+        canonical = node.get("canonicalName") or node.get("name")
+        members = node.get("members") or []
+        if canonical and members:
+            out[str(canonical)] = len(members)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Python-side ABI encoding of the entry args (from claim.json) into calldata.
 # Supports the same v1 arg forms the Solidus renderer supports: word / int /

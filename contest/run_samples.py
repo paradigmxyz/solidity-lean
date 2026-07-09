@@ -325,6 +325,11 @@ def main() -> int:
     results.append(("arg_count_mismatch (FULL)", ok, d))
     _print("arg_count_mismatch (FULL)", ok, d)
 
+    # fabricated gap: an out-of-domain scalar arg (dirty bool) -> REJECT_MALFORMED.
+    ok, d = run_full("arg_domain", "REJECT_MALFORMED")
+    results.append(("arg_domain (FULL)", ok, d))
+    _print("arg_domain (FULL)", ok, d)
+
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
     # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.

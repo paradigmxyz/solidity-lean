@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "BoolArg", "function": "f", "args": [{ "word": 5 }], "value": 0 },
+  "expected_divergence": "Fabricated gap: a dirty bool value (5) is not a legal bool. Must be REJECT_MALFORMED (out-of-domain arg), not a qualifying gap from decoder-vs-Solidus disagreement.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:1" },
+  "feature": "arg-domain-dirty-bool",
+  "register_version_seen": "1.2.0"
+}

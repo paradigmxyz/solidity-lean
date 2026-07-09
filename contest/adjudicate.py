@@ -323,14 +323,64 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         # and a partial encoding would diverge. Out of scope (X-RETABI).
         bad_params = [t for t in entry_sig.param_types
                       if not _comparable_return_type(t)]
-        if bad_params:
-            e = reg.entry_by_id("X-RETABI")
-            if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
-                evidence["arg_type_scope"] = {"unsupported_params": bad_params}
-                return Report("REJECTED_OOS", reason=(
-                    f"reject gate fired: X-RETABI (intentional exclusion, out of "
-                    f"scope) — entry parameter type(s) {bad_params} not in the "
-                    f"faithfully-encodable ABI subset"), evidence=evidence)
+        oos_entry = reg.entry_by_id("X-RETABI")
+        oos_active = oos_entry is not None and \
+            oos_entry.is_active(at_version or reg.REGISTER_VERSION)
+        if bad_params and oos_active:
+            evidence["arg_type_scope"] = {"unsupported_params": bad_params}
+            return Report("REJECTED_OOS", reason=(
+                f"reject gate fired: X-RETABI (intentional exclusion, out of "
+                f"scope) — entry parameter type(s) {bad_params} not in the "
+                f"faithfully-encodable ABI subset"), evidence=evidence)
+        # Per-arg DOMAIN validation: each scalar arg must be a LEGAL value for its
+        # parameter type. An out-of-domain value (dirty bool, out-of-range enum/
+        # uintN/address) is not a legal high-level call — the EVM decoder reverts
+        # while Solidus may accept or fail closed, fabricating a divergence for
+        # essentially any contract with a scalar param. Reject as malformed; a
+        # family we cannot bound from the type string ("__OOS__") is out of scope.
+        enum_counts = meas.enum_member_counts(
+            _src_for(submission.sources, entry["contract"], tools.solc)
+            or submission.sources[0], tools.solc)
+        for i, (arg, ptype) in enumerate(
+                zip(entry.get("args", []), entry_sig.param_types)):
+            derr = _arg_domain_error(arg, ptype, enum_counts)
+            if derr == "__OOS__":
+                if oos_active:
+                    evidence["arg_type_scope"] = {"unvalidatable_param": ptype}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-RETABI (intentional exclusion, out "
+                        f"of scope) — entry parameter type {ptype!r} (arg {i}) is "
+                        f"not in the faithfully-encodable ABI subset"),
+                        evidence=evidence)
+            elif derr is not None:
+                return Report("REJECT_MALFORMED", reason=(
+                    f"entry.args[{i}] is not a legal value for parameter "
+                    f"{i} ({ptype}): {derr}"), evidence=evidence)
+        # Constructor args are deployed to BOTH engines too, so validate their
+        # count + domain against the constructor signature identically (same
+        # fabrication surface as entry args).
+        ctor_ptypes = meas.constructor_param_types(
+            _src_for(submission.sources, entry["contract"], tools.solc)
+            or submission.sources[0], entry["contract"], tools.solc)
+        if len(ctor_args) != len(ctor_ptypes):
+            return Report("REJECT_MALFORMED", reason=(
+                f"constructor_args count ({len(ctor_args)}) does not match "
+                f"{entry['contract']}'s constructor parameter count "
+                f"({len(ctor_ptypes)}): {ctor_ptypes}"), evidence=evidence)
+        for i, (arg, ptype) in enumerate(zip(ctor_args, ctor_ptypes)):
+            derr = _arg_domain_error(arg, ptype, enum_counts)
+            if derr == "__OOS__":
+                if oos_active:
+                    evidence["arg_type_scope"] = {"unvalidatable_ctor_param": ptype}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-RETABI (intentional exclusion, out "
+                        f"of scope) — constructor parameter type {ptype!r} (arg "
+                        f"{i}) is not in the faithfully-encodable ABI subset"),
+                        evidence=evidence)
+            elif derr is not None:
+                return Report("REJECT_MALFORMED", reason=(
+                    f"constructor_args[{i}] is not a legal value for constructor "
+                    f"parameter {i} ({ptype}): {derr}"), evidence=evidence)
 
     # -- Step 0b: CHEATCODE GATE over BOTH src AND test, BEFORE any Forge run.
     # The trust boundary is any call to the cheatcode ADDRESS from any submitted
@@ -610,6 +660,111 @@ def _comparable_return_type(t: str) -> bool:
     if t.startswith("tuple"):      # explicit tuple type
         return False
     return True
+
+
+def _arg_as_word(arg: object) -> Optional[int]:
+    """The unsigned word value an arg denotes, or None if the form is not
+    word-family (a signed {int} or a {bytes} is not a plain word)."""
+    if isinstance(arg, bool):
+        return 1 if arg else 0
+    if isinstance(arg, int):
+        return arg if arg >= 0 else None
+    if isinstance(arg, dict) and "word" in arg:
+        try:
+            w = int(arg["word"])
+        except (TypeError, ValueError):
+            return None
+        return w if w >= 0 else None
+    return None
+
+
+def _arg_as_signed(arg: object) -> Optional[int]:
+    """The signed value an arg denotes for an intN parameter, or None."""
+    if isinstance(arg, bool):
+        return None
+    if isinstance(arg, int):
+        return arg
+    if isinstance(arg, dict):
+        if "int" in arg:
+            try:
+                return int(arg["int"])
+            except (TypeError, ValueError):
+                return None
+        if "word" in arg:
+            try:
+                w = int(arg["word"])
+            except (TypeError, ValueError):
+                return None
+            return w if w >= 0 else None
+    return None
+
+
+def _clean_param_type(t: str) -> str:
+    t = str(t).strip()
+    for suffix in (" memory", " calldata", " storage", " payable"):
+        t = t.replace(suffix, "")
+    return t.strip()
+
+
+def _arg_domain_error(arg: object, ptype: str,
+                      enum_counts: dict[str, int]) -> Optional[str]:
+    """Validate that ``arg`` is a LEGAL high-level value for parameter type
+    ``ptype``; return an error string if not (else None).
+
+    The args reach Solidus as typed CoreValues and the EVM as ABI calldata, whose
+    external decoder REVERTS on out-of-domain scalars (dirty bool, out-of-range
+    enum/uintN/address, non-zero padding). An out-of-domain arg is therefore not a
+    legal call and would fabricate a divergence, so it is rejected as malformed.
+    Returns the sentinel ``"__OOS__"`` for a scalar family we cannot validate
+    from the type string (the caller maps that to an X-RETABI exclusion)."""
+    t = _clean_param_type(ptype)
+    # dynamic bytes/string: must be the {bytes} form
+    if t in ("bytes", "string"):
+        if isinstance(arg, dict) and "bytes" in arg:
+            return None
+        return f"{t} parameter requires a {{\"bytes\": \"0x..\"}} arg, got {arg!r}"
+    if t == "bool":
+        w = _arg_as_word(arg)
+        if w in (0, 1):
+            return None
+        return f"bool parameter requires 0/1 or true/false, got {arg!r}"
+    import re as _rex
+    m = _rex.fullmatch(r"uint(\d*)", t)
+    if m:
+        n = int(m.group(1) or "256")
+        w = _arg_as_word(arg)
+        if w is not None and 0 <= w < (1 << n):
+            return None
+        return f"{t} arg out of range [0, 2^{n}): {arg!r}"
+    m = _rex.fullmatch(r"int(\d*)", t)
+    if m:
+        n = int(m.group(1) or "256")
+        v = _arg_as_signed(arg)
+        if v is not None and -(1 << (n - 1)) <= v < (1 << (n - 1)):
+            return None
+        return f"{t} arg out of signed range: {arg!r}"
+    if t == "address" or t.startswith("contract ") or t.startswith("interface "):
+        w = _arg_as_word(arg)
+        if w is not None and 0 <= w < (1 << 160):
+            return None
+        return f"address/contract arg out of range [0, 2^160): {arg!r}"
+    if t == "bytes32":
+        # every 32-byte value is a valid bytes32 (no padding constraint).
+        if _arg_as_word(arg) is not None or (isinstance(arg, dict) and "bytes" in arg):
+            return None
+        return f"bytes32 arg requires a word or bytes form, got {arg!r}"
+    if t.startswith("enum "):
+        canonical = t[len("enum "):].strip()
+        count = enum_counts.get(canonical)
+        w = _arg_as_word(arg)
+        if count is not None and w is not None and 0 <= w < count:
+            return None
+        if count is None:
+            return "__OOS__"   # can't resolve member count -> not validatable
+        return f"enum {canonical} arg out of range [0, {count}): {arg!r}"
+    # bytesN (N<32), fixed-point, function types, and anything else word-family we
+    # cannot faithfully bound from the type string alone -> out of scope.
+    return "__OOS__"
 
 
 _FUEL_CAP = 100_000
