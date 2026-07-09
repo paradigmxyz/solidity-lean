@@ -597,6 +597,14 @@ def main() -> int:
     results.append(("panic_assert PARITY (FULL)", ok, d))
     _print("panic_assert PARITY (FULL)", ok, d)
 
+    # Round 15 probe: payable entry called with msg.value. entry.value=1000 flows
+    # into BOTH the Foundry call{value:...} and the mirrored solidity-lean env ->
+    # f() returns msg.value -> success|w:1000 on BOTH. Guards the value channel:
+    # a wei desync (wrong/zero value on one side) would be a fake wrong-value gap.
+    ok, d = run_full("payable_value", "NO_DIVERGENCE")
+    results.append(("payable_value PARITY (FULL)", ok, d))
+    _print("payable_value PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:

@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Payer", "function": "f", "args": [], "value": 1000 },
+  "expected_divergence": "none expected - payable msg.value probe: f{value:1000}() returns 1000; both engines see the same wei -> success|w:1000.",
+  "declared_observable": { "kind": "success", "normal_form": "success|w:1000##EVT####STO##" },
+  "feature": "payable-msg-value",
+  "register_version_seen": "1.2.0"
+}
