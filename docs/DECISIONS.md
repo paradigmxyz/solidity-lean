@@ -3879,3 +3879,51 @@ Gates: `lake build SolidCore` green; `scripts/smoke_replay.sh` 28/28 lean=ok,
 `acceptance-boundaries-round2` `solc_rejects=ok lean=ok`
 (`round2AcceptanceBoundariesHold = true`). The full 137-case replay is the
 coordinator's merge gate.
+
+## 2026-07-08 — Item #2/#6 REAL-FIXED: `x ** y` is now O(log y) (exponentiation by squaring)
+
+`SolidCore/Solidity/Interpreter.lean` `checkedExp`/`checkedSignedExp`.
+
+**Bug (soundness of termination + denial).** The old `checkedExpLoop`/
+`checkedSignedExpLoop` multiplied the accumulator `y` times — O(y). solc/EVM
+compute `base ** exp` in O(log y) via `EXP`. A large runtime exponent under
+`unchecked` (e.g. `3 ** (2**200)`) made the Lean interpreter loop 2^200 times →
+hang/timeout, while pinned solc/Forge return the wrapped value immediately.
+Probe: `uncheckedBigExp(3, 2**200)` (Forge) →
+`90227379838503308256418949283165379265846182674772648785782829402385907974145`.
+
+**Fix.** `expBySquaring` (O(log e), fuel 257 bounds a 256-bit exponent's
+halvings) with two reducers: `natPowMod` (modular, for the two's-complement
+wrapped result) and `natPowCapped` (saturating at a cap, for overflow
+detection). Because every intermediate power in exponentiation by squaring is
+`<= base ** exp`, the capped result is exact below the cap and saturates exactly
+when the true power reaches it — so checked exp Panics 0x11 at the SAME point as
+the old repeated-multiply loop (item #6: signed narrow-width panic still comes
+from the enclosing `intCleanup`; int256 overflow decided from magnitude+sign:
+positive overflows at `|r| >= 2^255`, negative at `|r| > 2^255`).
+
+**Verified** against pinned solc/Forge: unsigned wrap `3**(2**200)`, checked
+`2**256`→panic / `2**255`→ok; signed `(-2)**9`→wrap 0 (int8), `(-2)**3`→-8,
+int256 `2**255`→panic / `2**254`→ok. Existing `checked-arithmetic` lane
+(negBaseEven/Odd, negExpOverflow) still green. **Lane:** `exp-by-squaring`.
+
+## 2026-07-08 — Item #1 REAL-FIXED: narrow value-array storage packing no longer straddles slots
+
+`SolidCore/Solidity/Interpreter.lean` `StorageLayout.slotSpan`,
+`StorageLayout.cursorStep`, `StorageLayout.arrayElementOffsetAndLayout?`.
+
+**Bug (wrong-slot / wrong-value).** The three functions tight-bit-packed narrow
+value-type array elements (`byteOffset := index * widthBytes`; slots =
+`ceil(size*widthBytes/32)`), letting a value element straddle a slot boundary.
+solc NEVER splits a value element across slots: elements-per-slot =
+`floor(32/widthBytes)`, an element that would not fit the slot tail starts a
+fresh slot (padding waste). Probe (`--combined-json storage-layout` +
+raw-`sload`): `uint72[7]` = 3 slots not 2, element 3 at slot 1 offset 0 not
+slot 0 offset 27; `uint96[]` packs 2/slot; `bytes3[]` packs 10/slot;
+`uint128[3]` = 2 slots; `bytes3[5]` = 1 slot.
+
+**Fix.** perSlot = `max 1 (wordBytes / widthBytes)`; slotSpan(fixedArray) =
+`ceil(size / perSlot)`; element `index` → slot `index / perSlot`, in-slot offset
+`(index % perSlot) * widthBytes`. Verified identical to solc for uint72/uint96/
+bytes3/uint128 (slot counts and per-element slot+offset). **Lane:**
+`storage-array-packing`.

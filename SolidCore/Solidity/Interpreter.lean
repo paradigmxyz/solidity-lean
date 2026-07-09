@@ -1354,7 +1354,13 @@ def StorageLayout.slotSpan : StorageLayout -> Nat
   | StorageLayout.struct layouts => StorageLayouts.slotSpan layouts
   | StorageLayout.fixedArray size
       (StorageLayout.packedScalar _ widthBytes _ _) =>
-      natCeilDiv (size * widthBytes) wordBytes
+      -- Item #1: solc NEVER splits a value element across a slot boundary. A
+      -- narrow element occupies `floor(32 / widthBytes)` per slot (with padding
+      -- waste at the slot tail), so the array spans `ceil(size / perSlot)` slots
+      -- — NOT `ceil(size * widthBytes / 32)` (tight bit-packing, which would let
+      -- an element straddle a slot boundary and undercount slots, e.g.
+      -- `uint72[7]` is 3 slots, not 2).
+      natCeilDiv size (max 1 (wordBytes / widthBytes))
   | StorageLayout.fixedArray size elementLayout =>
       size * StorageLayout.slotSpan elementLayout
   | StorageLayout.dynamicArray _ => 1
@@ -1395,7 +1401,9 @@ def StorageLayout.cursorStep (cursor : StorageLayoutCursor)
   | StorageLayout.fixedArray size
       (StorageLayout.packedScalar _ widthBytes _ _) =>
       let aligned := cursor.align
-      let span := natCeilDiv (size * widthBytes) wordBytes
+      -- Item #1: elements-per-slot = floor(32 / widthBytes); no element straddles
+      -- a slot boundary (see `StorageLayout.slotSpan`).
+      let span := natCeilDiv size (max 1 (wordBytes / widthBytes))
       (aligned.slot, { slot := aligned.slot + span, offset := 0 })
   | StorageLayout.fixedArray size elementLayout =>
       let aligned := cursor.align
@@ -1455,11 +1463,18 @@ def StorageLayout.arrayElementOffsetAndLayout?
       if widthBytes == 0 then
         none
       else
-        let byteOffset := index * widthBytes
+        -- Item #1: elements-per-slot = floor(32 / widthBytes); an element that
+        -- would not fit in the remaining bytes of a slot starts a fresh slot
+        -- (solc never splits a value element across slots). The previous tight
+        -- bit-packing (`byteOffset := index * widthBytes`, `slot = byteOffset/32`,
+        -- `offset = byteOffset%32`) let an element straddle a slot boundary,
+        -- landing at the wrong slot/offset (e.g. `uint72` element 3 at slot 0
+        -- offset 27 instead of slot 1 offset 0).
+        let perSlot := max 1 (wordBytes / widthBytes)
         some
-          ( byteOffset / wordBytes
+          ( index / perSlot
           , StorageLayout.packedScalar
-              (byteOffset % wordBytes) widthBytes signed ty )
+              ((index % perSlot) * widthBytes) widthBytes signed ty )
   | _ =>
       some (index * StorageLayout.slotSpan elementLayout, elementLayout)
 
@@ -5312,19 +5327,52 @@ def checkedMod (_checked : Bool) (lhs rhs : Word) :
   else
     Except.ok (SolidCore.Solidity.Shared.modWord lhs rhs)
 
-def checkedExpLoop (checked : Bool) (base : Word) :
-    Nat -> Word -> Except RevertData Word
-  | 0, acc => Except.ok (SolidCore.Solidity.Shared.norm acc)
-  | remaining + 1, acc =>
-      let raw := SolidCore.Solidity.Shared.norm acc * SolidCore.Solidity.Shared.norm base
-      if checked && wordModulus <= raw then
-        Except.error RevertData.overflow
+/-- Exponentiation by squaring, O(log e). `combine` reduces each partial product
+    to keep the intermediates bounded: modular reduction (`natPowMod`) for the
+    two's-complement wrapped result, saturation (`natPowCapped`) for overflow
+    detection. `fuel` bounds the number of halvings of `e`; a 256-bit exponent
+    needs at most 256, so `expFuel = 257` never runs out.
+
+    Item #2 (soundness of termination + value): the previous `checkedExpLoop`
+    multiplied the accumulator `e` times, so a large runtime exponent (e.g.
+    `2 ** (2**200)`) looped 2^200 times and hung, whereas solc/EVM produce the
+    wrapped result in O(log e). This computes both observables in O(log e) while
+    preserving the checked overflow-Panic-0x11 point exactly (see the overflow
+    predicate below). -/
+def expBySquaring (combine : Nat -> Nat -> Nat) :
+    Nat -> Nat -> Nat -> Nat -> Nat
+  | 0, acc, _, _ => acc
+  | fuel + 1, acc, b, e =>
+      if e = 0 then acc
       else
-        checkedExpLoop checked base remaining (normWord raw)
+        let acc := if e % 2 = 1 then combine acc b else acc
+        let e' := e / 2
+        let b := if e' = 0 then b else combine b b
+        expBySquaring combine fuel acc b e'
+
+def expFuel : Nat := 257
+
+/-- `base ^ exp mod modulus`, O(log exp). Every intermediate stays `< modulus`. -/
+def natPowMod (base exp modulus : Nat) : Nat :=
+  expBySquaring (fun x y => x * y % modulus) expFuel (1 % modulus)
+    (base % modulus) exp
+
+/-- `min (base ^ exp) cap`, O(log exp). Saturates at `cap`: because every
+    intermediate power in exponentiation by squaring is `<= base ^ exp`, the
+    result equals the true power exactly when it is `< cap`, and equals `cap`
+    (i.e. `>= cap`) exactly when the true power is `>= cap`. This lets checked
+    exp detect overflow at the same point as the naive repeated-multiply loop. -/
+def natPowCapped (base exp cap : Nat) : Nat :=
+  expBySquaring (fun x y => min (x * y) cap) expFuel 1 base exp
 
 def checkedExp (checked : Bool) (base exponent : Word) :
     Except RevertData Word :=
-  checkedExpLoop checked base (SolidCore.Solidity.Shared.norm exponent) 1
+  let b := SolidCore.Solidity.Shared.norm base
+  let e := SolidCore.Solidity.Shared.norm exponent
+  if checked && wordModulus <= natPowCapped b e wordModulus then
+    Except.error RevertData.overflow
+  else
+    Except.ok (normWord (natPowMod b e wordModulus))
 
 def signedIntMin : Int :=
   -Int.ofNat SolidCore.Solidity.Shared.halfWordModulus
@@ -5389,30 +5437,34 @@ def checkedSignedMod (_checked : Bool) (lhs rhs : Word) :
   else
     Except.ok (SolidCore.Solidity.Shared.smodWord lhs rhs)
 
--- Signed exponentiation with two's-complement wrapping. The exponent is a
--- non-negative magnitude (Solidity rejects negative exponents), so we iterate
--- it as a `Nat`. In checked mode each intermediate product is validated against
--- the int256 range (panic 0x11 on overflow); in unchecked mode the accumulator
--- wraps mod 2^256 through `signedToWord`. Narrow-type (`intN`) result overflow
--- is enforced by the enclosing `intCleanup` the importer inserts.
-def checkedSignedExpLoop (checked : Bool) (base : Word) :
-    Nat -> Word -> Except RevertData Word
-  | 0, acc => Except.ok acc
-  | remaining + 1, acc =>
-      let product :=
-        SolidCore.Solidity.Shared.signedValue acc *
-          SolidCore.Solidity.Shared.signedValue base
-      if checked && !(signedInt256InRange product) then
-        Except.error RevertData.overflow
-      else
-        checkedSignedExpLoop checked base remaining
-          (SolidCore.Solidity.Shared.signedToWord product)
-
+-- Signed exponentiation with two's-complement wrapping, O(log e) (items #2/#6).
+-- The exponent is a non-negative magnitude (Solidity rejects negative
+-- exponents). The two's-complement wrapped word is `(base_word) ^ e mod 2^256`,
+-- computed modularly. Checked int256 overflow is decided from the magnitude
+-- `|base| ^ e` and the result sign (`base < 0 && e` odd): a positive result
+-- overflows at `|r| >= 2^255` (max int256 = 2^255 - 1), a negative one at
+-- `|r| > 2^255` (min int256 = -2^255). This detects overflow at exactly the
+-- same point as the old repeated-multiply loop. Narrow-type (`intN`) result
+-- overflow is still enforced by the enclosing `intCleanup` the importer inserts.
 def checkedSignedExp (checked : Bool) (base exponent : Word) :
     Except RevertData Word :=
-  checkedSignedExpLoop checked base
-    (SolidCore.Solidity.Shared.norm exponent)
-    (SolidCore.Solidity.Shared.signedToWord 1)
+  let e := SolidCore.Solidity.Shared.norm exponent
+  let wrapped := normWord (natPowMod (SolidCore.Solidity.Shared.norm base) e wordModulus)
+  if checked then
+    let bInt := SolidCore.Solidity.Shared.signedValue base
+    let mag := natPowCapped bInt.natAbs e wordModulus
+    let negative := decide (bInt < 0) && (e % 2 = 1)
+    let overflow :=
+      if negative then
+        SolidCore.Solidity.Shared.halfWordModulus < mag
+      else
+        SolidCore.Solidity.Shared.halfWordModulus <= mag
+    if overflow then
+      Except.error RevertData.overflow
+    else
+      Except.ok wrapped
+  else
+    Except.ok wrapped
 
 def checkedAddMod (lhs rhs modulus : Word) :
     Except RevertData Word :=

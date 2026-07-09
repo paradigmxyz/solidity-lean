@@ -6953,6 +6953,138 @@
           }
         ]
       }
+    },
+    {
+      "name": "exp-by-squaring",
+      "description": "Forge checks solc/EVM `x ** y` is O(log y) with the EXP result (large unchecked exponent, checked overflow panic point, narrow + signed wrapping); Lean checks the paired source-interpreter witnesses. Item #2/#6.",
+      "forge": {
+        "root": "tests/forge-harness/exp-by-squaring",
+        "match_contract": "ExpBySquaringForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/exp-by-squaring/src/ExpBySquaring.sol",
+        "contract": "ExpBySquaringTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExpBySq"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/exp-by-squaring/invalid/NegativeExponent.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExpBySq.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "uncheckedBigExponentWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"uncheckedExp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word (2^200)] 90227379838503308256418949283165379265846182674772648785782829402385907974145",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "checkedExpNoOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"checkedExp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 255] (2^255)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "checkedExpOverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"checkedExp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 256] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uncheckedNarrowWrapsToZero",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"uncheckedNarrowWrap\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 9] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uncheckedNarrowValue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"uncheckedNarrowWrap\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 5] 243",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "signedUncheckedNarrowWrapsToZero",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"signedUncheckedNarrowWrap\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-2)), SolidCore.Solidity.Source.Value.word 9] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "signedCheckedExpNoOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"signedCheckedExp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int 2, SolidCore.Solidity.Source.Value.word 254] (2^254)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "signedCheckedExpOverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 24 SolidCore.Solidity.SolcAstImport.ExpBySq.importedContract \"signedCheckedExp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int 2, SolidCore.Solidity.Source.Value.word 255] 0x11",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "storage-array-packing",
+      "description": "Forge round-trips narrow value-type storage arrays (uint72[7], uint96[], bytes3[]) and a trailing scalar; solc packs floor(32/size) elements per slot without straddling slot boundaries. Lean checks the paired source-interpreter witnesses. Item #1.",
+      "forge": {
+        "root": "tests/forge-harness/storage-array-packing",
+        "match_contract": "StorageArrayPackingForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-array-packing/src/StorageArrayPacking.sol",
+        "contract": "StorageArrayPackingTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorPack"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/storage-array-packing/invalid/OutOfBoundsFixedIndex.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorPack.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "uint72Element3StartsFreshSlot",
+            "expr": "(do\n  let s \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 48 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"setup\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"getA\" s [SolidCore.Solidity.Source.Value.word 3] 0x44)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uint72Element6LastSlot",
+            "expr": "(do\n  let s \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 48 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"setup\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"getA\" s [SolidCore.Solidity.Source.Value.word 6] 0x77)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uint72Element0",
+            "expr": "(do\n  let s \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 48 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"setup\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"getA\" s [SolidCore.Solidity.Source.Value.word 0] 0x11)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uint96DynamicElement4",
+            "expr": "(do\n  let s \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 48 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"setup\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"getB\" s [SolidCore.Solidity.Source.Value.word 4] 0xaa)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uint96DynamicElement0",
+            "expr": "(do\n  let s \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 48 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"setup\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"getB\" s [SolidCore.Solidity.Source.Value.word 0] 0x22)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "trailingScalarUnclobbered",
+            "expr": "(do\n  let s \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 48 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"setup\" SolidCore.Solidity.Source.State.empty []\n  SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 24 SolidCore.Solidity.SolcAstImport.StorPack.importedContract \"getSentinel\" s [] 0xdeadbeef)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
