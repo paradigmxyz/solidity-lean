@@ -845,39 +845,19 @@ def Parameters.firstAbiCoderV2OnlyTy? (types : TypeContext) :
       else
         some param.ty
 
-mutual
-
-def Ty.omittedFromStructPublicGetter? (types : TypeContext) :
+-- SHALLOW omission, matching solc `FunctionType(VariableDeclaration)`
+-- (Types.cpp): at the gettered struct's own level, only a *direct* mapping
+-- member and a *direct* (non-string/bytes) array member are omitted from the
+-- getter. A nested struct member is returned WHOLE (not recursed into), so a
+-- mapping buried inside a nested struct does NOT drop the member here — instead
+-- the returned member makes the whole getter illegal (error 6744), enforced in
+-- `StateVarDecl.check`.
+def Ty.omittedFromStructPublicGetter? (_types : TypeContext) :
     Nat -> Ty -> Bool
-  | 0, _ => true
+  | 0, _ => false
   | _ + 1, Solidity.Ty.mapping _ _ => true
   | _ + 1, Solidity.Ty.array _ _ => true
-  | fuel + 1, Solidity.Ty.tuple tys =>
-      Tys.omittedFromStructPublicGetter? types fuel tys
-  | fuel + 1, Solidity.Ty.user path =>
-      match types.lookupStruct? path with
-      | some structDecl =>
-          StructFields.omittedFromStructPublicGetter?
-            types fuel structDecl.fields
-      | none => false
   | _ + 1, _ => false
-
-def Tys.omittedFromStructPublicGetter? (types : TypeContext)
-    (fuel : Nat) : List Ty -> Bool
-  | [] => false
-  | ty :: rest =>
-      Ty.omittedFromStructPublicGetter? types fuel ty ||
-        Tys.omittedFromStructPublicGetter? types fuel rest
-
-def StructFields.omittedFromStructPublicGetter?
-    (types : TypeContext) (fuel : Nat) :
-    List Solidity.StructField -> Bool
-  | [] => false
-  | field :: rest =>
-      Ty.omittedFromStructPublicGetter? types fuel field.ty ||
-        StructFields.omittedFromStructPublicGetter? types fuel rest
-
-end
 
 def structGetterReturnTys (types : TypeContext) :
     List Solidity.StructField -> List Ty
@@ -9613,6 +9593,17 @@ def StateVarDecl.check (env : CheckEnv)
       match Ty.publicGetterShape? env.types 64 declTy with
       | some shape => Except.ok shape
       | none => Except.error (TypeError.invalidType declTy)
+    -- solc error 5359: a struct getter with all members omitted returns no
+    -- values, so the getter cannot exist. `getterShape.snd` (the returned
+    -- members) is empty exactly in that case.
+    require (!getterShape.snd.isEmpty)
+      (TypeError.invalidType declTy)
+    -- solc error 6744 ("Internal or recursive type"): now that struct-getter
+    -- omission is SHALLOW, a nested struct member is returned WHOLE. If any
+    -- returned member transitively contains a mapping, the getter has no valid
+    -- external interface type. `Ty.containsMapping` walks nested structs.
+    require (!Tys.containsMapping env.types 64 getterShape.snd)
+      (TypeError.invalidType declTy)
     match Tys.firstNonAbiEncodable? env.types getterShape.fst with
     | some ty => Except.error (TypeError.invalidAbiType ty)
     | none => Except.ok ()

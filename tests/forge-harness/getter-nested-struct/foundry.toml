@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/getter-nested-struct/out"
+cache_path = "../../.foundry-suites/getter-nested-struct/cache"
+evm_version = "cancun"

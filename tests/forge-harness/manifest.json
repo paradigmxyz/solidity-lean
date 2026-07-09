@@ -8856,6 +8856,102 @@
           }
         ]
       }
+    },
+    {
+      "name": "getter-nested-struct",
+      "description": "#63 (GET-STRUCT): solc's struct public-getter member-omission is SHALLOW. A nested struct member is returned WHOLE (including a dynamic array inside it), so `Outer public o` gets `o() returns (uint256 x, (uint256 a, uint256[] arr) inner)`. Forge asserts the getter tuple with real values; Lean imports the same contract, calls `set`, then the auto getter, and compares the returned (x, (a, arr)) source values.",
+      "forge": {
+        "root": "tests/forge-harness/getter-nested-struct",
+        "match_contract": "GetterNestedStructForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/getter-nested-struct/src/GetterNestedStruct.sol",
+        "contract": "GetterNestedStructHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.GetterNestedStruct"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.GetterNestedStruct.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedGetterReturnsNestedStructWhole",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.GetterNestedStruct.importedSourceUnit\n  let target := \"GetterNestedStructHarnessTarget\"\n  let w := SolidCore.Solidity.Source.Value.word\n  let setRes <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 512 source target (SolidCore.Solidity.Source.CallTarget.name \"set\") SolidCore.Solidity.Source.State.empty [w 42, w 7, SolidCore.Solidity.Source.Value.dynamicArray [w 100, w 200, w 300]]\n  match setRes with\n  | SolidCore.Solidity.Source.CallResult.returned s1 _ =>\n      let getRes <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 512 source target (SolidCore.Solidity.Source.CallTarget.name \"o\") s1 []\n      let ok := match getRes with\n        | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word x, SolidCore.Solidity.Source.Value.tuple [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word e0, SolidCore.Solidity.Source.Value.word e1, SolidCore.Solidity.Source.Value.word e2]]] =>\n            SolidCore.Solidity.Source.wordEq x 42 && SolidCore.Solidity.Source.wordEq a 7 && SolidCore.Solidity.Source.wordEq e0 100 && SolidCore.Solidity.Source.wordEq e1 200 && SolidCore.Solidity.Source.wordEq e2 300\n        | _ => false\n      Except.ok ok\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "getter-struct-reject",
+      "description": "#63 (GET-STRUCT): the two solc getter-level rejections for structs, plus the shallow-omission ACCEPTED control. solc REJECTS 6744 (nested struct member returned whole transitively contains a mapping) and 5359 (all members omitted); solidity-lean rejects both (witness lemmas). The control pins the boundary: top-level omission of a direct mapping+array keeps value/string members and returns a nested pure-value struct whole.",
+      "forge": {
+        "root": "tests/forge-harness/getter-struct-reject",
+        "match_contract": "GetterStructRejectForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/getter-struct-reject/src/GetterStructReject.sol",
+        "contract": "GetterStructRejectHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.GetterStructReject"
+      },
+      "solc_rejects": [
+        {
+          "source": "tests/forge-harness/getter-struct-reject/invalid/NestedMappingGetter.sol",
+          "contains": "Internal or recursive type"
+        },
+        {
+          "source": "tests/forge-harness/getter-struct-reject/invalid/AllMembersOmitted.sol",
+          "contains": "all its members omitted"
+        }
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.GetterStructReject"
+        ],
+        "evals": [
+          {
+            "label": "acceptedControlTypecheck",
+            "expr": "SolidCore.Solidity.SolcAstImport.GetterStructReject.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "nestedMappingGetterRejected",
+            "expr": "SolidCore.Solidity.Executable.GetterStructReject.nestedMappingGetterRejected",
+            "expect": "true"
+          },
+          {
+            "label": "allMembersOmittedRejected",
+            "expr": "SolidCore.Solidity.Executable.GetterStructReject.allMembersOmittedRejected",
+            "expect": "true"
+          },
+          {
+            "label": "nestedArrayStructAccepted",
+            "expr": "SolidCore.Solidity.Executable.GetterStructReject.nestedArrayStructAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "nestedValueStructAccepted",
+            "expr": "SolidCore.Solidity.Executable.GetterStructReject.nestedValueStructAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "topLevelOmissionAccepted",
+            "expr": "SolidCore.Solidity.Executable.GetterStructReject.topLevelOmissionAccepted",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

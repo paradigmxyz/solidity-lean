@@ -17,3 +17,4 @@ import SolidCore.Witness.CF2RevertPruning
 import SolidCore.Witness.CeFamily
 import SolidCore.Witness.OverloadShadow
 import SolidCore.Witness.ModifierReturnReject
+import SolidCore.Witness.GetterStructReject

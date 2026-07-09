@@ -86,6 +86,75 @@ and removed the `struct-array-copy-legacy-reject` fixture + manifest lane (that
 lane asserted the wrong reject behavior). A memory/calldata array-of-struct
 copied into a storage array is once again ACCEPTED and lowered/executed,
 restoring pre-CP1 (via-IR) behavior. The CP1 entry below is retained as history.
+## 2026-07-09 — #63/GET-STRUCT: struct public-getter member omission made SHALLOW (1 wrong-signature + 2 over-accepts closed)
+
+Fixed the three CONFIRMED divergences from `docs/solc-public-getters-review.md`,
+all one root cause: solidity-lean's STRUCT public-getter member-omission rule
+RECURSED into nested struct members, whereas solc's is SHALLOW.
+
+solc ground truth (`FunctionType::FunctionType(VariableDeclaration const&)`,
+Types.cpp:2868, member skip ~2898-2915): when building a struct getter's return
+tuple, solc omits ONLY a member that is *directly* a `Mapping` or a *direct*
+non-byte/string `Array` of the gettered struct. A nested STRUCT member is pushed
+WHOLE (no recursion). Getter-level rejections at TypeChecker.cpp:548-556: error
+6744 ("Internal or recursive type…") when a returned member has no external
+interface type (e.g. transitively contains a mapping), error 5359 ("all its
+members omitted…") when the getter would return nothing.
+
+Confirmed on both sides (pinned solc 0.8.35 `--abi` / reject text vs. imported /
+witness eval):
+- D1 `struct Inner{uint a; uint[] arr;} struct Outer{uint x; Inner inner;} Outer
+  public o;` → solc `o() returns (uint256 x, (uint256 a, uint256[] arr) inner)`
+  (nested struct incl. its array returned whole). solidity-lean previously
+  recursed, found `arr`, dropped `inner`, emitted `o() returns (uint256)` — WRONG
+  signature. Now returns `[word x, tuple [word a, dynamicArray […]]]` (verified
+  via interpreter `callContract`), matching solc.
+- D2 same shape with `mapping m` inside `Inner` → solc REJECTS 6744. Was
+  over-accepted (silently dropped `inner`); now REJECTED.
+- D3 `struct S{mapping m; uint[] arr;} S public s;` (all members omitted) → solc
+  REJECTS 5359. Was over-accepted (zero-return getter); now REJECTED.
+- Clean cases stay correct: top-level omission `S{uint a; string b; mapping m;
+  uint[] d;}` → `(uint256 a, string b)`; nested pure-value struct returned whole
+  `(uint x, (uint a, uint b) inner)`.
+
+Fix:
+- `Ty.omittedFromStructPublicGetter?` in BOTH `SolidCore/Solidity/TypeCheck.lean`
+  (line ~850, resolves structs via `lookupStruct?`) and
+  `SolidCore/Solidity/Interface.lean` (line ~2385, inlined `Ty.struct`) made
+  SHALLOW: omit only a *direct* `Ty.mapping`/`Ty.array` member; drop the tuple/
+  struct recursion so a nested struct member is returned whole. (`Ty.string`/
+  `Ty.bytes` are distinct constructors, so string/bytes members are still kept,
+  matching solc's `isByteArrayOrString` carve-out.) Both copies fixed because
+  Interface.lean drives the emitted getter signature and TypeCheck.lean drives
+  accept/reject.
+- Two guards added in `StateVarDecl.check` (TypeCheck.lean, right after the
+  `publicGetterShape?` binding): reject (5359-equiv) when `getterShape.snd`
+  (returned members) is empty; reject (6744-equiv) when
+  `Tys.containsMapping env.types 64 getterShape.snd` — the transitive check walks
+  the nested structs of the now-returned members, so a mapping buried in a nested
+  struct correctly makes the whole getter illegal (matching solc) instead of
+  being silently dropped. Reused `TypeError.invalidType declTy` (same constructor
+  already used for the getter-shape failure two lines above).
+
+New paired lanes (`tests/forge-harness/manifest.json`, 179→181 cases):
+- `getter-nested-struct` — the D1 shape; Forge asserts `o()` returns
+  `(x, (a, arr))` with real values, and a Lean `callContract` eval calls `set`
+  then the auto getter and compares the returned `(x, (a, arr))` source values.
+- `getter-struct-reject` — `solc_rejects` fixtures for 6744
+  (`invalid/NestedMappingGetter.sol`) and 5359 (`invalid/AllMembersOmitted.sol`)
+  with `contains` substrings, plus witness lemmas
+  (`SolidCore/Witness/GetterStructReject.lean`, wired into `SolidCore.lean`):
+  `nestedMappingGetterRejected`, `allMembersOmittedRejected`, and ACCEPTED
+  boundary controls `nestedArrayStructAccepted` (D1), `nestedValueStructAccepted`,
+  `topLevelOmissionAccepted` (mapping+array dropped, value/string kept, nested
+  pure-value struct whole — also imported + Forge-tested as the lane's `src`).
+
+Gate: full `lake build` green (1107 jobs, incl. FuelMonotonicity + all Witness);
+`smoke_replay.sh SMOKE_JOBS=6` pass (29 cases, no regressions); both new lanes
+pass forge+lean+solc_rejects; spot-ran existing public-state-variable getter
+lanes (mapping-index, abi-struct-tuples, tuple-destructure, source-declarations,
+storage-order-linearization, storage-bytes-encoding, openzeppelin-vesting-wallet,
+storage-dirty-words, struct-array-copy-legacy-reject) — no regressions.
 
 ## 2026-07-09 — #58/AL-EXEC: execute inline array literals used in function bodies (executable over-reject closed)
 

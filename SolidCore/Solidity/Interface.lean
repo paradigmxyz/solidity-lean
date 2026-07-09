@@ -2380,26 +2380,15 @@ def Ty.hasStorageArrayMembers : Ty -> Bool
   | Ty.bytes => true
   | _ => false
 
-mutual
-
+-- SHALLOW omission (mirror of the TypeCheck copy): only a *direct* mapping or
+-- *direct* (non-string/bytes) array member is omitted from a struct getter; a
+-- nested struct member is returned WHOLE. Matches solc
+-- `FunctionType(VariableDeclaration)` in Types.cpp.
 def Ty.omittedFromStructPublicGetter? : Nat -> Ty -> Bool
-  | 0, _ => true
+  | 0, _ => false
   | _ + 1, Ty.mapping _ _ => true
   | _ + 1, Ty.array _ _ => true
-  | fuel + 1, Ty.tuple tys =>
-      Tys.omittedFromStructPublicGetter? fuel tys
-  | fuel + 1, Ty.struct _ tys =>
-      Tys.omittedFromStructPublicGetter? fuel tys
   | _ + 1, _ => false
-
-def Tys.omittedFromStructPublicGetter? (fuel : Nat) :
-    List Ty -> Bool
-  | [] => false
-  | ty :: rest =>
-      Ty.omittedFromStructPublicGetter? fuel ty ||
-        Tys.omittedFromStructPublicGetter? fuel rest
-
-end
 
 def Ty.publicGetterStructReturnFields? (fuel : Nat) :
     Nat -> List Ty -> Option (List (List Nat × Ty))
