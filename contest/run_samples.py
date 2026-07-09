@@ -637,6 +637,14 @@ def main() -> int:
     results.append(("panic_enum PARITY (FULL)", ok, d))
     _print("panic_enum PARITY (FULL)", ok, d)
 
+    # Round 18 probe: .pop() on an empty storage array (f()) must revert with
+    # Panic(0x31) -> revert|panic:49 on BOTH engines. Completes the panic family
+    # (0x01/0x11/0x12/0x21/0x31/0x32); distinct underflow path + a state-mutating
+    # (non-view) entry over an empty dynamic storage array.
+    ok, d = run_full("panic_pop", "NO_DIVERGENCE")
+    results.append(("panic_pop PARITY (FULL)", ok, d))
+    _print("panic_pop PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:

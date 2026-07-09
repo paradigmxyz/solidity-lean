@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Popper", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - pop-empty-array panic probe: f() pops an empty storage array and reverts with Panic(0x31); both engines must render revert|panic:49.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|panic:49##EVT####STO##" },
+  "feature": "pop-empty-array-panic",
+  "register_version_seen": "1.2.0"
+}
