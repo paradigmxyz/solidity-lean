@@ -7167,6 +7167,105 @@
           }
         ]
       }
+    },
+    {
+      "name": "aggregate-bytesn-mapping-key",
+      "description": "Forge checks solc/EVM that a bytes4 mapping key hashes LEFT-aligned (keccak(bytes32(bytes4(key)).slot)), the right-aligned preimage stays empty, a uint32 value-key control stays right-aligned, and a nested bytes4 inner key hashes left-aligned; Lean imports the same source and checks the abstract storage words at the solc-computed slots.",
+      "forge": {
+        "root": "tests/forge-harness/aggregate-bytesn-mapping-key",
+        "match_contract": "AggregateBytesNMappingKeyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/aggregate-bytesn-mapping-key/src/AggregateBytesNMappingKey.sol",
+        "contract": "AggregateBytesNMappingKeyHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AggregateBytesNMappingKey"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AggregateBytesNMappingKey.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedBytesNMappingKeyLeftAligned",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AggregateBytesNMappingKey.importedContract\n  let state \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 contract \"setKeys\" SolidCore.Solidity.Source.State.empty []\n  Except.ok\n    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0x0010a2704e41d117fdcad5eec91d62a8dead46ff279dde52ed2097be7863b7cd) 111 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0x8d659e9d412e4465065372eb81559c28144a76a498e6bd8b10afd601bfa296b6) 0 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0x5f2fbca641dd650c3ae3f5628e6aee5c8edb73d34af6bfdf4cea0dcc661ee032) 222 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0x93a28b10b9ea82577b23e273a9dedc9617f7fa286363242876781e1aeefea8f3) 333))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "aggregate-contract-member",
+      "description": "Forge checks solc/EVM that a contract-typed state var packs into a slot's high 20 bytes, a struct with a contract-typed field spans its true slot count, and mapping(ContractType=>V) hashes the key as keccak(pad32(addr).slot); Lean imports the same source and checks the abstract storage words at those slots.",
+      "forge": {
+        "root": "tests/forge-harness/aggregate-contract-member",
+        "match_contract": "AggregateContractMemberForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/aggregate-contract-member/src/AggregateContractMember.sol",
+        "contract": "AggregateContractMemberHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AggregateContractMember"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AggregateContractMember.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedContractTypedMemberLayout",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.AggregateContractMember.importedSourceUnit \"AggregateContractMemberHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"setAll\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ =>\n      Except.ok\n        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0xaa00000000000000000000abcd &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 0x77 &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 0xBB &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 3) 0x1234 &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 4) 0x9999 &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 0x18fe2baba04b04b843cd138489dc125d2854aec75ebb8a449c914ba035cd57fe) 0x555)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "aggregate-array-span",
+      "description": "Forge checks solc/EVM that uint40[32] spans 6 slots (floor(32/5)=6 elements per slot, no straddle) so the trailing scalar lands at slot 7; Lean imports the same source and checks the abstract storage words including the trailing scalar slot.",
+      "forge": {
+        "root": "tests/forge-harness/aggregate-array-span",
+        "match_contract": "AggregateArraySpanForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/aggregate-array-span/src/AggregateArraySpan.sol",
+        "contract": "AggregateArraySpanHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AggregateArraySpan"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AggregateArraySpan.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFixedArraySpanNoStraddle",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AggregateArraySpan.importedContract\n  let state \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 contract \"setAll\" SolidCore.Solidity.Source.State.empty []\n  Except.ok\n    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 7) 0x99 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 0xbb0000000000))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

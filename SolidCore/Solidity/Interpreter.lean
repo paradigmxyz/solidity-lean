@@ -1765,6 +1765,18 @@ def mappingStorageSlotForKey (slot : Word) (keyTy : Ty)
       | some bytes =>
           Except.ok (keccakWord (bytes ++ storageWordBytes slot))
       | none => Except.error RevertData.typeMismatch
+  | Ty.fixedBytes n => do
+      -- AGG1: solc hashes a `bytesN` mapping key LEFT-aligned — the value slot
+      -- is `keccak256(h(key) . slot)` where `h(key)` is the cleaned stack form
+      -- stored at memory 0, and bytesN stack values are left-aligned
+      -- (`FixedBytesType::leftAligned = true`, Types.h:701-702). Our internal
+      -- bytesN convention is right-aligned (meaningful bytes in the LOW n bytes;
+      -- :468-475), so shift the low 8n bits into the high bytes of the preimage
+      -- word before hashing. (n = 32 → shift 0, identical to a bytes32 key.)
+      let word ← coerceMappingKeyWordAs keyTy key
+      let low := SolidCore.Solidity.Shared.norm word % (2 ^ (8 * n))
+      let preimage := normWord (low * 2 ^ (8 * (wordBytes - n)))
+      Except.ok (mappingStorageSlot slot preimage)
   | _ => do
       let word ← coerceMappingKeyWordAs keyTy key
       Except.ok (mappingStorageSlot slot word)
