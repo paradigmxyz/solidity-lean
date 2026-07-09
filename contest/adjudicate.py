@@ -117,6 +117,13 @@ def load_submission(root: Path) -> tuple[Optional[Submission], Optional[Report]]
         claim = json.loads(claim_path.read_text())
     except json.JSONDecodeError as exc:
         return None, Report("REJECT_MALFORMED", reason=f"claim.json invalid JSON: {exc}")
+    # claim.json may parse to a non-object (a list / string / number). Every
+    # downstream access is `claim.get(...)`, which would raise an UNCAUGHT
+    # AttributeError and crash the adjudicator (audit finding: claim-field type
+    # confusion). Require a JSON object.
+    if not isinstance(claim, dict):
+        return None, Report("REJECT_MALFORMED",
+                            reason="claim.json must be a JSON object")
 
     src_dir = root / "src"
     sources = sorted(src_dir.glob("*.sol")) if src_dir.is_dir() else []
@@ -132,6 +139,13 @@ def load_submission(root: Path) -> tuple[Optional[Submission], Optional[Report]]
         if key not in claim:
             return None, Report("REJECT_MALFORMED", reason=f"claim.json missing '{key}'")
     entry = claim["entry"]
+    # `entry` must be a JSON object: a non-dict (int/str/list) makes the `key not
+    # in entry` membership test below crash (TypeError on int) or pass spuriously
+    # on a string substring match, and the later `entry.get(...)` in adjudicate()
+    # raise an uncaught AttributeError (audit finding: claim-field type confusion).
+    if not isinstance(entry, dict):
+        return None, Report("REJECT_MALFORMED",
+                            reason="claim.entry must be a JSON object")
     for key in ("contract", "function"):
         if key not in entry:
             return None, Report("REJECT_MALFORMED", reason=f"claim.entry missing '{key}'")
@@ -836,10 +850,16 @@ def _arg_domain_error(arg: object, ptype: str,
             return None
         return f"address/contract arg out of range [0, 2^160): {arg!r}"
     if t == "bytes32":
-        # every 32-byte value is a valid bytes32 (no padding constraint).
-        if _arg_as_word(arg) is not None or (isinstance(arg, dict) and "bytes" in arg):
+        # every 32-byte value is a valid bytes32 (no padding constraint), BUT it
+        # must be given in the WORD form. The {"bytes":..} form is out (audit
+        # finding, CONTEST-BREAKING): measure._encode_arg ALWAYS encodes {bytes}
+        # as a DYNAMIC value (offset+length+data), so a static bytes32 parameter
+        # decodes the head word as the OFFSET (0x20) on the EVM, while solidity-lean
+        # gets a Value.bytes — two different logical calls, a fabricated divergence.
+        # A bytes32 value must be passed as {"word": <int>} (static 32-byte head).
+        if _arg_as_word(arg) is not None:
             return None
-        return f"bytes32 arg requires a word or bytes form, got {arg!r}"
+        return f"bytes32 arg requires the word form {{\"word\": n}}, got {arg!r}"
     if t.startswith("enum "):
         canonical = t[len("enum "):].strip()
         count = enum_counts.get(canonical)

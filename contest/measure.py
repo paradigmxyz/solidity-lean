@@ -238,7 +238,11 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
         f"vm.prevrandao(bytes32(uint256({ov.prevrandao})));",
         f"vm.coinbase(address(uint160({ov.coinbase})));",
     ]
-    for addr, amt in ov.deals:
+    # Use the last-wins-normalized deals so the EVM balance matches the solidity-lean
+    # (first-wins list) balance for a repeated deal to the same address (env.py
+    # effective_deals). vm.deal SETS a balance, so emitting only the last amount
+    # per address is equivalent to replaying them all and strictly clearer.
+    for addr, amt in ov.effective_deals():
         pin.append(f"vm.deal(address(uint160({addr})), {amt});")
     if ov.value:
         pin.append(f"vm.deal(address(this), {ov.value});")

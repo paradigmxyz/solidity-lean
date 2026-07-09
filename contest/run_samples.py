@@ -334,6 +334,53 @@ def hardening_unit_tests() -> tuple[bool, str]:
                    _nf != "revert|custom:E:[w:1,w:2,w:3]"
                    and _nf.startswith("revert|custom:E:")))
 
+    # deal last-wins parity (this audit): a repeated vm.deal to the SAME address
+    # must mirror to the SAME balance on both engines. The solidity-lean list lookup
+    # is FIRST-wins while Foundry vm.deal is last-wins, so effective_deals must
+    # dedup to the LAST amount per address (else a fake wrong-value SOUNDNESS_GAP).
+    from contest import env as _cenv
+    _ov = _cenv.EnvOverrides()
+    _ov.deals = [(0xAAAA, 100), (0xBBBB, 5), (0xAAAA, 200)]
+    checks.append(("deal-lastwins",
+                   dict(_ov.effective_deals()) == {0xAAAA: 200, 0xBBBB: 5}))
+    checks.append(("deal-lastwins-lean",
+                   _ov.lean_balances() == "[(43690, 200), (48059, 5)]"))
+    checks.append(("deal-empty-unchanged",
+                   _cenv.EnvOverrides().effective_deals() == []))
+
+    # bytes32 arg must be the WORD form: the {bytes} form is ABI-encoded DYNAMICALLY
+    # (offset word 0x20) but a static bytes32 param reads the head word, diverging
+    # from solidity-lean's Value.bytes -> a fabricated call. Word form OK; {bytes} out.
+    checks.append(("bytes32-word-ok",
+                   adj._arg_domain_error({"word": 0x1122}, "bytes32", {}) is None))
+    checks.append(("bytes32-bytes-rejected",
+                   adj._arg_domain_error({"bytes": "0x" + "11" * 32}, "bytes32", {})
+                   is not None))
+    # dynamic bytes/string still accept {bytes} (they ARE dynamically encoded).
+    checks.append(("bytes-dyn-ok",
+                   adj._arg_domain_error({"bytes": "0x1122"}, "bytes", {}) is None))
+
+    # claim-field type confusion: a non-object claim.json / non-object entry must
+    # be REJECT_MALFORMED, not an uncaught crash (audit finding).
+    import tempfile as _tf, json as _json
+    def _mkclaim(obj):
+        d = _tf.mkdtemp(prefix="contest-load.")
+        (Path(d) / "src").mkdir()
+        (Path(d) / "src" / "S.sol").write_text("contract S {}")
+        (Path(d) / "test").mkdir()
+        (Path(d) / "claim.json").write_text(_json.dumps(obj))
+        return Path(d)
+    _sub1, _rep1 = adj.load_submission(_mkclaim([1, 2, 3]))
+    checks.append(("claim-nonobject", _sub1 is None and
+                   _rep1 is not None and _rep1.verdict == "REJECT_MALFORMED"))
+    _sub2, _rep2 = adj.load_submission(_mkclaim({"lane": "S", "entry": 5}))
+    checks.append(("entry-nonobject", _sub2 is None and
+                   _rep2 is not None and _rep2.verdict == "REJECT_MALFORMED"))
+    _sub3, _rep3 = adj.load_submission(
+        _mkclaim({"lane": "S", "entry": "contract function"}))
+    checks.append(("entry-string", _sub3 is None and
+                   _rep3 is not None and _rep3.verdict == "REJECT_MALFORMED"))
+
     ok = all(v for _n, v in checks)
     detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
     return ok, detail
