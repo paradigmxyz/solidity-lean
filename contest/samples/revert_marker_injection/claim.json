@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Injector", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - marker-injection hardening probe: f() reverts with an Error(string) reason containing |, ##EVT##, ##STO##, and fake outcome tokens; both engines must render it identically (raw concat is symmetric).",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|error:a|b##EVT##c##STO##d revert|panic:99 success|w:5 revert|custom:X:1##EVT####STO##" },
+  "feature": "revert-marker-injection",
+  "register_version_seen": "1.2.0"
+}

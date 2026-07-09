@@ -416,14 +416,26 @@ _STO_SEP = "##STO##"
 def _split_sections(raw: str) -> tuple[str, Optional[str], Optional[str]]:
     """Split a raw normal form into (outcome_line, events, storage). The events
     and storage sections are optional (absent on a solidity-lean-reject, or when the
-    engine did not emit them)."""
+    engine did not emit them).
+
+    Split from the RIGHT (rsplit): the ``##EVT##``/``##STO##`` markers are appended
+    STRUCTURALLY after the outcome (``outcome ##EVT## events ##STO## storage``), and
+    the events/storage sections are always marker-free (renderEvents emits numeric
+    topics + ``hexOfBytes`` data; renderStorage emits ``slot:value`` numeric words).
+    The OUTCOME, by contrast, can carry a submitter-controlled raw string — an
+    ``Error(string)`` revert reason (``error:`` ++ s) or a custom-error string arg —
+    that may itself contain the literal marker text. Splitting on the FIRST marker
+    then truncated the outcome at the injected marker, so two DIFFERENT revert
+    reasons sharing a pre-marker prefix compared EQUAL — a real wrong-revert
+    divergence could be MASKED (comparator over-accept). rsplit keys on the true
+    trailing structural markers, leaving an injected outcome intact."""
     storage = None
     events = None
     text = raw
     if _STO_SEP in text:
-        text, storage = text.split(_STO_SEP, 1)
+        text, storage = text.rsplit(_STO_SEP, 1)
     if _EVT_SEP in text:
-        text, events = text.split(_EVT_SEP, 1)
+        text, events = text.rsplit(_EVT_SEP, 1)
     return text, events, storage
 
 
