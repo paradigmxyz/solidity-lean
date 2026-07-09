@@ -7133,6 +7133,45 @@
      }
     ]
    }
+  },
+  {
+   "name": "selfdestruct-balance",
+   "description": "Forge checks the selfdestruct balance transfer (gap CS1): selfdestruct(recipient) moves the contract's entire balance to the recipient and zeroes self (a distinct recipient is credited; the self-recipient edge ends at 0). EIP-6780 only governs deletion, which stays recorded. Lean imports the same source and checks the paired source-interpreter post-selfdestruct balances (self=0, recipient credited) plus the recorded selfdestruct effect.",
+   "forge": {
+    "root": "tests/forge-harness/selfdestruct-balance",
+    "match_contract": "SelfdestructBalanceForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/selfdestruct-balance/src/SelfdestructBalance.sol",
+    "contract": "SelfdestructBalance",
+    "namespace": "SolidCore.Solidity.SolcAstImport.SelfdestructBalance"
+   },
+   "solc_rejects": [],
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedSourceUnitAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.SelfdestructBalance.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "transferZeroesSelfCreditsRecipient",
+      "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.SelfdestructBalance.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SelfdestructBalance\"\n  let ctx := { contract.core.context with self := 0xcafe, accountBalances := [(0xcafe, 100), (0xbeef, 0)] }\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 128 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"blow\" ctx SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  let st := SolidCore.Solidity.Source.CallResult.resultState r\n  Except.ok (SolidCore.Solidity.Source.wordEq st.selfBalance 0 && SolidCore.Solidity.Source.wordEq (st.envAccountBalance ctx 0xcafe) 0 && SolidCore.Solidity.Source.wordEq (st.envAccountBalance ctx 0xbeef) 100 && st.selfdestructEffects.length == 1))",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "selfRecipientEdgeZero",
+      "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.SelfdestructBalance.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SelfdestructBalance\"\n  let ctx := { contract.core.context with self := 0xcafe, accountBalances := [(0xcafe, 100), (0xbeef, 0)] }\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 128 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"blowSelf\" ctx SolidCore.Solidity.Source.State.empty []\n  let st := SolidCore.Solidity.Source.CallResult.resultState r\n  Except.ok (SolidCore.Solidity.Source.wordEq st.selfBalance 0 && SolidCore.Solidity.Source.wordEq (st.envAccountBalance ctx 0xcafe) 0 && st.selfdestructEffects.length == 1))",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

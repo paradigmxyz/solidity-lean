@@ -2520,6 +2520,57 @@ def debitWorldSelf (world : SolidCore.Solidity.Shared.OpenWorld)
         world.accounts.insert addr
           { account with balance := wordToU256 balance' } }
 
+/-- Credit `addr`'s balance by `amount` in the open world (used by the
+    selfdestruct balance transfer, gap CS1). -/
+def creditWorldAccount (world : SolidCore.Solidity.Shared.OpenWorld)
+    (addr : Word) (amount : Word) :
+    SolidCore.Solidity.Shared.OpenWorld :=
+  if amount == 0 then
+    world
+  else
+    let a := wordToAddress addr
+    let account := (world.accounts.find? a).getD default
+    { world with
+      accounts :=
+        world.accounts.insert a
+          { account with
+            balance :=
+              wordToU256
+                (SolidCore.Solidity.Shared.addWord
+                  (u256ToWord account.balance) amount) } }
+
+/-- Set `addr`'s balance to `amount` in the open world (used to zero the
+    self-destructing contract, gap CS1). -/
+def setWorldAccountBalance (world : SolidCore.Solidity.Shared.OpenWorld)
+    (addr : Word) (amount : Word) :
+    SolidCore.Solidity.Shared.OpenWorld :=
+  let a := wordToAddress addr
+  let account := (world.accounts.find? a).getD default
+  { world with
+    accounts :=
+      world.accounts.insert a
+        { account with balance := wordToU256 amount } }
+
+/-- `selfdestruct(recipient)` moves the contract's ENTIRE balance to `recipient`
+    (unconditionally — this is independent of EIP-6780, which only governs
+    whether the account is DELETED, tracked separately by the selfdestruct
+    record). Model it in the open/post world: credit the recipient by the self
+    balance, THEN zero self. Crediting before zeroing makes the
+    self-destruct-to-self edge net to 0 (matching the EVM, where a same-tx
+    account is deleted), and a distinct recipient is credited by the full self
+    balance. The old model recorded the (from, recipient, delete) facts but
+    moved no balance (gap CS1). -/
+def State.selfdestructTransfer (context : Context) (state : State)
+    (recipient : Word) : State :=
+  let amount := state.selfBalance
+  let world := snapshotWorld context state
+  let world := creditWorldAccount world recipient amount
+  let world := setWorldAccountBalance world context.self 0
+  { state with
+    selfBalance := 0
+    envWorld? := some world
+    worldMutatedSinceAdoption := true }
+
 /-- Apply a responder row's delta to the (possibly debit-folded) echo world:
     slot-keyed self storage/transient writes, absolute balance/nonce
     overrides, other-account fact overrides, appended callee logs, and
@@ -8733,13 +8784,19 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           | Except.ok (recipientValue, runtime') =>
               match recipientValue.expectWord with
               | Except.ok recipient =>
+                  -- CS1: compute the 6780 delete flag from the PRE-transfer
+                  -- created-accounts set, then move the full self balance to the
+                  -- recipient, then record the (from, recipient, delete) facts.
+                  let created := runtime'.state.envCreatedAccounts context
+                  let transferred :=
+                    runtime'.state.selfdestructTransfer context recipient
                   pure
                     (Result.selfdestructed
                       { runtime' with
                         state :=
-                          runtime'.state.recordSelfdestruct
+                          transferred.recordSelfdestruct
                             context.evmVersion
-                            (runtime'.state.envCreatedAccounts context)
+                            created
                             context.self recipient })
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)

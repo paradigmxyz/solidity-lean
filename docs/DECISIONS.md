@@ -5,6 +5,45 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — CS1 fixed: selfdestruct performs the balance transfer
+
+Gap CS1 (missing effect / wrong-value) in `Stmt.selfdestruct`
+(`SolidCore/Solidity/Interpreter.lean`).
+
+**solc-confirmed behavior (probed pinned solc 0.8.35 + Foundry).**
+`selfdestruct(recipient)` transfers the contract's ENTIRE balance to
+`recipient` unconditionally — this is independent of EIP-6780, which only
+governs whether the account is DELETED (a same-transaction-created account is
+deleted). Probe: a `Bomb` funded with 100 that `selfdestruct(sink)`s leaves
+`address(bomb).balance == 0` and credits `sink` by 100; the
+`selfdestruct(self)` edge ends at balance 0 (same-tx account deleted).
+
+**The bug.** The interpreter faithfully recorded the selfdestruct facts
+(`from`, `recipient`, the 6780 delete flag) via `State.recordSelfdestruct` but
+moved NO balance — self was never zeroed and the recipient never credited
+(asymmetric with call/create value transfer, which is modeled via the
+responder's postWorld debit).
+
+**The fix (`~:2525-2590`, `~:8781`).** Added `creditWorldAccount` /
+`setWorldAccountBalance` open-world helpers and `State.selfdestructTransfer`:
+on selfdestruct, snapshot the open world, credit the recipient by the self
+balance, THEN zero self (both in the world and the `selfBalance` field).
+Crediting before zeroing makes the self-destruct-to-self edge net to 0
+(matching the EVM's deletion of the same-tx account) while a distinct recipient
+is credited the full balance. The 6780 delete flag is still recorded, from the
+PRE-transfer created-accounts set (unchanged).
+
+**Forge-verified observable / lane.** New lane
+`tests/forge-harness/selfdestruct-balance` (`SelfdestructBalance`). Forge
+ground truth: transfer to a distinct sink → self 0, sink +100; self-recipient
+edge → 0. The paired Lean witnesses import the same source, drive
+`blow`/`blowSelf` under an empty responder, and assert the post-selfdestruct
+balances (`selfBalance == 0`, recipient credited, self-recipient edge 0) plus
+the recorded selfdestruct effect. `lake build SolidCore` green; smoke replay
+green with identical values (28/28 `lean=ok`); lane `forge=ok lean=ok
+compare=pass`; the selfdestruct-touching `terminal-statements` lane still
+`lean=ok`.
+
 ## 2026-07-08 — CB1 + A2 fixed: try/catch dispatch by revert kind
 
 Gap CB1 (wrong-branch + wrong-value) and gap A2 (dispatch order), both in the
