@@ -168,19 +168,23 @@ def coverage_fingerprint(solidus: hb.SolidusResult) -> tuple:
 
 
 def _first_token(msg: str) -> str:
-    """Extract a stable minimal node-type/field token from a fail message.
+    """Extract a STABLE, collision-resistant node-type/field identity from a fail
+    message (review D-2).
 
     Importer fail() messages have the shape
-        "... nodes present: SomeNode"
+        "... nodes present: NodeA, NodeB"
         "... child fields present: Parent.field"
-    so the identifying token is the first item AFTER the last "present:". We
-    skip the boilerplate ("Solidity", "AST", ...) preceding it."""
+    Rather than take only the first word (which collides when two different gaps
+    both bottom out in, say, `Mapping`, and is order-sensitive when solc lists
+    several nodes), we collect ALL tokens after the last "present:", keep dotted
+    field paths intact, dedupe and SORT them, and join — so the identity is
+    deterministic and distinguishes distinct node/field sets."""
     if "present:" in msg:
-        tail = msg.split("present:", 1)[1]
-        for word in tail.replace(",", " ").split():
-            word = word.strip("()")
-            if word:
-                return word
+        tail = msg.rsplit("present:", 1)[1]
+        toks = [t.strip("() ") for t in tail.replace(",", " ").split()]
+        toks = [t for t in toks if t and t.lower() not in ("and", "or")]
+        if toks:
+            return "+".join(sorted(set(toks)))
     for word in msg.replace(":", " ").replace(",", " ").split():
         if word[:1].isupper() and word.isalnum() and word not in ("Solidity", "AST"):
             return word
@@ -417,10 +421,17 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 "importer reports an EXCLUDED node the gate did not catch "
                 "(register/importer drift - gate bug, §2), not a coverage gap"),
                 evidence=evidence)
-        sub_kind = ("over_reject" if solidus.stage == "run" else "missing_feature")
+        # Sub-kind follows the importer/typecheck REASON CLASS, not the stage
+        # (review D-1): a type/elaboration reject of a solc-accepted program is
+        # an over-reject; unimplemented/unclassified/unknown is a missing feature.
+        reason_class = finger[1]
+        sub_kind = ("over_reject" if reason_class in ("over_reject", "typecheck_reject")
+                    else "missing_feature")
+        evidence["coverage_reason_class"] = reason_class
         report = Report("COVERAGE_GAP", lane="C", reason=(
-            f"Solidus fails closed ({solidus.stage}: {sub_kind}) on an in-scope, "
-            f"solc-accepted program"), evidence=evidence)
+            f"Solidus fails closed ({solidus.stage}: {sub_kind}, "
+            f"{reason_class}) on an in-scope, solc-accepted program"),
+            evidence=evidence)
         _annotate_dedup(report, "C", finger, finger[2])
         return report
 

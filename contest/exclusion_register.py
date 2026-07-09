@@ -68,6 +68,26 @@ def _load_importer_excluded_node_types() -> dict[str, str]:
 EXCLUDED_NODE_TYPES: dict[str, str] = _load_importer_excluded_node_types()
 
 
+def _semver_tuple(v: str) -> tuple[int, ...]:
+    """Parse a dotted semver into an int tuple (missing/garbage parts -> 0)."""
+    parts: list[int] = []
+    for p in str(v).split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def _semver_lt(a: str, b: str) -> bool:
+    """True if version ``a`` is strictly less than ``b`` (component-wise)."""
+    ta, tb = _semver_tuple(a), _semver_tuple(b)
+    n = max(len(ta), len(tb))
+    ta += (0,) * (n - len(ta))
+    tb += (0,) * (n - len(tb))
+    return ta < tb
+
+
 @dataclass(frozen=True)
 class ExclusionEntry:
     """One row of the register (design §1.3)."""
@@ -85,13 +105,21 @@ class ExclusionEntry:
     node_types: tuple[str, ...] = field(default_factory=tuple)
 
     def is_active(self, at_version: Optional[str] = None) -> bool:
-        """A row is active unless it was retired at/ before ``at_version``.
+        """Is this row in force at register version ``at_version`` (§7 fairness).
 
-        (v1 uses simple presence; full semver-window comparison is a v1.x
-        refinement noted in §7. Since REGISTER_VERSION never rewinds within a
-        contest, ``removed_in_version is None`` is the operative predicate.)
-        """
-        return self.removed_in_version is None
+        A submission is judged against the register in force at its timestamp, so
+        the window is: active iff ``since_version <= at_version`` AND
+        (not yet removed OR ``at_version < removed_in_version``). With
+        ``at_version is None`` (the live register), a row is active iff it has not
+        been removed."""
+        if at_version is None:
+            return self.removed_in_version is None
+        if _semver_lt(at_version, self.since_version):
+            return False  # row did not exist yet at at_version
+        if self.removed_in_version is not None and \
+                not _semver_lt(at_version, self.removed_in_version):
+            return False  # row was retired at/before at_version
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +202,7 @@ _SYNTACTIC: list[ExclusionEntry] = [
         id="X-EXTCALL",
         kind="syntactic",
         detector="detect_external_call",
+        since_version="1.2.0",
         reason=(
             "External calls are not modeled in the v1 single-contract path: the "
             "responder-free interpreter answers every external call with a fixed "
@@ -237,6 +266,7 @@ _SEMANTIC: list[ExclusionEntry] = [
         id="SEM-ENV",
         kind="semantic",
         detector="detect_env_observable",
+        since_version="1.1.0",
         reason=(
             "An observable derived from an UNPINNABLE env fact - blockhash(n) / "
             "blobhash(i) - flowing into an assertion or observed return. The "
@@ -263,19 +293,20 @@ _SEMANTIC: list[ExclusionEntry] = [
 ]
 
 
-def all_entries(include_retired: bool = False) -> list[ExclusionEntry]:
+def all_entries(include_retired: bool = False,
+                at_version: Optional[str] = None) -> list[ExclusionEntry]:
     entries = _SYNTACTIC + _SEMANTIC
     if include_retired:
         return list(entries)
-    return [e for e in entries if e.is_active()]
+    return [e for e in entries if e.is_active(at_version)]
 
 
-def syntactic_entries() -> list[ExclusionEntry]:
-    return [e for e in _SYNTACTIC if e.is_active()]
+def syntactic_entries(at_version: Optional[str] = None) -> list[ExclusionEntry]:
+    return [e for e in _SYNTACTIC if e.is_active(at_version)]
 
 
-def semantic_entries() -> list[ExclusionEntry]:
-    return [e for e in _SEMANTIC if e.is_active()]
+def semantic_entries(at_version: Optional[str] = None) -> list[ExclusionEntry]:
+    return [e for e in _SEMANTIC if e.is_active(at_version)]
 
 
 def entry_by_id(entry_id: str) -> Optional[ExclusionEntry]:
