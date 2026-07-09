@@ -1,7 +1,7 @@
 {
   "lane": "S",
   "entry": { "contract": "EvSt", "function": "run", "args": [5], "value": 0 },
-  "expected_divergence": "Control for events+storage comparison: emits Ping(5,7) and writes slot0=5, slot1=6. Solidus and solc+EVM should agree on return, events, and observed storage -> NO_DIVERGENCE.",
+  "expected_divergence": "Control for events+storage comparison: emits Ping(5,7) and writes slot0=5, slot1=6. solidity-lean and solc+EVM should agree on return, events, and observed storage -> NO_DIVERGENCE.",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:8" },
   "feature": "events-and-storage-observable",
   "observed_slots": [0, 1],

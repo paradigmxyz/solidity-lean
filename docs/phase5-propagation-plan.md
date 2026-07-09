@@ -36,7 +36,7 @@ never again hide behind a green replay. Commit stage 0 on its own.
    is `TryCatchClause.findMatch? output` on the answer's bytes (7085–7099);
    same for `Stmt.tryContractCreate` (7111–7183). Monadic `tryCatch` would
    model *nothing* that the semantics does at try/catch — model B's main
-   selling point is vacuous here. (Solidus needs throw-based reverts
+   selling point is vacuous here. (solidity-lean needs throw-based reverts
    because its callee *executes*; ours never does, by design — "Closed-world
    multi-contract execution: out of scope by design", ROADMAP.md.)
 2. **`Result` is a six-way control-flow word, not an error channel.**
@@ -320,7 +320,7 @@ Found during planning; not in the roadmap's three-residue list:
 `Context.ecrecoverAt` (1565) and `ExternalHashKind.lookup?` (1570) read
 `context.lowLevelCallResults` via `Precompile.lookup?` (1552–1557). The
 roadmap's alphabet decision says precompile calls are environment-answered
-external requests (Solidus-matching), and these reads *block deleting the
+external requests (solidity-lean-matching), and these reads *block deleting the
 field* at stage 3 regardless. Convert their evaluator call sites (the
 `Expr.externalHash` arm, 4365's evaluator case, and the ecrecover builtin —
 locate via `grep -n "ecrecoverAt\|ExternalHashKind.lookup?"`) to emit

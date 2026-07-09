@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 // Narrow-arithmetic-widened soundness gap (recorded in the G15 note): solc
 // computes a binary arithmetic op at the OPERANDS' common type regardless of a
 // wider assignment / return target, so a narrow overflow Panics 0x11 even when
-// the result is widened afterwards. Solidus formerly cleaned only at the target
+// the result is widened afterwards. solidity-lean formerly cleaned only at the target
 // width and silently produced the (fitting) wide value.
 contract NarrowArithWidenedHarnessTarget {
     // uint8 + uint8 assigned/returned as uint16.

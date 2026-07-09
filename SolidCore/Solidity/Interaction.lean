@@ -27,7 +27,7 @@ abbrev Answer := EvmCompiler.Simulation.Answer
 /-- The world snapshot carried by an external query. -/
 abbrev OpenWorld := EvmCompiler.Simulation.OpenWorld
 
-/-- The composition relation all of Solidus's theorems are stated in. -/
+/-- The composition relation all of solidity-lean's theorems are stated in. -/
 abbrev ForwardRel := @EvmCompiler.Simulation.Interaction.ForwardRel
 
 end Shared

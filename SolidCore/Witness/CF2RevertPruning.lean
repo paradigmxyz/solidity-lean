@@ -4,7 +4,7 @@ CF2 — revert-pruning of always-reverting callees (2026-07-08).
 solc's `ControlFlowRevertPruner` reroutes a call to a callee that ALWAYS
 reverts to the revert node, so paths after such a call cannot reach the
 function exit; the storage/calldata-pointer-return definite-assignment check
-(error 3464) then runs on the pruned CFG. Solidus previously modelled a call as
+(error 3464) then runs on the pruned CFG. solidity-lean previously modelled a call as
 a normal returning node, over-rejecting a `returns (T storage p)` whose only
 unmet-obligation path runs through an always-reverting helper.
 

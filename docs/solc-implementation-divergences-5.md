@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 5)
+# Implementation-level solc-vs-solidity-lean divergence review (round 5)
 
 **Fifth implementation-level pass.** Rounds 1–4
 (`docs/solc-implementation-divergences.md`, `-2.md`, `-3.md`, `-4.md`) read the
@@ -16,8 +16,8 @@ literal/escape/checksum validation, the Yul allocation sequence).
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD `c5bb53b`. Canonical semantics
-files are `SolidCore/Solidity/*.lean`. Nothing was built or run for Solidus; a
+solidity-lean at `codex/solidity-semantics-only` HEAD `c5bb53b`. Canonical semantics
+files are `SolidCore/Solidity/*.lean`. Nothing was built or run for solidity-lean; a
 handful of tiny **accept/reject** probes used the pinned `solc 0.8.35` binary
 (`/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35`). Findings are
 **CONFIRMED** (both sides read to the rule, usually + probe) or **INFERRED**
@@ -30,7 +30,7 @@ handful of tiny **accept/reject** probes used the pinned `solc 0.8.35` binary
 **Families / passes actually read (code, not tests), both sides:**
 
 - **AD1 target** — solc `TypeChecker` fixed-array param acceptance + `ABIFunctions`
-  `abiDecodingFunctionArray` (nested/static + dynamic-element) ↔ Solidus's
+  `abiDecodingFunctionArray` (nested/static + dynamic-element) ↔ solidity-lean's
   external calldata decode boundary `Contract.callCalldataAtFromWithContext?` →
   `decodeFunctionArgs?` → `decodeArgs?` → the fixed-array arm of
   `decodeValueAtWithFuel?` (`ABI.lean:389-406`, plus `Ty.isDynamicAbi`,
@@ -39,13 +39,13 @@ handful of tiny **accept/reject** probes used the pinned `solc 0.8.35` binary
 - `TypeChecker::visit(FunctionCallOptions)` chained-`{...}{...}` rule
   (`1645_error`) ↔ importer node coverage.
 - `checkStorageSize` too-much-storage (`7676`/`5026`) and
-  `checkStorageLayoutSpecifier` (`7587`/`8894`) ↔ Solidus storage modelling.
+  `checkStorageLayoutSpecifier` (`7587`/`8894`) ↔ solidity-lean storage modelling.
 - Literal validators (address checksum, `hex"…"` odd length) run in solc's
   analysis phase before AST export ↔ importer.
 
 **Headline: NO new wrong-VALUE / wrong-ORDER soundness divergence, and the
 priority target AD1 does NOT reproduce.** The fixed-array-element external ABI
-calldata decoder in Solidus is **faithful** — value-correct and revert-correct —
+calldata decoder in solidity-lean is **faithful** — value-correct and revert-correct —
 for single-level, nested-static, and dynamic-element fixed arrays. The
 single-level case (`uint8[2]` calldata) is already **differentially replay-green**
 in the corpus (the `AbiMalformed` case drives it through `callCalldata`); the
@@ -73,7 +73,7 @@ gap at the external ABI boundary is confirmed **not to exist**.
 
 **Claim under test:** calling an external function whose parameter has a
 fixed-array element type (e.g. `function packMatrix(uint8[2][2] calldata)
-external`) through Solidus's external-call boundary / ABI calldata decoder
+external`) through solidity-lean's external-call boundary / ABI calldata decoder
 *panics* (or over-rejects), though solc compiles it and the EVM decodes it.
 
 ### solc side — accepts and decodes (probe CONFIRMED)
@@ -94,7 +94,7 @@ solc emits `abi_decode_tuple_t_array$_t_uint8_$2_memory_ptr_$2_…` /
 `abi_decode_available_length_…` decoders for the fixed-array params. A
 fixed-array parameter (nested or not) is a fully legal external parameter.
 
-### Solidus side — faithful (decoder read + traced; single-level corpus-green)
+### solidity-lean side — faithful (decoder read + traced; single-level corpus-green)
 
 The external ABI boundary is `Contract.callCalldataAtFromWithContext?`
 (`ABI.lean:676-684`) → `decodeFunctionArgs?` (`ABI.lean:446-452`) →
@@ -166,7 +166,7 @@ The `AbiMalformed` case (`tests/forge-harness/manifest.json:3995`) drives the
 buffer, the empty revert on a dirty *read* element, and the lazy success on a
 dirty *unread* element, all matching Forge/EVM. So the single-level
 fixed-array-element calldata decode path is **differentially confirmed** (part of
-the 105/105 replay-green suite). Solidus's typechecker also **accepts** nested
+the 105/105 replay-green suite). solidity-lean's typechecker also **accepts** nested
 `uint8[2][2]` (pinned by the PK1 nested-static-array witness,
 `tests/forge-harness/manifest.json:6789`). Nesting and dynamic-element variants
 reuse the same recursive arm traced above.
@@ -192,11 +192,11 @@ gap is confirmed absent.
   error**. Probe: `uint256[2**256-1][2**256-1] x;` →
   `Error: Contract requires too much storage.` and
   `Error: Type too large for storage.` (pinned solc rejects; no `--bin`).
-- **Solidus** models storage as an address-indexed word map (no `2**256`-slot
+- **solidity-lean** models storage as an address-indexed word map (no `2**256`-slot
   cap surfaced at the value level; storage packing/layout is faithful — verified
   rounds 1–3 for the value semantics). The 256-slot-overflow *acceptance* rule is
   not independently modelled.
-- **Reachability: IMPORTER-MASKED.** solc rejects → no AST is exported → Solidus
+- **Reachability: IMPORTER-MASKED.** solc rejects → no AST is exported → solidity-lean
   never sees an over-large layout in the differential harness. Value level is
   faithful; the acceptance rule matters only to a standalone acceptance oracle.
   CONFIRMED (probe + read). Not a differential divergence.
@@ -208,7 +208,7 @@ gap is confirmed absent.
   `i.f{value:1}{gas:2}()` →
   `Error: Function call options have already been set, you have to combine them
   into a single {...}-option.` (pinned solc rejects).
-- **Solidus** has no chained-options arm; each `Expr.callWithOptions` arm accepts
+- **solidity-lean** has no chained-options arm; each `Expr.callWithOptions` arm accepts
   a single option set (round 4 §3). Because solc rejects the chained form, the
   importer never exports a doubly-nested `FunctionCallOptions` AST.
 - **Reachability: IMPORTER-MASKED.** Round-4's UNTESTED corner now resolved:
@@ -223,10 +223,10 @@ gap is confirmed absent.
   `address a = 0xAbCdEf…;` → `Error: … invalid checksum. Correct checksummed
   address: "0xabCDeF…"`; `return hex"abc";` → `Error: Expected even number of
   hex-nibbles.`
-- **Solidus** consumes solc's already-parsed literal values from the AST; it does
+- **solidity-lean** consumes solc's already-parsed literal values from the AST; it does
   not re-run source-level literal validation.
 - **Reachability: IMPORTER-MASKED.** solc rejects the source → no AST → not
-  independently modelled by Solidus; acceptance-oracle-only. CONFIRMED (probes).
+  independently modelled by solidity-lean; acceptance-oracle-only. CONFIRMED (probes).
 
 ## T5 — `abiDecodingFunctionStruct` free-memory-pointer allocation sequence — NOT A FINDING
 
@@ -234,7 +234,7 @@ solc's struct/array decoders bump the free-memory pointer (allocate a fresh
 memory object per aggregate) in a fixed order. This is a pure **Yul
 allocation-order** property, invisible to a value-level Solidity semantics: no
 Solidity-observable value, revert, event, or return depends on the concrete
-memory addresses chosen. Solidus reproduces the observable (values + bounds
+memory addresses chosen. solidity-lean reproduces the observable (values + bounds
 reverts, rounds 1–2 + round 4 §4); the bump order itself is out of scope for a
 value semantics and produces no divergence. **Explicitly not a finding.**
 
@@ -272,7 +272,7 @@ value semantics and produces no divergence. **Explicitly not a finding.**
 
 The fifth pass targeted the one suspected high-value external-boundary
 soundness/completeness gap (**AD1**) and the round-4 still-not-reached acceptance
-families. **AD1 is refuted:** Solidus's fixed-array-element external ABI calldata
+families. **AD1 is refuted:** solidity-lean's fixed-array-element external ABI calldata
 decoder is faithful for single-level (corpus-green), nested-static, and
 dynamic-element fixed arrays — value-correct, revert-correct, and
 fuel-sufficient. No panic, no over-reject. Every secondary target

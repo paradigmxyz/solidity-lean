@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 4)
+# Implementation-level solc-vs-solidity-lean divergence review (round 4)
 
 **Fourth implementation-level pass.** Rounds 1–3
 (`docs/solc-implementation-divergences.md`, `-2.md`, `-3.md`) read the arithmetic
@@ -20,7 +20,7 @@ angles:
    `TypeChecker::visit(FunctionCallOptions)`.
 3. **Struct/nested ABI encode+decode at the byte level** (`ABIFunctions.cpp`
    `abiDecodingFunctionStruct` and array/tuple decoders) — head/tail offsets, the
-   "tail past end reverts" bounds checks, per-element fuel — vs Solidus
+   "tail past end reverts" bounds checks, per-element fuel — vs solidity-lean
    `ABI.lean` decode.
 4. **Event / error parameter rules** — indexed count ≤ 3 (≤ 4 anonymous),
    indexed reference types, mapping-typed params, reserved `Error`/`Panic`
@@ -28,9 +28,9 @@ angles:
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD `6f5ad5e`. Canonical semantics
+solidity-lean at `codex/solidity-semantics-only` HEAD `6f5ad5e`. Canonical semantics
 files are `SolidCore/Solidity/*.lean` (all line numbers below are in that
-directory). Nothing was built or run for Solidus; a handful of tiny
+directory). Nothing was built or run for solidity-lean; a handful of tiny
 **accept/reject** probes used the pinned `solc 0.8.35` binary
 (`/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35`). Findings are
 **CONFIRMED** (both sides read to the rule, usually + probe) or **INFERRED**
@@ -43,22 +43,22 @@ directory). Nothing was built or run for Solidus; a handful of tiny
 **Families / passes actually read (code, not tests), both sides:**
 
 - `TypeChecker::endVisit(UsingForDirective)` (`TypeChecker.cpp:3995-4270`, whole
-  body incl. operator-binding sub-block) ↔ Solidus `UsingDecl.checkCore` /
+  body incl. operator-binding sub-block) ↔ solidity-lean `UsingDecl.checkCore` /
   `checkFileLevel` / `checkContractLevel` / `UsingFunction.check` /
   `FunctionSig.matchesUserDefinedOperatorDecl` / `CheckEnv.resolveUsingBinary
   /UnaryOperator?` (`TypeCheck.lean:12070-12112, 12002-12060, 3827-3846,
   4014-4032`).
 - `TypeChecker::visit(FunctionCallOptions)` (`TypeChecker.cpp:2884-3035`, whole
-  body) ↔ Solidus's four `Expr.callWithOptions` arms (`new`, ident/function
+  body) ↔ solidity-lean's four `Expr.callWithOptions` arms (`new`, ident/function
   pointer, member, generic) + `requireCallOptionsAllowedNames` /
   `requireValueOptionAllowed` / `ensureUniqueNames "call option"`
   (`TypeCheck.lean:6488-6821, 4095-4203`).
 - `ABIFunctions.cpp` `abiDecodingFunctionStruct` / `abiDecodingFunctionArray`
-  (+ `AvailableLength` bounds checks) ↔ Solidus `ABI.lean`
+  (+ `AvailableLength` bounds checks) ↔ solidity-lean `ABI.lean`
   `decodeValueAtWithFuel?` / `decodeArgs?` / `Ty.abiDecodeFuel`
   (`ABI.lean:141-149, 319-457`).
 - `TypeChecker` event/error visit (`TypeChecker.cpp:695-701` indexed count) ↔
-  Solidus `EventDecl.check` / `EventParam.check` / `ErrorDecl.check`
+  solidity-lean `EventDecl.check` / `EventParam.check` / `ErrorDecl.check`
   (`TypeCheck.lean:11847-11917`).
 
 **Headline: NO new wrong-VALUE / wrong-ORDER soundness divergence.** Consistent
@@ -72,18 +72,18 @@ event/error/`abi.decode` acceptance rules are **faithful** (earned negatives).
 
 | # | Area | Direction | Severity | Confidence |
 |---|------|-----------|----------|------------|
-| **UF1** | file-level `using … for T global;` where `T` is a **struct / enum / contract** (any user-defined type that is not a UDVT) | **over-reject** (Solidus rejects; solc accepts) | COMPLETENESS — **live differential edge, common real-world pattern** | CONFIRMED |
-| UF2 | operator binding `using {f as +} for T global;` where `f`'s params are **not both `T`** (e.g. `f(T, uint)`) | over-accept at decl (Solidus accepts binding; solc errors 1884) | acceptance-boundary wrong-accept — importer-masked, binding is dead at use | CONFIRMED |
-| UF3 | **duplicate** operator binding for the same operator+type never used | over-accept (Solidus errors only at use; solc errors 4705 at decl) | acceptance-boundary wrong-accept — importer-masked | INFERRED |
+| **UF1** | file-level `using … for T global;` where `T` is a **struct / enum / contract** (any user-defined type that is not a UDVT) | **over-reject** (solidity-lean rejects; solc accepts) | COMPLETENESS — **live differential edge, common real-world pattern** | CONFIRMED |
+| UF2 | operator binding `using {f as +} for T global;` where `f`'s params are **not both `T`** (e.g. `f(T, uint)`) | over-accept at decl (solidity-lean accepts binding; solc errors 1884) | acceptance-boundary wrong-accept — importer-masked, binding is dead at use | CONFIRMED |
+| UF3 | **duplicate** operator binding for the same operator+type never used | over-accept (solidity-lean errors only at use; solc errors 4705 at decl) | acceptance-boundary wrong-accept — importer-masked | INFERRED |
 
 **UF1 is the only NEW finding with a live differential edge, and it is the
 highest-impact acceptance divergence found in any round so far**: `using L for S
 global;` / `using {f} for S global;` on a struct is an *extremely common*
 real-world library idiom (a file-level library attached globally to a struct
-type). solc accepts it; Solidus rejects it on import because its file-level
+type). solc accepts it; solidity-lean rejects it on import because its file-level
 `global` rule only admits UDVT targets. UF2/UF3 are the same importer-masked
 over-accept class as round-3's CL1 (solc rejects the program → no AST is exported
-→ Solidus never sees it in the differential harness).
+→ solidity-lean never sees it in the differential harness).
 
 **No new soundness (wrong-value) divergence** — earned negative for the
 `using`-for value semantics, `FunctionCallOptions`, the struct/nested ABI codec,
@@ -112,7 +112,7 @@ and the event/error/`abi.decode` acceptance surfaces.
   **enum**, or **contract** defined in the same file is a fully legal `global`
   target — both the library form (`using L for S global;`) and the brace form
   (`using {f} for S global;`).
-- **Solidus** `UsingDecl.checkFileLevel` (`TypeCheck.lean:12095-12112`): when
+- **solidity-lean** `UsingDecl.checkFileLevel` (`TypeCheck.lean:12095-12112`): when
   `decl.global`, it requires the target to be `Solidity.Ty.user path` **and**
   `env.types.isUserValueTypePath path`. `isUserValueTypePath`
   (`TypeCheck.lean:160-163`) returns true **only for UDVTs** (it delegates to
@@ -123,17 +123,17 @@ and the event/error/`abi.decode` acceptance surfaces.
   (`UsingFunction.check:12024-12032`, matching solc's 5332) but is wrongly
   applied to *all* file-level `global` directives.
 - **Consequence:** both of the following, **accepted by solc, are rejected by
-  Solidus**:
+  solidity-lean**:
 
   ```solidity
   struct S { uint x; }
   function f(S memory s) pure returns (uint) { return s.x; }
-  using {f} for S global;               // solc: OK    Solidus: rejected
+  using {f} for S global;               // solc: OK    solidity-lean: rejected
   ```
   ```solidity
   library L { function f(S storage s) internal view returns (uint) { return s.x; } }
   struct S { uint x; }
-  using L for S global;                 // solc: OK    Solidus: rejected
+  using L for S global;                 // solc: OK    solidity-lean: rejected
   ```
 
   Both probes compiled cleanly under the pinned `solc 0.8.35`. The importer
@@ -142,7 +142,7 @@ and the event/error/`abi.decode` acceptance surfaces.
   `SOURCE_SCALAR_FIELDS` includes `('UsingForDirective','global')`), and
   `checkSourceUsingDecls` wires `checkFileLevel` at file scope
   (`TypeCheck.lean:13413-13417`). This is therefore a **live differential edge**:
-  solc emits an AST, Solidus rejects it on import. Over-reject → COMPLETENESS,
+  solc emits an AST, solidity-lean rejects it on import. Over-reject → COMPLETENESS,
   sound-preserving, but this is the highest-impact acceptance divergence surfaced
   in rounds 1–4 because global-`using`-for-struct is a mainstream library idiom.
   A fix narrows the `global` file-level gate to "target is any user-defined type
@@ -161,7 +161,7 @@ and the event/error/`abi.decode` acceptance surfaces.
   `firstParameterMatchesUsingFor` (`*usingForType == *parameterTypes.front()`) —
   i.e. **both** parameters must be exactly the target UDVT. `f(T, uint)` or
   `f(uint, T)` is rejected (1884). (Unary: exactly one parameter of type `T`.)
-- **Solidus** `FunctionSig.matchesUserDefinedOperatorDecl`
+- **solidity-lean** `FunctionSig.matchesUserDefinedOperatorDecl`
   (`TypeCheck.lean:3827-3846`), used at the declaration check
   (`UsingFunction.check:12036-12041`), requires only `sig.params.length == 2`
   (binary), `sig.mutability == pure`, `sig.returns == [resultTy]`, and
@@ -171,7 +171,7 @@ and the event/error/`abi.decode` acceptance surfaces.
   returns (T)` bound as `+` **passes** the declaration check.
 - **Consequence:** `type T is uint256; function addMixed(T,uint256) pure returns
   (T); using {addMixed as +} for T global;` is **accepted at the binding site by
-  Solidus, rejected by solc (1884)** (probe confirmed solc rejects). The binding
+  solidity-lean, rejected by solc (1884)** (probe confirmed solc rejects). The binding
   is *dead*: at a use `x + y` (both `T`), the call-site matcher
   `matchesUserDefinedBinaryOperator` (`:3803-3813`) additionally requires
   `matchesCheckedArgs [(none,lhs),(none,rhs)]` against `params [T, uint256]`, and
@@ -190,14 +190,14 @@ and the event/error/`abi.decode` acceptance surfaces.
 - **solc** `TypeChecker.cpp:4229-4254` (`4705_error`): if two visible bindings
   define the same operator for the same operand type
   (`matchingDefinitions.size() >= 2`), it is an error *at the directive*.
-- **Solidus** detects a duplicate operator binding only lazily, at a **use
+- **solidity-lean** detects a duplicate operator binding only lazily, at a **use
   site**: `CheckEnv.resolveUsingBinaryOperator?` / `…UnaryOperator?`
   (`TypeCheck.lean:4014-4032`) return `TypeError.ambiguousFunction "operator"`
   when more than one candidate matches, but there is no directive-level
   duplicate-binding check in `UsingDecl.checkCore`/`checkFileLevel`.
 - **Consequence:** a program that binds the same operator twice for one type but
-  **never uses** it is accepted by Solidus and rejected by solc (4705). When the
-  operator *is* used both reject (Solidus via `ambiguousFunction`), so the window
+  **never uses** it is accepted by solidity-lean and rejected by solc (4705). When the
+  operator *is* used both reject (solidity-lean via `ambiguousFunction`), so the window
   is exactly "duplicate binding, operator never applied". solc rejects at the
   directive → **importer-masked**. INFERRED (the use-site path is read; the
   never-used over-accept is deduced), low priority.
@@ -208,7 +208,7 @@ and the event/error/`abi.decode` acceptance surfaces.
 
 All CONFIRMED SUPPORTED except UF1–UF3 above:
 
-| solc rule (`TypeChecker.cpp` / resolver) | error | Solidus |
+| solc rule (`TypeChecker.cpp` / resolver) | error | solidity-lean |
 |---|---|---|
 | brace-list free-function must exist / library-member must exist | (name res) | `UsingFunction.check` candidate filter, `!candidates.isEmpty` (`:12041,12060`) |
 | library-form target must be a library | (name res) | `checkCore` `libraryDecl.kind == library` (`:12077-12078`) |
@@ -234,10 +234,10 @@ targets, which are already correctly barred from `global` by solc's 8841.
 ## 3. `FunctionCallOptions` — FAITHFUL (no divergence)
 
 solc `TypeChecker::visit(FunctionCallOptions)` (`TypeChecker.cpp:2884-3035`) and
-Solidus's four `Expr.callWithOptions` arms (`TypeCheck.lean:6488-6821`) agree
+solidity-lean's four `Expr.callWithOptions` arms (`TypeCheck.lean:6488-6821`) agree
 rule-for-rule:
 
-| solc rule | error | Solidus |
+| solc rule | error | solidity-lean |
 |---|---|---|
 | options only on external call / creation | 2193 | only the `new`, member-external, function-pointer, and low-level arms accept options; other call shapes have no options arm |
 | duplicate option name | 9886 | `ensureUniqueNames "call option" (CallOptions.names options)` at every arm (`:6491,6578,6672,6773`) |
@@ -262,7 +262,7 @@ divergence either way.
 
 solc's `abiDecodingFunctionStruct` / `abiDecodingFunctionArray(AvailableLength)`
 allocate a fresh memory object per struct/array and revert on an out-of-bounds
-head or tail (`offset < dataEnd`, `offset + length*stride <= dataEnd`). Solidus's
+head or tail (`offset < dataEnd`, `offset + length*stride <= dataEnd`). solidity-lean's
 `ABI.lean` decoder reproduces the observable:
 
 - **Bounds ("tail past end reverts").** Every read goes through `readWord?` /
@@ -291,20 +291,20 @@ head or tail (`offset < dataEnd`, `offset + length*stride <= dataEnd`). Solidus'
   solc's `validator` calls emitted by the struct decoder. (`:321-367`.)
 
 The Yul *allocation sequence* (free-memory-pointer bump order) is not
-independently reachable from Solidus's value-level interpreter and remains
+independently reachable from solidity-lean's value-level interpreter and remains
 observably-confirmed only (rounds 1–2); no value or revert divergence exists.
 
 ---
 
 ## 5. Event / error / `abi.decode` acceptance — FAITHFUL
 
-| solc rule | error | Solidus |
+| solc rule | error | solidity-lean |
 |---|---|---|
 | > 3 indexed args (non-anonymous event) | 7249 | `EventDecl.check` `indexedCount <= 3` (`indexedLimit:11857-11859`, check `:11885-11888`) |
 | > 4 indexed args (anonymous event) | 8598 | `indexedLimit` returns 4 when `event.anonymous` |
 | indexed **reference** types allowed (hashed) | (accepted) | `EventParam.check` requires only ABI-encodable + not-mapping (`:11861-11870`); reference types pass |
 | mapping-typed event/error param rejected | (type) | `!Ty.containsMapping` in `EventParam.check`/`checkErrorParam` (`:11869,11899`) |
-| cannot redefine built-in `Error` / `Panic` | (reserved) | `ErrorDecl.check` `require (!(name == "Error" \|\| name == "Panic"))` (`:11912-11914`); probe: solc rejects `error Error(uint)`, Solidus rejects too |
+| cannot redefine built-in `Error` / `Panic` | (reserved) | `ErrorDecl.check` `require (!(name == "Error" \|\| name == "Panic"))` (`:11912-11914`); probe: solc rejects `error Error(uint)`, solidity-lean rejects too |
 | `abi.decode(data, (T, …))` needs ≥1 target type, exactly 2 args | (arity) | `member == "decode"` arm requires exactly 2 args + `tys.length > 0` (`:6205-6222`) |
 
 All CONFIRMED SUPPORTED.
@@ -333,7 +333,7 @@ All CONFIRMED SUPPORTED.
 **Still NOT reached (worklist for a future pass):**
 
 - `abiDecodingFunctionStruct` free-memory-pointer / allocation *sequence* at the
-  emitted-Yul level — not independently reachable from Solidus's value-level
+  emitted-Yul level — not independently reachable from solidity-lean's value-level
   interpreter (observable confirmed rounds 1–2 + this round; the Yul bump order
   itself is out of scope for a value semantics).
 - Chained `f{value:}{gas:}()` (solc 1645) — resolve whether the importer
@@ -344,7 +344,7 @@ All CONFIRMED SUPPORTED.
   faithful).
 - Denomination / scientific / rational literal edge cases and `\x`/`\u` escape +
   address-checksum validation — performed by solc **before** AST export
-  (importer-masked); not independently modeled by Solidus.
+  (importer-masked); not independently modeled by solidity-lean.
 - `ControlFlowRevertPruner` full algorithm (CF2 residuals) — IN-FLIGHT sibling
   arc, not re-examined.
 
@@ -363,7 +363,7 @@ the event/error/`abi.decode` acceptance rules are **faithful** (earned
 negatives).
 
 The one NEW live divergence is **UF1**, and it is the highest-impact acceptance
-edge found across all four rounds: Solidus rejects `using L for S global;` /
+edge found across all four rounds: solidity-lean rejects `using L for S global;` /
 `using {f} for S global;` on a struct (or enum/contract) — a mainstream
 real-world library idiom — because its file-level `global` gate admits only UDVT
 targets, whereas solc admits any same-file user-defined type. It is an

@@ -1,7 +1,7 @@
 {
   "lane": "S",
   "entry": { "contract": "CB", "function": "run", "args": [], "value": 0 },
-  "expected_divergence": "ATTACK: the test forges storage via vm.store. Must be REJECTED (banned cheatcode), before Solidus is ever consulted.",
+  "expected_divergence": "ATTACK: the test forges storage via vm.store. Must be REJECTED (banned cheatcode), before solidity-lean is ever consulted.",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:42" },
   "feature": "cheatcode-vm-store",
   "register_version_seen": "1.1.0"

@@ -2701,7 +2701,7 @@ def NumberRat.exactNat? (value : NumberRat) : Option Nat := do
 -- solc constant-evaluator resource caps (`ConstantEvaluator.cpp`,
 -- `libsolutil/Numeric.cpp`, `ast/Types.cpp`). solc folds constants in unbounded
 -- signed rationals but rejects any operation whose operands/result would exceed
--- these bit budgets; we replicate the exact thresholds so Solidus rejects the
+-- these bit budgets; we replicate the exact thresholds so solidity-lean rejects the
 -- same programs solc does (closing the CE-6a over-accept family).
 def uint32MaxNat : Nat := 4294967295          -- std::numeric_limits<uint32_t>::max()
 def int32MaxNat : Nat := 2147483647           -- std::numeric_limits<int32_t>::max()
@@ -3038,7 +3038,7 @@ def NumberRat.integerMobile? (v : NumberRat) : Option Int := do
 
 -- solc does not fold comparisons: both operands are converted to their mobile
 -- types and compared (Types.cpp:1117-1126). The comparison is well-typed only
--- when those mobile types share a common type. We reproduce that gate so Solidus
+-- when those mobile types share a common type. We reproduce that gate so solidity-lean
 -- rejects the same programs: two integers both need an integer mobile type and a
 -- common integer type (mixed-sign requires the positive side ≤ 2^255−1); two
 -- fractionals always share a common fixed type; a mix of integer and fractional
@@ -6756,7 +6756,7 @@ def Expr.isFixedBytesBitOpShape : Expr -> Bool
     cleanup solc emits after every `bytesN <<` and `~bytesN`.
 
     solc stores `bytesN` **left-aligned** and wraps every `<<` and `~` result in
-    `cleanup_t_bytesN`. Solidus stores `bytesN` **right-aligned** (meaningful
+    `cleanup_t_bytesN`. solidity-lean stores `bytesN` **right-aligned** (meaningful
     bytes low), so `<<` and `~` are exactly the operators that push meaningful
     bits *above* the low `size`-byte lane. Each such result is masked back with
     `fixedBytesCast size size` (take the low `size` bytes — a no-op for

@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 6 — unexplored codegen)
+# Implementation-level solc-vs-solidity-lean divergence review (round 6 — unexplored codegen)
 
 **Sixth implementation-level pass.** Rounds 1–5
 (`docs/solc-implementation-divergences.md`, `-2.md`, `-3.md`, `-4.md`, `-5.md`)
@@ -9,15 +9,15 @@ REFUTED), and the analysis-pass ACCEPTANCE rules
 `PostType`/`Immutable`/`DeclarationType`) — **no wrong-VALUE divergence** in five
 rounds. This round deliberately targets the surfaces those rounds did NOT cover:
 **value-producing codegen** — function-call selector/return-data/revert-decode,
-event/error topic and selector computation, the value builtins Solidus
+event/error topic and selector computation, the value builtins solidity-lean
 *recomputes* (`interfaceId`, `bytes.concat`, `addmod`/`mulmod`, `type(T).min/max`,
 `keccak`/precompile framing, external-fn-pointer `.selector`/`.address`), and the
 calldata-slice `a[i:j]` value/bounds path.
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD `0743b0e`. Canonical semantics
-files are `SolidCore/Solidity/*.lean`. Nothing was built or run for Solidus;
+solidity-lean at `codex/solidity-semantics-only` HEAD `0743b0e`. Canonical semantics
+files are `SolidCore/Solidity/*.lean`. Nothing was built or run for solidity-lean;
 tiny accept/compile probes used the pinned `solc 0.8.35`
 (`/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35`). Findings are
 **CONFIRMED** (both sides read to the rule/emitted-Yul, usually + probe) or
@@ -54,16 +54,16 @@ tiny accept/compile probes used the pinned `solc 0.8.35`
 
 - **V1 (NEW, SOUNDNESS wrong-value, DIFFERENTIALLY-LIVE, CONFIRMED)** — a
   **calldata-slice out-of-bounds** (`a[i:j]` with `i > j` or `j > a.length`) reverts
-  in Solidus with **`Panic(0x32)`**, but solc reverts with **empty data
+  in solidity-lean with **`Panic(0x32)`**, but solc reverts with **empty data
   (`revert(0,0)`)**. The observable returndata differs (36 bytes vs 0 bytes).
   Live: calldata slices are compiled by solc and modeled + corpus-exercised by
-  Solidus (`entrypoint-slice-control`), but the corpus only drives **in-bounds**
+  solidity-lean (`entrypoint-slice-control`), but the corpus only drives **in-bounds**
   slices, so the OOB revert-data is currently **untested**.
 - **A1 (NEW, COMPLETENESS wrong-reject, DIFFERENTIALLY-LIVE, INFERRED)** —
   `type(AbstractContract).interfaceId` (and `type(AbstractContract).interfaceId`
   on any non-interface non-deployable contract) is accepted+computed by solc but
-  **fails to lower** in Solidus (`interfaceIdEnv` is interface-only, and
-  `Ty.typeInfoExpr?` has no `interfaceId` arm), so Solidus rejects a program solc
+  **fails to lower** in solidity-lean (`interfaceIdEnv` is interface-only, and
+  `Ty.typeInfoExpr?` has no `interfaceId` arm), so solidity-lean rejects a program solc
   compiles. Internally inconsistent: the typechecker (`TypeCheck.lean:5486-5499`)
   *accepts* it.
 
@@ -77,7 +77,7 @@ slice values.
 | # | Target | Verdict | Severity | Reachability |
 |---|--------|---------|----------|--------------|
 | **V1** | calldata-slice OOB revert data | **Panic(0x32) vs empty `revert(0,0)`** | **SOUNDNESS (wrong value)** | **DIFFERENTIALLY-LIVE** (untested in corpus) |
-| **A1** | `type(AbstractContract).interfaceId` | Solidus fails to lower → rejects | COMPLETENESS (wrong-reject) | DIFFERENTIALLY-LIVE |
+| **A1** | `type(AbstractContract).interfaceId` | solidity-lean fails to lower → rejects | COMPLETENESS (wrong-reject) | DIFFERENTIALLY-LIVE |
 | F1 | selector / topic0 / error-selector / canonical sig | faithful | — | n/a |
 | F2 | `interfaceId` for interfaces | faithful (matches `interfaceFunctionList(false)`) | — | n/a |
 | F3 | `addmod`/`mulmod` (mod-0, full-precision) | faithful | — | n/a |
@@ -93,7 +93,7 @@ slice values.
 
 **Claim:** `a[i:j]` on a calldata `bytes`/`string`/`T[]` with out-of-range bounds
 (`i > j`, or `j > a.length`) produces a revert whose **returndata differs**
-between solc and Solidus.
+between solc and solidity-lean.
 
 ### solc side — empty revert (CONFIRMED, source read)
 
@@ -116,7 +116,7 @@ no `Panic`. (The `Panic(0x32)` selector is emitted only for a *regular* array
 **index** access `a[i]` out of range — a different Yul helper — never for a
 slice-**range** access.)
 
-### Solidus side — Panic(0x32) (CONFIRMED, source read)
+### solidity-lean side — Panic(0x32) (CONFIRMED, source read)
 
 `Value.slice?` (`Interpreter.lean:689-705`) delegates to `sliceListByWords?`
 (`Interpreter.lean:674-687`):
@@ -139,7 +139,7 @@ bytes.
 The bounds *predicate* is correct (`i > j` or `j > len` ⇒ revert, matching solc's
 two `gt` checks) and in-bounds slice **values** are correct
 (`(drop start).take (stop-start)`); the divergence is purely the **revert-data
-payload**. The root cause is a name/semantics collision: Solidus reuses the
+payload**. The root cause is a name/semantics collision: solidity-lean reuses the
 array-index-OOB constant (`Panic(0x32)`, correct for `a[i]`) for the slice-range
 bounds check, which solc treats as a plain empty revert.
 
@@ -154,7 +154,7 @@ observable to an external caller / `try…catch` / low-level `.call`. But every
 manifest entry drives only **in-bounds** slices — so the OOB revert-data is
 **not currently pinned**. A differential test that calls `slice(x, 5, 100)` (or
 `slice(x, 3, 1)`) and inspects returndata would flag the divergence: Forge/EVM
-sees empty returndata, Solidus produces `Panic(0x32)`.
+sees empty returndata, solidity-lean produces `Panic(0x32)`.
 
 **Severity: SOUNDNESS (wrong value).** **Confidence: CONFIRMED** (both sides read
 to the emitted Yul / Lean; only "built" step omitted). **NEW.**
@@ -186,7 +186,7 @@ contract C { function g() external pure returns (bytes4) { return type(A).interf
 
 compiles and returns `0x2fbebd38` (= `selector("foo(uint256)")`).
 
-### Solidus side — fails to lower (INFERRED, code trace)
+### solidity-lean side — fails to lower (INFERRED, code trace)
 
 `ContractDecls.interfaceIdEnv` is built via `ContractDecl.interfaceIdEntry?`
 (`Interface.lean:17633-17644`), which returns `some none` for any **non-interface**
@@ -197,7 +197,7 @@ the Source AST goes `Expr.member (Expr.typeName ty) member => Ty.typeInfoExpr? t
 member` (`Interface.lean:3780-3781`), and `Ty.typeInfoExpr?`
 (`Interface.lean:3480-3522`) handles `name`/`creationCode`/`runtimeCode`/`min`/
 `max` but has **no `interfaceId` arm** → returns `none` → `Expr.toCore?` fails →
-the enclosing function/contract fails to lower → **Solidus rejects** a program
+the enclosing function/contract fails to lower → **solidity-lean rejects** a program
 solc compiles.
 
 This is internally inconsistent: the (post-lowering) typechecker
@@ -207,7 +207,7 @@ abstract case. (For **interfaces** the whole path is faithful: `interfaceIdEnv`
 resolves them to a `bytes4` literal — see F2.)
 
 **Severity: COMPLETENESS (wrong-reject).** **Reachability: DIFFERENTIALLY-LIVE**
-— the Python importer produces valid Lean AST; the failure is in Solidus's own
+— the Python importer produces valid Lean AST; the failure is in solidity-lean's own
 Lean lowering, not the importer. **Confidence: INFERRED** (traced end-to-end, not
 built). **NEW.** Niche (requires `type(AbstractContract).interfaceId`) but real.
 
@@ -276,14 +276,14 @@ alternatively add an `interfaceId` arm to `Ty.typeInfoExpr?`.
 
 **Still NOT reached (worklist for a future pass):**
 
-- `type(C).creationCode`/`runtimeCode` **concrete bytes** — Solidus models these
+- `type(C).creationCode`/`runtimeCode` **concrete bytes** — solidity-lean models these
   as opaque byte arrays (`Expr.contractCreationCode`/`RuntimeCode`); solc emits the
   actual init/runtime bytecode. Value-level fidelity of the *bytes* is out of scope
   for an open-world value semantics (no Solidity-observable value depends on the
   exact bytecode except `.length`/hashing), but not independently confirmed here.
 - Precompile *result* values (`sha256`/`ripemd160`/`ecrecover`/modexp/ec-ops/
   blake2f/point-eval) — responder-answered in the open-world model (staticcall
-  Query nodes, `Interpreter.lean:2299-2320`); Solidus's own **input framing** to
+  Query nodes, `Interpreter.lean:2299-2320`); solidity-lean's own **input framing** to
   the precompile (`Precompile.ecrecoverInput`, kind mapping) was spot-checked but
   the full modexp/ec-pairing input encodings were not traced this round.
 - `abi.encodeCall` full type-checking of the argument tuple against the function's
@@ -298,13 +298,13 @@ alternatively add an `interfaceId` arm to `Ty.typeInfoExpr?`.
 
 The sixth pass turned to the least-explored surface — value-producing codegen —
 and found the campaign's **first wrong-VALUE divergence**: **V1**, a
-calldata-slice out-of-bounds revert that Solidus reports as `Panic(0x32)` while
+calldata-slice out-of-bounds revert that solidity-lean reports as `Panic(0x32)` while
 solc reverts with **empty** returndata (`revert(0,0)`). It is
 **differentially-live** (slices are compiled by solc and corpus-modeled by
-Solidus) but currently **untested** (the corpus drives only in-bounds slices). A
+solidity-lean) but currently **untested** (the corpus drives only in-bounds slices). A
 second finding, **A1**, is a differentially-live **wrong-reject**:
 `type(AbstractContract).interfaceId` compiles under solc but fails to lower in
-Solidus (interface-only `interfaceIdEnv` + missing `Ty.typeInfoExpr?` arm),
+solidity-lean (interface-only `interfaceIdEnv` + missing `Ty.typeInfoExpr?` arm),
 despite the typechecker accepting it. Every other value-producing surface read —
 selector / topic0 / error-selector computation, `interfaceId` for interfaces,
 `addmod`/`mulmod`, `bytes.concat`/`string.concat`, `type(T).min/max`, and

@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 2)
+# Implementation-level solc-vs-solidity-lean divergence review (round 2)
 
 **Second implementation-level pass.** The first pass
 (`docs/solc-implementation-divergences.md`, commit `0e29538`) read the
@@ -18,7 +18,7 @@ the emitted-Yul level and found them faithful, then listed the families it did
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD `0a57a7f`. Read-only: nothing
+solidity-lean at `codex/solidity-semantics-only` HEAD `0a57a7f`. Read-only: nothing
 built or run. Findings are **CONFIRMED** (both sides read to the rule) or
 **INFERRED** (deduced, wants a probe).
 
@@ -28,25 +28,25 @@ built or run. Findings are **CONFIRMED** (both sides read to the rule) or
 
 **Families / passes actually read (code, not tests), both sides:**
 
-- `ViewPureChecker.cpp` (whole body) ↔ Solidus `TypeCheck.lean`
+- `ViewPureChecker.cpp` (whole body) ↔ solidity-lean `TypeCheck.lean`
   `mutabilityAllows*` / `requireState*Allowed` and every read/write/call/member
   site.
-- `OverrideChecker.cpp` (whole body) ↔ Solidus `TypeCheck.lean` override section
+- `OverrideChecker.cpp` (whole body) ↔ solidity-lean `TypeCheck.lean` override section
   (`OverrideMember`, `overrideVisibilityAllowed`, `overrideMutabilityAllowed`,
   `checkOverridable`, `checkCompatible`, `checkOverrideSpecifier`).
-- `ControlFlowAnalyzer.cpp` (+ graph/revert-pruner) ↔ Solidus pointer
+- `ControlFlowAnalyzer.cpp` (+ graph/revert-pruner) ↔ solidity-lean pointer
   definite-assignment flow (`checkPointerReturnDefiniteAssignment`,
   `checkLocalPointerDefiniteAssignment`, `uninitializedStorageReturnTarget`).
 - `ExpressionCompiler.cpp` assignment/compound/inc-dec/tuple + `LValue.cpp`
-  `setToZero` + `CompilerUtils::pushZeroValue` ↔ Solidus `assignExpr` /
+  `setToZero` + `CompilerUtils::pushZeroValue` ↔ solidity-lean `assignExpr` /
   `assignOpExpr` / `applyIncDec` / `assignTuple` / `deleteStorage*` /
   `Value.defaultLike`.
 - `ABIFunctions.cpp` `tupleEncoder` / `abiEncodingFunctionSimpleArray` /
   `abiEncodingFunctionStruct` / `tupleEncoderPacked` / `leftAlignFunction` ↔
-  Solidus `ABI.lean` `encodeValues*` / `encodeDynamicPayload?` and
+  solidity-lean `ABI.lean` `encodeValues*` / `encodeDynamicPayload?` and
   `Interpreter.lean` `abiEncodePacked*`.
 - `ImmutableValidator.cpp`, `ContractLevelChecker.cpp`, `PostTypeChecker.cpp`
-  (headline rules) ↔ Solidus `TypeCheck.lean`.
+  (headline rules) ↔ solidity-lean `TypeCheck.lean`.
 
 **Headline: NO new wrong-VALUE / wrong-ORDER soundness divergence** was found in
 the ABI-encode, expression-compiler eval-order, `delete`-per-type, or
@@ -55,14 +55,14 @@ the same bytes / same result / same order. This is an earned negative for the
 value-producing code paths.
 
 The NEW findings are **acceptance-boundary** divergences in the analysis passes.
-The single most contest-relevant is an **over-accept** (Solidus accepts a
+The single most contest-relevant is an **over-accept** (solidity-lean accepts a
 program solc rejects), ranked first:
 
 **Ranked NEW findings**
 
 | # | Area | Direction | Severity | Confidence |
 |---|------|-----------|----------|------------|
-| **E1** | view/pure: non-rational immutable read in `pure` | **over-accept** (Solidus runs, solc errors 2527) | over-accept — contest-relevant wrong-accept | CONFIRMED |
+| **E1** | view/pure: non-rational immutable read in `pure` | **over-accept** (solidity-lean runs, solc errors 2527) | over-accept — contest-relevant wrong-accept | CONFIRMED |
 | E2 | view/pure: `this.f.selector` in `pure`/non-view | over-reject | COMPLETENESS | CONFIRMED |
 | O1 | override: duplicate contract in `override(A,A)` | over-accept | COMPLETENESS (harmless) | CONFIRMED |
 | CF1 | control-flow: inline-asm in storage/calldata-ptr-return fn | over-reject | COMPLETENESS | CONFIRMED |
@@ -71,7 +71,7 @@ program solc rejects), ranked first:
 | PT1 | post-type: `constant` cyclic-dependency not detected | over-accept | COMPLETENESS | INFERRED |
 | AE1 | encode-packed: `bytes[]`/`string[]` element in `abi.encodePacked` | over-accept / wrong-bytes if unguarded | COMPLETENESS/validation | INFERRED |
 
-**E1 is the only finding with a live differential edge that a solc-vs-Solidus
+**E1 is the only finding with a live differential edge that a solc-vs-solidity-lean
 harness would hit on a small, natural program** (a `pure` function returning a
 `keccak256`-initialized immutable). Everything else is a niche over-reject, a
 harmless over-accept, or wants a probe.
@@ -82,9 +82,9 @@ harmless over-accept, or wants a probe.
 
 Read `ExpressionCompiler.cpp` assignment/compound/inc-dec/tuple, `LValue.cpp`
 `GenericStorageItem::setToZero` / `MemoryItem::setToZero`, and
-`CompilerUtils::pushZeroValue`, against Solidus `Interpreter.lean`.
+`CompilerUtils::pushZeroValue`, against solidity-lean `Interpreter.lean`.
 
-| Rule | solc file:line | Solidus | Verdict |
+| Rule | solc file:line | solidity-lean | Verdict |
 |---|---|---|---|
 | `a = b` / `a[i]=v`: RHS evaluated **before** LHS-lvalue (so **value before index**) | `ExpressionCompiler.cpp:319` (rhs), `:331` (lhs setup) | `assignExpr` under `ChildEvalOrder.rightToLeft` `Interpreter.lean:6051-6058`, default `:6796-6800` | FAITHFUL (CONFIRMED) |
 | Compound `a op= b`: LValue set up once, read once, written once; value types only | `:339-370` (`retrieveValue :348`, `storeValue :370`) | `assignOpExpr :6061-6084` / `assignOpCleanupExpr :6085-6116` (`resolveLValue`→`read`→`write`, each once) | FAITHFUL (CONFIRMED) |
@@ -100,9 +100,9 @@ Read `ExpressionCompiler.cpp` assignment/compound/inc-dec/tuple, `LValue.cpp`
 
 **Note (unspecified order, not a divergence):** for `a[i][j]=v` with
 side-effecting `i`,`j`, legacy `ExpressionCompiler` walks base-before-index
-(`IndexAccess :2219`) → order `v,i,j`; Solidus `resolveLValue` for `Expr.index`
+(`IndexAccess :2219`) → order `v,i,j`; solidity-lean `resolveLValue` for `Expr.index`
 walks index-before-base (`:6747-6754`) → `v,j,i`. Solidity leaves a node's child
-evaluation order **unspecified**, and Solidus models this explicitly
+evaluation order **unspecified**, and solidity-lean models this explicitly
 (`ChildEvalOrder.unspecifiedOrders :6802-6807`). Not a wrong-value divergence for
 conformant programs. OUT-OF-SCOPE.
 
@@ -115,7 +115,7 @@ G14 storage-array copy (`copyArrayToStorage` interaction) — untouched here.
 
 Read `ABIFunctions.cpp` `tupleEncoder`, `abiEncodingFunctionSimpleArray`,
 `abiEncodingFunctionStruct`, `tupleEncoderPacked`, `leftAlignFunction` against
-Solidus `ABI.lean` `encodeValues*`/`encodeDynamicPayload?` and
+solidity-lean `ABI.lean` `encodeValues*`/`encodeDynamicPayload?` and
 `Interpreter.lean` `abiEncodePacked*`.
 
 **Non-packed head/tail nesting — CORRECT (CONFIRMED both sides).** solc's base
@@ -124,7 +124,7 @@ rule is `mstore(add(headStart,<pos>), sub(tail,headStart))`
 (`:72,77`); for arrays `headStart := pos` is set **after** the length word
 (`abiEncodingFunctionSimpleArray :558-564`), so element offsets exclude the
 length slot; struct members get one head word each with the dynamic member's head
-= offset from the struct head start (`:942-955`). Solidus mirrors all three:
+= offset from the struct head start (`:942-955`). solidity-lean mirrors all three:
 top-level tuple `encodeValues?`/`encodeValuesAux? ABI.lean:292-317` (offset from
 arg-data start), dynamic array `encodeDynamicPayload? :210-238`
 (`initialOffset := wordBytes*len*elementWords`, result `length ++ heads ++ tails`
@@ -137,7 +137,7 @@ Worked example `uint[][] = [[1],[2,3]]`: both sides emit
 (`headSize`/`calldataHeadSize` ↔ `Ty.staticAbiHeadWords?`/`listAbiHeadWords?`
 `ABI.lean:96-137`).
 
-**Packed widths — CORRECT; W1 already landed.** Solidus's packed encoder is
+**Packed widths — CORRECT; W1 already landed.** solidity-lean's packed encoder is
 `Interpreter.lean` `abiEncodePackedValues? :4978-4989` /
 `abiEncodePackedValue? :4916-4944` with per-arg narrow widths
 `Ty.packedTopWidth Interface.lean:3262-3273`. Verified vs solc packed rules:
@@ -151,7 +151,7 @@ packed width reads as **FIXED**, not in-flight; not re-reported as new.
 **AE1 (INFERRED, minor):** `abiEncodePackedArrayElement? :4946-4952` rejects
 `fixedArray`/`dynamicArray`/`tuple` element types but a `bytesCalldata` element
 falls through to right-pad-to-32 without a length prefix. solc rejects
-arrays-of-dynamic in `abi.encodePacked` at type-check. **If** Solidus's
+arrays-of-dynamic in `abi.encodePacked` at type-check. **If** solidity-lean's
 `TypeCheck` predicate (`badAbiEncodePackedNestedArray`, ~`TypeCheck.lean:23336`)
 does not also reject a `bytes[]`/`string[]` argument, this path emits bytes solc
 never emits. This is a validation/over-accept edge, not a wrong-value on an
@@ -167,7 +167,7 @@ predicate.
 solc is a whole-AST visitor: each node calls `reportMutability(m,loc)` which
 lattice-joins (`Pure<View<NonPayable<Payable`) into
 `m_bestMutabilityAndLocation` and errors when `m` exceeds the declared
-mutability (`ViewPureChecker.cpp:233-305`). Solidus threads
+mutability (`ViewPureChecker.cpp:233-305`). solidity-lean threads
 `env.currentMutability` and calls `requireState{Read,Write}Allowed` /
 `requireLogOrCreateAllowed` / `requireCallMutabilityAllowed`
 (`TypeCheck.lean:1703-1781`) at each site.
@@ -182,7 +182,7 @@ at the end of this section. The two divergences:
   Type::Category::RationalNumber` (pure literal/rational arithmetic). For **any
   other** initializer the immutable read is `View`. So a `pure` function reading
   such an immutable is TypeError **2527**.
-- **Solidus** `TypeCheck.lean:8250-8269`: `hasCompileTimeImmutableInit` /
+- **solidity-lean** `TypeCheck.lean:8250-8269`: `hasCompileTimeImmutableInit` /
   `runtimeStateNameWith?` drop from `stateNames` **any** immutable whose init
   satisfies `exprIsCompileTimeConstant` (`:8119-8173`). That predicate is far
   broader than solc's `RationalNumber`: it is true for a reference to a
@@ -197,9 +197,9 @@ at the end of this section. The two divergences:
   `uint constant A = 5; uint immutable B = A;`), `H`/`B` is not in `stateNames`,
   so `isState=false`, so the read skips `requireStateReadAllowed`. A
   `function f() public pure returns (bytes32) { return H; }` is **accepted by
-  Solidus, rejected by solc (2527)**. The runtime **value** is identical (both
+  solidity-lean, rejected by solc (2527)**. The runtime **value** is identical (both
   compute `keccak256("x")`), so this is purely an acceptance divergence — but it
-  is the wrong-accept direction (Solidus runs a program solc refuses to
+  is the wrong-accept direction (solidity-lean runs a program solc refuses to
   compile), which a differential harness flags. This is the top NEW finding.
 
 #### E2 — `this.f.selector` in `pure`/non-view — over-reject — COMPLETENESS — CONFIRMED
@@ -207,12 +207,12 @@ at the end of this section. The two divergences:
 - **solc** `ViewPureChecker.cpp:357-370`: `visit(MemberAccess)` special-cases
   `this.f.selector`, returns `false`, so the `this` identifier is never visited
   and contributes **no** mutability — the expression stays `Pure`.
-- **Solidus** `TypeCheck.lean:5188-5221`: the `.selector` case unconditionally
+- **solidity-lean** `TypeCheck.lean:5188-5221`: the `.selector` case unconditionally
   `checkExpr env base` on the inner `this.f`, recursing into `Expr.ident "this"`
   at `:5105-5106` which runs `requireStateReadAllowed`. In a `pure` function this
   fails.
 - **Consequence:** `function g() external pure returns (bytes4) { return
-  this.f.selector; }` is **rejected by Solidus, accepted by solc**.
+  this.f.selector; }` is **rejected by solidity-lean, accepted by solc**.
 
 **ViewPureChecker rule table (all CONFIRMED SUPPORTED unless noted):** state-var
 read→View / write→NonPayable (`:200-201` ↔ `:5130-5131` read, `:6980,7142,7668,
@@ -231,14 +231,14 @@ mutability propagated (`:462-471` ↔ `checkBodyForCaller :10312-10349`).
 
 **Non-divergence:** solc analyzes each Yul opcode's mutability so a `pure`/`view`
 function may contain pure/view inline assembly (`AssemblyViewPureChecker
-:38-125,225-231`); Solidus rejects **all** inline assembly
+:38-125,225-231`); solidity-lean rejects **all** inline assembly
 (`TypeCheck.lean:9031-9032`). This is a broad unsupported-feature over-reject, not
 mutability-specific — OUT-OF-SCOPE. solc's `now`→View (`:213-216`) is dead in
 0.8.35 — OUT-OF-SCOPE.
 
 ### 3b. `OverrideChecker.cpp` — one harmless over-accept (O1)
 
-Solidus's override checker is a near-complete reimplementation. Every substantive
+solidity-lean's override checker is a near-complete reimplementation. Every substantive
 acceptance rule is enforced (CONFIRMED), often via a differently-worded error:
 missing-`override` (9456 ↔ `checkOverrideUse TypeCheck.lean:9647-9649`,
 interface-implicit-virtual `:9505-9506`); override-non-virtual (4334 ↔
@@ -260,13 +260,13 @@ cross-namespace clashes (5631/1469/1456 ↔ `checkNoInheritedNamedDeclarationCla
 
 - **solc** `OverrideChecker.cpp:850-879` `checkOverrideList` rejects a duplicate
   contract in the override list (4520_error).
-- **Solidus** `TypeCheck.lean:9639` `checkOverrideSpecifier` uses `pathSetsEqual`
+- **solidity-lean** `TypeCheck.lean:9639` `checkOverrideSpecifier` uses `pathSetsEqual`
   (membership both directions), which ignores duplicates — `override(A, A)` is
   accepted. Harmless over-accept.
 
 **PARTIAL / IN-FLIGHT:** ambiguous unrelated-base override (solc 6480,
 `OverrideChecker.cpp:725-822`, biconnected/cut-vertex algorithm) is approximated
-by Solidus `checkInheritedConflicts`/`hasConflictFor` with an
+by solidity-lean `checkInheritedConflicts`/`hasConflictFor` with an
 `originStrictlyInherits` dominance test (`:9714-9758`, wired `:12331-12334`);
 diamond corner cases may diverge — this belongs to the in-flight **G6** arc, not
 re-reported in detail.
@@ -277,13 +277,13 @@ re-reported in detail.
 emits exactly **one error** (3464) and **two warnings** (5740 unreachable-code,
 6321 unnamed-return-may-be-unassigned). Value-type locals are default-initialized,
 so solc does **not** require definite assignment for them and does **not** error
-on a missing `return`. Therefore Solidus's "read the default value" behavior for
+on a missing `return`. Therefore solidity-lean's "read the default value" behavior for
 a possibly-unassigned local / missing return is **not** an over-accept — solc
 accepts those same programs (both just run with the default). CONFIRMED
 non-divergent.
 
 - **Uninitialized storage/calldata pointer access-or-return** (3464,
-  `ControlFlowAnalyzer.cpp:160-174`) → **SUPPORTED as a hard error**. Solidus has
+  `ControlFlowAnalyzer.cpp:160-174`) → **SUPPORTED as a hard error**. solidity-lean has
   a real definite-assignment flow: return pointers
   `checkPointerReturnDefiniteAssignment TypeCheck.lean:10907-10925` (wired
   `:11389`), local pointers `checkLocalPointerDefiniteAssignment :11290+` (wired
@@ -291,10 +291,10 @@ non-divergent.
   `uninitializedStorageReturnTarget Interpreter.lean:7011` (bound
   `:7160-7162`, miss → panic `Interface.lean:8148`). CONFIRMED.
 - Unreachable code (5740, warning) and unnamed-return-unassigned / missing-return
-  (6321, warning) → solc only **warns and compiles**; Solidus accepts too. Not
+  (6321, warning) → solc only **warns and compiles**; solidity-lean accepts too. Not
   acceptance divergences (warning-parity only, UNTESTED).
 
-The three Solidus-only over-rejects (all COMPLETENESS, all sound-preserving):
+The three solidity-lean-only over-rejects (all COMPLETENESS, all sound-preserving):
 
 - **CF1 (CONFIRMED)** — `Stmt.inlineAssembly` unconditionally sets
   `unsafeReturn := true` (`TypeCheck.lean:10831-10832`), so **any** function with
@@ -302,11 +302,11 @@ The three Solidus-only over-rejects (all COMPLETENESS, all sound-preserving):
   rejected, even when the pointer is properly assigned and the assembly never
   touches it. solc analyzes the actual CFG assignment.
 - **CF2 (INFERRED)** — solc runs `ControlFlowRevertPruner` to prune paths through
-  always-reverting callees before the uninitialized-access check; Solidus prunes
+  always-reverting callees before the uninitialized-access check; solidity-lean prunes
   only builtin terminals (`revert`/`selfdestruct` `isTerminalBuiltinCall
   :10682-10687`, `revertCall :10812-10815`, `return :10816-10823`). A pointer
   read reachable only after an always-reverting **helper call** would be flagged
-  by Solidus but accepted by solc.
+  by solidity-lean but accepted by solc.
 - **CF3 (INFERRED, effectively unreachable)** — fuel exhaustion
   (`defaultPointerReturnFlowFuel = 4096 :10905`) and a `modifierPlaceholder` with
   no continuation (`:10839`) both fall back to `unsafeReturn := true` —
@@ -315,7 +315,7 @@ The three Solidus-only over-rejects (all COMPLETENESS, all sound-preserving):
 ### 3d. `ContractLevelChecker` / `PostTypeChecker` / `ImmutableValidator`
 
 - **ImmutableValidator** (`ImmutableValidator.cpp:45-68`) enforces only "cannot
-  write to an immutable outside inline-init or the constructor" (1581). Solidus
+  write to an immutable outside inline-init or the constructor" (1581). solidity-lean
   matches: an immutable ident is an lvalue only when `env.inConstructor`
   (`TypeCheck.lean:5138`, `:4163`). SUPPORTED. (The "every immutable must be
   assigned exactly once" invariant is a codegen assertion in solc — "Leftover
@@ -324,21 +324,21 @@ The three Solidus-only over-rejects (all COMPLETENESS, all sound-preserving):
 - **ContractLevelChecker** structural rules read: receive-function
   payable/external/no-return/no-params (`:211-227`), abstract-if-unimplemented
   (`:348-353`), library constraints (`:525-561`), too-much-storage
-  (`:601-603`). Solidus models abstract-implemented
+  (`:601-603`). solidity-lean models abstract-implemented
   (`OverrideMembers.checkInheritedAbstractImplementedAux TypeCheck.lean:9760`)
   and `contractCanReceiveEther` (`:1226-1237`); the full receive-signature and
   storage-size rules were not exhaustively cross-checked (candidate for §5).
 - **PostTypeChecker**: `ConstStateVarCircularReferenceChecker`
   (`PostTypeChecker.cpp:154-245`, 6161) rejects a `constant` with a cyclic
-  dependency (`uint constant A = B; uint constant B = A;`). Solidus models
+  dependency (`uint constant A = B; uint constant B = A;`). solidity-lean models
   **struct** reference cycles (`Ty.hasForbiddenStructReferenceCycle
   TypeCheck.lean:11508+`) but I found **no** constant-value cycle detector →
 
 #### PT1 — `constant` cyclic dependency not detected — over-accept — COMPLETENESS — INFERRED
 
-Solidus appears to lack solc's `ConstStateVarCircularReferenceChecker`. A
+solidity-lean appears to lack solc's `ConstStateVarCircularReferenceChecker`. A
 self/mutually-cyclic `constant` that solc rejects (6161) would either be
-over-accepted or fail during Solidus's fuel-bounded constant folding — the exact
+over-accepted or fail during solidity-lean's fuel-bounded constant folding — the exact
 observable wants a probe. INFERRED, low priority.
 
 ---
@@ -376,19 +376,19 @@ were not re-derived here (listed in §5 as still-not-reached at codegen level).
 **Still NOT reached (worklist for a future pass):**
 
 - `ContractLevelChecker` receive/fallback **signature** rules and duplicate/
-  base-constructor-argument checks — cross-check Solidus at codegen/accept level.
+  base-constructor-argument checks — cross-check solidity-lean at codegen/accept level.
 - Immutable "assigned **exactly once** on every constructor path" — solc enforces
-  via codegen invariant ("Leftover immutables."); confirm whether Solidus rejects
+  via codegen invariant ("Leftover immutables."); confirm whether solidity-lean rejects
   a never-initialized / doubly-initialized immutable or reads a default (probe).
 - `abi.encodePacked` full **validation** predicate
-  (`badAbiEncodePackedNestedArray` and siblings) — resolve AE1: does Solidus
+  (`badAbiEncodePackedNestedArray` and siblings) — resolve AE1: does solidity-lean
   reject `bytes[]`/`string[]`/struct arguments the way solc does?
 - `abiDecodingFunctionStruct` nested-struct decode into memory + free-memory-
   pointer discipline at the **codegen** (Yul) level — first pass confirmed the
   observable, not the emitted allocation sequence.
 - `DeclarationTypeChecker.cpp` (type resolution / data-location defaulting) —
   not opened this round.
-- solc's `ControlFlowRevertPruner` full algorithm vs Solidus terminal-pruning
+- solc's `ControlFlowRevertPruner` full algorithm vs solidity-lean terminal-pruning
   (CF2) — a probe would confirm/deny the over-reject on a concrete shape.
 
 ---
@@ -405,7 +405,7 @@ path (encode bytes, `delete` results, inc/dec/compound results, tuple swap) was
 read to the rule on both sides and matches.
 
 The NEW divergences are all at the **acceptance boundary**. The one with a live
-differential edge is **E1**: Solidus treats an immutable initialized by
+differential edge is **E1**: solidity-lean treats an immutable initialized by
 `keccak256`/`abi.*`/a `constant` reference as a compile-time constant and lets a
 `pure` function read it, whereas solc classifies that read as `View` and rejects
 the function (2527) — an over-accept on a small, natural program. The remainder

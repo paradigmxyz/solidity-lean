@@ -1,14 +1,14 @@
-# Divergence review: solc 0.8.35 constant evaluator + environment-value modeling vs Solidus
+# Divergence review: solc 0.8.35 constant evaluator + environment-value modeling vs solidity-lean
 
 **Scope.** One re-derivation surface reviewed as a unit: solc's compile-time
 constant evaluator (`libsolidity/analysis/ConstantEvaluator.cpp` +
 `RationalNumberType` in `libsolidity/ast/Types.cpp`, pinned source 0.8.35 /
-47b9dedd) against Solidus's exact-rational folder (`NumberRat` and its
+47b9dedd) against solidity-lean's exact-rational folder (`NumberRat` and its
 consumers in `SolidCore/Solidity/Interface.lean`, the literal/constant gates in
 `SolidCore/Solidity/TypeCheck.lean`). Secondary: environment/block/tx value
 modeling. Method: read both sides, then probe pinned `solc-0.8.35`
-(accept/reject + AST-folded `typeString` values). Read-only — no Solidus
-build/run; Solidus-side outcomes are traced through the checker/lowering code
+(accept/reject + AST-folded `typeString` values). Read-only — no solidity-lean
+build/run; solidity-lean-side outcomes are traced through the checker/lowering code
 and marked CONFIRMED (both ends pinned by explicit code + solc probe) or
 INFERRED (pipeline behavior read, not replayed). Builds on the earlier A1 audit
 (`docs/rational-constants-audit.md`), whose Nat→Int widening of `NumberRat` is
@@ -21,7 +21,7 @@ rational evaluation, precision guards, depth limit, identifier/tuple/erc7201
 evaluation); `Types.cpp` `RationalNumberType` (literal parsing + exponent caps,
 `binaryOperatorResult` incl. the 4096-bit cap and the comparison
 `mobileType` path, `integerType`/`fixedPointType`, conversion rules);
-Solidus `NumberRat` + `Expr.numberLiteralRat?`/`numberLiteralBool?`/
+solidity-lean `NumberRat` + `Expr.numberLiteralRat?`/`numberLiteralBool?`/
 `toCoreNumericLiteralAs?`/`toCoreAs?` (Interface.lean), `literalTy?`, unary and
 binary operator checking, `StateVarDecl.check`, `implicitLiteralFits`
 (TypeCheck.lean), the importer's literal/operator emission
@@ -36,7 +36,7 @@ depth limit). No both-sides-accept wrong-VALUE divergence was found** — where
 both sides accept a constant, the exact-rational fold (or the 256-bit runtime
 path it falls back to) reproduces solc's folded value on every probed case.
 The live divergences are all on the accept/reject boundary, in one root-cause
-family: **Solidus gates several fold operators on `exactNat?` (non-negative
+family: **solidity-lean gates several fold operators on `exactNat?` (non-negative
 integer) where solc's evaluator is defined on signed integers or rationals,
 and the folder has no unary `~` case at all.**
 
@@ -44,51 +44,51 @@ Ranked NEW findings (differentially-live first):
 
 1. **CE-1 (over-reject, CONFIRMED): negative exponents in constant `**`.**
    solc inverts: `4 * 2**-1` = 2, `2**-2 * 16` = 4, and the quirk
-   `0**-1` = 0 (base-0/1 short-circuit precedes the sign check). Solidus
+   `0**-1` = 0 (base-0/1 short-circuit precedes the sign check). solidity-lean
    rejects all of these twice over: the checker requires an unsigned-typed
    exponent, and the folder requires `rhs.exactNat?`.
 2. **CE-3 (over-reject, CONFIRMED solc / INFERRED lowering): negative
    operands in constant shifts and bitwise ops.** solc: `(-1) << 2` = −4,
    `-7 >> 1` = −4 (floor, not trunc), `-1 >> 100` = −1, `-4 | 1` = −3.
-   Solidus's `shl?/shr?/bitAnd?/bitOr?/bitXor?` gate both operands on
+   solidity-lean's `shl?/shr?/bitAnd?/bitOr?/bitXor?` gate both operands on
    `exactNat?` → fold fails → raw-literal fail-closed lowering → reject.
 3. **CE-2a (over-reject, CONFIRMED): unary `~` missing from the rational
    folder.** solc folds `~` on integer rationals: `~5` = −6, `~(-3)` = 2,
-   `~5 & 0xFF` = 250 — all accepted into `int256`. Solidus types `~5` as
+   `~5 & 0xFF` = 250 — all accepted into `int256`. solidity-lean types `~5` as
    `uint256` and cannot fold it, so every int-targeted use over-rejects.
 4. **CE-4 (over-reject, CONFIRMED): fractional constant `%`.** solc:
-   `7 % 2.5` = 2 (`x − trunc(x/y)·y`). Solidus `mod?` requires both operands
+   `7 % 2.5` = 2 (`x − trunc(x/y)·y`). solidity-lean `mod?` requires both operands
    to be exact integers → reject.
 5. **CE-5 (over-reject, CONFIRMED): fractional denominated literals.**
-   solc: `0.5 wei * 2` = 1. Solidus's `literalTy?` gates `unitNumber`
+   solc: `0.5 wei * 2` = 1. solidity-lean's `literalTy?` gates `unitNumber`
    literals through `parseUnitNumberNat?` (integer-only) → the literal itself
    is rejected before any folding.
 6. **CE-6b (non-termination hazard on an accepted program, INFERRED):
    unbounded `pow` for base 0/1/−1.** solc exempts bases 0, 1, −1 from its
    `uint32` exponent cap, so `uint constant X = 1**(2**100);` **compiles**
-   (= 1). Solidus's `NumberRat.pow` computes `1 ^ (2^100 : Nat)` with no
+   (= 1). solidity-lean's `NumberRat.pow` computes `1 ^ (2^100 : Nat)` with no
    special-casing; if Lean's `Nat.pow`/`Int.pow` is Θ(exponent) on this path
    the import pipeline hangs on a solc-accepted program.
 
 Importer-masked (solc rejects first, so unreachable through the AST-import
 pipeline; live only for source-level accept/reject differentials):
 
-7. **CE-6a (wrong-accept family, CONFIRMED solc / INFERRED Solidus):** no
+7. **CE-6a (wrong-accept family, CONFIRMED solc / INFERRED solidity-lean):** no
    4096-bit precision cap, no `uint32` exp/shift caps, no literal-exponent
-   cap, and comparison folding beyond solc's `mobileType` limit. Solidus
+   cap, and comparison folding beyond solc's `mobileType` limit. solidity-lean
    accepts (and folds exact values for) `2**5000 / 2**5000`, `10**1025 /
    10**1025`, `1e2000 / 1e2000`, `(1 << 4200) >> 4200`, `0 << 2**33`,
    `bool constant B = 2**300 < 2**301`, `bool constant B = 1/2 < 1` — solc
    rejects every one. Includes `uint x = ~0;` / `x + ~0` (CE-2b): solc
-   rejects (`int_const -1` into unsigned); Solidus accepts and evaluates the
+   rejects (`int_const -1` into unsigned); solidity-lean accepts and evaluates the
    256-bit runtime `~`, yielding `2^256−1`.
 8. **CE-7 (unmodeled, CONFIRMED solc):** constant-evaluation depth limit 32 —
    a 34-deep constant chain used as an array length errors ("Cyclic constant
    definition (or maximum recursion depth exhausted)"), a 20-deep chain
-   compiles. Solidus detects only true cycles; array-length contexts are
+   compiles. solidity-lean detects only true cycles; array-length contexts are
    importer-masked (lengths come from solc's folded `typeString`).
 9. **CE-8 (wrong-accept, CONFIRMED solc):** hex literal with a denomination
-   (`0x10 wei`) is a solc error; Solidus's `parseUnitNumberRat?` happily
+   (`0x10 wei`) is a solc error; solidity-lean's `parseUnitNumberRat?` happily
    scales hex.
 
 **Environment-value modeling: no new findings (earned).** Version gates,
@@ -132,7 +132,7 @@ word members all match solc/EVM semantics (§3).
 - Constant `VariableDeclaration` evaluation recurses with a depth limit of 32
   (`ConstantEvaluator.cpp:325-334`).
 
-**Solidus** folds in `NumberRat` (`Interface.lean:2656-2658`, signed `Int`
+**solidity-lean** folds in `NumberRat` (`Interface.lean:2656-2658`, signed `Int`
 numerator / positive `Nat` denominator since the A1 fix), with:
 
 - ops `add/sub/mul` total, `div?/mod?` partial (`Interface.lean:2756-2798`);
@@ -167,9 +167,9 @@ solc: `ConstantEvaluator.cpp:114-158`. Probes (AST-folded values):
 `:124` precedes negative-exponent handling — no division-by-zero error);
 `uint256 constant P17 = 2**-2 * 16;` → `int_const 4`;
 `uint256 constant P4 = 8 * (1/2)**3;` → `int_const 1` (rational base, for
-contrast — this one Solidus folds fine).
+contrast — this one solidity-lean folds fine).
 
-Solidus rejects at **two** layers: `TypeCheck.lean:7105-7108`
+solidity-lean rejects at **two** layers: `TypeCheck.lean:7105-7108`
 (`rhsChecked.expectUnsignedInteger` — `-1` types `int 256` via
 `TypeCheck.lean:7014-7020`), and `Interface.lean:2853-2855`
 (`rhs.exactNat?`). A legal solc program using a negative literal exponent
@@ -181,7 +181,7 @@ unsigned-type requirement exists for literal operands).
 
 ### CE-2 — unary `~` absent from the folder
 **(a) OVER-REJECT · CONFIRMED · DIFFERENTIALLY-LIVE;
-(b) WRONG-ACCEPT · CONFIRMED solc, INFERRED Solidus · IMPORTER-MASKED**
+(b) WRONG-ACCEPT · CONFIRMED solc, INFERRED solidity-lean · IMPORTER-MASKED**
 
 solc: `ConstantEvaluator.cpp:223-227` (`~` on any integer rational).
 Probes: `int256 constant P10 = ~5;` → `int_const -6`;
@@ -192,7 +192,7 @@ signed literal to unsigned type"), `uint256(~0)` ("Explicit type conversion
 not allowed"), and even `x + ~0` for `uint256 x` ("operator + cannot be
 applied to types uint256 and int_const -1").
 
-Solidus: `Expr.numberLiteralRat?` has no `bitNot` case
+solidity-lean: `Expr.numberLiteralRat?` has no `bitNot` case
 (`Interface.lean:2880-2893`), and `~e` types as its operand's type — for a
 bare literal, `uint 256` (`TypeCheck.lean:7011-7013`, `4072-4075`). Hence:
 
@@ -211,7 +211,7 @@ bare literal, `uint 256` (`TypeCheck.lean:7011-7013`, `4072-4075`). Hence:
 
 Note the value-coincidence family: where the `~`-expression's rational value
 is a *non-negative* integer that fits (e.g. `~~5` = 5, `~5 & 0xFF` = 250 into
-`uint`), Solidus's 256-bit runtime path produces the same value as solc's
+`uint`), solidity-lean's 256-bit runtime path produces the same value as solc's
 fold (two's-complement agreement) — so no wrong-value case was found, only
 the boundary divergences above.
 
@@ -226,7 +226,7 @@ for negative x; shifts past msb give −1/0), bitwise on signed numerators
 `P8 = -1 >> 100;` → `int_const -1`; `P12 = -4 | 1;` → `int_const -3` — all
 ACCEPTED.
 
-Solidus: `shl?/shr?/bitAnd?/bitOr?/bitXor?` all gate **both** operands on
+solidity-lean: `shl?/shr?/bitAnd?/bitOr?/bitXor?` all gate **both** operands on
 `exactNat?` (`Interface.lean:2804-2827`) → fold fails → the raw-literal
 fail-closed guard in `Expr.toCoreAs?` (`Interface.lean:4693-4698`) rejects.
 (Checker-side these pass — e.g. `<<` accepts an int lhs via
@@ -240,7 +240,7 @@ rule), NOT `Int` truncated division — that would be the wrong-value trap.
 
 solc: `ConstantEvaluator.cpp:103-113` — for fractional operands,
 `x % y = x − trunc(x/y)·y`. Probe: `uint256 constant P9 = 7 % 2.5;` →
-`int_const 2`, ACCEPTED. Solidus `NumberRat.mod?` requires both operands to
+`int_const 2`, ACCEPTED. solidity-lean `NumberRat.mod?` requires both operands to
 be exact integers (`Interface.lean:2789-2798`) → fold fails → fail-closed
 reject. (The integer case is parity: `Int.tmod` = boost's truncated `%`;
 `-7 % 3` = −1 on both sides.)
@@ -249,7 +249,7 @@ reject. (The integer case is parity: `Int.tmod` = boost's truncated `%`;
 **OVER-REJECT · CONFIRMED · DIFFERENTIALLY-LIVE**
 
 solc: sub-denominations scale the rational (`Types.cpp:977-1004`);
-`uint256 constant P14 = 0.5 wei * 2;` → `int_const 1`, ACCEPTED. Solidus:
+`uint256 constant P14 = 0.5 wei * 2;` → `int_const 1`, ACCEPTED. solidity-lean:
 `literalTy?` for `unitNumber` runs `parseUnitNumberNat?`
 (`TypeCheck.lean:4076-4078`), which demands `exactNat?` — `0.5 wei` (= 1/2)
 fails, so `checkExpr` errors "unsupported literal" before any fold. The
@@ -259,7 +259,7 @@ wrong (should be `parseUnitNumberRat?.isSome`). Rare shape
 (`x.y wei` / fractional `seconds`), but legal and importable.
 
 ### CE-6 — missing resource caps (4096-bit / uint32) and comparison limits
-**(a) WRONG-ACCEPT · CONFIRMED solc, INFERRED Solidus · IMPORTER-MASKED;
+**(a) WRONG-ACCEPT · CONFIRMED solc, INFERRED solidity-lean · IMPORTER-MASKED;
 (b) NON-TERMINATION HAZARD · INFERRED · DIFFERENTIALLY-LIVE**
 
 solc rejects (all probed):
@@ -275,7 +275,7 @@ solc rejects (all probed):
 | `bool constant B = 2**300 < 2**301` | no `integerType()` ⇒ no mobile type, Types.cpp:1117-1126, 1218-1232 |
 | `bool constant B = 1/2 < 1` | no ufixed/uint common type (yet `1/2 == 0.5` is ACCEPTED — both mobile to the same ufixed) |
 
-Solidus has none of these caps: `NumberRat` is unbounded, the folder folds
+solidity-lean has none of these caps: `NumberRat` is unbounded, the folder folds
 all of the first six to small exact values (1, 1, 1, 1, 0, —) and
 `numberLiteralBool?` (`Interface.lean:2895-2900`) folds the comparisons to
 `true`, so all are ACCEPTED. Reachability: solc rejects ⇒ no AST ⇒ masked in
@@ -283,15 +283,15 @@ the import pipeline; a source-level accept/reject differential would flag
 every row. Two sub-hazards are **live**, though:
 
 - (b) solc's base-0/1/−1 exemption (CE.cpp:120-129) means `uint256 constant
-  P5 = 1**(2**100);` **compiles** (probed, `int_const 1`). Solidus's
+  P5 = 1**(2**100);` **compiles** (probed, `int_const 1`). solidity-lean's
   `NumberRat.pow` (`Interface.lean:2800-2802`) computes `1 ^ (2^100 : Nat)`
   literally; whether this terminates quickly depends on Lean's `Nat.pow`
   path for astronomically large exponents. If it is Θ(exponent), a
-  solc-accepted program hangs Solidus's checker/lowering. Same shape:
+  solc-accepted program hangs solidity-lean's checker/lowering. Same shape:
   `0**(10**60)`, `(-1)**(2**100)`. Needs a 30-second runtime test before any
   fix; special-casing bases 0/1/−1 in `pow` (as solc does) removes the risk
   regardless of caps.
-- Even for solc-rejected inputs, feeding Solidus `0 << 2**33` or
+- Even for solc-rejected inputs, feeding solidity-lean `0 << 2**33` or
   `2**(2**40)` directly makes `shl?`/`pow` attempt multi-gigabyte bignums —
   a DoS vector for any future source-level (non-importer) front end. Adopting
   solc's three caps (4096-bit post-op, uint32 exp/shift, int32 literal
@@ -303,17 +303,17 @@ every row. Two sub-hazards are **live**, though:
 `ConstantEvaluator.cpp:325-334`: evaluating a constant more than 32 levels
 deep is a fatal error. Probed: a 34-long `C{i} = C{i-1} + 1` chain used as an
 array length → "Cyclic constant definition (or maximum recursion depth
-exhausted)."; a 20-long chain compiles. Solidus's
+exhausted)."; a 20-long chain compiles. solidity-lean's
 `StateVarDecls.constantsHaveCycle` (`TypeCheck.lean:8493-8519`) detects true
 cycles only (matching solc's separate PostTypeChecker pass), not the depth
 cap. All contexts where the cap can fire (array lengths, `bytesN` sizes…)
-reach Solidus through solc-folded `typeString`s → masked.
+reach solidity-lean through solc-folded `typeString`s → masked.
 
 ### CE-8 — hex literal + denomination
 **WRONG-ACCEPT · CONFIRMED solc · IMPORTER-MASKED · LOW**
 
 `0x10 wei` is a solc scanner/parser error (probed: "Hexadecimal numbers
-cannot be used with unit denominations"). Solidus `parseUnitNumberRat?`
+cannot be used with unit denominations"). solidity-lean `parseUnitNumberRat?`
 scales hex text fine (`Interface.lean:2746-2754, 2773-2776`). The importer
 can never produce this shape (solc rejects first).
 
@@ -324,7 +324,7 @@ can never produce this shape (solc rejects first).
 - Fit/sign boundary: `255+1`→uint8, `127+1`→int8, `2**256`→uint256, `1/0`,
   `1%0`, `7/2`→uint, `uint[7/2]`, negative into unsigned — reject on both
   sides; `uint[true?1:2]` solc-rejected (ConstantEvaluator has no
-  conditional) and importer-masked for Solidus.
+  conditional) and importer-masked for solidity-lean.
 - `0**0` = 1 (`Nat`/`Int` pow convention matches CE.cpp:122-123).
 - Integer `%` incl. negatives: `Int.tmod` ≡ boost truncated `%`.
 - `>>` on non-negative: `Nat` floor division ≡ solc SAR non-negative branch;
@@ -334,7 +334,7 @@ can never produce this shape (solc rejects first).
   (`1__0`, `1_`, `_1`, `1_e5`, `1e_5` all rejected by both).
 - `5 & ~0` = 5 and `~~5` = 5: value parity via the 256-bit runtime path
   (two's-complement agreement), despite the missing `~` fold.
-- `1/2 == 0.5`: solc ACCEPTS (probed) and Solidus folds `true` — parity.
+- `1/2 == 0.5`: solc ACCEPTS (probed) and solidity-lean folds `true` — parity.
 - Ternary-of-literals mobile typing (`untypedLiteralMobileTy?`,
   `Interface.lean:3449-3464`) — matches solc's Conditional common-mobile-type
   rule (previously reviewed surface, re-checked at this boundary).
@@ -342,7 +342,7 @@ can never produce this shape (solc rejects first).
 
 ## 3. Environment-value modeling — no new findings
 
-| member | solc 0.8.35 | Solidus | verdict |
+| member | solc 0.8.35 | solidity-lean | verdict |
 |---|---|---|---|
 | `block.difficulty` post-Paris | **warning** 8417 only, compiles to PREVRANDAO (probed: warning, accepted) | accepted (`Interface.lean:4783`); evaluates to the `prevrandao` field when `parisOrLater` (`Interpreter.lean:1868-1874`) | parity |
 | `block.prevrandao` pre-Paris | warning 9432, treated as difficulty (TypeChecker.cpp:3461-3466) | evaluates to `difficulty` field pre-Paris (`Interpreter.lean:1881-1887`) | parity |
@@ -353,7 +353,7 @@ can never produce this shape (solc rejects first).
 | `msg.data` | full calldata | `Expr.calldata` returns the whole context calldata (`Interpreter.lean:5957-5958`); `msg.data` in `receive` rejected (G10, `TypeCheck.lean:5343-5347`) | parity |
 | `coinbase/gaslimit/number/timestamp/gasprice/origin` | context values | context-supplied `EnvWord` fields (`Interpreter.lean:1865-1896`); `gasleft` modeled as a resource query, not ambient (A3) | parity |
 
-The only Solidus re-derivations here are `msg.sig` (from calldata) and the
+The only solidity-lean re-derivations here are `msg.sig` (from calldata) and the
 Paris-era `difficulty`↔`prevrandao` aliasing; both match solc's codegen (the
 same opcode 0x44 backs both members, so aliasing the *stored field* is the
 correct model). Members that must be version-rejected are gated in the

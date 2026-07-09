@@ -6,7 +6,7 @@ pragma solidity ^0.8.35;
 // differs. solc accepts these (ArrayType::isImplicitlyConvertibleTo,
 // Types.cpp:1640-1648): the dest is resized to the source length, elements are
 // copied with per-element implicit conversion, and a longer old tail is zeroed
-// (clearStorageRange). Solidus formerly over-rejected the whole family
+// (clearStorageRange). solidity-lean formerly over-rejected the whole family
 // (canImplicitlyConvert had no array arm).
 contract StorageArrayCopyConvertHarnessTarget {
     uint8[]   srcU8;

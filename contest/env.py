@@ -4,7 +4,7 @@
 Two contest-breaking defects the adversarial review (commit 368468a) found:
 
   * E-1 - the block/tx/self environment was NOT pinned across the two engines
-    (Solidus ran from a zero env, Foundry from its non-zero defaults), so any
+    (solidity-lean ran from a zero env, Foundry from its non-zero defaults), so any
     ``block.*`` / ``msg.sender`` / ``tx.origin`` / ``address(this)`` observable
     diverged for a NON-semantic reason.
   * O-3 (env part) - cheatcodes in the submitter's TEST file were unrestricted
@@ -17,7 +17,7 @@ This module is the single source of truth for BOTH fixes:
      2026-07-08 with forge 1.5.1 + solc 0.8.35, evm_version=cancun; see the
      `docs` changelog note). Both engines run under these identical values.
   2. ``CHEATCODE_ALLOW`` / ``CHEATCODE_DENY`` - the whitelist of env-pinning /
-     setup cheatcodes (mirrored into the Solidus context) and the default-deny
+     setup cheatcodes (mirrored into the solidity-lean context) and the default-deny
      of everything state/oracle-forging.
   3. ``EnvOverrides`` - the per-submission env, = ``CANONICAL_ENV`` overlaid with
      the whitelisted cheatcodes' effects, applied IDENTICALLY on both sides.
@@ -56,7 +56,7 @@ CANONICAL_GASPRICE = 0
 # ---------------------------------------------------------------------------
 
 # ALLOWED: environment-pinning / setup cheatcodes. Their effect is MIRRORED into
-# the Solidus context so both sides see the same env. Maps cheatcode -> the env
+# the solidity-lean context so both sides see the same env. Maps cheatcode -> the env
 # field it overrides ("_" = handled specially, not a plain block field).
 CHEATCODE_ALLOW: dict[str, str] = {
     "roll": "number",           # vm.roll(uint)      -> block.number
@@ -97,7 +97,7 @@ class EnvOverrides:
     """The canonical env overlaid with a submission's whitelisted cheatcodes.
 
     Applied IDENTICALLY on both engines: the Foundry measurement harness replays
-    these as cheatcodes, and the Solidus ``#eval`` threads them into the
+    these as cheatcodes, and the solidity-lean ``#eval`` threads them into the
     Context/BlockEnv. ``self`` is filled in after the measurement (the deployed
     entry-contract address) so ``address(this)`` agrees by construction."""
 
@@ -115,7 +115,7 @@ class EnvOverrides:
     # self (the entry contract's own address) is measured from the Forge deploy
     # and mirrored so address(this) agrees; None until the measurement runs.
     self_addr: Optional[int] = None
-    # vm.deal(addr, amount) balances, mirrored into Solidus accountBalances.
+    # vm.deal(addr, amount) balances, mirrored into solidity-lean accountBalances.
     deals: list[tuple[int, int]] = field(default_factory=list)
 
     def with_self(self, self_addr: int) -> "EnvOverrides":

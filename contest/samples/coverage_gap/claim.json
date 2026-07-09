@@ -1,7 +1,7 @@
 {
   "lane": "C",
   "entry": { "contract": "Cov", "function": "run", "args": [], "value": 0 },
-  "expected_divergence": "SYNTHETIC: Solidus fails closed at import ('unimplemented' node) on an in-scope, solc-accepted program. run_samples.py simulates the Solidus fail-closed result because live importer coverage gaps are being fixed on sibling branches.",
+  "expected_divergence": "SYNTHETIC: solidity-lean fails closed at import ('unimplemented' node) on an in-scope, solc-accepted program. run_samples.py simulates the solidity-lean fail-closed result because live importer coverage gaps are being fixed on sibling branches.",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:7" },
   "feature": "synthetic-unimplemented-node",
   "synthetic": true,

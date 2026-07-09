@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Measure the EVM-side observable from an ACTUAL Forge run (review P0 #1).
 
-The v1 adjudicator diffed Solidus against ``claim.declared_observable`` - an
+The v1 adjudicator diffed solidity-lean against ``claim.declared_observable`` - an
 entrant-controlled string (review O-1, CONTEST-BREAKING). This module instead
 MEASURES the EVM observable: it generates a tiny Foundry harness that deploys the
 entry contract, replays the whitelisted env cheatcodes (so the EVM env == the
 canonical pinned env, contest/env.py), performs the ENTRY call by raw calldata,
 and dumps the raw ``(ok, ret-bytes, self, origin)`` to a file. The adjudicator
-decodes those bytes (observable.evm_observable) into the same normal form Solidus
+decodes those bytes (observable.evm_observable) into the same normal form solidity-lean
 renders and diffs the two. ``declared_observable`` is now only a sanity hint.
 
 Reuses the harness's pinned solc/forge invocation conventions
@@ -44,7 +44,7 @@ class EntrySig:
 class Measurement:
     ok: bool                 # entry call succeeded (True) vs reverted (False)
     ret_hex: str             # raw return (ok) or revert (not ok) bytes, 0x-hex
-    self_addr: int           # deployed entry-contract address (mirror -> Solidus)
+    self_addr: int           # deployed entry-contract address (mirror -> solidity-lean)
     origin: int
     raw: str                 # the raw dumped line, for evidence
     events: str = ""         # rendered events section (§3.4 component 4)
@@ -107,7 +107,7 @@ def error_definitions(source: Path, solc: str) -> dict[str, tuple[str, list[str]
 
 # ---------------------------------------------------------------------------
 # Python-side ABI encoding of the entry args (from claim.json) into calldata.
-# Supports the same v1 arg forms the Solidus renderer supports: word / int /
+# Supports the same v1 arg forms the solidity-lean renderer supports: word / int /
 # bytes / bool. Static args go in the head; dynamic bytes get an offset+tail.
 # ---------------------------------------------------------------------------
 
@@ -207,12 +207,12 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
     # report EVERY slot the contract wrote across deploy + entry call; we vm.load
     # each and emit `slot:value`. Duplicate slots and zero values are normalized
     # away by the Python comparator (observable._parse_storage_map), so no dedup is
-    # needed here. This mirrors the Solidus side, which dumps its whole storage map.
+    # needed here. This mirrors the solidity-lean side, which dumps its whole storage map.
     _ = slots  # retained for signature compatibility; superseded by vm.accesses
     # Deployment: `new C()` for a no-arg constructor; otherwise deploy from the
     # contract's creationCode with the ABI-encoded constructor args appended (the
     # exact bytes solc would append), via a low-level CREATE. This mirrors the
-    # Solidus side, which runs `constructWithContext` with the same decoded args.
+    # solidity-lean side, which runs `constructWithContext` with the same decoded args.
     if ctor_args_hex:
         deploy_block = (
             f'bytes memory _init = abi.encodePacked('
@@ -239,7 +239,7 @@ contract ContestMeasure {{
         vm.record();
         // Prank the DEPLOY too (vm.prank applies to the next CALL or CREATE), so
         // the constructor's msg.sender is the canonical sender — the same value
-        // Solidus threads into constructWithContext. Without this the ctor would
+        // solidity-lean threads into constructWithContext. Without this the ctor would
         // see the test-harness address and `owner = msg.sender` would diverge.
         vm.prank(address(uint160({ov.sender})));
         {deploy_block}

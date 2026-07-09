@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 9 — low-level `call`/`staticcall`/`delegatecall` return-data & revert bubbling)
+# Implementation-level solc-vs-solidity-lean divergence review (round 9 — low-level `call`/`staticcall`/`delegatecall` return-data & revert bubbling)
 
 **Ninth campaign round** (the eighth `divergences-*` doc; the plan's **Round-9**,
 the highest-priority UNEXPLORED P0 surface). Rounds 1–7 mined arithmetic/cleanup,
@@ -12,11 +12,11 @@ V1 class the plan flagged (§3 Round-9): "a *revert-encoding / returndata*
 re-derivation that can silently differ from concrete EVM".
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit `47b9dedd`,
-READ-ONLY — the exact source of the pinned binary). Solidus at branch
+READ-ONLY — the exact source of the pinned binary). solidity-lean at branch
 `codex/solidity-semantics-only` HEAD (round-7/memory-2 tip). Canonical semantics
-are `SolidCore/Solidity/*.lean`. Nothing was built/run for Solidus; the headline
+are `SolidCore/Solidity/*.lean`. Nothing was built/run for solidity-lean; the headline
 finding is confirmed with a Forge probe against the pinned `solc 0.8.35`. Findings
-are **CONFIRMED** (both sides read to the rule + Forge ground truth + Solidus code
+are **CONFIRMED** (both sides read to the rule + Forge ground truth + solidity-lean code
 trace) or **INFERRED** (code trace only).
 
 ---
@@ -25,7 +25,7 @@ trace) or **INFERRED** (code trace only).
 
 **Surfaces read this round (code, both sides):**
 
-- **Low-level `call`/`staticcall`/`delegatecall` return** — Solidus
+- **Low-level `call`/`staticcall`/`delegatecall` return** — solidity-lean
   `emitLowLevelCall` → `decodeCallResponse` (`Interpreter.lean:2277-2303`), returned
   as `(boolWord result.success, Value.bytes result.output)`
   (`Interpreter.lean:6403-6430`) ↔ solc's `CALL`/`STATICCALL`/`DELEGATECALL` +
@@ -47,18 +47,18 @@ trace) or **INFERRED** (code trace only).
   `extcodesize` guard on typed external calls.
 
 **Headline: this round found one CONFIRMED soundness divergence — CB1 — in the
-`try/catch` `Error(string)` clause dispatch.** Solidus re-derives the Error clause
+`try/catch` `Error(string)` clause dispatch.** solidity-lean re-derives the Error clause
 match with its **strict standard ABI codec**, whereas solc gates the Error clause
 behind a hard **`returndatasize() >= 0x44` (68-byte)** check in the purpose-built
 `tryDecodeErrorMessage`. The two agree for every canonical `Error("…")`, but for a
 callee that reverts with a short, non-canonically-framed `Error`-selector payload
 (as few as 36 bytes) solc falls through to the `catch (bytes memory)` / bubble arm
-while Solidus matches `catch Error(string)` and binds a decoded reason — a **wrong
+while solidity-lean matches `catch Error(string)` and binds a decoded reason — a **wrong
 catch branch + wrong bound value**.
 
 - **CB1 (NEW, SOUNDNESS wrong-branch + wrong-value, DIFFERENTIALLY-LIVE,
   CONFIRMED)** — see below. Forge (solc 0.8.35): a 36-byte revert `Error-selector ‖
-  32 zero bytes` routes to `catch (bytes)` (branch 2); Solidus's `TryCatchClause`
+  32 zero bytes` routes to `catch (bytes)` (branch 2); solidity-lean's `TryCatchClause`
   matches the Error clause (branch 1, reason `""`). Reachability is real but narrow
   (needs an adversarially/hand-framed callee returndata; canonical `Error`/`Panic`
   agree exactly), so it ranks below V1/DL1/M1 on likelihood while sharing their
@@ -113,7 +113,7 @@ Only if `tryDecodeErrorMessage` returns a nonzero pointer does solc set
 stays `1` and control falls to the fallback clause (`catch (bytes)` / `catch {}`)
 or, absent one, `forwardingRevert` (`:3514-3518`).
 
-**Solidus.** `TryCatchClause.match?` for the Error clause
+**solidity-lean.** `TryCatchClause.match?` for the Error clause
 (`Interpreter.lean:7289-7296`) re-derives the match with the **strict standard
 codec**:
 
@@ -153,7 +153,7 @@ Caller: `try c.short() {…} catch Error(string memory r) {branch 1} catch Panic
 
 - **solc** (Forge): `returndatasize() = 36 < 0x44` ⇒ `tryDecodeErrorMessage` leaves
   ⇒ `runFallback = 1` ⇒ **branch 2** (`catch (bytes)`), `r` never bound.
-- **Solidus** (code trace): `revertBytesSelector? raw = Error selector` ✓;
+- **solidity-lean** (code trace): `revertBytesSelector? raw = Error selector` ✓;
   `abiDecodeValues? [bytesCalldata] (raw.drop 4)` on the 32-byte data reads
   `offset = readWord data 0 = 0`, `length = readWord data 0 = 0`,
   `bytes = readBytes data 32 0 = []` ⇒ decodes `Value.bytes []` ⇒ **branch 1**
@@ -161,7 +161,7 @@ Caller: `try c.short() {…} catch Error(string memory r) {branch 1} catch Panic
 
 Forge ground truth (pinned solc 0.8.35), same harness:
 
-| callee returndata | solc branch | Solidus branch |
+| callee returndata | solc branch | solidity-lean branch |
 |---|---|---|
 | `Error-selector ‖ 32×0x00` (36 B, offset 0) | **2** (`catch bytes`) | **1** (`catch Error`, `r=""`) |
 | canonical `Error("")` (68 B, offset `0x20`) | 1 (`catch Error`, `r=""`) | 1 (`catch Error`, `r=""`) — MATCH |
@@ -170,7 +170,7 @@ Forge ground truth (pinned solc 0.8.35), same harness:
 So the divergence is isolated to the **Error** clause and to returndata whose size
 is in `[36, 67]` with an offset word small enough that the length read stays in
 bounds (the offset-`0` case is the minimal repro). Both sides agree exactly on
-canonical Error, on all Panic shapes (solc's `> 0x23` gate == Solidus's structural
+canonical Error, on all Panic shapes (solc's `> 0x23` gate == solidity-lean's structural
 36-byte minimum), and on custom-error / empty returndata (both fall to the bytes
 clause).
 
@@ -179,7 +179,7 @@ clause).
 solc uses **two different decoders**: the strict standard `abi_decode` for return
 *values*, and hand-written *lenient* decoders (`tryDecodeErrorMessage` /
 `tryDecodePanicData`) with bespoke size gates for `catch Error`/`catch Panic`.
-Solidus collapses both onto its single strict codec (`abiDecodeValues?`). The
+solidity-lean collapses both onto its single strict codec (`abiDecodeValues?`). The
 strict codec happens to coincide with `tryDecodePanicData` (both bottom out at 36
 bytes) but **not** with `tryDecodeErrorMessage`, whose `>= 0x44` floor is stricter
 than the codec's structural minimum for a degenerate offset. This is exactly the
@@ -196,7 +196,7 @@ Likelihood is lower than V1/DL1/M1 because it needs a non-canonical callee
 returndata — a well-behaved contract's `revert("…")` always emits the canonical
 `>= 0x44` form on which both sides agree. **Severity: SOUNDNESS (wrong catch branch
 + wrong bound value).** **Confidence: CONFIRMED** (solc source + Forge ground
-truth + Solidus code trace).
+truth + solidity-lean code trace).
 
 ### Suggested fix (for a fix-agent — not applied here)
 
@@ -220,7 +220,7 @@ the short-payload edge moves to the fallback clause, matching solc.
   `buildCallRequest` (`:2231-2272`) sets the kind-correct frame
   (delegatecall recipient=self / no transfer; staticcall no transfer).
 - **F2 — high-level revert bubbling.** On a failed high-level call with no
-  matching catch clause, Solidus reverts with `RevertData.fromRawBytes output`
+  matching catch clause, solidity-lean reverts with `RevertData.fromRawBytes output`
   (`:8397-8401`); `fromRawBytes` (`:305-309`) yields `empty` iff the output is
   empty, else `raw output`. solc's `forwardingRevert`
   (`YulUtilFunctions.cpp:4147-4172`) does `returndatacopy(pos,0,returndatasize());
@@ -237,7 +237,7 @@ the short-payload edge moves to the fallback clause, matching solc.
   (`:7280-7285`) binds `[]` for a param-less clause or `[Value.bytes raw]` for the
   single-`bytes` clause — the full returndata. solc's `extractReturndata`
   (`YulUtilFunctions.cpp:4735-4762`) copies the whole returndata (empty→empty
-  array). The unnamed catch is grammar-forced last, so Solidus's source-order
+  array). The unnamed catch is grammar-forced last, so solidity-lean's source-order
   `findMatch?` never shadows an Error/Panic clause with it.
 - **F5 — `delegatecall` storage-write observability.** `buildCallRequest`
   sets `recipient := wordToAddress context.self` and `transferValue := 0` for
@@ -253,7 +253,7 @@ the short-payload edge moves to the fallback clause, matching solc.
   emitting a query, matching solc's `extcodesize` check on `ContractType` calls.
   Low-level `.call` carries no such guard (calling an EOA succeeds), matching solc.
 - **F7 — success-path returndata decode failure.** On a *successful* high-level
-  call whose returndata cannot be decoded or fails return-value cleanup, Solidus
+  call whose returndata cannot be decoded or fails return-value cleanup, solidity-lean
   reverts `RevertData.empty` (`:8377-8386`), matching solc's `abi_decode`
   validation failure `revert(0, 0)`.
 
@@ -293,13 +293,13 @@ the short-payload edge moves to the fallback clause, matching solc.
 ## Bottom line
 
 Round 9 targeted the open-world call-return & revert-bubbling surface — the
-plan's top UNEXPLORED P0 — and found **CB1**: Solidus re-derives the `try/catch`
+plan's top UNEXPLORED P0 — and found **CB1**: solidity-lean re-derives the `try/catch`
 `Error(string)` clause match with its strict standard ABI codec, whose structural
 minimum (36 bytes for a degenerate offset) is looser than solc's hard
 `returndatasize() >= 0x44` gate in the purpose-built `tryDecodeErrorMessage`. A
 callee that reverts with a short, non-canonically-framed `Error`-selector payload
 (minimally `Error-selector ‖ 32 zero bytes`, 36 bytes) is routed to
-`catch (bytes)` by solc but to `catch Error(string)` (reason `""`) by Solidus — a
+`catch (bytes)` by solc but to `catch Error(string)` (reason `""`) by solidity-lean — a
 wrong catch branch and a wrong bound value, Forge-confirmed against the pinned
 solc. Every other surface read is faithful: the low-level `(ok, ret)` pair is
 answered verbatim, high-level bubbling forwards the raw returndata byte-for-byte,

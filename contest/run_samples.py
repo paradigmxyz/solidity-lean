@@ -4,35 +4,35 @@
 Runs one submission per classification and asserts the expected verdict:
 
   * oos_gasleft    -> REJECTED_OOS  (X-GASLEFT, hidden in a callee)   [FULL run]
-  * no_divergence  -> NO_DIVERGENCE (Solidus agrees with solc+EVM)    [FULL run]
+  * no_divergence  -> NO_DIVERGENCE (solidity-lean agrees with solc+EVM)    [FULL run]
   * soundness (REAL) -> SOUNDNESS_GAP (lane S, wrong-value)           [FULL run +
                        one-unit fault injection at the observable boundary]
-  * coverage_gap   -> COVERAGE_GAP  (lane C, Solidus fail-closed)     [SIMULATED
-                       Solidus step - see below]
+  * coverage_gap   -> COVERAGE_GAP  (lane C, solidity-lean fail-closed)     [SIMULATED
+                       solidity-lean step - see below]
 
-FULL run = the real pipeline: pinned solc + Foundry + the built Solidus (Lean
+FULL run = the real pipeline: pinned solc + Foundry + the built solidity-lean (Lean
 #eval) execute end-to-end.
 
 Gap-testing methodology (how we test the DETECTOR without leaving bugs in
-Solidus — the maintainer's requirement):
+solidity-lean — the maintainer's requirement):
 
   1. POSITIVE CONTROL (no_divergence): a real contract, full pipeline, asserts
      the two engines AGREE. Proves the pipeline runs clean.
-  2. SOUNDNESS DETECTOR (real Solidus run + injected delta): `no_divergence` is
+  2. SOUNDNESS DETECTOR (real solidity-lean run + injected delta): `no_divergence` is
      run through the ENTIRE live pipeline (real import -> typecheck -> elaborate
-     -> execute -> render on the Solidus side; real solc+Foundry measurement on
+     -> execute -> render on the solidity-lean side; real solc+Foundry measurement on
      the EVM side), then the measured EVM observable is perturbed by ONE UNIT at
      the observable boundary (`observable.perturb_leading_value`, via the
      `_selftest_perturb_evm` seam). The comparator+classifier must then emit
      SOUNDNESS_GAP(wrong-value). This exercises the full detection path against a
-     genuine Solidus execution while leaving Solidus itself BUG-FREE — the delta
+     genuine solidity-lean execution while leaving solidity-lean itself BUG-FREE — the delta
      lives in the test harness, never in SolidCore.
   3. COVERAGE DETECTOR (real run + injected fail-closed): `no_divergence` is run
-     through the ENTIRE live pipeline (real solc + Foundry + Solidus import ->
-     typecheck -> execute), then a fail-closed is INJECTED at the Solidus result
-     boundary (`_selftest_perturb_solidus`) — the "inserted bug": Solidus fails
+     through the ENTIRE live pipeline (real solc + Foundry + solidity-lean import ->
+     typecheck -> execute), then a fail-closed is INJECTED at the solidity-lean result
+     boundary (`_selftest_perturb_solidity_lean`) — the "inserted bug": solidity-lean fails
      closed on a solc-accepted program, exactly what a coverage gap is. The
-     classifier must emit COVERAGE_GAP (lane C). Real pipeline, bug-free Solidus.
+     classifier must emit COVERAGE_GAP (lane C). Real pipeline, bug-free solidity-lean.
      When a genuine open importer/over-reject gap is available it can be pinned as
      a fixture whose expected verdict FLIPS to NO_DIVERGENCE once fixed (via the
      known-fixed list) — so a real bug is never kept alive just to test detection.
@@ -74,23 +74,23 @@ def run_full(name: str, expected_verdict: str, timeout: int = 500) -> tuple[bool
 
 
 def run_simulated(name: str, expected_verdict: str, expected_lane: str,
-                  sim: hb.SolidusResult, timeout: int = 400,
+                  sim: hb.SolidityLeanResult, timeout: int = 400,
                   expect_component: str | None = None,
                   expect_duplicate: str | None = None) -> tuple[bool, str]:
-    """Run the real pipeline but with run_solidus_observable monkeypatched."""
-    original = hb.run_solidus_observable
-    adj_original = adj.hb.run_solidus_observable
+    """Run the real pipeline but with run_solidity_lean_observable monkeypatched."""
+    original = hb.run_solidity_lean_observable
+    adj_original = adj.hb.run_solidity_lean_observable
 
     def fake(*_a, **_k):
         return sim
 
-    hb.run_solidus_observable = fake  # type: ignore
-    adj.hb.run_solidus_observable = fake  # type: ignore
+    hb.run_solidity_lean_observable = fake  # type: ignore
+    adj.hb.run_solidity_lean_observable = fake  # type: ignore
     try:
         report = adj.adjudicate(SAMPLES / name, timeout=timeout)
     finally:
-        hb.run_solidus_observable = original  # type: ignore
-        adj.hb.run_solidus_observable = adj_original  # type: ignore
+        hb.run_solidity_lean_observable = original  # type: ignore
+        adj.hb.run_solidity_lean_observable = adj_original  # type: ignore
 
     ok = report.verdict == expected_verdict and report.lane == expected_lane
     if expect_component is not None:
@@ -110,7 +110,7 @@ def run_real_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
     Runs `no_divergence` through the FULL live pipeline, then injects a one-unit
     delta into the measured EVM observable. The full comparator+classifier must
     return SOUNDNESS_GAP(wrong-value). This proves the detection path works over
-    a genuine Solidus execution with ZERO bugs in Solidus."""
+    a genuine solidity-lean execution with ZERO bugs in solidity-lean."""
     report = adj.adjudicate(
         SAMPLES / "no_divergence", timeout=timeout,
         _selftest_perturb_evm=obs.perturb_leading_value)
@@ -129,7 +129,7 @@ def run_real_storage_selftest(timeout: int = 500) -> tuple[bool, str]:
     whole-storage-map comparison, no declared slots), then injects a one-unit
     delta into the measured EVM storage map. The comparator+classifier must
     return SOUNDNESS_GAP(wrong-state). Proves the broad-storage detection path
-    works over a genuine Solidus execution with ZERO bugs in Solidus."""
+    works over a genuine solidity-lean execution with ZERO bugs in solidity-lean."""
     report = adj.adjudicate(
         SAMPLES / "ctor_storage", timeout=timeout,
         _selftest_perturb_evm=obs.perturb_storage_slot)
@@ -145,21 +145,21 @@ def run_real_coverage_selftest(timeout: int = 500) -> tuple[bool, str]:
     """REAL end-to-end coverage-detector test (methodology step 3, bug-injection).
 
     Runs `no_divergence` through the FULL live pipeline (real solc + Foundry +
-    Solidus import/typecheck/execute), then INJECTS a fail-closed at the Solidus
-    result boundary (the "inserted bug": Solidus fails closed on a solc-accepted
+    solidity-lean import/typecheck/execute), then INJECTS a fail-closed at the solidity-lean
+    result boundary (the "inserted bug": solidity-lean fails closed on a solc-accepted
     program, which is exactly what a coverage gap looks like). The classifier must
     return COVERAGE_GAP (lane C). This exercises the lane-C detection path over a
-    genuine pipeline run with ZERO bugs in Solidus — the injected fail-closed
+    genuine pipeline run with ZERO bugs in solidity-lean — the injected fail-closed
     lives in the test harness, never in SolidCore."""
-    def inject_bug(_solidus: hb.SolidusResult) -> hb.SolidusResult:
-        return hb.SolidusResult(
+    def inject_bug(_solidity_lean: hb.SolidityLeanResult) -> hb.SolidityLeanResult:
+        return hb.SolidityLeanResult(
             ok=False, stage="import", fail_closed=True, observable=None,
             message=("importer exit_1: unimplemented Solidity AST nodes present: "
                      "SelfTestInjectedCoverageProbe"),
             inconclusive=False)
 
     report = adj.adjudicate(SAMPLES / "no_divergence", timeout=timeout,
-                            _selftest_perturb_solidus=inject_bug)
+                            _selftest_perturb_solidity_lean=inject_bug)
     ok = (report.verdict == "COVERAGE_GAP" and report.lane == "C"
           and report.qualifies)
     detail = (f"verdict={report.verdict} lane={report.lane} "
@@ -220,9 +220,9 @@ def main() -> int:
     results.append(("dedup-fingerprints (unit)", ok, d))
     _print("dedup-fingerprints (unit)", ok, d)
 
-    # --- FULL end-to-end runs (real solc + Foundry + Solidus/Lean) ---
+    # --- FULL end-to-end runs (real solc + Foundry + solidity-lean/Lean) ---
     # REAL detector tests: full live pipeline + fault injection at the result
-    # boundary (methodology steps 2 & 3). No bug in Solidus.
+    # boundary (methodology steps 2 & 3). No bug in solidity-lean.
     ok, d = run_real_soundness_selftest()
     results.append(("soundness-detector (REAL run + injected delta)", ok, d))
     _print("soundness-detector (REAL run + injected delta)", ok, d)
@@ -248,7 +248,7 @@ def main() -> int:
     results.append(("external_call OOS (FULL)", ok, d))
     _print("external_call OOS (FULL)", ok, d)
 
-    # events + storage parity control: emits an event + writes storage; Solidus
+    # events + storage parity control: emits an event + writes storage; solidity-lean
     # and solc+EVM must agree on event topics/data and observed slots.
     ok, d = run_full("events_storage", "NO_DIVERGENCE")
     results.append(("events_storage parity (FULL)", ok, d))
@@ -263,7 +263,7 @@ def main() -> int:
     _print("ctor_storage broad-storage (FULL)", ok, d)
 
     # constructor ARGUMENTS: both engines deploy with the same decoded args
-    # (EVM appends to creationCode; Solidus -> constructWithContext).
+    # (EVM appends to creationCode; solidity-lean -> constructWithContext).
     ok, d = run_full("ctor_args", "NO_DIVERGENCE")
     results.append(("ctor_args (FULL)", ok, d))
     _print("ctor_args (FULL)", ok, d)
@@ -276,7 +276,7 @@ def main() -> int:
 
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
-    # observable (== Solidus) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.
+    # observable (== solidity-lean) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.
     ok, d = run_full("fake_oracle", "NO_DIVERGENCE")
     results.append(("fake_oracle ATTACK (FULL)", ok, d))
     _print("fake_oracle ATTACK (FULL)", ok, d)
@@ -299,7 +299,7 @@ def main() -> int:
     _print("cheatcode_banned ATTACK (FULL)", ok, d)
 
     # P0 #3: test pins timestamp via vm.warp -> allowed + MIRRORED into the
-    # Solidus env -> both see 12345 -> NO_DIVERGENCE (correct verdict).
+    # solidity-lean env -> both see 12345 -> NO_DIVERGENCE (correct verdict).
     ok, d = run_full("cheatcode_allowed", "NO_DIVERGENCE")
     results.append(("cheatcode_allowed ALLOWED (FULL)", ok, d))
     _print("cheatcode_allowed ALLOWED (FULL)", ok, d)

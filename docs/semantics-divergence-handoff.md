@@ -1,6 +1,6 @@
-# Solidus semantics divergences — handoff to the semantics agent
+# solidity-lean semantics divergences — handoff to the semantics agent
 
-Candidate and confirmed Solidus-vs-solc/EVM divergences surfaced by two review
+Candidate and confirmed solidity-lean-vs-solc/EVM divergences surfaced by two review
 agents (2026-07-08). All line numbers are in `SolidCore/Solidity/` unless noted.
 None are acted on here — this is a to-investigate list for the semantics work.
 
@@ -18,18 +18,18 @@ These are verified against solc 0.8.35 (two with IR probes). They are runtime
 wrong-control-flow divergences on solc-accepted programs, and none is masked by
 the importer.
 
-### A1 — `try` + void external call to a **codeless** address: Solidus runs `catch`; solc reverts the caller uncatchably
+### A1 — `try` + void external call to a **codeless** address: solidity-lean runs `catch`; solc reverts the caller uncatchably
 - **solc:** the extcodesize guard is emitted for any high-level call with return
   head size 0, with **no exception for `tryCall`** (`IRGeneratorForStatements.cpp:2705-2707`
   emits `if iszero(extcodesize(addr)) { revertNoCode() }`; decision at `:2750-2762`).
   The guard is a plain `revert(0,0)` in the caller **before** the call, outside
   the `switch trySuccessCondition` — so `try` **cannot** catch the no-code case.
-- **Solidus:** `Interface.lean:14256` lowers `try` with `checkTargetCode := returns.isEmpty`;
+- **solidity-lean:** `Interface.lean:14256` lowers `try` with `checkTargetCode := returns.isEmpty`;
   the interpreter maps missing code to `LowLevelCallResult.failedRequest`
   (`Interpreter.lean:8335-8344`), which flows into the catch dispatch
   (`Interpreter.lean:8387-8401`) — the bare/low-level catch matches and its body runs.
 - **Probe:** `interface I { function f() external; } contract C { function probe(address a) public returns (uint) { try I(a).f() { return 1; } catch { return 2; } } }`
-  with `a` an EOA/codeless address: **solc reverts the whole call (empty data); Solidus returns `2`.**
+  with `a` an EOA/codeless address: **solc reverts the whole call (empty data); solidity-lean returns `2`.**
 - Corrects round-9 **F6** ("high-level extcodesize guard — faithful"), which only
   considered the plain-call observable.
 
@@ -37,13 +37,13 @@ the importer.
 - **solc:** clause order is unconstrained (parser `Parser.cpp:1599-1603`;
   typechecker enforces only per-kind uniqueness); codegen fetches clauses **by
   kind** (`errorClause()/panicClause()/fallbackClause()`, `AST.cpp:1072-1082`).
-- **Solidus:** `TryCatchClause.findMatch?` (`Interpreter.lean:7310-7316`) is
+- **solidity-lean:** `TryCatchClause.findMatch?` (`Interpreter.lean:7310-7316`) is
   first-match over the **source-ordered** clause list, and the low-level clause
   matches **any** payload (`matchLowLevel?`, `Interpreter.lean:7280-7285`). With
   `catch (bytes)` / bare `catch` listed **before** `catch Error` / `catch Panic`,
-  Solidus runs the fallback where solc runs the kind clause.
+  solidity-lean runs the fallback where solc runs the kind clause.
 - **Probe:** `try this.gv() {} catch (bytes memory) { return 1; } catch Error(string memory) { return 2; }`
-  where `gv()` does `revert("boom")`: **solc returns `2`, Solidus returns `1`.**
+  where `gv()` does `revert("boom")`: **solc returns `2`, solidity-lean returns `1`.**
   Same shadowing for `catch (bytes)` before `catch Panic(uint)`.
 - Refutes round-9 **F4**'s "unnamed catch is grammar-forced last" justification —
   the parser imposes no such constraint.
@@ -51,7 +51,7 @@ the importer.
 ### A3 — extcodesize check skipped for non-identifier receiver shapes (plain void call)
 - **solc:** the `checkExtcodesize` template is receiver-shape-independent — any
   void high-level external call gets the guard (`IRGeneratorForStatements.cpp:2705, 2755-2761`).
-- **Solidus:** the plain-statement lowering gates the check on receiver **shape**:
+- **solidity-lean:** the plain-statement lowering gates the check on receiver **shape**:
   `Expr.externalCallNeedsCodeCheckWithEnv` (`Interface.lean:5198-5206`) requires
   `Expr.externalCallTargetNeedsCodeCheckWithEnv` (`:5186-5196`), which is true
   only for an **identifier** of contract type (local/param/state var/`this`) or a
@@ -60,7 +60,7 @@ the importer.
   (Some legacy sites pass an empty env — `Interface.lean:6160-6165` — disabling
   the check for ident receivers too.)
 - **Probe:** `interface I { function f() external; } contract C { I[] ts; function add(address a) public { ts.push(I(a)); } function probe() public returns (uint) { ts[0].f(); return 7; } }`
-  with a codeless target: **solc reverts (guard); Solidus returns `7`.**
+  with a codeless target: **solc reverts (guard); solidity-lean returns `7`.**
   (CONFIRMED in code; observable INFERRED.)
 
 ---
@@ -85,7 +85,7 @@ count and per-element offset. Reachability depends on the importer emitting
 `checkedExpLoop` (`~5316`) and `checkedSignedExpLoop` (`~5399`) recurse
 structurally `norm exponent` times (a `Nat` up to 2²⁵⁶−1). Inside `unchecked`,
 `x ** y` with a large runtime `y` (e.g. `2 ** userValue`) makes solc return
-`base^exp mod 2²⁵⁶` in O(log y) while Solidus attempts up to 2²⁵⁶ iterations —
+`base^exp mod 2²⁵⁶` in O(log y) while solidity-lean attempts up to 2²⁵⁶ iterations —
 a hang/timeout instead of the wrapped value. (Note: this compounds the contest
 harness's fuel-timeout handling — now routed to NEEDS_REVIEW, not a false gap.)
 
@@ -94,7 +94,7 @@ harness's fuel-timeout handling — now routed to NEEDS_REVIEW, not a false gap.
 `isSignedNegOneWord`; likewise `checkedSignedNeg` (`~5364`). For `int8 a = -128; a / -1`
 (or `-a`) the true overflow is at the int8 level. Correctness then rests entirely
 on an enclosing `intCleanup`; if the importer omits a cleanup wrapper on a
-division/negation result, Solidus returns `128` instead of reverting `Panic(0x11)`.
+division/negation result, solidity-lean returns `128` instead of reverting `Panic(0x11)`.
 
 ### B4 — Modifier placeholder substitution: verify nested / multi-`_` handling (medium)
 Two lowerings exist: `Interface.lean:5884` (`replaceTopLevelModifierPlaceholder`)
@@ -161,7 +161,7 @@ outer tuple — the relative offset base is easy to get wrong one level deep.
 - `require(cond, CustomError/stringExpr)` — second arg evaluated unconditionally (= solc); see B8.
 - `transfer`/`send` lowering (`Interface.lean:5423-5435, 4145-4157`): transfer
   failure forwards raw returndata; send yields the bool. (Gas-stipend representation
-  differs — solc gas 0 relying on EVM stipend, Solidus passes 2300 — but gas is OOS.)
+  differs — solc gas 0 relying on EVM stipend, solidity-lean passes 2300 — but gas is OOS.)
 - `msg.sig` zero-pads short calldata (`Interpreter.lean:56-57`).
 - `abi.decode` malformed data → empty revert (`Interpreter.lean:6369-6384`);
   bool/enum/narrow validation cleanups revert empty — matches solc validators.

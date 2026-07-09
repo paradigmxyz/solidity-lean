@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 11 — create / create2 / selfdestruct observables + precompile input framing)
+# Implementation-level solc-vs-solidity-lean divergence review (round 11 — create / create2 / selfdestruct observables + precompile input framing)
 
 **Round 11 of the campaign** (the ninth `divergences-*` doc). Round-10
 (transient-storage slot ORDER + storage-packing re-audit) is **deferred**: it
@@ -6,16 +6,16 @@ rides the DL1 fix (reverse-C3 storage order), which is still open on `main` per 
 git log — reviewing transient order now would only re-derive DL1's already-reported
 DFS-vs-reverse-C3 bug for transient vars. This round instead executes the plan's
 Round-11: the execution **observables** of `new C{value,salt}(args)`,
-`selfdestruct(a)`, and the calldata **framing** Solidus emits for precompile
+`selfdestruct(a)`, and the calldata **framing** solidity-lean emits for precompile
 staticcalls (0x01–0x0a) — the open-world/postWorld model re-derives create/destroy
 balance-and-address observables (the V1 class), and a mis-framed precompile input
 is a value re-derivation.
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit `47b9dedd`,
-READ-ONLY — the exact source of the pinned binary). Solidus at branch
+READ-ONLY — the exact source of the pinned binary). solidity-lean at branch
 `codex/solidity-semantics-only` HEAD. Canonical semantics are
 `SolidCore/Solidity/*.lean` + `SolidCore/Solidity/Shared/*.lean`. Nothing was
-built/run for Solidus. Findings are **CONFIRMED** (both sides read to the rule +
+built/run for solidity-lean. Findings are **CONFIRMED** (both sides read to the rule +
 EVM/solc ground truth) or **INFERRED** (code trace).
 
 ---
@@ -65,7 +65,7 @@ account through the responder; the **EIP-6780** selfdestruct delete flag matches
 (`!cancunOrLater || createdThisTx`); and precompile **input framing** is either
 correct (`ecrecoverInput` = digest‖v‖r‖s for 0x01; `modexpInput` = the EIP-198
 length-prefixed layout) or **not a live re-derivation surface** at all — 0x05–0x0a
-have no Solidus builtin, so their calldata is constructed by the Solidity source
+have no solidity-lean builtin, so their calldata is constructed by the Solidity source
 and merely passed through to the responder.
 
 | # | Target | Verdict | Severity | Reachability |
@@ -96,7 +96,7 @@ keeps code but ends with balance 0, and `recipient.balance` grows by the old sel
 balance). solc lowers `selfdestruct(a)` directly to the `selfdestruct(a)` opcode
 (`IRGeneratorForStatements.cpp` builtin), so the EVM performs the transfer.
 
-### Solidus
+### solidity-lean
 
 `Stmt.selfdestruct` (`Interpreter.lean:8519-8532`) evaluates the recipient and
 returns `Result.selfdestructed` after `State.recordSelfdestruct`
@@ -134,8 +134,8 @@ responder's `answerCall?`/`answerCreate?` apply `debitWorldSelf` using
 the record fields (`from`, `recipient`, `deletesAccount`) and a storage slot — no
 post-destruct balance is compared, so no current witness would catch this. It
 becomes **SOUNDNESS-live** iff the differential harness observes the self
-account's balance after a top-level selfdestruct (EVM: 0 or account-gone; Solidus:
-unchanged) or the recipient's balance (EVM: credited; Solidus: unchanged). It is a
+account's balance after a top-level selfdestruct (EVM: 0 or account-gone; solidity-lean:
+unchanged) or the recipient's balance (EVM: credited; solidity-lean: unchanged). It is a
 genuine EVM observable, so it is not OOS the way access-sets/refund are (those are
 explicitly declared gaps in `DECISIONS.md` 2091-2093; the selfdestruct balance move
 is not). **Severity: SOUNDNESS-conditional** (wrong balance if observed), else
@@ -161,7 +161,7 @@ Guard the self==recipient degenerate case (net zero).
   `if iszero(<address>) { forwardingRevert() }` (`IRGeneratorForStatements.cpp:1621`)
   and try-create with `let success := iszero(iszero(<address>))` (`:1619`). Same
   success rule; the address is EVM/responder ground truth on both sides.
-- **F2 — plain-`new` constructor-revert bubble.** On failure Solidus throws
+- **F2 — plain-`new` constructor-revert bubble.** On failure solidity-lean throws
   `RevertData.fromRawBytes result.output` (`:6459`, `:6477`); `fromRawBytes`
   (`:305-309`) → `empty` iff output empty else `raw output`. solc's
   `forwardingRevert` (`YulUtilFunctions.cpp:4147-4172`) forwards the raw returndata
@@ -189,9 +189,9 @@ Guard the self==recipient degenerate case (net zero).
   the 2026-07-06 precompile-alignment decision (`Shared/Precompile.lean:81-87`),
   precompiles are ordinary external calls answered by the responder; only
   ecrecover/sha256/ripemd160 have live builtins (`emitPrecompileWord`
-  `:2313-2319`, framing the ecrecover input). **0x05–0x0a have no Solidus builtin**
+  `:2313-2319`, framing the ecrecover input). **0x05–0x0a have no solidity-lean builtin**
   — their calldata is built by the Solidity source (`abi.encodePacked`, etc.) and
-  passed through a raw `staticcall`, so there is **no Solidus-side framing
+  passed through a raw `staticcall`, so there is **no solidity-lean-side framing
   re-derivation to diverge** (the plan's suspected surface resolves to N/A);
   `modexpInput` is a correct-but-witness-only helper.
 - **F7 — create2 address prediction.** OOS by decision (G22): identity is the
@@ -235,7 +235,7 @@ Round 11 read the create/create2/selfdestruct execution observables and the
 precompile input framing. The deployed-contract address and success rule, the
 plain-`new` and try-`new` constructor-revert bubbling, the **create** value
 transfer, the **EIP-6780** selfdestruct delete flag + set, and the precompile
-input framing are all **faithful** (and 0x05–0x0a have no Solidus framing surface
+input framing are all **faithful** (and 0x05–0x0a have no solidity-lean framing surface
 to diverge at all — they are source-constructed and responder-answered). The one
 gap is **CS1**: `selfdestruct` records the `(from, recipient, deletesAccount)` fact
 but performs no **balance transfer** — the self balance is not zeroed and the

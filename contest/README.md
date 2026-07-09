@@ -3,7 +3,7 @@
 Implements `docs/competition-design.md` for the **single-contract** (v1) scope:
 the reject gate, exclusion register, adjudicator decision tree, observable
 extractor/comparator, and dedup fingerprints, wired end-to-end against pinned
-solc 0.8.35 + Foundry + the built Solidus (Lean) in this worktree.
+solc 0.8.35 + Foundry + the built solidity-lean (Lean) in this worktree.
 
 The multi-contract reflective responder (design §3, v2) is **out of scope for
 v1**; the seam where it plugs in is documented in `multi_contract.py` and the
@@ -20,7 +20,7 @@ verdicts). In short:
   actual Forge run (`measure.py`) and decoded (`observable.evm_observable`);
   `claim.declared_observable` is only a misreport cross-check.
 - **Pinned environment (P0 #2).** ONE canonical env = Foundry's real defaults
-  (`env.py`), threaded identically into the Solidus `#eval`
+  (`env.py`), threaded identically into the solidity-lean `#eval`
   (`CheckedContract.callFunctionWithContext`) and the Foundry measurement. An
   env-fact detector (`SEM-ENV`) rejects `blockhash`/`blobhash`-derived
   observables as out of scope.
@@ -28,7 +28,7 @@ verdicts). In short:
 
 ### Cheatcode policy (allow-list; everything else rejected)
 
-| Allowed (mirrored into the Solidus env) | Effect |
+| Allowed (mirrored into the solidity-lean env) | Effect |
 |---|---|
 | `vm.roll(n)` | `block.number` |
 | `vm.warp(t)` | `block.timestamp` |
@@ -55,7 +55,7 @@ construction.
 ## Quick start
 
 ```bash
-# Adjudicate one submission (full pipeline: solc + Foundry + Solidus):
+# Adjudicate one submission (full pipeline: solc + Foundry + solidity-lean):
 python -m contest.adjudicate contest/samples/no_divergence
 
 # Just the reject gate over some sources:
@@ -102,7 +102,7 @@ submission/
 `observed_slots` is **no longer required** — storage divergence is auto-detected
 across the WHOLE storage map (see component 5 below); the field is accepted for
 backward compatibility but ignored. `fuel` (optional, default 64, capped at
-100000) bounds the Solidus interpreter; out-of-range values are rejected
+100000) bounds the solidity-lean interpreter; out-of-range values are rejected
 `REJECT_MALFORMED`.
 
 **Entry args** (`observable.render_lean_arg`): `2` → `uint`; `{"int": -8}` →
@@ -110,7 +110,7 @@ signed `int256`; `true`/`false` → bool; `{"word": n}`; `{"bytes": "0x…"}`.
 
 **`declared_observable.normal_form`** is the solc+EVM observable in the contest
 **normal form** (below). It is validated real by the Forge test passing, and the
-comparator checks the Solidus observable against it.
+comparator checks the solidity-lean observable against it.
 
 ## The observable (design §3.4)
 
@@ -127,7 +127,7 @@ Compared, in order, with **exact** equality; **gas is never included**:
    keccak-derived slots.
 
 Events (4) and storage (5) are measured on both engines and compared
-component-by-component (sub-kinds `wrong-events` / `wrong-state`): the Solidus
+component-by-component (sub-kinds `wrong-events` / `wrong-state`): the solidity-lean
 side extracts them from the post-call `State` (`observable.renderFull` /
 `renderStorageAll`), the EVM side via `vm.recordLogs`/`getRecordedLogs` for
 events and `vm.record`/`vm.accesses` + `vm.load` for the full storage map
@@ -136,12 +136,12 @@ order-independent) before diffing. Both are rendered in the same tokenized
 normal form (`…##EVT##…##STO##…`).
 
 **Contract deployment:** the entry call runs against the **post-construction**
-state — Solidus runs the (possibly synthesized) constructor and state-variable
+state — solidity-lean runs the (possibly synthesized) constructor and state-variable
 initializers via `constructWithContext` before calling the entry function,
 mirroring the EVM side's `new C()`. Contracts with initialized storage therefore
 do not produce a spurious divergence.
 
-**Normal form** (a single canonical line, independent of Solidus's `Repr`):
+**Normal form** (a single canonical line, independent of solidity-lean's `Repr`):
 
 ```
 success|<v1>,<v2>,...        # values: w:<nat> | i:<int> | b:<hex> | [..] | (..)
@@ -150,10 +150,10 @@ revert|panic:<code-decimal>
 revert|error:<string>
 revert|custom:<name>:<v1>,...
 revert|raw:<hexbytes>
-solidus-reject|<message>     # Solidus fail-closed (import/typecheck/exec)
+solidity-lean-reject|<message>     # solidity-lean fail-closed (import/typecheck/exec)
 ```
 
-The Solidus side is computed by a Lean `#eval` of the helper
+The solidity-lean side is computed by a Lean `#eval` of the helper
 `observable.LEAN_OBSERVABLE_HELPER` (new tooling text; it only consumes public
 entry points — `CheckedInput.ownCall`, `CallResult`, `RevertData`, `Value` — and
 does **not** modify `SolidCore/**`).
@@ -165,7 +165,7 @@ does **not** modify `SolidCore/**`).
 | `exclusion_register.py` | Versioned register (§1). Syntactic AST-level entries **reuse the importer's `EXCLUDED_NODE_TYPES`** (imported, not re-typed) so register/importer cannot drift. `REGISTER_VERSION`, `removed_in_version` for retirement. |
 | `reject_gate.py` | Whole-submission AST scan (§2). Syntactic detectors (exact) + semantic taint detectors (conservative). `V1-MULTI` guard. |
 | `observable.py` | Observable definition, Lean helper, normal-form parse/compare (§3.4). |
-| `harness_bridge.py` | Reuses `run_forge` / `run_solc_rejects` / `run_solc_import` from `scripts/run_forge_interpreter_harness.py`; runs Solidus + captures the observable `#eval`. |
+| `harness_bridge.py` | Reuses `run_forge` / `run_solc_rejects` / `run_solc_import` from `scripts/run_forge_interpreter_harness.py`; runs solidity-lean + captures the observable `#eval`. |
 | `known_gaps.py` | Dedup fingerprints for G1–G22, H1/H2 (§6.2). Root-cause keys, not source text. `KNOWN_FIXED` for retired gaps. |
 | `adjudicate.py` | The §4 decision tree + CLI entrypoint. |
 | `multi_contract.py` | **v2 seam** (stub): where the reflective responder / depth-bounded fold / registry / multi-contract observable plug in. |
@@ -174,7 +174,7 @@ does **not** modify `SolidCore/**`).
 ## The reject gate scans the WHOLE submission
 
 The gate gets the pinned-solc AST of **every** `src/*.sol` (via the importer's
-`run_solc_ast`, so it is byte-for-byte what Solidus imports) and scans **every**
+`run_solc_ast`, so it is byte-for-byte what solidity-lean imports) and scans **every**
 `ContractDefinition` — entry, callees, libraries, bases — not just the named
 entry. An adversary hiding `gasleft()` in a transitive callee is caught (see the
 `oos_gasleft` sample, whose `gasleft()` lives in an `internal` callee).
@@ -210,22 +210,22 @@ untrusted-execution / sandbox requirements of a public deployment see
   (Forge did not PASS; or an OVER_ACCEPT claim where solc did not reject).
 * **REJECTED_OOS** — the reject gate fired (intentional exclusion, or a banned
   cheatcode / cheatcode-address reference in src or test).
-* **NEEDS_REVIEW** — Solidus failed *inconclusively* (timeout / resource
+* **NEEDS_REVIEW** — solidity-lean failed *inconclusively* (timeout / resource
   exhaustion), not a clean reject; routed to a human, never auto-qualified.
-* **COVERAGE_GAP (lane C)** — Solidus **fails closed** (importer `unimplemented`
+* **COVERAGE_GAP (lane C)** — solidity-lean **fails closed** (importer `unimplemented`
   / typecheck / elaboration reject; incl. **over-reject**) on an in-scope,
   solc-accepted program. *Qualifies for the leaderboard.*
-* **NO_DIVERGENCE** — Solidus runs and its observable **equals** solc+EVM's (or
+* **NO_DIVERGENCE** — solidity-lean runs and its observable **equals** solc+EVM's (or
   both reject).
-* **SOUNDNESS_GAP (lane S)** — Solidus **runs** but the observable **differs**
+* **SOUNDNESS_GAP (lane S)** — solidity-lean **runs** but the observable **differs**
   (wrong-value / wrong-panic / wrong-revert / revert-vs-success), **or**
-  over-accept (Solidus runs a program solc rejects). *Qualifies for the leaderboard.*
+  over-accept (solidity-lean runs a program solc rejects). *Qualifies for the leaderboard.*
 
 **EVM-side observable — precision limit.** v1 takes the solc+EVM observable from
 the Forge-**validated** `declared_observable.normal_form` (the Forge test must
 PASS first, so the declared value is proven real). v1 does not yet re-parse the
 full observable tuple out of Foundry traces; that (and events/state extraction)
-is a v1.x refinement. The Solidus side is always recomputed by the Lean `#eval`.
+is a v1.x refinement. The solidity-lean side is always recomputed by the Lean `#eval`.
 
 ## Dedup (design §6.2)
 
@@ -252,13 +252,13 @@ v1 single-contract path is the responder-free special case, so v2 is wiring.
 
 | Sample | Expected verdict | How validated |
 |---|---|---|
-| `oos_gasleft` | REJECTED_OOS (X-GASLEFT hidden in a callee) | FULL run (real solc+Foundry+Solidus) |
+| `oos_gasleft` | REJECTED_OOS (X-GASLEFT hidden in a callee) | FULL run (real solc+Foundry+solidity-lean) |
 | `no_divergence` | NO_DIVERGENCE | FULL run |
-| `coverage_gap` | COVERAGE_GAP (lane C) | real gate+Forge; Solidus fail-closed **SIMULATED** (marked `synthetic`) |
-| `soundness_gap` | SOUNDNESS_GAP (lane S, wrong-value) | real gate+Forge; wrong Solidus observable **SIMULATED** (marked `synthetic`) |
+| `coverage_gap` | COVERAGE_GAP (lane C) | real gate+Forge; solidity-lean fail-closed **SIMULATED** (marked `synthetic`) |
+| `soundness_gap` | SOUNDNESS_GAP (lane S, wrong-value) | real gate+Forge; wrong solidity-lean observable **SIMULATED** (marked `synthetic`) |
 
-The coverage/soundness Solidus steps are **simulated** because the live gaps
+The coverage/soundness solidity-lean steps are **simulated** because the live gaps
 that would drive them are being fixed on sibling branches; the simulation
 exercises the exact classifier decision tree with a representative
-fail-closed / mismatching Solidus result. `run_samples.py` also unit-tests the
+fail-closed / mismatching solidity-lean result. `run_samples.py` also unit-tests the
 observable comparator and dedup fingerprints directly.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
-// G21 pin (docs/solidus-solc-deep-comparison.md): Solidity uses C99 block
+// G21 pin (docs/solidity-lean-solc-deep-comparison.md): Solidity uses C99 block
 // scoping — a local declaration is in scope only AFTER its declaration point,
 // NOT hoisted to the top of its block. Each probe's value distinguishes C99
 // activation from whole-block (JS `var`-style) hoisting.

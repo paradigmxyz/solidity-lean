@@ -5,7 +5,7 @@ THIS IS A STUB. v1 ships single-contract only (design §3.3, §8): the reject ga
 enforces the temporary ``V1-MULTI`` guard (see reject_gate.detect_v1_multi), so
 submissions with >1 concrete deployable contract are rejected until v2.
 
-The v1 code path (harness_bridge.run_solidus_observable) uses the existing
+The v1 code path (harness_bridge.run_solidity_lean_observable) uses the existing
 RESPONDER-FREE interpreter entry point (``CheckedInput.ownCall``). That entry
 point is the single-contract case of the general closed-world run; everything
 below documents exactly where the multi-contract responder plugs in so the v2

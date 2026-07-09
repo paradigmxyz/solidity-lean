@@ -8,7 +8,7 @@ pragma solidity ^0.8.35;
 // `(t ? 63 : 255)` is `uint8`. The width is observable when the result feeds
 // checked arithmetic that overflows at that width.
 contract TernaryLiteralMobileTypeHarnessTarget {
-    // `uint8` mobile type: assignable to a `uint8` local (Solidus formerly
+    // `uint8` mobile type: assignable to a `uint8` local (solidity-lean formerly
     // over-rejected this, typing the ternary `uint256`).
     function narrowAssign(bool t) external pure returns (uint8) {
         uint8 r = t ? 63 : 255;

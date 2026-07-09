@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
-// G18 pin (docs/solidus-solc-deep-comparison.md): a `try extCall() returns (...)`
+// G18 pin (docs/solidity-lean-solc-deep-comparison.md): a `try extCall() returns (...)`
 // whose bound return value is an EXTERNAL FUNCTION-typed value. Pin that the
 // external function pointer round-trips through the try binding: the caller
 // binds it and then invokes it, observing the callee's result.

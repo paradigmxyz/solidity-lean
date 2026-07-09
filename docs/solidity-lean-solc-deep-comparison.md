@@ -1,7 +1,7 @@
-# Exhaustive Solidus-vs-solc 0.8.35 feature comparison
+# Exhaustive solidity-lean-vs-solc 0.8.35 feature comparison
 
 A category-by-category sweep of **every** feature category solc 0.8.35 exercises
-in its own conformance suites, checked against **Solidus** (this repo's executable
+in its own conformance suites, checked against **solidity-lean** (this repo's executable
 Lean Solidity semantics: `SolidCore/Solidity/{Interface,Interpreter,TypeCheck,Checked,ABI}.lean`,
 importer `scripts/solc_ast_to_lean_source.py`, corpus `tests/forge-harness/manifest.json`).
 
@@ -13,7 +13,7 @@ importer `scripts/solc_ast_to_lean_source.py`, corpus `tests/forge-harness/manif
 
 For each of the 139 categories we read a representative sample of the `.sol`
 sources and their isoltest expectations, extracted the rule/behaviour solc
-enforces, and checked whether Solidus handles it — with evidence from the Lean
+enforces, and checked whether solidity-lean handles it — with evidence from the Lean
 sources and whether a corpus lane exercises it. Highest-risk families (arithmetic
 edges, cleanup, ABI codec, conversions, member lookup, inheritance/override,
 function types, data locations, storage layout, try/catch, events, errors,
@@ -47,14 +47,14 @@ lowers to a plain `Expr.binary op`, and the interpreter applies
 `BinaryOp.apply context.checked op` on the raw words (`Interpreter.lean:6153`,
 unary `:6000`). Whenever an operator body differs from the builtin — a fixed-point
 `*` = `(a*b)/1e18`, a saturating/recursive/custom body, or a body whose
-checked-ness differs from the caller's `unchecked` context — Solidus computes the
+checked-ness differs from the caller's `unchecked` context — solidity-lean computes the
 wrong value **and** accepts the program. It has passed only because every existing
 UDVT-operator lane defines the operator body to equal the builtin (`20+22=42`, OZ
 `Time.Delay`), so substitution coincidentally agrees. This **corrects the prior
 audit's "using_operator SUPPORTED" row** (`solidity-feature-coverage.md` row 131).
 CONFIRMED on both sides. Probe: import
 `operators/userDefined/fixed_point_udvt_with_operators.sol`,
-`applyInterest(500e18, 0.1e18)` → solc `550e18`, Solidus ≈`5e37` (builtin multiply).
+`applyInterest(500e18, 0.1e18)` → solc `550e18`, solidity-lean ≈`5e37` (builtin multiply).
 
 The one value path the prior review left as most suspicious — calldata
 narrow-int/enum aggregate element cleanup (S2) — was instead read to the bottom
@@ -62,7 +62,7 @@ and found **fully faithful**: solc validates every calldata value read on
 *access* (`readFromMemoryOrCalldata` `_fromCalldata=true` → `calldataload` +
 `validator(revertOnFailure)`, `YulUtilFunctions.cpp:4552-4553`, used for struct
 members `IRGeneratorForStatements.cpp:2127` and array elements `:2435`), and
-Solidus's lazy `AbiCleanup.forceValue` reverts on first use
+solidity-lean's lazy `AbiCleanup.forceValue` reverts on first use
 (`Interpreter.lean:341-343,357-382`) — same lazy timing, same empty revert. A
 CONFIRMED negative that also corrects the prior doc's S2 observable.
 
@@ -90,7 +90,7 @@ CONFIRMED negative that also corrects the prior doc's S2 observable.
    CONFIRMED. solc TypeError 2271; `TypeCheck.lean:6918-6928` checks only reflexive
    mutual convertibility.
 4. **G4 — constant out-of-bounds index on `bytesN` / fixed-size array not
-   rejected.** CONFIRMED. solc TypeError 1859/3383 (compile-time); Solidus
+   rejected.** CONFIRMED. solc TypeError 1859/3383 (compile-time); solidity-lean
    accepts, runtime Panics 0x32. `TypeCheck.lean:5478-5490`.
 5. **G5 — bare `return;` accepted with named returns.** CONFIRMED. solc TypeError
    6777; `TypeCheck.lean:8118-8123`.
@@ -172,7 +172,7 @@ have differential lanes (`1b3525e`). Corpus is now **121 lanes**.
   `recursive_operator.sol` redefines `~` as a recursive countdown →
   `testUnary(1)==0`; `checked_operators.sol` runs the operator body *checked* even
   inside a caller's `unchecked` block → Panic 0x11.
-- **Solidus:** importer drops the resolved operator `function` reference
+- **solidity-lean:** importer drops the resolved operator `function` reference
   (`ANALYSIS_SCALAR_FIELDS`, `solc_ast_to_lean_source.py:34`); `using_operator`
   maps the symbol straight to a builtin (`+`→`BinaryOp.add`, `:883-899`, used at
   `:1736`); the node emits as `Expr.binary op`/`Expr.unary op`; the interpreter
@@ -192,33 +192,33 @@ have differential lanes (`1b3525e`). Corpus is now **121 lanes**.
 - solc: `syntaxTests/functionCalls/msg_value_non_payable.sol` → TypeError 5887;
   rule `ViewPureChecker.cpp:287-291` (`msg.value`/`callvalue()` only in payable or
   internal).
-- Solidus: `TypeCheck.lean:5222-5226` — the `msg.<member>` arm calls
+- solidity-lean: `TypeCheck.lean:5222-5226` — the `msg.<member>` arm calls
   `requireStateReadAllowed` for non-`data`/`sig` members; `mutabilityAllowsStateRead`
   (`:1668`) fails only for `pure`, so `view`/`nonpayable` pass. No payable gate.
 - Probe: `function get() public view returns (uint) { return msg.value; }` — solc
-  5887, Solidus accepts.
+  5887, solidity-lean accepts.
 
 **G3 — `==`/`!=` on reference types — CONFIRMED.**
 - solc: TypeError 2271. `syntaxTests/nameAndTypeResolution/{202_bytes,203_struct}_reference_compare_operators.sol`,
   `025_comparison_of_mapping_types.sol`. `==`/`!=` permitted only on value types,
   contracts, enums, addresses, function pointers.
-- Solidus: `TypeCheck.lean:6918-6928` requires only mutual implicit convertibility,
+- solidity-lean: `TypeCheck.lean:6918-6928` requires only mutual implicit convertibility,
   reflexive (`:1050`); relational `< > <= >=` correctly guarded by `relationalTy`
   (`:6916`) but equality is not.
-- Probe: `struct S{uint a;} S x; S y; bool b = x == y;` → solc 2271, Solidus accepts.
+- Probe: `struct S{uint a;} S x; S y; bool b = x == y;` → solc 2271, solidity-lean accepts.
 
 **G4 — constant OOB index on `bytesN`/fixed array — CONFIRMED.**
 - solc: `syntaxTests/indexing/fixedbytes_out_of_bounds_index.sol` (TypeError 1859,
   `bytes4 b; b[5]`), `array_out_of_bounds_index.sol` (TypeError 3383, `uint[3] a;
   a[5]`) — compile-time.
-- Solidus: `bytesN` index arm (`TypeCheck.lean:5478-5482`) and fixed-array arm
+- solidity-lean: `bytesN` index arm (`TypeCheck.lean:5478-5482`) and fixed-array arm
   (`:5483-5490`) only `expectAssignableTo(uint256)`; no constant `index < N` check.
   Accepted at typecheck; runtime Panics 0x32.
 
 **G5 — bare `return;` with named returns — CONFIRMED.**
 - solc: TypeError 6777 for `return;` whenever the return list is non-empty, even
   when named (`syntaxTests/returnExpressions/single_return_mismatching_number_named.sol`).
-- Solidus: `checkReturnExprs` (`TypeCheck.lean:8118-8123`) accepts `none` when
+- solidity-lean: `checkReturnExprs` (`TypeCheck.lean:8118-8123`) accepts `none` when
   `returnNamesAllNamed`. Value well-defined (returns named values); low real-soundness.
 
 **G6 — `super.f()` to unimplemented base — INFERRED.** solc TypeError 9582
@@ -271,7 +271,7 @@ src.length` (tail zero-filled): `storage/static_array_copy_cleanup.sol` (`S[5]�
 **G15 — ternary-of-literals loses mobile common type — CONFIRMED.** solc
 `literals/ternary_operator_with_literal_types_overflow.sol` — `(t?63:255)` has
 common type `uint8`, `+` runs in uint8 → Panic 0x11 even with `uint16` target.
-Solidus types number literals `uint256` (`TypeCheck.lean:3987-3991`);
+solidity-lean types number literals `uint256` (`TypeCheck.lean:3987-3991`);
 `exprIsUntypedNumberLiteralExpression` excludes `ternary` (`:1319-1331`), so the
 `uint256` add can't narrow to `uint16` → rejects at typecheck instead of running
 the panic. Same root as S3, distinct observable.

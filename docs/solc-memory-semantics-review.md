@@ -1,4 +1,4 @@
-# Deep review of MEMORY semantics (solc 0.8.35 vs Solidus)
+# Deep review of MEMORY semantics (solc 0.8.35 vs solidity-lean)
 
 Dedicated round-8 review. Scope: the memory model exhaustively — allocation &
 free-memory discipline, the **data-location copy/alias matrix**, in-memory
@@ -6,14 +6,14 @@ layout, memory array ops, copy primitives, and memory-value passing across the
 call boundary. Read-only; the corpus was **not** built or run. solc probes use
 the pinned `solc-0.8.35+commit.47b9dedd` and `forge` (concrete, PASS-verified).
 
-Terminology: **Solidus** = our Lean semantics (`SolidCore/Solidity/*`). solc
+Terminology: **solidity-lean** = our Lean semantics (`SolidCore/Solidity/*`). solc
 source is READ-ONLY at `/Users/dan/Projects/solidity-src` (v0.8.35).
 
 ---
 
 ## Executive summary
 
-Solidus does **not** model memory as a flat byte array with a free-memory
+solidity-lean does **not** model memory as a flat byte array with a free-memory
 pointer at `0x40`. It uses an **abstract, id-keyed graph**: memory is
 `MemoryMap := Std.HashMap Nat Value` (`Interpreter.lean:790`), a `memoryRef` is
 a monotonic allocation id (`Value.memoryRef : Nat`, `Interpreter.lean:136`), and
@@ -37,14 +37,14 @@ shapes silently **deep-copy** where solc aliases.
 | DIFFERENTIALLY-LIVE | **1 family (M1)** | 0 | 0 |
 | IMPORTER-MASKED | 0 | 0 | 0 |
 
-- **M1 (DIFFERENTIALLY-LIVE, SOUNDNESS, solc CONFIRMED / Solidus INFERRED):**
+- **M1 (DIFFERENTIALLY-LIVE, SOUNDNESS, solc CONFIRMED / solidity-lean INFERRED):**
   memory→memory binding/assignment of a reference type **deep-copies instead of
   aliasing** whenever the RHS is not a plain variable name (for assignment) or a
   plain variable / index (for declaration). solc treats every such
-  reference-type assignment as a **pointer copy**; Solidus allocates a fresh,
+  reference-type assignment as a **pointer copy**; solidity-lean allocates a fresh,
   independent object, so a later mutation through the new name is **not**
   observed through the source (and vice-versa). Verified on the solc side by six
-  passing Forge probes; the Solidus side is traced through the interpreter (not
+  passing Forge probes; the solidity-lean side is traced through the interpreter (not
   executed), hence INFERRED.
 
 Everything else reviewed — fresh-allocation zero-init, storage↔memory deep copy,
@@ -80,7 +80,7 @@ solc codegen: for a memory reference-type LValue the assignment simply
 the memory→memory `convertType` is a no-op. Every reference-type memory
 assignment is therefore a pointer copy — cases a–h all alias.
 
-### Solidus behaviour (traced)
+### solidity-lean behaviour (traced)
 
 Memory objects are id-keyed; a binding holds `Value.memoryRef id`. Aliasing is
 preserved only where the interpreter explicitly threads the *ref* rather than
@@ -106,9 +106,9 @@ element, `Interpreter.lean:6588`), then `assignLocal?` sees a memory *object*
 and `memoryStoredValue`+`allocMemory`s a **fresh** cell
 (`Interpreter.lean:1249-1253`) → deep copy.
 
-### Resulting matrix (Solidus vs solc)
+### Resulting matrix (solidity-lean vs solc)
 
-| Pattern | RHS shape | Solidus path | Solidus result | solc | Divergent? |
+| Pattern | RHS shape | solidity-lean path | solidity-lean result | solc | Divergent? |
 |---|---|---|---|---|---|
 | decl `T memory b = a` | `var` | memoryVarDecl→ref | alias | alias | ok |
 | decl `= arr[i]` / `= s.field` | `index` | memoryVarDecl→ref | alias | alias | ok |
@@ -125,7 +125,7 @@ and `memoryStoredValue`+`allocMemory`s a **fresh** cell
 The `var`/`index` alias cases and both storage↔memory deep-copy directions match
 solc. The divergent cells are exactly the **non-trivial memory-ref RHS** shapes.
 
-Note the subtle asymmetry Solidus exhibits: `T memory b = s.field` (declaration)
+Note the subtle asymmetry solidity-lean exhibits: `T memory b = s.field` (declaration)
 aliases correctly (member → `Expr.index` → handled), but `b = s.field`
 (assignment to an already-declared pointer) deep-copies — the assignment path
 only whitelists `var = var`, not `var = index`.
@@ -133,7 +133,7 @@ only whitelists `var = var`, not `var = index`.
 ### Why M1 is a genuine wrong-VALUE bug, not a benign copy
 
 In solc, after case (d) `b = arr[0]; b[0]=42;`, `arr[0][0]` **is** 42 (aliased).
-Solidus binds `b` to a fresh cell, so `arr[0][0]` stays 1 and `b[0]` is 42 — the
+solidity-lean binds `b` to a fresh cell, so `arr[0][0]` stays 1 and `b[0]` is 42 — the
 two names disagree with solc on both. This is observable through any subsequent
 read of the source aggregate (return it, hash it, branch on it). It is a
 **soundness / wrong-alias** divergence.
@@ -145,9 +145,9 @@ read of the source aggregate (return it, hash it, branch on it). It is a
   memory-aliasing rewrite (`scripts/solc_ast_to_lean_source.py:1241-1251`;
   `Interface.lean:4401-4404` → `Stmt.assign target rhsCore`,
   `Interface.lean:5739`), so nothing masks it. solc compiles and runs all of
-  a–h; Solidus mis-values d–h and the two `conditional`/`call` declarations.
+  a–h; solidity-lean mis-values d–h and the two `conditional`/`call` declarations.
 - **Confidence:** solc side **CONFIRMED** (6/6 Forge probes PASS: cases d, e, f,
-  g, h plus the control aliases a, b, c). Solidus side **INFERRED** — traced
+  g, h plus the control aliases a, b, c). solidity-lean side **INFERRED** — traced
   through `Stmt.assign`/`memoryVarDecl`/`assignLocal?`/`declareMemoryLocal` but
   not executed (per instructions, the corpus was not built/run).
 - **Severity:** SOUNDNESS (wrong-alias → wrong-value).
@@ -188,7 +188,7 @@ share the fix.
   `abi.encodePacked`, and `keccak256(abi.encode(...))` of a memory value depend
   on the *value*, not on a byte offset. Aggregate shape (length + elements,
   array-of-pointers) is represented by the value tree, so these match solc
-  byte-for-byte for the values Solidus produces. (Not re-derived byte-by-byte
+  byte-for-byte for the values solidity-lean produces. (Not re-derived byte-by-byte
   this round — covered in prior codec rounds.)
 - **`.length`, element/field access.** `Value.length?`
   (`Interpreter.lean:202-214`) returns the element count for `bytes`/arrays/
@@ -242,7 +242,7 @@ flagged as **same-root-cause, UNTESTED** rather than a distinct finding.
 - [ ] Tuple-destructuring assignment/declaration of multiple memory refs
   (`(uint[] memory a, uint[] memory b) = f();`) — likely the same M1 family via
   `assignTuple`/`writeTupleWithRuntime`, not individually probed.
-- [ ] Concrete execution of M1 on the Solidus side (INFERRED, not run — corpus
+- [ ] Concrete execution of M1 on the solidity-lean side (INFERRED, not run — corpus
   build/run out of scope).
 - [ ] Memory-argument aliasing across the internal boundary re-probed post-fix.
 
@@ -251,7 +251,7 @@ flagged as **same-root-cause, UNTESTED** rather than a distinct finding.
 ## Cross-reference to prior rounds
 
 - Rounds 1–7 (`docs/solc-implementation-divergences{,-2..7}.md`,
-  `docs/solidus-solc-deep-comparison.md`) covered arithmetic/ABI-codec,
+  `docs/solidity-lean-solc-deep-comparison.md`) covered arithmetic/ABI-codec,
   analysis-pass acceptance, value-producing codegen, storage packing/slots/
   mutators, and (round 7) runtime behavior. **None** touched the memory
   copy/alias matrix — M1 is **NEW**.

@@ -19,7 +19,7 @@ import hashlib
 import sys
 from pathlib import Path
 
-# Repo layout: this file lives at <solid-core-spine>/scripts/.
+# Repo layout: this file lives at <solidity-lean>/scripts/.
 REPO = Path(__file__).resolve().parent.parent
 SIBLING = REPO.parent / "evm-interaction"
 UPSTREAM = REPO.parent / "evm-compiler"

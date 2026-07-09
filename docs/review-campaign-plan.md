@@ -1,8 +1,8 @@
-# Plan for reviewing the remaining unexplored surfaces (solc-vs-Solidus divergence campaign)
+# Plan for reviewing the remaining unexplored surfaces (solc-vs-solidity-lean divergence campaign)
 
 **What this is.** A planning/meta doc that consolidates the still-unexplored
 surfaces from every prior review round and lays out a prioritized, sequenced plan
-for reviewing the rest. Solidus = our executable Lean 4 Solidity 0.8.35 semantics
+for reviewing the rest. solidity-lean = our executable Lean 4 Solidity 0.8.35 semantics
 (`SolidCore/Solidity/*.lean` + importer `scripts/solc_ast_to_lean_source.py`);
 solc source of truth is READ-ONLY at `/Users/dan/Projects/solidity-src` (v0.8.35,
 commit `47b9dedd`, the exact source of the pinned binary). This is **not** a review
@@ -14,7 +14,7 @@ rounds are targeted by the empirical pattern below.
 ## 0. The empirical pattern (drives all prioritization here)
 
 Across ~9 review passes (`docs/solc-implementation-divergences{,-2..-7}.md`,
-`docs/solc-source-coverage-review.md`, `docs/solidus-solc-deep-comparison.md`,
+`docs/solc-source-coverage-review.md`, `docs/solidity-lean-solc-deep-comparison.md`,
 `docs/solc-memory-semantics-review.md`, `docs/solidity-feature-coverage.md`) a
 sharp pattern held:
 
@@ -26,22 +26,22 @@ sharp pattern held:
   and mostly **importer-masked** (solc rejects → no AST → never differentially
   live).
 - **BUG-RICH (where the real wrong-VALUE bugs hid):** value-producing CODEGEN and
-  RUNTIME-BEHAVIOR surfaces where Solidus uses an **ABSTRACTION** or a
+  RUNTIME-BEHAVIOR surfaces where solidity-lean uses an **ABSTRACTION** or a
   **RE-DERIVATION** that must match solc's **CONCRETE** behavior. Every wrong-value
   bug of the campaign lives exactly there:
-  - **V1** — calldata-slice OOB revert-data (Solidus re-derived the *revert
+  - **V1** — calldata-slice OOB revert-data (solidity-lean re-derived the *revert
     encoding*: `Panic(0x32)` vs solc's empty `revert(0,0)`). *Fixed.*
-  - **DL1** — storage/constructor order via DFS instead of reverse-C3 (Solidus
+  - **DL1** — storage/constructor order via DFS instead of reverse-C3 (solidity-lean
     re-derived the *layout ORDER* with its own traversal). *Open.*
   - **M1** — memory→memory ref assignment deep-copies instead of aliasing
-    (Solidus's *id-keyed memory graph* mis-models the aliasing edge). *Open.*
+    (solidity-lean's *id-keyed memory graph* mis-models the aliasing edge). *Open.*
   - **G1** — user-defined operators run as the built-in (importer dropped the
     resolved operator fn; interpreter re-derived the op on raw words). *Fixed.*
   - **S1/S3** — string-literal codepoints-not-UTF-8 / ternary packed width
     (value re-derivation). *Fixed.*
 
 - **KEY HEURISTIC.** The highest-value remaining targets are surfaces where
-  **(a)** Solidus uses an abstract model or re-derives a concrete solc behavior,
+  **(a)** solidity-lean uses an abstract model or re-derives a concrete solc behavior,
   **(b)** it is DIFFERENTIALLY-LIVE (solc compiles it → reachable in the harness),
   and **(c)** the frozen corpus is unlikely to have exercised the edge. Rank the
   **abstraction-vs-concrete** surfaces highest (that is exactly where V1/DL1/M1
@@ -77,7 +77,7 @@ remains) · **UNEXPLORED** (no round has read it on both sides) · **IN-FLIGHT-F
 | Memory-ref aliasing ACROSS the internal-call boundary; tuple-destructure of multiple memory refs | PARTIALLY-REVIEWED | memory-review (same-root-cause as M1, not separately probed) |
 | Low-level `call`/`staticcall`/`delegatecall` return + revert **bubbling** (returndata, nested revert, empty-vs-Error-vs-Panic propagation) | UNEXPLORED | none — lanes drive happy-path options only |
 | `create`/`create2` + `selfdestruct` execution **observables** (address, balance movement, deploy-revert bubbling, code) | PARTIALLY-REVIEWED | feature-coverage: create/selfdestruct laned; edge observables + create2 address (G22) OOS/unexplored |
-| Precompile INPUT framing beyond ecrecover/sha256/ripemd160 (modexp 0x05, ecadd/ecmul/pairing 0x06–08, blake2f 0x09, point-eval 0x0a) | UNEXPLORED | div-6,-7 flag; only Solidus's own calldata framing is the divergence surface (results responder-answered) |
+| Precompile INPUT framing beyond ecrecover/sha256/ripemd160 (modexp 0x05, ecadd/ecmul/pairing 0x06–08, blake2f 0x09, point-eval 0x0a) | UNEXPLORED | div-6,-7 flag; only solidity-lean's own calldata framing is the divergence surface (results responder-answered) |
 | `abi.encodeCall` full argument-tuple TYPE-MATCH acceptance | PARTIALLY-REVIEWED | div-6,-7 (selector+arg-encoding faithful; arity/implicit-conversion acceptance not exhaustively traced) |
 | ABI encoder deep edges: function-type element, tuples-in-tuples, deeply nested `T[][]`/`string[]` round-trips | PARTIALLY-REVIEWED | feature-coverage UNKNOWN #2,#3 |
 | `abi.encodeWithSelector`/`encodeWithSignature` dynamic-arg edges | PARTIALLY-REVIEWED | feature-coverage UNKNOWN #3 |
@@ -109,7 +109,7 @@ surfaces are at the top — that is where V1/DL1/M1 were.
 | 5 | **create/create2 + selfdestruct execution observables** | Y (open-world/postWorld re-frames address, balance, deploy-revert) | partly | Y | wrong-value (address/balance/bubbled deploy-revert) | **P1** |
 | 6 | **Memory-ref aliasing across the internal-call boundary; tuple-destructure of memory refs** | Y (same graph as M1) | Y | Y | wrong-value (wrong-alias) | **P1** (rides M1 fix) |
 | 7 | **Storage packing across inheritance re-audited post-DL1** | Y (packing cursor × corrected order) | Y | Y | wrong-value (slot) | **P1** (rides DL1 fix) |
-| 8 | **Precompile INPUT framing (modexp/ecadd/ecmul/pairing/blake2f/point-eval)** | Y (Solidus frames the staticcall calldata; result responder-answered) | partly (no lanes; framing only) | Y | wrong-value (framing bytes) | **P1** |
+| 8 | **Precompile INPUT framing (modexp/ecadd/ecmul/pairing/blake2f/point-eval)** | Y (solidity-lean frames the staticcall calldata; result responder-answered) | partly (no lanes; framing only) | Y | wrong-value (framing bytes) | **P1** |
 | 9 | **ABI encoder deep edges: fn-type element, tuples-in-tuples, nested `T[][]`/`string[]` round-trips** | Y (re-derives ABI layout) | Y | partly (codec well-mined at shallow depth) | wrong-value (bytes) | **P2** |
 | 10 | `abi.encodeWithSelector`/`encodeWithSignature` dynamic-arg edges | Y | Y | partly | wrong-value (bytes) | **P2** |
 | 11 | `abi.encodeCall` arg-tuple type-match acceptance | N (acceptance rule) | Y | partly | wrong-accept/reject | **P2** |
@@ -142,7 +142,7 @@ against the corrected code the fix agent produces).
   returndata and the success flag rather than executing the callee. Exactly the V1
   class: a *revert-encoding / returndata* re-derivation that can silently differ
   from concrete EVM (e.g. `revert(0,0)` vs a Panic word, or truncated returndata,
-  or `delegatecall` writing the *caller's* storage vs Solidus modeling it as a
+  or `delegatecall` writing the *caller's* storage vs solidity-lean modeling it as a
   query).
 - **Reachability.** DIFFERENTIALLY-LIVE — `low-level-call-options`,
   `high-level-call-options`, `try-catch` lanes exist but drive success / a single
@@ -150,7 +150,7 @@ against the corrected code the fix agent produces).
   `staticcall` state-write attempt) are corpus-missed.
 - **Probe shape.** For each of the three call kinds: callee that reverts with
   each of {empty, `Error("x")`, `Panic(0x11)`, custom `E(uint)`}; caller inspects
-  `(ok, ret)` and re-`revert`s the raw bytes; compare Solidus's returndata to
+  `(ok, ret)` and re-`revert`s the raw bytes; compare solidity-lean's returndata to
   Forge/EVM byte-for-byte. Plus `delegatecall` storage-slot write observability.
 
 ### Round-10 — Layout-order family, post-DL1 (P0/P1, rides DL1 fix)
@@ -174,10 +174,10 @@ against the corrected code the fix agent produces).
 - **Targets.** `new C{value:v, salt:s}(args)` and `selfdestruct(a)` execution
   observables: deployed-contract address handling, balance movement to/from the
   new/destroyed account, deploy-revert bubbling (constructor reverts → what the
-  creator observes); and Solidus's own calldata FRAMING for staticcalls to
+  creator observes); and solidity-lean's own calldata FRAMING for staticcalls to
   precompiles 0x05–0x0a (modexp length-prefix layout, ec-point encodings, blake2f
   rounds field, point-eval input) — the results are responder-answered, so only
-  the *framing bytes Solidus emits* are the divergence surface.
+  the *framing bytes solidity-lean emits* are the divergence surface.
 - **Abstraction/re-derivation risk.** The open-world/postWorld model re-derives
   create/selfdestruct balance-and-address observables; a mis-framed precompile
   calldata is a value re-derivation (same class as V1).
@@ -188,7 +188,7 @@ against the corrected code the fix agent produces).
 - **Probe shape.** Constructor-reverts-on-deploy → creator's observed revert /
   returned address; `selfdestruct` then read `.balance` of both accounts. For
   precompiles: a contract that `staticcall`s 0x05 with a hand-built modexp input
-  and returns the raw framed calldata length/layout; confirm Solidus frames the
+  and returns the raw framed calldata length/layout; confirm solidity-lean frames the
   identical bytes solc's IR would.
 
 ### Memory-round-3 — M1 family completion (P1, rides M1 fix)
@@ -262,7 +262,7 @@ hardening and OOS items only, and the differential-review campaign is done.
 - **Probes, not builds.** Read-only. Use the pinned `solc 0.8.35`
   (`/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35`) for tiny
   accept/compile/`--combined-json storage-layout` probes and Forge for concrete
-  EVM ground truth; do **not** build/run Solidus. Mark findings CONFIRMED only
+  EVM ground truth; do **not** build/run solidity-lean. Mark findings CONFIRMED only
   when both sides are read to the rule (+ probe where an observable is claimed).
 - **Severity ladder.** wrong-value > wrong-order > wrong-accept/reject >
   completeness. Foreground the abstraction-vs-concrete surfaces; a re-derivation

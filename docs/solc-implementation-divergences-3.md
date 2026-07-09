@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 3)
+# Implementation-level solc-vs-solidity-lean divergence review (round 3)
 
 **Third implementation-level pass.** Rounds 1 and 2
 (`docs/solc-implementation-divergences.md`, `-2.md`) read the arithmetic /
@@ -22,9 +22,9 @@ families round 2 explicitly left **still-not-reached**:
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD `2db94a7`. Canonical semantics
+solidity-lean at `codex/solidity-semantics-only` HEAD `2db94a7`. Canonical semantics
 files are `SolidCore/Solidity/*.lean` (`TypeCheck.lean` is 13 399 lines; all line
-numbers below are in that directory). Nothing was built or run for Solidus; a
+numbers below are in that directory). Nothing was built or run for solidity-lean; a
 few tiny **accept/reject** probes used a local `solc 0.8.26` (the rules probed
 are byte-identical in the 0.8.35 source read here). Findings are **CONFIRMED**
 (both sides read to the rule, often + probe) or **INFERRED** (wants a probe).
@@ -35,19 +35,19 @@ are byte-identical in the 0.8.35 source read here). Findings are **CONFIRMED**
 
 **Families / passes actually read (code, not tests), both sides:**
 
-- `ContractLevelChecker.cpp` (whole body) ↔ Solidus `ContractDecl.check` /
+- `ContractLevelChecker.cpp` (whole body) ↔ solidity-lean `ContractDecl.check` /
   `ContractDecl.checkKindShape` / `checkBaseConstructorArgsForDeployment` /
   `ModifierInvocation.check{,BaseConstructor}` / the receive/fallback signature
   arm of `checkFunctionHeader` (`TypeCheck.lean`).
-- `ImmutableValidator.cpp` (whole body) ↔ Solidus immutable-lvalue gating +
+- `ImmutableValidator.cpp` (whole body) ↔ solidity-lean immutable-lvalue gating +
   the interpreter's default-zero immutable model.
 - `DeclarationTypeChecker.cpp` (struct recursion, array length, mapping key, enum
-  size, UDVT, address kind) ↔ Solidus `Ty.isValid` / `Ty.isMappingKeyShape` /
+  size, UDVT, address kind) ↔ solidity-lean `Ty.isValid` / `Ty.isMappingKeyShape` /
   `Ty.hasForbiddenStructReferenceCycle` / `EnumDecl.check` /
   `UserValueTypeDecl.check`.
 - `TypeChecker.cpp` `abi.encodePacked` validation (`typeSupportedByOldABIEncoder`)
-  ↔ Solidus `Ty.isAbiEncodePackedArgShape` / `isAbiEncodePackedArrayElementShape`.
-- `TypeChecker.cpp` overload resolution (argument-dependent lookup) ↔ Solidus
+  ↔ solidity-lean `Ty.isAbiEncodePackedArgShape` / `isAbiEncodePackedArrayElementShape`.
+- `TypeChecker.cpp` overload resolution (argument-dependent lookup) ↔ solidity-lean
   `resolveChecked` / `matchesCheckedArgs` / `canAssignToIn` /
   `requiresExactLiteralFit`.
 - `new`-expression contract-creation type rules ↔ `requireCreatableContractDecl`.
@@ -58,18 +58,18 @@ divergences are acceptance-boundary. Two round-2 INFERRED items are now closed
 (AE1 is a non-divergence; PT1 is fixed), and the biggest round-2 worry — the
 immutable "exactly-once" invariant — is **cleared**: solc's IR pipeline defaults
 an unassigned immutable to `0` and allows multiple assignments (last write wins),
-so there is no frontend exactly-once rule for Solidus to miss.
+so there is no frontend exactly-once rule for solidity-lean to miss.
 
 **Ranked NEW findings**
 
 | # | Area | Direction | Severity | Confidence |
 |---|------|-----------|----------|------------|
-| **CL1** | base-ctor: bare modifier-style base-constructor call (no arg list) on a **zero-param** base | **over-accept** (Solidus accepts; solc errors 1563) | acceptance-boundary wrong-accept — niche, importer-masked | FIXED (2026-07-08) |
-| **PK1** | `abi.encodePacked` of a **nested array** (`uint[2][3]`, array-of-array element) | **over-reject** (Solidus rejects; solc accepts) | COMPLETENESS — live differential edge | FIXED (2026-07-08) |
+| **CL1** | base-ctor: bare modifier-style base-constructor call (no arg list) on a **zero-param** base | **over-accept** (solidity-lean accepts; solc errors 1563) | acceptance-boundary wrong-accept — niche, importer-masked | FIXED (2026-07-08) |
+| **PK1** | `abi.encodePacked` of a **nested array** (`uint[2][3]`, array-of-array element) | **over-reject** (solidity-lean rejects; solc accepts) | COMPLETENESS — live differential edge | FIXED (2026-07-08) |
 
 **PK1 is the only NEW finding with a live differential edge**: solc accepts
-`abi.encodePacked(uint[2][3])`, so the importer produces an AST and Solidus then
-rejects it — a real "Solidus fails to compile a valid program" divergence. CL1
+`abi.encodePacked(uint[2][3])`, so the importer produces an AST and solidity-lean then
+rejects it — a real "solidity-lean fails to compile a valid program" divergence. CL1
 is an over-accept of the standalone acceptance oracle (same class as round-2's
 E1/O1) but is masked in the differential harness because solc rejects the program
 before an AST is ever exported, and the triggering syntax (a base written as a
@@ -104,7 +104,7 @@ and overload resolution.
   `1563_error` "Modifier-style base constructor call without arguments." — even
   when the base constructor takes zero parameters. `Base()` (empty parens) is
   accepted; bare `Base` is not.
-- **Solidus** cannot see the distinction. `ModifierInvocation` carries only
+- **solidity-lean** cannot see the distinction. `ModifierInvocation` carries only
   `args : List Arg := []` (`Ast.lean:302-305`) with no "arguments present" flag,
   and the importer collapses solc's `arguments == null` into `[]`
   (`scripts/solc_ast_to_lean_source.py:1412-1413`). `ModifierInvocation.check`
@@ -113,9 +113,9 @@ and overload resolution.
   list against the base constructor signature. For a **zero-parameter** base
   constructor, arity `0 == 0` succeeds → **accepted**.
 - **Consequence:** `contract A { constructor() {} } contract B is A {
-  constructor() A {} }` is **accepted by Solidus, rejected by solc (1563)**
+  constructor() A {} }` is **accepted by solidity-lean, rejected by solc (1563)**
   (probe confirmed: solc rejects bare `A`, accepts `A()`). When the base
-  constructor has ≥ 1 parameter, Solidus's arity check rejects the bare form too
+  constructor has ≥ 1 parameter, solidity-lean's arity check rejects the bare form too
   (coincidentally matching solc, though via arity rather than 1563), so the
   over-accept window is exactly: **bare base modifier + zero-parameter base
   constructor**. Acceptance-boundary wrong-accept; masked in the differential
@@ -150,16 +150,16 @@ and overload resolution.
   e.g. `uint[2][3]`, whose inner `uint[2]` is a static (non-dynamic) array — and
   recurses to the value base. Probe: solc **compiles**
   `abi.encodePacked(uint[2][3] memory a)`.
-- **Solidus** `Ty.isAbiEncodePackedArgShape` (`TypeCheck.lean:4217-4242`) delegates
+- **solidity-lean** `Ty.isAbiEncodePackedArgShape` (`TypeCheck.lean:4217-4242`) delegates
   an array argument to `Ty.isAbiEncodePackedArrayElementShape`
   (`:4244-4265`), whose element cases cover only value types, contract, enum,
   UDVT, and external function — there is **no `Ty.array` case**, so a nested-array
   element falls to `_ + 1, _ => false`. Thus `uint[2][3]` (element `uint[2]` is an
-  array) is **rejected** by Solidus's `checkAbiEncodePackedArgs`
+  array) is **rejected** by solidity-lean's `checkAbiEncodePackedArgs`
   (`:4291-4296`, wired at `:6191-6192`).
 - **Consequence:** `function f(uint[2][3] memory a) pure returns (bytes memory)
-  { return abi.encodePacked(a); }` is **rejected by Solidus, accepted by solc**.
-  This is a live differential edge (solc produces an AST; Solidus rejects on
+  { return abi.encodePacked(a); }` is **rejected by solidity-lean, accepted by solc**.
+  This is a live differential edge (solc produces an AST; solidity-lean rejects on
   import). Over-reject → COMPLETENESS, sound-preserving. Note a full fix would
   also need the interpreter's packed encoder, which today rejects
   `fixedArray`/`dynamicArray`/`tuple` elements
@@ -172,13 +172,13 @@ and overload resolution.
 
 ### AE1 (round-2) — RESOLVED: non-divergence
 
-Round 2 left open whether Solidus rejects `bytes[]` / `string[]` /
+Round 2 left open whether solidity-lean rejects `bytes[]` / `string[]` /
 array-of-dynamic elements in `abi.encodePacked` (a potential over-accept /
 wrong-bytes in the interpreter fall-through). It **does**:
 `isAbiEncodePackedArrayElementShape` (`TypeCheck.lean:4244-4265`) allows only
 value / contract / enum / UDVT / external-fn elements and rejects `bytes`,
 `string`, nested arrays, tuples, and structs, so the interpreter's right-pad
-fall-through is unreachable. Probe: solc rejects `bytes[]` (9578) and Solidus's
+fall-through is unreachable. Probe: solc rejects `bytes[]` (9578) and solidity-lean's
 predicate rejects it too. `uint[]` (dynamic array of a value type) is accepted by
 both. AE1 is not a divergence. (The residual boundary is PK1 above, the opposite
 direction.)
@@ -198,12 +198,12 @@ exists: `ContractDecl.check` runs
 
 `ImmutableValidator.cpp` (whole file, `:26-68`) enforces **exactly one** rule:
 `1581_error` "Cannot write to immutable here" for any write to an immutable state
-variable outside inline-init or the constructor. Solidus matches — an immutable
+variable outside inline-init or the constructor. solidity-lean matches — an immutable
 identifier is an lvalue only when `env.inConstructor`
 (`TypeCheck.lean:5153`, ident case).
 
 The round-2 worklist asked whether solc's "assigned **exactly once**, not in a
-loop/branch, not read before write" is enforced and whether Solidus over-accepts.
+loop/branch, not read before write" is enforced and whether solidity-lean over-accepts.
 Reading the whole path and probing solc **clears this**:
 
 - There is **no frontend exactly-once rule.** The only related string,
@@ -215,11 +215,11 @@ Reading the whole path and probing solc **clears this**:
   that is never assigned but read (`uint immutable x; f() returns x;` — reads
   `0`), a **doubly-assigned** immutable (`x=1; x=2;` — last write wins), and one
   assigned only in `if(false)` / inside a loop. Probes confirmed each compiles.
-- Solidus's model matches: writes gated to the constructor, an unwritten
+- solidity-lean's model matches: writes gated to the constructor, an unwritten
   immutable reads its type default (`0`), and repeated constructor writes take the
   last value. No over-accept, no wrong value. (solc also performs **no**
   read-before-write ordering analysis for immutables — `read_in_function_before_init.sol`
-  compiles — so Solidus need not either.)
+  compiles — so solidity-lean need not either.)
 
 **Verdict: SUPPORTED / non-divergent (CONFIRMED).**
 
@@ -230,7 +230,7 @@ Reading the whole path and probing solc **clears this**:
 Rule-by-rule correspondence read on both sides (all CONFIRMED SUPPORTED except
 CL1):
 
-| solc rule (ContractLevelChecker.cpp) | error | Solidus |
+| solc rule (ContractLevelChecker.cpp) | error | solidity-lean |
 |---|---|---|
 | receive must be payable / external / no-params / no-returns | 7793/4095/6899/6857 (`:203-228`) | receive arm `TypeCheck.lean:10372-10386` |
 | library cannot have receive | 4549 (`:210-211`) | `anyConstructorLike` incl. receive/fallback `:12327-12329` |
@@ -249,7 +249,7 @@ CL1):
 | library non-constant state var | 9957 (`:527-529`) | `StateVars.allConstant` `:12324-12326` |
 | interface: no state vars / no constructor / all-external-decls | (elsewhere) | `checkKindShape :12304-12318` (probe: constant-in-interface rejected both) |
 
-Base-constructor **argument type/arity** checking is real on the Solidus side
+Base-constructor **argument type/arity** checking is real on the solidity-lean side
 (`checkBaseConstructor` `:10503-10530`, `BaseSpecifier.check` `:12211-12237`),
 using the same assignable-args machinery as ordinary calls.
 
@@ -257,10 +257,10 @@ using the same assignable-args machinery as ordinary calls.
 
 ## 5. DeclarationTypeChecker — covered
 
-| solc rule (DeclarationTypeChecker.cpp / TypeChecker.cpp) | error | Solidus |
+| solc rule (DeclarationTypeChecker.cpp / TypeChecker.cpp) | error | solidity-lean |
 |---|---|---|
 | recursive struct (self by value, through fixed arrays / nested structs; NOT through dynamic arrays / mappings) | 2046 (`:114-137`, `finalBaseType(true)`) | `Ty.hasForbiddenStructReferenceCycle` `TypeCheck.lean:11765-11808` (recurses `user`, fixed `array (some _)`, `tuple`; stops at dynamic array / mapping), wired `StructField.check :11815` (probe: both reject `struct S{ S a; }`) |
-| array length must be integer-constant | 5462 (`:346-351`) | importer requires concrete static length (`scripts/...:558-575`); non-constant never reaches Solidus |
+| array length must be integer-constant | 5462 (`:346-351`) | importer requires concrete static length (`scripts/...:558-575`); non-constant never reaches solidity-lean |
 | array length zero | 1406 (`:352-353`) | `Ty.isValid` array `some size` → `size > 0` `:719-720` |
 | array length fractional / negative | 3208/3658 (`:354-357`) | length is `Nat` (importer); impossible by representation |
 | array length > 2**256-1 | 1847 (`:358-363`) | **not bounded** in `Ty.isValid` (`:719-720`); masked by importer (solc rejects first) — theoretical minor |
@@ -273,7 +273,7 @@ using the same assignable-args machinery as ordinary calls.
 
 ## 6. Overload resolution (argument-dependent lookup) — CONFIRMED non-divergent
 
-This was a suspected over-accept: does Solidus silently pick one overload where
+This was a suspected over-accept: does solidity-lean silently pick one overload where
 solc reports ambiguity? A checked integer literal gets concrete type `uint256`
 (`literalTy? :4058-4064`), which alone would make `f(1)` match only `f(uint256)`
 and not `f(uint8)`. But the checked-argument acceptance test special-cases
@@ -317,11 +317,11 @@ Overload resolution over literals is faithful. (CONFIRMED)
 - `abiDecodingFunctionStruct` nested-struct decode into memory + free-memory-
   pointer discipline at the **emitted-Yul (codegen) level** — rounds 1-2 confirmed
   the observable; the allocation sequence itself was not re-derived and is not
-  independently reachable from Solidus's value-level interpreter.
+  independently reachable from solidity-lean's value-level interpreter.
 - `using`-for directive legality (global `using`, operator `using`, `using` on
   the wrong type) — `UsingDecl.checkContractLevel` (`TypeCheck.lean:11929`) exists
   but was not exhaustively cross-checked against solc's `using` rules this round.
-- `ControlFlowRevertPruner` full algorithm vs Solidus terminal-pruning — remains
+- `ControlFlowRevertPruner` full algorithm vs solidity-lean terminal-pruning — remains
   **CF2 IN-FLIGHT** (sibling arc); adjacent unreachable-code-after-return is a solc
   **warning** only (both accept), not an acceptance divergence.
 - Storage-layout specifier rules (`checkStorageLayoutSpecifier` 7587/8894) and
@@ -346,8 +346,8 @@ rounds 1-2.
 
 Two round-2 INFERRED items are closed (AE1 is a non-divergence; PT1 is fixed) and
 the immutable exactly-once worry is fully cleared. The two NEW divergences are
-acceptance-boundary: **PK1**, a live over-reject where Solidus refuses
+acceptance-boundary: **PK1**, a live over-reject where solidity-lean refuses
 `abi.encodePacked` of a nested value-array (`uint[2][3]`) that solc encodes; and
-**CL1**, a niche, importer-masked over-accept where Solidus accepts a bare
+**CL1**, a niche, importer-masked over-accept where solidity-lean accepts a bare
 modifier-style base-constructor call on a zero-parameter base that solc rejects
 (1563). Neither changes a computed value.

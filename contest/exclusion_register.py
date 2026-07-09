@@ -2,7 +2,7 @@
 """Versioned exclusion register for the divergence contest (design §1).
 
 The register is the contract between the maintainer and entrants: it enumerates
-every place Solidus INTENTIONALLY does not model Solidity 0.8.35, so that a
+every place solidity-lean INTENTIONALLY does not model Solidity 0.8.35, so that a
 rejection or divergence traceable to one of these is OUT_OF_SCOPE, not a
 qualifying gap.
 
@@ -16,7 +16,7 @@ Two kinds of entries:
     here rather than re-typing the node-type strings.
 
   * SEMANTIC (§1.2) - the feature may appear; what is excluded is ASSERTING on
-    an observable Solidus does not model faithfully (gas amounts, real compiled
+    an observable solidity-lean does not model faithfully (gas amounts, real compiled
     bytecode, create2 predicted addresses, closed-world gas). Detected by the
     feature's AST predicate plus a conservative taint pass (see reject_gate.py).
 
@@ -245,7 +245,7 @@ _SEMANTIC: list[ExclusionEntry] = [
         reason=(
             "An observable depending on real compiled bytecode - "
             "type(C).creationCode/.runtimeCode, address(c).code, .codehash of "
-            "created code. Solidus's initCode is source-canonical "
+            "created code. solidity-lean's initCode is source-canonical "
             "(len||name||args), not EVM bytecode."
         ),
         roadmap_ref="ROADMAP.md:468",
@@ -257,7 +257,7 @@ _SEMANTIC: list[ExclusionEntry] = [
         reason=(
             "A create2 predicted address (or any address depending on init "
             "bytecode) flowing to an assertion/observed return. create2 address "
-            "= keccak(0xff||deployer||salt||keccak(initcode)); Solidus lacks "
+            "= keccak(0xff||deployer||salt||keccak(initcode)); solidity-lean lacks "
             "real initcode (G22). Non-salted `new` addresses ARE in scope."
         ),
         roadmap_ref="ROADMAP.md:468; G22",
@@ -274,7 +274,7 @@ _SEMANTIC: list[ExclusionEntry] = [
             "coinbase, prevrandao, gaslimit, msg.sender, tx.origin, "
             "address(this)) IS pinned identically on both engines (contest/"
             "env.py = Foundry's real defaults) and therefore compared, not "
-            "excluded; but Solidus has no historical block/blob hashes, so a "
+            "excluded; but solidity-lean has no historical block/blob hashes, so a "
             "blockhash/blobhash observable would be a spurious divergence."
         ),
         roadmap_ref="competition-design-review.md E-1; contest/env.py",
@@ -286,7 +286,7 @@ _SEMANTIC: list[ExclusionEntry] = [
         reason=(
             "Closed-world gas metering / OOG as an observable, or a "
             "send/transfer 2300-stipend-driven success/revert difference. "
-            "Solidus does not meter gas or the stipend."
+            "solidity-lean does not meter gas or the stipend."
         ),
         roadmap_ref="ROADMAP.md:473",
     ),

@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 12 — ABI encoder deep edges + event/error encoding corners)
+# Implementation-level solc-vs-solidity-lean divergence review (round 12 — ABI encoder deep edges + event/error encoding corners)
 
 **Round 12 of the campaign** (the tenth `divergences-*` doc), the plan's P2
 mop-up. This round adversarially samples the ABI encoder at the depths the earlier
@@ -9,11 +9,11 @@ dynamic-arg edges, and the event/error encoding deep corners (indexed
 reference-type topic hashing, anonymous-event topic layout).
 
 solc ground truth is the pinned `solc 0.8.35` via Forge (byte-exact `abi.encode`
-output + recorded log topics); Solidus is read to the rule in
+output + recorded log topics); solidity-lean is read to the rule in
 `SolidCore/Solidity/Interpreter.lean` + `Interface.lean` and hand-simulated against
 each Forge byte string. solc source (v0.8.35, `/Users/dan/Projects/solidity-src`,
-commit `47b9dedd`) READ-ONLY. Nothing was built/run for Solidus. Findings are
-**CONFIRMED** (Solidus algorithm read + Forge byte-exact cross-check).
+commit `47b9dedd`) READ-ONLY. Nothing was built/run for solidity-lean. Findings are
+**CONFIRMED** (solidity-lean algorithm read + Forge byte-exact cross-check).
 
 ---
 
@@ -71,7 +71,7 @@ to the rule + Forge byte-exact confirmation.
 02  02  03               elem[1]: len 2, [2,3]
 ```
 
-Solidus `abiEncodeValues? [dynamicArray (dynamicArray uint256)]`: top-level dynamic
+solidity-lean `abiEncodeValues? [dynamicArray (dynamicArray uint256)]`: top-level dynamic
 arg ⇒ head `0x20`, tail = `abiEncodeDynamicPayload?`. Inner: `abiHeadWords?
 (dynamicArray uint256) = 1` ⇒ `initialOffset = 32·2·1 = 0x40`; `encodeValues`
 threads offsets `0x40, 0x40+|elem0|=0x80`, emits `length ‖ heads ‖ tails`. The
@@ -83,7 +83,7 @@ word) — exactly solc's convention. Reproduces the bytes verbatim. Round-trip
 
 `abi.encode(["hi","world!!"])` reproduces byte-for-byte: outer offset `0x20`,
 length `2`, element offsets `0x40`/`0x80`, then each string as `len ‖
-right-padded-bytes` (`0x02 ‖ "hi"·pad`, `0x07 ‖ "world!!"·pad`). Solidus's
+right-padded-bytes` (`0x02 ‖ "hi"·pad`, `0x07 ‖ "world!!"·pad`). solidity-lean's
 `abiEncodeDynamicPayload? Ty.bytesCalldata` = `len ‖ abiPadRightWord bytes`
 (`:4614-4615`) inside the same head/tail machinery.
 
@@ -91,7 +91,7 @@ right-padded-bytes` (`0x02 ‖ "hi"·pad`, `0x07 ‖ "world!!"·pad`). Solidus's
 
 `abi.encode(uint256(7), fn)` (Forge): `…0007` ‖ `7fa9385b…4fb95e8c` (24 bytes:
 20-byte address ‖ 4-byte selector) ‖ `00000000_00000000` (8-byte right pad). Both
-elements are static, so head-only. Solidus `abiStaticBytes? Ty.externalFunction`
+elements are static, so head-only. solidity-lean `abiStaticBytes? Ty.externalFunction`
 emits `wordToBytesBE 20 addr ‖ wordToBytesBE 4 selector ‖ replicate 8 0` — the
 identical 24-byte-left-aligned word. Decode strictly checks the 8-byte tail is
 zero (`:4785`).
@@ -100,15 +100,15 @@ zero (`:4785`).
 
 `abi.encode(uint8(5), Inner{a:9, b:hex"aabb"})` (Forge): `05` (head) ‖ `0x40`
 (offset to the dynamic `Inner`) ‖ Inner tail `09 ‖ 0x40 ‖ 0x02 ‖ aabb·pad`.
-Solidus nests `encodeTupleValues` with head-words `= listAbiHeadWords?` and the
+solidity-lean nests `encodeTupleValues` with head-words `= listAbiHeadWords?` and the
 per-tuple offset base `wordBytes · headWords` (`:4686-4690`) — same layout.
 
 ### N5/N6 — `encodeCall` / `encodeWithSignature`
 
-- `abi.encodeCall(f, ())` = the bare 4-byte selector `0x3b1f03cd`; Solidus
+- `abi.encodeCall(f, ())` = the bare 4-byte selector `0x3b1f03cd`; solidity-lean
   `abiEncodeWithSelector selector [] []` = `selector ‖ []`. Match.
 - `abi.encodeWithSignature("f(uint256[])", new uint256[](0))` =
-  `0x7bc5bbbf ‖ 0x20 ‖ 0x00` (selector ‖ offset ‖ empty-array length). Solidus
+  `0x7bc5bbbf ‖ 0x20 ‖ 0x00` (selector ‖ offset ‖ empty-array length). solidity-lean
   encodes the dynamic arg with head `0x20` + tail `length 0`. Match.
 
 ### N7 — indexed dynamic-array topic hashing (deep corner)
@@ -116,7 +116,7 @@ per-tuple offset base `wordBytes · headWords` (`:4686-4690`) — same layout.
 For `event Arr(uint256[] indexed a)` with `a=[1,2]`, Forge's recorded `topics[1]`
 equals `keccak256(abi.encodePacked(uint256(1), uint256(2)))` — i.e. the per-element
 **word-padded** encoding **without** the length word (ruled out `keccak(abi.encode)`
-and `keccak(length‖elems)`, both of which Forge shows differ). Solidus
+and `keccak(length‖elems)`, both of which Forge shows differ). solidity-lean
 `abiEventTopic?` for a hashed-indexed reference type computes
 `keccak(abiEventIndexedBytes? false ty value)`, and `abiEventIndexedArrayBytes?`
 pads each element to a word (`padDynamic := true`) with **no length prefix**
@@ -128,7 +128,7 @@ matching solc.)
 
 For `event AnonTwo(uint256 indexed x, uint256 indexed y) anonymous`, Forge shows
 the log carries **2** topics (`topics[0]=x`, `topics[1]=y`) with **no** signature
-topic0. Solidus omits the signature topic for anonymous events: `EventDecl.toCore`
+topic0. solidity-lean omits the signature topic for anonymous events: `EventDecl.toCore`
 sets `topic? := none` when `decl.anonymous` (`Interface.lean:18632-18637`) and
 `selectorEntry?` returns `none` (`:7651-7652`), so the emitted topics are exactly
 the indexed values. Match (and anonymous permits up to 4 indexed, non-anonymous 3

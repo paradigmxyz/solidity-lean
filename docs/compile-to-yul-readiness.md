@@ -754,6 +754,19 @@ left/right witness pairs are retained as order-sensitivity pins.
 - **Elaboration correctness** (surface → core): either a separate obligation or
   surface-as-trusted-input (matching how Solidus treats solc's Yul emission).
   Not a source-semantics cleanup task.
+- **Stack-too-deep spilling (verified Yul→Yul pass)**: Solidus's backend is
+  stack-only (`memoryguard(size) = size`, fail-closed headroom certificate —
+  no StackLimitEvader analogue), so wide functions/ABI wrappers will make
+  `compile?` return `none` on real contracts. Plan: a Yul→Yul local-demotion
+  pass in the lowering project — same frozen Yul semantics on both sides,
+  one `ForwardRel` seam chained by `trans`; spilled locals become one-word
+  memory slots folded into the reserved region below the memoryguard value
+  (per-activation spill frames for recursive functions), unobservable at the
+  seam. Policy (pressure heuristic + fail-closed retry against `compile?`)
+  is untrusted; only the transformation carries a theorem. Sequence after Sk
+  lands, before declaring the executable pipeline corpus-complete. See
+  `docs/memory-layer-design.md` for the memory-model fit. Completeness-only:
+  without it nothing is unsound, contracts just fail to compile.
 
 ---
 

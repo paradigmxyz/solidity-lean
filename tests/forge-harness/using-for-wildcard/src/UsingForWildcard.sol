@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
-// G20 pin (docs/solidus-solc-deep-comparison.md): `using Lib for *` WILDCARD
+// G20 pin (docs/solidity-lean-solc-deep-comparison.md): `using Lib for *` WILDCARD
 // binding attaches the library's functions to ALL types by their first
 // parameter. A member call through the wildcard binding dispatches to the
 // library function for whatever receiver type matches. Pin correct dispatch

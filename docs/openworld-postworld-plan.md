@@ -129,7 +129,7 @@ All citations into this repo, `SolidCore/Solidity/Interpreter.lean` unless noted
 
 ---
 
-## 2. Target semantics for solid-core-spine
+## 2. Target semantics for solidity-lean
 
 ### 2.1 The outgoing snapshot: `snapshotWorld`
 

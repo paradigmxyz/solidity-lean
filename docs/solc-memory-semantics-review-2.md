@@ -1,4 +1,4 @@
-# Deep review of MEMORY semantics, round 2 (solc 0.8.35 vs Solidus)
+# Deep review of MEMORY semantics, round 2 (solc 0.8.35 vs solidity-lean)
 
 Follow-up to `docs/solc-memory-semantics-review.md` (round 1, which found **M1**:
 memory→memory ref *assignment/declaration* deep-copies instead of aliasing —
@@ -8,7 +8,7 @@ function boundary**, **`abi.encode`/`keccak256` of nested memory aggregates**,
 **`abi.decode` into nested memory**, and **string/bytes memory ops**.
 
 Read-only. The corpus was **not** built or run. solc observables are PASS-verified
-with pinned `solc-0.8.35+commit.47b9dedd` + `forge`. Solidus claims that require
+with pinned `solc-0.8.35+commit.47b9dedd` + `forge`. solidity-lean claims that require
 execution are marked **INFERRED** (traced, not run).
 
 ---
@@ -36,14 +36,14 @@ Ranked (wrong-alias/wrong-value first):
    instead of aliasing. `(a, b) = (x, y)`, `(a, b) = f()`, `(a, b) = (b, a)`,
    and the tuple *declaration* `(T memory a, ...) = (u, ...)` all land each
    memory-ref component as an **independent copy**. SOUNDNESS (wrong-alias),
-   DIFFERENTIALLY-LIVE, solc **CONFIRMED** / Solidus **INFERRED**. **Separate
+   DIFFERENTIALLY-LIVE, solc **CONFIRMED** / solidity-lean **INFERRED**. **Separate
    code path from M1** (`writeTupleWithRuntime`/`assignTuple`, not
    `Stmt.assign`).
 2. **M3 — assigning a memory ref into a memory AGGREGATE ELEMENT/FIELD
    deep-copies**. `s.field = a`, `arr[i] = a` store a *copy* of `a` into the
    element, so a later mutation of `a` is not seen through `s.field`/`arr[i]`
    (and vice-versa). SOUNDNESS (wrong-alias), DIFFERENTIALLY-LIVE, solc
-   **CONFIRMED** / Solidus **INFERRED**. **Separate code path from M1** (the
+   **CONFIRMED** / solidity-lean **INFERRED**. **Separate code path from M1** (the
    LHS is an index/member, so M1's `var = …` special case never fires).
 3. **M4 — `abi.encode` / `keccak256(abi.encode(…))` of a ref-nested
    nested-dynamic memory aggregate spuriously REVERTS**. The value-structural
@@ -53,7 +53,7 @@ Ranked (wrong-alias/wrong-value first):
    a dynamic-array field) hits unmaterialized `memoryRef` elements → encoder
    returns `none` → revert. solc encodes fine. SOUNDNESS (spurious revert /
    wrong observable), DIFFERENTIALLY-LIVE (for ref-nested memory values),
-   Solidus **INFERRED**.
+   solidity-lean **INFERRED**.
 
 **Verdicts on the headline targets:**
 
@@ -89,7 +89,7 @@ solc lowers a tuple assignment to per-component `storeValue`s of the RHS
 + the `Assignment` pointer store at `:303-333`). Each reference component is a
 pointer copy.
 
-### Solidus (traced)
+### solidity-lean (traced)
 
 - The importer lowers a tuple **assignment** to `Stmt.assignTuple` /
   `Stmt.assignTupleNested` (`Interface.lean:5704-5711`), and a tuple
@@ -127,7 +127,7 @@ unless the fix also threads memory-ref values through the tuple write.
 solc stores the RHS pointer into the memory slot for the element/field
 (`ExpressionCompiler.cpp:303-333`, `MemoryItem::storeValue`).
 
-### Solidus (traced)
+### solidity-lean (traced)
 
 `s.inner = a` lowers to `Stmt.assign (LValue.index (var s) 1) (Expr.var a)`
 (struct member → index, `Interface.lean:1618-1625`). In `Stmt.assign`
@@ -159,7 +159,7 @@ object as "allocate a fresh copy."**
 `keccak256(abi.encode(structWithDynamicArrayField))` all compile and run.
 (`nestedEncode`, `twoDEncode`, `structDynEncode` in `src/M4.sol`.)
 
-### Solidus (traced)
+### solidity-lean (traced)
 
 - A memory value with reference-type elements is stored **ref-nested**: e.g. a
   local `bytes[] memory bs` is `dynamicArray [memoryRef c0, memoryRef c1]`
@@ -189,7 +189,7 @@ trees; a memory param carries an `AbiCleanup.memoryEager`/`abiLazy` that
 `forceValue`s to the inline value, `:357-367`, `:1086`), so `abi.encode(param)`
 may work. But a **local** nested-dynamic memory value, or one assembled in
 memory, is ref-nested and would revert. `abi.encodePacked` of nested dynamic is
-separately **rejected at analysis by both** (solc and Solidus AE1;
+separately **rejected at analysis by both** (solc and solidity-lean AE1;
 `Witness/AcceptanceBoundariesRound2.lean:182`) → masked; the hole is specific to
 non-packed `abi.encode`.
 
@@ -209,7 +209,7 @@ case.
 `arr[0][0]==123`; `mut(c ? x : y)` → `x[0]==123`. Passing a memory ref aliases;
 the callee's mutation is visible to the caller.
 
-### Solidus (traced) — no separate finding
+### solidity-lean (traced) — no separate finding
 
 Internal-call arguments are bound in **two steps** (`Parameter.
 toStorageAwareCoreArgDeclsEvaluated?`, `Interface.lean:9945-9990`): a temp
@@ -248,7 +248,7 @@ work while a *local* is ref-nested — see M4 masking.)
 - **`string(bytesMemory)` / `bytes(stringMemory)`:** solc treats these as a
   zero-cost **reinterpret** — the result *aliases* the source (Forge
   `bytesToStr`: `bytes(s)[0]` reflects a post-conversion mutation of `b`). In
-  Solidus both are `Value.bytes`, but a declaration `string memory s =
+  solidity-lean both are `Value.bytes`, but a declaration `string memory s =
   string(b)` has a **conversion** RHS (neither `Expr.var` nor `Expr.index`), so
   `memoryVarDecl` falls to `declareMemoryLocal` → deep copy → no alias. This is
   the **M1 family** (an unrecognized memory-ref RHS shape), niche (requires
@@ -307,7 +307,7 @@ arguments before encoding.
 
 **Still not reached / deferred (honest):**
 
-- [ ] Concrete Solidus execution of M2/M3/M4 (all INFERRED — corpus build/run
+- [ ] Concrete solidity-lean execution of M2/M3/M4 (all INFERRED — corpus build/run
   out of scope).
 - [ ] Byte-exact confirmation of `abi.encode` output *once M4 is fixed* (whether
   the deep-deref'd nested encoding matches solc byte-for-byte — expected yes, as

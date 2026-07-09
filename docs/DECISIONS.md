@@ -8,7 +8,7 @@ recorded here.
 ## 2026-07-08 — CE-family: constant folder re-derived over signed rationals with solc's resource caps
 
 Acting on `docs/solc-const-eval-env-review.md`. solc's `ConstantEvaluator`
-folds constants over signed rationals ℚ (not `Nat`); Solidus's folder gated
+folds constants over signed rationals ℚ (not `Nat`); solidity-lean's folder gated
 several ops on `exactNat?` and lacked unary `~`, over-rejecting a family of
 valid constants, and lacked solc's resource caps, over-accepting another
 family (and, for base-0/1/−1 exponents, risking a non-terminating import).
@@ -94,7 +94,7 @@ Scope of the actual divergence (verified against pinned solc 0.8.35 + Forge):
   but leaves the branch idents bare (their `abiTy?` is `none`), so no cast is
   inserted and the narrow branch keeps its right-aligned low-byte content.
 
-Fix (`SolidCore/Solidity/Interface.lean`, Solidus-only — solc/Forge untouched):
+Fix (`SolidCore/Solidity/Interface.lean`, solidity-lean-only — solc/Forge untouched):
 - `Expr.abiEncodeFixedBytesTernary?` + `…Core?`: detect a `bytesN`-common-type
   conditional ABI argument (seeing through the redundant `bytesN(...)` wrapper
   `annotateAbi` inserts), recompute the true common type from BOTH branches via
@@ -171,18 +171,18 @@ Smoke replay (`scripts/smoke_replay.sh`) + the three lanes: 31 cases,
 
 **The bug.** solc stores `bytesN` **left-aligned** and wraps every `bytesN <<`
 and `~bytesN` result in `cleanup_t_bytesN` (keep only the top-N-byte lane).
-Solidus stores `bytesN` **right-aligned** (`SolidCore/Solidity/Interpreter.lean:468-475`),
+solidity-lean stores `bytesN` **right-aligned** (`SolidCore/Solidity/Interpreter.lean:468-475`),
 so under its convention `<<` and `~` are exactly the ops that push meaningful
 bits *above* the low N-byte lane — they must be masked to `2^(8*N)` afterward.
-Solidus applied no such mask: runtime `shlWord`/`notWord` are raw 256-bit ops
+solidity-lean applied no such mask: runtime `shlWord`/`notWord` are raw 256-bit ops
 (`Interpreter.lean:5511`, `~5658`), and `Ty.implicitCleanupCore?` inserted a
 truncating cast only for `uint`/`int`, letting `fixedBytes` fall through with no
 cleanup. Escaped bits are dropped by ABI-encode/return and index access (so
 `return b << 4;` alone agreed) but became observable under comparison, a
 following shift/bitwise op, or `&`/`|`/`^`. Three confirmed divergences (solc via
-`--ir`): `(b<<4)>>4` on `bytes1(0xff)` → solc `0x0f`, Solidus `0xff`;
-`(b<<4)==bytes1(0xf0)` with `b=0xff` → solc `true`, Solidus `false`;
-`(~b)==bytes1(0xf0)` with `b=0x0f` → solc `true`, Solidus `false`.
+`--ir`): `(b<<4)>>4` on `bytes1(0xff)` → solc `0x0f`, solidity-lean `0xff`;
+`(b<<4)==bytes1(0xf0)` with `b=0xff` → solc `true`, solidity-lean `false`;
+`(~b)==bytes1(0xf0)` with `b=0x0f` → solc `true`, solidity-lean `false`.
 
 **The fix (`SolidCore/Solidity/Interface.lean`).** The lane mask is
 `fixedBytesCast size size` — it takes the low `size` bytes (a no-op for
@@ -340,7 +340,7 @@ with identical values; lane `forge=ok lean=ok compare=pass`.
 `docs/solc-implementation-divergences-7.md` DL1 (wrong-VALUE + wrong-ORDER
 soundness bug).
 
-**The bug.** Solidus laid out contract storage AND ran base constructors +
+**The bug.** solidity-lean laid out contract storage AND ran base constructors +
 inline state-variable initializers in a naive left-to-right DFS post-order
 keep-first-dedup traversal (`ContractDecl.storageOrder?` /
 `storageOrderWithFuel?`, `SolidCore/Solidity/Interface.lean`). solc lays out
@@ -355,7 +355,7 @@ z@3. The old DFS produced `[Y, X, M, Z]` → y@0, x@1 (x/y SWAPPED) — wrong sl
 (wrong read/write VALUES + wrong external layout) AND wrong constructor/
 initializer execution ORDER.
 
-**The fix (`SolidCore/Solidity/Interface.lean`).** Solidus already computes the
+**The fix (`SolidCore/Solidity/Interface.lean`).** solidity-lean already computes the
 correct C3 linearization for DISPATCH (`ContractDecl.dispatchOrder?`, most-
 derived-first). Storage order is simply its reverse. Deleted
 `ContractDecl.storageOrderWithFuel?` and redefined
@@ -486,7 +486,7 @@ for `StructType`, `EnumType`, `UserDefinedValueType` (`libsolidity/ast/Types.cpp
 built-in / elementary type raises 8841 and a cross-file type raises 4117. A
 **contract** type has no `typeDefinition()` and is rejected (8841) — the round-4
 doc's claim that a contract is a legal target was WRONG; pinned-solc probe
-`using {f} for D global;` (D a contract) → 8841. Solidus
+`using {f} for D global;` (D a contract) → 8841. solidity-lean
 (`SolidCore/Solidity/TypeCheck.lean` `UsingDecl.checkFileLevel`) gated the
 `global` target through `isUserValueTypePath`, admitting only UDVTs and rejecting
 struct/enum globals — a mainstream library idiom.
@@ -501,7 +501,7 @@ user-defined value types"). Built-in and cross-file globals still reject.
 **UF2 — operator binding params must BOTH be the target type (masked
 over-accept).** solc (`TypeChecker.cpp:4158-4186`, error 1884): an operator
 function's parameters must ALL equal the target UDVT (both params for binary, the
-one param for unary) and it must return the operator's result type. Solidus
+one param for unary) and it must return the operator's result type. solidity-lean
 `FunctionSig.matchesUserDefinedOperatorDecl` required only `hasParamTy` (target
 in ≥1 position), wrongly accepting `f(T, uint) as +`. **Fix**: replaced
 `hasParamTy` with `sig.params.all (· == targetTy)` (length already pinned to 2/1;
@@ -510,7 +510,7 @@ return-type match was already enforced). Probe: `addMixed(T,uint) as +` → 1884
 
 **UF3 — duplicate operator binding rejected at the directive (masked
 over-accept).** solc (error 4705): binding the same operator for the same type
-more than once in visible scope is a directive-level error. Solidus caught it
+more than once in visible scope is a directive-level error. solidity-lean caught it
 only lazily at a use site. **Fix**: new `UsingDecls.checkNoDuplicateOperator
 Bindings` collects every `(operator, targetTy)` from all file-level using
 directives and rejects a repeat; wired into `SourceUnit.checkWithEvmVersion`
@@ -549,7 +549,7 @@ Must-hold neighbors: `library-type-uses`, `udvt-operator-dispatch`,
 `docs/solc-implementation-divergences-6.md` V1 (CONFIRMED, SOUNDNESS wrong-value,
 the campaign's first wrong-VALUE bug): a calldata slice `a[i:j]` with `i > j` or
 `j > a.length` must revert with **empty data** (`revert(0, 0)`) in solc's default
-(non-debug) mode; Solidus instead reverted with **Panic(0x32)** (36-byte
+(non-debug) mode; solidity-lean instead reverted with **Panic(0x32)** (36-byte
 returndata), reusing the array-INDEX-access OOB constant for the slice-RANGE check.
 
 **solc rule** (`libsolidity/codegen/YulUtilFunctions.cpp:2523-2539`, the slice
@@ -586,7 +586,7 @@ regression: smoke green, `entrypoint-slice-control` (in-bounds slices) and
 
 `docs/solc-implementation-divergences-6.md` A1 (COMPLETENESS wrong-reject,
 differentially-live): solc accepts and computes `type(T).interfaceId` for any
-NON-deployable contract — an interface **or an abstract contract** — but Solidus
+NON-deployable contract — an interface **or an abstract contract** — but solidity-lean
 failed to LOWER it for an abstract contract (`interfaceIdEntry?` returned
 `some none` for non-interfaces, and `Ty.typeInfoExpr?` had no `interfaceId` arm),
 rejecting a program solc compiles — despite the (post-lowering) typechecker
@@ -631,7 +631,7 @@ of `abstractLedgerId()` == `0xc1b31357`.
 edge): solc **accepts** `abi.encodePacked` of a nested STATIC array whose
 ultimate element is a static value type (`uint[2][3]`, `uint[2][]`,
 `uint[2][2][2]`), rejecting only an array whose *base/element* is itself a
-dynamically-sized array. Solidus over-rejected all nested arrays.
+dynamically-sized array. solidity-lean over-rejected all nested arrays.
 
 **solc rule** (`libsolidity/analysis/TypeChecker.cpp:2166-2174` gate on
 `typeSupportedByOldABIEncoder`, defined `:55-68`): an array is packed-supported
@@ -671,7 +671,7 @@ Lean evals. Harness: `solc_rejects=ok forge=ok lean=ok forge_interpreter_compare
 `docs/solc-implementation-divergences-3.md` CL1 (CONFIRMED, importer-masked
 acceptance-oracle over-accept): solc errors 1563 on a bare modifier-style
 base-constructor call (`constructor() Base {}`, no argument list); it must be
-`Base()` (or `Base(args)` in the inheritance list). Solidus accepted the bare
+`Base()` (or `Base(args)` in the inheritance list). solidity-lean accepted the bare
 form because `ModifierInvocation` could not distinguish solc's `arguments == null`
 (bare) from `[]` (`Base()`).
 
@@ -711,7 +711,7 @@ round-2 review): solc runs `ControlFlowRevertPruner` before the
 storage/calldata-pointer-return definite-assignment check (error 3464), so a
 `returns (T storage p)` whose only obligation-unmet path runs through an
 ALWAYS-REVERTING internal callee is accepted (that path can't reach the exit).
-Solidus modelled a call as a normal returning node and over-rejected.
+solidity-lean modelled a call as a normal returning node and over-rejected.
 
 **solc mechanism read** (`libsolidity/analysis/ControlFlowRevertPruner.cpp`
 + `ControlFlowBuilder.cpp`): a function is `AllPathsRevert` iff its CFG entry
@@ -740,7 +740,7 @@ of the always-revert set. The set is stored in `CheckEnv.alwaysRevertNames`;
 such a name as terminating (no `normal?`), exactly like the pre-existing
 `revert`/`selfdestruct` terminal.
 
-**Accept/reject boundary — pinned solc 0.8.35 probed, Solidus matches (Lean
+**Accept/reject boundary — pinned solc 0.8.35 probed, solidity-lean matches (Lean
 witnesses `SolidCore/Witness/CF2RevertPruning.lean`):**
 - helper always-reverts (`alwaysReverts(); }`) → ACCEPT (the fix);
 - direct inline `revert` → ACCEPT (regression guard, pre-existing);
@@ -754,7 +754,7 @@ witnesses `SolidCore/Witness/CF2RevertPruning.lean`):**
 **Soundness.** Acceptance-loosening, so the risk is over-accepting; the analysis
 is a sound under-approximation of always-reverts (only provable terminators
 mark `(false,false)`; every `return` is preserved). Residual sound over-rejects
-(solc accepts, Solidus still rejects — never the reverse), matching PT1's
+(solc accepts, solidity-lean still rejects — never the reverse), matching PT1's
 per-contract-scope precedent: (a) a helper reached only via non-terminating
 recursion (solc treats unresolved recursion as reverting; our monotone fixpoint
 from `∅` never marks it); (b) an always-reverting callee that is an INHERITED
@@ -3579,11 +3579,11 @@ No soundness bug found: all four builtins already matched EVM ground truth.
 
 ## 2026-07-08 — G1: user-defined operators dispatch to their bound function, not the builtin
 
-Fixes the wrong-VALUE soundness bug G1 (`docs/solidus-solc-deep-comparison.md`).
+Fixes the wrong-VALUE soundness bug G1 (`docs/solidity-lean-solc-deep-comparison.md`).
 Since Solidity 0.8.19, `using {f as +} for T global;` (and unary `using {g as -}`)
 binds an operator symbol to a free function; solc resolves `a + b` (a,b : T) to a
 CALL of `f(a, b)` that runs with the operator function's OWN checked/unchecked
-context. Solidus dropped solc's resolved operator reference on import
+context. solidity-lean dropped solc's resolved operator reference on import
 (`('BinaryOperation','function')`/`('UnaryOperation','function')` sat in
 `ANALYSIS_SCALAR_FIELDS`) and lowered the node to a plain builtin `Expr.binary`/
 `Expr.unary`, so the interpreter applied the BUILTIN op on the raw underlying
@@ -3594,7 +3594,7 @@ the builtin.
 solc semantics confirmed against pinned solc 0.8.35 and its
 `test/libsolidity/semanticTests/operators/userDefined/`:
 - `fixed_point_udvt_with_operators.sol`: `applyInterest(500e18, 0.1e18) -> 550e18`
-  (fixed-point `*` = `(a*b)/1e18`). Solidus BEFORE: the builtin int256 `*` (no
+  (fixed-point `*` = `(a*b)/1e18`). solidity-lean BEFORE: the builtin int256 `*` (no
   /1e18 rescale) → `500e18 + 500e18*1e17 ≈ 5e37` (wrong). AFTER: `550e18`.
 - `checked_operators.sol` / `unchecked_operators.sol`: the operator function runs
   with its own lexical context — a checked body panics 0x11 on overflow even when
@@ -3623,7 +3623,7 @@ unary/binary minus disambiguation, `bool` comparison operators, and the
 checked/unchecked-context distinction at word width (`checkedOpOverflow(max)`
 panics 0x11 from an `unchecked` call site; `uncheckedOpWraps(max) == 0` from a
 checked call site). The lane deliberately avoids two ORTHOGONAL, pre-existing
-Solidus gaps unrelated to operator dispatch (out of this agent's surface): (1)
+solidity-lean gaps unrelated to operator dispatch (out of this agent's surface): (1)
 signed `int / <numeric-literal>` division reverts typeMismatch — worked around
 with a `int256 scale = 1e18;` local; (2) arithmetic on a narrow (`uintN`, N<256)
 UDVT `unwrap` result is not width-checked (`Small.unwrap(a)+Small.unwrap(b)` does
@@ -3637,14 +3637,14 @@ compare=pass; new lane + existing UDVT-operator lane `frontend-frontier` both
 ## 2026-07-08 — Acceptance boundaries G2–G16 (over-accept tightenings + probes)
 
 Fixing the acceptance-boundary gaps `G2`–`G16` from
-`docs/solidus-solc-deep-comparison.md`. Ground truth: pinned solc 0.8.35 (READ-ONLY
+`docs/solidity-lean-solc-deep-comparison.md`. Ground truth: pinned solc 0.8.35 (READ-ONLY
 `/Users/dan/Projects/solidity-src`). Each fixed over-accept adds a solc-REJECT
 fixture under `tests/forge-harness/acceptance-boundaries/invalid/` plus a
 still-accepted neighbor, wired through the `acceptance-boundaries` manifest lane
 (witnesses in `SolidCore/Witness/AcceptanceBoundaries.lean`). Smoke replay stays
 all-green (28 cases, no valid corpus program newly rejected).
 
-FIXED over-accepts (Solidus was accepting programs solc rejects):
+FIXED over-accepts (solidity-lean was accepting programs solc rejects):
 
 - **G2 — `msg.value` in a non-payable function.** solc ViewPureChecker.cpp:270-294
   reports payable mutability for `msg.value` and errors 5887 unless the enclosing
@@ -3708,37 +3708,37 @@ needs machinery with over-reject risk beyond the acceptance predicate):
 
 - **G8 — `revert name(args)` shadowed by a callable. FIXED under R3 (2026-07-08
   residue cleanup, below).** A free error `E` masked by a contract-level
-  non-error member `E` (function or state var) was an over-accept (Solidus
+  non-error member `E` (function or state var) was an over-accept (solidity-lean
   resolved `revert E(...)` to the free error in `env.errors`, ignoring the
   shadow). Now rejected, matching solc (TypeError 1885).
 
-- **G11 — `creationCode`/`runtimeCode` cycle. RE-EXAMINED under R3 — Solidus is
+- **G11 — `creationCode`/`runtimeCode` cycle. RE-EXAMINED under R3 — solidity-lean is
   already correct for the SELF cycle, no fix needed.** solc rejects `type(C).
-  creationCode`/`runtimeCode` inside `C` (circular reference). Probed Solidus
+  creationCode`/`runtimeCode` inside `C` (circular reference). Probed solidity-lean
   (hand-built AST): it REJECTS `type(C).creationCode` inside `C` (verdict matches
   solc — accept/reject aligns; the message differs) while ACCEPTING
   `type(Other).creationCode`. So there is NO over-accept for the single-contract
   self cycle. A CROSS-contract cycle (C↔D) needs a whole-program bytecode-
-  dependency pass Solidus does not run, but such a program is solc-rejected and
+  dependency pass solidity-lean does not run, but such a program is solc-rejected and
   therefore never reaches the solc-AST importer — unreachable in the differential
   pipeline. Stays as an intentional whole-program OOS.
 
 - **G12 — `_` as an identifier.** solc DeclarationError 3726 ("The name `_` is
   reserved"). Rejected by solc at name resolution *before* AST import, so it is
   unreachable through the solc-AST importer; the divergence can never be observed
-  by Solidus in this pipeline. Skipped per the reachability guidance.
+  by solidity-lean in this pipeline. Skipped per the reachability guidance.
 
 - **G16 — `try` on a library external call. RE-CONFIRMED under R3 — stays as a
   documented over-reject (execution-model bound).** solc ACCEPTS `try L.g()` for
-  an `external` library function. Solidus over-rejects it. Accepting it at
+  an `external` library function. solidity-lean over-rejects it. Accepting it at
   typecheck would admit a shape the interpreter cannot execute (external library
   calls are DELEGATECALL dispatch to a separately-deployed library, which
-  Solidus's execution model does not implement) — a wrong-value/crash, strictly
+  solidity-lean's execution model does not implement) — a wrong-value/crash, strictly
   worse than an over-reject. No corpus program uses it (unreachable on the frozen
   corpus). Stays until external-library delegatecall execution is modeled.
 
 DEFERRED over-rejects (G13–G15): these are *harmless* completeness over-rejects
-(Solidus rejects programs solc accepts). Unlike G2–G10 (pure acceptance
+(solidity-lean rejects programs solc accepts). Unlike G2–G10 (pure acceptance
 predicates in `TypeCheck.lean`), each requires value-computing changes in
 `Interface.lean` elaboration and the interpreter, matched exactly to Forge:
 G13 nested-tuple-LHS destructuring, G14 storage-array copy with tail
@@ -3749,10 +3749,10 @@ without full-replay validation (the coordinator's merge gate), which is a strict
 worse outcome than a harmless over-reject. Recorded here as the next work item.
 ## 2026-07-08 — TEST-COVERAGE gaps G17–G22 pinned (or recorded OOS)
 
-Six features from `docs/solidus-solc-deep-comparison.md` were elaborated/handled
+Six features from `docs/solidity-lean-solc-deep-comparison.md` were elaborated/handled
 by the interpreter but had ZERO differential corpus lane. Each was closed by
 adding a Forge-paired lane whose expected values come from ACTUAL pinned-solc
-0.8.35 / Foundry-EVM runs (never invented), then confirming Solidus reproduces
+0.8.35 / Foundry-EVM runs (never invented), then confirming solidity-lean reproduces
 them (`forge=ok lean=ok`, `compare=pass`). No interpreter/typechecker change was
 required — every gap was a missing test, not a missing/wrong behavior. Corpus
 frozen: only NEW lanes were added.
@@ -3801,11 +3801,11 @@ frozen: only NEW lanes were added.
 - **G22 create2 address prediction — recorded OUT-OF-SCOPE, no lane added.**
   Predicting the deployed `create2` address
   `keccak256(0xff‖deployer‖salt‖keccak256(initCode))` requires the REAL compiled
-  creation bytecode as `initCode`. Solidus deliberately models `initCode` as a
+  creation bytecode as `initCode`. solidity-lean deliberately models `initCode` as a
   source-canonical name encoding (`creationInitCode`, `Interpreter.lean:2336`:
   32-byte name length ‖ name ‖ ctor args), a recorded gas-like deferred
   limitation (see the earlier "initCode is not compiled bytecode" decision). The
-  create2 address in Solidus comes from the fixture oracle/responder, not from
+  create2 address in solidity-lean comes from the fixture oracle/responder, not from
   keccak over real bytecode, so it CANNOT reproduce solc's deployed address.
   Forcing a lane would either assert a non-solc address (forbidden) or require
   modeling compiled initCode (out of scope per the create-initCode decision).
@@ -3827,7 +3827,7 @@ that holds it, so `(t ? 63 : 255)` is `uint8` (both mobiles `uint8`, common
 means the enclosing arithmetic runs at that width: `(t ? 63 : 255) + 1` adds in
 `uint8`, so `255 + 1` panics 0x11 in checked mode.
 
-**Wrong → right.** Solidus typed every number literal `uint256`
+**Wrong → right.** solidity-lean typed every number literal `uint256`
 (`TypeCheck.lean literalTy?`), and `abiTy?`/the typechecker's `Conditional` arm
 combined the branch types to `uint256`; the ternary was never recognized as an
 untyped-literal shape (`exprIsUntypedNumberLiteralExpression` excludes
@@ -3995,7 +3995,7 @@ SOUNDNESS gap (adds a missing Panic 0x11) recorded incidentally in the G1 note
 merged to main.
 
 Symptom (broader than the UDVT framing in the note): pinned solc/Forge Panic
-0x11 for `uint8(a + b)` and `int8(a + b)` on narrow overflow, but Solidus wrapped
+0x11 for `uint8(a + b)` and `int8(a + b)` on narrow overflow, but solidity-lean wrapped
 (`uint8(200 + 100) == 44`). Because a UDVT `Small.wrap(x)` lowers to `uint8(x)`,
 the same defect made a `using`-bound `+` operator whose body is
 `Small.wrap(Small.unwrap(a) + Small.unwrap(b))` (the G1 note's exact case) drop
@@ -4151,7 +4151,7 @@ the G2–G10 acceptance-boundary witnesses use).
 resolves `revert E(args)` to `E`'s innermost declaration and rejects a revert of
 a non-error: a free `error E` masked by a contract `function E` → TypeError
 "Expression has to be an error."; masked by a contract `uint E` → "This
-expression is not callable." Probed Solidus (hand-built AST): it OVER-ACCEPTED
+expression is not callable." Probed solidity-lean (hand-built AST): it OVER-ACCEPTED
 both (it resolved `E` against `env.errors`, which merges free + contract errors,
 ignoring that a contract member shadows the free error). Fix (`TypeCheck.lean`):
 a new `CheckEnv.contractNonErrorMemberNames` — the current contract's own +
@@ -4170,24 +4170,24 @@ the `acceptance-boundaries` lane (witnesses `g8ErrorShadowRejected` /
 28/28 confirms no valid revert regressed.
 
 **G11 — `type(C).creationCode`/`runtimeCode` cycle: already correct, no fix.**
-Probed Solidus (hand-built AST): `type(C).creationCode` inside `C` is REJECTED,
+Probed solidity-lean (hand-built AST): `type(C).creationCode` inside `C` is REJECTED,
 `type(Other).creationCode` ACCEPTED — the accept/reject verdict matches solc for
 the single-contract self cycle, so there is NO over-accept. A cross-contract
-cycle (C↔D) needs a whole-program bytecode-dependency pass Solidus does not run,
+cycle (C↔D) needs a whole-program bytecode-dependency pass solidity-lean does not run,
 but such a program is solc-rejected and never reaches the solc-AST importer —
 unreachable in the differential pipeline. Documented as intentional whole-program
 OOS.
 
 **G12 — `_` reserved: confirmed non-issue.** solc rejects `_` as an identifier
 at name resolution, BEFORE emitting an AST, so the divergence is unobservable
-through the solc-AST importer (Solidus only ever receives programs solc already
+through the solc-AST importer (solidity-lean only ever receives programs solc already
 accepted). Unreachable in this pipeline.
 
 **G16 — `try` on a library external call: confirmed over-reject, stays.** solc
-ACCEPTS `try L.g()` for an `external` library function; Solidus over-rejects it.
+ACCEPTS `try L.g()` for an `external` library function; solidity-lean over-rejects it.
 This is an over-REJECT (completeness), not an over-accept. Accepting it would
 admit a shape the interpreter cannot execute — external library functions are
-DELEGATECALL dispatch to a separately-deployed library, which Solidus's execution
+DELEGATECALL dispatch to a separately-deployed library, which solidity-lean's execution
 model does not implement — so acceptance would be a wrong-value/crash, strictly
 worse than an over-reject. No corpus program uses it. Stays until external-library
 delegatecall execution is modeled (recorded here so it is not lost).
@@ -4251,7 +4251,7 @@ witnesses `SolidCore/Witness/AcceptanceBoundariesRound2.lean`, manifest case
 **E1 — non-rational immutable read in a `pure` function (over-accept → FIXED).**
 solc `ViewPureChecker.cpp:194-199`: an immutable read is `Pure` ONLY if the
 initializer's type category is `RationalNumber`; every other initializer makes the
-read `View` (TypeError 2527). Solidus dropped ANY compile-time-constant-init
+read `View` (TypeError 2527). solidity-lean dropped ANY compile-time-constant-init
 immutable from `stateNames` via the broad `exprIsCompileTimeConstant` (true for
 `keccak256`, `abi.*`, `concat`, `type().wrap`, a `constant` reference, `bool`/
 `string` literals, explicit conversions). Fix: new predicate `exprIsRationalConstant`
@@ -4270,7 +4270,7 @@ witnesses `e1KeccakImmutableInPureRejected` + `e1NeighborsAccepted`.
 
 **E2 — `this.f.selector` in a `pure`/non-view function (over-reject → FIXED).**
 solc `ViewPureChecker.cpp:357-370` special-cases `this.f.selector` — `this` is
-never visited, so it contributes NO state read and stays Pure. Solidus recursed
+never visited, so it contributes NO state read and stays Pure. solidity-lean recursed
 into the inner `this` (ident-`this` runs `requireStateReadAllowed`) and rejected it
 in `pure`. Fix: a dedicated match arm for
 `Expr.member (Expr.member (Expr.ident "this") member) "selector"` resolves the
@@ -4285,7 +4285,7 @@ internal `f` REJECT. Witnesses `e2ThisSelectorInPureAccepted` +
 
 **O1 — duplicate contract in `override(A, A)` (over-accept → FIXED).**
 solc `OverrideChecker.cpp:850-879` rejects a duplicate in the override list
-(error 4520). Solidus `checkOverrideSpecifier` used `pathSetsEqual`
+(error 4520). solidity-lean `checkOverrideSpecifier` used `pathSetsEqual`
 (membership-both-ways, duplicates ignored). Fix: new `pathListHasDuplicate`, wired
 as a `require (!…)` in both `checkOverrideSpecifier` (functions) and
 `checkModifierOverrideUse` (modifiers). Probed: `override(A, A)` REJECT (4520);
@@ -4296,7 +4296,7 @@ as a `require (!…)` in both `checkOverrideSpecifier` (functions) and
 **PT1 — cyclic `constant` dependency (over-accept → FIXED).**
 solc `ConstStateVarCircularReferenceChecker` (`PostTypeChecker.cpp:154-245`,
 error 6161) rejects a `constant` whose value cyclically depends on itself. Probe
-CONFIRMED the over-accept: Solidus returned `Except.ok` for `uint constant A = A;`.
+CONFIRMED the over-accept: solidity-lean returned `Except.ok` for `uint constant A = A;`.
 Fix: `collectExprIdents` (a mutual recursion over `Expr`/`Arg`/`TupleItem`/
 `CallOption`) + `StateVarDecls.constantsHaveCycle` (build the constant→constant
 dependency graph restricted to declared `constant` names, fuel-bounded
@@ -4315,7 +4315,7 @@ Lane fixture `PT1CyclicConstant.sol`; witnesses `pt1SelfCyclicConstantRejected`,
 
 **AE1 — `abi.encodePacked(bytes[]/string[])` (ALREADY-HANDLED, verified).**
 solc rejects an array-of-dynamic element in packed mode ("Type not supported in
-packed mode"). Solidus's typecheck predicate `Ty.isAbiEncodePackedArrayElementShape`
+packed mode"). solidity-lean's typecheck predicate `Ty.isAbiEncodePackedArrayElementShape`
 omits `Ty.bytes`/`Ty.string`, so a `bytes[]`/`string[]` argument is already rejected
 at type-check; the interpreter right-pad fall-through the finding worried about is
 unreachable for accepted programs. Verified on the Lean side:
@@ -4327,10 +4327,10 @@ unreachable for accepted programs. Verified on the Lean side:
 solc runs `ControlFlowRevertPruner` (an interprocedural always-reverts analysis)
 before the uninitialized-storage/calldata-pointer-return check (3464), so a pointer
 whose only unassigned path terminates in a call to an always-reverting *helper* is
-accepted. Solidus prunes only builtin terminals (direct `revert`/`selfdestruct`).
+accepted. solidity-lean prunes only builtin terminals (direct `revert`/`selfdestruct`).
 Probe CONFIRMED a real over-reject on a natural single-contract program: a
 `returns (uint[] storage p)` whose `else` branch calls an always-reverting internal
-helper is REJECTED by Solidus but ACCEPTED by solc; the direct-`revert` form is
+helper is REJECTED by solidity-lean but ACCEPTED by solc; the direct-`revert` form is
 already accepted by both, and the genuinely-uninitialized form is rejected by both.
 STAYS: a correct fix requires porting solc's interprocedural always-reverts CFG pass
 (compute, per internal function, whether it always reverts, then treat calls to such
@@ -4412,10 +4412,10 @@ list is not re-opened.
   `Stmt.toCoreReplacingModifierPlaceholder?` (Interface.lean) recurses through
   block/if/while/for/try/unchecked, so a nested `_` is substituted. The
   top-level-only `Stmt.replaceTopLevelModifierPlaceholder` has NO call sites
-  (dead code). Probe (modifier with `_` inside `if`): solc and Solidus both
+  (dead code). Probe (modifier with `_` inside `if`): solc and solidity-lean both
   return 121.
 - **#5 abi.encode of narrow uintN/intN.** solc always cleans before encoding;
-  Solidus maintains the clean-value invariant (eager cleanup on every
+  solidity-lean maintains the clean-value invariant (eager cleanup on every
   arithmetic/cast/decode), so `abiEncode` never sees dirty high bits. Probe:
   `uint8 x=200; unchecked{x=x+100;}` (wraps to 44) → both encode 0x2c. Dirt only
   arises via inline assembly, outside importer/corpus scope.
@@ -4434,14 +4434,14 @@ list is not re-opened.
   `ge`→`!slt` (i.e. SLE/SGE). Witness: -5<=3 true, -5>=3 false, 3<=-5 false,
   -5<=-5 true. All match solc.
 - **#10 intN ABI-decode canonical-form validation.** solc's `validator_revert_t_*`
-  reverts (empty data) on a non-canonical intN/uintN in `abi.decode`. Solidus
+  reverts (empty data) on a non-canonical intN/uintN in `abi.decode`. solidity-lean
   wraps decoded narrow values in `Value.abiLazy cleanup`; `AbiCleanup.accepts`
   reconstructs the canonical form and `AbiCleanup.forceValue` reverts
   `RevertData.empty` on mismatch (pinned by the existing abi-malformed lanes).
-  Probe: dirty int8 → solc reverts; Solidus reverts empty. Match.
+  Probe: dirty int8 → solc reverts; solidity-lean reverts empty. Match.
 - **#11 fixed-array-of-dynamic head-offset base, nested one level.** Encoder
   bases inner head offsets on the fixed array's own data region. Unit test:
-  `abi.encode(uint256[][2])` with `[[0xaa],[0xbb,0xcc]]` → Solidus words
+  `abi.encode(uint256[][2])` with `[[0xaa],[0xbb,0xcc]]` → solidity-lean words
   `[0x20,0x40,0x80,1,0xaa,2,0xbb,0xcc]`, byte-identical to solc/Forge. (A
   separate `uint256[][2] memory` + `new uint256[]` init probe hit an unrelated
   memory-array-allocation limitation — M-series territory, not this ABI item.)
@@ -4497,7 +4497,7 @@ whose two public functions return the `encodeCall` bytes for both repros; the
 Forge test asserts the bytes against solc/EVM (`bytes4(...) ==
 IEncodeCallCallee.foo.selector` / `EncodeCallSelectorHarnessTarget.foo.selector`
 and full `abi.encodeWithSelector(sel, uint256(3)/uint8(3))`), and the imported
-Lean eval checks the Solidus interpreter returns
+Lean eval checks the solidity-lean interpreter returns
 `encodeSelector(selectorFromSignature "foo(uint256)"/"foo(uint8)") ++
 encodeWord 3` for each. Pre-fix the lane fails on both counts (narrow repro
 over-rejected at typecheck; literal repro's selector wrong).

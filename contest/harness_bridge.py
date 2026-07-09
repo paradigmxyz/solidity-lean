@@ -8,7 +8,7 @@ reinventing them:
   * ``run_solc_rejects`` - assert solc REJECTS a source (OVER_ACCEPT claims).
   * ``run_solc_import``  - invoke solc_ast_to_lean_source.py to render Lean.
 
-For the Solidus observable we reuse ``run_solc_import`` to obtain the generated
+For the solidity-lean observable we reuse ``run_solc_import`` to obtain the generated
 Lean source, then build our own tiny ``lake env lean`` invocation (mirroring the
 harness's ``run_lean`` file assembly) so we can CAPTURE the #eval output line
 rather than only match it against a fixed expectation. Nothing in the
@@ -181,16 +181,16 @@ def run_solc_rejects_source(source: Path, case_tmp: Path,
 
 
 # ---------------------------------------------------------------------------
-# Solidus (import + typecheck + elaborate + execute; observable extraction)
+# solidity-lean (import + typecheck + elaborate + execute; observable extraction)
 # ---------------------------------------------------------------------------
 
 @dataclass
-class SolidusResult:
-    """The outcome of running Solidus on the entry call."""
+class SolidityLeanResult:
+    """The outcome of running solidity-lean on the entry call."""
 
     ok: bool                     # True if the entry call ran to completion
     stage: str                   # "import" | "lean" | "run"
-    fail_closed: bool            # True if Solidus rejected (coverage-gap candidate)
+    fail_closed: bool            # True if solidity-lean rejected (coverage-gap candidate)
     observable: Optional[obs.Observable]
     message: str                 # evidence / error text
     generated_source_path: Optional[Path] = None
@@ -208,20 +208,20 @@ def _read_log(path: Path) -> str:
         return ""
 
 
-def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
+def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: list,
                            case_tmp: Path, namespace: str,
                            fuel: int = 64,
                            tools: Optional[ToolPaths] = None,
                            timeout: int = 300,
                            env: Optional["cenv.EnvOverrides"] = None,
                            slots: Optional[list[int]] = None,
-                           constructor_args: Optional[list] = None) -> SolidusResult:
+                           constructor_args: Optional[list] = None) -> SolidityLeanResult:
     """Import ``source``, then #eval the §3.4 observable of ``contract.fname``.
 
     Distinguishes:
       * importer fail()            -> fail_closed, stage=import (coverage-gap)
       * lean exit != 0             -> fail_closed, stage=lean   (elab/exec reject)
-      * observable "solidus-reject" -> fail_closed, stage=run   (typecheck reject)
+      * observable "solidity-lean-reject" -> fail_closed, stage=run   (typecheck reject)
       * observable success/revert  -> ok, stage=run
     """
     tools = tools or ToolPaths()
@@ -234,13 +234,13 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         "contract": contract,
         "namespace": namespace,
     }}
-    variables = _variables(tools, case_tmp, "solidus")
+    variables = _variables(tools, case_tmp, "solidity_lean")
     import_ok, import_status, generated = _HARNESS.run_solc_import(
         import_case, tools.repo, variables, timeout)
     gen_path = case_tmp / "solc-ast.stdout.lean"
     if not import_ok:
         stderr = _read_log(case_tmp / "solc-ast.stderr.log")
-        return SolidusResult(
+        return SolidityLeanResult(
             ok=False, stage="import", fail_closed=True, observable=None,
             message=f"importer {import_status}: {stderr.strip()[:2000]}",
             generated_source_path=gen_path)
@@ -273,7 +273,7 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
         # A timeout is INCONCLUSIVE, not a coverage gap (review finding 3): it
         # may be a genuinely slow-but-correct run, an attacker resource bomb, or
         # a poisoned `fuel`. Never auto-classify it as a missing feature.
-        return SolidusResult(
+        return SolidityLeanResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
             message=f"lean timeout after {timeout}s", inconclusive=True,
             generated_source_path=gen_path)
@@ -294,13 +294,13 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
             "deep recursion", "maximum recursion", "out of memory",
             "deterministic timeout", "(interrupted)", "stack overflow",
             "excessive memory"))
-        return SolidusResult(
+        return SolidityLeanResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
             message=f"lean exit {status}: {stderr.strip()[:2000]}",
             inconclusive=inconclusive, generated_source_path=gen_path)
 
     if not marker_lines:
-        return SolidusResult(
+        return SolidityLeanResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
             message="no observable produced by #eval",
             generated_source_path=gen_path)
@@ -314,12 +314,12 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
     payload = payload.strip()
     observed = obs.parse_observable(payload)
 
-    if observed.is_solidus_reject:
-        return SolidusResult(
+    if observed.is_solidity_lean_reject:
+        return SolidityLeanResult(
             ok=False, stage="run", fail_closed=True, observable=observed,
-            message=f"solidus fail-closed: {observed.reject_message}",
+            message=f"solidity_lean fail-closed: {observed.reject_message}",
             generated_source_path=gen_path)
 
-    return SolidusResult(
+    return SolidityLeanResult(
         ok=True, stage="run", fail_closed=False, observable=observed,
         message="ran to completion", generated_source_path=gen_path)

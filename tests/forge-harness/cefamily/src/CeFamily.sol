@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 // CE-family constant-folder ACCEPTS. solc 0.8.35 folds each constant in
 // unbounded-precision signed rationals (ConstantEvaluator.cpp). Every constant
-// here is one Solidus previously *over-rejected* (or, for P5/PZP/PNP, a program
+// here is one solidity-lean previously *over-rejected* (or, for P5/PZP/PNP, a program
 // that could hang the importer) — the pinned compiler accepts and folds them to
 // the value the getter returns.
 contract CeFamilyHarnessTarget {

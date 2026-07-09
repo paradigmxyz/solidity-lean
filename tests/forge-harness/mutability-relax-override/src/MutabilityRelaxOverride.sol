@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
-// G19 pin (docs/solidus-solc-deep-comparison.md): an override may RELAX (narrow)
+// G19 pin (docs/solidity-lean-solc-deep-comparison.md): an override may RELAX (narrow)
 // state mutability relative to the base — solc accepts view->pure and
 // nonpayable->view. The override is runtime-identical to any other function; we
 // pin acceptance + the dispatched value.

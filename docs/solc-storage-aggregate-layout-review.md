@@ -1,4 +1,4 @@
-# Divergence review: storage layout of structs, nested aggregates, and mapping keys (solc 0.8.35 vs Solidus)
+# Divergence review: storage layout of structs, nested aggregates, and mapping keys (solc 0.8.35 vs solidity-lean)
 
 Round target: the storage-layout **re-derivation surface** for struct field
 packing, nested aggregates, and mapping-key hashing — distinct from
@@ -6,11 +6,11 @@ inheritance slot ORDER (DL1, fixed) and from array-of-value-type element
 packing (bug-batch #1, in flight). solc source: `/Users/dan/Projects/solidity-src`
 @ 0.8.35 (47b9dedd), read-only. Probes: pinned
 `~/.solc-select/artifacts/solc-0.8.35/solc-0.8.35 --combined-json storage-layout`
-and a Forge `vm.load` suite (no Solidus build/run; Lean side is code audit).
+and a Forge `vm.load` suite (no solidity-lean build/run; Lean side is code audit).
 
 ## Executive summary
 
-Surfaces read: Solidus's entire storage-layout re-derivation pipeline —
+Surfaces read: solidity-lean's entire storage-layout re-derivation pipeline —
 `Ty.toCoreStorageLayout?` / `Ty.toCoreStorageMemberLayout?` /
 `Tys.toCorePackedStorageLayouts?` / `CoreStorageLayout.placeInPackedCursor`
 (`SolidCore/Solidity/Interface.lean:2160-2350`), top-level
@@ -44,14 +44,14 @@ plus 1 IN-FLIGHT-RELATED confirmation.** Ranked:
    `keccak256(pad(addr) . slot)`.
 3. **AGG3 (IN-FLIGHT-RELATED)** — the fixed-array slot span
    `natCeilDiv(size * widthBytes, 32)` lets elements straddle slots; solc
-   uses `ceil(len / floor(32/width))` (`uint40[32]`: solc 6 slots, Solidus
+   uses `ceil(len / floor(32/width))` (`uint40[32]`: solc 6 slots, solidity-lean
    5), so the state variable / struct field *after* such an array sits one
    or more slots too low. Same root cause as bug-batch #1 (array element
    packing); recorded here because the **span** consumers
    (`placeInPackedCursor`, `storageFieldAndNext`) also need the fix.
 
 Everything else on the target list is **FAITHFUL** (probe-verified on the
-solc side, code-audited on the Solidus side): struct field packing
+solc side, code-audited on the solidity-lean side): struct field packing
 including the doesn't-fit-starts-new-slot rule and the 31+1-byte boundary,
 nested-struct whole-slot alignment, struct total-span rounding, aggregate
 members (fixed/dynamic array, mapping, bytes/string) aligning to fresh
@@ -74,7 +74,7 @@ solc computes the value slot as `keccak256(h(key) . uint256(slot))`
   with the slot appended as a full word (`packedHashFunction` →
   `tupleEncoderPacked`, YulUtilFunctions.cpp:4113-4145).
 
-Solidus (`mappingStorageSlotForKey`, Interpreter.lean:1745-1755):
+solidity-lean (`mappingStorageSlotForKey`, Interpreter.lean:1745-1755):
 
 - `bytes`/`string` keys → `keccak(rawBytes ++ word(slot))` — **FAITHFUL**
   (verdict: value-key vs bytes/string-key *distinction* is correctly
@@ -100,7 +100,7 @@ Solidus (`mappingStorageSlotForKey`, Interpreter.lean:1745-1755):
   = 111 while the right-aligned preimage slot
   (`abi.encode(uint(0xaabbccdd), slot)`) is 0. Same for the nested
   `mnest[7][0xaabbccdd]` inner/outer composition.
-- **Solidus status.** `Ty.toCoreMappingKey?` (Interface.lean:2232-2236)
+- **solidity-lean status.** `Ty.toCoreMappingKey?` (Interface.lean:2232-2236)
   lowers a bytesN key to core `fixedBytes n`;
   `mappingStorageSlotForKey` → `coerceMappingKeyWordAs`
   (Interpreter.lean:1735-1755) coerces (`Ty.fixedBytes _, Value.word v =>
@@ -112,7 +112,7 @@ Solidus (`mappingStorageSlotForKey`, Interpreter.lean:1745-1755):
   the bug.
 - **Severity / confidence / reachability.** SOUNDNESS (wrong-slot → wrong
   observed-storage word, and wrong value if the entrant probes solc's
-  slot). CONFIRMED (solc probe + unambiguous Solidus code path).
+  slot). CONFIRMED (solc probe + unambiguous solidity-lean code path).
   DIFFERENTIALLY-LIVE: the harness's §3.4 component 5 compares
   entrant-declared raw slots (`contest/observable.py:131-150`,
   `contest/adjudicate.py:498`), and `bytesN` mapping keys pass the
@@ -141,7 +141,7 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
   `ContractDecl.storageFieldAndNext` (Interface.lean:18431-18469) a
   contract-typed var takes the `_, _` fallback: full aligned slot, span 1,
   `layout? = ty? = none`. Probe (`Layout2.sol`): solc gives
-  `uint96 u @0+0; IERC20 c @0+12; uint8 z @1+0` — Solidus places `c` at
+  `uint96 u @0+0; IERC20 c @0+12; uint8 z @1+0` — solidity-lean places `c` at
   slot 1 and `z` at slot 2. Wrong slot for the contract var **and every
   subsequent variable** (including inherited-layout bases via
   `storageFieldsSlotSpanFrom`, Interface.lean:18488-18493). Also applies
@@ -149,7 +149,7 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
   gate, TypeCheck.lean:9398-9402). Conversely, when the contract var
   starts a fresh slot and the *next* var is ≤ 12 bytes, solc packs it into
   the same slot (probe `Layout.sol`: `c0 @19+0` alone only because
-  `address a0` doesn't fit; a following `uint96` would pack) — Solidus
+  `address a0` doesn't fit; a following `uint96` would pack) — solidity-lean
   never does.
 - **AGG2b — struct with a contract-typed field: whole struct layout
   vanishes.** `Ty.toCoreStorageMemberLayout?` → `Ty.toCoreStorageLayout?`
@@ -157,7 +157,7 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
   `none` (Interface.lean:2281-2283, 2330-2341). Consequences: (i) span
   collapses to 1 (`| none => 1`, Interface.lean:18463) — solc's
   `struct S { IERC20 t; uint256 x; }` spans 2 slots (probe: members
-  `t@0+0, x@1+0`, following var at slot 4 vs Solidus slot 3); (ii) member
+  `t@0+0, x@1+0`, following var at slot 4 vs solidity-lean slot 3); (ii) member
   access falls to the layout-less fallback, `legacyIndexedStorageSlot slot
   * 16777619 + key + 1` (Interpreter.lean:1803-1806; used at 3857-3864,
   3977-3983, 4183, 4259) — not keccak-based at all, so *every field* of
@@ -175,10 +175,10 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
 - **Severity / confidence / reachability.** SOUNDNESS (wrong-slot →
   wrong observed-storage values; AGG2b additionally shifts every later
   state variable). CONFIRMED (solc probes above + unambiguous Lean code
-  path; Solidus not executed — the only step short of full confirmation is
+  path; solidity-lean not executed — the only step short of full confirmation is
   replaying a Lean example, blocked by the read-only constraint).
   DIFFERENTIALLY-LIVE (contract-typed state vars/keys are ubiquitous
-  Solidity and pass both solc and the Solidus gate).
+  Solidity and pass both solc and the solidity-lean gate).
 - **Fix sketch.** Give `Ty.user` (contract paths) the address lowering in
   `Ty.toCoreStorageWord?` (→ `Ty.address`) and `Ty.storagePackedBytes?`
   (→ 20), or rewrite contract-typed *storage* types to `Ty.address` in a
@@ -194,7 +194,7 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
   itemsPerSlot)`; elements never straddle a slot
   (`ArrayType::storageStride`, Types.h:901). Probe: `uint40[32] f1` at
   slot 25 spans **6** slots (`numberOfBytes = 192`), `uint8 tail1 @31`.
-- **Solidus status.** `StorageLayout.slotSpan` for
+- **solidity-lean status.** `StorageLayout.slotSpan` for
   `fixedArray size (packedScalar _ w _ _)` = `natCeilDiv (size * w) 32`
   (Interpreter.lean:1355-1357, also 1395-1399) → 5 slots for `uint40[32]`;
   `arrayElementOffsetAndLayout?` (Interpreter.lean:1450-1464) places
@@ -202,7 +202,7 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
   `placeInPackedCursor` (Interface.lean:2267-2271) and
   `storageFieldAndNext` (Interface.lean:18459-18462), so a struct field or
   state variable *after* such an array lands too low (probe: `tail1` slot
-  31 vs Solidus 30).
+  31 vs solidity-lean 30).
 - **Status.** The element-packing half is bug-batch #1 (IN-FLIGHT, sibling
   agent). Recorded here only to flag that the **span formula and both its
   layout-cursor consumers** must change together
@@ -212,7 +212,7 @@ no storage-lowering requirement; no `contest/known_gaps.py` entry):
 
 ## Faithful surfaces (probe- and code-verified this round)
 
-Solidus's packing cursor (`placeInPackedCursor`, Interface.lean:2249-2271)
+solidity-lean's packing cursor (`placeInPackedCursor`, Interface.lean:2249-2271)
 is the same algorithm as `StorageOffsets::computeOffsets`
 (Types.cpp:142-175): fit-check `offset + width <= 32` (solc:
 `byteOffset + storageBytes > 32` → next slot), never splitting a value
@@ -227,7 +227,7 @@ aggregate-align cases all replay to the same slots).
 
 Verified against `--combined-json storage-layout` (`Layout.sol` probe):
 
-| case | solc | Solidus | verdict |
+| case | solc | solidity-lean | verdict |
 |---|---|---|---|
 | `{uint128; uint64; uint64}` | a@0+0, b@0+16, c@0+24; 1 slot | same | FAITHFUL |
 | `{uint128; uint128; uint8}` (doesn't fit → new slot) | c@1+0; 2 slots | same | FAITHFUL |
@@ -243,7 +243,7 @@ Verified against `--combined-json storage-layout` (`Layout.sol` probe):
 
 Verified against the Forge probe (mapping keys) and code audit:
 
-| case | solc | Solidus | verdict |
+| case | solc | solidity-lean | verdict |
 |---|---|---|---|
 | `bytes`/`string` key | raw unpadded bytes ++ slot; empty key → `keccak(slot)` | Interpreter.lean:1748-1752 | FAITHFUL |
 | `uint`/`bool`/`address`/`enum` key | pad32 right-aligned | right-aligned word | FAITHFUL |

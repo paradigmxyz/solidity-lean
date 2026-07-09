@@ -1,4 +1,4 @@
-# Implementation-level solc-vs-Solidus divergence review (round 7 — runtime behavior)
+# Implementation-level solc-vs-solidity-lean divergence review (round 7 — runtime behavior)
 
 **Seventh implementation-level pass.** Rounds 1–6 covered arithmetic / cleanup /
 conversion helpers, the ABI encode+decode codec, the analysis-pass ACCEPTANCE
@@ -12,9 +12,9 @@ and `abi.encodeCall` / precompile framing.
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD `c2009b8`. Canonical semantics
+solidity-lean at `codex/solidity-semantics-only` HEAD `c2009b8`. Canonical semantics
 files are `SolidCore/Solidity/*.lean` (+ importer
-`scripts/solc_ast_to_lean_source.py`). Nothing was built or run for Solidus;
+`scripts/solc_ast_to_lean_source.py`). Nothing was built or run for solidity-lean;
 tiny probes used the pinned `solc 0.8.35`
 (`/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35`) — in particular a
 `--combined-json storage-layout` probe to nail the headline finding. Findings are
@@ -27,7 +27,7 @@ tiny probes used the pinned `solc 0.8.35`
 
 **Surfaces read this round (code, not tests), both sides:**
 
-- **C3 linearization / override dispatch / `super`** — Solidus
+- **C3 linearization / override dispatch / `super`** — solidity-lean
   `dispatchOrderWithFuel?` + `mergeLinearizationsWithFuel?` + `findMergeCandidate?`
   (`Interface.lean:18332-18365`), override winner via first-match over
   derived-first `functions` (`findFunctionBySelector?`/`findFunctionByName?`
@@ -54,18 +54,18 @@ tiny probes used the pinned `solc 0.8.35`
 
 **Headline: this round found a second wrong-VALUE divergence — DL1 — a wrong
 storage-slot layout (and wrong constructor/init order) for a non-trivial diamond,
-caused by Solidus computing the storage/constructor order with a naive DFS instead
+caused by solidity-lean computing the storage/constructor order with a naive DFS instead
 of the reverse C3 linearization.**
 
 - **DL1 (NEW, SOUNDNESS wrong-value + wrong-order, DIFFERENTIALLY-LIVE,
-  CONFIRMED)** — Solidus's `storageOrder` (`storageOrderWithFuel?`) is a
+  CONFIRMED)** — solidity-lean's `storageOrder` (`storageOrderWithFuel?`) is a
   left-to-right **DFS post-order keep-first dedup**, but solc lays out storage (and
   runs constructors / inline initializers) in **`reverse(linearizedBaseContracts)`**
   = reverse C3. These coincide for simple diamonds but **diverge** whenever a
   contract lists a direct base that is also an indirect base positioned so DFS
   pulls a shared base to a different rank than C3. Minimal repro (solc-probe
   CONFIRMED): `contract X{uint x;} contract Y{uint y;} contract M is X,Y{uint m;}
-  contract Z is Y,M{uint z;}` — solc lays out `x@0, y@1, m@2, z@3`; Solidus
+  contract Z is Y,M{uint z;}` — solc lays out `x@0, y@1, m@2, z@3`; solidity-lean
   assigns `y@0, x@1, m@2, z@3` (**x and y swapped**). Consequences: **wrong storage
   slot for every affected variable → wrong VALUES on read/write and a wrong
   external storage-layout**, plus **wrong constructor / inline-initializer
@@ -119,7 +119,7 @@ for (ContractDefinition const* contract:
 
 Constructor / initializer order is the same reverse-C3 (most base first).
 
-**Solidus.** `storageOrder` is computed **independently** of the C3 dispatch order,
+**solidity-lean.** `storageOrder` is computed **independently** of the C3 dispatch order,
 by a left-to-right DFS post-order with keep-first dedup
 (`ContractDecl.storageOrderWithFuel?`, `Interface.lean:18267-18282`):
 
@@ -137,11 +137,11 @@ composition** (`pieces ← mapOption (constructorBodyForDeployment? …) storage
 `initStmts ++ [bodyCore]`).
 
 The importer **drops** solc's `linearizedBaseContracts` (it is in
-`METADATA_SCALAR_FIELD_SUFFIXES`, `solc_ast_to_lean_source.py:42`), so Solidus
+`METADATA_SCALAR_FIELD_SUFFIXES`, `solc_ast_to_lean_source.py:42`), so solidity-lean
 recomputes both orders from `decl.bases` — the DFS storage order is genuinely
-Solidus's own, not solc's.
+solidity-lean's own, not solc's.
 
-Note Solidus's **dispatch** order *is* correct C3 — `dispatchOrderWithFuel?`
+Note solidity-lean's **dispatch** order *is* correct C3 — `dispatchOrderWithFuel?`
 (`Interface.lean:18346-18365`) reverses the direct bases and merges via
 `mergeLinearizationsWithFuel?`/`findMergeCandidate?` (`:18301-18344`), whose
 candidate rule ("first head that appears in no list's tail") is **identical** to
@@ -151,14 +151,14 @@ uses a *different, non-C3* traversal instead of `reverse(dispatchOrder)`.
 
 ### Divergence (executable simulation + solc probe)
 
-A faithful re-implementation of all three algorithms (solc C3, Solidus dispatch,
-Solidus storage) agrees on the *dispatch* order for every hierarchy tried but
+A faithful re-implementation of all three algorithms (solc C3, solidity-lean dispatch,
+solidity-lean storage) agrees on the *dispatch* order for every hierarchy tried but
 diverges on *storage* order for non-trivial diamonds. Classic C3-stress
 hierarchy `O; A,B,C,D,E is O; K1 is A,B,C; K2 is D,B,E; K3 is D,A; Z is K1,K2,K3`:
 
-- Solidus **dispatch** = solc linearization = `Z,K3,K2,E,K1,C,B,A,D,O` (MATCH).
+- solidity-lean **dispatch** = solc linearization = `Z,K3,K2,E,K1,C,B,A,D,O` (MATCH).
 - solc **storage** (reverse-C3) = `O, D, A, B, C, K1, E, K2, K3, Z`.
-- Solidus **storage** (DFS) = `O, A, B, C, K1, D, E, K2, K3, Z` — **`D` is misranked**.
+- solidity-lean **storage** (DFS) = `O, A, B, C, K1, D, E, K2, K3, Z` — **`D` is misranked**.
 
 **Minimal repro (solc-probe CONFIRMED):**
 
@@ -172,7 +172,7 @@ contract Z is Y, M { uint256 z; }
 `solc --combined-json storage-layout` for `Z`:
 `x@slot0, y@slot1, m@slot2, z@slot3`.
 
-Solidus `storageOrder(Z)`: bases `[Y, M]` (source order) →
+solidity-lean `storageOrder(Z)`: bases `[Y, M]` (source order) →
 `storageOrder(Y)=[Y]`, `storageOrder(M)=[X,Y,M]` → `[Y]++[X,Y,M]++[Z]` dedup
 keep-first = `[Y, X, M, Z]` → **`y@slot0, x@slot1, m@slot2, z@slot3`**.
 
@@ -183,7 +183,7 @@ with the shared base positioned so DFS keep-first ranks it before C3 does.
 ### Consequences (why it is a wrong VALUE, not just cosmetic)
 
 1. **Wrong storage slots.** Any read/write of an affected state variable hits the
-   wrong slot. In the minimal repro, writing `x` in Solidus writes solc's `y`
+   wrong slot. In the minimal repro, writing `x` in solidity-lean writes solc's `y`
    slot. Observable at the external boundary (a getter returning `x`, or a raw
    `sload` view of the layout) and across `delegatecall`/upgrade layout matching.
 2. **Wrong constructor / inline-initializer order.** `pieces` is mapped over
@@ -195,11 +195,11 @@ with the shared base positioned so DFS keep-first ranks it before C3 does.
 ### Reachability & classification
 
 **DIFFERENTIALLY-LIVE.** solc compiles the repro (probe: no errors, storage
-layout emitted); Solidus accepts it (dispatch C3 succeeds) and mis-lays-out /
-mis-orders. Not importer-masked — the importer produces the AST and Solidus's own
+layout emitted); solidity-lean accepts it (dispatch C3 succeeds) and mis-lays-out /
+mis-orders. Not importer-masked — the importer produces the AST and solidity-lean's own
 Lean recomputation is wrong. **Untested in the corpus** (no such diamond present),
 so currently unflagged by the differential harness. **Severity: SOUNDNESS
-(wrong value + wrong order).** **Confidence: CONFIRMED** (solc probe + Solidus
+(wrong value + wrong order).** **Confidence: CONFIRMED** (solc probe + solidity-lean
 code trace + executable simulation of all three orderings).
 
 ### Suggested fix (for the sibling fix-agent — not applied here)
@@ -222,7 +222,7 @@ solc while leaving the (already-faithful) dispatch order untouched.
   candidate is the first list-head that appears in no list's tail, lists scanned in
   the same order (`baseOrders ++ [reverse bases]`); `decl` prepended matches solc
   putting the contract at the head of its direct-bases list. Executable simulation
-  confirms Solidus dispatch order == solc linearization on the diamond and the
+  confirms solidity-lean dispatch order == solc linearization on the diamond and the
   full C3-stress hierarchy.
 - **F2 — override winner.** External dispatch `findFunctionBySelector?` and
   name/internal dispatch `findFunctionByName?` are `List.find?` (first match) over
@@ -282,7 +282,7 @@ solc while leaving the (already-faithful) dispatch order untouched.
   against the function-pointer's declared params was not exhaustively traced).
 - Precompile **input framing** beyond ecrecover/sha256/ripemd160 spot-checks
   (modexp 0x05 length-prefix layout, ecadd/ecmul/pairing point encodings,
-  blake2f, point-eval) — these are responder-answered; only Solidus's own
+  blake2f, point-eval) — these are responder-answered; only solidity-lean's own
   calldata framing would be the divergence surface.
 - Storage **packing across the inheritance boundary** in the presence of DL1 — the
   packing cursor itself was read (`storageFieldAndNext`, `:18401`) and is faithful
@@ -297,16 +297,16 @@ solc while leaving the (already-faithful) dispatch order untouched.
 ## Bottom line
 
 The seventh pass targeted runtime behavior — the richest unexplored surface — and
-found **DL1**, the campaign's second wrong-VALUE divergence: Solidus assigns
+found **DL1**, the campaign's second wrong-VALUE divergence: solidity-lean assigns
 storage slots (and sequences base constructors + inline initializers) in a naive
 left-to-right **DFS order** rather than solc's **reverse C3 linearization**. The
 two agree for simple diamonds but diverge for a common pattern — a contract that
 lists a direct base which is also an indirect base — producing **swapped storage
 slots** (wrong values on read/write and a wrong external layout) and a **wrong
 constructor/initializer order**. Minimal repro `Z is Y, M / M is X, Y` is
-solc-probe confirmed (`x@0,y@1` in solc vs `y@0,x@1` in Solidus). The fix is to
+solc-probe confirmed (`x@0,y@1` in solc vs `y@0,x@1` in solidity-lean). The fix is to
 derive the storage/constructor order as `reverse(dispatchOrder)` — the C3 order
-Solidus *already* computes correctly for dispatch. Every other runtime surface
+solidity-lean *already* computes correctly for dispatch. Every other runtime surface
 read — C3 dispatch order, override winner, the diamond `super` chain, modifier
 substitution/chaining/return, fallback/receive precedence, and slot-math/`delete`
 of complex storage — is **faithful**.

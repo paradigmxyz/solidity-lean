@@ -11,7 +11,7 @@ require evmyul from git
 -- Simulation sources stay byte-identical to evm-compiler's.
 require «evm-interaction» from ".." / "evm-interaction"
 
-package «solid-core-spine» where
+package «solidity-lean» where
   leanOptions := #[
     ⟨`maxHeartbeats, 1000000⟩
   ]

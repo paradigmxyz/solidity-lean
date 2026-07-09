@@ -31,7 +31,7 @@ These landed with the hardening pass and are exercised by `contest/run_samples.p
   (`CVm c = CVm(HEVM_ADDRESS); c.ffi()`), or a raw
   `address(0x7109…).call(...)`. `src/` may not reference the cheat address at
   all; `test/` may only use the env-pinning whitelist with literal args
-  (mirrored into the Solidus env). Default-deny.
+  (mirrored into the solidity-lean env). Default-deny.
 - **Forge runs never use the submitter's `foundry.toml`.** Both the
   real-behavior check (`harness_bridge.run_forge_test`) and the measurement
   (`measure.py`) generate a pinned profile with `ffi = false` and a minimal
@@ -43,7 +43,7 @@ These landed with the hardening pass and are exercised by `contest/run_samples.p
   OVER_ACCEPT); `fuel` must be an integer in `[1, 100000]`; `entry.args` and
   `observed_slots` are shape/range-checked, returning `REJECT_MALFORMED` instead
   of crashing.
-- **Inconclusive Solidus failures are not gaps.** A Lean **timeout** or
+- **Inconclusive solidity-lean failures are not gaps.** A Lean **timeout** or
   resource-exhaustion signal is classified `NEEDS_REVIEW` (non-qualifying), never
   an automatic `COVERAGE_GAP` (a poisoned `fuel` or an OOM bomb cannot
   manufacture a leaderboard hit).
@@ -78,7 +78,7 @@ endpoint publicly, the runner MUST provide:
 ## 4. Residual precision limits (documented, not security holes)
 
 - **Custom-error reverts**: the EVM side decodes an unknown selector to
-  `revert|raw:0x…` while Solidus renders `revert|custom:Name:…`; such a
+  `revert|raw:0x…` while solidity-lean renders `revert|custom:Name:…`; such a
   comparison is routed to review, not auto-classified.
 - **Coarse function-level taint** in the semantic exclusion detectors (§1.2) errs
   toward OOS (may over-reject, never under-rejects into a fake gap).

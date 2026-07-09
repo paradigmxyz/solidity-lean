@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
-// G17 pin (docs/solidus-solc-deep-comparison.md): an internal function pointer
+// G17 pin (docs/solidity-lean-solc-deep-comparison.md): an internal function pointer
 // held in a STORAGE state variable that is never assigned has the zero dispatch
 // value; calling it panics 0x51 (Panic: invalid internal function). This is the
 // storage-default counterpart of the already-laned LOCAL-uninitialized pointer

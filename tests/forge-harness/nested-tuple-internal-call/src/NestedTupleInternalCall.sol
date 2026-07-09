@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 // R1 — a NESTED tuple on the assignment LHS whose RHS contains INTERNAL
 // function calls. solc accepts both shapes; the RHS is evaluated once,
 // left-to-right, into temps (side effects observed in that order) and then
-// destructured against the nested target tree. Solidus formerly over-rejected
+// destructured against the nested target tree. solidity-lean formerly over-rejected
 // these (the nested elaboration could not hoist internal calls out of the RHS).
 contract NestedTupleInternalCallHarnessTarget {
     uint256 order;

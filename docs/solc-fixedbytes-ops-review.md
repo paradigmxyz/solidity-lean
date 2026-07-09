@@ -1,7 +1,7 @@
-# solc vs Solidus — `bytesN` shift / bitwise-not lane-cleanup review
+# solc vs solidity-lean — `bytesN` shift / bitwise-not lane-cleanup review
 
 Surface: fixed-size byte operations (`bytesN << k`, `bytesN >> k`, `~bytesN`),
-focusing on the interaction between Solidus's **right-aligned** internal `bytesN`
+focusing on the interaction between solidity-lean's **right-aligned** internal `bytesN`
 representation and solc's **left-aligned** representation with per-operation
 cleanup. This surface was flagged as unmined; the frozen corpus only ever shifts
 `uintN`/`uint256` values and then casts to `bytesN` (e.g. `bytes32(uint256(1) <<
@@ -29,12 +29,12 @@ function shift_right_t_bytes1_t_uint8(value, bits) -> result {
 // ~b  ==>  cleanup_t_bytes1(not(b))
 ```
 
-Solidus stores `bytesN` **right-aligned** (meaningful bytes low; left-alignment
+solidity-lean stores `bytesN` **right-aligned** (meaningful bytes low; left-alignment
 happens only at the ABI boundary — see the storage-read comment at
 `SolidCore/Solidity/Interpreter.lean:468-475`). Under that convention the
 lane-cleanup obligation moves: `<<` and `~` are exactly the operations that push
 bits **above** the N-byte lane, so they must be masked to `2^(8N)` afterward.
-Solidus applies **no such mask**:
+solidity-lean applies **no such mask**:
 
 - Runtime `BinaryOp.applyWord` computes `shl` as a raw 256-bit
   `shlWord rhs lhs` — `SolidCore/Solidity/Interpreter.lean:5511`.
@@ -50,7 +50,7 @@ Solidus applies **no such mask**:
   `coreAsFromTy? bytesN bytesN` → `implicitCleanupCore?` (no-op for `bytesN`) —
   `Interface.lean:6410-6413`. No lane mask is ever inserted anywhere.
 
-The result: after `bytesN << k` or `~bytesN`, Solidus keeps dirty bits above the
+The result: after `bytesN << k` or `~bytesN`, solidity-lean keeps dirty bits above the
 byte lane. Those bits are dropped when the value is ABI-encoded/returned or
 index-accessed (both take the low N bytes), so `return b << 4;` alone agrees
 with solc. They become **observable** whenever the value is (a) compared
@@ -71,11 +71,11 @@ function h(bytes1 b) external pure returns (bytes1) {
   cleanup(shr(4, 0xF000…0)) = `0x0F00…0`. Returns **`0x0f`**.
   (IR verified: `shift_left_t_bytes1_t_uint8` / `shift_right_t_bytes1_t_uint8`
   both wrap in `cleanup_t_bytes1`.)
-- **Solidus:** `b` = `0xff` (=255, right-aligned). `shlWord 4 255` = `4080`
+- **solidity-lean:** `b` = `0xff` (=255, right-aligned). `shlWord 4 255` = `4080`
   (`0xFF0`) — no lane mask. `shrWord 4 4080` = `255`. ABI-encodes low byte →
   returns **`0xff`**.
 - **Classification:** wrong-value. **Confidence:** high (both sides verified —
-  solc via `--ir`, Solidus by tracing `applyWord`/`shlWord`/`shrWord`).
+  solc via `--ir`, solidity-lean by tracing `applyWord`/`shlWord`/`shrWord`).
 - **Responsible:** missing lane cleanup after `bytesN <<`;
   `Interface.lean:3213-3232` (fixedBytes fall-through) + `Interpreter.lean:5511`.
 
@@ -89,7 +89,7 @@ function f(bytes1 b) external pure returns (bool) {
 
 - **solc:** `b<<4` cleans to `0xF000…0`; `bytes1(0xf0)` = `0xF000…0`; `eq` →
   **`true`**.
-- **Solidus:** LHS `shlWord 4 255` = `4080`; RHS `bytes1(0xf0)` = `240`
+- **solidity-lean:** LHS `shlWord 4 255` = `4080`; RHS `bytes1(0xf0)` = `240`
   (right-aligned); `wordEq 4080 240` → **`false`**.
 - **Classification:** wrong-value. **Confidence:** high.
 - **Responsible:** same missing cleanup; comparison compares full words
@@ -105,7 +105,7 @@ function n(bytes1 b) external pure returns (bool) {
 
 - **solc:** `~b` = `cleanup_t_bytes1(not(0x0F00…0))` = `0xF000…0`; equals
   `bytes1(0xf0)` → **`true`**. (IR verified: `expr := cleanup_t_bytes1(not(...))`.)
-- **Solidus:** `~b` = `notWord 15` = `0xFF…F0` (all high bits set, no lane mask);
+- **solidity-lean:** `~b` = `notWord 15` = `0xFF…F0` (all high bits set, no lane mask);
   `wordEq (0xFF…F0) 240` → **`false`**.
 - **Classification:** wrong-value. **Confidence:** high.
 - **Responsible:** `UnaryOp.apply` `bitNot` returns bare `notWord`
@@ -123,7 +123,7 @@ function n(bytes1 b) external pure returns (bool) {
 - Event-topic encoding for indexed reference types was cross-checked against
   solc `ExpressionCompiler.cpp:986-994` (`packedEncode` + `KECCAK256`) and
   `ABIFunctions` `EncodingOptions` ("padded re-set to true for array/struct
-  elements"): Solidus's `abiEventIndexedBytes?`/`abiEventTopic?`
+  elements"): solidity-lean's `abiEventIndexedBytes?`/`abiEventTopic?`
   (`Interpreter.lean:4885-4930`) matches (raw bytes for top-level `string`/
   `bytes`, padded-per-element for arrays/tuples). No divergence found there.
 

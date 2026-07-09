@@ -16,7 +16,7 @@ The observable of a submission is the tuple the harness compares, in order:
 Equality is EXACT on 1-4. GAS IS NEVER PART OF THE OBSERVABLE (that is the whole
 of the SEM-GAS / SEM-CLOSEDGAS exclusion).
 
-NORMAL FORM (a single canonical line, Solidus-internals-independent):
+NORMAL FORM (a single canonical line, solidity-lean-internals-independent):
 
     success|<v1>,<v2>,...        # each vi rendered by ``render_value`` below
     revert|empty
@@ -24,15 +24,15 @@ NORMAL FORM (a single canonical line, Solidus-internals-independent):
     revert|error:<string>
     revert|custom:<name>:<v1>,<v2>,...
     revert|raw:<hexbytes>
-    solidus-reject|<message>     # Solidus fail-closed (import/typecheck/exec)
+    solidity-lean-reject|<message>     # solidity-lean fail-closed (import/typecheck/exec)
 
-Value rendering (decimal, so it does not depend on Solidus's Repr):
+Value rendering (decimal, so it does not depend on solidity-lean's Repr):
     w:<nat>      uint / address / bytesN / bool(0|1)
     i:<int>      signed int256 (two's-complement decoded)
     b:<hex>      dynamic bytes
     other Values fall back to r:<reprStr> (documented v1 limit).
 
-The Solidus side is computed by a Lean ``#eval`` (``lean_eval_line``) that runs
+The solidity-lean side is computed by a Lean ``#eval`` (``lean_eval_line``) that runs
 the entry call under a Context/BlockEnv carrying the CANONICAL pinned env
 (contest/env.py). The solc+EVM side is MEASURED from a Foundry harness that
 actually performs the entry call under the SAME pinned env and dumps the raw
@@ -44,7 +44,7 @@ defect O-1: the EVM observable is measured from the run, NOT the submitter's
 PRECISION LIMITS (documented, v1 restricted launch):
   * Custom-error reverts ARE now decoded: given the submission's error
     definitions (name + params + the AST ``errorSelector``), the EVM side renders
-    ``revert|custom:<Name>:<v1>,...`` in the same normal form Solidus produces, so
+    ``revert|custom:<Name>:<v1>,...`` in the same normal form solidity-lean produces, so
     they are compared automatically. A custom error whose selector is not among
     the submission's definitions still falls back to ``raw:0x...``.
   * Return / custom-error arg decoding covers static words (uint/address/bool/
@@ -107,7 +107,7 @@ def renderCallResult
     (r : Except SolidCore.Solidity.TypeCheck.TypeError
                 SolidCore.Solidity.Source.CallResult) : String :=
   match r with
-  | Except.error e => "solidus-reject|" ++ reprStr e
+  | Except.error e => "solidity-lean-reject|" ++ reprStr e
   | Except.ok (CallResult.returned _ vals) => "success|" ++ renderValues vals
   | Except.ok (CallResult.reverted _ rd) => "revert|" ++ renderRevert rd
 
@@ -160,7 +160,7 @@ def renderFull (self : SolidCore.Solidity.Source.Word)
     (r : Except SolidCore.Solidity.TypeCheck.TypeError
                 SolidCore.Solidity.Source.CallResult) : String :=
   match r with
-  | Except.error e => "solidus-reject|" ++ reprStr e
+  | Except.error e => "solidity-lean-reject|" ++ reprStr e
   | Except.ok res =>
     let outcome := renderCallResult (Except.ok res)
     let evs := match res with
@@ -277,7 +277,7 @@ def render_lean_args(args: list) -> str:
 # ---------------------------------------------------------------------------
 # EVM-side observable, DECODED from the measured Foundry run (review P0 #1).
 # The measurement harness (contest/measure.py) dumps the raw entry-call
-# (ok, ret-bytes); we decode them into the SAME normal form Solidus renders, so
+# (ok, ret-bytes); we decode them into the SAME normal form solidity-lean renders, so
 # the comparator diffs two independently-computed observables.
 # ---------------------------------------------------------------------------
 
@@ -299,7 +299,7 @@ def _is_dynamic(t: str) -> bool:
 def render_word_for_type(word: int, t: str) -> str:
     t = _clean_type(t)
     if t.startswith("int") and not t.startswith("uint"):
-        # two's-complement decode to a signed int (matches Solidus `i:`).
+        # two's-complement decode to a signed int (matches solidity-lean `i:`).
         if word >= (1 << 255):
             word -= (1 << 256)
         return f"i:{word}"
@@ -308,9 +308,9 @@ def render_word_for_type(word: int, t: str) -> str:
 
 def _decode_abi_values(data: bytes, types: list[str]) -> list[str]:
     """Decode ABI head/tail-encoded ``data`` for ``types`` into normal-form value
-    strings (w:/i:/b:), matching the Solidus ``renderValues`` renderer. Static
+    strings (w:/i:/b:), matching the solidity-lean ``renderValues`` renderer. Static
     words go in the head; a dynamic bytes/string is read via its head offset.
-    Addresses/enums/contracts are static words -> ``w:`` (as Solidus renders)."""
+    Addresses/enums/contracts are static words -> ``w:`` (as solidity-lean renders)."""
     rendered: list[str] = []
     for i, t in enumerate(types):
         head = data[i * 32:(i + 1) * 32]
@@ -341,7 +341,7 @@ def evm_revert_normal_form(
     ``errors`` maps a 4-byte selector (8 lowercase hex, no 0x) to
     ``(error_name, [param_type, ...])`` for the submission's user-defined errors;
     a matching selector is decoded into ``revert|custom:<Name>:<v1>,...`` in the
-    SAME normal form Solidus's ``renderRevert`` produces, so custom-error reverts
+    SAME normal form solidity-lean's ``renderRevert`` produces, so custom-error reverts
     are compared automatically instead of routed to review."""
     data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
     if len(data) == 0:
@@ -374,7 +374,7 @@ def evm_observable(ok: bool, ret_hex: str, return_types: list[str],
 
     ``events``/``storage`` are the measured §3.4 components 4/5 (empty string
     when the call reverted); they are appended in the same ``##EVT##``/``##STO##``
-    tokenized form the Solidus helper (``renderFull``) emits, so the comparator
+    tokenized form the solidity-lean helper (``renderFull``) emits, so the comparator
     diffs them component-by-component."""
     if ok:
         line = evm_return_normal_form(ret_hex, return_types)
@@ -395,7 +395,7 @@ _STO_SEP = "##STO##"
 
 def _split_sections(raw: str) -> tuple[str, Optional[str], Optional[str]]:
     """Split a raw normal form into (outcome_line, events, storage). The events
-    and storage sections are optional (absent on a solidus-reject, or when the
+    and storage sections are optional (absent on a solidity-lean-reject, or when the
     engine did not emit them)."""
     storage = None
     events = None
@@ -431,8 +431,8 @@ class Observable:
         head = self.outcome_line.split("|", 1)[0]
         if head == "success":
             return "success"
-        if head == "solidus-reject":
-            return "solidus-reject"
+        if head == "solidity-lean-reject":
+            return "solidity-lean-reject"
         # revert|panic:.. => panic; revert|error/empty/custom/raw => revert
         if head == "revert":
             line = self.outcome_line
@@ -443,12 +443,12 @@ class Observable:
         return head
 
     @property
-    def is_solidus_reject(self) -> bool:
-        return self.raw.startswith("solidus-reject|")
+    def is_solidity_lean_reject(self) -> bool:
+        return self.raw.startswith("solidity-lean-reject|")
 
     @property
     def reject_message(self) -> str:
-        return self.outcome_line.split("|", 1)[1] if self.is_solidus_reject else ""
+        return self.outcome_line.split("|", 1)[1] if self.is_solidity_lean_reject else ""
 
     def normalized(self) -> str:
         return self.raw.strip()
@@ -469,7 +469,7 @@ def perturb_leading_value(o: "Observable") -> "Observable":
     This exists ONLY for the fault-injection SELF-TEST (contest/run_samples.py):
     it lets the full live pipeline exercise a genuine SOUNDNESS_GAP by injecting a
     one-unit delta at the observable boundary, so the divergence-DETECTION path is
-    tested end-to-end WITHOUT ever shipping a bug in Solidus. It is never used in
+    tested end-to-end WITHOUT ever shipping a bug in solidity-lean. It is never used in
     real adjudication."""
     import re
     m = re.search(r"w:(\d+)", o.outcome_line)
@@ -487,7 +487,7 @@ def perturb_storage_slot(o: "Observable") -> "Observable":
     Fault-injection SELF-TEST twin of :func:`perturb_leading_value`, but for the
     broad storage component (contest #8): it injects a one-unit delta into the
     storage map at the observable boundary so the full pipeline exercises a real
-    SOUNDNESS_GAP(wrong-state) WITHOUT shipping any bug in Solidus. Never used in
+    SOUNDNESS_GAP(wrong-state) WITHOUT shipping any bug in solidity-lean. Never used in
     real adjudication. If there is no storage section, ``o`` is returned as-is."""
     import re
     line, events, storage = _split_sections(o.raw)
@@ -508,14 +508,14 @@ def perturb_storage_slot(o: "Observable") -> "Observable":
 @dataclass
 class ObservableComparison:
     equal: bool
-    solidus: Observable
+    solidity_lean: Observable
     evm: Observable
     differing_component: Optional[str] = None  # value/revert/panic/outcome
 
     def to_dict(self) -> dict:
         d = {
             "equal": self.equal,
-            "solidus_observable": self.solidus.to_dict(),
+            "solidity_lean_observable": self.solidity_lean.to_dict(),
             "evm_observable": self.evm.to_dict(),
         }
         if self.differing_component:
@@ -528,7 +528,7 @@ def _parse_storage_map(section: str) -> dict[int, int]:
 
     Zero-valued slots are dropped so a slot holding 0 compares equal to a slot
     that was never written (the two are indistinguishable on-chain). This makes
-    the broad full-map comparison symmetric and order-independent: the Solidus
+    the broad full-map comparison symmetric and order-independent: the solidity-lean
     side dumps its HashMap in arbitrary order, the EVM side dumps vm.accesses
     order, and both normalize to the same canonical map."""
     out: dict[int, int] = {}
@@ -546,38 +546,38 @@ def _parse_storage_map(section: str) -> dict[int, int]:
     return out
 
 
-def compare_observables(solidus: Observable, evm: Observable) -> ObservableComparison:
+def compare_observables(solidity_lean: Observable, evm: Observable) -> ObservableComparison:
     # Compare COMPONENT BY COMPONENT (§3.4), in order: outcome+return/revert
     # (1-3), then events (4), then observed storage (5). Gas is never compared.
-    if solidus.outcome_line.strip() != evm.outcome_line.strip():
+    if solidity_lean.outcome_line.strip() != evm.outcome_line.strip():
         # classify the outcome/value/revert difference for lane-S sub-kind.
-        if solidus.outcome != evm.outcome:
-            if {solidus.outcome, evm.outcome} & {"success"} and \
-               {solidus.outcome, evm.outcome} & {"revert", "panic"}:
+        if solidity_lean.outcome != evm.outcome:
+            if {solidity_lean.outcome, evm.outcome} & {"success"} and \
+               {solidity_lean.outcome, evm.outcome} & {"revert", "panic"}:
                 component = "revert-vs-success"
-            elif "panic" in (solidus.outcome, evm.outcome):
+            elif "panic" in (solidity_lean.outcome, evm.outcome):
                 component = "wrong-panic"
             else:
                 component = "wrong-revert"
         else:
-            if solidus.outcome == "success":
+            if solidity_lean.outcome == "success":
                 component = "wrong-value"
-            elif solidus.outcome == "panic":
+            elif solidity_lean.outcome == "panic":
                 component = "wrong-panic"
             else:
                 component = "wrong-revert"
-        return ObservableComparison(False, solidus, evm, differing_component=component)
+        return ObservableComparison(False, solidity_lean, evm, differing_component=component)
 
     # Outcome + return/revert agree. On SUCCESS also compare events (4) and
     # observed storage (5); both are rolled back on revert, so not compared then.
-    if solidus.outcome == "success":
-        s_ev, e_ev = solidus.events, evm.events
+    if solidity_lean.outcome == "success":
+        s_ev, e_ev = solidity_lean.events, evm.events
         if s_ev is not None and e_ev is not None and s_ev.strip() != e_ev.strip():
-            return ObservableComparison(False, solidus, evm,
+            return ObservableComparison(False, solidity_lean, evm,
                                         differing_component="wrong-events")
-        s_st, e_st = solidus.storage, evm.storage
+        s_st, e_st = solidity_lean.storage, evm.storage
         if s_st is not None and e_st is not None and \
                 _parse_storage_map(s_st) != _parse_storage_map(e_st):
-            return ObservableComparison(False, solidus, evm,
+            return ObservableComparison(False, solidity_lean, evm,
                                         differing_component="wrong-state")
-    return ObservableComparison(True, solidus, evm)
+    return ObservableComparison(True, solidity_lean, evm)

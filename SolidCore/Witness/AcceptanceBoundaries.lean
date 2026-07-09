@@ -1,6 +1,6 @@
 /-
 Acceptance-boundary witnesses (2026-07-08) for the over-accept tightenings
-G2–G10 from `docs/solidus-solc-deep-comparison.md`.
+G2–G10 from `docs/solidity-lean-solc-deep-comparison.md`.
 
 Each item pins BOTH sides of the boundary on the Lean side:
   * a program pinned-solc 0.8.35 REJECTS is now rejected by this typechecker

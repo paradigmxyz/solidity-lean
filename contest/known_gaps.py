@@ -48,7 +48,7 @@ class GapFingerprint:
 
 # ---------------------------------------------------------------------------
 # Pre-loaded known-open gaps. Sources:
-#   docs/solidus-solc-deep-comparison.md  (G1-G22)
+#   docs/solidity-lean-solc-deep-comparison.md  (G1-G22)
 #   ROADMAP.md "Known semantic gaps (deferred, recorded)"  (H1/H2, S1-S5, etc.)
 # The fingerprint keys are deliberately the ROOT CAUSE, matching what the
 # adjudicator computes from a live submission (see fingerprint_of_verdict).
@@ -152,7 +152,7 @@ _ROUND_GAPS: list[GapFingerprint] = [
                    "control-flow pointer-return analysis falls back to unsafeReturn on "
                    "fuel exhaustion / bare modifier-placeholder (over-rejects deep bodies)",
                    "open", "round 2 §3c; INFERRED, effectively unreachable; verify open/fixed"),
-    # --- lane S (soundness: Solidus runs but the observable differs) ---
+    # --- lane S (soundness: solidity-lean runs but the observable differs) ---
     GapFingerprint("CS1", "S",
                    ("return_value", "selfdestruct-balance-transfer", "wrong-value"),
                    "selfdestruct records (from,recipient,deletesAccount) but does NOT "
@@ -170,7 +170,7 @@ _EXTCALL_GAPS: list[GapFingerprint] = [
     GapFingerprint("A1", "S",
                    ("revert_data", "try-void-call-codeless-address", "revert-vs-success"),
                    "try over a void external call to a codeless/EOA address: "
-                   "Solidus runs catch, solc reverts the caller uncatchably",
+                   "solidity-lean runs catch, solc reverts the caller uncatchably",
                    "open", "OOS via X-EXTCALL in v1; live for v2"),
     GapFingerprint("A2", "S",
                    ("return_value", "catch-clause-source-order-vs-kind", "wrong-value"),
@@ -185,7 +185,7 @@ _EXTCALL_GAPS: list[GapFingerprint] = [
     GapFingerprint("CB1", "S",
                    ("return_value", "trycatch-short-error-clause-dispatch", "wrong-value"),
                    "try/catch Error(string) clause matches a short (<0x44 B) non-canonical "
-                   "Error-selector payload solc routes to catch(bytes): Solidus's strict "
+                   "Error-selector payload solc routes to catch(bytes): solidity-lean's strict "
                    "codec lacks solc's returndatasize()>=0x44 gate -> wrong branch + value",
                    "open", "round 9 (doc -8); OOS via X-EXTCALL in v1; live for v2"),
 ]

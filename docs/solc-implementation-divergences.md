@@ -1,16 +1,16 @@
-# Implementation-level solc-vs-Solidus divergence review
+# Implementation-level solc-vs-solidity-lean divergence review
 
 **Complementary pass to the test-driven audits.** Where
-`docs/solidus-solc-deep-comparison.md` walked solc's *test tree* category by
+`docs/solidity-lean-solc-deep-comparison.md` walked solc's *test tree* category by
 category, this review reads solc's **actual implementation code paths** — the Yul
 that `YulUtilFunctions.cpp`/`ABIFunctions.cpp` emit and the predicates in
 `Types.cpp` — helper family by helper family, and compares the **observable**
-(value / revert / accept-reject) against Solidus's corresponding Lean code. The
+(value / revert / accept-reject) against solidity-lean's corresponding Lean code. The
 aim is the harder complement: semantic rules the tests do not isolate.
 
 solc source read (v0.8.35, `/Users/dan/Projects/solidity-src`, commit
 `47b9dedd`, READ-ONLY — the exact source of this project's pinned binary).
-Solidus at `codex/solidity-semantics-only` HEAD.
+solidity-lean at `codex/solidity-semantics-only` HEAD.
 
 Read-only inventory: nothing was built or run; the corpus/replay were not
 exercised. Findings are **CONFIRMED** (both sides read definitively) or
@@ -42,12 +42,12 @@ tests):**
 - `ABIFunctions.cpp`: `abiDecodingFunctionArray`,
   `abiDecodingFunctionArrayAvailableLength`, `abiDecodingFunctionCalldataArray`,
   `abiDecodingFunctionByteArrayAvailableLength`, `packedHashFunction` entry.
-- Cross-checked against Solidus `Interpreter.lean` (arithmetic + cleanup +
+- Cross-checked against solidity-lean `Interpreter.lean` (arithmetic + cleanup +
   dispatch), `ABI.lean` (decoder), `Shared/Word.lean` (EVM word primitives).
 
 **Headline: NO NEW soundness divergences found in the families reviewed.** Every
 helper family read at the emitted-Yul level was found to compute the same
-observable value and raise the same revert/panic as Solidus's corresponding path.
+observable value and raise the same revert/panic as solidity-lean's corresponding path.
 The divergences that exist are exactly the ones the prior passes already recorded:
 
 - **Fixed/merged** (verified they read as fixed, not re-reported): S1 string-literal
@@ -57,7 +57,7 @@ The divergences that exist are exactly the ones the prior passes already recorde
 - **In-flight** (sibling worktrees, not re-reported as new): G1 user-defined
   operators run as builtins; G2–G16 acceptance boundaries; G17–G22 untested-but-modeled;
   W1 encodePacked narrow-int width, W2 narrow left-shift spurious panic, W3 signed-base
-  `**` — all in `docs/bc-soundness-audit.md` / `docs/solidus-solc-deep-comparison.md`.
+  `**` — all in `docs/bc-soundness-audit.md` / `docs/solidity-lean-solc-deep-comparison.md`.
 
 This is a **well-earned negative**: the review was specifically aimed at the
 subtle-rule hiding places the task calls out (cleanup timing, conversion
@@ -66,7 +66,7 @@ shift ≥ width, signed `INT_MIN/-1`, negation of `INT_MIN`, storage
 packing/extraction/clearing, array push/pop, ABI-decode validation & revert
 modes), and each was read to the bottom on both sides. Two low-severity
 **defense-in-depth** observations (N1, N2) are recorded — both **confirmed
-non-divergent** (Solidus reaches the same observable by a different mechanism),
+non-divergent** (solidity-lean reaches the same observable by a different mechanism),
 so neither is a finding; they are logged so a future reader need not re-derive
 them.
 
@@ -78,7 +78,7 @@ Legend: **FAITHFUL** = same observable, read on both sides.
 
 ### Arithmetic — checked & wrapping (FAITHFUL, CONFIRMED)
 
-| Rule (solc) | solc file:line | Solidus | Verdict |
+| Rule (solc) | solc file:line | solidity-lean | Verdict |
 |---|---|---|---|
 | Signed `div` overflow `INT_MIN / -1` → `Panic(0x11)`; div-by-0 → `0x12`; else `sdiv` | `YulUtilFunctions.cpp:850-878` | `checkedSignedDiv` `Interpreter.lean:5315-5322` (`isSignedMinWord`+`isSignedNegOneWord`→overflow; else `sdivWord`) | FAITHFUL |
 | `mod` by 0 → `0x12`; else `smod`/`mod` (sign of dividend) | `:901-920` | `checkedSignedMod` `:5324-5329` / `checkedMod` `:5247-5252` (EVM `smod`/`mod` via `Word.lean:105/…`) | FAITHFUL |
@@ -96,28 +96,28 @@ shared `overflowCheckedExpLoopFunction:1236`); for a narrow type
 so overflow is detected against the narrow bound; `wrappingIntExpFunction:1276`
 is `cleanup(exp(base,exponent))`.
 
-Solidus computes exp by **linear** iteration (`checkedExpLoop:5254` unsigned,
+solidity-lean computes exp by **linear** iteration (`checkedExpLoop:5254` unsigned,
 `checkedSignedExpLoop:5337` signed), checking each partial product against the
 **256-bit** range, and lets the importer-inserted `uint/intCleanup?` enforce the
 **narrow** bound at the end (`:625-672`).
 
-- **Value:** identical. `signedValue(w) ≡ w (mod 2^256)`, so Solidus's iterated
+- **Value:** identical. `signedValue(w) ≡ w (mod 2^256)`, so solidity-lean's iterated
   signed-product-then-`signedToWord` equals EVM `exp`'s modular exponentiation
   (unchecked), and equals the true integer power (checked).
 - **Panic:** identical observable. Magnitude is monotonic in the exponent, so the
   final result overflows the narrow type **iff** some intermediate does; solc may
-  raise `0x11` at an earlier squaring step while Solidus raises it at the closing
+  raise `0x11` at an earlier squaring step while solidity-lean raises it at the closing
   `uint/intCleanup?`, but both raise `0x11` on exactly the same inputs and neither
   raises it otherwise. Worked both ways for `uint8 255**2` (→`0x11` both),
   `int8 (-2)**7 == -128` (→OK both), `uint8 unchecked 255**2 == 1` (both).
-- `0**0 == 1`, `base==0 && exp>0 → 0`: solc `:1149-1150,1198-1200`; Solidus loop
+- `0**0 == 1`, `base==0 && exp>0 → 0`: solc `:1149-1150,1198-1200`; solidity-lean loop
   base cases `:5256,5339`. FAITHFUL.
 
 ### Shifts (FAITHFUL for value; W2 narrow-left-shift panic is IN-FLIGHT)
 
 `shiftLeft/RightFunctionDynamic` are EVM `shl`/`shr`; signed `>>` uses `sar`
 (`shiftRightSignedFunctionDynamic:525`); `typedShift*:552-599` clean amount then
-value. Solidus dispatches on the **value tag**: `Value.int` (signed) routes `>>`
+value. solidity-lean dispatches on the **value tag**: `Value.int` (signed) routes `>>`
 to `sarWord`, `Value.word` (unsigned) to `shrWord` (`applySignedWord:5397-5430`,
 `applyWord:5383-5385`), all delegating to EVM-reference primitives
 (`Word.lean:120-129`). Shift-by-≥-width returns 0 (logical) / sign-fill (arith) as
@@ -126,7 +126,7 @@ shift spurious panic), which is in-flight.
 
 ### Conversion matrix & cleanup (FAITHFUL, CONFIRMED)
 
-| Rule (solc) | solc file:line | Solidus | Verdict |
+| Rule (solc) | solc file:line | solidity-lean | Verdict |
 |---|---|---|---|
 | `intN→bytesM` (same width): `shiftLeft(256-M*8)` (left-align) | `conversionFunction:3557-3558` | left-aligned `bytesN` word; A3 signed-accept is the only edge (fixed) | FAITHFUL |
 | `bytesN→bytesM`: clean to `min(N,M)` (keep high bytes) | `:3646-3651` | prior CONFIRMED faithful (`Interface.lean` bytesN paths) | FAITHFUL |
@@ -140,7 +140,7 @@ shift spurious panic), which is in-flight.
 (`signextend(storageBytes-1, value)`) and left-aligns `leftAligned` types;
 `extractFromStorageValue:3137` shifts by `offset*8` then cleans;
 `updateStorageValueFunction:2939` converts → `prepareStore` (clean) → masked
-`updateByteSlice` write; `prepareStoreFunction:3188`. Solidus's byte-level
+`updateByteSlice` write; `prepareStoreFunction:3188`. solidity-lean's byte-level
 `packedScalar` read with sign-extend-on-read and masked packed write were
 CONFIRMED faithful by the prior review (`Interpreter.lean:1316-1376,3323`), and
 the write-side masking here matches. FAITHFUL.
@@ -152,7 +152,7 @@ the write-side masking here matches. FAITHFUL.
 `storageArrayPushFunction:1729` / `PushZeroFunction:1800` (`oldLen ≥ 2^64` →
 `Panic(0x41)`), `clearStorageRangeFunction:1850`. The `2^64` push guard is the
 `ResourceError` path the prior review noted is practically unreachable (needs 2^64
-elements). Solidus models push/pop with `0x31` on empty-pop and clears the freed
+elements). solidity-lean models push/pop with `0x31` on empty-pop and clears the freed
 slot (prior CONFIRMED). FAITHFUL.
 
 ### ABI array/bytes decode bounds & revert modes (FAITHFUL, CONFIRMED)
@@ -162,11 +162,11 @@ slot (prior CONFIRMED). FAITHFUL.
 inner-offset `>2^64`→revert), `abiDecodingFunctionCalldataArray:1226`
 (`length>2^64`→revert, `arrayPos+length*stride>end`→revert),
 `abiDecodingFunctionByteArrayAvailableLength:1275` (`src+length>end`→revert).
-Solidus's `decodeValueAtWithFuel?` (`ABI.lean:369-424`) reads each word/byte
+solidity-lean's `decodeValueAtWithFuel?` (`ABI.lean:369-424`) reads each word/byte
 through bounds-checked `readWord?`/`readBytes?`, so an out-of-range offset/length
 yields `none` → empty revert. Prior review CONFIRMED decode-bounds/OOB-offset/slice
 faithful. FAITHFUL (see N1 for the one predicate solc states explicitly that
-Solidus reaches structurally).
+solidity-lean reaches structurally).
 
 ---
 
@@ -178,20 +178,20 @@ Solidus reaches structurally).
   `if gt(length, 0xffffffffffffffff) { revert }` **before** the stride/bounds
   check, so a length word ≥ 2^64 empty-reverts even before `mul(length,stride)`
   could wrap mod 2^256.
-- **Solidus:** `ABI.lean:373-388` reads `length` and uses it directly as the
+- **solidity-lean:** `ABI.lean:373-388` reads `length` and uses it directly as the
   decode loop count with no `< 2^64` gate. It is nonetheless **non-divergent**:
   any `length ≥ 2^64` requires `length * 32` bytes of element data that no calldata
   can contain, so the first out-of-range `readWord?` returns `none` → empty revert,
   the same observable as solc. There is no `length` that both exceeds `2^64`
   *and* has all its element reads in bounds (that needs > 2^69 bytes of calldata),
-  so Solidus cannot succeed-with-a-wrong-value where solc reverts. Same threat
+  so solidity-lean cannot succeed-with-a-wrong-value where solc reverts. Same threat
   class as the (now-fixed) S5 — only reachable via adopted/hand-crafted calldata,
   and here fully masked. Recorded, not a finding.
 
 ### N2 — narrow checked-arithmetic panic is raised at the cleanup wrapper, not inside the op — CONFIRMED, non-divergent
 
 - **solc** bakes the narrow bound into each op (`checked_add_uint8` panics if
-  `sum > 0xff` inside the helper). **Solidus** performs the op at 256-bit
+  `sum > 0xff` inside the helper). **solidity-lean** performs the op at 256-bit
   (`checkedAdd`/`checkedSignedExpLoop` check only the 256-bit boundary) and relies
   on the importer-inserted `uint/intCleanup?` (`Interpreter.lean:625-672`, checked
   branch → `RevertData.overflow` = `0x11`) to enforce the narrow bound. Because the
@@ -243,10 +243,10 @@ prior reviews already own the finding:
 Reading solc's real code paths family by family — the checked/unchecked integer
 and exponentiation helpers, shifts, the conversion matrix, cleanup/validator,
 storage packing/extraction/clearing, storage-array mutators, and ABI-decode
-bounds — surfaced **no new soundness divergence**. Solidus computes the same
+bounds — surfaced **no new soundness divergence**. solidity-lean computes the same
 value and raises the same revert/panic on every rule read, with signed/unsigned
 correctly driven by the runtime value tag and word ops delegated to EVM-reference
-primitives. The two places where solc states a guard more explicitly than Solidus
+primitives. The two places where solc states a guard more explicitly than solidity-lean
 (N1 calldata length `< 2^64`, N2 narrow-op panic siting) were each confirmed to
 produce the identical observable by a structural/deferred mechanism. All genuine
 divergences remain the ones the prior passes already own: S1–S5 / A1–A4 / C1–C6

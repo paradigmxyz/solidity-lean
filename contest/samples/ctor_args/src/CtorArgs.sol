@@ -2,7 +2,7 @@
 pragma solidity 0.8.35;
 
 // Exercises constructor ARGUMENTS: both engines deploy with the same decoded
-// args (EVM appends them to creationCode; Solidus passes them to
+// args (EVM appends them to creationCode; solidity-lean passes them to
 // constructWithContext). No observed_slots declared — broad storage compares
 // slot0 automatically.
 contract CtorArgs {

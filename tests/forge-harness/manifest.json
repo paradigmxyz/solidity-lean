@@ -4219,7 +4219,7 @@
     },
     {
       "name": "abi-encodecall-selector",
-      "description": "EC1 pin: abi.encodeCall derives the 4-byte selector and the argument encode types from the callee's DECLARED parameter types, not the argument expression types. Forge + pinned solc are ground truth; imported Lean checks the Solidus interpreter agrees for an arg narrower than the parameter and an integer literal against a narrow parameter.",
+      "description": "EC1 pin: abi.encodeCall derives the 4-byte selector and the argument encode types from the callee's DECLARED parameter types, not the argument expression types. Forge + pinned solc are ground truth; imported Lean checks the solidity-lean interpreter agrees for an arg narrower than the parameter and an integer literal against a narrow parameter.",
       "forge": {
         "root": "tests/forge-harness/abi-encodecall-selector",
         "match_contract": "EncodeCallSelectorForgeTest",
@@ -5246,7 +5246,7 @@
     },
     {
       "name": "storage-uninit-fn-ptr",
-      "description": "G17 pin (docs/solidus-solc-deep-comparison.md): an internal function pointer held in a never-assigned STORAGE state variable (and one left unset on an untaken constructor branch) has the zero dispatch value; calling it panics 0x51. Storage-default counterpart of the already-laned local-uninitialized pointer call; ground truth from pinned-solc/EVM Forge (both revert with Panic(0x51)).",
+      "description": "G17 pin (docs/solidity-lean-solc-deep-comparison.md): an internal function pointer held in a never-assigned STORAGE state variable (and one left unset on an untaken constructor branch) has the zero dispatch value; calling it panics 0x51. Storage-default counterpart of the already-laned local-uninitialized pointer call; ground truth from pinned-solc/EVM Forge (both revert with Panic(0x51)).",
       "forge": {
         "match_contract": "StorageUninitFnPtrForgeTest",
         "match_test": "test*",
@@ -5284,7 +5284,7 @@
     },
     {
       "name": "mutability-relax-override",
-      "description": "G19 pin (docs/solidus-solc-deep-comparison.md): overrides that RELAX (narrow) state mutability \u2014 base view overridden pure, base nonpayable overridden view. Pinned solc accepts both (warnings only) and virtual dispatch reaches the override bodies; ground truth from Forge (runTag(5)=7, runBump(5)=25). Lean imports the same source and own-calls the derived entrypoints, pinning acceptance + value.",
+      "description": "G19 pin (docs/solidity-lean-solc-deep-comparison.md): overrides that RELAX (narrow) state mutability \u2014 base view overridden pure, base nonpayable overridden view. Pinned solc accepts both (warnings only) and virtual dispatch reaches the override bodies; ground truth from Forge (runTag(5)=7, runBump(5)=25). Lean imports the same source and own-calls the derived entrypoints, pinning acceptance + value.",
       "forge": {
         "match_contract": "MutabilityRelaxOverrideForgeTest",
         "match_test": "test*",
@@ -5322,7 +5322,7 @@
     },
     {
       "name": "using-for-wildcard",
-      "description": "G20 pin (docs/solidus-solc-deep-comparison.md): `using WildcardLib for *` binds the library's functions to ALL receiver types by first parameter; a member call through the wildcard dispatches to the matching library function. Ground truth from Forge: viaUint(21)=42, viaInt(-4)=-12, viaBytes(0xaabbcc,10)=13, viaBool(false)=true. Lean imports the same source and own-calls each entrypoint, pinning dispatch across uint/int/bytes/bool receivers.",
+      "description": "G20 pin (docs/solidity-lean-solc-deep-comparison.md): `using WildcardLib for *` binds the library's functions to ALL receiver types by first parameter; a member call through the wildcard dispatches to the matching library function. Ground truth from Forge: viaUint(21)=42, viaInt(-4)=-12, viaBytes(0xaabbcc,10)=13, viaBool(false)=true. Lean imports the same source and own-calls each entrypoint, pinning dispatch across uint/int/bytes/bool receivers.",
       "forge": {
         "match_contract": "UsingForWildcardForgeTest",
         "match_test": "test*",
@@ -5370,7 +5370,7 @@
     },
     {
       "name": "c99-scope-activation",
-      "description": "G21 pin (docs/solidus-solc-deep-comparison.md): C99 block-scope activation \u2014 a local is in scope only AFTER its declaration point, not hoisted to the top of its block. Each probe's value distinguishes C99 activation from whole-block hoisting: blockActivation()=1100 (inner `uint y = x` reads the OUTER x=1, not a hoisted inner x=0), selfInitFromOuter()=6 (inner `uint x = x + 1` initializer reads the OUTER x=5). Ground truth from Forge (warnings only).",
+      "description": "G21 pin (docs/solidity-lean-solc-deep-comparison.md): C99 block-scope activation \u2014 a local is in scope only AFTER its declaration point, not hoisted to the top of its block. Each probe's value distinguishes C99 activation from whole-block hoisting: blockActivation()=1100 (inner `uint y = x` reads the OUTER x=1, not a hoisted inner x=0), selfInitFromOuter()=6 (inner `uint x = x + 1` initializer reads the OUTER x=5). Ground truth from Forge (warnings only).",
       "forge": {
         "match_contract": "C99ScopeActivationForgeTest",
         "match_test": "test*",
@@ -5408,7 +5408,7 @@
     },
     {
       "name": "try-external-fn-return",
-      "description": "G18 pin (docs/solidus-solc-deep-comparison.md): a `try extCall() returns (function() external view returns (uint256) cb)` binding an EXTERNAL FUNCTION-typed return value; the bound pointer round-trips through the try binding and, when invoked, yields the callee's value (42). Ground truth from Forge (concrete Provider, real EVM ABI encode/decode of the 24-byte external fn pointer across the try boundary). Lean imports the same source and scripts a two-row responder (getCb() returns the ABI-encoded external fn pointer -> 0xbeef.value(); invoking it returns 42).",
+      "description": "G18 pin (docs/solidity-lean-solc-deep-comparison.md): a `try extCall() returns (function() external view returns (uint256) cb)` binding an EXTERNAL FUNCTION-typed return value; the bound pointer round-trips through the try binding and, when invoked, yields the callee's value (42). Ground truth from Forge (concrete Provider, real EVM ABI encode/decode of the 24-byte external fn pointer across the try boundary). Lean imports the same source and scripts a two-row responder (getCb() returns the ABI-encoded external fn pointer -> 0xbeef.value(); invoking it returns 42).",
       "forge": {
         "match_contract": "TryExternalFnReturnForgeTest",
         "match_test": "test*",
@@ -6456,7 +6456,7 @@
     },
     {
       "name": "nested-tuple-assignment",
-      "description": "Forge checks solc/EVM nested tuple assignment `((a, b), c) = ((x, y), z)` (and `(a, (b, c)) = \u2026`): the RHS tuple is evaluated once, left-to-right, and destructured against the nested target tree in lockstep, a swap `((a,b),c)=((b,c),a)` reads the RHS into temps first, and a nested hole `((a,),c)=\u2026` evaluates then discards its component. solc accepts these; Solidus formerly over-rejected them (flat tuple LHS). Lean imports the same contract from the solc AST and checks source nested-tuple assignment behavior (G13).",
+      "description": "Forge checks solc/EVM nested tuple assignment `((a, b), c) = ((x, y), z)` (and `(a, (b, c)) = \u2026`): the RHS tuple is evaluated once, left-to-right, and destructured against the nested target tree in lockstep, a swap `((a,b),c)=((b,c),a)` reads the RHS into temps first, and a nested hole `((a,),c)=\u2026` evaluates then discards its component. solc accepts these; solidity-lean formerly over-rejected them (flat tuple LHS). Lean imports the same contract from the solc AST and checks source nested-tuple assignment behavior (G13).",
       "forge": {
         "root": "tests/forge-harness/nested-tuple-assignment",
         "match_contract": "NestedTupleAssignmentForgeTest",
@@ -6504,7 +6504,7 @@
     },
     {
       "name": "storage-array-copy-convert",
-      "description": "Forge checks solc/EVM copy assignment into a DYNAMIC storage array with a wider-unsigned element source and/or a differing length (`uint16[] = uint8[]`, `uint256[] = uint8[]`, longer-source clear): the dest is resized to the source length, elements are widened per-element, and a longer old tail is zero-filled. solc accepts these; Solidus formerly over-rejected the whole array-copy family. Lean imports the same contract from the solc AST and checks the copied values (G14).",
+      "description": "Forge checks solc/EVM copy assignment into a DYNAMIC storage array with a wider-unsigned element source and/or a differing length (`uint16[] = uint8[]`, `uint256[] = uint8[]`, longer-source clear): the dest is resized to the source length, elements are widened per-element, and a longer old tail is zero-filled. solc accepts these; solidity-lean formerly over-rejected the whole array-copy family. Lean imports the same contract from the solc AST and checks the copied values (G14).",
       "forge": {
         "root": "tests/forge-harness/storage-array-copy-convert",
         "match_contract": "StorageArrayCopyConvertForgeTest",
@@ -6653,7 +6653,7 @@
     },
     {
       "name": "nested-tuple-internal-call",
-      "description": "Forge checks solc/EVM nested tuple assignment whose RHS contains INTERNAL function calls: a multi-return call filling a nested target `((a,b),c)=(foo(),bar())` (foo returns a 2-tuple), scalar calls in nested RHS positions `((a,b),c)=((g(),h()),k())`, and a hole whose component call still runs. The RHS is evaluated once left-to-right (side effects in that order) then destructured. solc accepts these; Solidus formerly over-rejected (nested elaboration could not hoist internal calls). Lean imports the same contract from the solc AST and runs the source semantics (R1).",
+      "description": "Forge checks solc/EVM nested tuple assignment whose RHS contains INTERNAL function calls: a multi-return call filling a nested target `((a,b),c)=(foo(),bar())` (foo returns a 2-tuple), scalar calls in nested RHS positions `((a,b),c)=((g(),h()),k())`, and a hole whose component call still runs. The RHS is evaluated once left-to-right (side effects in that order) then destructured. solc accepts these; solidity-lean formerly over-rejected (nested elaboration could not hoist internal calls). Lean imports the same contract from the solc AST and runs the source semantics (R1).",
       "forge": {
         "root": "tests/forge-harness/nested-tuple-internal-call",
         "match_contract": "NestedTupleInternalCallForgeTest",
@@ -6696,7 +6696,7 @@
     },
     {
       "name": "storage-array-copy-signed-fixed",
-      "description": "Forge checks solc/EVM storage-array copy for the shapes G14 deferred: SIGNED element widening (int8[] -> int16[], sign-extend each element, never overflows) and FIXED-length destinations (T[N] = S[M], N >= M) including signed, with the M..N tail padded 0. solc accepts these (ArrayType::isImplicitlyConvertibleTo); Solidus formerly over-rejected (canImplicitlyConvert had no array arm, and the fixed-dest write could not pad). Lean imports the same contract from the solc AST and runs the source semantics (R2).",
+      "description": "Forge checks solc/EVM storage-array copy for the shapes G14 deferred: SIGNED element widening (int8[] -> int16[], sign-extend each element, never overflows) and FIXED-length destinations (T[N] = S[M], N >= M) including signed, with the M..N tail padded 0. solc accepts these (ArrayType::isImplicitlyConvertibleTo); solidity-lean formerly over-rejected (canImplicitlyConvert had no array arm, and the fixed-dest write could not pad). Lean imports the same contract from the solc AST and runs the source semantics (R2).",
       "forge": {
         "root": "tests/forge-harness/storage-array-copy-signed-fixed",
         "match_contract": "StorageArrayCopySignedFixedForgeTest",
@@ -6739,7 +6739,7 @@
     },
     {
       "name": "narrow-arith-widened",
-      "description": "Forge checks solc/EVM narrow-integer arithmetic assigned/returned at a WIDER type: solc computes the op at the operands' common type, so a narrow overflow Panics 0x11 even though the result is widened. uint8+uint8 / uint8*uint8 / int8+int8 returned as uint16/int16 panic on operand-width overflow; a non-overflowing add widens; an explicitly-256-bit-widened add (uint256(a)+uint256(b)) does NOT panic. Solidus formerly cleaned only at the wider target width and silently produced the fitting wide value (the G15-noted narrow-arithmetic-widened gap). Lean imports the same contract from the solc AST.",
+      "description": "Forge checks solc/EVM narrow-integer arithmetic assigned/returned at a WIDER type: solc computes the op at the operands' common type, so a narrow overflow Panics 0x11 even though the result is widened. uint8+uint8 / uint8*uint8 / int8+int8 returned as uint16/int16 panic on operand-width overflow; a non-overflowing add widens; an explicitly-256-bit-widened add (uint256(a)+uint256(b)) does NOT panic. solidity-lean formerly cleaned only at the wider target width and silently produced the fitting wide value (the G15-noted narrow-arithmetic-widened gap). Lean imports the same contract from the solc AST.",
       "forge": {
         "root": "tests/forge-harness/narrow-arith-widened",
         "match_contract": "NarrowArithWidenedForgeTest",
@@ -6797,7 +6797,7 @@
     },
     {
       "name": "cf2-revert-pruning",
-      "description": "CF2 (2026-07-08, docs/DECISIONS.md): solc's ControlFlowRevertPruner prunes the edge after a call to an always-reverting callee, so the storage-pointer-return definite-assignment check (error 3464) runs on the pruned CFG. Solidus now computes an always-reverts fixpoint and treats a call to such a callee as terminating, ACCEPTING pick(bool) returns (uint256[] storage p) whose only obligation-unmet path runs through the always-reverting helper alwaysReverts(); importedContractAccepted confirms the fix on the Lean typechecker. Forge (real EVM, pinned-solc compiled) is the value ground truth: the non-reverting path returns xs = [11,22,33] via pickLength/pickAt. (The Lean source Core interpreter does not lower an internal function that returns a storage pointer, a pre-existing limitation orthogonal to CF2, so the value is checked by Forge only.) Pinned solc 0.8.35 REJECTS the sound neighbors \u2014 a genuinely-unassigned path, a sometimes-reverting helper, a require(false) helper (require is not an always-revert terminator), and an external this.boom() callee \u2014 and the Lean witnesses confirm Solidus rejects them too.",
+      "description": "CF2 (2026-07-08, docs/DECISIONS.md): solc's ControlFlowRevertPruner prunes the edge after a call to an always-reverting callee, so the storage-pointer-return definite-assignment check (error 3464) runs on the pruned CFG. solidity-lean now computes an always-reverts fixpoint and treats a call to such a callee as terminating, ACCEPTING pick(bool) returns (uint256[] storage p) whose only obligation-unmet path runs through the always-reverting helper alwaysReverts(); importedContractAccepted confirms the fix on the Lean typechecker. Forge (real EVM, pinned-solc compiled) is the value ground truth: the non-reverting path returns xs = [11,22,33] via pickLength/pickAt. (The Lean source Core interpreter does not lower an internal function that returns a storage pointer, a pre-existing limitation orthogonal to CF2, so the value is checked by Forge only.) Pinned solc 0.8.35 REJECTS the sound neighbors \u2014 a genuinely-unassigned path, a sometimes-reverting helper, a require(false) helper (require is not an always-revert terminator), and an external this.boom() callee \u2014 and the Lean witnesses confirm solidity-lean rejects them too.",
       "forge": {
         "root": "tests/forge-harness/cf2-revert-pruning",
         "match_contract": "CF2RevertPruningForgeTest",

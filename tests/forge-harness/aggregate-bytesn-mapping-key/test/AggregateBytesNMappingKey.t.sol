@@ -22,7 +22,7 @@ contract AggregateBytesNMappingKeyForgeTest {
         bytes32 leftSlot = keccak256(abi.encode(bytes32(bytes4(0xaabbccdd)), uint256(0)));
         require(uint256(vm.load(address(target), leftSlot)) == 111, "b4 left slot");
 
-        // The right-aligned preimage (the pre-fix Solidus slot) must read zero.
+        // The right-aligned preimage (the pre-fix solidity-lean slot) must read zero.
         bytes32 rightSlot = keccak256(abi.encode(uint256(0xaabbccdd), uint256(0)));
         require(uint256(vm.load(address(target), rightSlot)) == 0, "b4 right slot empty");
 

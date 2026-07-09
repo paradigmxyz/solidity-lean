@@ -2,8 +2,8 @@
 """Reject gate - whole-submission AST scan (design §2).
 
 Runs AFTER solc has produced the analyzed AST for ALL submitted sources and
-BEFORE Solidus import. It consumes the same solc JSON AST the importer consumes
-(pinned solc 0.8.35), so it sees exactly what Solidus would see.
+BEFORE solidity-lean import. It consumes the same solc JSON AST the importer consumes
+(pinned solc 0.8.35), so it sees exactly what solidity-lean would see.
 
 It scans EVERY ContractDefinition in EVERY SourceUnit of the submission - entry
 contract, every callee, every library, every base - not just the named entry
@@ -456,8 +456,8 @@ def detect_env_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit
     The canonical env (block.number/timestamp/chainid/basefee/coinbase/
     prevrandao/gaslimit, msg.sender, tx.origin, address(this)) IS pinned on both
     engines (see contest/env.py) and therefore compared, not excluded. What
-    stays OUT_OF_SCOPE is an observable derived from an env fact Solidus cannot
-    mirror: ``blockhash(n)`` / ``blobhash(i)`` (Solidus has no historical block
+    stays OUT_OF_SCOPE is an observable derived from an env fact solidity-lean cannot
+    mirror: ``blockhash(n)`` / ``blobhash(i)`` (solidity-lean has no historical block
     or blob hashes unless the harness pins them), which would otherwise become a
     spurious SOUNDNESS_GAP. Conservative taint: the builtin appears in a function
     that also has an observed position."""
@@ -590,7 +590,7 @@ _SEMANTIC_DETECTORS: dict[str, Callable[[reg.ExclusionEntry, SourceAst], list[Hi
 #     legitimate reason to touch the cheatcode address).
 #   * In `test/`: a cheat reference is allowed ONLY inside a `vm`/`hevm` handle
 #     DECLARATION's initializer; the handle may then be used for whitelisted,
-#     literal-argument, env-pinning cheatcodes (mirrored into the Solidus env).
+#     literal-argument, env-pinning cheatcodes (mirrored into the solidity-lean env).
 #     Every other cheat reference, every non-whitelisted member call on a
 #     handle, and every raw `.call/.staticcall/.delegatecall` whose receiver
 #     reaches a handle/the cheat address, is banned.
@@ -777,7 +777,7 @@ def scan_cheatcodes(asts: list[SourceAst], is_test: bool) -> CheatcodeScan:
                     "CHEAT-UNMIRROR", src.source,
                     enclosing_contract_name(src.ast, node), node_src(node),
                     f".{name} with non-literal args cannot be mirrored into "
-                    "the Solidus env"))
+                    "the solidity-lean env"))
                 continue
             v = _literal_int(args[0]) if args else None
             if v is None:
@@ -785,7 +785,7 @@ def scan_cheatcodes(asts: list[SourceAst], is_test: bool) -> CheatcodeScan:
                     "CHEAT-UNMIRROR", src.source,
                     enclosing_contract_name(src.ast, node), node_src(node),
                     f".{name} with a non-literal argument cannot be mirrored "
-                    "into the Solidus env (v1 requires a literal)"))
+                    "into the solidity-lean env (v1 requires a literal)"))
                 continue
             if field == "_sender":
                 scan.overrides.sender = v
@@ -844,7 +844,7 @@ def multi_source_asts(report_files: list[Path], all_files: list[Path],
 
 def get_source_asts(sources: list[Path], solc: str = DEFAULT_SOLC) -> list[SourceAst]:
     """Get the analyzed solc AST for each source (reuses the importer's
-    ``run_solc_ast``, so it is byte-for-byte what Solidus would import)."""
+    ``run_solc_ast``, so it is byte-for-byte what solidity-lean would import)."""
     out: list[SourceAst] = []
     for path in sources:
         name, ast = _IMPORTER.run_solc_ast(solc, path)

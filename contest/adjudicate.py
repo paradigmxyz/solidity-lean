@@ -18,10 +18,10 @@ Decision tree (halt at first terminal verdict):
   1. REAL-BEHAVIOR CHECK       -> INVALID if the Forge test does not PASS
      1a. OVER_ACCEPT sub-case  -> solc must REJECT (skip Forge)
   2. REJECT GATE (§2)          -> REJECTED_OOS on any exclusion hit
-  3. RUN SOLIDUS + CLASSIFY:
+  3. RUN SOLIDITY-LEAN + CLASSIFY:
      (a) fail-closed, solc ran -> COVERAGE_GAP (lane C)  [missing-feature/over-reject]
-     (b) OVER_ACCEPT + Solidus runs solc-rejected prog -> SOUNDNESS_GAP (lane S)
-     (c) Solidus runs, observable EQUAL   -> NO_DIVERGENCE
+     (b) OVER_ACCEPT + solidity-lean runs solc-rejected prog -> SOUNDNESS_GAP (lane S)
+     (c) solidity-lean runs, observable EQUAL   -> NO_DIVERGENCE
                           observable DIFFERS -> SOUNDNESS_GAP (lane S)
   + DEDUP (§6): terminal gaps get a root-cause fingerprint; a match against the
     known-open-gaps list => DUPLICATE annotation.
@@ -145,10 +145,10 @@ def load_submission(root: Path) -> tuple[Optional[Submission], Optional[Report]]
 # Fingerprint of a terminal verdict (§6.2)
 # ---------------------------------------------------------------------------
 
-def coverage_fingerprint(solidus: hb.SolidusResult) -> tuple:
+def coverage_fingerprint(solidity_lean: hb.SolidityLeanResult) -> tuple:
     """lane C: (fail_stage, fail_reason_class, minimal_node_type_or_field)."""
-    stage = solidus.stage  # import | lean | run
-    msg = solidus.message
+    stage = solidity_lean.stage  # import | lean | run
+    msg = solidity_lean.message
     if stage == "import":
         # classify the importer fail() reason (design §2)
         if "unimplemented" in msg:
@@ -223,7 +223,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                skip_forge: bool = False,
                at_version: Optional[str] = None,
                _selftest_perturb_evm: Optional[Any] = None,
-               _selftest_perturb_solidus: Optional[Any] = None) -> Report:
+               _selftest_perturb_solidity_lean: Optional[Any] = None) -> Report:
     """Adjudicate a submission (design §4).
 
     ``at_version`` is the exclusion-register version in force at the submission's
@@ -234,11 +234,11 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     the version — otherwise an adversary could claim an old version to dodge a
     newer exclusion (e.g. X-EXTCALL).
 
-    ``_selftest_perturb_evm`` / ``_selftest_perturb_solidus`` are TEST-ONLY seams
+    ``_selftest_perturb_evm`` / ``_selftest_perturb_solidity_lean`` are TEST-ONLY seams
     (contest/run_samples.py): callables applied to the measured EVM observable /
-    the real Solidus result to INJECT a synthetic divergence, so the
+    the real solidity-lean result to INJECT a synthetic divergence, so the
     divergence-DETECTION paths (SOUNDNESS_GAP / COVERAGE_GAP) can be exercised
-    end-to-end over a real pipeline run WITHOUT leaving a bug in Solidus. Both
+    end-to-end over a real pipeline run WITHOUT leaving a bug in solidity-lean. Both
     MUST be None in real adjudication."""
     tools = tools or hb.ToolPaths()
     submission, malformed = load_submission(root)
@@ -275,7 +275,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         return Report("REJECT_MALFORMED", reason=args_err or "bad args",
                       evidence=evidence)
     # Constructor args (optional): deployed to BOTH engines (measure.py appends
-    # them to creationCode; Solidus passes them to constructWithContext). Same
+    # them to creationCode; solidity-lean passes them to constructWithContext). Same
     # untrusted arg forms as entry args, so validate them identically.
     ctor_args = entry.get("constructor_args", []) or []
     ctor_args_lean, ctor_err = _safe_render_args(ctor_args)
@@ -324,7 +324,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     if test_scan.unmirrorable:
         return Report("REJECTED_OOS", reason=(
             "test uses a whitelisted cheatcode with a non-literal argument that "
-            "cannot be mirrored into the Solidus env (v1 requires literals)"),
+            "cannot be mirrored into the solidity-lean env (v1 requires literals)"),
             evidence=evidence)
     # merge the mirrored overrides, preserving the entry value.
     test_scan.overrides.value = env_ov.value
@@ -372,7 +372,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             return Report("INVALID", reason=(
                 f"could not measure the EVM observable from the Forge run "
                 f"({mstatus})"), evidence=evidence)
-        # Mirror the deployed entry address into the Solidus env so
+        # Mirror the deployed entry address into the solidity-lean env so
         # address(this) agrees by construction (review E-1).
         env_ov.self_addr = measured.self_addr
     else:
@@ -402,7 +402,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     evidence["minimality"] = minim.minimality_report(
         submission.sources, entry["contract"], entry["function"], tools.solc)
 
-    # -- Step 3: RUN SOLIDUS -------------------------------------------------
+    # -- Step 3: RUN SOLIDITY-LEAN -------------------------------------------------
     # (v1 single-contract: the responder-free ownCall path.)
     src = _source_of_contract(submission.sources, entry["contract"], tools.solc)
     if src is None:
@@ -410,46 +410,46 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             f"entry contract {entry['contract']!r} not found in submitted sources"),
             evidence=evidence)
     namespace = f"{NAMESPACE_PREFIX}.{_sanitize(root.name)}"
-    solidus = hb.run_solidus_observable(
+    solidity_lean = hb.run_solidity_lean_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
-        work / "solidus", namespace, fuel=fuel,
+        work / "solidity_lean", namespace, fuel=fuel,
         tools=tools, timeout=timeout, env=env_ov, slots=slots,
         constructor_args=ctor_args)
-    if _selftest_perturb_solidus is not None:  # coverage bug-injection self-test
-        solidus = _selftest_perturb_solidus(solidus)
-        evidence["selftest_solidus_perturbed"] = True
+    if _selftest_perturb_solidity_lean is not None:  # coverage bug-injection self-test
+        solidity_lean = _selftest_perturb_solidity_lean(solidity_lean)
+        evidence["selftest_solidity_lean_perturbed"] = True
     evidence["env"] = env_ov.to_dict()
-    evidence["solidus"] = {
-        "ok": solidus.ok, "stage": solidus.stage,
-        "fail_closed": solidus.fail_closed, "message": solidus.message[:1000],
-        "observable": solidus.observable.raw if solidus.observable else None,
+    evidence["solidity_lean"] = {
+        "ok": solidity_lean.ok, "stage": solidity_lean.stage,
+        "fail_closed": solidity_lean.fail_closed, "message": solidity_lean.message[:1000],
+        "observable": solidity_lean.observable.raw if solidity_lean.observable else None,
     }
 
-    # (3b) OVER_ACCEPT: Solidus ran a program solc rejected -> lane S.
+    # (3b) OVER_ACCEPT: solidity-lean ran a program solc rejected -> lane S.
     if over_accept:
-        if solidus.ok:
+        if solidity_lean.ok:
             report = Report("SOUNDNESS_GAP", lane="S", reason=(
-                "Solidus imports+typechecks+runs a program that pinned solc "
+                "solidity-lean imports+typechecks+runs a program that pinned solc "
                 "REJECTS (over-accept)"), evidence=evidence)
             key = ("over_accept", claim.get("feature", "over-accept"), "over-accept")
             _annotate_dedup(report, "S", key, claim.get("feature", "over-accept"))
             return report
-        # Solidus also rejected: agrees with solc -> not a gap.
+        # solidity-lean also rejected: agrees with solc -> not a gap.
         return Report("NO_DIVERGENCE", reason=(
-            "both pinned solc and Solidus reject the program (agree)"),
+            "both pinned solc and solidity-lean reject the program (agree)"),
             evidence=evidence)
 
-    # (3a) Solidus FAILS CLOSED while solc accepted+ran -> lane C coverage gap.
-    if solidus.fail_closed:
+    # (3a) solidity-lean FAILS CLOSED while solc accepted+ran -> lane C coverage gap.
+    if solidity_lean.fail_closed:
         # An INCONCLUSIVE failure (timeout / resource exhaustion / harness crash,
         # incl. a poisoned fuel) is NOT evidence of a missing feature (review
         # finding 3). Never auto-qualify it; route to maintainer review.
-        if solidus.inconclusive:
+        if solidity_lean.inconclusive:
             return Report("NEEDS_REVIEW", reason=(
-                "Solidus run failed inconclusively (timeout / resource "
-                f"exhaustion), not a clean reject: {solidus.message[:300]}"),
+                "solidity-lean run failed inconclusively (timeout / resource "
+                f"exhaustion), not a clean reject: {solidity_lean.message[:300]}"),
                 evidence=evidence)
-        finger = coverage_fingerprint(solidus)
+        finger = coverage_fingerprint(solidity_lean)
         if finger[1] == "excluded":
             return Report("REJECTED_OOS", reason=(
                 "importer reports an EXCLUDED node the gate did not catch "
@@ -463,13 +463,13 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                     else "missing_feature")
         evidence["coverage_reason_class"] = reason_class
         report = Report("COVERAGE_GAP", lane="C", reason=(
-            f"Solidus fails closed ({solidus.stage}: {sub_kind}, "
+            f"solidity-lean fails closed ({solidity_lean.stage}: {sub_kind}, "
             f"{reason_class}) on an in-scope, solc-accepted program"),
             evidence=evidence)
         _annotate_dedup(report, "C", finger, finger[2])
         return report
 
-    # (3c) Solidus ran to completion -> compare against the MEASURED EVM
+    # (3c) solidity-lean ran to completion -> compare against the MEASURED EVM
     # observable (review P0 #1: the oracle is the Forge run, NOT the claim).
     if measured is None:
         return Report("REJECT_MALFORMED", reason=(
@@ -494,19 +494,19 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "declared": declared_norm, "measured": evm_obs.raw,
             "note": "submitter's declared_observable disagrees with the measured "
                     "EVM observable; adjudication uses the MEASURED value."}
-    assert solidus.observable is not None
-    comparison = obs.compare_observables(solidus.observable, evm_obs)
+    assert solidity_lean.observable is not None
+    comparison = obs.compare_observables(solidity_lean.observable, evm_obs)
     evidence["comparison"] = comparison.to_dict()
 
     if comparison.equal:
         return Report("NO_DIVERGENCE", reason=(
-            "Solidus observable equals the solc+EVM observable (agree)"),
+            "solidity-lean observable equals the solc+EVM observable (agree)"),
             evidence=evidence)
 
     feature = claim.get("feature", "unspecified-feature")
     report = Report("SOUNDNESS_GAP", lane="S", reason=(
-        f"Solidus runs but the observable DIFFERS "
-        f"({comparison.differing_component}): solidus={solidus.observable.raw} "
+        f"solidity-lean runs but the observable DIFFERS "
+        f"({comparison.differing_component}): solidity_lean={solidity_lean.observable.raw} "
         f"vs solc+EVM={evm_obs.raw}"), evidence=evidence)
     key = soundness_fingerprint(comparison, feature)
     _annotate_dedup(report, "S", key, feature)

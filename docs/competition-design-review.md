@@ -34,11 +34,11 @@ manual maintainer sign-off gate on every qualifying verdict, a **restricted** la
    from the Forge run** (`adjudicate.py:312-319`, `observable.py:36-41`). The Forge
    test only has to *PASS*; nothing ties the passing test to
    `claim.declared_observable.normal_form`, which is what the comparator actually
-   diffs against Solidus. An adversary writes a trivially-passing test
+   diffs against solidity-lean. An adversary writes a trivially-passing test
    (`assertTrue(true)`) and declares any `normal_form` they like → guaranteed
    mismatch → fake `SOUNDNESS_GAP`. **The oracle is entrant-controlled.** CONFIRMED.
 
-2. **The environment is not pinned across the two engines.** Solidus runs the entry
+2. **The environment is not pinned across the two engines.** solidity-lean runs the entry
    call from `State.empty` under a zero-valued block/tx env (`Block.lean:110-119`:
    `chainid/number/timestamp/... := 0`; `observable.py:122` passes
    `State.empty` and no `Context`), while Foundry-EVM uses its own non-zero defaults
@@ -52,7 +52,7 @@ manual maintainer sign-off gate on every qualifying verdict, a **restricted** la
 3. **Foundry cheatcodes in the submitter's test are unrestricted and invisible to the
    gate.** `vm.store`, `vm.prank`, `vm.warp`, `vm.roll`, `vm.deal`, `vm.mockCall`,
    `vm.expectRevert`, `ffi` let the test manufacture the EVM-side state/outcome that
-   Solidus (run from `State.empty`, no cheatcodes) can never reproduce. The gate scans
+   solidity-lean (run from `State.empty`, no cheatcodes) can never reproduce. The gate scans
    *submission `src/`* ASTs, not the test file, and has no cheatcode detector
    (CONFIRMED). Combined with #1 this is a second, independent way to fabricate a
    divergence. CONFIRMED.
@@ -67,12 +67,12 @@ current automated verdict cannot be trusted to qualify.
   harness) and *ignore* `declared_observable` for adjudication (keep it only as a
   misreport cross-check). Until then, do not auto-pay any lane-S verdict. (Fix #1)
 - [ ] **P0 — Pin one canonical environment on both sides** and thread it into the
-  Solidus `#eval` (an explicit `Context`/`BlockEnv` = Foundry's defaults), and require
+  solidity-lean `#eval` (an explicit `Context`/`BlockEnv` = Foundry's defaults), and require
   the Forge test to run under those same pinned values. Reject (or fail-closed) any
   entry call that reads an unpinned env fact. (Fix #2)
 - [ ] **P0 — Restrict cheatcodes.** Whitelist only environment-pinning cheatcodes
   (`vm.warp/roll/fee/chainId/prevrandao/deal`) whose effect is *also* applied to the
-  Solidus context; ban state/oracle-forging cheatcodes (`vm.store`, `vm.mockCall`,
+  solidity-lean context; ban state/oracle-forging cheatcodes (`vm.store`, `vm.mockCall`,
   `vm.prank` beyond the pinned sender, `ffi`, `vm.etch`). Add a test-file AST detector.
   (Fix #3)
 - [ ] **P1 — Add an env-observable exclusion/normalizer** to the register (block/tx
@@ -109,7 +109,7 @@ function test_divergence() public { assertTrue(true); }   // PASSES trivially
 
 `claim.json`: `declared_observable.normal_form = "success|w:999"`, entry
 `Snd.run()` which really returns `w:5`. Adjudicator: step 1 Forge PASS (the test
-asserted nothing about `run`); step 2 gate PASS (no excluded feature); step 3 Solidus
+asserted nothing about `run`); step 2 gate PASS (no excluded feature); step 3 solidity-lean
 runs, `observeCall` returns `success|w:5`; comparator diffs `w:5` vs the *declared*
 `w:999` → `SOUNDNESS_GAP (wrong-value)`, `pays_out=True`.
 
@@ -124,31 +124,31 @@ observable from a trace. CONFIRMED.
 *measures* the EVM side — the omission is the bug).
 **Fix.** Measure the EVM observable from the Forge execution: a fixed test-harness
 entrypoint that performs the declared entry call and emits the outcome/return/revert
-via `vm.record`/log capture, parsed by the adjudicator. Diff *that* against Solidus.
+via `vm.record`/log capture, parsed by the adjudicator. Diff *that* against solidity-lean.
 Keep `declared_observable` only to flag misreports. Do not pay lane S until this lands.
 
 #### O-2 — Codegen/optimizer quirks are attributed to "the language" (HIGH, plan gap)
 **Mechanism:** oracle. The adjudicator's EVM side is *compiled bytecode under
-Foundry-EVM*, but the contest's intent is Solidus vs solc's **language semantics**.
+Foundry-EVM*, but the contest's intent is solidity-lean vs solc's **language semantics**.
 Where solc codegen/optimizer behavior is observable but is not "the language" — e.g.
 dirty-high-bits handling of `bytesN`/`uintN` at ABI boundaries, `keccak` of memory a
 sub-call left non-zeroed, ordering of side effects the spec leaves unspecified — an
 EVM-observed value can differ from a defensible source-semantics reading and be scored
-as a Solidus *soundness* bug. **Severity:** HIGH (unfair rejections *and* dubious
+as a solidity-lean *soundness* bug. **Severity:** HIGH (unfair rejections *and* dubious
 leaderboard credit). **Plan or v1?** Plan. **Fix.** Publish an "oracle caveats" annex: enumerate
 behaviors where solc-EVM is authoritative vs where the source spec is; route disputes
 to maintainer review; keep the optimizer **off** (`--optimize` disabled) in the pinned
 Foundry profile to shrink the codegen-quirk surface, and pin that in `foundry.toml`.
 
-#### O-3 — Solidus-side observable is shape-spoofable via entry selection (MEDIUM, v1)
+#### O-3 — solidity-lean-side observable is shape-spoofable via entry selection (MEDIUM, v1)
 **Mechanism:** observable. `observeCall` calls `CheckedInput.ownCall … (CallTarget.name
 fname)` (`observable.py:101`), resolving by *name* against the imported contract with
 `args` rendered from `claim.json` (`observable.py:131-159`, only word/int/bytes forms).
 A submitter can point `entry.function` at a *different* overload/name than the Forge
 test exercised, or pass args the renderer coerces differently than the ABI encoding the
 test used, so the two engines are not evaluating the same call. Nothing cross-checks
-that the Solidus entry call equals the Forge entry call. **Severity:** MEDIUM (enables
-mis-classification; amplifies O-1). **Fix.** Derive the Solidus entry call from the
+that the solidity-lean entry call equals the Forge entry call. **Severity:** MEDIUM (enables
+mis-classification; amplifies O-1). **Fix.** Derive the solidity-lean entry call from the
 *same* calldata the Forge test sends (selector + ABI-encoded args), not from a
 re-rendered `claim.json` arg list.
 
@@ -160,12 +160,12 @@ re-rendered `claim.json` arg list.
 **Mechanism:** oracle/observable. CONFIRMED: `Block.lean:110-119` and `:158-160` give
 `BlockEnv.empty`/`TxEnv.empty` all-zero (`chainid=number=timestamp=coinbase=basefee=
 prevrandao=gasprice=origin=0`); the contest `#eval` runs `ownCall` with no `Context`
-override (`observable.py:115-124`), so Solidus sees the zero env, while Foundry uses
+override (`observable.py:115-124`), so solidity-lean sees the zero env, while Foundry uses
 chainid 31337, `block.number`/`timestamp` ≥ 1, a fixed sender and computed
 `address(this)`.
 
 **Scenario (fake soundness).** `function entry() external view returns (uint) { return
-block.number; }`. Real solc+EVM (Foundry): returns `1`. Solidus: returns `0`. Comparator
+block.number; }`. Real solc+EVM (Foundry): returns `1`. solidity-lean: returns `0`. Comparator
 (if O-1 were fixed and the value were measured): `wrong-value` → `SOUNDNESS_GAP`. It is a
 **pinning artifact**, not a semantic gap. Same for `block.chainid` (31337 vs 0),
 `block.timestamp`, `msg.sender`, `tx.origin`, `address(this)`.
@@ -176,17 +176,17 @@ for the env reason, drowning the real signal.
 
 **Severity:** CONTEST-BREAKING. §6.3 *asks* submitters to pin env via
 `vm.warp`/`vm.roll` and declare it, but (a) nothing **enforces** it — there is no env
-detector — and (b) even a pinned Forge env is **not propagated to the Solidus side**,
+detector — and (b) even a pinned Forge env is **not propagated to the solidity-lean side**,
 which still runs the zero env. **Plan or v1?** Plan (the harness has no env-threading
 seam; §3.4 explicitly excludes only gas, not env identity). **Fix.** Define ONE
-canonical env, construct a matching `Context`/`BlockEnv` for the Solidus `#eval`
+canonical env, construct a matching `Context`/`BlockEnv` for the solidity-lean `#eval`
 (there is a `…WithContext` entry family — `Checked.lean:1316` — to thread it through),
 set the identical values in the Forge profile, and add a register entry: an entry-call
 observable that depends on any *unpinned* env fact is OOS.
 
 #### E-2 — Create-address / nonce parity (MEDIUM→HIGH for v2, plan gap)
 **Mechanism:** observable. §8 already flags this: non-salted `CREATE` address =
-`keccak(rlp(sender,nonce))[12:]`; if Solidus's allocator and Foundry's nonce model
+`keccak(rlp(sender,nonce))[12:]`; if solidity-lean's allocator and Foundry's nonce model
 disagree, any address-valued observable diverges for a non-gap reason. In v1 (single
 contract, no `new`) the exposure is small; it becomes real the moment v2 enables
 `new C()`. **Fix.** Pin the deployer/nonce model to Foundry's and unit-test address
@@ -204,7 +204,7 @@ function that also has an assert/return/emit" (`reject_gate.py:299-360`). It key
 - **Out-of-gas as pure control flow with no named quantity.** A callee that reverts
   *only* because it ran out of gas (deep recursion, unbounded loop, a `.call` given a
   tiny gas budget) produces a revert-vs-success divergence with **no `gasleft`
-  identifier** anywhere — the detector never fires. Solidus does not meter gas, so it
+  identifier** anywhere — the detector never fires. solidity-lean does not meter gas, so it
   will *succeed* where EVM OOG-reverts. With O-1/E-1 fixed this is still a clean fake
   `revert-vs-success`. The design even *admits* (§8, open questions) that call
   failure is gas-driven and excluding gas makes some outcomes unpredictable — but no
@@ -273,13 +273,13 @@ observables to SEM-CLOSEDGAS.
 `claim.solc_reject_contains` (`adjudicate.py:230`). Risks: (a) solc **warnings** contain
 other text but the program *compiles* — if a submitter sets `contains` to a token that
 appears in a warning while exit code is 0, an accepted-with-warning program could be
-mis-read as "solc rejects" and, if Solidus runs it, scored as an over-accept soundness
+mis-read as "solc rejects" and, if solidity-lean runs it, scored as an over-accept soundness
 gap; (b) version drift — an error message string in 0.8.35 may differ across patch
 builds. **Severity:** MEDIUM (fake over-accept). **Fix.** Require non-zero solc exit
 **and** match on a structured solc **error code** (e.g. `TypeError 5887`), not free
 text; ignore warnings entirely.
 
-#### L-2 — "Solidus runs partially then fails" boundary (LOW–MEDIUM, v1)
+#### L-2 — "solidity-lean runs partially then fails" boundary (LOW–MEDIUM, v1)
 **Mechanism:** lane logic. §0/§4 treat "runs to completion" vs "fails closed" as crisp,
 but a call that *elaborates and begins executing* then hits an unimplemented construct
 mid-run surfaces as a `lean exit != 0` with no marker → classified
@@ -349,7 +349,7 @@ add a CI check that each syntactic detector still matches importer behavior.
 precompile edge outputs (e.g. `ecrecover` malformed-input returning zero,
 `modexp`/`identity` sizing), same-tx `selfdestruct` visibility, and function-type ABI
 encoding (address+selector) are all exclusion-adjacent (they touch code/address/gas
-facts Solidus models coarsely) but have **no register entry and no detector**. Each is a
+facts solidity-lean models coarsely) but have **no register entry and no detector**. Each is a
 candidate fake-divergence once O-1/E-1 are fixed. **Severity:** INFERRED / medium.
 **Fix.** Enumerate these in the register (as OOS or as pinned-and-compared) before
 launch; the register is currently silent on all of them.
@@ -364,7 +364,7 @@ launch; the register is currently silent on all of them.
 - **Reusing the importer's `EXCLUDED_NODE_TYPES`** for X-ASM/X-IMPORT genuinely prevents
   drift *for those two* and is the right pattern (just over-claimed for the rest).
   CONFIRMED.
-- **Forge-must-PASS before Solidus is consulted** (§4 step 1) correctly rejects
+- **Forge-must-PASS before solidity-lean is consulted** (§4 step 1) correctly rejects
   fabricated *reproductions* — it just does not, by itself, bind the *measured
   observable* (O-1). CONFIRMED.
 - **Conservative-taint bias toward OOS** is the right default direction; the problem is
