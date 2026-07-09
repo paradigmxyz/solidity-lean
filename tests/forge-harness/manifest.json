@@ -7004,6 +7004,39 @@
       }
     },
     {
+      "name": "using-for-enum",
+      "description": "EU1 pin: `using {f} for E` where E is an ENUM dispatches a member call `e.f(args)` to the bound free/library function with the enum value passed by value as the first argument (solc lowers `c.rank()` to `rank(c)`). Forge ground truth: viaRank(2)=3, viaShift(1,5)=6, viaLib(2)=20 across a file-level `using {rank} for Color global;`, a contract-level brace `using {shift} for Color;`, and an attached-library `using ColorLib for Color;`. Lean imports the same source and own-calls each entrypoint, pinning enum-receiver member dispatch.",
+      "forge": {
+        "root": "tests/forge-harness/using-for-enum",
+        "match_contract": "UsingForEnumForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/using-for-enum/src/UsingForEnum.sol",
+        "contract": "UsingForEnumHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.UsingForEnum"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.UsingForEnum.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedEnumUsingMemberDispatch",
+            "expr": "(do\n  let src := SolidCore.Solidity.SolcAstImport.UsingForEnum.importedSourceUnit\n  let st := SolidCore.Solidity.Source.State.empty\n  let w := SolidCore.Solidity.Source.Value.word\n  let chk : Nat → String → List SolidCore.Solidity.Source.Value → Nat → Except SolidCore.Solidity.TypeCheck.TypeError Bool :=\n    fun fuel fn args expected => do\n      let r ← SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel src \"UsingForEnumHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name fn) st args\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v expected)\n      | _ => Except.ok false\n  let a ← chk 128 \"viaRank\" [w 2] 3\n  let b ← chk 128 \"viaShift\" [w 1, w 5] 6\n  let c ← chk 128 \"viaLib\" [w 2] 20\n  Except.ok (a && b && c))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "calldata-slice-oob",
       "description": "Forge checks that an out-of-range calldata slice a[i:j] (i>j or j>a.length) reverts with EMPTY returndata (revert(0,0)) via a low-level call, that an in-bounds slice returns the correct sub-array, and that a regular calldata byte INDEX access a[k] out of range still reverts with the 36-byte Panic(0x32); Lean imports the same contract and checks the interpreter reverts empty on the OOB slice, returns the value in-bounds, and panics 0x32 on the OOB index. Pins V1 (round-6): the slice-range OOB revert data.",
       "forge": {

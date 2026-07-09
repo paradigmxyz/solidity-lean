@@ -9926,6 +9926,7 @@ def Ty.matchesShape : Ty -> Ty -> Bool
       (lhs == rhs) || (lhs == 0 && rhs == 256) || (lhs == 256 && rhs == 0)
   | Ty.bytesN lhs, Ty.bytesN rhs => lhs == rhs
   | Ty.fixedBytes lhs, Ty.fixedBytes rhs => lhs == rhs
+  | Ty.enum lhs, Ty.enum rhs => lhs == rhs
   | Ty.bytes, Ty.bytes => true
   | Ty.string, Ty.string => true
   | Ty.array lhsTy lhsSize?, Ty.array rhsTy rhsSize? =>
