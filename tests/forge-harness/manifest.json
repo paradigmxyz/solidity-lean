@@ -7200,6 +7200,39 @@
           }
         ]
       }
+    },
+    {
+      "name": "aggregate-contract-member",
+      "description": "Forge checks solc/EVM that a contract-typed state var packs into a slot's high 20 bytes, a struct with a contract-typed field spans its true slot count, and mapping(ContractType=>V) hashes the key as keccak(pad32(addr).slot); Lean imports the same source and checks the abstract storage words at those slots.",
+      "forge": {
+        "root": "tests/forge-harness/aggregate-contract-member",
+        "match_contract": "AggregateContractMemberForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/aggregate-contract-member/src/AggregateContractMember.sol",
+        "contract": "AggregateContractMemberHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AggregateContractMember"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AggregateContractMember.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedContractTypedMemberLayout",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.AggregateContractMember.importedSourceUnit \"AggregateContractMemberHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"setAll\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state _ =>\n      Except.ok\n        (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 0xaa00000000000000000000abcd &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 1) 0x77 &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 2) 0xBB &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 3) 0x1234 &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 4) 0x9999 &&\n          SolidCore.Solidity.Source.wordEq (state.loadSlot 0x18fe2baba04b04b843cd138489dc125d2854aec75ebb8a449c914ba035cd57fe) 0x555)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

@@ -2186,6 +2186,12 @@ def Ty.toCoreStorageWord? : Ty -> Option CoreTy
       some SolidCore.Solidity.Source.Ty.externalFunction
   | Ty.functionWithLocations _ _ _ _ _ _ =>
       some SolidCore.Solidity.Source.Ty.internalFunction
+  -- AGG2: a contract/interface type is a 20-byte address value in storage
+  -- (`ContractType::storageBytes() = 20`, Types.h:978; packed like an address by
+  -- `StorageOffsets::computeOffsets`). By storage-lowering time every UDVT / enum
+  -- / struct `Ty.user` has been resolved away, so a surviving `Ty.user` is a
+  -- contract path; lower it to `address` (matches the ABI lowering at :2099).
+  | Ty.user _ => some SolidCore.Solidity.Source.Ty.address
   | _ => none
 
 def Ty.storagePackedBytes? : Ty -> Option Nat
@@ -2218,6 +2224,9 @@ def Ty.storagePackedBytes? : Ty -> Option Nat
   -- Internal fn pointers are an 8-byte storage type (solc via-IR;
   -- docs/refs-completion-solc-research.md §2).
   | Ty.functionWithLocations _ _ _ _ _ _ => some 8
+  -- AGG2: contract/interface type = 20-byte address, packs like an address
+  -- (`ContractType::storageBytes() = 20`, Types.h:978). See `toCoreStorageWord?`.
+  | Ty.user _ => some 20
   | _ => none
 
 def Ty.storagePackedSigned : Ty -> Bool
