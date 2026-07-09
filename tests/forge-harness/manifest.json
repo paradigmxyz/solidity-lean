@@ -1336,7 +1336,7 @@
     },
     {
       "name": "extcall-binary",
-      "description": "CLUSTER-B #7 (extcall-binary) over-rejects: an EXTERNAL/member single-return call nested inside a BINARY operand (`require(t.balanceOf(a) >= amt)`, `uint y = t.n() + 1`, `x = t.n() + 1`, `while (i < t.limit())`, `if (t.ok() && cond)`, `if (cond || t.ok())`, `return t.n() + g`) had no expression lowering — the recursive binary/condition hoister recognised only INTERNAL ident calls, so solidity-lean over-rejected whole functions solc accepts. The fix widens the same seam: when exactly one operand is a single external member call and the other is pure, the call is lowered via the existing tryExternalCall machinery in its source position (solc legacy left-to-right), bound to a temp, and the operand replaced by the temp; `&&`/`||` with the call on the right materialise the short-circuit as an ifElse on the pure-lhs temp. Uses external `this.`-self-calls (STATICCALLs), so importedContractAccepted pins acceptance (lowering) and the Forge test exercises real solc/EVM execution.",
+      "description": "CLUSTER-B #7 (extcall-binary) over-rejects: an EXTERNAL/member single-return call nested inside a BINARY operand (`require(t.balanceOf(a) >= amt)`, `uint y = t.n() + 1`, `x = t.n() + 1`, `while (i < t.limit())`, `if (t.ok() && cond)`, `if (cond || t.ok())`, `return t.n() + g`) had no expression lowering \u2014 the recursive binary/condition hoister recognised only INTERNAL ident calls, so solidity-lean over-rejected whole functions solc accepts. The fix widens the same seam: when exactly one operand is a single external member call and the other is pure, the call is lowered via the existing tryExternalCall machinery in its source position (solc legacy left-to-right), bound to a temp, and the operand replaced by the temp; `&&`/`||` with the call on the right materialise the short-circuit as an ifElse on the pure-lhs temp. Uses external `this.`-self-calls (STATICCALLs), so importedContractAccepted pins acceptance (lowering) and the Forge test exercises real solc/EVM execution.",
       "forge": {
         "root": "tests/forge-harness/extcall-binary",
         "match_contract": "ExtcallBinaryForgeTest",
@@ -9333,6 +9333,43 @@
             "label": "mulmodZeroBoundaryHolds",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.mulmodZeroBoundaryHolds",
             "expect": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "encpacked-literal",
+      "description": "Forge, pinned solc, and imported Lean pin the packed-encoding literal boundary: abi.encodePacked accepts an explicit conversion (uint8(1)), bool/string/hex-string/enum literals, an address literal, and typed variables (each carries a definite packed width), but solc rejects a bare number/rational literal argument (Error: \"Cannot perform packed encoding for a literal\"). SolidCore now rejects it too, at the frontend, inspecting the argument expression's literal-ness rather than only its Ty.",
+      "forge": {
+        "root": "tests/forge-harness/encpacked-literal",
+        "match_contract": "EncPackedLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/encpacked-literal/invalid/EncPackedNumberLiteral.sol",
+        "tests/forge-harness/encpacked-literal/invalid/EncPackedMixedLiteral.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/encpacked-literal/src/EncPackedLiteral.sol",
+        "contract": "EncPackedLiteral",
+        "namespace": "SolidCore.Solidity.SolcAstImport.EncPackedLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.EncPackedLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedPackLiteralsOnlySemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.EncPackedLiteral.importedSourceUnit\n  let target := \"EncPackedLiteral\"\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 source target (SolidCore.Solidity.Source.CallTarget.name \"packLiteralsOnly\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes actual] => Except.ok (actual == [0x01, 0x01, 0x61, 0x62, 0xcd])\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
           }
         ]
       }

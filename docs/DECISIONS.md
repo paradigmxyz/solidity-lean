@@ -5,6 +5,61 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — ENCPACKED-LIT (#78): bare number/rational literal argument to `abi.encodePacked` now rejected (over-accept fix)
+
+Over-accept. solc rejects a bare number/rational literal as a *packed*-encoding
+argument — "Cannot perform packed encoding for a literal. Please convert it to
+an explicit type first." — because a number literal has no definite packed byte
+width. SolidCore typed a number literal as `uint256`, which passed
+`Ty.isAbiEncodePackedArgShape` (the `Ty.uint _` case) with no is-literal guard,
+and lowering packed it as a 32-byte word; there was no analog of solc's literal
+guard.
+
+Fixed in `CheckedExpr.expectAbiEncodePackedEncodable` (`TypeCheck.lean` ~:4413)
+by adding, before the existing `Ty`-shape gate, a guard that rejects when the
+argument's *source expression* is an untyped number-literal expression AND its
+folded type is numeric:
+`exprIsUntypedNumberLiteralExpression expr.source && expr.ty.isNumeric`, raising
+`TypeError.invalidAbiCall` with solc's exact message. This mirrors the
+`exprIsStringLiteral` precedent (inspect the argument expression, not only its
+`Ty`) and reuses the existing `exprIsUntypedNumberLiteralExpression` helper
+(`~:1344`) that the array-fit / `requiresExactLiteralFit` machinery already uses
+to distinguish a bare literal from a typed value.
+
+Boundary implemented (each confirmed against pinned solc 0.8.35 `--bin`):
+- `abi.encodePacked(1)` → REJECT; `abi.encodePacked(1+1)` → REJECT (pure
+  arithmetic literal, `binary` arm); `abi.encodePacked(-1)` → REJECT (`neg`
+  arm); `abi.encodePacked(uint8(1), 2)` → REJECT (the bare `2`).
+- `abi.encodePacked(uint8(1))` → ACCEPT (explicit conversion: source is a call,
+  not an untyped-literal expression); a typed variable → ACCEPT;
+  `true` / `"abc"` / `unicode"…"` / `hex"1234"` → ACCEPT (non-numeric `Ty`, so
+  the `isNumeric` conjunct is false); an address literal → ACCEPT (dedicated
+  `Literal.address`, typed `address`, non-numeric); an enum value → ACCEPT.
+- `abi.encode(1)` (non-packed) → ACCEPT, unchanged — the guard is only in the
+  packed path.
+
+The `expr.ty.isNumeric` conjunct is belt-and-braces (address is a distinct
+literal constructor and bool/string are non-numeric anyway) but keeps the guard
+precisely "a numeric bare literal," matching the `requiresExactLiteralFit`
+precedent.
+
+`bytes.concat` / `string.concat` need NO analog: solc rejects a number literal
+there for a *different* reason (type mismatch — "bytes or fixed bytes type is
+required, but int_const 1 provided" / "string type is required"), and SolidCore
+already rejects it via the `checkBytesConcatArgs` / `checkStringConcatArgs`
+type-shape gates (a `uint256`-typed literal fails `isBytesConcatArg` /
+`isStringConcatArg`). Verified against solc: `bytes.concat(hex"11", 1)` and
+`string.concat("a", 1)` both rejected with the type-mismatch (not packed-literal)
+diagnostic; `bytes.concat(bytes1(0x01))` accepted.
+
+New sanctioned lane `encpacked-literal`: accepted src exercises `uint8(1)`,
+`true`, `"ab"`, `hex"cd"`, typed variables, an address, and an enum value in
+`abi.encodePacked`; `invalid/` files `abi.encodePacked(1)` and
+`abi.encodePacked(uint8(1), 2)` are pinned via `solc_rejects`. Note observed in
+passing (out of scope, pre-existing): the interpreter packs an enum value as a
+32-byte word rather than solc's underlying-type width, so the enum is exercised
+only in the accept-only function, not the byte-level semantic witness.
+
 ## 2026-07-09 — EXTCALL-BINARY (Cluster B #7): external/member single-return call nested in a BINARY operand now hoisted (over-reject fix)
 
 Over-reject. The Executable core represents user calls as STATEMENTS

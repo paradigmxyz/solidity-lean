@@ -4413,6 +4413,18 @@ end
 def CheckedExpr.expectAbiEncodePackedEncodable (types : TypeContext)
     (expr : CheckedExpr) :
     Except TypeError Unit := do
+  -- solc rejects a bare number/rational literal in *packed* encoding:
+  -- "Cannot perform packed encoding for a literal. Please convert it to an
+  -- explicit type first." A number literal (`1`, `1+1`, `-1`) has no packed
+  -- byte width, so it must be given an explicit type (`uint8(1)`), a typed
+  -- variable, etc. Note this is packed-specific: `abi.encode(1)` (non-packed)
+  -- is fine, and bool/string/hex/address/enum literals are also accepted
+  -- because they carry a definite packed width. The `Ty`-only shape gate below
+  -- cannot see this — a number literal is typed `uint256` — so inspect the
+  -- source expression, mirroring the `exprIsStringLiteral` precedent.
+  require (!(exprIsUntypedNumberLiteralExpression expr.source && expr.ty.isNumeric))
+    (TypeError.invalidAbiCall
+      "Cannot perform packed encoding for a literal. Please convert it to an explicit type first.")
   expr.expectAbiEncodable types
   require (Ty.isAbiEncodePackedArgShape types 64 expr.ty)
     (TypeError.invalidAbiType expr.ty)
