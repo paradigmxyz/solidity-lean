@@ -5680,6 +5680,12 @@ def BinaryOp.apply
               (boolWord
                 (wordEq lhsAddr rhsAddr &&
                   wordEq lhsSelector rhsSelector)))
+      | Value.internalFunction lhsId, Value.internalFunction rhsId =>
+          -- Internal function pointers are dispatch IDs; two pointers are
+          -- equal iff they refer to the same function (same dispatch identity).
+          -- solc 0.8.35 legacy (optimizer=false) compiles `fp == g` to an
+          -- id/code-pointer comparison returning a bool.
+          Except.ok (Value.word (boolWord (wordEq lhsId rhsId)))
       | _, _ => Except.error RevertData.typeMismatch
   | BinaryOp.ne =>
       match lhs, rhs with
@@ -5694,6 +5700,8 @@ def BinaryOp.apply
               (boolWord
                 (!(wordEq lhsAddr rhsAddr &&
                   wordEq lhsSelector rhsSelector))))
+      | Value.internalFunction lhsId, Value.internalFunction rhsId =>
+          Except.ok (Value.word (boolWord (!(wordEq lhsId rhsId))))
       | _, _ => Except.error RevertData.typeMismatch
   | _ =>
       match lhs, rhs with
