@@ -264,7 +264,10 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
       * a high-level call ``recv.f(...)`` where ``recv`` is a contract/interface
         instance (its ``typeString`` starts with ``contract `` — this includes
         ``this.f()`` and ``I(a).f()``, both external);
-      * a ``new C(...)`` creation (``NewExpression``);
+      * a ``new C(...)`` CONTRACT creation (a ``NewExpression`` whose ``typeName``
+        is a ``UserDefinedTypeName``); memory allocations ``new T[](n)`` /
+        ``new bytes(n)`` / ``new string(n)`` (array/elementary typeName) are NOT
+        external and do NOT match;
       * a ``try`` statement (always wraps an external call).
     Internal calls (``Identifier`` callee), library ``using-for`` calls (base
     typeString is the value type, not ``contract ``), and builtins like
@@ -281,7 +284,12 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
         if nt == "MemberAccess" and node.get("memberName") in _LOWLEVEL_CALL_MEMBERS:
             add(node, f"low-level .{node.get('memberName')}")
         elif nt == "NewExpression":
-            add(node, "new-creation")
+            # Only `new <Contract>()` is an external creation. `new T[](n)`
+            # (ArrayTypeName) and `new bytes/string(n)` (ElementaryTypeName) are
+            # in-memory allocations with no call, and must not be excluded.
+            tn = node.get("typeName") or {}
+            if tn.get("nodeType") == "UserDefinedTypeName":
+                add(node, "new-contract-creation")
         elif nt == "TryStatement":
             add(node, "try/external-call")
         elif nt == "FunctionCall":
@@ -328,8 +336,12 @@ _ASSERT_CALLEES = {
 
 
 def _find_functions(ast: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    # Include ModifierDefinition, not just FunctionDefinition (audit finding): a
+    # modifier body runs as part of the entry call, so an excluded quantity hidden
+    # in a modifier must be visible to the taint detectors. Constructors are
+    # FunctionDefinition (kind="constructor"), so they are already covered.
     for node in iter_nodes(ast):
-        if node.get("nodeType") == "FunctionDefinition":
+        if node.get("nodeType") in ("FunctionDefinition", "ModifierDefinition"):
             yield node
 
 
@@ -412,8 +424,35 @@ def detect_gas_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit
     })
 
 
+def _presence_scan(entry: reg.ExclusionEntry, src: SourceAst,
+                   spec: dict[str, Any]) -> list[Hit]:
+    """PRESENCE-based syntactic detector (audit finding): flag the excluded
+    quantity ANYWHERE in the whole submission AST, with NO observed-position /
+    same-function requirement.
+
+    The taint form of this scan (feature + observed position in the SAME
+    function) missed a modifier body, a constructor that stashes the quantity to
+    storage for a later return, and any cross-function def-use. For an excluded
+    quantity that Solidus cannot mirror (blockhash/blobhash) or does not model
+    (real bytecode: code/codehash/creationCode/runtimeCode), mere presence is the
+    safe over-approximation: erring toward OOS costs an entrant a resubmission,
+    whereas a miss lets an INTENDED exclusion be banked as a fake gap (§1.2, §8)."""
+    pred = _tainted_predicate(spec)
+    hits: list[Hit] = []
+    for n in iter_nodes(src.ast):
+        if pred(n):
+            hits.append(Hit(entry.id, src.source,
+                            enclosing_contract_name(src.ast, n),
+                            node_src(n),
+                            f"{entry.reason} [{spec['label']} present "
+                            f"(presence-based; whole submission)]"))
+    return hits
+
+
 def detect_creationcode_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
-    return _semantic_taint_scan(entry, src, {
+    # Presence-based: real compiled bytecode is unmodeled by Solidus, so its mere
+    # appearance is out of scope regardless of where it flows (audit finding).
+    return _presence_scan(entry, src, {
         "label": "compiled-bytecode quantity (creationCode/runtimeCode/code/codehash)",
         "identifiers": set(),
         "members": {"creationCode", "runtimeCode", "code", "codehash"},
@@ -459,9 +498,11 @@ def detect_env_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit
     stays OUT_OF_SCOPE is an observable derived from an env fact solidity-lean cannot
     mirror: ``blockhash(n)`` / ``blobhash(i)`` (solidity-lean has no historical block
     or blob hashes unless the harness pins them), which would otherwise become a
-    spurious SOUNDNESS_GAP. Conservative taint: the builtin appears in a function
-    that also has an observed position."""
-    return _semantic_taint_scan(entry, src, {
+    spurious SOUNDNESS_GAP. Presence-based (audit finding): blockhash/blobhash
+    anywhere in the submission is out of scope — a taint scan missed them inside a
+    modifier body or when a constructor stashed the value to storage for a later
+    return."""
+    return _presence_scan(entry, src, {
         "label": "unpinnable env fact (blockhash/blobhash)",
         "identifiers": {"blockhash", "blobhash"},
         "members": {"blockhash", "blobhash"},
@@ -627,19 +668,72 @@ def _literal_int(node: Any) -> Optional[int]:
         args = node.get("arguments") or []
         if len(args) == 1:
             return _literal_int(args[0])
+    # Constant-fold integer arithmetic over literal operands (audit finding):
+    # otherwise the cheat address could be written as an obfuscated expression
+    # (e.g. `uint160(uint256(0x7109...12C) + 1)`) whose LITERALS never equal the
+    # address, slipping `_is_cheat_ref`. Fold only when BOTH operands fold to
+    # ints (a runtime operand yields None -> no fold, the undecidable case).
+    if nt == "UnaryOperation":
+        sub = _literal_int(node.get("subExpression"))
+        if sub is None:
+            return None
+        op = node.get("operator")
+        if op == "-":
+            return -sub
+        if op == "~":
+            return ~sub
+        return sub if op == "+" else None
+    if nt == "BinaryOperation":
+        a = _literal_int(node.get("leftExpression"))
+        b = _literal_int(node.get("rightExpression"))
+        if a is None or b is None:
+            return None
+        op = node.get("operator")
+        try:
+            if op == "+":
+                return a + b
+            if op == "-":
+                return a - b
+            if op == "*":
+                return a * b
+            if op == "/":
+                return a // b if b else None
+            if op == "%":
+                return a % b if b else None
+            if op == "<<":
+                return a << b if 0 <= b < 512 else None
+            if op == ">>":
+                return a >> b if b >= 0 else None
+            if op == "|":
+                return a | b
+            if op == "&":
+                return a & b
+            if op == "^":
+                return a ^ b
+        except (ValueError, OverflowError):
+            return None
     return None
 
 
 def _is_cheat_ref(node: Any) -> bool:
-    """True if ``node`` is a literal that names the cheatcode address — either
-    the numeric address itself, or the ``"hevm cheat code"`` keccak seed used to
-    derive it."""
-    if not isinstance(node, dict) or node.get("nodeType") != "Literal":
+    """True if ``node`` names the cheatcode address — the numeric address itself,
+    the ``"hevm cheat code"`` keccak seed used to derive it, or (audit finding) a
+    CONSTANT arithmetic expression that folds to the address (an obfuscation such
+    as ``uint160(uint256(0x7109...12C) + 1)`` whose literals never equal it)."""
+    if not isinstance(node, dict):
         return False
-    if node.get("kind") == "string" and node.get("value") == CHEAT_CODE_STRING:
-        return True
-    iv = _literal_int(node)
-    return iv is not None and iv == CHEAT_ADDR
+    nt = node.get("nodeType")
+    if nt == "Literal":
+        if node.get("kind") == "string" and node.get("value") == CHEAT_CODE_STRING:
+            return True
+        iv = _literal_int(node)
+        return iv is not None and iv == CHEAT_ADDR
+    # Non-literal: only a constant expression that folds to the exact address is a
+    # cheat reference (a runtime-derived operand folds to None -> not matched).
+    if nt in ("FunctionCall", "BinaryOperation", "UnaryOperation"):
+        iv = _literal_int(node)
+        return iv is not None and iv == CHEAT_ADDR
+    return False
 
 
 def _subtree_cheat_refs(node: Any) -> list[dict[str, Any]]:

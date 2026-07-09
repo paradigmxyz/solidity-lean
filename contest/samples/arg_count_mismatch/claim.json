@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "AC", "function": "two", "args": [5], "value": 0 },
+  "expected_divergence": "Fabricated gap: entry.args has 1 arg for a 2-param function. Must be REJECT_MALFORMED (signature mismatch), NOT a qualifying COVERAGE_GAP from Solidus failing closed on the malformed call.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:11" },
+  "feature": "arg-count-mismatch",
+  "register_version_seen": "1.2.0"
+}

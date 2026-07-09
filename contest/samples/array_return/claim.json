@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ArrRet", "function": "vals", "args": [], "value": 0 },
+  "expected_divergence": "Array return type -> outside the faithfully-comparable ABI subset -> REJECTED_OOS (X-RETABI).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|[w:7,w:8,w:9]" },
+  "feature": "array-return-oos",
+  "register_version_seen": "1.2.0"
+}

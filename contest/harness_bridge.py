@@ -32,7 +32,13 @@ from . import env as cenv
 from . import observable as obs
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+# The repo root used for the Lean/lake build, the importer, and the harness
+# scripts. Normally the checkout this package lives in. When the contest code is
+# run from a git WORKTREE (whose sibling `../evm-interaction` and `.lake` build
+# are absent), set CONTEST_REPO_ROOT to a fully-built checkout so lean/forge
+# resolve there while the Python package still loads from the worktree.
+_REPO_ROOT = Path(
+    os.environ.get("CONTEST_REPO_ROOT") or Path(__file__).resolve().parents[1])
 DEFAULT_SOLC = "/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35"
 DEFAULT_FORGE = "/Users/dan/.foundry/bin/forge"
 DEFAULT_LAKE = shutil.which("lake") or "lake"
@@ -208,6 +214,92 @@ def _read_log(path: Path) -> str:
         return ""
 
 
+# Substrings in Lean's stderr that mark a NON-program failure: the run is
+# inconclusive, not evidence of a missing solidity-lean feature. Two families:
+#  * RESOURCE exhaustion — a slow-but-correct run, an attacker resource bomb, or
+#    a poisoned `fuel`.
+#  * BUILD / TOOLCHAIN / ENVIRONMENT — the generated file imports ONLY the fixed
+#    SolidCore.* modules, so a package/import/toolchain resolution failure is an
+#    environment problem (stale build, wrong cwd, missing sibling dependency),
+#    never Lean rejecting the imported PROGRAM. Misclassifying either as a clean
+#    fail-closed would mint a bogus qualifying COVERAGE_GAP from a flaky build
+#    (found via a worktree run where `../evm-interaction` was absent).
+_INCONCLUSIVE_LEAN_SIGNATURES: tuple[str, ...] = (
+    # resource
+    "deep recursion", "maximum recursion", "out of memory",
+    "deterministic timeout", "(interrupted)", "stack overflow",
+    "excessive memory",
+    # build / toolchain / environment
+    "package directory not found", "unknown package",
+    "no such file or directory", "failed to load",
+    "could not resolve import", "unknown module",
+    "error: build failed", "lake:", "toolchain",
+    "unknown constant 'solidcore", "unknown identifier 'solidcore",
+    "unknown namespace 'solidcore",
+)
+
+
+def lean_failure_inconclusive(stderr: str) -> bool:
+    """True iff a non-zero Lean exit should be treated as INCONCLUSIVE (routed to
+    human review) rather than auto-qualified as a coverage gap.
+
+    DEFAULT-INCONCLUSIVE (audit finding, CONTEST-BREAKING). The old design was an
+    allow-list of "noise" signatures that returned inconclusive ONLY on a match,
+    defaulting everything else to a qualifying COVERAGE_GAP — i.e. it FAILED OPEN:
+    an OOM-killer SIGKILL (status 137, empty stderr), "no space left on device",
+    a Lean PANIC / libc++abi abort, a segfault, or an `elan` toolchain error all
+    produced NO listed signature and were minted as fake gaps.
+
+    A non-zero Lean exit here happens ONLY AFTER a SUCCESSFUL import (an importer
+    reject returns earlier with stage="import"), and the observable helper catches
+    program-level `Except.error`s and PRINTS them as a `solidity-lean-reject`
+    (exit 0 WITH the marker, handled separately). So a non-zero exit with no marker is a
+    failure of the Lean toolchain / our generated harness / a resource limit —
+    NOT Lean cleanly rejecting the submitted program. We therefore default to
+    inconclusive. The signature list is retained only as documentation of the
+    common noise shapes; the classification no longer depends on matching it."""
+    return True
+
+
+def _unescape_lean_repr(s: str) -> str:
+    """Reverse Lean's `Repr String` / `String.quote` escaping of the #eval output.
+
+    Handles the escapes Lean emits: ``\\\\`` ``\\"`` ``\\'`` ``\\n`` ``\\t`` ``\\r``
+    and ``\\u{HHHH}``. A backslash is processed once (so ``\\\\n`` -> a literal
+    backslash then ``n``, never a newline). An unrecognized escape keeps the
+    following character verbatim (drops the backslash)."""
+    if "\\" not in s:
+        return s
+    out: list[str] = []
+    i, n = 0, len(s)
+    simple = {"\\": "\\", '"': '"', "'": "'", "n": "\n", "t": "\t", "r": "\r"}
+    while i < n:
+        c = s[i]
+        if c != "\\" or i + 1 >= n:
+            out.append(c)
+            i += 1
+            continue
+        nxt = s[i + 1]
+        if nxt == "u" and i + 2 < n and s[i + 2] == "{":
+            close = s.find("}", i + 3)
+            if close != -1:
+                try:
+                    out.append(chr(int(s[i + 3:close], 16)))
+                    i = close + 1
+                    continue
+                except ValueError:
+                    pass
+            out.append(nxt)
+            i += 2
+        elif nxt in simple:
+            out.append(simple[nxt])
+            i += 2
+        else:
+            out.append(nxt)
+            i += 2
+    return "".join(out)
+
+
 def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: list,
                            case_tmp: Path, namespace: str,
                            fuel: int = 64,
@@ -289,20 +381,21 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
         # We only treat it as fail-closed here; the adjudicator decides coverage
         # vs. needs-review from the reason class + stderr signals below.
         stderr = _read_log(stderr_log)
-        low = stderr.lower()
-        inconclusive = any(sig in low for sig in (
-            "deep recursion", "maximum recursion", "out of memory",
-            "deterministic timeout", "(interrupted)", "stack overflow",
-            "excessive memory"))
         return SolidityLeanResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
             message=f"lean exit {status}: {stderr.strip()[:2000]}",
-            inconclusive=inconclusive, generated_source_path=gen_path)
+            inconclusive=lean_failure_inconclusive(stderr),
+            generated_source_path=gen_path)
 
     if not marker_lines:
+        # Exit 0 but the #eval printed no observable marker: the helper never ran
+        # to a rendered result (truncated output / OOM before print / a harness
+        # bug), NOT a clean program reject (those print `solidity-lean-reject`).
+        # Treat as INCONCLUSIVE, never a coverage gap (audit finding: this fell
+        # through to fail_closed with inconclusive=False and was minted as a fake gap).
         return SolidityLeanResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
-            message="no observable produced by #eval",
+            message="no observable produced by #eval", inconclusive=True,
             generated_source_path=gen_path)
 
     # #eval prints the string quoted, e.g.  "CONTEST_OBS success|w:0"
@@ -311,6 +404,14 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
     payload = raw.split(marker, 1)[1].strip()
     if payload.endswith('"'):
         payload = payload[:-1]
+    # Reverse Lean's `Repr String` escaping (audit finding): the only
+    # submitter-controlled free text in the observable is a revert `Error(string)`
+    # / custom-error string, and Lean prints it escaped (`a"b` -> `a\"b`, newlines
+    # -> `\n`). The EVM side decodes the SAME message byte-accurately, so without
+    # un-escaping a revert string containing `"`, `\`, or a control char produced a
+    # spurious `wrong-revert` SOUNDNESS_GAP. The rest of the observable is
+    # numeric/hex/structural and contains no backslashes, so this is a no-op there.
+    payload = _unescape_lean_repr(payload)
     payload = payload.strip()
     observed = obs.parse_observable(payload)
 

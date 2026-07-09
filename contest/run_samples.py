@@ -208,6 +208,96 @@ def observable_unit_tests() -> tuple[bool, str]:
     return ok, detail
 
 
+def inconclusive_classification_unit_tests() -> tuple[bool, str]:
+    """A non-zero Lean exit (after a SUCCESSFUL import) is DEFAULT-INCONCLUSIVE:
+    routed to human review, never auto-minted as a COVERAGE_GAP (audit finding —
+    the old allow-list FAILED OPEN on OOM-kills / empty stderr / unlisted crashes).
+
+    A genuine program-level reject does NOT surface as a non-zero Lean exit: an
+    unsupported NODE is caught at the IMPORT stage (stage="import"), and a
+    typecheck/runtime reject is PRINTED as `solidity-lean-reject` (exit 0, handled by
+    the observable parser). So there is no "clean lean-exit reject" case — every
+    non-zero lean exit here is toolchain/resource/harness noise -> inconclusive.
+    The genuine coverage-gap path is exercised by the coverage-detector REAL run."""
+    checks = []
+    # Previously-listed noise: still inconclusive.
+    noise = [
+        "error: evm-interaction: package directory not found: /x/../evm-interaction",
+        "error: no such file or directory (os error 2)",
+        "lake: unknown package 'SolidCore'",
+        "unknown constant 'SolidCore.Solidity.Checked'",
+        "(deep recursion detected)",
+        "deterministic timeout reached",
+    ]
+    # Previously FAIL-OPEN (unlisted) -> minted a fake gap; must now be inconclusive.
+    formerly_fail_open = [
+        "",                                   # OOM-killer SIGKILL: empty stderr
+        "Killed",                             # kernel OOM
+        "No space left on device",
+        "PANIC at ... libc++abi: terminating",
+        "Segmentation fault (core dumped)",
+        "elan: command failed",
+        "some unrecognized crash text",       # arbitrary -> default inconclusive
+    ]
+    for msg in noise + formerly_fail_open:
+        label = (msg[:24] or "<empty>")
+        checks.append((label, hb.lean_failure_inconclusive(msg)))
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
+def hardening_unit_tests() -> tuple[bool, str]:
+    """Guard the false-positive fixes from the audit (all pure-function paths)."""
+    from contest import adjudicate as A
+    from contest import reject_gate as G
+    checks: list[tuple[str, bool]] = []
+
+    # entry.value validation: non-int / negative / >uint256 / bool -> rejected.
+    checks.append(("value-ok", A._valid_value(0) == 0 and
+                   A._valid_value((1 << 256) - 1) == (1 << 256) - 1))
+    checks.append(("value-bad", all(A._valid_value(v) is None
+                   for v in ("abc", -1, 1 << 256, True, 1.5))))
+
+    # run-stage executable-failure wrapper (out-of-fuel/non-termination) is the
+    # ambiguous marker routed to NEEDS_REVIEW; a real import reject is not.
+    checks.append(("execfail-yes", A._is_executable_failure(
+        'TypeError.unsupported "checked executable contract call C"')))
+    checks.append(("execfail-no", not A._is_executable_failure(
+        "unimplemented nodes present: Mapping")))
+
+    # Lean Repr un-escape reverses the revert-string asymmetry.
+    checks.append(("unescape-quote",
+                   hb._unescape_lean_repr('revert|error:a\\"b') == 'revert|error:a"b'))
+    checks.append(("unescape-noop",
+                   hb._unescape_lean_repr('success|w:0') == 'success|w:0'))
+    checks.append(("unescape-dblbackslash",
+                   hb._unescape_lean_repr('x\\\\n') == 'x\\n'))
+
+    # inconclusive is now default-True (fail-closed toward review).
+    checks.append(("inconclusive-default",
+                   hb.lean_failure_inconclusive("") is True and
+                   hb.lean_failure_inconclusive("anything") is True))
+
+    # Obfuscated cheat-address constant expression is caught by folding.
+    CHEAT = G.CHEAT_ADDR
+    hexlit = lambda v: {"nodeType": "Literal", "kind": "number", "value": hex(v)}
+    lit = lambda v: {"nodeType": "Literal", "kind": "number", "value": str(v)}
+    obf = {"nodeType": "BinaryOperation", "operator": "+",
+           "leftExpression": hexlit(CHEAT - 1), "rightExpression": lit(1)}
+    checks.append(("cheat-obf", G._is_cheat_ref(obf) is True))
+    checks.append(("cheat-exact", G._is_cheat_ref(hexlit(CHEAT)) is True))
+    checks.append(("cheat-clean", G._is_cheat_ref(hexlit(0xDEAD)) is False))
+    rt = {"nodeType": "BinaryOperation", "operator": "+",
+          "leftExpression": {"nodeType": "Identifier", "name": "x"},
+          "rightExpression": lit(1)}
+    checks.append(("cheat-runtime", G._is_cheat_ref(rt) is False))
+
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
 def main() -> int:
     results: list[tuple[str, bool, str]] = []
 
@@ -216,9 +306,17 @@ def main() -> int:
     results.append(("observable-comparator (unit)", ok, d))
     _print("observable-comparator (unit)", ok, d)
 
+    ok, d = inconclusive_classification_unit_tests()
+    results.append(("inconclusive-classification (unit)", ok, d))
+    _print("inconclusive-classification (unit)", ok, d)
+
     ok, d = dedup_unit_tests()
     results.append(("dedup-fingerprints (unit)", ok, d))
     _print("dedup-fingerprints (unit)", ok, d)
+
+    ok, d = hardening_unit_tests()
+    results.append(("false-positive-hardening (unit)", ok, d))
+    _print("false-positive-hardening (unit)", ok, d)
 
     # --- FULL end-to-end runs (real solc + Foundry + solidity-lean/Lean) ---
     # REAL detector tests: full live pipeline + fault injection at the result
@@ -273,6 +371,28 @@ def main() -> int:
     ok, d = run_full("ctor_msg_sender", "NO_DIVERGENCE")
     results.append(("ctor_msg_sender (FULL)", ok, d))
     _print("ctor_msg_sender (FULL)", ok, d)
+
+    # regression: `new T[](n)` / `new bytes(n)` are memory allocations, NOT
+    # external creations — X-EXTCALL must not fire (returns a scalar -> compared).
+    ok, d = run_full("mem_alloc", "NO_DIVERGENCE")
+    results.append(("mem_alloc (FULL)", ok, d))
+    _print("mem_alloc (FULL)", ok, d)
+
+    # array return type is outside the comparable ABI subset -> REJECTED_OOS.
+    ok, d = run_full("array_return", "REJECTED_OOS")
+    results.append(("array_return X-RETABI (FULL)", ok, d))
+    _print("array_return X-RETABI (FULL)", ok, d)
+
+    # fabricated gap: args count != function param count -> REJECT_MALFORMED,
+    # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
+    ok, d = run_full("arg_count_mismatch", "REJECT_MALFORMED")
+    results.append(("arg_count_mismatch (FULL)", ok, d))
+    _print("arg_count_mismatch (FULL)", ok, d)
+
+    # fabricated gap: an out-of-domain scalar arg (dirty bool) -> REJECT_MALFORMED.
+    ok, d = run_full("arg_domain", "REJECT_MALFORMED")
+    results.append(("arg_domain (FULL)", ok, d))
+    _print("arg_domain (FULL)", ok, d)
 
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM

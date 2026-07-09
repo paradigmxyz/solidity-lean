@@ -168,6 +168,17 @@ def coverage_fingerprint(solidity_lean: hb.SolidityLeanResult) -> tuple:
     return ("elaboration", "elab_reject", _first_token(msg))
 
 
+def _is_executable_failure(msg: str) -> bool:
+    """True if a Solidus reject message is the generic `executableFailure` wrapper
+    (`TypeError.unsupported "checked executable ..."`, SolidCore Checked.lean:18).
+
+    This wrapper is what `FunctionDef.call?` produces for EVERY fold-through
+    `none`: out-of-fuel, non-termination, a runtime-unimplemented op, and a
+    typecheck-during-exec reject all collapse to it, so it cannot be trusted as a
+    clean missing-feature signal — it is routed to NEEDS_REVIEW."""
+    return "checked executable" in (msg or "")
+
+
 def _first_token(msg: str) -> str:
     """Extract a STABLE, collision-resistant node-type/field identity from a fail
     message (review D-2).
@@ -288,6 +299,100 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         return Report("REJECT_MALFORMED", reason=slots_err or "bad observed_slots",
                       evidence=evidence)
 
+    # -- Step 0a': VALIDATE entry.args AGAINST the entry function SIGNATURE -----
+    # The args reach the EVM as ABI calldata (decoded per the real parameter
+    # types) AND Solidus as direct CoreValues. If they do not match the function's
+    # parameter list the two engines receive DIFFERENT logical calls and diverge
+    # for a NON-semantic reason. Critically, a wrong arg COUNT makes Solidus fail
+    # closed on the call while the EVM still runs — which the classifier would
+    # score as a bogus qualifying COVERAGE_GAP (a submitter could fabricate a
+    # "gap" from a malformed call). So a signature mismatch is a MALFORMED claim,
+    # never a gap. Skipped for OVER_ACCEPT (its program is solc-rejected and has
+    # no runnable signature).
+    entry_sig: Optional[meas.EntrySig] = None
+    if not over_accept:
+        try:
+            entry_sig = meas.entry_signature(
+                _src_for(submission.sources, entry["contract"], tools.solc)
+                or submission.sources[0], entry["contract"], entry["function"],
+                tools.solc)
+        except Exception as exc:
+            return Report("REJECT_MALFORMED", reason=(
+                f"could not resolve entry signature: {exc}"), evidence=evidence)
+        if entry_sig is None:
+            return Report("REJECT_MALFORMED", reason=(
+                f"entry {entry['contract']}.{entry['function']} not found / has "
+                "no function selector in the compiled AST"), evidence=evidence)
+        n_args, n_params = len(entry.get("args", [])), len(entry_sig.param_types)
+        if n_args != n_params:
+            return Report("REJECT_MALFORMED", reason=(
+                f"entry.args count ({n_args}) does not match "
+                f"{entry['contract']}.{entry['function']} parameter count "
+                f"({n_params}): {entry_sig.param_types}"), evidence=evidence)
+        # Array/struct PARAMETERS are outside the faithfully-encodable ABI subset
+        # (symmetric to array/struct returns): the arg forms cannot represent them
+        # and a partial encoding would diverge. Out of scope (X-RETABI).
+        bad_params = [t for t in entry_sig.param_types
+                      if not _comparable_return_type(t)]
+        oos_entry = reg.entry_by_id("X-RETABI")
+        oos_active = oos_entry is not None and \
+            oos_entry.is_active(at_version or reg.REGISTER_VERSION)
+        if bad_params and oos_active:
+            evidence["arg_type_scope"] = {"unsupported_params": bad_params}
+            return Report("REJECTED_OOS", reason=(
+                f"reject gate fired: X-RETABI (intentional exclusion, out of "
+                f"scope) — entry parameter type(s) {bad_params} not in the "
+                f"faithfully-encodable ABI subset"), evidence=evidence)
+        # Per-arg DOMAIN validation: each scalar arg must be a LEGAL value for its
+        # parameter type. An out-of-domain value (dirty bool, out-of-range enum/
+        # uintN/address) is not a legal high-level call — the EVM decoder reverts
+        # while Solidus may accept or fail closed, fabricating a divergence for
+        # essentially any contract with a scalar param. Reject as malformed; a
+        # family we cannot bound from the type string ("__OOS__") is out of scope.
+        enum_counts = meas.enum_member_counts(
+            _src_for(submission.sources, entry["contract"], tools.solc)
+            or submission.sources[0], tools.solc)
+        for i, (arg, ptype) in enumerate(
+                zip(entry.get("args", []), entry_sig.param_types)):
+            derr = _arg_domain_error(arg, ptype, enum_counts)
+            if derr == "__OOS__":
+                if oos_active:
+                    evidence["arg_type_scope"] = {"unvalidatable_param": ptype}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-RETABI (intentional exclusion, out "
+                        f"of scope) — entry parameter type {ptype!r} (arg {i}) is "
+                        f"not in the faithfully-encodable ABI subset"),
+                        evidence=evidence)
+            elif derr is not None:
+                return Report("REJECT_MALFORMED", reason=(
+                    f"entry.args[{i}] is not a legal value for parameter "
+                    f"{i} ({ptype}): {derr}"), evidence=evidence)
+        # Constructor args are deployed to BOTH engines too, so validate their
+        # count + domain against the constructor signature identically (same
+        # fabrication surface as entry args).
+        ctor_ptypes = meas.constructor_param_types(
+            _src_for(submission.sources, entry["contract"], tools.solc)
+            or submission.sources[0], entry["contract"], tools.solc)
+        if len(ctor_args) != len(ctor_ptypes):
+            return Report("REJECT_MALFORMED", reason=(
+                f"constructor_args count ({len(ctor_args)}) does not match "
+                f"{entry['contract']}'s constructor parameter count "
+                f"({len(ctor_ptypes)}): {ctor_ptypes}"), evidence=evidence)
+        for i, (arg, ptype) in enumerate(zip(ctor_args, ctor_ptypes)):
+            derr = _arg_domain_error(arg, ptype, enum_counts)
+            if derr == "__OOS__":
+                if oos_active:
+                    evidence["arg_type_scope"] = {"unvalidatable_ctor_param": ptype}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-RETABI (intentional exclusion, out "
+                        f"of scope) — constructor parameter type {ptype!r} (arg "
+                        f"{i}) is not in the faithfully-encodable ABI subset"),
+                        evidence=evidence)
+            elif derr is not None:
+                return Report("REJECT_MALFORMED", reason=(
+                    f"constructor_args[{i}] is not a legal value for constructor "
+                    f"parameter {i} ({ptype}): {derr}"), evidence=evidence)
+
     # -- Step 0b: CHEATCODE GATE over BOTH src AND test, BEFORE any Forge run.
     # The trust boundary is any call to the cheatcode ADDRESS from any submitted
     # code executed under `forge test` (adversarial-review findings 1 & 2). We
@@ -296,7 +401,15 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     # This MUST run before Forge/measurement so untrusted code never executes
     # with a cheatcode reference the gate would have caught.
     env_ov = cenv.EnvOverrides()
-    env_ov.value = int(entry.get("value", 0) or 0)
+    # entry.value is attacker-controlled and reaches BOTH the Foundry measurement
+    # (call{value:...}) and the Solidus env. A non-numeric value used to raise an
+    # UNCAUGHT ValueError (adjudicator crash); a negative / >uint256 value is not a
+    # legal msg.value. Validate it as an integer in [0, 2^256) -> REJECT_MALFORMED.
+    val = _valid_value(entry.get("value", 0))
+    if val is None:
+        return Report("REJECT_MALFORMED", reason=(
+            "entry.value must be an integer in [0, 2**256)"), evidence=evidence)
+    env_ov.value = val
     try:
         src_asts = gate.get_source_asts(submission.sources, tools.solc)
     except Exception as exc:  # solc failure on adversarial source (finding 5)
@@ -355,7 +468,9 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 "claimed behavior does not reproduce on pinned solc 0.8.35 + "
                 f"Foundry (forge={status})"), evidence=evidence)
         # -- MEASURE the EVM observable from an actual Forge run (P0 #1) -----
-        sig = meas.entry_signature(
+        # Reuse the signature resolved + validated in step 0a' (recompute only if
+        # that path was skipped, e.g. a future caller that bypasses it).
+        sig = entry_sig or meas.entry_signature(
             _src_for(submission.sources, entry["contract"], tools.solc)
             or submission.sources[0], entry["contract"], entry["function"],
             tools.solc)
@@ -363,6 +478,20 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             return Report("REJECT_MALFORMED", reason=(
                 f"entry {entry['contract']}.{entry['function']} not found / has "
                 "no function selector in the compiled AST"), evidence=evidence)
+        # Scope check (X-RETABI): the return type must be in the faithfully
+        # comparable ABI subset. Array/struct returns are not yet decoded to match
+        # Solidus's rendering and would raise a spurious divergence, so they are
+        # out of scope. Entry-function-specific, hence checked here (not the gate).
+        uncomparable = [t for t in sig.return_types
+                        if not _comparable_return_type(t)]
+        if uncomparable:
+            e = reg.entry_by_id("X-RETABI")
+            if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
+                evidence["return_type_scope"] = {"uncomparable": uncomparable}
+                return Report("REJECTED_OOS", reason=(
+                    f"reject gate fired: X-RETABI (intentional exclusion, out of "
+                    f"scope) — entry return type(s) {uncomparable} not in the "
+                    f"faithfully-comparable ABI subset"), evidence=evidence)
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
             forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
@@ -410,9 +539,21 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             f"entry contract {entry['contract']!r} not found in submitted sources"),
             evidence=evidence)
     namespace = f"{NAMESPACE_PREFIX}.{_sanitize(root.name)}"
+    # The interpreter runs at _FUEL_CAP, NOT at the submitter's `fuel` (audit
+    # finding, CONTEST-BREAKING). Statement-fuel exhaustion renders as a clean
+    # `solidity-lean-reject` (`.error .outOfFuel` folds through FunctionDef.call?
+    # into the generic `executableFailure` wrapper, indistinguishable from a real
+    # reject) which the classifier would otherwise bank as a qualifying
+    # COVERAGE_GAP. A submitter picking `fuel: 1` could thus fabricate a gap on
+    # nearly any program. Running at the cap removes cheap starvation; the
+    # residual (a program that genuinely needs > cap, e.g. an infinite loop) is
+    # handled below by routing run-stage `executableFailure` rejects — which are
+    # provably indistinguishable from out-of-fuel/non-termination — to
+    # NEEDS_REVIEW rather than auto-qualifying. `fuel` is still validated (bad
+    # values -> REJECT_MALFORMED) but no longer drives the interpreter down.
     solidity_lean = hb.run_solidity_lean_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
-        work / "solidity_lean", namespace, fuel=fuel,
+        work / "solidity_lean", namespace, fuel=_FUEL_CAP,
         tools=tools, timeout=timeout, env=env_ov, slots=slots,
         constructor_args=ctor_args)
     if _selftest_perturb_solidity_lean is not None:  # coverage bug-injection self-test
@@ -441,13 +582,35 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
 
     # (3a) solidity-lean FAILS CLOSED while solc accepted+ran -> lane C coverage gap.
     if solidity_lean.fail_closed:
-        # An INCONCLUSIVE failure (timeout / resource exhaustion / harness crash,
-        # incl. a poisoned fuel) is NOT evidence of a missing feature (review
-        # finding 3). Never auto-qualify it; route to maintainer review.
+        # An INCONCLUSIVE failure (timeout / resource exhaustion / harness crash /
+        # build or toolchain/environment error, incl. a poisoned fuel) is NOT
+        # evidence of a missing feature (review finding 3). Never auto-qualify it;
+        # route to maintainer review.
         if solidity_lean.inconclusive:
             return Report("NEEDS_REVIEW", reason=(
                 "solidity-lean run failed inconclusively (timeout / resource "
-                f"exhaustion), not a clean reject: {solidity_lean.message[:300]}"),
+                "exhaustion / build or environment error), not a clean reject: "
+                f"{solidity_lean.message[:300]}"),
+                evidence=evidence)
+        # A RUN-stage fail-closed carrying the generic `executableFailure` wrapper
+        # ("checked executable ...") is AMBIGUOUS and must NOT auto-qualify (audit
+        # finding, CONTEST-BREAKING). `FunctionDef.call?` folds statement-fuel
+        # exhaustion (`.error .outOfFuel`), non-termination (an infinite loop that
+        # exhausts even _FUEL_CAP), a runtime-unimplemented operation, AND a
+        # typecheck-during-exec reject into the SAME `none` -> the SAME
+        # `TypeError.unsupported "checked executable ..."` string (SolidCore
+        # Checked.lean:18). They are provably indistinguishable at this layer, so
+        # a submitter could mint a COVERAGE_GAP with an infinite loop (the EVM
+        # just reverts out-of-gas). Route these to human review; a genuine
+        # missing-feature reject surfaces distinctly at the IMPORT stage (an
+        # unsupported NODE) and still auto-qualifies below.
+        if solidity_lean.stage == "run" and _is_executable_failure(solidity_lean.message):
+            return Report("NEEDS_REVIEW", reason=(
+                "solidity-lean fails closed at run stage with the generic "
+                "executable-failure wrapper, which is indistinguishable from "
+                "out-of-fuel / non-termination / a runtime-unimplemented op; a "
+                "human must confirm this is a genuine coverage gap and not fuel "
+                f"exhaustion: {solidity_lean.message[:300]}"),
                 evidence=evidence)
         finger = coverage_fingerprint(solidity_lean)
         if finger[1] == "excluded":
@@ -530,6 +693,131 @@ def _valid_identifier(name: object) -> bool:
     return isinstance(name, str) and bool(_IDENT_RE.match(name))
 
 
+def _comparable_return_type(t: str) -> bool:
+    """True iff an entry return type is in the faithfully-comparable ABI subset
+    (X-RETABI). The EVM decoder + Solidus renderer agree exactly on scalars
+    (int/uint/bool/address/enum/contract/bytesN), dynamic bytes/string, and flat
+    tuples of those. Array (`T[]`, `T[N]`) and struct returns are NOT yet decoded
+    to match Solidus's `[..]`/`(..)` rendering and would raise a spurious
+    divergence, so they are out of scope."""
+    t = str(t).strip()
+    for suffix in (" memory", " calldata", " storage", " payable"):
+        t = t.replace(suffix, "")
+    t = t.strip()
+    if t.endswith("]"):            # any array — dynamic T[] or fixed T[N]
+        return False
+    if t.startswith("struct "):    # struct return (Solidus renders a tuple)
+        return False
+    if t.startswith("tuple"):      # explicit tuple type
+        return False
+    return True
+
+
+def _arg_as_word(arg: object) -> Optional[int]:
+    """The unsigned word value an arg denotes, or None if the form is not
+    word-family (a signed {int} or a {bytes} is not a plain word)."""
+    if isinstance(arg, bool):
+        return 1 if arg else 0
+    if isinstance(arg, int):
+        return arg if arg >= 0 else None
+    if isinstance(arg, dict) and "word" in arg:
+        try:
+            w = int(arg["word"])
+        except (TypeError, ValueError):
+            return None
+        return w if w >= 0 else None
+    return None
+
+
+def _arg_as_signed(arg: object) -> Optional[int]:
+    """The signed value an arg denotes for an intN parameter, or None."""
+    if isinstance(arg, bool):
+        return None
+    if isinstance(arg, int):
+        return arg
+    if isinstance(arg, dict):
+        if "int" in arg:
+            try:
+                return int(arg["int"])
+            except (TypeError, ValueError):
+                return None
+        if "word" in arg:
+            try:
+                w = int(arg["word"])
+            except (TypeError, ValueError):
+                return None
+            return w if w >= 0 else None
+    return None
+
+
+def _clean_param_type(t: str) -> str:
+    t = str(t).strip()
+    for suffix in (" memory", " calldata", " storage", " payable"):
+        t = t.replace(suffix, "")
+    return t.strip()
+
+
+def _arg_domain_error(arg: object, ptype: str,
+                      enum_counts: dict[str, int]) -> Optional[str]:
+    """Validate that ``arg`` is a LEGAL high-level value for parameter type
+    ``ptype``; return an error string if not (else None).
+
+    The args reach Solidus as typed CoreValues and the EVM as ABI calldata, whose
+    external decoder REVERTS on out-of-domain scalars (dirty bool, out-of-range
+    enum/uintN/address, non-zero padding). An out-of-domain arg is therefore not a
+    legal call and would fabricate a divergence, so it is rejected as malformed.
+    Returns the sentinel ``"__OOS__"`` for a scalar family we cannot validate
+    from the type string (the caller maps that to an X-RETABI exclusion)."""
+    t = _clean_param_type(ptype)
+    # dynamic bytes/string: must be the {bytes} form
+    if t in ("bytes", "string"):
+        if isinstance(arg, dict) and "bytes" in arg:
+            return None
+        return f"{t} parameter requires a {{\"bytes\": \"0x..\"}} arg, got {arg!r}"
+    if t == "bool":
+        w = _arg_as_word(arg)
+        if w in (0, 1):
+            return None
+        return f"bool parameter requires 0/1 or true/false, got {arg!r}"
+    import re as _rex
+    m = _rex.fullmatch(r"uint(\d*)", t)
+    if m:
+        n = int(m.group(1) or "256")
+        w = _arg_as_word(arg)
+        if w is not None and 0 <= w < (1 << n):
+            return None
+        return f"{t} arg out of range [0, 2^{n}): {arg!r}"
+    m = _rex.fullmatch(r"int(\d*)", t)
+    if m:
+        n = int(m.group(1) or "256")
+        v = _arg_as_signed(arg)
+        if v is not None and -(1 << (n - 1)) <= v < (1 << (n - 1)):
+            return None
+        return f"{t} arg out of signed range: {arg!r}"
+    if t == "address" or t.startswith("contract ") or t.startswith("interface "):
+        w = _arg_as_word(arg)
+        if w is not None and 0 <= w < (1 << 160):
+            return None
+        return f"address/contract arg out of range [0, 2^160): {arg!r}"
+    if t == "bytes32":
+        # every 32-byte value is a valid bytes32 (no padding constraint).
+        if _arg_as_word(arg) is not None or (isinstance(arg, dict) and "bytes" in arg):
+            return None
+        return f"bytes32 arg requires a word or bytes form, got {arg!r}"
+    if t.startswith("enum "):
+        canonical = t[len("enum "):].strip()
+        count = enum_counts.get(canonical)
+        w = _arg_as_word(arg)
+        if count is not None and w is not None and 0 <= w < count:
+            return None
+        if count is None:
+            return "__OOS__"   # can't resolve member count -> not validatable
+        return f"enum {canonical} arg out of range [0, {count}): {arg!r}"
+    # bytesN (N<32), fixed-point, function types, and anything else word-family we
+    # cannot faithfully bound from the type string alone -> out of scope.
+    return "__OOS__"
+
+
 _FUEL_CAP = 100_000
 
 
@@ -544,6 +832,23 @@ def _valid_fuel(value: object) -> Optional[int]:
     if fuel < 1 or fuel > _FUEL_CAP:
         return None
     return fuel
+
+
+_UINT256_MAX = (1 << 256) - 1
+
+
+def _valid_value(value: object) -> Optional[int]:
+    """Validate entry.value as an integer msg.value in [0, 2**256). Accepts a
+    bool as 0/1 is REJECTED (a JSON bool is not a wei amount). Returns None on a
+    non-integer / out-of-range value so the caller can REJECT_MALFORMED instead
+    of crashing (audit finding: `int('abc')` raised an uncaught ValueError)."""
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, int):
+        return None
+    if value < 0 or value > _UINT256_MAX:
+        return None
+    return value
 
 
 _MAX_SLOTS = 64
