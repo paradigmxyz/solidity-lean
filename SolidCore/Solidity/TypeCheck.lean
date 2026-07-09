@@ -12568,7 +12568,7 @@ def ContractDecl.checkBaseConstructorArgsForDeployment
                   "base constructor has no immediate derived contract")
         let args ←
           match Solidity.Executable.ContractDecl.baseConstructorArgsForDeployment?
-              target immediateDerived baseDecl with
+              immediateDerived baseDecl with
           | some args => Except.ok args
           | none =>
               Except.error
