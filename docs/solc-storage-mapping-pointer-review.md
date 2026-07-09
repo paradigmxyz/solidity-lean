@@ -120,3 +120,75 @@ through the interpreter — check for a spurious revert.
   `SolidCore/Solidity/Interface.lean` (`toCoreMappingKey?` `2241-2245`,
   `toCoreStorageWord?` `2160-2237`).
 - No Lean/semantics/fixture source was modified.
+
+---
+
+## #47 candidate — RESOLVED: NON-DIVERGENCE (no code change)
+
+Date: 2026-07-09. The low-confidence (~15%) candidate above — an unforced
+`Value.abiLazy` narrow-int key reaching `mappingStorageSlotForKey` /
+`coerceMappingKeyWordAs`, where `asStorageWord?` has no `abiLazy` arm and would
+return `none` → `RevertData.typeMismatch` (an over-revert) — was investigated
+verify-first and does **not** reproduce.
+
+### Why the mapping-key site *could* over-reject in isolation
+Confirmed at the code level (`SolidCore/Solidity/Interpreter.lean`):
+- `coerceMappingKeyWordAs` (1770-1778) does `ty.coerceValue? value` then
+  `coerced.asStorageWord?`. `Ty.coerceValue?` on an `abiLazy` **re-wraps** it
+  (406-409: `some (Value.abiLazy cleanup coerced)`), and `Value.asStorageWord?`
+  (193-196) has no `abiLazy` arm → `none` → `typeMismatch`.
+- So the mapping-key path is a *rejecting* last line of defence, unlike the
+  array/bytes/struct index paths which call `index.expectWord` (397-402) and
+  therefore **force** an `abiLazy` key. This asymmetry is the fragile point the
+  candidate worried about.
+
+### Why it never actually reproduces
+Every way a scalar is extracted from a calldata aggregate forces the `abiLazy`
+*before* it can reach the mapping code, because the value evaluator ends element
+and member reads with `Runtime.derefMemoryValue` (1105-1114), whose `abiLazy`
+arm (1112-1113) forces via `cleanup.forceValue`:
+- `Expr.index` element read → `derefMemoryValue value` (6782 / 6794).
+- bare var read → `derefMemoryValue` (6169); `ResolvedLValue.read` → deref (5838).
+- arithmetic / ternary on a narrow value produces a concrete `Value.word`.
+The mapping-key sub-expression is evaluated by this same full value evaluator
+(read: 6181-6191, 6739-6771; lvalue: 6963-6997), so the key is a `Value.word`
+by the time `mappingStorageSlotForKey` sees it. No reaching path delivers an
+unforced `abiLazy`.
+
+`abiLazy` is only ever produced at the real calldata-decode boundary
+(`ABI.decodeFunctionArgs?` → `AbiCleanups.lazyParamValues` → element leaf
+`Value.abiLazy` at Interpreter 5203); `memory` aggregates decode eagerly
+(`memoryEager`, ABI 516-518). The `checkedOwnCall*` witness path binds argument
+`Value`s directly (`Contract.call?` → `FunctionDef.evalBodyEntry`, **no** abi
+decode), so a faithful probe must go through `functionCalldata` +
+`callCalldataFrom` to actually manufacture the lazy wrapper.
+
+### Programs tried (imported from pinned solc 0.8.35 AST, run through the real
+### calldata boundary `functionCalldata` → `callCalldataFrom`)
+All keyed a `mapping(uint8 => uint256) m` and returned the stored value with no
+revert — matching solc (a clean narrow-int key is ordinary Solidity):
+
+| shape | source | result (`success`, returned) |
+|---|---|---|
+| element-of-`uint8[] calldata` (named probe) | `m[a[0]] = v; return m[a[0]]` | `ok (true, 99)` |
+| member-of-calldata-struct | `struct S{uint8 k;uint256 v;} m[s.k]=s.v; return m[s.k]` | `ok (true, 42)` |
+| arithmetic on narrow element | `m[a[0]+1] = v; return m[a[0]+1]` | `ok (true, 55)` |
+| ternary over calldata elements | `uint8 k = c ? a[0] : a[1]; m[k]=v; return m[k]` | `ok (true, 66)` |
+| write then separate calldata read | `elemKey` then `readElem` on threaded state | `ok (true, 99)` |
+
+solc/EVM ground truth for every shape: no revert, returns the stored value.
+solidity-lean agrees on all of them. **No over-reject reproduces.**
+
+### Incidental, out-of-scope observation (NOT #47, not fixed here)
+A fifth shape — internal-function-call result used *as a mapping index*,
+`m[idu8(a[0])] = v` — fails earlier at the **Executable lowering** step
+(`TypeError.unsupported "checked executable …"`, `Checked.lean:18-19`), before
+any value/`abiLazy` exists, so `ownContract` never yields a contract to call.
+This is a lowering-representation gap in the Executable layer (the same internal
+function used in non-index position, `return idu8(a[0])`, lowers and runs fine
+→ `ok (true, 9)`); it is unrelated to the `coerceMappingKeyWordAs` force
+hypothesis and, were it lowerable, the internal call's `uint8` return would be a
+concrete word anyway. Flagged here for a possible separate follow-up.
+
+**Conclusion:** the mapping-key force hypothesis is a non-divergence. No
+semantics, fixture, or manifest change made for #47 (doc-only note).
