@@ -316,27 +316,38 @@ def encodeValues? (tys : List Ty) (values : List Value) : Option Bytes := do
   | some (heads, tails, _) => some (heads ++ tails)
   | none => none
 
-def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
-  | 0, _, _, _ => none
-  | _fuel + 1, argData, headIndex, Ty.bool => do
+-- The `lazy` flag marks a *calldata* parameter (vs a `memory`-location one,
+-- which solc validates eagerly). When set, structurally-malformed inner
+-- *dynamic* elements of a calldata aggregate are not rejected at the boundary;
+-- instead a `Value.calldataDeferredInvalid` marker is placed in the decoded
+-- spine and validated on access, mirroring solc's calldata-pointer model. The
+-- immediate structure (length bound, head-area presence) is still validated
+-- eagerly. `lazy` is threaded unchanged into nested calldata elements; the
+-- top-level per-parameter decode never substitutes markers (a malformed
+-- top-level offset reverts eagerly, exactly as solc validates immediate
+-- structure), because marker substitution happens only inside the aggregate
+-- element loops below.
+def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Option Value
+  | 0, _, _, _, _ => none
+  | _fuel + 1, _lazy, argData, headIndex, Ty.bool => do
       let value ← readWord? argData (wordBytes * headIndex)
       if wordEq value 0 || wordEq value 1 then
         some (Value.word value)
       else
         none
-  | _fuel + 1, argData, headIndex, Ty.address => do
+  | _fuel + 1, _lazy, argData, headIndex, Ty.address => do
       let value ← readWord? argData (wordBytes * headIndex)
       if addressFits value then
         some (Value.word value)
       else
         none
-  | _fuel + 1, argData, headIndex, Ty.uint256 => do
+  | _fuel + 1, _lazy, argData, headIndex, Ty.uint256 => do
       let value ← readWord? argData (wordBytes * headIndex)
       some (Value.word value)
-  | _fuel + 1, argData, headIndex, Ty.int256 => do
+  | _fuel + 1, _lazy, argData, headIndex, Ty.int256 => do
       let value ← readWord? argData (wordBytes * headIndex)
       some (Value.int value)
-  | _fuel + 1, argData, headIndex, Ty.fixedBytes size =>
+  | _fuel + 1, _lazy, argData, headIndex, Ty.fixedBytes size =>
       if 0 < size && size <= wordBytes then
         do
         let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
@@ -348,11 +359,11 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
           none
       else
         none
-  | _fuel + 1, _argData, _headIndex, Ty.internalFunction =>
+  | _fuel + 1, _lazy, _argData, _headIndex, Ty.internalFunction =>
       -- Internal function pointers have no ABI representation (they cannot
       -- cross the external boundary); decoding one is a type error.
       none
-  | _fuel + 1, argData, headIndex, Ty.externalFunction => do
+  | _fuel + 1, _lazy, argData, headIndex, Ty.externalFunction => do
       let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
       let addressBytes ← readBytes? slot 0 20
       let selectorPart ← readBytes? slot 20 selectorBytes
@@ -365,87 +376,156 @@ def decodeValueAtWithFuel? : Nat -> Bytes -> Nat -> Ty -> Option Value
             (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
       else
         none
-  | _fuel + 1, argData, headIndex, Ty.bytesCalldata => do
+  | _fuel + 1, _lazy, argData, headIndex, Ty.bytesCalldata => do
       let offset ← readWord? argData (wordBytes * headIndex)
       let length ← readWord? argData offset
       let bytes ← readBytes? argData (offset + wordBytes) length
       some (Value.bytes bytes)
-  | fuel + 1, argData, headIndex, Ty.dynamicArray elementTy => do
+  | fuel + 1, lazy, argData, headIndex, Ty.dynamicArray elementTy => do
       let offset ← readWord? argData (wordBytes * headIndex)
       let length ← readWord? argData offset
+      -- Inner-element validation is deferred only for a *calldata* array of
+      -- *dynamic* elements (solc returns a calldata pointer and validates each
+      -- element's inner offset/length lazily on access); a structurally
+      -- malformed such element becomes a deferred marker instead of a boundary
+      -- revert. The recursor's shape matches the eager decoder so the automatic
+      -- termination measure is preserved.
       let rec decodeDynamicArrayValues? :
           Nat -> Nat -> Option (List Value)
         | 0, _ => some []
         | remaining + 1, index => do
             let value ←
-              decodeValueAtWithFuel? fuel
-                (argData.drop (offset + wordBytes))
-                index elementTy
+              match
+                decodeValueAtWithFuel? fuel lazy
+                  (argData.drop (offset + wordBytes)) index elementTy
+              with
+              | some v => some v
+              | none =>
+                  if lazy && Ty.isDynamicAbi elementTy then
+                    some (Value.calldataDeferredInvalid elementTy)
+                  else
+                    none
             let step ← Ty.abiHeadWords? elementTy
             let rest ← decodeDynamicArrayValues? remaining (index + step)
             some (value :: rest)
-      let values ← decodeDynamicArrayValues? length 0
-      some (Value.dynamicArray values)
-  | fuel + 1, argData, headIndex, Ty.fixedArray size elementTy =>
+      let step ← Ty.abiHeadWords? elementTy
+      -- Eager head-area presence check (solc `gt(arrayPos+length*stride,end)`):
+      -- the `length` element head words must be within calldata. Only the
+      -- offset-following read INSIDE a present head is deferred.
+      if lazy && Ty.isDynamicAbi elementTy &&
+          (readBytes? (argData.drop (offset + wordBytes)) 0
+            (length * step * wordBytes)).isNone then
+        none
+      else do
+        let values ← decodeDynamicArrayValues? length 0
+        some (Value.dynamicArray values)
+  | fuel + 1, lazy, argData, headIndex, Ty.fixedArray size elementTy =>
       let rec decodeArrayValues? (arrayData : Bytes) :
           Nat -> Nat -> Option (List Value)
         | 0, _ => some []
         | remaining + 1, index => do
-            let value ← decodeValueAtWithFuel? fuel arrayData index elementTy
+            let value ←
+              match decodeValueAtWithFuel? fuel lazy arrayData index elementTy with
+              | some v => some v
+              | none =>
+                  if lazy && Ty.isDynamicAbi elementTy then
+                    some (Value.calldataDeferredInvalid elementTy)
+                  else
+                    none
             let step ← Ty.abiHeadWords? elementTy
             let rest ← decodeArrayValues? arrayData remaining (index + step)
             some (value :: rest)
       if Ty.isDynamicAbi elementTy then
         do
         let offset ← readWord? argData (wordBytes * headIndex)
-        let values ← decodeArrayValues? (argData.drop offset) size 0
-        some (Value.fixedArray values)
+        let step ← Ty.abiHeadWords? elementTy
+        if lazy && (readBytes? (argData.drop offset) 0
+            (size * step * wordBytes)).isNone then
+          none
+        else do
+          let values ← decodeArrayValues? (argData.drop offset) size 0
+          some (Value.fixedArray values)
       else
         do
         let values ← decodeArrayValues? argData size headIndex
         some (Value.fixedArray values)
-  | fuel + 1, argData, headIndex, Ty.tuple elementTys =>
+  | fuel + 1, lazy, argData, headIndex, Ty.tuple elementTys =>
       let rec decodeTupleValues? (tupleData : Bytes) :
           List Ty -> Nat -> Option (List Value)
         | [], _ => some []
         | ty :: tys, index => do
-            let value ← decodeValueAtWithFuel? fuel tupleData index ty
+            let value ←
+              match decodeValueAtWithFuel? fuel lazy tupleData index ty with
+              | some v => some v
+              | none =>
+                  if lazy && Ty.isDynamicAbi ty then
+                    some (Value.calldataDeferredInvalid ty)
+                  else
+                    none
             let step ← Ty.abiHeadWords? ty
             let rest ← decodeTupleValues? tupleData tys (index + step)
             some (value :: rest)
       if Ty.listHasDynamicAbi elementTys then
         do
         let offset ← readWord? argData (wordBytes * headIndex)
-        let values ← decodeTupleValues? (argData.drop offset) elementTys 0
-        some (Value.tuple values)
+        let headWords ← Ty.listAbiHeadWords? elementTys
+        -- Eager head-area presence (solc `slt(sub(end,offset), N*32)`); inner
+        -- dynamic-member offsets are validated lazily on access for calldata.
+        if lazy && (readBytes? (argData.drop offset) 0
+            (headWords * wordBytes)).isNone then
+          none
+        else do
+          let values ← decodeTupleValues? (argData.drop offset) elementTys 0
+          some (Value.tuple values)
       else
         do
         let values ← decodeTupleValues? argData elementTys headIndex
         some (Value.tuple values)
   -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
   -- position (params/returns lower enums to `uint256` + `AbiCleanup.enum`).
-  | _fuel + 1, _, _, Ty.enumStorage _ => none
+  | _fuel + 1, _lazy, _, _, Ty.enumStorage _ => none
 
-def decodeValueAt? (argData : Bytes) (headIndex : Nat)
+def decodeValueAt? (lazy : Bool) (argData : Bytes) (headIndex : Nat)
     (ty : Ty) : Option Value :=
-  decodeValueAtWithFuel? (Ty.abiDecodeFuel ty) argData headIndex ty
+  decodeValueAtWithFuel? (Ty.abiDecodeFuel ty) lazy argData headIndex ty
 
+-- Each parameter carries its own `lazy` flag (calldata vs memory), threaded
+-- from `decodeFunctionArgs?` via the param ABI cleanups.
 def decodeArgsAux? (argData : Bytes) :
-    List Ty -> Nat -> Option (List Value)
+    List (Bool × Ty) -> Nat -> Option (List Value)
   | [], _ => some []
-  | ty :: tys, index => do
-      let value ← decodeValueAt? argData index ty
+  | (lazy, ty) :: tys, index => do
+      let value ← decodeValueAt? lazy argData index ty
       let headWords ← Ty.abiHeadWords? ty
       let values ← decodeArgsAux? argData tys (index + headWords)
       some (value :: values)
 
+def decodeArgsWith? (params : List (Bool × Ty)) (argData : Bytes) :
+    Option (List Value) :=
+  decodeArgsAux? argData params 0
+
+-- Eager decode (all params non-lazy). Used for well-formed witness vectors and
+-- any caller that is not the external calldata boundary.
 def decodeArgs? (tys : List Ty) (argData : Bytes) :
     Option (List Value) :=
-  decodeArgsAux? argData tys 0
+  decodeArgsWith? (tys.map (fun ty => (false, ty))) argData
+
+-- A calldata parameter (anything but a `memory`-location aggregate) defers
+-- inner dynamic-element validation to access time; a `memoryEager` param is
+-- validated eagerly, matching solc.
+def AbiCleanup.decodeLazy : AbiCleanup -> Bool
+  | AbiCleanup.memoryEager _ => false
+  | _ => true
 
 def decodeFunctionArgs? (function : FunctionDef)
     (argData : Bytes) : Option (List Value) := do
-  let values ← decodeArgs? (function.params.map BindingDecl.ty) argData
+  let tys := function.params.map BindingDecl.ty
+  let lazyFlags :=
+    if function.paramAbiCleanups.length == tys.length then
+      function.paramAbiCleanups.map AbiCleanup.decodeLazy
+    else
+      tys.map (fun _ => true)
+  let values ← decodeArgsWith? (lazyFlags.zip tys) argData
   if function.paramAbiCleanups.isEmpty then
     some values
   else

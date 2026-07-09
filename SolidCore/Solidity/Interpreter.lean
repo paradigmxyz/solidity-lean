@@ -370,6 +370,26 @@ def Value.forceAbiLazy : Value -> Except RevertData Value
   | Value.abiLazy cleanup value => cleanup.forceValue value
   | value => Except.ok value
 
+/-- Deferred structural-decode failure for a nested *calldata* dynamic element
+    (a `bytes`/`string`/nested dynamic array/dynamic struct member whose inner
+    offset/length is malformed). solc validates such an inner element only when
+    it is ACCESSED — decode returns a calldata pointer and never reads the inner
+    offset, so a malformed one reverts empty (`validator_revert_*`) only on
+    access, not at the boundary. We mirror that by placing this marker in the
+    decoded aggregate spine: `.length`, sibling elements, and immediate
+    structure stay usable, but forcing this element (access via
+    `derefMemoryValue`) reverts empty exactly as solc's per-access validator.
+    The wrapped cleanup (`uint 0`) rejects every dynamic-type value, so
+    `forceValue` yields the empty revert; it is only ever produced for
+    *calldata* params, so the memory-eager decode path (which reverts eagerly on
+    any dirty element) never sees it. The placeholder is the element type's
+    default value so that parameter binding's `coerceValue?` (which coerces each
+    element to its declared type) accepts the marker WITHOUT forcing it — the
+    aggregate stays usable for `.length`/sibling access — while an actual access
+    (`derefMemoryValue`) forces the cleanup and reverts. -/
+def Value.calldataDeferredInvalid (ty : Ty) : Value :=
+  Value.abiLazy (AbiCleanup.uint 0) ty.defaultValue
+
 def Value.expectWordRaw : Value -> Except RevertData Word
   | Value.word value => Except.ok (SolidCore.Solidity.Shared.norm value)
   | _ => Except.error RevertData.typeMismatch
