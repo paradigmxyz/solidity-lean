@@ -364,16 +364,6 @@ def callTargetWithContext (fuel : Nat)
     (callTargetWithContext?
       fuel contract target context state args)
 
-def callFunctionUnspecifiedResults (fuel : Nat)
-    (contract : CheckedContract) (functionName : Name)
-    (context : CoreContext) (state : CoreState)
-    (args : List CoreValue) : List CoreCallResult :=
-  match coreFunction? contract functionName with
-  | some function =>
-      SolidCore.Solidity.Source.FunctionDef.callUnspecifiedResults
-        fuel contract.core.table context function state args
-  | none => []
-
 def callCalldataFrom? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (sender value : Word) (calldata : List Byte) :
     Option CoreAbiCallResult :=
@@ -413,13 +403,6 @@ def callCalldataAtFromWithContext (fuel : Nat)
   optionToExcept ("ABI calldata call with context " ++ contract.decl.name)
     (callCalldataAtFromWithContext?
       fuel contract context state self sender value calldata)
-
-def callCalldataAtFromUnspecifiedResults (fuel : Nat)
-    (contract : CheckedContract) (context : CoreContext)
-    (state : CoreState) (self sender value : Word)
-    (calldata : List Byte) : List CoreAbiCallResult :=
-  SolidCore.Solidity.Source.ABI.Contract.callCalldataAtFromUnspecifiedResults
-    fuel contract.core context state self sender value calldata
 
 def callCalldataAt? (fuel : Nat) (contract : CheckedContract)
     (state : CoreState) (self : Word) (calldata : List Byte) :
@@ -1342,16 +1325,6 @@ def ownCallFunctionWithContextFailOpen {α : Type} [CheckedInput α]
   CheckedContract.callFunctionWithContextFailOpen
     fuel responder checkedContract functionName context state args
 
-def ownCallFunctionUnspecifiedResults {α : Type} [CheckedInput α]
-    (fuel : Nat) (input : α) (functionName : Name)
-    (context : CoreContext) (state : CoreState)
-    (args : List CoreValue) : List CoreCallResult :=
-  match ownContract? input with
-  | some checkedContract =>
-      CheckedContract.callFunctionUnspecifiedResults
-        fuel checkedContract functionName context state args
-  | none => []
-
 def callCalldataFrom? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (name : Name) (state : CoreState)
     (sender value : Word) (calldata : List Byte) :
@@ -1452,17 +1425,6 @@ def ownCallCalldataAtFromWithContext {α : Type} [CheckedInput α]
   let checkedContract ← ownContract input
   CheckedContract.callCalldataAtFromWithContext
     fuel checkedContract context state self sender value calldata
-
-def ownCallCalldataAtFromUnspecifiedResults
-    {α : Type} [CheckedInput α]
-    (fuel : Nat) (input : α) (context : CoreContext)
-    (state : CoreState) (self sender value : Word)
-    (calldata : List Byte) : List CoreAbiCallResult :=
-  match ownContract? input with
-  | some checkedContract =>
-      CheckedContract.callCalldataAtFromUnspecifiedResults
-        fuel checkedContract context state self sender value calldata
-  | none => []
 
 def ownCallCalldataAt? {α : Type} [CheckedInput α]
     (fuel : Nat) (input : α) (state : CoreState)
