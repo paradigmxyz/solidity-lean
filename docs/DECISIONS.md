@@ -5,6 +5,63 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — D-MEM-1: `bytes(...)`/`string(...)`/`abi.encode*` of a NON-bare-identifier `bytes`/`string` operand now lowers
+
+Fixes the confirmed fail-closed over-reject documented in
+`docs/solc-memory-allocation-review.md` (D-MEM-1). solidity-lean typechecked but
+REFUSED TO EXECUTE (source→core lowering `TypeError.unsupported`) solc-valid
+programs that apply a `bytes(...)`/`string(...)` conversion (or `abi.encode*`) to
+a `bytes`/`string` value that is not a bare identifier / literal — e.g. an
+element of a memory `string[]`/`bytes[]` (`bytes(s[i]).length`,
+`keccak256(bytes(names[i]))`, `abi.encodePacked(s[i])`), a struct string field
+(`bytes(p.name)`), or a storage-nested `bytes(string(storageBytes))`. Verified
+fail-closed (never a wrong value) — a coverage gap, not a soundness bug.
+
+**Root cause.** `Expr.toCore?`'s dynamic-target (`Ty.bytes`/`Ty.string`)
+conversion arm only accepted a bare `Expr.ident` / `Expr.literal` / `T(ident)`
+operand and sank everything else to `none`. `Stmt.annotateAbi` wraps the operand
+of a conversion in its ABI source type, rendering `bytes(s[i])` as
+`bytes(string(s[i]))` (source = the element type `string`), whose operand is a
+conversion-of-index — matching none of the accepted shapes.
+
+**Fix (`SolidCore/Solidity/Interface.lean`).** In the `Ty.bytes | Ty.string`
+conversion branch, the special operands that need a dedicated core node or an
+env-free identity read (bare identifier — storage `bytes`/`string` → the
+length-prefixed `storageBytes` node, else the plain ident core; a
+`bytes`/`string` literal; a `bytes(ident)`/`string(ident)` re-wrap) are handled
+by a new helper `Expr.bytesStringSpecialCore?` (mirrors the previous inline
+cases exactly). ANY OTHER operand (index / member / call / nested conversion /
+ternary) is lowered by the ordinary recursion and returned directly, because
+string↔bytes is a pointer REINTERPRET (identity) in the core model. The
+underlying node decides copy vs alias, matching solc: a memory read
+(`Expr.index`) ALIASES, a storage read (`storageIndex`/`storageBytes`)
+DEEP-COPIES into memory, a calldata descriptor is reinterpreted.
+
+Decisions / notes:
+
+- The recursion is placed under the `Expr.bytesStringSpecialCore?` match, NOT a
+  `match expr`, so the well-founded `decreasing_by` (`simp_wf; omega`) still sees
+  the operand as a strict subterm of the matched call. Placing it in a
+  `match expr | _ =>` wildcard hid the subterm fact and broke termination.
+- The recursion is UNCONDITIONAL (not gated on `Expr.abiTy?`): this is already
+  the `bytes`/`string` conversion TARGET, so the operand is a dynamic
+  bytes/string guaranteed by the typechecker, and the env-free `Expr.abiTy?`
+  cannot always recover the element type of the `annotateAbi`-inserted inner
+  `string(index)` wrapper. An operand that cannot lower still yields `none`.
+- No over-correction: bare-ident and value-type element conversions
+  (`uint256(u8arr[i])`) are unchanged; memory string↔bytes still ALIASES (M5),
+  storage→memory still COPIES (independent) — both checked in the new lane.
+- New Forge-paired manifest lane `nested-conversion-lowering`
+  (`tests/forge-harness/nested-conversion-lowering/`): `memElemLength`=2,
+  `memElemEmptyFlag`=1 (`bytes(s[i]).length==0`), `keccakBytesElemMatch`=1
+  (`keccak256(bytes(names[i]))`), `storageNestedLength`=5
+  (`bytes(string(storage))`), `storageNestedIndependent`=1 (storage→memory deep
+  copy is independent), `memAliasThroughConv`=1 (mutation through the memory
+  conversion alias is observed). Forge ground truth (pinned solc 0.8.35) vs the
+  imported Lean witness: `forge=ok lean=ok forge_interpreter_compare=pass`.
+- FULL `lake build` green (1103 jobs, incl. FuelMonotonicity + Witness.*).
+  `scripts/smoke_replay.sh SMOKE_JOBS=6` green (29 cases), no regressions.
+
 ## 2026-07-09 — EU1: `using {f} for E` on an ENUM now dispatches member calls (`e.f(args)` → `f(e, args)`)
 
 Fixes a confirmed incompleteness/over-reject at execution, verified against
