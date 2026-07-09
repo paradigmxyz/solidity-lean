@@ -5,6 +5,59 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — extcodesize existence guard: uncatchable pre-CALL, all receiver shapes
+
+Fixes two confirmed soundness divergences in the external-call existence guard,
+verified against solc 0.8.35 (`libsolidity/codegen/ExpressionCompiler.cpp`,
+`appendExternalFunctionCall`) and the pinned binary. solc emits, before the CALL
+opcode of every high-level typed external call (`funKind == External ||
+DelegateCall`), `if iszero(extcodesize(addr)) { revert(0, 0) }` — but *only* when
+the ABI head size of the return types is 0 (`encodedHeadSize == 0`, i.e. no
+return values; with return values solc's separate returndata-size check catches
+the codeless case instead). The guard is emitted for *every* contract/interface/
+library-typed receiver, independent of the receiver expression's shape, and has
+no try/catch exception.
+
+- **A1 — try over a codeless address.** The guard runs *before* the CALL, so it
+  reverts the caller UNCATCHABLY: a `try IThing(a).poke() { … } catch { … }`
+  over a codeless `a` reverts the whole tx; the catch clause never runs.
+  solidity-lean previously mapped missing code to a failed `LowLevelCallResult`
+  that flowed into the catch branch (returning the catch value). Fixed in
+  `Interpreter.lean` (`Stmt.tryExternalCall` arm): when `checkTargetCode` holds
+  and the target has no code, the arm now returns `Result.reverted _
+  RevertData.empty` *before* `emitLowLevelCall` — no CALL is performed and no
+  external interaction is recorded, matching solc's empty pre-call `revert(0,0)`.
+- **A3 — guard gated on receiver shape.** solidity-lean only emitted the guard
+  for identifier / `C(x)` receivers (`externalCallTargetNeedsCodeCheckWithEnv`),
+  so `contracts[i].f()`, `s.field.f()`, `m[k].f()`, `factory.get().f()` skipped
+  it and a void call to a codeless target completed. Fixed centrally in
+  `Interface.lean` (`Expr.externalCallNeedsCodeCheckWithEnv`): the guard is now
+  emitted for any high-level member-call external call when `returnTys.isEmpty`,
+  regardless of receiver shape. Any member call reaching this point is already a
+  typed external call — low-level `.call`/`.staticcall`/`.delegatecall`/`.send`/
+  `.transfer` are filtered out upstream by `toExternalCallWithKindEnv?`, so they
+  keep getting no guard (confirmed against solc: those are `Bare*`/`Send`/
+  `Transfer` funKinds, not `External`/`DelegateCall`).
+
+Decisions / notes:
+
+- The existing `returnTys.isEmpty` condition was kept — it is exactly solc's
+  `encodedHeadSize == 0`, read from source, not the divergence. Only the
+  receiver-shape restriction was the A3 bug.
+- `FuelMonotonicity.lean` (`eval_mono_step`, `tryExternalCall` case) was updated
+  to match the restructured arm: the missing-code branch is now a fuel-free
+  `Result.reverted`, discharged as a reflexivity goal by the ite-splitting
+  `simp`, so only the has-code (CALL) branch carries the fuel-dependent
+  continuation. Full build green (1102 jobs), including `FuelMonotonicity` and
+  the `SolidCore.Witness.*` cluster.
+- Pinned by a new Forge-paired manifest lane `extcodesize-existence-guard`
+  (`tests/forge-harness/extcodesize-existence-guard/`): a `PokeTarget` /
+  `ExtcodesizeGuardCaller` pair with `tryPoke` (A1) and `pokeViaMapping` (A3,
+  mapping-index receiver). Forge ground truth (4/4 pass): codeless targets
+  revert, code-bearing targets succeed. Lean evals import the same source from
+  the solc AST and check the codeless cases revert with empty data (no catch, no
+  interaction) while the code-bearing controls succeed.
+
 ## 2026-07-08 — CE-family: constant folder re-derived over signed rationals with solc's resource caps
 
 Acting on `docs/solc-const-eval-env-review.md`. solc's `ConstantEvaluator`

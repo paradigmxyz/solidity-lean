@@ -7755,6 +7755,54 @@
           }
         ]
       }
+    },
+    {
+      "name": "extcodesize-existence-guard",
+      "description": "Forge/EVM ground truth for solc 0.8.35's extcodesize existence guard before typed external calls (ExpressionCompiler.cpp appendExternalFunctionCall): a void call to a codeless contract-typed receiver reverts, including under try/catch where the pre-CALL guard reverts the caller UNCATCHABLY (A1), and for non-ident receiver shapes such as a mapping-index receiver (A3); Lean imports the same source from solc AST and checks that a codeless target reverts with empty data (no catch, no interaction) while a code-bearing target succeeds.",
+      "forge": {
+        "root": "tests/forge-harness/extcodesize-existence-guard",
+        "match_contract": "ExtcodesizeGuardForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/extcodesize-existence-guard/src/ExtcodesizeExistenceGuard.sol",
+        "contract": "ExtcodesizeGuardCaller",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExtcodesizeGuard"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExtcodesizeGuard.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "a1TryOverCodelessRevertsUncatchably",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExtcodesizeGuard.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExtcodesizeGuardCaller\"\n  let callResult \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64\n    (SolidCore.Solidity.Source.responderOfResults [] []) contract \"tryPoke\"\n    { contract.core.context with accountCodes := [] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "a1TryOverCodeReturnsOne",
+            "expr": "(do\n  let pokeResult \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult\n    SolidCore.Solidity.Source.LowLevelCallKind.call \"poke()\" [] [] []\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExtcodesizeGuard.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExtcodesizeGuardCaller\"\n  let callResult \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64\n    (SolidCore.Solidity.Source.responderOfResults [pokeResult] []) contract \"tryPoke\"\n    { contract.core.context with accountCodes := [(0xbeef, [1])] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "a3MappingReceiverOverCodelessReverts",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExtcodesizeGuard.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExtcodesizeGuardCaller\"\n  let callResult \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64\n    (SolidCore.Solidity.Source.responderOfResults [] []) contract \"pokeViaMapping\"\n    { contract.core.context with accountCodes := [] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 7, SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "a3MappingReceiverOverCodeSucceeds",
+            "expr": "(do\n  let pokeResult \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult\n    SolidCore.Solidity.Source.LowLevelCallKind.call \"poke()\" [] [] []\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExtcodesizeGuard.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExtcodesizeGuardCaller\"\n  let callResult \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64\n    (SolidCore.Solidity.Source.responderOfResults [pokeResult] []) contract \"pokeViaMapping\"\n    { contract.core.context with accountCodes := [(0xbeef, [1])] }\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 7, SolidCore.Solidity.Source.Value.word 0xbeef]\n  match callResult with\n  | SolidCore.Solidity.Source.CallResult.returned _ [] => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

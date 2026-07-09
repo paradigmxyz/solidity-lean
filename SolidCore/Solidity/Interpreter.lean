@@ -8656,73 +8656,76 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                         | Except.ok (calldataValue, runtime''') =>
                             match calldataValue.asBytes? with
                             | some calldata => do
-                                    let missingCode :=
-                                      checkTargetCode &&
+                                    if checkTargetCode &&
                                         !(runtime'''.state.envAccountHasCode
-                                          context target)
-                                    let (callResult, adoptedState) ←
-                                      if missingCode then
-                                        pure
-                                          ( LowLevelCallResult.failedRequest
-                                              kind target calldata value gas?
-                                          , runtime'''.state )
-                                      else
+                                          context target) then
+                                      -- A1/A3: solc's `extcodesize` existence
+                                      -- guard is emitted BEFORE the CALL opcode,
+                                      -- so a missing-code target reverts the
+                                      -- CALLER uncatchably — try/catch cannot
+                                      -- intercept a pre-call revert — with empty
+                                      -- revert data.  No CALL is performed, so no
+                                      -- external interaction is recorded.
+                                      pure
+                                        (Result.reverted runtime''' RevertData.empty)
+                                    else do
+                                      let (callResult, adoptedState) ←
                                         emitLowLevelCall context runtime'''.state
                                           kind target calldata value gas?
-                                    let runtimeWithInteraction :=
-                                      { runtime''' with
-                                        state :=
-                                          adoptedState }.recordExternalInteraction
-                                        (ExternalInteraction.lowLevelCall
-                                          callResult)
-                                    let success := callResult.success
-                                    let output := callResult.output.map normByte
-                                    if success then
-                                      match abiDecodeValues?
-                                          (returns.map BindingDecl.ty) output with
-                                        | some decoded =>
-                                            if AbiCleanups.acceptOrUnspecified
-                                                returnAbiCleanups decoded then
-                                              match BindingDecl.bindArgs?
-                                                  returns decoded with
-                                              | some frame => do
-                                                  let result ← Stmt.eval fuel table context
-                                                      (runtimeWithInteraction.withFrame
-                                                        frame)
-                                                      successBody
-                                                  pure
-                                                    (result.mapRuntime
-                                                      Runtime.popScope)
-                                              | none =>
+                                      let runtimeWithInteraction :=
+                                        { runtime''' with
+                                          state :=
+                                            adoptedState }.recordExternalInteraction
+                                          (ExternalInteraction.lowLevelCall
+                                            callResult)
+                                      let success := callResult.success
+                                      let output := callResult.output.map normByte
+                                      if success then
+                                        match abiDecodeValues?
+                                            (returns.map BindingDecl.ty) output with
+                                          | some decoded =>
+                                              if AbiCleanups.acceptOrUnspecified
+                                                  returnAbiCleanups decoded then
+                                                match BindingDecl.bindArgs?
+                                                    returns decoded with
+                                                | some frame => do
+                                                    let result ← Stmt.eval fuel table context
+                                                        (runtimeWithInteraction.withFrame
+                                                          frame)
+                                                        successBody
+                                                    pure
+                                                      (result.mapRuntime
+                                                        Runtime.popScope)
+                                                | none =>
+                                                    pure
+                                                      (Result.reverted
+                                                        runtimeWithInteraction
+                                                        RevertData.typeMismatch)
+                                              else
                                                   pure
                                                     (Result.reverted
                                                       runtimeWithInteraction
-                                                      RevertData.typeMismatch)
-                                            else
-                                                pure
-                                                  (Result.reverted
-                                                    runtimeWithInteraction
-                                                    RevertData.empty)
-                                        | none =>
-                                            pure
-                                              (Result.reverted
-                                                runtimeWithInteraction
-                                                RevertData.empty)
-                                    else
-                                        match TryCatchClause.findMatch?
-                                            output catchClauses with
-                                        | some (frame, body) => do
-                                            let result ← Stmt.eval fuel table context
-                                                (runtimeWithInteraction.withFrame
-                                                  frame) body
-                                            pure
-                                              (result.mapRuntime
-                                                Runtime.popScope)
-                                        | none =>
-                                            pure
-                                              (Result.reverted
-                                                runtimeWithInteraction
-                                                (RevertData.fromRawBytes output))
+                                                      RevertData.empty)
+                                          | none =>
+                                              pure
+                                                (Result.reverted
+                                                  runtimeWithInteraction
+                                                  RevertData.empty)
+                                      else
+                                          match TryCatchClause.findMatch?
+                                              output catchClauses with
+                                          | some (frame, body) => do
+                                              let result ← Stmt.eval fuel table context
+                                                  (runtimeWithInteraction.withFrame
+                                                    frame) body
+                                              pure
+                                                (result.mapRuntime
+                                                  Runtime.popScope)
+                                          | none =>
+                                              pure
+                                                (Result.reverted
+                                                  runtimeWithInteraction
+                                                  (RevertData.fromRawBytes output))
                             | none =>
                                 pure (Result.reverted runtime''' RevertData.typeMismatch)
                         | Except.error err => pure (Result.reverted runtimeOpts err)
