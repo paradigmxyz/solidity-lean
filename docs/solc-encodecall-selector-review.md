@@ -1,4 +1,4 @@
-# Solidus vs solc 0.8.35 — `abi.encodeCall` selector derivation review
+# solidity-lean vs solc 0.8.35 — `abi.encodeCall` selector derivation review
 
 Surface reviewed: `abi.encodeCall` / `encodeWithSelector` / `encodeWithSignature`
 (selector derivation + argument encoding), plus a spot-check of `delete` on
@@ -11,9 +11,9 @@ Ground truth: pinned `/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35`
 ## CONFIRMED — wrong-value: `abi.encodeCall` derives the 4-byte selector from the ARGUMENT types, not the callee's declared PARAMETER types
 
 ### Classification
-wrong-value. Confidence: high (both solc and the Solidus source traced).
+wrong-value. Confidence: high (both solc and the solidity-lean source traced).
 
-### Root cause (Solidus)
+### Root cause (solidity-lean)
 `Expr.functionPointerSelectorCore?`, `SolidCore/Solidity/Interface.lean:5091`.
 For a member function pointer (`X.f`, `i.f`, `this.f`) the `Expr.member _ name`
 branch (lines 5093–5104) builds the signature from the **argument** type list it
@@ -42,7 +42,7 @@ divergence is a wrong return value, not an over-reject.
 
 Because number literals are typed `uint256` by `Literal.abiTy?`
 (`Interface.lean:3560`) and small integer variables keep their narrow type, the
-Solidus signature disagrees with solc's whenever an argument's static type
+solidity-lean signature disagrees with solc's whenever an argument's static type
 differs from the parameter type by an implicit conversion. (For scalar
 widening/sign-extension the *encoded value bytes* still coincide — both pad to 32
 bytes — so the **selector** is the observable divergence.)
@@ -62,7 +62,7 @@ contract C {
 solc: selector = `foo(uint256)` = `0x2fbebd38`
 (`--ir`: `expr_..._functionSelector := 0x2fbebd38`; cross-checked against
 `I.foo.selector`).
-Solidus: `argTys = [uint8]` ⇒ `externalFunctionSignature? "foo" [uint8]`
+solidity-lean: `argTys = [uint8]` ⇒ `externalFunctionSignature? "foo" [uint8]`
 = `"foo(uint8)"` ⇒ selector `0x11602fb3`. **Wrong first 4 bytes of the result.**
 
 ### Repro B — literal narrower than parameter (more common)
@@ -78,7 +78,7 @@ contract C {
 ```
 solc: selector = `foo(uint8)` = `0x11602fb3` (confirmed in `--ir` and in the
 deployed runtime bytecode: `...6311602fb36003...`).
-Solidus: literal `3` ⇒ `Literal.abiTy?` = `uint256` ⇒ signature `foo(uint256)`
+solidity-lean: literal `3` ⇒ `Literal.abiTy?` = `uint256` ⇒ signature `foo(uint256)`
 ⇒ selector `0x2fbebd38`. **Wrong.**
 
 Both directions therefore diverge; the two repros bracket the bug.

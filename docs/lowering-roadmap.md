@@ -39,7 +39,7 @@ Layer names used throughout (top-down; seams in parentheses):
 | —Sy—  |             | paths → slot arithmetic via materialized `E`              |
 | L1    | `WordIR`    | Solidity statement forms over pure Yul representation     |
 | —Sk—  |             | near-1:1 syntax map to `EvmYul.Yul.Ast` objects           |
-| Yul   | (frozen)    | Solidus's source; everything below is inherited           |
+| Yul   | (frozen)    | solidity-lean's source; everything below is inherited           |
 
 ---
 
@@ -82,7 +82,7 @@ behavior-preservation validated by the corpus.
     `#print axioms`; a no-`sorry`/no-new-`axiom` scan; frozen-hash checks
     for the deps.
 1.3 **Seam vocabulary module** (`SolidityCompiler/Seam.lean`): the shared
-    truncation predicate (source `outOfFuel` ↔ Solidus's `Truncated`), the
+    truncation predicate (source `outOfFuel` ↔ solidity-lean's `Truncated`), the
     top done-relation (code-erased `OpenWorld` + exact output/revert bytes +
     log entries — the Sd relation), and the initial-state relation over
     public data. Re-export, never redefine, the alphabet.
@@ -90,7 +90,7 @@ behavior-preservation validated by the corpus.
     statement-only): `def CompilerCorrect : Prop` in spec vocabulary —
     checked source program + `solidityCompile? = some bytes` +
     initial-state relation ⇒ the `Checked.lean` tree run `ForwardRel`-refines
-    the open bytecode run (via Solidus), truncation = source `outOfFuel`.
+    the open bytecode run (via solidity-lean), truncation = source `outOfFuel`.
     Resolve the two recorded transcript residues **in the statement now**:
     creation (`initCode`) in or out of the v1 crown; `requestedGas`
     quantified or discharged. Theorem-truth review of this Prop is a Stage-1
@@ -181,13 +181,13 @@ die cheaply.
     level. Gate: corpus on L1.
 4.5 **Sk: L1 → Yul** (`Compile/Word.lean`): the near-1:1 map onto
     `EvmYul.Yul.Ast` using the Stage-2.3 catalog. Gates, in order:
-    (a) corpus on the emitted Yul **under Solidus's own frozen Yul
+    (a) corpus on the emitted Yul **under solidity-lean's own frozen Yul
     interpreter** (the strongest oracle in the project);
-    (b) feed emitted Yul objects to Solidus `compile?` and record the
+    (b) feed emitted Yul objects to solidity-lean `compile?` and record the
     fail-closed rate (expect stack-headroom failures — this measures the
     deferred spill-pass need, `compile-to-yul-readiness.md` deferred items);
     (c) where `compile?` succeeds, full-stack differential: bytecode run
-    (Solidus bridge runners) vs source interpreter vs Forge.
+    (solidity-lean bridge runners) vs source interpreter vs Forge.
 4.6 **`solidityCompile?`**: the composed fail-closed pipeline
     `Sd ∘ Sc ∘ SmSx ∘ Sy ∘ Sk` (+ later the spill pass), the function named
     by the crown statement.
@@ -229,7 +229,7 @@ def SkPreservation : Prop :=
   the modifiers-inlined fragment is named in its docstring.
 - **Composition statement**: `def TowerComposes : Prop :=` the five seams +
   `compile_correct` chain via `ForwardRel.trans` into `CompilerCorrect` —
-  stated as an implication from the five seam Props + Solidus's theorem, so
+  stated as an implication from the five seam Props + solidity-lean's theorem, so
   the trans side-conditions (`hReflect`, discharged by this repo's
   fuel-monotonicity theorems) are checked to line up *now*.
 - **Statement audit**: for each Prop, a recorded theorem-truth pass

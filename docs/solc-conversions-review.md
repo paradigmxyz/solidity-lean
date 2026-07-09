@@ -58,7 +58,7 @@ Live outputs (`cast call`, anvil, solc-0.8.35 runtime bytecode):
 - `packed` payload (after offset+len 4) → `aabb0000`
 - `enc` payload (after offset+len 32)  → `aabb0000...00`
 
-### What Solidus does (wrong)
+### What solidity-lean does (wrong)
 `Expr.ternary` is lowered by plain `Expr.toCore?`, which recurses into the
 branches **without a target type** — no conversion is inserted:
 
@@ -73,7 +73,7 @@ branches **without a target type** — no conversion is inserted:
   (identical no-conversion recursion in the alias/annotate copies at
   `:202-203, :4932-4946` type side only, `:7101-7103`, etc.)
 
-Solidus' internal `bytesN` convention is **right-aligned** (meaningful bytes in
+solidity-lean' internal `bytesN` convention is **right-aligned** (meaningful bytes in
 the low position — see `Interpreter.lean:471`). The runtime ternary
 (`Interpreter.lean:6591-6600`) returns the raw `y` branch value = internal
 `0x0000aabb` and never widens it. The conditional's reported type is `bytes4`
@@ -86,7 +86,7 @@ serialises a `bytes4` from that value:
 - `abi.encodePacked`: `abiEncodePackedValue?` `Ty.fixedBytes 4`
   (`Interpreter.lean:4993-4997`) → `wordToBytesBE 4 0x0000aabb` = `0000aabb`.
 
-So Solidus yields `0x0000aabb…` everywhere solc yields `0xaabb0000…`.
+So solidity-lean yields `0x0000aabb…` everywhere solc yields `0xaabb0000…`.
 
 ### Classification
 Wrong value (mis-encoded byte alignment). Reachable, differentially-live, and
@@ -137,5 +137,5 @@ out of the supported surface.
   `Ty.commonImplicit?` (`Interface.lean:3474-3492, 3115-3168, 4932-4946`):
   `c ? 63 : 255` → uint8, `c ? uint16(300) : 5` → uint16,
   `c ? int16(-1) : -300` → int16, all match solc's `abi_encode_..._t_uintN`.
-  `c ? 1 : -1` is **rejected** by solc ("uint8 does not match int8") and Solidus'
+  `c ? 1 : -1` is **rejected** by solc ("uint8 does not match int8") and solidity-lean'
   `commonImplicit?` also returns `none` — consistent.

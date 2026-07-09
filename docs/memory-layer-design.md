@@ -112,7 +112,7 @@ solc — that is the repo's standing mission and the divergence hunt's job; the
 boundary-invisible and `Query`/`OpenWorld` carry no memory, the Sm done- and
 seam-relations constrain only: storage words, transcript bytes (calldata,
 initCode), output/revert bytes, log entries, and keccak arguments. Yul-side
-final memory is existentially quantified at our seam (Solidus's own crown
+final memory is existentially quantified at our seam (solidity-lean's own crown
 constrains it further down). The heap↔bytes correspondence is **internal
 simulation machinery**: one named invariant, never a theorem premise a reader
 sees.
@@ -142,7 +142,7 @@ Requirements:
 Our source models the *per-allocation* `length > 2^64-1` panic but has no
 cumulative allocator, so a gasless source run can succeed where the target's
 `finalize_allocation` would panic 0x41 (FMP past `2^64`) — and 0x41 is an
-ordinary observable revert, not an escape frame. Resolution, in the Solidus
+ordinary observable revert, not an escape frame. Resolution, in the solidity-lean
 escape-elimination style: state the adjacent theorem with an explicit
 source-facing premise `AllocationBound run` ("the run's total rounded
 allocation stays below `2^64`") — computable from the source run since
