@@ -5,6 +5,78 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — D1: nested-dynamic CALLDATA decode is lazy (defer inner-element validation to access)
+
+Fixes D1, a confirmed over-reject (`docs/solc-abi-decode-validation-review.md`),
+verified against pinned solc 0.8.35 (`--ir` + Forge). When decoding a CALLDATA
+dynamic aggregate, solc validates only the IMMEDIATE structure and returns a
+calldata pointer; INNER dynamic elements are validated LAZILY when accessed. A
+`bytes[] calldata` decode checks only the length word (`≤ 2^64-1`) and head-area
+presence; a calldata struct checks only that its head words are present. Reading
+just `.length`, or a sibling field, therefore succeeds even when an unread inner
+element's offset/length is structurally malformed. solidity-lean previously
+decoded EAGERLY (`ABI.lean` `decodeValueAtWithFuel?`): the `dynamicArray` /
+`tuple` cases materialised every element via `readWord?`/`readBytes?`, so any
+malformed inner offset → `none` → `revertedEmptyCall` → empty revert, even when
+the body never touched that element.
+
+- **Repro 1** — `f(bytes[] calldata x) returns (uint) { return x.length; }`,
+  element[1] offset word = `0xffffffffffffff00` (never read): solc returns 2.
+- **Repro 2** — `s(P calldata p) returns (uint) { return p.a; }` for
+  `struct P{uint256 a; bytes b}`, `p.b` offset = garbage (never read): solc
+  returns 7.
+
+Fix (calldata-only laziness, mirroring solc's pointer model):
+
+- `decodeValueAtWithFuel?` threads a `lazy : Bool` flag (`ABI.lean`).
+  For a calldata array/struct/fixed-array of DYNAMIC elements it (a) still checks
+  the immediate structure eagerly — the length/head words and an explicit
+  head-area presence guard (`readBytes? … (count·stride)`), matching solc's
+  `gt(arrayPos+len·stride,end)` / `slt(sub(end,offset),N·32)`, so a truncated
+  head still reverts eagerly (no over-accept); and (b) substitutes a deferred
+  marker for any inner element whose offset-following read fails, instead of
+  propagating `none`.
+- The marker is `Value.calldataDeferredInvalid ty := Value.abiLazy (AbiCleanup.uint 0) ty.defaultValue`
+  (`Interpreter.lean`). Its placeholder is the element type's default value so
+  parameter binding's `coerceValue?` accepts it WITHOUT forcing (the aggregate
+  stays usable for `.length` and sibling access), while an ACTUAL access
+  (`derefMemoryValue` → `forceAbiLazy`) forces the always-rejecting `uint 0`
+  cleanup and reverts empty — exactly matching solc's per-access
+  `validator_revert_*`. So an accessed malformed element STILL reverts (no
+  over-accept).
+- `lazy` is chosen per parameter in `decodeFunctionArgs?` from the param ABI
+  cleanup: `memoryEager` (memory-location params) → eager (`lazy=false`), every
+  other location → calldata-lazy. Memory aggregates remain eagerly validated in
+  both solc and solidity-lean; the divergence is calldata-only. The top-level
+  per-parameter decode is never lazy (marker substitution happens only inside
+  the aggregate element loops), so a malformed TOP-LEVEL offset still reverts
+  eagerly, matching solc's immediate-structure validation.
+
+Decisions / notes:
+
+- Distinct from the mined S2 dirty-bit laziness (`abiLazy`/`memoryEager`): D1 is
+  a STRUCTURAL offset malformation resolved upstream in
+  `decodeValueAtWithFuel?`; S2's value-type calldata-array laziness
+  and all existing calldata/ABI behaviour are preserved (well-formed calldata
+  decodes byte-identically to before).
+- The `abi.decode` builtin path (`Interpreter.lean` `abiDecodeValueAtWithFuel?`)
+  is left EAGER: solc's `abi.decode` copies to memory eagerly, so that copy is
+  faithful and out of scope.
+- Termination: the modified arms keep the inner recursors' signatures identical
+  to the eager decoder (`lazy`/`step`/head-area guard threaded as closed-over
+  constants, not extra recursor parameters, with `fuel` first), so the automatic
+  well-founded measure is inferred exactly as before — no `termination_by`
+  needed. No proof required updating; full build green (1102 jobs, incl.
+  `FuelMonotonicity` + `SolidCore.Witness.*`).
+- Pinned by the `abi-malformed` fixture: new Solidity functions
+  `bytesArrayLength`/`bytesArraySecondLength` and struct `DynBytesPair` with
+  `dynBytesPairFirst`/`dynBytesPairSecondLength`; a new Forge test
+  `testNestedDynamicCalldataLazyValidation` feeds raw malformed calldata (length
+  returns 2 / clean field returns 7 / accessing the malformed element reverts
+  empty); and a new manifest Lean eval `importedNestedDynamicCalldataLazyValidation`
+  checks the same via `callCalldata`. Full paired harness on `abi-malformed`:
+  `forge=ok lean=ok`, `paired_cases_passed=yes`. Smoke replay (28 cases) green.
+
 ## 2026-07-09 — extcodesize existence guard: uncatchable pre-CALL, all receiver shapes
 
 Fixes two confirmed soundness divergences in the external-call existence guard,

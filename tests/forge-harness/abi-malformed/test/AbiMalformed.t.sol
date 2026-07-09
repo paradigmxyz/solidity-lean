@@ -417,6 +417,69 @@ contract AbiMalformedForgeTest {
         require(pairSecondOutput.length == 0, "narrow pair second data");
     }
 
+    // A `bytes[]` whose element[1] offset word is garbage (`0xff..00`) but is
+    // never read: solc validates only the length word + head-area presence at
+    // decode, so `.length` returns 2, while accessing `input[1]` reverts empty.
+    function malformedBytesArray() internal pure returns (bytes memory) {
+        return bytes.concat(
+            bytes32(uint256(0x20)),               // offset to array
+            bytes32(uint256(2)),                  // length = 2
+            bytes32(uint256(0x40)),               // element0 offset (valid)
+            bytes32(uint256(0xffffffffffffff00)), // element1 offset (garbage)
+            bytes32(uint256(0))                   // element0 length = 0
+        );
+    }
+
+    // A `struct{uint256 clean; bytes dirty}` whose `dirty` offset word is
+    // garbage but is never read: solc checks only the two head words are
+    // present, so `input.clean` returns 7, while `input.dirty.length` reverts.
+    function malformedDynBytesPair() internal pure returns (bytes memory) {
+        return bytes.concat(
+            bytes32(uint256(0x20)),               // offset to struct
+            bytes32(uint256(7)),                  // clean = 7
+            bytes32(uint256(0xffffffffffffff00))  // dirty (bytes) offset garbage
+        );
+    }
+
+    function testNestedDynamicCalldataLazyValidation() public {
+        (bool lengthSuccess, bytes memory lengthOutput) = address(target).call(
+            bytes.concat(
+                AbiMalformed.bytesArrayLength.selector,
+                malformedBytesArray()
+            )
+        );
+        require(lengthSuccess, "bytes[] lazy length");
+        requireWord(lengthOutput, 2);
+
+        (bool elementSuccess, bytes memory elementOutput) = address(target)
+            .call(
+                bytes.concat(
+                    AbiMalformed.bytesArraySecondLength.selector,
+                    malformedBytesArray()
+                )
+            );
+        require(!elementSuccess, "bytes[] malformed element");
+        require(elementOutput.length == 0, "bytes[] element revert data");
+
+        (bool cleanSuccess, bytes memory cleanOutput) = address(target).call(
+            bytes.concat(
+                AbiMalformed.dynBytesPairFirst.selector,
+                malformedDynBytesPair()
+            )
+        );
+        require(cleanSuccess, "dyn struct lazy clean");
+        requireWord(cleanOutput, 7);
+
+        (bool dirtySuccess, bytes memory dirtyOutput) = address(target).call(
+            bytes.concat(
+                AbiMalformed.dynBytesPairSecondLength.selector,
+                malformedDynBytesPair()
+            )
+        );
+        require(!dirtySuccess, "dyn struct malformed member");
+        require(dirtyOutput.length == 0, "dyn struct member revert data");
+    }
+
     function testAbiDecodeNestedNarrowIntegerCanonicalDecoding() public {
         (bool success, bytes memory output) = address(target).call(
             abi.encodeCall(

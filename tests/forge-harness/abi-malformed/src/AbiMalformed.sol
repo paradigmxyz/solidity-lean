@@ -149,6 +149,11 @@ contract AbiMalformed {
         uint8 dirty;
     }
 
+    struct DynBytesPair {
+        uint256 clean;
+        bytes dirty;
+    }
+
     mapping(uint8 => uint256) public narrowMap;
 
     constructor(uint8 seed) {
@@ -325,6 +330,44 @@ contract AbiMalformed {
         returns (uint256)
     {
         return input.dirty;
+    }
+
+    // Nested-dynamic CALLDATA aggregates: solc validates only the immediate
+    // structure at decode and returns a calldata pointer; a structurally
+    // malformed inner dynamic element/member is validated LAZILY on access.
+    // Reading only `.length` / a sibling field must therefore succeed even
+    // when an unread inner element is malformed, while ACCESSING the malformed
+    // element must revert empty.
+    function bytesArrayLength(bytes[] calldata input)
+        external
+        pure
+        returns (uint256)
+    {
+        return input.length;
+    }
+
+    function bytesArraySecondLength(bytes[] calldata input)
+        external
+        pure
+        returns (uint256)
+    {
+        return input[1].length;
+    }
+
+    function dynBytesPairFirst(DynBytesPair calldata input)
+        external
+        pure
+        returns (uint256)
+    {
+        return input.clean;
+    }
+
+    function dynBytesPairSecondLength(DynBytesPair calldata input)
+        external
+        pure
+        returns (uint256)
+    {
+        return input.dirty.length;
     }
 
     function decodeUint8Array(bytes memory encoded)
