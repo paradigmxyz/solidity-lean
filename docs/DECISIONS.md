@@ -5,6 +5,74 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — D-OOM-DISPATCH #83 + TC-OOM1: allocation-Panic(0x41) on the external-dispatch and try/catch success-return decoders
+
+Two replay-reachable WRONG-REVERTs in the same DEC-OOM #62 family: a decoded
+dynamic reference target whose declared length exceeds `0xffffffffffffffff` is
+allocated by solc BEFORE the data-presence bounds check, so it raises
+Panic(0x41), not the empty `revert(0,0)`. DEC-OOM #62 added the guard
+(`abiCheckAllocation?`, `Interpreter.lean:4860`) to the explicit `abi.decode`
+decoder only; the two PARALLEL decoders below still flattened the oversized case
+to empty.
+
+### D-OOM-DISPATCH #83 — external-dispatch argument decoder
+
+`ABI.lean`'s `decodeValueAtWithFuel?` (the external-entry calldata decoder) was
+an `Option Value` decoder: any failure became `none`, which dispatch renders as
+`RevertData.empty`. It had no allocation guard, so `f(bytes memory x)` called
+with length `2^64` gave an empty revert where solc gives Panic(0x41).
+
+Fix: converted the decoder chain to `Except RevertData Value` (mirroring the
+`abi.decode` decoder's `Except` shape), threading the revert to both dispatch
+sites (`callCalldataAtFromWithContext?` and the `SolI` variant) via a new
+`Contract.revertedCall?`. A bounds/dirty/validator/enum failure stays
+`Except.error RevertData.empty`; an oversized EAGER reference param becomes
+`Except.error RevertData.memoryAllocationTooLarge` (Panic 0x41). The guard is
+`abiCheckAllocation? 1 length` on the `Ty.bytesCalldata` arm (element size 1) and
+`abiCheckAllocation? wordBytes length` on the `Ty.dynamicArray` arm (memory
+stride 0x20), each run BEFORE the `readBytes?`/`readWord?` presence check.
+
+CRITICAL eager-vs-lazy gate: the guard fires only when `lazy = false` (the
+`AbiCleanup.memoryEager` / `memory`-location case — solc copies calldata into a
+freshly allocated buffer). A `calldata`-location param (`lazy = true`) returns a
+pointer and never allocates, so it KEEPS its empty/bounds revert on an oversized
+length; the guard is `if !lazy then …`. `lazy` is threaded unchanged into nested
+element decodes, so an eager aggregate of eager reference elements (`bytes[]
+memory`, `uint[][] memory`) fires each element's own guard; `fixedArray`/`tuple`
+arms carry no attacker-controlled length of their own and are covered purely by
+that threading. `decodeArgs?` (witness/eager surface) keeps its historical
+`Option` type by collapsing any `Except.error` to `none`.
+
+### TC-OOM1 — try/catch SUCCESS-path return decoder
+
+`Interpreter.lean` ~:8786 decoded a SUCCESSFUL try-call's typed return with the
+Option view `abiDecodeValues?`, which discards the `RevertData` (`Except.error _
+↦ none`) and then reverts `RevertData.empty`. For a successful call whose
+(oracle) returndata carries an oversized dynamic length, solc decodes the
+success case via `array_allocation_size` → Panic(0x41), which is a fresh CALLER
+revert (not the callee's returndata) and is therefore NOT catchable — it
+propagates uncaught. The model flattened it to empty.
+
+Fix: decode with `abiDecodeValuesExcept?` and, on `Except.error rd`, revert with
+`rd` — exactly mirroring the explicit `abi.decode` path (~:6603). Covers single-
+and multi-return typed try-calls. Genuinely-empty decode failures (short
+returndata, bad offset, dirty-bit/validator) stay `RevertData.empty`; only the
+allocation Panic(0x41) now propagates. `FuelMonotonicity.lean:548` updated to
+case-split the `Except` (both error modes are fuel-free `Result.reverted`; only
+`Except.ok` carries the fuel-dependent success body) — no weakening.
+
+### Evidence
+
+New sanctioned lane `dispatch-oom` (Forge + pinned solc 0.8.35 + imported Lean,
+`tests/forge-harness/dispatch-oom/`): `memBytesLength(bytes memory)` /
+`memUintArrayLength(uint256[] memory)` at length `2^64` → Panic(0x41);
+`calldataBytesLength(bytes calldata)` / `calldataUintArrayLength(uint256[]
+calldata)` at the SAME length → empty revert; a well-formed decode unchanged; and
+`tryBytesLength` under an oversized success returndata → uncaught Panic(0x41)
+vs a short returndata → uncaught empty revert. Both `forge=ok` and `lean=ok`
+under `--only dispatch-oom`, so pinned solc's own reverts agree with the model.
+Full `lake build` clean (proofs incl. FuelMonotonicity).
+
 ## 2026-07-09 — ACCEPT-BOUNDARY: two reject-fidelity over-accepts closed (base ctor args twice; eager brace using-for)
 
 Two independent, well-localized over-accepts where SolidCore accepted a program

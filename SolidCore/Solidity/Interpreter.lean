@@ -8783,9 +8783,22 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                                       let success := callResult.success
                                       let output := callResult.output.map normByte
                                       if success then
-                                        match abiDecodeValues?
+                                        -- Decode the typed return with the
+                                        -- Except view so an oversized dynamic
+                                        -- length (L > 0xffffffffffffffff) raises
+                                        -- Panic(0x41) — solc decodes the SUCCESS
+                                        -- return via `array_allocation_size`, and
+                                        -- that panic is NOT catchable (it is a
+                                        -- fresh revert of the CALLER, not the
+                                        -- callee's returndata), so it propagates
+                                        -- uncaught (TC-OOM1). Genuinely-empty
+                                        -- decode failures (short data / bad
+                                        -- offset / dirty-bit / validator) stay
+                                        -- `RevertData.empty`, exactly matching the
+                                        -- explicit `abi.decode` path above.
+                                        match abiDecodeValuesExcept?
                                             (returns.map BindingDecl.ty) output with
-                                          | some decoded =>
+                                          | Except.ok decoded =>
                                               if AbiCleanups.acceptOrUnspecified
                                                   returnAbiCleanups decoded then
                                                 match BindingDecl.bindArgs?
@@ -8808,11 +8821,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                                                     (Result.reverted
                                                       runtimeWithInteraction
                                                       RevertData.empty)
-                                          | none =>
+                                          | Except.error revertData =>
                                               pure
                                                 (Result.reverted
                                                   runtimeWithInteraction
-                                                  RevertData.empty)
+                                                  revertData)
                                       else
                                           match TryCatchClause.findMatch?
                                               output catchClauses with

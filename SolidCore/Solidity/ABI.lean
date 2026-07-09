@@ -327,188 +327,221 @@ def encodeValues? (tys : List Ty) (values : List Value) : Option Bytes := do
 -- top-level offset reverts eagerly, exactly as solc validates immediate
 -- structure), because marker substitution happens only inside the aggregate
 -- element loops below.
-def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Option Value
-  | 0, _, _, _, _ => none
+-- Lift an `Option`-returning primitive (calldata word/byte read, head-word
+-- count) into the `Except RevertData` decode monad: a `none` — a data-presence
+-- / bounds failure — is solc's empty `revert(0, 0)`.
+def abiArgOpt {α} : Option α -> Except RevertData α
+  | some a => Except.ok a
+  | none => Except.error RevertData.empty
+
+-- Returns `Except RevertData Value`: `Except.error RevertData.empty` is solc's
+-- empty `revert(0, 0)` (bounds / dirty-value / enum-range failure), while
+-- `Except.error RevertData.memoryAllocationTooLarge` is Panic(0x41), raised only
+-- for an *eager* (`memory`-location, `lazy = false`) dynamic reference param
+-- whose length exceeds the allocation bound — mirroring DEC-OOM #62's
+-- `abi.decode` decoder (`abiCheckAllocation?`). A `calldata`-location param
+-- (`lazy = true`) returns a pointer and never allocates, so it keeps the empty
+-- revert on an oversized length.
+def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertData Value
+  | 0, _, _, _, _ => Except.error RevertData.empty
   | _fuel + 1, _lazy, argData, headIndex, Ty.bool => do
-      let value ← readWord? argData (wordBytes * headIndex)
+      let value ← abiArgOpt (readWord? argData (wordBytes * headIndex))
       if wordEq value 0 || wordEq value 1 then
-        some (Value.word value)
+        Except.ok (Value.word value)
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, _lazy, argData, headIndex, Ty.address => do
-      let value ← readWord? argData (wordBytes * headIndex)
+      let value ← abiArgOpt (readWord? argData (wordBytes * headIndex))
       if addressFits value then
-        some (Value.word value)
+        Except.ok (Value.word value)
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, _lazy, argData, headIndex, Ty.uint256 => do
-      let value ← readWord? argData (wordBytes * headIndex)
-      some (Value.word value)
+      let value ← abiArgOpt (readWord? argData (wordBytes * headIndex))
+      Except.ok (Value.word value)
   | _fuel + 1, _lazy, argData, headIndex, Ty.int256 => do
-      let value ← readWord? argData (wordBytes * headIndex)
-      some (Value.int value)
+      let value ← abiArgOpt (readWord? argData (wordBytes * headIndex))
+      Except.ok (Value.int value)
   | _fuel + 1, _lazy, argData, headIndex, Ty.fixedBytes size =>
       if 0 < size && size <= wordBytes then
         do
-        let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
-        let bytes ← readBytes? slot 0 size
-        let padding ← readBytes? slot size (wordBytes - size)
+        let slot ← abiArgOpt (readBytes? argData (wordBytes * headIndex) wordBytes)
+        let bytes ← abiArgOpt (readBytes? slot 0 size)
+        let padding ← abiArgOpt (readBytes? slot size (wordBytes - size))
         if allZeroBytes padding then
-          some (Value.word (bytesToWordBE bytes))
+          Except.ok (Value.word (bytesToWordBE bytes))
         else
-          none
+          Except.error RevertData.empty
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, _lazy, _argData, _headIndex, Ty.internalFunction =>
       -- Internal function pointers have no ABI representation (they cannot
       -- cross the external boundary); decoding one is a type error.
-      none
+      Except.error RevertData.empty
   | _fuel + 1, _lazy, argData, headIndex, Ty.externalFunction => do
-      let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
-      let addressBytes ← readBytes? slot 0 20
-      let selectorPart ← readBytes? slot 20 selectorBytes
+      let slot ← abiArgOpt (readBytes? argData (wordBytes * headIndex) wordBytes)
+      let addressBytes ← abiArgOpt (readBytes? slot 0 20)
+      let selectorPart ← abiArgOpt (readBytes? slot 20 selectorBytes)
       let padding ←
-        readBytes? slot (20 + selectorBytes)
-          (wordBytes - 20 - selectorBytes)
+        abiArgOpt (readBytes? slot (20 + selectorBytes)
+          (wordBytes - 20 - selectorBytes))
       if allZeroBytes padding then
-        some
+        Except.ok
           (Value.externalFunction
             (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
       else
-        none
-  | _fuel + 1, _lazy, argData, headIndex, Ty.bytesCalldata => do
-      let offset ← readWord? argData (wordBytes * headIndex)
-      let length ← readWord? argData offset
-      let bytes ← readBytes? argData (offset + wordBytes) length
-      some (Value.bytes bytes)
+        Except.error RevertData.empty
+  | _fuel + 1, lazy, argData, headIndex, Ty.bytesCalldata => do
+      let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
+      let length ← abiArgOpt (readWord? argData offset)
+      -- A `memory`-location `bytes`/`string` (eager) is allocated (element
+      -- size 1) BEFORE the calldata data-presence check, so an oversized length
+      -- raises Panic(0x41). A `calldata` param never allocates → empty revert.
+      if !lazy then abiCheckAllocation? 1 length
+      let bytes ← abiArgOpt (readBytes? argData (offset + wordBytes) length)
+      Except.ok (Value.bytes bytes)
   | fuel + 1, lazy, argData, headIndex, Ty.dynamicArray elementTy => do
-      let offset ← readWord? argData (wordBytes * headIndex)
-      let length ← readWord? argData offset
+      let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
+      let length ← abiArgOpt (readWord? argData offset)
+      -- A `memory` array (eager) is allocated (memory stride 0x20 per element)
+      -- BEFORE elements are read, so an oversized length raises Panic(0x41); a
+      -- `calldata` array (lazy) returns a pointer and never allocates.
+      if !lazy then abiCheckAllocation? wordBytes length
       -- Inner-element validation is deferred only for a *calldata* array of
       -- *dynamic* elements (solc returns a calldata pointer and validates each
       -- element's inner offset/length lazily on access); a structurally
       -- malformed such element becomes a deferred marker instead of a boundary
       -- revert. The recursor's shape matches the eager decoder so the automatic
-      -- termination measure is preserved.
+      -- termination measure is preserved. `lazy` is threaded unchanged into the
+      -- element decode, so an eager array of eager reference elements fires each
+      -- element's own Panic(0x41) guard.
       let rec decodeDynamicArrayValues? :
-          Nat -> Nat -> Option (List Value)
-        | 0, _ => some []
+          Nat -> Nat -> Except RevertData (List Value)
+        | 0, _ => Except.ok []
         | remaining + 1, index => do
             let value ←
               match
                 decodeValueAtWithFuel? fuel lazy
                   (argData.drop (offset + wordBytes)) index elementTy
               with
-              | some v => some v
-              | none =>
+              | Except.ok v => Except.ok v
+              | Except.error e =>
                   if lazy && Ty.isDynamicAbi elementTy then
-                    some (Value.calldataDeferredInvalid elementTy)
+                    Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
-                    none
-            let step ← Ty.abiHeadWords? elementTy
+                    Except.error e
+            let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
             let rest ← decodeDynamicArrayValues? remaining (index + step)
-            some (value :: rest)
-      let step ← Ty.abiHeadWords? elementTy
+            Except.ok (value :: rest)
+      let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
       -- Eager head-area presence check (solc `gt(arrayPos+length*stride,end)`):
       -- the `length` element head words must be within calldata. Only the
       -- offset-following read INSIDE a present head is deferred.
       if lazy && Ty.isDynamicAbi elementTy &&
           (readBytes? (argData.drop (offset + wordBytes)) 0
             (length * step * wordBytes)).isNone then
-        none
+        Except.error RevertData.empty
       else do
         let values ← decodeDynamicArrayValues? length 0
-        some (Value.dynamicArray values)
+        Except.ok (Value.dynamicArray values)
   | fuel + 1, lazy, argData, headIndex, Ty.fixedArray size elementTy =>
+      -- A fixed-size memory array `T[N]` allocates, but `N` is a compile-time
+      -- constant (`size`), never attacker-controlled, so no length-panic arises
+      -- here; an oversized inner *dynamic* element fires its own guard via the
+      -- threaded (`lazy = false`) element decode below.
       let rec decodeArrayValues? (arrayData : Bytes) :
-          Nat -> Nat -> Option (List Value)
-        | 0, _ => some []
+          Nat -> Nat -> Except RevertData (List Value)
+        | 0, _ => Except.ok []
         | remaining + 1, index => do
             let value ←
               match decodeValueAtWithFuel? fuel lazy arrayData index elementTy with
-              | some v => some v
-              | none =>
+              | Except.ok v => Except.ok v
+              | Except.error e =>
                   if lazy && Ty.isDynamicAbi elementTy then
-                    some (Value.calldataDeferredInvalid elementTy)
+                    Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
-                    none
-            let step ← Ty.abiHeadWords? elementTy
+                    Except.error e
+            let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
             let rest ← decodeArrayValues? arrayData remaining (index + step)
-            some (value :: rest)
+            Except.ok (value :: rest)
       if Ty.isDynamicAbi elementTy then
         do
-        let offset ← readWord? argData (wordBytes * headIndex)
-        let step ← Ty.abiHeadWords? elementTy
+        let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
+        let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
         if lazy && (readBytes? (argData.drop offset) 0
             (size * step * wordBytes)).isNone then
-          none
+          Except.error RevertData.empty
         else do
           let values ← decodeArrayValues? (argData.drop offset) size 0
-          some (Value.fixedArray values)
+          Except.ok (Value.fixedArray values)
       else
         do
         let values ← decodeArrayValues? argData size headIndex
-        some (Value.fixedArray values)
+        Except.ok (Value.fixedArray values)
   | fuel + 1, lazy, argData, headIndex, Ty.tuple elementTys =>
       let rec decodeTupleValues? (tupleData : Bytes) :
-          List Ty -> Nat -> Option (List Value)
-        | [], _ => some []
+          List Ty -> Nat -> Except RevertData (List Value)
+        | [], _ => Except.ok []
         | ty :: tys, index => do
             let value ←
               match decodeValueAtWithFuel? fuel lazy tupleData index ty with
-              | some v => some v
-              | none =>
+              | Except.ok v => Except.ok v
+              | Except.error e =>
                   if lazy && Ty.isDynamicAbi ty then
-                    some (Value.calldataDeferredInvalid ty)
+                    Except.ok (Value.calldataDeferredInvalid ty)
                   else
-                    none
-            let step ← Ty.abiHeadWords? ty
+                    Except.error e
+            let step ← abiArgOpt (Ty.abiHeadWords? ty)
             let rest ← decodeTupleValues? tupleData tys (index + step)
-            some (value :: rest)
+            Except.ok (value :: rest)
       if Ty.listHasDynamicAbi elementTys then
         do
-        let offset ← readWord? argData (wordBytes * headIndex)
-        let headWords ← Ty.listAbiHeadWords? elementTys
+        let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
+        let headWords ← abiArgOpt (Ty.listAbiHeadWords? elementTys)
         -- Eager head-area presence (solc `slt(sub(end,offset), N*32)`); inner
         -- dynamic-member offsets are validated lazily on access for calldata.
         if lazy && (readBytes? (argData.drop offset) 0
             (headWords * wordBytes)).isNone then
-          none
+          Except.error RevertData.empty
         else do
           let values ← decodeTupleValues? (argData.drop offset) elementTys 0
-          some (Value.tuple values)
+          Except.ok (Value.tuple values)
       else
         do
         let values ← decodeTupleValues? argData elementTys headIndex
-        some (Value.tuple values)
+        Except.ok (Value.tuple values)
   -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
   -- position (params/returns lower enums to `uint256` + `AbiCleanup.enum`).
-  | _fuel + 1, _lazy, _, _, Ty.enumStorage _ => none
+  | _fuel + 1, _lazy, _, _, Ty.enumStorage _ => Except.error RevertData.empty
 
 def decodeValueAt? (lazy : Bool) (argData : Bytes) (headIndex : Nat)
-    (ty : Ty) : Option Value :=
+    (ty : Ty) : Except RevertData Value :=
   decodeValueAtWithFuel? (Ty.abiDecodeFuel ty) lazy argData headIndex ty
 
 -- Each parameter carries its own `lazy` flag (calldata vs memory), threaded
 -- from `decodeFunctionArgs?` via the param ABI cleanups.
 def decodeArgsAux? (argData : Bytes) :
-    List (Bool × Ty) -> Nat -> Option (List Value)
-  | [], _ => some []
+    List (Bool × Ty) -> Nat -> Except RevertData (List Value)
+  | [], _ => Except.ok []
   | (lazy, ty) :: tys, index => do
       let value ← decodeValueAt? lazy argData index ty
-      let headWords ← Ty.abiHeadWords? ty
+      let headWords ← abiArgOpt (Ty.abiHeadWords? ty)
       let values ← decodeArgsAux? argData tys (index + headWords)
-      some (value :: values)
+      Except.ok (value :: values)
 
 def decodeArgsWith? (params : List (Bool × Ty)) (argData : Bytes) :
-    Option (List Value) :=
+    Except RevertData (List Value) :=
   decodeArgsAux? argData params 0
 
 -- Eager decode (all params non-lazy). Used for well-formed witness vectors and
--- any caller that is not the external calldata boundary.
+-- any caller that is not the external calldata boundary. Collapses any decode
+-- revert (empty or Panic 0x41) to `none`, preserving the historical `Option`
+-- surface for witnesses.
 def decodeArgs? (tys : List Ty) (argData : Bytes) :
     Option (List Value) :=
-  decodeArgsWith? (tys.map (fun ty => (false, ty))) argData
+  match decodeArgsWith? (tys.map (fun ty => (false, ty))) argData with
+  | Except.ok vs => some vs
+  | Except.error _ => none
 
 -- A calldata parameter (anything but a `memory`-location aggregate) defers
 -- inner dynamic-element validation to access time; a `memoryEager` param is
@@ -518,7 +551,7 @@ def AbiCleanup.decodeLazy : AbiCleanup -> Bool
   | _ => true
 
 def decodeFunctionArgs? (function : FunctionDef)
-    (argData : Bytes) : Option (List Value) := do
+    (argData : Bytes) : Except RevertData (List Value) := do
   let tys := function.params.map BindingDecl.ty
   let lazyFlags :=
     if function.paramAbiCleanups.length == tys.length then
@@ -527,9 +560,9 @@ def decodeFunctionArgs? (function : FunctionDef)
       tys.map (fun _ => true)
   let values ← decodeArgsWith? (lazyFlags.zip tys) argData
   if function.paramAbiCleanups.isEmpty then
-    some values
+    Except.ok values
   else
-    AbiCleanups.lazyParamValues function.paramAbiCleanups values
+    abiArgOpt (AbiCleanups.lazyParamValues function.paramAbiCleanups values)
 
 def decodeFunctionArgsStrict? (function : FunctionDef)
     (argData : Bytes) : Option (List Value) := do
@@ -613,10 +646,14 @@ def encodeReturnOutputForDispatch? (dispatchKind : AbiDispatchKind)
 def AbiCallResult.clearTransient (result : AbiCallResult) : AbiCallResult :=
   { result with state := result.state.clearTransient }
 
-def Contract.revertedEmptyCall? (contract : Contract)
-    (state : State) : Option AbiCallResult := do
-  let output ← Contract.encodeRevertData? contract RevertData.empty
+def Contract.revertedCall? (contract : Contract) (state : State)
+    (revert : RevertData) : Option AbiCallResult := do
+  let output ← Contract.encodeRevertData? contract revert
   some { success := false, output, state := state }
+
+def Contract.revertedEmptyCall? (contract : Contract)
+    (state : State) : Option AbiCallResult :=
+  Contract.revertedCall? contract state RevertData.empty
 
 def Contract.rejectedValueCall? (contract : Contract)
     (state : State) : Option AbiCallResult :=
@@ -763,7 +800,7 @@ def Contract.callCalldataAtFromWithContext? (fuel : Nat)
           match
             decodeFunctionArgs? function (calldata.drop selectorBytes)
           with
-          | some args =>
+          | Except.ok args =>
               let context :=
                 Contract.callContextAtWithBase contract base self sender value
                   calldata
@@ -779,7 +816,10 @@ def Contract.callCalldataAtFromWithContext? (fuel : Nat)
                 | none => none
               else
                 Contract.rejectedValueCall? contract state
-          | none => Contract.revertedEmptyCall? contract state
+          -- A decode revert: `RevertData.empty` (bounds/dirty) is the empty
+          -- `revert(0,0)`; `RevertData.memoryAllocationTooLarge` is Panic(0x41)
+          -- for an eager `memory` reference param with an oversized length.
+          | Except.error revert => Contract.revertedCall? contract state revert
       | none =>
           Contract.callFallbackAtFromWithContext? fuel contract base state
             self sender value calldata
@@ -981,7 +1021,7 @@ def Contract.callCalldataAtFromWithContext (fuel : Nat)
           match
             decodeFunctionArgs? function (calldata.drop selectorBytes)
           with
-          | some args =>
+          | Except.ok args =>
               let context :=
                 Contract.callContextAtWithBase contract base self sender value
                   calldata
@@ -992,7 +1032,9 @@ def Contract.callCalldataAtFromWithContext (fuel : Nat)
                       (Contract.encodeCalldataResult? contract function cr)
               else
                 (Contract.rejectedValueCall? contract state).map pureAbi
-          | none => (Contract.revertedEmptyCall? contract state).map pureAbi
+          -- Panic(0x41) for an eager oversized-length ref param, else empty.
+          | Except.error revert =>
+              (Contract.revertedCall? contract state revert).map pureAbi
       | none =>
           Contract.callFallbackAtFromWithContext fuel contract base state
             self sender value calldata

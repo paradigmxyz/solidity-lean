@@ -545,10 +545,14 @@ private theorem eval_mono_step (n m : Nat)
               | true =>
                 rw [hs] at hw
                 try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
-                cases habi : abiDecodeValues? (rets.map BindingDecl.ty)
+                -- TC-OOM1: the success-return decode now uses the Except view so
+                -- an oversized dynamic length propagates Panic(0x41) uncaught.
+                -- `Except.error` (empty OR 0x41) is a fuel-free `Result.reverted`;
+                -- only `Except.ok` carries the fuel-dependent success body.
+                cases habi : abiDecodeValuesExcept? (rets.map BindingDecl.ty)
                     (callResult.output.map normByte) with
-                | none => rfl
-                | some decoded =>
+                | error revertData => rfl
+                | ok decoded =>
                   rw [habi] at hw
                   try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
                   cases hacc : AbiCleanups.acceptOrUnspecified

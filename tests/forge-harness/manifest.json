@@ -9494,6 +9494,44 @@
           }
         ]
       }
+    },
+    {
+      "name": "dispatch-oom",
+      "description": "Forge, pinned solc, and imported Lean agree on the external-dispatch and try/catch success-return allocation-OOM boundary: an EAGER (memory) dynamic reference parameter (`bytes memory`, `uint256[] memory`) with a length above `0xffffffffffffffff` allocates before the calldata bounds check and raises Panic(0x41), while a LAZY (calldata) parameter with the same length keeps the empty `revert(0,0)`; a well-formed decode is unchanged. TC-OOM1: a successful try-call whose returndata carries an oversized dynamic length decodes in the success path to an UNCAUGHT Panic(0x41), whereas a genuinely-short returndata is an uncaught empty revert.",
+      "forge": {
+        "root": "tests/forge-harness/dispatch-oom",
+        "match_contract": "DispatchOomForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/dispatch-oom/src/DispatchOom.sol",
+        "contract": "DispatchOom",
+        "namespace": "SolidCore.Solidity.SolcAstImport.DispatchOom"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.DispatchOom.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedExternalDispatchOomMatrix",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.DispatchOom.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"DispatchOom\"\n  let encodeWord := SolidCore.Solidity.Source.ABI.encodeWord\n  let selector := fun signature => SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)\n  let call := fun signature args => SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 256 contract SolidCore.Solidity.Source.State.empty (selector signature ++ args)\n  let panic41 := SolidCore.Solidity.Source.ABI.encodeSelector 0x4e487b71 ++ encodeWord 0x41\n  let oversized := encodeWord 0x20 ++ encodeWord (2 ^ 64)\n  let validBytes := encodeWord 0x20 ++ encodeWord 3 ++ [97, 98, 99] ++ List.replicate 29 0\n  let memBytes <- call \"memBytesLength(bytes)\" oversized\n  let calldataBytes <- call \"calldataBytesLength(bytes)\" oversized\n  let memArray <- call \"memUintArrayLength(uint256[])\" oversized\n  let calldataArray <- call \"calldataUintArrayLength(uint256[])\" oversized\n  let validResult <- call \"memBytesLength(bytes)\" validBytes\n  Except.ok (!memBytes.success && memBytes.output == panic41 && !calldataBytes.success && calldataBytes.output == [] && !memArray.success && memArray.output == panic41 && !calldataArray.success && calldataArray.output == [] && validResult.success && validResult.output == encodeWord 3))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedTryCatchSuccessReturnOomBoundary",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.DispatchOom.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"DispatchOom\"\n  let encodeWord := SolidCore.Solidity.Source.ABI.encodeWord\n  let selector := fun signature => SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)\n  let getBytesCalldata := selector \"getBytes()\"\n  let hugeTarget := 0xd00d1\n  let shortTarget := 0xd00d2\n  let hugeOutput := encodeWord 0x20 ++ encodeWord (2 ^ 64)\n  let shortOutput := encodeWord 0x20 ++ encodeWord 1\n  let hugeCallResult : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := hugeTarget, calldata := getBytesCalldata, success := true, output := hugeOutput }\n  let shortCallResult : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := shortTarget, calldata := getBytesCalldata, success := true, output := shortOutput }\n  let context := { contract.core.context with accountCodes := [(hugeTarget, [0x60, 0x00]), (shortTarget, [0x60, 0x00])] }\n  let hugeResult <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [hugeCallResult] []) contract \"tryBytesLength\" context SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word hugeTarget]\n  let shortResult <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256 (SolidCore.Solidity.Source.responderOfResults [shortCallResult] []) contract \"tryBytesLength\" context SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word shortTarget]\n  let isPanic41 := fun result => match result with | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic c) => SolidCore.Solidity.Source.wordEq c 0x41 | _ => false\n  let isEmpty := fun result => match result with | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => true | _ => false\n  Except.ok (isPanic41 hugeResult && isEmpty shortResult))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
