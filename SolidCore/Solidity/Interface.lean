@@ -10214,11 +10214,14 @@ def FunctionDecl.internalCalleeReturnTys?
     direct call (the hoisted call itself routes through
     `ptrBoundaryCallParts?`). -/
 def FunctionDecl.directOrPtrCallArgReturnTy?
-    (functions : List FunctionDecl) (env : TypeEnv)
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
     (name : Name) (args : List Arg) : Option Ty :=
   match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
   | some (callee, _) => FunctionDecl.singleReturnTy? callee
   | none =>
+      match FunctionDecl.findInternalCalleeWithArgs? freeFunctions env name args with
+      | some (callee, _) => FunctionDecl.singleReturnTy? callee
+      | none =>
       match Expr.abiTyWithEnv? env (Expr.ident name) with
       | some (Ty.functionWithLocations _ _ [returnTy] _ _
           Visibility.internal_) => some returnTy
@@ -13554,7 +13557,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Args.replaceDirectInternalCallArg? "_sol_call_arg" 0 args with
       | some (argName, argArgs, argTmp, replacedArgs) =>
           match FunctionDecl.directOrPtrCallArgReturnTy?
-              functions env argName argArgs with
+              functions freeFunctions env argName argArgs with
           | some argRetTy => do
                   let argCoreTy ← Ty.toCore? argRetTy
                   let argCore ←
@@ -14338,7 +14341,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Args.replaceDirectInternalCallArg? "_sol_vardecl_arg" 0 args with
       | some (argName, argArgs, argTmp, replacedArgs) =>
           match FunctionDecl.directOrPtrCallArgReturnTy?
-              functions env argName argArgs with
+              functions freeFunctions env argName argArgs with
           | some argRetTy => do
                   let argCoreTy ← Ty.toCore? argRetTy
                   let argCore ←
@@ -14759,7 +14762,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Args.replaceDirectInternalCallArg? "_sol_return_arg" 0 args with
       | some (argName, argArgs, argTmp, replacedArgs) =>
           match FunctionDecl.directOrPtrCallArgReturnTy?
-              functions env argName argArgs with
+              functions freeFunctions env argName argArgs with
           | some argTy => do
                   let argCoreTy ← Ty.toCore? argTy
                   let envWithArgTmp := (argTmp, argTy) :: env

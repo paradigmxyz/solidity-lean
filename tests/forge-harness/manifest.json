@@ -278,6 +278,54 @@
       }
     },
     {
+      "name": "free-fn-nested-arg",
+      "description": "FREE-ARG: a FREE (file-level) function call nested in the ARGUMENT position of another call \u2014 outer(inner(x)) with free outer/inner (return position), member(inner(x)) with a free inner nested inside a contract member (return position), struct-passing sum(mk(1,2)) with free mk/sum, and sink(inner(x)) as a bare expression statement. solc accepts and runs these; solidity-lean formerly over-rejected the WHOLE contract at Executable lowering because FunctionDecl.directOrPtrCallArgReturnTy? (the return-type gate guarding the nested-argument hoist) took only the contract-member functions list and dropped freeFunctions, so a nested free callee's return type resolved to none. The fix threads freeFunctions into that gate (mirroring internalCalleeReturnTys? / abiTyWithInternalFunctionsEnv?). Forge deploys on pinned solc/EVM and asserts the values; Lean imports the same source and runs the source semantics. Two nested-arg positions remain scoped OUT as separate pre-existing gaps that affect MEMBER calls identically (orthogonal to this fix): a varDecl initializer (uint y = outer(inner(x)) \u2014 the arm needs a storage-ref return) and a double-nested call (outer(inner(inner(x))) \u2014 the single-level hoist does not recurse).",
+      "forge": {
+        "root": "tests/forge-harness/free-fn-nested-arg",
+        "match_contract": "FreeFnNestedArgForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/free-fn-nested-arg/src/FreeFnNestedArg.sol",
+        "contract": "FreeFnNestedArgHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FreeFnNestedArg"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.FreeFnNestedArg.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFreeNestedInFreeArg",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FreeFnNestedArg.importedSourceUnit \"FreeFnNestedArgHarnessTarget\" \"run\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedFreeNestedInMemberArg",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FreeFnNestedArg.importedSourceUnit \"FreeFnNestedArgHarnessTarget\" \"runMember\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 110",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedStructPassingFreeNested",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FreeFnNestedArg.importedSourceUnit \"FreeFnNestedArgHarnessTarget\" \"runStruct\" SolidCore.Solidity.Source.State.empty [] 3",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedExprStmtNestedFree",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FreeFnNestedArg.importedSourceUnit \"FreeFnNestedArgHarnessTarget\" \"runExprStmt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 7",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "tuple-lhs-index-call",
       "description": "TUP-IDX: a tuple ASSIGNMENT whose LHS component is indexed by an INTERNAL function call — `(xs[f()], z) = (3, 4)` (array), `(m[k()], z) = (8, 9)` (mapping), two call-valued indices with call-valued RHS (`(xs[tick(1)], ys[tick1(2)]) = (rhs(3), rhs(4))`), and a call in BOTH an LHS index and the RHS (`(xs[keyf()], z) = (rhs(3), 9)`). solc accepts and runs these (the index call runs once); solidity-lean formerly over-rejected at Executable lowering because the tuple-LHS lvalue lowering had no internal-call hoisting for the index operand (the out-of-scope sibling of MI1). The fix hoists each call-valued LHS index into a per-component temp and builds the tuple target from it. Evaluation order matches solc — RHS components left-to-right, THEN LHS index expressions left-to-right — pinned by runOrder's logv == 3412. Forge deploys on pinned solc/EVM and asserts the values + order; Lean imports the same source and runs the source semantics.",
       "forge": {

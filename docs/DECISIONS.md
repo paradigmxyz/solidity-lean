@@ -167,6 +167,57 @@ solc rejects with "Literal is larger than the type"). Full `lake build` green
 (1106 jobs, incl. FuelMonotonicity + SolidCore.Witness.*). Full paired replay
 (all 178 manifest cases) re-run to confirm zero regressions from the shared
 importer change.
+## 2026-07-09 — #60/FREE-ARG: free-function call nested in an argument position (over-reject closed)
+
+Confirmed over-reject from `docs/solc-free-functions-review.md` (Divergence 1, 97%):
+a FREE (file-level) function call nested in the ARGUMENT position of another call
+made solidity-lean reject the WHOLE contract at Executable lowering with
+`TypeError.unsupported "checked executable checked contract …"`; pinned solc 0.8.35
+(legacy, optimizer=false) accepts and runs. Minimal repro `return outer(inner(x))`
+with free `outer`/`inner`: solc `run(5) = 11`.
+
+**Root cause (`SolidCore/Solidity/Interface.lean`).** `FunctionDecl.directOrPtrCallArgReturnTy?`
+— the return-type gate that guards the nested-argument hoist in
+`Stmt.toCoreWithInternalCalls?` — took only the contract-member `functions` list and
+DROPPED `freeFunctions`. A nested free callee's return type resolved to `none`, so
+lowering fell through to the unsupported reject. The sibling helpers
+`internalCalleeReturnTys?` and `abiTyWithInternalFunctionsEnv?` already thread
+`freeFunctions`; the hoist the gate guards
+(`internalSingleReturnCallCore? … functions freeFunctions …`) already threads both.
+
+**Fix (minimal parameter threading, behavior-preserving for members).** Added the
+`freeFunctions : List FunctionDecl` parameter to `directOrPtrCallArgReturnTy?` and a
+free-callee fallback (mirroring `internalCalleeReturnTys?`: try `functions` first —
+member callees keep resolving exactly as before — then `freeFunctions`, then the
+fn-pointer TYPE branch). Updated its three call sites (return-statement hoist,
+varDecl-init hoist, expr-statement hoist) to pass `functions freeFunctions`.
+
+**Fixed positions (verified value-matching through the interpreter, all matching
+solc):** return with a FREE enclosing call `outer(inner(x))` = 11; return with a
+MEMBER enclosing call `member(inner(x))` = 110; struct-passing return
+`sum(mk(1,2))` = 3 (free `mk` returning a memory struct nested in free `sum`);
+bare expression statement `sink(inner(x));` (result discarded), observed via a
+subsequent state write = 7. New paired lane `free-fn-nested-arg`
+(forge=ok, lean=ok, forge_interpreter_compare=pass).
+
+**Scoped OUT — two SEPARATE pre-existing gaps, each affecting MEMBER calls
+identically (so orthogonal to this free-function threading fix):**
+- varDecl initializer `uint y = outer(inner(x));`. The varDecl-init nested-arg arm
+  lowers via `internalVarDeclAssignReturnCallCorePieces?`, which requires a
+  STORAGE-ref return (`returnStorageRefs.any id`) and returns `none` for a
+  plain-value enclosing call — so even `uint y = member(memberInner(x))` (all
+  member) over-rejects. The `freeFunctions` threading reaches this arm but cannot
+  help; needs a plain-value varDecl-init nested-call lowering. Deferred.
+- DOUBLE-nested calls `outer(inner(inner(x)))`. The single-level hoist peels only
+  the outer argument into a temp and then cannot lower that peeled call's OWN
+  internal-call argument (`Parameter.toStorageAwareCoreArgDecl?` has no
+  internal-call fallback), so `outer(member(member(x)))` fails identically. Needs a
+  recursive hoist. Deferred.
+
+Gate: full `lake build` green (1106 jobs, incl. FuelMonotonicity + Witness.*);
+`scripts/smoke_replay.sh SMOKE_JOBS=6` green (29 cases, no regressions); new lane
+green. No eval-structure change (pure typing/threading fix), so FuelMonotonicity
+untouched.
 
 ## 2026-07-09 — #53/FP-EQ-2: internal fn-pointer equality on ternary/storage-derived pointers (FP-EQ follow-up closed)
 
