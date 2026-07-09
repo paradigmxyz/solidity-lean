@@ -5,6 +5,57 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — TC1 fixed: ternary `bytesN` common-type conversion in `abi.encode`/`abi.encodePacked`
+
+Acting on `docs/solc-conversions-review.md` (TC1). A conditional `c ? x : y`
+whose branches are `bytesN` of DIFFERENT widths takes the ternary's COMMON type
+(the wider `bytesN`); solc inserts the implicit `convert_t_bytesM_to_t_bytesN`
+on the narrower branch, and because `bytesN` is LEFT-aligned that widening moves
+the content into the HIGH bytes (`bytes2 0xaabb` widened to `bytes4` →
+`0xaabb0000`, not `0x0000aabb`).
+
+Scope of the actual divergence (verified against pinned solc 0.8.35 + Forge):
+- **Return values were ALREADY correct** — `return c ? x : y` routes through the
+  typed env path `returnValuesCoreWithReturnTys? → Expr.toCoreAsWithEnv?`, whose
+  ternary case lowers each branch to the return type (inserting the
+  `fixedBytesCast`). The `f` control lane confirms this.
+- **`abi.encode` / `abi.encodePacked` were wrong.** A `return abi.encode(...)` is
+  matched by the member-call return case, which falls through to the env-LESS
+  `Stmt.toCore?`; there the ABI argument helpers (`Args.toAbiEncode?` /
+  `Args.toAbiEncodeSource?`) lower each argument with plain `toCore?` and no
+  target type. `annotateAbi` wraps the whole conditional in its then-branch type
+  but leaves the branch idents bare (their `abiTy?` is `none`), so no cast is
+  inserted and the narrow branch keeps its right-aligned low-byte content.
+
+Fix (`SolidCore/Solidity/Interface.lean`, Solidus-only — solc/Forge untouched):
+- `Expr.abiEncodeFixedBytesTernary?` + `…Core?`: detect a `bytesN`-common-type
+  conditional ABI argument (seeing through the redundant `bytesN(...)` wrapper
+  `annotateAbi` inserts), recompute the true common type from BOTH branches via
+  `Ty.commonImplicit?`, and lower each branch to it with the typed env path
+  (`Expr.toCoreAsWithEnvBitAware?`), which inserts the `fixedBytesCast`. Gated on
+  `Ty.fixedBytesSize?` — integer branches are stored full-width so their widening
+  is a value no-op and they keep the exact env-less path (verified no-change).
+- `Args.toAbiEncodeWithEnv?` / `Args.toAbiEncodeSourceWithEnv?`: env-carrying ABI
+  arg lowering, byte-identical to the env-less helpers for every argument EXCEPT
+  the `bytesN` conditional (delegates to `toAbiEncodeArg?`/`toAbiEncodeSourceArg?`
+  otherwise; keeps source types so `Tys.packedTopWidths` is unchanged).
+- `Expr.toCoreAsWithEnv?` gains `abi.encode`/`abi.encodePacked` cases that use the
+  env arg helpers ONLY when `Args.anyAbiEncodeFixedBytesTernary?` finds such an
+  argument; otherwise they call `toCoreAsWithEnvDirect?` (the prior behavior).
+- The `Stmt.returnValues` dispatcher gains an `abi.encode`/`abi.encodePacked`
+  member-call case that, when a `bytesN` conditional argument is present, routes
+  the return through `Expr.toCoreAsWithEnv?` (reaching the fix); every other
+  `abi.*` return keeps the env-less `Stmt.toCore?` lowering, byte for byte.
+
+The common-type DERIVATION was NOT touched (already solc-consistent, incl. solc's
+rejection of `c ? 1 : -1`); only the missing per-branch conversion was inserted.
+
+Lane `ternary-bytesn-common-type` pins the fix differentially: `f` (return),
+`enc` (`abi.encode`), `packed` (`abi.encodePacked`) with `bytes4`/`bytes2`
+branches, plus an integer-ternary control `g` (uint8/uint256) locking in
+no-regression. Forge (pinned solc + EVM) and imported Lean agree `forge=ok
+lean=ok`; `smoke_replay.sh` (28 cases) green.
+
 ## 2026-07-08 — AGG1/AGG2 fixed, AGG3 locked: storage aggregate layout + bytesN mapping-key hashing
 
 Acting on `docs/solc-storage-aggregate-layout-review.md`. All three verified

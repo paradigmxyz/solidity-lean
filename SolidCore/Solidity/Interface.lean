@@ -6701,6 +6701,90 @@ def Expr.peelToOverflowArithmetic? :
       | none => none
   | _ => none
 
+/-- TC1: lower an `abi.encode`/`abi.encodePacked` CONDITIONAL argument whose two
+    branches are `bytesN` of DIFFERENT widths. The conditional takes the
+    ternary's COMMON type (the wider `bytesN`); solc inserts the implicit
+    `convert_t_bytesM_to_t_bytesN` on the narrower branch, and because `bytesN`
+    is left-aligned that widening moves the content into the HIGH bytes
+    (`bytes2 0xaabb` -> `bytes4 0xaabb0000`). The env-less abi argument path
+    lowers each branch with NO target type, so no cast is inserted and the
+    narrow branch keeps its low-byte (right-aligned) content -> wrong alignment.
+    Here each branch is lowered to the recomputed common type via the typed env
+    path (which inserts the `fixedBytesCast`), mirroring the already-correct
+    return/assignment ternary lowering at `Expr.toCoreAsWithEnv?`. -/
+def Expr.abiEncodeFixedBytesTernaryCore? (storageNames : List Name) (env : TypeEnv)
+    (cond thenExpr elseExpr : Expr) : Option (Ty × CoreExpr) := do
+  let thenTy ← Expr.abiTyWithEnv? env thenExpr
+  let elseTy ← Expr.abiTyWithEnv? env elseExpr
+  let commonTy := (Ty.commonImplicit? thenTy elseTy).getD thenTy
+  -- Only the alignment-carrying `bytesN`/`fixedBytes` common type diverges;
+  -- integer branches are stored full-width so widening is a value no-op and
+  -- they keep the exact env-less path.
+  let _ ← Ty.fixedBytesSize? commonTy
+  let condCore ← Expr.toCoreAsWithEnvDirect? storageNames env Ty.bool cond
+  let thenCore ← Expr.toCoreAsWithEnvBitAware? storageNames env commonTy thenExpr
+  let elseCore ← Expr.toCoreAsWithEnvBitAware? storageNames env commonTy elseExpr
+  some
+    (commonTy,
+      SolidCore.Solidity.Source.Expr.ternary condCore thenCore elseCore)
+
+/-- Detect a `bytesN`-common-type conditional `abi.encode` argument, seeing
+    through the redundant `bytesN(...)` wrapper that `annotateAbi` puts around a
+    conditional whose branch idents have no standalone `abiTy?`. Returns the
+    common type together with the correctly-widened conditional core. -/
+def Expr.abiEncodeFixedBytesTernary? (storageNames : List Name) (env : TypeEnv) :
+    Expr -> Option (Ty × CoreExpr)
+  | Expr.call (Expr.typeName _)
+      [Arg.positional (Expr.ternary cond thenExpr elseExpr)] =>
+      Expr.abiEncodeFixedBytesTernaryCore? storageNames env cond thenExpr elseExpr
+  | Expr.ternary cond thenExpr elseExpr =>
+      Expr.abiEncodeFixedBytesTernaryCore? storageNames env cond thenExpr elseExpr
+  | _ => none
+
+def Args.anyAbiEncodeFixedBytesTernary? (storageNames : List Name)
+    (env : TypeEnv) : List Arg -> Bool
+  | [] => false
+  | Arg.positional expr :: rest =>
+      (Expr.abiEncodeFixedBytesTernary? storageNames env expr).isSome ||
+        Args.anyAbiEncodeFixedBytesTernary? storageNames env rest
+  | Arg.named _ _ :: rest =>
+      Args.anyAbiEncodeFixedBytesTernary? storageNames env rest
+
+/-- Env-carrying `abi.encode` argument lowering: identical to the env-less
+    `Args.toAbiEncode?` for every argument EXCEPT a `bytesN`-common-type
+    conditional, which is widened per-branch (TC1). -/
+def Args.toAbiEncodeWithEnv? (storageNames : List Name) (env : TypeEnv) :
+    List Arg -> Option (List CoreTy × List CoreExpr)
+  | [] => some ([], [])
+  | Arg.positional expr :: rest => do
+      let (coreTy, coreExpr) ←
+        match Expr.abiEncodeFixedBytesTernary? storageNames env expr with
+        | some (ty, core) => do
+            let coreTy ← Ty.toCore? ty
+            some (coreTy, core)
+        | none => Expr.toAbiEncodeArg? storageNames expr
+      let (tys, coreExprs) ← Args.toAbiEncodeWithEnv? storageNames env rest
+      some (coreTy :: tys, coreExpr :: coreExprs)
+  | Arg.named _ _ :: _ => none
+
+/-- Env-carrying `abi.encodePacked` argument lowering (keeps the source types so
+    `Tys.packedTopWidths` still computes the packed widths); identical to the
+    env-less `Args.toAbiEncodeSource?` except for the `bytesN` conditional (TC1). -/
+def Args.toAbiEncodeSourceWithEnv? (storageNames : List Name) (env : TypeEnv) :
+    List Arg -> Option (List Ty × List CoreTy × List CoreExpr)
+  | [] => some ([], [], [])
+  | Arg.positional expr :: rest => do
+      let (sourceTy, coreTy, coreExpr) ←
+        match Expr.abiEncodeFixedBytesTernary? storageNames env expr with
+        | some (ty, core) => do
+            let coreTy ← Ty.toCore? ty
+            some (ty, coreTy, core)
+        | none => Expr.toAbiEncodeSourceArg? storageNames expr
+      let (sourceTys, coreTys, coreExprs) ←
+        Args.toAbiEncodeSourceWithEnv? storageNames env rest
+      some (sourceTy :: sourceTys, coreTy :: coreTys, coreExpr :: coreExprs)
+  | Arg.named _ _ :: _ => none
+
 def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   -- FB1: a `bytesN`-targeted expression whose top node is a shift/bitwise op
@@ -6810,6 +6894,29 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                     SolidCore.Solidity.Source.Expr.internalFunction
               | _ =>
                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.call (Expr.member (Expr.ident "abi") "encode") args =>
+              -- TC1: a `bytesN`-common-type conditional argument must have each
+              -- branch widened to the common type (left-aligned) before
+              -- encoding. Only reroute when such an argument is present; every
+              -- other `abi.encode` keeps the exact env-less lowering.
+              if Args.anyAbiEncodeFixedBytesTernary? storageNames env args then
+                (match Args.toAbiEncodeWithEnv? storageNames env args with
+                 | some (tys, exprs) =>
+                     some (SolidCore.Solidity.Source.Expr.abiEncode tys exprs)
+                 | none =>
+                     Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+              else
+                Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+          | Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args =>
+              if Args.anyAbiEncodeFixedBytesTernary? storageNames env args then
+                (match Args.toAbiEncodeSourceWithEnv? storageNames env args with
+                 | some (sourceTys, coreTys, exprs) =>
+                     some (SolidCore.Solidity.Source.Expr.abiEncodePacked
+                       (Tys.packedTopWidths sourceTys) coreTys exprs)
+                 | none =>
+                     Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+              else
+                Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
           | _ =>
               Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
 
@@ -13969,6 +14076,28 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) with
           | some coreStmt => some coreStmt
           | none => Stmt.toCore? storageNames fallback
+  | Stmt.returnValues
+      (some expr@(Expr.call (Expr.member (Expr.ident "abi") member) args)) =>
+      -- TC1: `return abi.encode(c ? x : y)` / `abi.encodePacked(...)` with a
+      -- `bytesN`-common-type conditional argument must widen each branch to the
+      -- common type (left-aligned). The generic member-call return path below
+      -- lowers `abi.*` through the env-less `Stmt.toCore?`, which has no branch
+      -- types, so the narrow branch keeps the wrong alignment. Route these
+      -- through the typed env path (`Expr.toCoreAsWithEnv?`), which inserts the
+      -- per-branch `fixedBytesCast`. Only the `bytesN`-conditional shape is
+      -- rerouted; every other `abi.*` return keeps the env-less lowering, byte
+      -- for byte.
+      if (member == "encode" || member == "encodePacked") &&
+          Args.anyAbiEncodeFixedBytesTernary? storageNames env args then
+        match returnTys with
+        | [returnTy] =>
+            match Expr.toCoreAsWithEnv? storageNames env returnTy expr with
+            | some coreExpr =>
+                some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
+            | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+        | _ => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+      else
+        Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
       | some coreStmt => some coreStmt
