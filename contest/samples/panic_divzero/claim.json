@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Divver", "function": "f", "args": [1, 0], "value": 0 },
+  "expected_divergence": "none expected - div-by-zero panic probe: f(1,0) reverts with Panic(0x12); both engines must render revert|panic:18.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|panic:18##EVT####STO##" },
+  "feature": "checked-divzero-panic",
+  "register_version_seen": "1.2.0"
+}

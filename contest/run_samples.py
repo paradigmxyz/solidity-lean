@@ -575,6 +575,13 @@ def main() -> int:
     results.append(("panic_overflow PARITY (FULL)", ok, d))
     _print("panic_overflow PARITY (FULL)", ok, d)
 
+    # Round 12 probe: checked division by zero (f(1,0)) must revert with
+    # Panic(0x12) -> revert|panic:18 on BOTH engines. A DISTINCT panic code from
+    # the overflow probe -> confirms per-operation panic-code parity, not just 0x11.
+    ok, d = run_full("panic_divzero", "NO_DIVERGENCE")
+    results.append(("panic_divzero PARITY (FULL)", ok, d))
+    _print("panic_divzero PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
