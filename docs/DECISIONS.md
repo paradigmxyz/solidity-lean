@@ -5,6 +5,45 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — ARRAY-OOB-CONV: compile-time constant OOB index check no longer folds through explicit conversions (over-reject fix)
+
+Over-reject. The compile-time constant out-of-bounds index checks for fixed-size
+arrays (`TypeCheck.lean`, TypeError 3383) and `bytesN` (TypeError 1859) called
+`Solidity.Executable.Expr.numberLiteralNat?`, whose folder (`Interface.lean`
+`numberLiteralRat?`) folds through `Expr.call (Expr.typeName _) [positional]` —
+i.e. it evaluated `uint256(5)` to `5`. So `a[uint256(5)]` and `b[uint256(9)]`
+were rejected at compile time. Pinned solc 0.8.35 runs this constant-OOB check
+ONLY when the index carries a *rational-literal* type: a bare literal or pure
+arithmetic (`a[5]`, `a[2+3]`) stays rational-literal and is checked (rejected),
+but an explicit conversion `a[uint256(5)]`/`a[uint256(2+3)]` (or a typed named
+`constant`) makes the index a plain `uint256`, which solc does NOT bounds-check
+— the OOB read reverts with Panic(0x32) at runtime instead. Fixed by switching
+both check sites to the sibling `Expr.untypedNumberLiteralNat?`
+(`Interface.lean`), which folds arithmetic (`2+3`) but has no `T(x)` arm, so
+`a[2+3]` still rejects while `a[uint256(5)]`/`a[uint256(2+3)]` are accepted. This
+matches the untyped/typed precedent already documented for array-literal typing.
+Preserved: bare-literal OOB (`a[5]`, `b[9]`, `a[2+3]`) still reject; in-bounds
+still accept; negative/bool indices still reject.
+
+## 2026-07-09 — SLICE-FIXED: index-range (slice) access on a fixed-size calldata array now rejected (over-accept fix)
+
+Over-accept. The slice type-checker's array arm matched
+`Solidity.Ty.array element _` for ANY length and then only required a calldata
+data location, so `uint256[3] calldata a; a[1:2]` was wrongly accepted. Pinned
+solc 0.8.35 rejects it: "Index range access is only supported for dynamic
+calldata arrays." Fixed by restricting the arm to
+`Solidity.Ty.array element none` (dynamic only); a fixed-size array now falls
+through to the type-error arm. `bytes`/`string` slicing and dynamic
+`uint256[] calldata` slicing are unaffected; memory-array slicing was and is
+still rejected by the calldata-location requirement.
+
+Both fixes are pinned by the new sanctioned lane `array-bounds`: `a[uint256(5)]`
+accepted → runtime Panic(0x32); `a[5]` rejected (`solc_rejects` invalid file);
+dynamic `uint256[] calldata` slice accepted (returns length); `uint256[3]
+calldata` slice rejected (`solc_rejects` invalid file). Full `lake build` clean
+(no proof/witness updates were required — no existing witness asserted the old
+over-reject/over-accept behavior).
+
 ## 2026-07-09 — TYPEMIN: `type(intN).min` for N < 256 now lowers to the two's-complement negative word, not a raw positive
 
 Soundness gap. `Ty.typeInfoExpr?`'s int `"min"` arm pushed

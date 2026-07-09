@@ -5795,7 +5795,14 @@ def checkExpr (env : CheckEnv) :
       | Solidity.Ty.bytesN size =>
           indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
           -- G4: compile-time out-of-bounds index on `bytesN` (solc TypeError 1859).
-          (match Solidity.Executable.Expr.numberLiteralNat? index with
+          -- Only a *rational-literal*-typed index is checked: solc runs this OOB
+          -- check solely when the index carries a rational-literal type. A bare
+          -- literal or pure arithmetic (`b[9]`, `b[2+3]`) stays rational-literal
+          -- and is checked; an explicit conversion (`b[uint(9)]`) or a typed
+          -- named `constant` makes the index a plain `uint256`, which solc does
+          -- NOT bounds-check (runtime Panic 0x32 instead). Use the *untyped*
+          -- folder so `T(x)` conversions are not folded through.
+          (match Solidity.Executable.Expr.untypedNumberLiteralNat? index with
             | some i =>
                 require (i < size)
                   (TypeError.unsupported "constant index out of bounds")
@@ -5807,7 +5814,13 @@ def checkExpr (env : CheckEnv) :
           indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
           -- G4: compile-time out-of-bounds index on a fixed-size array
           -- (solc TypeError 3383). Dynamic arrays (`len? = none`) are unchecked.
-          (match len?, Solidity.Executable.Expr.numberLiteralNat? index with
+          -- As with `bytesN` above, this check runs only for a rational-literal
+          -- index. A bare literal / pure arithmetic (`a[5]`, `a[2+3]`) is
+          -- checked; an explicit conversion (`a[uint(5)]`, `a[uint(2+3)]`) or a
+          -- typed `constant` yields a plain `uint256` that solc does not
+          -- bounds-check (runtime Panic 0x32). Use the *untyped* folder, which
+          -- folds arithmetic but not `T(x)` conversions.
+          (match len?, Solidity.Executable.Expr.untypedNumberLiteralNat? index with
             | some len, some i =>
                 require (i < len)
                   (TypeError.unsupported "constant index out of bounds")
@@ -5836,7 +5849,12 @@ def checkExpr (env : CheckEnv) :
         match baseChecked.ty with
         | Solidity.Ty.bytes => Except.ok baseChecked.ty
         | Solidity.Ty.string => Except.ok baseChecked.ty
-        | Solidity.Ty.array element _ =>
+        | Solidity.Ty.array element none =>
+            -- Index-range (slice) access is only supported for *dynamic*
+            -- calldata arrays; solc rejects slicing a fixed-size array
+            -- ("Index range access is only supported for dynamic calldata
+            -- arrays."). Requiring `len? = none` here (the calldata-location
+            -- requirement below handles memory arrays) matches that.
             Except.ok (Solidity.Ty.array element none)
         | other =>
             Except.error

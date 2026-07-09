@@ -7881,6 +7881,53 @@
       }
     },
     {
+      "name": "array-bounds",
+      "description": "Two array acceptance-boundary divergences vs pinned solc 0.8.35. ARRAY-OOB-CONV: solc runs its compile-time constant OOB index check only for a rational-literal-typed index, so a bare `a[5]` is rejected (TypeError 3383) but an explicitly converted `a[uint256(5)]` is accepted and reverts Panic(0x32) at runtime. SLICE-FIXED: index-range (slice) access is only supported for dynamic calldata arrays, so `uint256[] calldata` slicing is accepted but `uint256[3] calldata` slicing is rejected. Forge checks the runtime Panic(0x32) and slice length; solc_rejects pins the two rejected boundaries; Lean imports the accepted contract and checks the converted-OOB panic, in-bounds value, and dynamic slice length.",
+      "forge": {
+        "root": "tests/forge-harness/array-bounds",
+        "match_contract": "ArrayBoundsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/array-bounds/invalid/BareLiteralOob.sol",
+        "tests/forge-harness/array-bounds/invalid/FixedArraySlice.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/array-bounds/src/ArrayBounds.sol",
+        "contract": "ArrayBoundsHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ArrayBounds"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ArrayBounds.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "convOobPanic32",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.ArrayBounds.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"convOob\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => Except.ok (SolidCore.Solidity.Source.wordEq code 0x32)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "convInBoundsValue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 80 SolidCore.Solidity.SolcAstImport.ArrayBounds.importedContract \"convInBounds\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dynSliceLength",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.ArrayBounds.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"dynSlice\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word 10, SolidCore.Solidity.Source.Value.word 20, SolidCore.Solidity.Source.Value.word 30, SolidCore.Solidity.Source.Value.word 40]]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len] => Except.ok (SolidCore.Solidity.Source.wordEq len 2)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "abstract-interface-id",
       "description": "Forge checks type(AbstractLedger).interfaceId on an ABSTRACT contract equals the XOR of its external function selectors AND its public state-variable getter selector; pinned solc rejects .interfaceId on a concrete deployable contract; Lean imports the same source unit, confirms it now LOWERS (importedContractAccepted) and computes the same interfaceId. Pins A1 (round-6): abstract-contract interfaceId lowering.",
       "forge": {
