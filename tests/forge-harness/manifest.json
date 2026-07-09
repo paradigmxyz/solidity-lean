@@ -6621,6 +6621,60 @@
       }
     },
     {
+      "name": "array-literal-widen",
+      "description": "Inline array literal element-widening boundary (task #56 AL1, 2026-07-09). solc 0.8.35 types an inline array literal bottom-up (smallest common mobile element type, e.g. [1,2,3] : uint8[3]) and a fixed->fixed memory-array conversion requires an IDENTICAL element type (ArrayType::isImplicitlyConvertibleTo non-copy branch; no implicit element widening). Pinned solc and this typechecker both REJECT assigning/returning/passing/struct-constructing a literal into a WIDER fixed-array target: uint256[3]=[1,2,3], uint16[3]=[1,2,3], uint256[2][2]=[[1,2],[3,4]], return uint256[3], internal g(uint256[3])([1,2,3]), external this.g([1,2,3]), S(uint256[3])([1,2,3]), and bytes1[2]=[0x11,0x22]; and both still REJECT empty/ragged/fixed->dynamic/element-overflow. Both still ACCEPT (Forge pins runtime values of) the element-matched neighbors: uint8[3]=[1,2,3] (10203), uint256[3]=[uint256(1),2,3] (40606), int8[2]=[int8(-1),2] (255002, order-sensitive), uint8[2][2]=[[1,2],[3,4]] (1234), plus typed bytes1[2] and internal g(uint8[3])([1,2,3]).",
+      "forge": {
+        "root": "tests/forge-harness/array-literal-widen",
+        "match_contract": "ArrayLiteralWidenForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/array-literal-widen/src/ArrayLiteralWiden.sol",
+        "contract": "ArrayLiteralWidenHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ArrayLiteralWiden"
+      },
+      "solc_rejects": [
+        "tests/forge-harness/array-literal-widen/invalid/AssignWiden256.sol",
+        "tests/forge-harness/array-literal-widen/invalid/AssignWiden16.sol",
+        "tests/forge-harness/array-literal-widen/invalid/AssignWidenMultidim.sol",
+        "tests/forge-harness/array-literal-widen/invalid/ReturnWiden256.sol",
+        "tests/forge-harness/array-literal-widen/invalid/ArgInternalWiden256.sol",
+        "tests/forge-harness/array-literal-widen/invalid/ArgExternalWiden256.sol",
+        "tests/forge-harness/array-literal-widen/invalid/StructFieldWiden256.sol",
+        "tests/forge-harness/array-literal-widen/invalid/BytesArrLiteral.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked",
+          "SolidCore.Witness.ArrayLiteralWiden"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ArrayLiteralWiden.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "widenTargetsRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.alwAllRejected",
+            "expect": "true"
+          },
+          {
+            "label": "elementMatchedTargetsAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.alwAllAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "emptyRaggedDynamicOverflowStillRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.alwNeighborsStillRejected",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
       "name": "acceptance-boundaries-round2",
       "description": "Round-2 acceptance boundaries (2026-07-08) from docs/solc-implementation-divergences-2.md. Pinned solc 0.8.35 and this typechecker both REJECT: (E1) a NON-rational immutable read (keccak256- or constant-ref-initialized) inside a pure function (TypeError 2527; only a RationalNumber initializer stays pure), (O1) a duplicate contract in an override(A,A) list (error 4520), and (PT1) a constant whose value cyclically depends on itself (error 6161). Both still ACCEPT the neighbors on the Lean side: the same immutable read in a view function and a numeric-literal / constant-arithmetic immutable read in pure; the legitimate diamond override(A,B); a non-cyclic constant chain. E2 (over-reject fix): this.f.selector in a pure function is now ACCEPTED while this.f() stays a pure-violation. AE1 confirmed already-handled: abi.encodePacked(bytes[]/string[]) is rejected while encodePacked(uint[]) is accepted.",
       "solc_rejects": [
@@ -8519,7 +8573,7 @@
     },
     {
       "name": "modifier-return-reject",
-      "description": "#54 (MOD-RET, 2026-07-09) from docs/solc-modifier-execution-review.md: solc 0.8.35 REJECTS a `return` that carries ANY expression inside a MODIFIER body — even a void-typed one like `return delete x;` or `return require(true);` — with TypeError 7552 'Return arguments not allowed' (TypeChecker::endVisit(Return), TypeChecker.cpp:1133-1146: a modifier's functionReturnParameters is nullptr). solidity-lean was over-accepting these (its checkReturnExprs keyed only on the empty returnTys and special-cased delete/require/void as allowed, never consulting env.inModifier). Fixed by rejecting any expression-bearing return when env.inModifier. solc_rejects pins solc's compile-time rejection of both modifier forms (with `_;` present so the return-argument error is the salient one). Lean witnesses pin the rejection AND the precision boundary: a bare `return;` in a modifier and a zero-return FUNCTION `return delete x;` (empty-but-non-null return list) both stay ACCEPTED.",
+      "description": "#54 (MOD-RET, 2026-07-09) from docs/solc-modifier-execution-review.md: solc 0.8.35 REJECTS a `return` that carries ANY expression inside a MODIFIER body \u2014 even a void-typed one like `return delete x;` or `return require(true);` \u2014 with TypeError 7552 'Return arguments not allowed' (TypeChecker::endVisit(Return), TypeChecker.cpp:1133-1146: a modifier's functionReturnParameters is nullptr). solidity-lean was over-accepting these (its checkReturnExprs keyed only on the empty returnTys and special-cased delete/require/void as allowed, never consulting env.inModifier). Fixed by rejecting any expression-bearing return when env.inModifier. solc_rejects pins solc's compile-time rejection of both modifier forms (with `_;` present so the return-argument error is the salient one). Lean witnesses pin the rejection AND the precision boundary: a bare `return;` in a modifier and a zero-return FUNCTION `return delete x;` (empty-but-non-null return list) both stay ACCEPTED.",
       "solc_rejects": [
         {
           "source": "tests/forge-harness/modifier-return-reject/invalid/ModifierReturnDelete.sol",

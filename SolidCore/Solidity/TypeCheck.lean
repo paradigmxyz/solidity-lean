@@ -3397,6 +3397,74 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
         else
           none
 
+-- solc's bottom-up type of an inline array literal, mirroring
+-- `TypeChecker::visit(TupleExpression)` (isInlineArray) restricted to the case
+-- where the deduced type is decidable WITHOUT an environment — i.e. every leaf
+-- is a bare (untyped) number literal:
+--   * element 0 seeds the accumulator with its `mobileType()` — the
+--     smallest-fitting `uintN`/`intN` (`RationalNumberType::mobileType`), e.g.
+--     `1 ↦ uint8`, `256 ↦ uint16`, `-1 ↦ int8`;
+--   * each later element folds via `Type::commonType(acc, rawElem)`: a bare
+--     number literal that still fits the accumulator keeps it, otherwise the
+--     accumulator widens to `commonImplicit?` of the accumulator and the
+--     literal's mobile type; nested arrays recurse.
+-- `exprIsUntypedNumberLiteralExpression` does NOT see through a `T(x)`
+-- conversion (unlike `numberLiteralRat?`), so an explicitly typed element such
+-- as `uint256(1)` makes this return `none`; the caller then falls back to the
+-- ordinary `checkExpr`-typed assignability check, which is already solc-faithful
+-- for arrays whose over-wide `uint256[n]` typing does NOT arise (any typed /
+-- variable element). Order-sensitive exactly like solc (`[int8(-1),2]` is
+-- accepted elsewhere; a bare-only `[2,3]` seeds `uint8`).
+-- Returns `none` for empty / ragged / no-common-type literals too, so callers
+-- reject exactly as solc's 6378 "Unable to deduce common type" does.
+def inlineArrayBottomUpTyFuel? : Nat -> Solidity.Expr -> Option Ty
+  | 0, _ => none
+  | _ + 1, Solidity.Expr.array [] => none
+  | fuel + 1, Solidity.Expr.array (head :: rest) =>
+      (inlineArrayBottomUpTyFuel? fuel head).bind fun firstTy =>
+        (rest.foldl
+          (fun acc? element =>
+            acc?.bind fun acc =>
+              if exprIsUntypedNumberLiteralExpression element then
+                if implicitLiteralFits acc element then some acc
+                else
+                  (Solidity.Executable.Expr.untypedLiteralMobileTy? element).bind
+                    (fun litMobile => Ty.commonImplicit? acc litMobile)
+              else
+                (inlineArrayBottomUpTyFuel? fuel element).bind
+                  (fun elementTy => Ty.commonImplicit? acc elementTy))
+          (some firstTy)).map fun common =>
+            Solidity.Ty.array common (some (head :: rest).length)
+  | _ + 1, expr =>
+      if exprIsUntypedNumberLiteralExpression expr then
+        Solidity.Executable.Expr.untypedLiteralMobileTy? expr
+      else
+        none
+
+def inlineArrayBottomUpTy? (expr : Solidity.Expr) : Option Ty :=
+  inlineArrayBottomUpTyFuel? 128 expr
+
+-- Assignability of an inline array literal against a fixed-size array target,
+-- applied wherever a checked expression meets an expected type (assignment,
+-- return, and every argument position). When the literal has a bare-only
+-- bottom-up type, require it to EQUAL the target element type (solc's
+-- `ArrayType::isImplicitlyConvertibleTo` demands an IDENTICAL base type for
+-- fixed→fixed memory arrays — no implicit widening; this also correctly accepts
+-- `uint8[3] = [1,2,3]`, which the uint256-typed `checked.ty` would otherwise
+-- fail). Otherwise defer to the ordinary check, which is solc-faithful for every
+-- other array (a typed / variable element already yields a precise element type
+-- in `checkExpr`).
+def arrayLiteralFixedWidenCheck (types : TypeContext)
+    (checked : CheckedExpr) (expected : Ty) : Except TypeError Unit :=
+  match checked.source, expected with
+  | Solidity.Expr.array _, Solidity.Ty.array _ (some _) =>
+      match inlineArrayBottomUpTy? checked.source with
+      | some litTy =>
+          if litTy == expected then Except.ok ()
+          else Except.error (TypeError.expectedType expected checked.ty)
+      | none => checked.expectAssignableToIn types expected
+  | _, _ => checked.expectAssignableToIn types expected
+
 def Expr.isDirectLiteral : Solidity.Expr -> Bool
   | Solidity.Expr.literal _ => true
   | _ => false
@@ -3500,11 +3568,31 @@ def CheckedExpr.expectSignedInteger (expr : CheckedExpr) :
   require expr.ty.isSignedInteger
     (TypeError.expectedInteger expr.ty)
 
+-- Overload-matching assignability of a checked argument, bottom-up-aware for an
+-- inline array literal argument. `canAssignToIn` uses the uint256-typed
+-- `checked.ty` (so it would accept the widened `[1,2,3] : uint256[3]` for a
+-- `uint256[3]` parameter, which solc rejects); when the argument is an inline
+-- array literal with a bare-only bottom-up type we instead require that type to
+-- EQUAL the parameter type (solc's `ArrayType::isImplicitlyConvertibleTo`
+-- demands an identical fixed-array base — this both rejects `uint256[3]` and
+-- keeps `uint8[3]` matching). This is the sole matching predicate behind every
+-- `resolveChecked` call site (internal / external / member / super / library /
+-- with-options), so the fix applies uniformly; it is NOT used by the per-element
+-- array-literal validation inside `checkExpr`.
+def CheckedExpr.canAssignToWidenIn (types : TypeContext)
+    (expr : CheckedExpr) (expected : Ty) : Bool :=
+  match expr.source, expected with
+  | Solidity.Expr.array _, Solidity.Ty.array _ (some _) =>
+      match inlineArrayBottomUpTy? expr.source with
+      | some litTy => litTy == expected
+      | none => expr.canAssignToIn types expected
+  | _, _ => expr.canAssignToIn types expected
+
 def checkedExprParamsAccept (types : TypeContext) :
     List CheckedExpr -> List Ty -> Bool
   | [], [] => true
   | actual :: actualRest, expected :: expectedRest =>
-      actual.canAssignToIn types expected &&
+      actual.canAssignToWidenIn types expected &&
         checkedExprParamsAccept types actualRest expectedRest
   | _, _ => false
 
@@ -3513,7 +3601,7 @@ def checkedExprParamsAcceptStorageRefs (types : TypeContext) :
   | [], [], [] => true
   | actual :: actualRest, expected :: expectedRest,
       needsStorage :: storageRest =>
-      actual.canAssignToIn types expected &&
+      actual.canAssignToWidenIn types expected &&
         (!needsStorage || actual.stateLValue) &&
         checkedExprParamsAcceptStorageRefs types actualRest expectedRest
           storageRest
@@ -4589,6 +4677,22 @@ def checkCheckedExprsAssignableToFor (types : TypeContext) (what : String) :
       Except.error
         (TypeError.arityMismatch what expected.length actual.length)
 
+-- As `checkCheckedExprsAssignableToFor`, but applies the inline-array-literal
+-- bottom-up widen check (`arrayLiteralFixedWidenCheck`) per element. Used at the
+-- argument-position wrappers so a widened fixed-array argument (e.g. passing
+-- `[1,2,3]` for a `uint256[3]` parameter) is rejected exactly as solc does,
+-- while ordinary per-element array validation inside `checkExpr` keeps using the
+-- plain `checkCheckedExprsAssignableToFor` above.
+def checkCheckedArgsAssignableWidenFor (types : TypeContext) (what : String) :
+    List CheckedExpr -> List Ty -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | expr :: exprRest, ty :: tyRest => do
+      arrayLiteralFixedWidenCheck types expr ty
+      checkCheckedArgsAssignableWidenFor types what exprRest tyRest
+  | actual, expected =>
+      Except.error
+        (TypeError.arityMismatch what expected.length actual.length)
+
 def checkCheckedExprsAssignableTo (types : TypeContext) :
     List CheckedExpr -> List Ty ->
     Except TypeError Unit :=
@@ -4633,7 +4737,7 @@ def checkCheckedArgsAssignableToSignature
   match CheckedArgInfos.ordered? paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered =>
-      checkCheckedExprsAssignableToFor types what ordered params
+      checkCheckedArgsAssignableWidenFor types what ordered params
   | none =>
       Except.error
         (TypeError.arityMismatch what params.length checkedArgs.length)
@@ -4645,7 +4749,7 @@ def checkCheckedArgsAssignableToFunctionSig
   match CheckedArgInfos.ordered? sig.paramNames
       (checkedArgInfosFull args checkedArgs) with
   | some ordered => do
-      checkCheckedExprsAssignableToFor types what ordered sig.params
+      checkCheckedArgsAssignableWidenFor types what ordered sig.params
       checkCheckedExprsReferenceLocationsFor what ordered
         sig.paramStorageRefs sig.paramDataLocations
   | none =>
@@ -4720,7 +4824,7 @@ def checkStructConstructorArgs
       (checkedArgInfosFull args checkedArgs)
   match ordered? with
   | some ordered =>
-      checkCheckedExprsAssignableToFor
+      checkCheckedArgsAssignableWidenFor
         types ("struct constructor " ++ decl.name) ordered
         (StructDecl.fieldTys decl)
   | none => Except.error (TypeError.invalidStructConstructor decl.name)
@@ -4949,10 +5053,20 @@ def exprContextuallyAssignableToFuel
   | 0, _, _ => false
   | fuel + 1, Solidity.Expr.array elements,
       Solidity.Ty.array elementTy (some size) =>
+      -- solc types the inline array literal independently (bottom-up) and then
+      -- requires an IDENTICAL element type for the fixed→fixed memory-array
+      -- conversion (`ArrayType::isImplicitlyConvertibleTo`, non-copy branch): no
+      -- implicit element widening. When every element is a bare number literal
+      -- the bottom-up type is `inlineArrayBottomUpTy?`; accept iff it equals the
+      -- target (which also admits `uint8[3] = [1,2,3]`). Arrays with a typed /
+      -- variable element yield `none` here and are handled by the ordinary path.
       elements.length == size &&
-        elements.all
-          (fun element =>
-            exprContextuallyAssignableToFuel env fuel element elementTy)
+        (match inlineArrayBottomUpTyFuel? fuel (Solidity.Expr.array elements) with
+         | some (Solidity.Ty.array litElementTy (some litSize)) =>
+             litSize == size &&
+               env.qualifyCurrentLocalUserTypes litElementTy ==
+                 env.qualifyCurrentLocalUserTypes elementTy
+         | _ => false)
   | fuel + 1,
       Solidity.Expr.ternary cond thenExpr elseExpr,
       expected =>
@@ -5886,7 +6000,7 @@ def checkExpr (env : CheckEnv) :
                   "named arguments for function-typed expression")
               let checkedArgs ←
                 match
-                    checkCheckedExprsAssignableToFor env.types
+                    checkCheckedArgsAssignableWidenFor env.types
                       "function call" checkedArgs params with
                 | Except.ok _ => Except.ok checkedArgs
                 | Except.error checkedErr =>
@@ -6581,7 +6695,7 @@ def checkExpr (env : CheckEnv) :
                   (TypeError.unsupported
                     "named arguments for function-typed expression")
                 match
-                    checkCheckedExprsAssignableToFor env.types
+                    checkCheckedArgsAssignableWidenFor env.types
                       "function call" checkedArgs params with
                 | Except.ok _ => Except.ok checkedArgs
                 | Except.error checkedErr =>
@@ -6720,7 +6834,7 @@ def checkExpr (env : CheckEnv) :
                   (TypeError.unsupported
                     "named arguments for function-typed expression")
                 match
-                    checkCheckedExprsAssignableToFor env.types
+                    checkCheckedArgsAssignableWidenFor env.types
                       "function call" checkedArgs params with
                 | Except.ok _ => Except.ok checkedArgs
                 | Except.error checkedErr =>
@@ -6916,7 +7030,7 @@ def checkExpr (env : CheckEnv) :
                   (TypeError.unsupported
                     "named arguments for function-typed expression")
                 match
-                    checkCheckedExprsAssignableToFor env.types
+                    checkCheckedArgsAssignableWidenFor env.types
                       "function call" checkedArgs params with
                 | Except.ok _ => Except.ok checkedArgs
                 | Except.error checkedErr =>
@@ -7545,7 +7659,7 @@ def checkArgAssignableToParam (env : CheckEnv) (expected : Ty) :
                 stateLValue := false }
           else
             let checked ← checkExpr env expr
-            checked.expectAssignableToIn env.types expected
+            let _ ← arrayLiteralFixedWidenCheck env.types checked expected
             Except.ok checked
 termination_by arg => sizeOf arg
 decreasing_by
@@ -8276,7 +8390,7 @@ def checkExprAssignableTo (env : CheckEnv) :
         Except.ok ()
       else
         let checked ← checkExpr env expr
-        checked.expectAssignableToIn env.types expected
+        arrayLiteralFixedWidenCheck env.types checked expected
   | Solidity.Expr.ternary cond thenExpr elseExpr,
     expected@(Solidity.Ty.array _ (some _)) => do
       let condChecked ← checkExpr env cond

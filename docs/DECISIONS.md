@@ -5334,3 +5334,74 @@ id), which is why the existing `internal-fn-pointers` lane's `viaStorage`
 `fnptr-internal-eq` lane therefore covers only direct-name-derived pointers and
 explicitly does not assert the ternary/storage comparison. Recorded for a
 follow-up lowering fix.
+
+## 2026-07-09 — #56/AL1: inline array literal element-widening over-accept closed (array-literal-widen lane)
+
+Confirmed over-accept from `docs/solc-array-literal-review.md`. solc 0.8.35 types
+an inline array literal BOTTOM-UP and independently of context: the element type
+is the smallest common mobile type of the elements (`TypeChecker::visit(TupleExpression)`,
+isInlineArray — element 0 seeds `types[0]->mobileType()`, later elements fold via
+`Type::commonType(acc, types[i])`), so `[1,2,3] : uint8[3]`, `[1,256] : uint16[2]`,
+`[[1,2],[3,4]] : uint8[2][2]`. A fixed→fixed memory-array conversion then requires
+an IDENTICAL base type (`ArrayType::isImplicitlyConvertibleTo`, non-copy branch:
+"require that the base type is the same, not only convertible") — NO implicit
+element widening. This typechecker previously ACCEPTED a literal assigned/returned/
+passed/struct-constructed into a WIDER fixed-array target (`literalTy?` types every
+number literal `uint256`, so `[1,2,3] : uint256[3]`, and the contextual fixed-array
+path relaxed each raw element against the target element type).
+
+Reproduced on both sides (pinned solc + `SourceUnit.check`): solc REJECTS and this
+typechecker now REJECTS `uint256[3]=[1,2,3]`, `uint16[3]=[1,2,3]`, `uint256[2][2]=
+[[1,2],[3,4]]`, `return uint256[3] [1,2,3]`, internal/external/public `g(uint256[3])
+([1,2,3])`, `S(uint256[3])([1,2,3])`, and `bytes1[2]=[0x11,0x22]` (the literal is
+`uint8[2]`); both still REJECT empty/ragged/fixed→dynamic/element-overflow. Both
+still ACCEPT the element-matched neighbors `uint8[3]=[1,2,3]`, `uint256[3]=
+[uint256(1),2,3]`, `int8[2]=[int8(-1),2]` (order-sensitive: `[2,int8(-1)]` and
+`[1,int8(-1)]` are REJECTED, matching solc's seed-then-fold), `uint8[2][2]=
+[[1,2],[3,4]]`, typed `bytes1[2]`, and `g(uint8[3])([1,2,3])`.
+
+**Fix (`SolidCore/Solidity/TypeCheck.lean`), scoped to the inline-array-literal
+assignability path; `literalTy?` and global number-literal typing unchanged.**
+Key observation: `checkExpr`'s existing element inference is already solc-faithful
+for any array with a typed/variable element (it computes a precise element type and
+array assignability requires identity); it over-widens ONLY when every element is a
+bare number literal (each typed `uint256`). So an ENV-FREE bottom-up typer suffices:
+
+- `inlineArrayBottomUpTyFuel?`/`inlineArrayBottomUpTy?` — solc's bottom-up type when
+  every leaf is a genuinely untyped number literal (gated on
+  `exprIsUntypedNumberLiteralExpression`, which — unlike `numberLiteralRat?` — does
+  NOT see through a `T(x)` conversion, so `uint256(1)` keeps uint256). Element 0
+  seeds its `untypedLiteralMobileTy?`; later bare literals keep the accumulator if
+  they `implicitLiteralFits` it, else widen via `Ty.commonImplicit?` of the mobile
+  type; nested arrays recurse. Returns `none` (deferring to the ordinary check) for
+  any typed/variable element and for empty/ragged/mixed-sign.
+- `arrayLiteralFixedWidenCheck` — for an inline-array-literal → fixed-array target,
+  require the bottom-up type to EQUAL the target (also admits `uint8[3]=[1,2,3]`,
+  which the uint256-typed `checked.ty` would fail); else defer. Wired into
+  `checkExprAssignableTo` (assignment/return), `checkArgAssignableToParam`
+  (contextual arg fallback), the four function-pointer-value "function call" arg
+  sites, `checkStructConstructorArgs`, and `checkCheckedArgsAssignableToFunctionSig/
+  Signature` (via `checkCheckedArgsAssignableWidenFor`).
+- `CheckedExpr.canAssignToWidenIn` — the SINGLE overload-matching predicate behind
+  every `resolveChecked` call site (internal/external/member/super/library/
+  with-options) via `checkedExprParamsAccept`/`checkedExprParamsAcceptStorageRefs`.
+  This is what fixes the argument positions uniformly: `resolveChecked` matched via
+  the uint256-typed checked args (`canAssignToIn`), so the widened literal slipped
+  through overload resolution; the widen-aware predicate rejects it. Crucially it is
+  NOT used by the per-element array-literal validation inside `checkExpr` (that uses
+  `checkCheckedExprsAssignableToFor`), so multidim `uint8[2][2]` still typechecks.
+- The contextual path (`exprContextuallyAssignableToFuel` array branch) now compares
+  the bottom-up type to the target instead of relaxing each raw element.
+
+No wrong-value exposure (acceptance-surface only); the executable interpreter does
+not run inline-array-literal functions, so the accepted controls' runtime values are
+pinned by the Forge harness (EVM side), not by an interpreter `ownCall` comparison.
+
+**Lane `array-literal-widen`** (`tests/forge-harness/array-literal-widen/`): 8
+`invalid/` fixtures (solc_rejects, each with the exact solc diagnostic), a
+`src`/`test` Forge harness pinning the runtime values of the accepted controls
+(uint8Elems=10203, explicit256Elems=40606, int8Elems=255002, multi8Elems=1234), and
+`SolidCore/Witness/ArrayLiteralWiden.lean` witnesses pinning both sides of the
+boundary. `solc_rejects=ok forge=ok lean=ok forge_interpreter_compare=pass`. Full
+`lake build` green (1106 jobs, incl. FuelMonotonicity + SolidCore.Witness.*);
+`smoke_replay.sh` green (29 cases, no regressions).
