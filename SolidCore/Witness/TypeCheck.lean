@@ -9492,6 +9492,189 @@ def acceptBoundaryDisciplineMatches : Bool :=
     accBndBraceAttachableAccepted &&
     accBndUnusedLibraryAccepted
 
+-- ────────────────────────────────────────────────────────────────────────
+-- reject-fidelity-2: CMP-MIXEDSIGN #86 + PRIV-SHADOW #69
+-- ────────────────────────────────────────────────────────────────────────
+
+-- CMP-MIXEDSIGN #86 — opposite-sign folded-literal comparison.
+-- solc rejects `(0-1) < 1` etc. ("Built-in binary operator < cannot be applied
+-- to types int_const -1 and int_const 1"): two opposite-sign integer literals
+-- share no common type. Both-same-sign comparisons still fold and accept.
+def cmpSubExpr (a b : String) : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.sub (numberExpr a) (numberExpr b)
+
+def cmpBoolReturnFunction (e : Solidity.Expr) : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some "f"
+    params := []
+    returns := [{ name := none, ty := Solidity.Ty.bool, location := none }]
+    visibility := some Solidity.Visibility.public_
+    mutability := Solidity.StateMutability.pure
+    body := some (Solidity.Stmt.returnValues (some e)) }
+
+def cmpContractSource (e : Solidity.Expr) : Solidity.SourceUnit :=
+  { items :=
+      [Solidity.SourceItem.contract
+        { name := "CmpMixedC"
+          items := [Solidity.ContractItem.function (cmpBoolReturnFunction e)] }] }
+
+-- `(0-1) < 1`  → REJECT (opposite sign, folded)
+def mixedSignLtExpr : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.lt (cmpSubExpr "0" "1") (numberExpr "1")
+
+-- `(0-1) == 1` → REJECT
+def mixedSignEqExpr : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.eq (cmpSubExpr "0" "1") (numberExpr "1")
+
+-- `(1-2) <= 3` → REJECT
+def mixedSignLeExpr : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.le (cmpSubExpr "1" "2") (numberExpr "3")
+
+-- Controls that MUST still ACCEPT:
+-- `1 < 2` (both nonnegative)
+def posPosLtExpr : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.lt (numberExpr "1") (numberExpr "2")
+
+-- `(0-1) < (0-2)` (both negative)
+def negNegLtExpr : Solidity.Expr :=
+  Solidity.Expr.binary Solidity.BinaryOp.lt (cmpSubExpr "0" "1") (cmpSubExpr "0" "2")
+
+def cmpMixedSignMatches : Bool :=
+  Result.isError (SourceUnit.check (cmpContractSource mixedSignLtExpr)) &&
+    Result.isError (SourceUnit.check (cmpContractSource mixedSignEqExpr)) &&
+    Result.isError (SourceUnit.check (cmpContractSource mixedSignLeExpr)) &&
+    sourceUnitAccepted? (cmpContractSource posPosLtExpr) &&
+    sourceUnitAccepted? (cmpContractSource negNegLtExpr)
+
+-- PRIV-SHADOW #69 — same-signature private function across base/derived.
+-- solc rejects ANY cross-hierarchy same-name+params function collision that
+-- involves a `private` function ("Overriding function is missing override
+-- specifier"; a private function can never be virtual/override, so the
+-- constraint is unsatisfiable). Overloads (different params) and legitimate
+-- overrides (no private side) still accept.
+def privUintParam : Solidity.Parameter :=
+  { name := some "x", ty := uint256, location := none }
+
+def privUintParam2 : Solidity.Parameter :=
+  { name := some "y", ty := uint256, location := none }
+
+def privFnNamed (nm : Name) (vis : Solidity.Visibility)
+    (params : List Solidity.Parameter) : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some nm
+    params := params
+    visibility := some vis
+    mutability := Solidity.StateMutability.nonpayable
+    body := some Solidity.Stmt.empty }
+
+def privShadowBaseA : Solidity.ContractDecl :=
+  { name := "PrivShadowA"
+    items :=
+      [Solidity.ContractItem.function
+        (privFnNamed "f" Solidity.Visibility.private_ [privUintParam])] }
+
+-- private f(uint) in base + private f(uint) in derived → REJECT
+def privShadowDerivPriv : Solidity.ContractDecl :=
+  { name := "PrivShadowB"
+    bases := [{ base := userPath "PrivShadowA" }]
+    items :=
+      [Solidity.ContractItem.function
+        (privFnNamed "f" Solidity.Visibility.private_ [privUintParam])] }
+
+def privShadowCollisionSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract privShadowBaseA
+      , Solidity.SourceItem.contract privShadowDerivPriv ] }
+
+def privShadowCollisionRejected : Bool :=
+  Result.isError (SourceUnit.check privShadowCollisionSource)
+
+-- public f(uint) in base + private f(uint) in derived → REJECT (private side)
+def privShadowPubBaseA : Solidity.ContractDecl :=
+  { name := "PrivShadowA"
+    items :=
+      [Solidity.ContractItem.function
+        (privFnNamed "f" Solidity.Visibility.public_ [privUintParam])] }
+
+def privShadowPubBaseSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract privShadowPubBaseA
+      , Solidity.SourceItem.contract privShadowDerivPriv ] }
+
+def privShadowPubBaseRejected : Bool :=
+  Result.isError (SourceUnit.check privShadowPubBaseSource)
+
+-- Control: private f(uint) in base + private f(uint,uint) in derived
+-- (overload, different params) → ACCEPT.
+def privShadowDerivOverload : Solidity.ContractDecl :=
+  { name := "PrivShadowB"
+    bases := [{ base := userPath "PrivShadowA" }]
+    items :=
+      [Solidity.ContractItem.function
+        (privFnNamed "f" Solidity.Visibility.private_
+          [privUintParam, privUintParam2])] }
+
+def privShadowOverloadSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract privShadowBaseA
+      , Solidity.SourceItem.contract privShadowDerivOverload ] }
+
+def privShadowOverloadAccepted : Bool :=
+  sourceUnitAccepted? privShadowOverloadSource
+
+-- Control: private f(uint) in base + private g(uint) in derived
+-- (different name) → ACCEPT.
+def privShadowDerivDiffName : Solidity.ContractDecl :=
+  { name := "PrivShadowB"
+    bases := [{ base := userPath "PrivShadowA" }]
+    items :=
+      [Solidity.ContractItem.function
+        (privFnNamed "g" Solidity.Visibility.private_ [privUintParam])] }
+
+def privShadowDiffNameSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract privShadowBaseA
+      , Solidity.SourceItem.contract privShadowDerivDiffName ] }
+
+def privShadowDiffNameAccepted : Bool :=
+  sourceUnitAccepted? privShadowDiffNameSource
+
+-- Control (no-regression): public virtual f(uint) in base + public override
+-- f(uint) in derived (a legitimate override, NEITHER side private) → ACCEPT.
+def privShadowVirtualBase : Solidity.ContractDecl :=
+  { name := "PrivShadowA"
+    items :=
+      [Solidity.ContractItem.function
+        { privFnNamed "f" Solidity.Visibility.public_ [privUintParam] with
+          virtual := true }] }
+
+def privShadowOverrideDeriv : Solidity.ContractDecl :=
+  { name := "PrivShadowB"
+    bases := [{ base := userPath "PrivShadowA" }]
+    items :=
+      [Solidity.ContractItem.function
+        { privFnNamed "f" Solidity.Visibility.public_ [privUintParam] with
+          override? := some { bases := [] } }] }
+
+def privShadowLegitOverrideSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract privShadowVirtualBase
+      , Solidity.SourceItem.contract privShadowOverrideDeriv ] }
+
+def privShadowLegitOverrideAccepted : Bool :=
+  sourceUnitAccepted? privShadowLegitOverrideSource
+
+def privShadowMatches : Bool :=
+  privShadowCollisionRejected &&
+    privShadowPubBaseRejected &&
+    privShadowOverloadAccepted &&
+    privShadowDiffNameAccepted &&
+    privShadowLegitOverrideAccepted
+
+-- Combined reject-fidelity-2 discipline.
+def rejectFidelity2Matches : Bool :=
+  cmpMixedSignMatches && privShadowMatches
+
 def abstractMissingBaseConstructorArgs :
     Solidity.ContractDecl :=
   { name := "AbstractMissingCtorArgs"

@@ -10158,6 +10158,56 @@ def ContractDecl.overrideMembers (types : TypeContext)
     (ContractItem.overrideMember? types decl.name localTypeNames
       origin decl.kind)
 
+/-- A (name, parameter-types, isPrivate) collision key for every function and
+public-state-variable getter declared directly in `decl`. Unlike `overrideMembers`,
+this INCLUDES `private` functions (they are excluded from the override machinery
+because they are neither inherited nor overridable). Used only by
+`ContractDecl.checkPrivateOverrideCollision` to close the private-collision gap. -/
+def ContractDecl.collisionKeys (types : TypeContext)
+    (decl : Solidity.ContractDecl) : List (Name × List Ty × Bool) :=
+  let origin := TypeContext.pathOfName decl.name
+  let localTypeNames := ContractDecl.localTypeNames decl
+  decl.items.filterMap fun item =>
+    match item with
+    | Solidity.ContractItem.function fn =>
+        match fn.kind, fn.name with
+        | Solidity.FunctionKind.function, some name =>
+            some (name,
+              Tys.qualifyLocalUserTypes decl.name localTypeNames
+                (Parameters.tys fn.params),
+              fn.visibility == some Solidity.Visibility.private_)
+        | _, _ => none
+    | Solidity.ContractItem.stateVar sv =>
+        (StateVarDecl.publicGetterOverrideMember? types decl.name localTypeNames
+          origin decl.kind sv).map
+          (fun m => (m.name, m.params, false))
+    | _ => none
+
+/-- solc's `OverrideChecker` requires an explicit `override` specifier (and a
+`virtual` base) for ANY function/getter in a derived contract that shares its
+name and parameter types with one in a strictly-inherited base (error:
+`Overriding function is missing "override" specifier`, verified across the full
+base×derived visibility matrix on solc 0.8.35). A `private` function can never
+satisfy those constraints — `private` + `virtual` is forbidden, and a private
+function cannot participate in an override relationship — so a same-signature
+collision across the hierarchy where EITHER side is private is unconditionally
+rejected. The non-private collisions are already caught by the override machinery
+(`checkOverrideUse`); private functions are excluded from the override-member
+collection on both sides, so this check closes that gap. It fires ONLY when at
+least one colliding side is private, leaving legitimate overloads (different
+params) and legitimate overrides (neither side private) untouched. -/
+def ContractDecl.checkPrivateOverrideCollision
+    (own ancestors : List (Name × List Ty × Bool)) : Except TypeError Unit :=
+  match own with
+  | [] => Except.ok ()
+  | (name, params, isPriv) :: rest => do
+      let clash := ancestors.any fun anc =>
+        anc.1 == name && anc.2.1 == params && (isPriv || anc.2.2)
+      require (!clash)
+        (TypeError.invalidOverride
+          "private function collides with same-signature inherited function")
+      ContractDecl.checkPrivateOverrideCollision rest ancestors
+
 def ContractDecls.lookupPath? (target : Path) :
     List Solidity.ContractDecl ->
     Option Solidity.ContractDecl
@@ -13200,6 +13250,9 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     (stateVars.map Solidity.StateVarDecl.name ++
       functionNames ++ nonFunctionTypeNames)
   let currentMembers := ContractDecl.overrideMembers contractTypes contract
+  ContractDecl.checkPrivateOverrideCollision
+    (ContractDecl.collisionKeys contractTypes contract)
+    (inheritedContracts.flatMap (ContractDecl.collisionKeys contractTypes))
   let currentModifierMembers := ModifierOverrideMembers.forContract contract
   let inheritsUnimplementedAllowed :=
     contract.abstract ||

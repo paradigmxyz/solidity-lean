@@ -9475,7 +9475,7 @@
     },
     {
       "name": "accept-boundary",
-      "description": "Two reject-fidelity fixes vs pinned solc 0.8.35. DIV-DUP-INH-MOD #81: base-constructor arguments given twice (once in the inheritance list, once in a constructor modifier), directly and across the linearization, are rejected. USINGFOR-BRACE #82: the brace-form using-for is validated eagerly — a non-attachable free function and a non-unique (overloaded) name are rejected. Pinned solc rejects all four invalid sources; the accept controls (single-supply base ctor, attachable+unique brace binding, unused library-form using-for which stays LAZY) plus every rejection are pinned in Lean via acceptBoundaryDisciplineMatches.",
+      "description": "Two reject-fidelity fixes vs pinned solc 0.8.35. DIV-DUP-INH-MOD #81: base-constructor arguments given twice (once in the inheritance list, once in a constructor modifier), directly and across the linearization, are rejected. USINGFOR-BRACE #82: the brace-form using-for is validated eagerly \u2014 a non-attachable free function and a non-unique (overloaded) name are rejected. Pinned solc rejects all four invalid sources; the accept controls (single-supply base ctor, attachable+unique brace binding, unused library-form using-for which stays LAZY) plus every rejection are pinned in Lean via acceptBoundaryDisciplineMatches.",
       "solc_rejects": [
         "tests/forge-harness/accept-boundary/invalid/BaseArgsTwice.sol",
         "tests/forge-harness/accept-boundary/invalid/BaseArgsTwiceIndirect.sol",
@@ -9490,6 +9490,29 @@
           {
             "label": "acceptBoundaryDisciplineMatches",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.acceptBoundaryDisciplineMatches",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reject-fidelity-2",
+      "description": "Two reject-fidelity fixes vs pinned solc 0.8.35. CMP-MIXEDSIGN #86: an opposite-sign folded integer-literal comparison ((0-1) < 1, ==, <=) has no common type and is rejected, while same-sign folded comparisons (1<2, (0-1)<(0-2)) still fold and accept. PRIV-SHADOW #69: a private function whose name+parameter types collide with a same-signature function in a strictly-inherited base (any visibility) is rejected ('Overriding function is missing override specifier'), while overloads (different params), different names, and legitimate public virtual/override still accept. Pinned solc rejects all five invalid sources; every rejection and accept control is pinned in Lean via rejectFidelity2Matches.",
+      "solc_rejects": [
+        "tests/forge-harness/reject-fidelity-2/invalid/MixedSignLt.sol",
+        "tests/forge-harness/reject-fidelity-2/invalid/MixedSignEq.sol",
+        "tests/forge-harness/reject-fidelity-2/invalid/MixedSignLe.sol",
+        "tests/forge-harness/reject-fidelity-2/invalid/PrivShadowSameSig.sol",
+        "tests/forge-harness/reject-fidelity-2/invalid/PrivShadowPubBase.sol"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Witness.TypeCheck"
+        ],
+        "evals": [
+          {
+            "label": "rejectFidelity2Matches",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.rejectFidelity2Matches",
             "expect": "true"
           }
         ]

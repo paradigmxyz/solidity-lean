@@ -5,6 +5,72 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — reject-fidelity-2: CMP-MIXEDSIGN #86 + PRIV-SHADOW #69
+
+Two independent acceptance-boundary over-accepts (solc rejects at compile time;
+solidity-lean accepted). Ground truth: pinned solc 0.8.35, accept iff `--bin`
+exit 0. New sanctioned lane `reject-fidelity-2` (five `solc_rejects` invalids +
+accept controls) and Lean witness `rejectFidelity2Matches` pin both boundaries.
+
+### CMP-MIXEDSIGN #86 — opposite-sign folded-literal comparison
+
+solc rejects a comparison of two OPPOSITE-SIGN integer literals unconditionally,
+regardless of magnitude and operator: `(0-1) < 1`, `(0-1) == 1`, `(1-2) <= 3`,
+`(0-1) < 0`, `0 < (0-1)`, etc. all give "Built-in binary operator … cannot be
+applied to types int_const -1 and int_const 1" — two opposite-sign integer
+literals have no common type (verified across `< <= > >= == !=` on solc 0.8.35).
+Both-same-sign literals DO share a common type (u256 for both-nonnegative, s256
+for both-negative) and still fold.
+
+The bug: `NumberRat.comparisonFoldable` (Interface.lean ~3089) had a mixed-sign
+branch `else max i j ≤ 2^255 − 1`, which for `(-1, 1)` gave `1 ≤ 2^255−1 = true`
+→ accept. That branch misstated solc's rule (solc rejects mixed-sign
+UNCONDITIONALLY, not "positive side ≤ 2^255−1").
+
+Fix: the mixed-sign branch is now `else false`; the both-nonnegative and
+both-negative branches are unchanged (correct). The misleading comment at
+Interface.lean ~3083 was corrected. Reached via `Expr.numberComparisonFoldable?`
+(Interface.lean ~3149) at the comparison type-check. PRESERVED: `1 < 2`,
+`(0-1) < (0-2)`, `2**300 < 2**301` (rejected already — no integer mobile type),
+`1 < 2**300` (rejected already), fractional comparisons (the `none,none` branch,
+untouched). The unary-literal `-1 < 1` was already correctly rejected via int256
+typing and stays rejected.
+
+### PRIV-SHADOW #69 — same-signature private function across base/derived
+
+Confirmed boundary (full base×derived visibility matrix, solc 0.8.35): EVERY
+cross-hierarchy same-name+parameter-types function collision is rejected with
+`Overriding function is missing "override" specifier` — for all 16 visibility
+pairs. A `private` function can never satisfy the override constraint
+(`private` + `virtual` is forbidden; adding `override` yields "Trying to override
+non-virtual function", and the base cannot be made virtual), so any same-signature
+collision across the hierarchy involving a private function is unsatisfiable —
+always rejected. Overloads (same name, DIFFERENT params) accept; different names
+accept; legitimate public virtual/override accepts.
+
+solidity-lean already rejected the non-private collisions via the override
+machinery (`checkOverrideUse` → "missing override specifier"), but private
+functions are excluded from the override-member collection on BOTH sides
+(`FunctionDecl.overrideMember?` returns `none` for private, TypeCheck.lean
+~10090), so a private-involving collision slipped through and was accepted.
+
+Fix: a dedicated, surgical check `ContractDecl.checkPrivateOverrideCollision`
+(TypeCheck.lean ~10161) that compares the current contract's own function/getter
+collision keys (`ContractDecl.collisionKeys`, which — unlike `overrideMembers` —
+INCLUDES private functions) against those of every strictly-inherited base, and
+rejects a same-name+params match when AT LEAST ONE side is private. Gating on
+"either side private" means it fires ONLY on the exact gap: legitimate overloads
+(different params) and legitimate overrides (neither side private) are never
+touched — those remain handled by the existing override machinery. Wired into the
+per-contract driver right after `currentMembers` (TypeCheck.lean ~13205).
+
+Boundary left un-extended (noted, narrow): a derived PUBLIC state-variable getter
+colliding with a base private function is covered (getters are in
+`collisionKeys`); a base public state-variable getter vs a derived private
+function ("Identifier already declared") is already rejected by the existing
+`function shadows inherited state variable` check. No known private-collision
+sub-case remains accepted.
+
 ## 2026-07-09 — D-OOM-DISPATCH #83 + TC-OOM1: allocation-Panic(0x41) on the external-dispatch and try/catch success-return decoders
 
 Two replay-reachable WRONG-REVERTs in the same DEC-OOM #62 family: a decoded

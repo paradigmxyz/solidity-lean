@@ -3080,9 +3080,12 @@ def NumberRat.integerMobile? (v : NumberRat) : Option Int := do
 -- types and compared (Types.cpp:1117-1126). The comparison is well-typed only
 -- when those mobile types share a common type. We reproduce that gate so solidity-lean
 -- rejects the same programs: two integers both need an integer mobile type and a
--- common integer type (mixed-sign requires the positive side ≤ 2^255−1); two
--- fractionals always share a common fixed type; a mix of integer and fractional
--- has no common type.
+-- common integer type. Two same-sign integer literals share a common integer
+-- type (u256 for both-nonnegative, s256 for both-negative), so they fold; but
+-- two OPPOSITE-SIGN integer literals never share a common type — solc rejects
+-- them unconditionally ("cannot be applied to types int_const -1 and int_const 1"),
+-- regardless of magnitude. Two fractionals always share a common fixed type; a
+-- mix of integer and fractional has no common type.
 def NumberRat.comparisonFoldable (lhs rhs : NumberRat) : Bool :=
   match lhs.exactInt?, rhs.exactInt? with
   | some i, some j =>
@@ -3090,7 +3093,7 @@ def NumberRat.comparisonFoldable (lhs rhs : NumberRat) : Bool :=
       | some _, some _ =>
           if i ≥ 0 && j ≥ 0 then true
           else if i < 0 && j < 0 then true
-          else max i j ≤ (2 ^ 255 - 1 : Int)
+          else false
       | _, _ => false
   | none, none => true
   | _, _ => false
