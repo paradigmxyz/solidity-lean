@@ -7233,6 +7233,39 @@
           }
         ]
       }
+    },
+    {
+      "name": "aggregate-array-span",
+      "description": "Forge checks solc/EVM that uint40[32] spans 6 slots (floor(32/5)=6 elements per slot, no straddle) so the trailing scalar lands at slot 7; Lean imports the same source and checks the abstract storage words including the trailing scalar slot.",
+      "forge": {
+        "root": "tests/forge-harness/aggregate-array-span",
+        "match_contract": "AggregateArraySpanForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/aggregate-array-span/src/AggregateArraySpan.sol",
+        "contract": "AggregateArraySpanHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AggregateArraySpan"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AggregateArraySpan.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFixedArraySpanNoStraddle",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AggregateArraySpan.importedContract\n  let state \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 contract \"setAll\" SolidCore.Solidity.Source.State.empty []\n  Except.ok\n    (SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 7) 0x99 &&\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 6) 0xbb0000000000))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

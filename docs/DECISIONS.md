@@ -5,6 +5,49 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-08 — AGG1/AGG2 fixed, AGG3 locked: storage aggregate layout + bytesN mapping-key hashing
+
+Acting on `docs/solc-storage-aggregate-layout-review.md`. All three verified
+end-to-end (pinned solc 0.8.35 + Forge `vm.load` ground truth paired with a Lean
+witness that reads the same abstract storage words via `State.loadSlot` at the
+solc-computed slots). Three Forge-paired lanes added to the manifest.
+
+- **AGG1 (fixed) — `mapping(bytesN => V)` key hashed right-aligned.** solc hashes
+  the LEFT-aligned stack form (`FixedBytesType::leftAligned = true`,
+  Types.h:701-702), so the slot is `keccak256(h(key) . slot)` with `h(key)` in
+  the high n bytes; our internal bytesN convention is right-aligned, so every
+  entry landed at the wrong slot. Fix: `mappingStorageSlotForKey`
+  (Interpreter.lean) gains a `Ty.fixedBytes n` case that shifts the low 8n bits
+  into the high bytes of the preimage word before hashing (n = 32 is a no-op).
+  Lane `aggregate-bytesn-mapping-key` also pins that the right-aligned (pre-fix)
+  preimage stays empty and a uint32 value-key control stays right-aligned.
+
+- **AGG2 (fixed) — contract/interface-typed storage members had no lowering.**
+  The `Ty.user` case fell through to `none`: contract-typed vars never packed,
+  a struct with a contract-typed field got `layout? = none` (span collapsed to
+  1, shifting later members), and `mapping(ContractType => V)` took the FNV
+  fallback. Fix: at storage-lowering time a residual `Ty.user` (all UDVT/enum/
+  struct users already resolved away) is a contract path = a 20-byte address
+  (`ContractType::storageBytes() = 20`, Types.h:978), so it is added to
+  `Ty.storagePackedBytes?` (=> 20) and `Ty.toCoreStorageWord?` (=> address) in
+  Interface.lean. That single change fixes AGG2a (packing), AGG2b (struct span)
+  and AGG2c (mapping-key keccak path) together. Lane `aggregate-contract-member`
+  drives the witness through the whole imported source unit
+  (`CheckedInput.callContract` on `importedSourceUnit`) so the sibling interface
+  is in type-context scope — note that the single-contract `checkedOwnCallState`
+  entry used by simpler lanes checks the target in isolation and would reject the
+  external interface type.
+
+- **AGG3 (locked, no code change) — fixed-array slot span.** The audit flagged
+  the straddling span as in-flight-related; the current tree already computes
+  `span = natCeilDiv size (floor(32 / widthBytes))` (Interpreter.lean:1406), the
+  correct solc formula (`uint40[32]` => 6 slots, not the old
+  `ceil(size*width/32) = 5`). Lane `aggregate-array-span` locks it so the
+  trailing scalar's slot (7, not 6) is a differential regression sentinel.
+
+Smoke replay (`scripts/smoke_replay.sh`) + the three lanes: 31 cases,
+`forge_interpreter_compare=pass`, all three `lean=ok`, no regressions.
+
 ## 2026-07-08 — DL1 fixed: storage / constructor / initializer order = reverse C3
 
 `docs/solc-implementation-divergences-7.md` DL1 (wrong-VALUE + wrong-ORDER
