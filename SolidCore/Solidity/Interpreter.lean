@@ -4836,132 +4836,180 @@ def Ty.listAbiDecodeFuel : List Ty -> Nat
 
 end
 
+/-- Lift a structural (data-presence / validator) decode failure into the
+`abi.decode` failure monad. solc surfaces every such failure as the empty
+`revert(0, 0)`, so a `none` here maps to `RevertData.empty`. -/
+def abiDecodeOpt {α} : Option α -> Except RevertData α
+  | some a => Except.ok a
+  | none => Except.error RevertData.empty
+
+/-- solc allocates a dynamic array / `bytes` / `string` decode target BEFORE the
+data-presence check, so an oversized runtime length raises Panic(0x41) rather
+than the empty revert. Mirror the two production guards:
+
+* `array_allocation_size_*` opens with
+  `if gt(length, 0xffffffffffffffff) { panic_error_0x41() }` on the raw element
+  count (`YulUtilFunctions::arrayAllocationSizeFunction`), and
+* `finalize_allocation` fires `panic_error_0x41()` when the scaled free pointer
+  `length * elementSize + 0x20` exceeds `0xffffffffffffffff`.
+
+`elementSize` is `1` for `bytes`/`string` (byte length) and `0x20` for `T[]`
+(memory arrays store a word — a value or a pointer — per element). Both guards
+run before the `if gt(srcEnd, end) { revert }` data-presence check, so this must
+too. Value types never allocate and therefore never reach this guard. -/
+def abiCheckAllocation? (elementSize : Nat) (length : Word) :
+    Except RevertData Unit :=
+  let n := SolidCore.Solidity.Shared.norm length
+  if n > 0xffffffffffffffff then
+    Except.error RevertData.memoryAllocationTooLarge
+  else if n * elementSize + wordBytes > 0xffffffffffffffff then
+    Except.error RevertData.memoryAllocationTooLarge
+  else
+    Except.ok ()
+
 def abiDecodeValueAtWithFuel? :
-    Nat -> List Byte -> Nat -> Ty -> Option Value
-  | 0, _, _, _ => none
+    Nat -> List Byte -> Nat -> Ty -> Except RevertData Value
+  | 0, _, _, _ => Except.error RevertData.empty
   | _fuel + 1, argData, headIndex, Ty.bool => do
-      let value ← readWord? argData (wordBytes * headIndex)
+      let value ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
       if wordEq value 0 || wordEq value 1 then
-        some (Value.word value)
+        Except.ok (Value.word value)
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, argData, headIndex, Ty.address => do
-      let value ← readWord? argData (wordBytes * headIndex)
+      let value ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
       if abiAddressFits value then
-        some (Value.word value)
+        Except.ok (Value.word value)
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, argData, headIndex, Ty.uint256 => do
-      let value ← readWord? argData (wordBytes * headIndex)
-      some (Value.word value)
+      let value ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+      Except.ok (Value.word value)
   | _fuel + 1, argData, headIndex, Ty.int256 => do
-      let value ← readWord? argData (wordBytes * headIndex)
-      some (Value.int value)
+      let value ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+      Except.ok (Value.int value)
   | _fuel + 1, argData, headIndex, Ty.fixedBytes size =>
       if 0 < size && size <= wordBytes then
         do
-        let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
-        let bytes ← readBytes? slot 0 size
-        let padding ← readBytes? slot size (wordBytes - size)
+        let slot ← abiDecodeOpt (readBytes? argData (wordBytes * headIndex) wordBytes)
+        let bytes ← abiDecodeOpt (readBytes? slot 0 size)
+        let padding ← abiDecodeOpt (readBytes? slot size (wordBytes - size))
         if abiAllZeroBytes padding then
-          some (Value.word (bytesToWordBE bytes))
+          Except.ok (Value.word (bytesToWordBE bytes))
         else
-          none
+          Except.error RevertData.empty
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, _argData, _headIndex, Ty.internalFunction =>
       -- Internal function pointers have no ABI representation (they cannot
       -- cross the external boundary); decoding one is a type error.
-      none
+      Except.error RevertData.empty
   | _fuel + 1, argData, headIndex, Ty.externalFunction => do
-      let slot ← readBytes? argData (wordBytes * headIndex) wordBytes
-      let addressBytes ← readBytes? slot 0 20
-      let selectorPart ← readBytes? slot 20 selectorBytes
+      let slot ← abiDecodeOpt (readBytes? argData (wordBytes * headIndex) wordBytes)
+      let addressBytes ← abiDecodeOpt (readBytes? slot 0 20)
+      let selectorPart ← abiDecodeOpt (readBytes? slot 20 selectorBytes)
       let padding ←
-        readBytes? slot (20 + selectorBytes)
-          (wordBytes - 20 - selectorBytes)
+        abiDecodeOpt (readBytes? slot (20 + selectorBytes)
+          (wordBytes - 20 - selectorBytes))
       if abiAllZeroBytes padding then
-        some
+        Except.ok
           (Value.externalFunction
             (bytesToWordBE addressBytes) (bytesToWordBE selectorPart))
       else
-        none
+        Except.error RevertData.empty
   | _fuel + 1, argData, headIndex, Ty.bytesCalldata => do
-      let offset ← readWord? argData (wordBytes * headIndex)
-      let length ← readWord? argData offset
-      let bytes ← readBytes? argData (offset + wordBytes) length
-      some (Value.bytes bytes)
+      let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+      let length ← abiDecodeOpt (readWord? argData offset)
+      -- solc allocates the `bytes`/`string` (element size 1) before the
+      -- data-presence check, so an oversized length raises Panic(0x41).
+      abiCheckAllocation? 1 length
+      let bytes ← abiDecodeOpt (readBytes? argData (offset + wordBytes) length)
+      Except.ok (Value.bytes bytes)
   | fuel + 1, argData, headIndex, Ty.dynamicArray elementTy => do
-      let offset ← readWord? argData (wordBytes * headIndex)
-      let length ← readWord? argData offset
-      let rec decodeDynamicValues? : Nat -> Nat -> Option (List Value)
-        | 0, _ => some []
+      let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+      let length ← abiDecodeOpt (readWord? argData offset)
+      -- solc allocates the array (element size 0x20) before reading elements,
+      -- so an oversized length raises Panic(0x41) ahead of data presence.
+      abiCheckAllocation? wordBytes length
+      let rec decodeDynamicValues? : Nat -> Nat -> Except RevertData (List Value)
+        | 0, _ => Except.ok []
         | remaining + 1, index => do
             let value ←
               abiDecodeValueAtWithFuel? fuel
                 (argData.drop (offset + wordBytes)) index elementTy
-            let step ← Ty.abiHeadWords? elementTy
+            let step ← abiDecodeOpt (Ty.abiHeadWords? elementTy)
             let rest ← decodeDynamicValues? remaining (index + step)
-            some (value :: rest)
+            Except.ok (value :: rest)
       let values ← decodeDynamicValues? length 0
-      some (Value.dynamicArray values)
+      Except.ok (Value.dynamicArray values)
   | fuel + 1, argData, headIndex, Ty.fixedArray size elementTy =>
       let rec decodeFixedValues? (arrayData : List Byte) :
-          Nat -> Nat -> Option (List Value)
-        | 0, _ => some []
+          Nat -> Nat -> Except RevertData (List Value)
+        | 0, _ => Except.ok []
         | remaining + 1, index => do
             let value ←
               abiDecodeValueAtWithFuel? fuel arrayData index elementTy
-            let step ← Ty.abiHeadWords? elementTy
+            let step ← abiDecodeOpt (Ty.abiHeadWords? elementTy)
             let rest ← decodeFixedValues? arrayData remaining (index + step)
-            some (value :: rest)
+            Except.ok (value :: rest)
       if Ty.isDynamicAbi elementTy then
         do
-        let offset ← readWord? argData (wordBytes * headIndex)
+        let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
         let values ← decodeFixedValues? (argData.drop offset) size 0
-        some (Value.fixedArray values)
+        Except.ok (Value.fixedArray values)
       else
         do
         let values ← decodeFixedValues? argData size headIndex
-        some (Value.fixedArray values)
+        Except.ok (Value.fixedArray values)
   | fuel + 1, argData, headIndex, Ty.tuple elementTys =>
       let rec decodeTupleValues? (tupleData : List Byte) :
-          List Ty -> Nat -> Option (List Value)
-        | [], _ => some []
+          List Ty -> Nat -> Except RevertData (List Value)
+        | [], _ => Except.ok []
         | ty :: tys, index => do
             let value ← abiDecodeValueAtWithFuel? fuel tupleData index ty
-            let step ← Ty.abiHeadWords? ty
+            let step ← abiDecodeOpt (Ty.abiHeadWords? ty)
             let rest ← decodeTupleValues? tupleData tys (index + step)
-            some (value :: rest)
+            Except.ok (value :: rest)
       if Ty.listHasDynamicAbi elementTys then
         do
-        let offset ← readWord? argData (wordBytes * headIndex)
+        let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
         let values ← decodeTupleValues? (argData.drop offset) elementTys 0
-        some (Value.tuple values)
+        Except.ok (Value.tuple values)
       else
         do
         let values ← decodeTupleValues? argData elementTys headIndex
-        some (Value.tuple values)
+        Except.ok (Value.tuple values)
   -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
   -- position (params/returns lower enums to `uint256` + `AbiCleanup.enum`).
-  | _fuel + 1, _, _, Ty.enumStorage _ => none
+  | _fuel + 1, _, _, Ty.enumStorage _ => Except.error RevertData.empty
 
 def abiDecodeValueAt? (argData : List Byte) (headIndex : Nat)
-    (ty : Ty) : Option Value :=
+    (ty : Ty) : Except RevertData Value :=
   abiDecodeValueAtWithFuel? (Ty.abiDecodeFuel ty) argData headIndex ty
 
 def abiDecodeValuesAux? (argData : List Byte) :
-    List Ty -> Nat -> Option (List Value)
-  | [], _ => some []
+    List Ty -> Nat -> Except RevertData (List Value)
+  | [], _ => Except.ok []
   | ty :: tys, index => do
       let value ← abiDecodeValueAt? argData index ty
-      let headWords ← Ty.abiHeadWords? ty
+      let headWords ← abiDecodeOpt (Ty.abiHeadWords? ty)
       let values ← abiDecodeValuesAux? argData tys (index + headWords)
-      some (value :: values)
+      Except.ok (value :: values)
 
+/-- `abi.decode` decoder distinguishing Panic(0x41) (oversized allocation of a
+dynamic decode target) from the empty revert (data-presence / validator
+failures). -/
+def abiDecodeValuesExcept? (tys : List Ty) (argData : List Byte) :
+    Except RevertData (List Value) :=
+  abiDecodeValuesAux? argData tys 0
+
+/-- Option view of the decoder, for callers that only need success/failure and
+not the failure mode (e.g. external-return decoding and witness checks). -/
 def abiDecodeValues? (tys : List Ty) (argData : List Byte) :
     Option (List Value) :=
-  abiDecodeValuesAux? argData tys 0
+  match abiDecodeValuesExcept? tys argData with
+  | Except.ok values => some values
+  | Except.error _ => none
 
 mutual
 
@@ -6543,8 +6591,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  match abiDecodeValues? tys bytes with
-                  | some decoded =>
+                  match abiDecodeValuesExcept? tys bytes with
+                  | Except.ok decoded =>
                       if AbiCleanups.acceptOrUnspecified cleanups decoded then
                         match decoded with
                         | [value] => pure (value, runtime')
@@ -6552,7 +6600,8 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                             pure (Value.tuple values, runtime')
                       else
                         throw <| SolidityFailure.revert RevertData.empty
-                  | none => throw <| SolidityFailure.revert RevertData.empty
+                  | Except.error revertData =>
+                      throw <| SolidityFailure.revert revertData
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.lowLevelCall kind targetExpr calldataExpr valueExpr
               gasExpr? gasFirst => do
