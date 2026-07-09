@@ -499,20 +499,26 @@ private theorem eval_mono_step (n m : Nat)
       | ok target =>
         rw [h2] at hnf
         try simp only [] at hnf ⊢
-        cases h3 : calldataExpr.evalWithRuntimeByContext context runtime' with
-        | error err => rfl
-        | ok p2 =>
-          obtain ⟨calldataValue, runtime''⟩ := p2
-          rw [h3] at hnf
+        -- New eval order (gap EO1): the call options (value/gas ordered by
+        -- `gasFirst`) are evaluated BEFORE the calldata argument. Split the
+        -- options result FIRST, thread its runtime (`runtimeOpts`) into the
+        -- calldata evaluation, then the calldata, `asBytes?`, and finally the
+        -- missingCode `if` + the two bind branches.
+        split
+        next value gasOpt runtimeOpts heq =>
+          rw [heq] at hnf
           try simp only [] at hnf ⊢
-          cases h4 : calldataValue.asBytes? with
-          | none => rfl
-          | some calldata =>
-            rw [h4] at hnf
+          cases h3 : calldataExpr.evalWithRuntimeByContext context runtimeOpts with
+          | error err => rfl
+          | ok p2 =>
+            obtain ⟨calldataValue, runtime'''⟩ := p2
+            rw [h3] at hnf
             try simp only [] at hnf ⊢
-            split
-            next value gasOpt runtime''' heq =>
-              rw [heq] at hnf
+            cases h4 : calldataValue.asBytes? with
+            | none => rfl
+            | some calldata =>
+              rw [h4] at hnf
+              try simp only [] at hnf ⊢
               -- The `do`-notation lifted the `missingCode` `if` over its
               -- continuation, so at source both branches already bind their own
               -- prefix. Split the `if`; each branch is then a plain bind sharing
@@ -556,7 +562,7 @@ private theorem eval_mono_step (n m : Nat)
                         rw [hbind] at hw
                         try simp only [Bool.false_eq_true, if_true, if_false] at hw ⊢
                         rw [hEval _ _ _ _ hw.of_bind]
-            next runtimeFailed err heq => rfl
+        next runtimeFailed err heq => rfl
   case tryContractCreate contractName ctorArgsExpr valueExpr saltExprOpt
       rets successBody catchClauses =>
     cases h1 : ctorArgsExpr.evalWithRuntimeByContext context runtime with
