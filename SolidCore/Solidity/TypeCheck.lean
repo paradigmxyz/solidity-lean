@@ -405,9 +405,18 @@ def Ty.isFixedBytesOperand : Ty -> Bool
 def Ty.isBitwiseOperand (ty : Ty) : Bool :=
   Ty.isInteger ty || Ty.isFixedBytesOperand ty
 
-def Ty.isRelationalOperand (ty : Ty) : Bool :=
+def Ty.isRelationalOperand (types : TypeContext) (ty : Ty) : Bool :=
   match ty with
   | Solidity.Ty.address _ => true
+  -- solc 0.8.35 defines ordered comparisons (`<`/`<=`/`>`/`>=`) on same-enum
+  -- operands (compares ordinals, result `bool`). At this layer an enum type is
+  -- carried as `Ty.user path`; `Ty.enum _` is the post-resolution shape. Both
+  -- accept. Contracts are ALSO `Ty.user path` but are NOT ordered-comparable in
+  -- solc, so we gate on `isEnumPath` (unlike equality, which also allows
+  -- contracts). Same-enum-only is enforced upstream by `commonCheckedTyFor`:
+  -- distinct enum paths have no `commonImplicit?`, so they never reach here.
+  | Solidity.Ty.enum _ => true
+  | Solidity.Ty.user path => types.isEnumPath path
   | _ => Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
 
 def Ty.isShiftLeftOperand (ty : Ty) : Bool :=
@@ -3450,10 +3459,10 @@ def CheckedExprs.bitwiseTy (left right : CheckedExpr) :
   CheckedExprs.commonCheckedTyFor "bitwise expression"
     Ty.isBitwiseOperand TypeError.expectedNumeric left right
 
-def CheckedExprs.relationalTy (left right : CheckedExpr) :
+def CheckedExprs.relationalTy (types : TypeContext) (left right : CheckedExpr) :
     Except TypeError Ty :=
   CheckedExprs.commonCheckedTyFor "relational expression"
-    Ty.isRelationalOperand TypeError.expectedNumeric left right
+    (Ty.isRelationalOperand types) TypeError.expectedNumeric left right
 
 -- G3: `==`/`!=` are builtin-defined only on value types, contracts, enums,
 -- addresses and function pointers (solc TypeError 2271 otherwise; the reference
@@ -7187,7 +7196,7 @@ def checkExpr (env : CheckEnv) :
           require
             (Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
-          let _ ← CheckedExprs.relationalTy lhsChecked rhsChecked
+          let _ ← CheckedExprs.relationalTy env.types lhsChecked rhsChecked
           Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.eq
       | Solidity.BinaryOp.ne =>

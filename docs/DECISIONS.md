@@ -5,6 +5,46 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — #52/EC-CMP: ordered comparison on same-enum operands accepted (over-reject closed)
+
+A confirmed over-reject (from `docs/solc-enum-review.md`). solc 0.8.35 ACCEPTS
+ordered comparisons `<`/`<=`/`>`/`>=` on two operands of the SAME enum type,
+comparing their ordinals and yielding `bool` (verified: the repro contract with
+`State.Init < State.Done` etc. compiles and emits bytecode; a DIFFERENT-enum
+comparison `A.X < B.Q` is rejected with TypeError 2271). solidity-lean rejected
+all of them with `expectedNumeric`: `Ty.isRelationalOperand`
+(`SolidCore/Solidity/TypeCheck.lean`) listed only address/uint/int/fixed/bytesN
+and omitted enums, while `==`/`!=` were already enum-aware via
+`Ty.isEqualityComparable` — the asymmetry was the bug.
+
+**Fix.** `Ty.isRelationalOperand` now takes the `TypeContext` and accepts the
+enum type. At this checker layer an enum operand is carried as `Ty.user path`
+(the `Ty.enum _` shape only appears after Interface-layer resolution), so the
+predicate gates on `types.isEnumPath path` (plus `Ty.enum _` for robustness).
+`CheckedExprs.relationalTy` threads `env.types` through from the `lt/gt/le/ge`
+binary arm.
+
+**Same-enum-only precision.** Ordered comparison stays restricted to identical
+enum operands WITHOUT any new guard: `commonCheckedTyFor` first computes a
+common operand type via `Ty.commonImplicit?`, which for two DIFFERENT enum
+paths (no implicit enum→enum conversion) returns `none` → the op fails with
+`expectedType` before `isRelationalOperand` is ever consulted. Contracts are
+also `Ty.user path` but are NOT ordered-comparable in solc, so — unlike the
+equality path which also allows contracts — the relational predicate gates on
+`isEnumPath` only, never `isContractPath`.
+
+**Interpreter: no change needed.** An enum value is a `Value.word` holding the
+uint8 ordinal; the `lt/gt/le/ge` arms of `BinaryOp.applyWord` already compare
+two `Value.word`s with unsigned `ltWord`/`gtWord`, which is exactly solc's
+unsigned ordinal comparison. Confirmed end-to-end through the interpreter.
+
+New paired lane `enum-ordered-compare`: fixture with all four operators in true
+and false cases plus a `require(state < State.Done)` gate over an enum
+parameter, a Forge test asserting the bools, a `solc_rejects` fixture pinning
+the different-enum rejection, and a manifest Lean eval importing the same source
+(`solc_rejects=ok forge=ok lean=ok`, `forge_interpreter_compare=pass`). Full
+`lake build` green (1104 jobs); smoke replay 29/29.
+
 ## 2026-07-09 — CP1/#48: struct-element array copy INTO storage rejected under legacy codegen (over-accept closed)
 
 A confirmed over-accept (from `docs/solc-array-copy-delete-review.md`). solc
