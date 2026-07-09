@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-KNOWN_GAPS_VERSION = "1.0.0"
+KNOWN_GAPS_VERSION = "1.1.0"  # +A1-A3 (extcall, OOS in v1); DL1/M1/M4 fixed
 
 
 @dataclass(frozen=True)
@@ -138,10 +138,54 @@ _OTHER_GAPS: list[GapFingerprint] = [
                    "harness-known gap H2 (see ROADMAP deferred registry)", "open"),
 ]
 
+# External-call / try-catch divergences confirmed in the semantics review
+# (docs/semantics-divergence-handoff.md, A1-A3). These are currently OUT OF SCOPE
+# in v1 via the X-EXTCALL exclusion (external calls are unmodeled), so a live v1
+# submission never reaches dedup; they are recorded here so they dedup once the
+# v2 reflective responder lands and X-EXTCALL is retired.
+_EXTCALL_GAPS: list[GapFingerprint] = [
+    GapFingerprint("A1", "S",
+                   ("revert_data", "try-void-call-codeless-address", "revert-vs-success"),
+                   "try over a void external call to a codeless/EOA address: "
+                   "Solidus runs catch, solc reverts the caller uncatchably",
+                   "open", "OOS via X-EXTCALL in v1; live for v2"),
+    GapFingerprint("A2", "S",
+                   ("return_value", "catch-clause-source-order-vs-kind", "wrong-value"),
+                   "catch-clause dispatch is source-order first-match; solc "
+                   "dispatches by kind (fallback catch listed first shadows Error/Panic)",
+                   "open", "OOS via X-EXTCALL in v1; live for v2"),
+    GapFingerprint("A3", "S",
+                   ("revert_data", "extcodesize-nonident-receiver", "revert-vs-success"),
+                   "extcodesize existence check skipped for non-identifier receiver "
+                   "shapes (arr[i].f(), s.field.f(), m[k].f()) on a plain void call",
+                   "open", "OOS via X-EXTCALL in v1; live for v2"),
+]
 
-ALL_KNOWN: list[GapFingerprint] = _G_GAPS + _OTHER_GAPS
 
-KNOWN_FIXED: list[GapFingerprint] = []  # populated as fixes land + lanes pin them
+ALL_KNOWN: list[GapFingerprint] = _G_GAPS + _OTHER_GAPS + _EXTCALL_GAPS
+
+# Gaps FIXED on this branch (a Lean fix + corpus lane landed). A resubmission of
+# one of these is NO_DIVERGENCE unless it genuinely regresses. Recorded (not
+# matched against the open index) for provenance. Fingerprints are best-effort.
+KNOWN_FIXED: list[GapFingerprint] = [
+    GapFingerprint("DL1", "S",
+                   ("return_value", "storage-ctor-initializer-order", "wrong-value"),
+                   "storage/constructor/initializer evaluation order = reverse-C3",
+                   "fixed", "fix commit 4d2a5c0"),
+    GapFingerprint("M1", "S",
+                   ("return_value", "memory-alias-reference-assignment", "wrong-value"),
+                   "memory reference-type assignment aliased (not deep-copied)",
+                   "fixed", "fix commit ce58cfd (M1/M2/M3)"),
+    GapFingerprint("M4", "S",
+                   ("return_value", "memory-deep-deref-encode-keccak", "wrong-value"),
+                   "abi.encode/keccak of ref-nested memory deep-deref",
+                   "fixed", "fix commit 3043a9b (M4)"),
+]
+
+# NOTE (registry completeness): rounds 8-12 of docs/solc-implementation-divergences-*
+# and any remaining CB1/CS1/etc. open gaps still need fingerprinting here before a
+# public launch, so day-one submissions of internally-known gaps dedup rather than
+# reading as novel. Tracked as a follow-up.
 
 
 def _index() -> dict[str, GapFingerprint]:
