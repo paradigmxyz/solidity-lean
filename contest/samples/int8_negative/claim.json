@@ -1,0 +1,20 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "Signer",
+    "function": "f",
+    "args": [
+      {
+        "int": -5
+      }
+    ],
+    "value": 0
+  },
+  "expected_divergence": "none expected - signed narrow-int render probe: f(-5) returns int8(-5); EVM sign-extends to 0xff..fb, solidity-lean renders i:-5 -> success|i:-5.",
+  "declared_observable": {
+    "kind": "success",
+    "normal_form": "success|i:-5##EVT####STO##"
+  },
+  "feature": "int8-negative-render",
+  "register_version_seen": "1.2.0"
+}
