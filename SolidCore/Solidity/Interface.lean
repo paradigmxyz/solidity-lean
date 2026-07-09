@@ -19141,34 +19141,67 @@ def ContractDecl.baseConstructorModifierArgs? (targetDecl baseDecl : ContractDec
       ModifierInvocations.baseConstructorArgsFor?
         baseDecl baseCtor? targetCtor.modifiers
 
-def ContractDecl.baseConstructorArgsForDeployment?
-    (immediateDerived baseDecl : ContractDecl) :
-    Option (List Expr) := do
-  -- solc resolves each base's constructor arguments wherever the DIRECTLY
-  -- inheriting contract declares them — either its inheritance-list specifier
-  -- (`contract C is B(expr)`) or its own constructor modifier
-  -- (`constructor(...) B(expr)`). Both are read from `immediateDerived` (the
-  -- direct inheritor of `baseDecl`), NOT from the deployment target: in a chain
-  -- `D is C is B` where C supplies B's args, C is the direct inheritor of B and
-  -- the only contract that may pass them. In the two-contract case the direct
-  -- inheritor IS the target, so this is unchanged.
+-- Contracts strictly after `decl` in a linearization (its more-derived
+-- portion, in the same base->derived order as the input list).
+def ContractDecls.afterDecl :
+    List ContractDecl -> ContractDecl -> List ContractDecl
+  | [], _ => []
+  | c :: rest, decl =>
+      if c.name == decl.name then rest
+      else ContractDecls.afterDecl rest decl
+
+-- Search `candidates` (most-derived first) for a contract whose constructor
+-- carries a base-constructor modifier `baseDecl(args)`, returning the args and
+-- the supplying contract (whose frame the args are evaluated in). solc allows
+-- the constructor-modifier form on ANY derived contract, not just the direct
+-- inheritor of `baseDecl`; the most-derived supplier wins (solc forbids
+-- supplying a base's args twice, so at most one candidate matches).
+def ContractDecl.baseConstructorModifierSupplier?
+    (baseDecl : ContractDecl) :
+    List ContractDecl -> Option (List Expr × ContractDecl)
+  | [] => none
+  | c :: rest =>
+      match ContractDecl.baseConstructorModifierArgs? c baseDecl with
+      | some (some args) => some (args, c)
+      | _ => ContractDecl.baseConstructorModifierSupplier? baseDecl rest
+
+-- Resolve a base contract's constructor arguments for deployment, together with
+-- the contract that SUPPLIES them (whose constructor params/using-decls form
+-- the frame in which the argument expressions are evaluated). solc permits a
+-- base's constructor arguments to be given in two places:
+--   (1) the inheritance-list specifier `contract C is B(expr)` — this must be
+--       on the DIRECT inheritor of `baseDecl` (the immediate derived), and the
+--       args are evaluated in that contract's frame; or
+--   (2) a constructor modifier `constructor(...) B(expr)` — this may appear on
+--       ANY derived contract in the linearization (e.g. the deployment target
+--       naming an indirect base), and the args are evaluated in THAT contract's
+--       frame. This is the OpenZeppelin pattern where the concrete harness
+--       supplies an indirect base's args via a constructor modifier.
+-- The most-derived supplier wins; solc forbids double specification.
+def ContractDecl.baseConstructorArgsAndSupplier?
+    (storageOrder : List ContractDecl) (baseDecl : ContractDecl) :
+    Option (List Expr × ContractDecl) := do
+  let immediateDerived ←
+    ContractDecl.findImmediateDerivedInOrder? storageOrder baseDecl
   let spec ← ContractDecl.baseSpecifierFor? immediateDerived baseDecl
   let baseCtor? ← ContractDecl.directConstructor? baseDecl
   let baseParams :=
     match baseCtor? with
     | some ctor => ctor.params
     | none => []
-  let modifierArgs? ←
-    ContractDecl.baseConstructorModifierArgs? immediateDerived baseDecl
-  match modifierArgs? with
-  | some args =>
-      match spec.args with
-      | [] => some args
-      | _ :: _ => none
-  | none =>
-      match spec.args with
-      | [] => some []
-      | _ :: _ => Args.toExprsForParams? baseParams spec.args
+  match spec.args with
+  | _ :: _ =>
+      -- Inline inheritance-specifier args on the direct inheritor.
+      let args ← Args.toExprsForParams? baseParams spec.args
+      some (args, immediateDerived)
+  | [] =>
+      -- No inline base-spec args: look for a constructor-modifier supplier
+      -- anywhere more-derived than `baseDecl` (most-derived first).
+      let candidates :=
+        (ContractDecls.afterDecl storageOrder baseDecl).reverse
+      match ContractDecl.baseConstructorModifierSupplier? baseDecl candidates with
+      | some (args, supplier) => some (args, supplier)
+      | none => some ([], immediateDerived)
 
 def ContractDecl.baseDecls? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
@@ -20904,18 +20937,18 @@ def ContractDecl.constructorFunctionFromOrders?
           if decl.name == targetName then
             some ([], constructorUsingDecls, ([] : List Parameter))
           else
-            let derived ←
-              ContractDecl.findImmediateDerivedInOrder?
+            let (baseArgs, supplier) ←
+              ContractDecl.baseConstructorArgsAndSupplier?
                 storageOrder decl
-            let baseArgs ←
-              ContractDecl.baseConstructorArgsForDeployment?
-                derived decl
             let baseArgUsingDecls :=
-              ContractDecl.directUsingDecls derived ++ constructorUsingDecls
-            -- Args flow in the direct inheritor's frame, so its constructor
-            -- params are the ones in scope while evaluating them.
+              ContractDecl.directUsingDecls supplier ++ constructorUsingDecls
+            -- Args flow in the supplying contract's frame (the contract that
+            -- actually declares this base's constructor arguments — either the
+            -- direct inheritor via an inheritance specifier, or any derived
+            -- contract via a constructor modifier), so its constructor params
+            -- are the ones in scope while evaluating them.
             let supplyingParams :=
-              match ContractDecl.directConstructors derived with
+              match ContractDecl.directConstructors supplier with
               | [ctor] => ctor.params
               | _ => []
             some (baseArgs, baseArgUsingDecls, supplyingParams)
