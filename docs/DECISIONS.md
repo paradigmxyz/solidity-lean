@@ -5,6 +5,57 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — NEW-OOM investigation: scaled `finalize_allocation` guard is via-IR-ONLY (NON-divergence under legacy ground truth)
+
+Investigated a proposed "MISSING-PANIC" gap: inline `new T[](n)` for `n` in the
+window `0x0800000000000000 < n <= 0xffffffffffffffff` should (per solc's
+`--ir` output) raise Panic(0x41) via the SCALED `finalize_allocation` guard
+(`newFreePtr = memPtr + roundUpTo32(length*stride + 0x20); if gt(newFreePtr,
+0xffffffffffffffff) panic 0x41`), which `Context.checkMemoryAllocation`
+(`SolidCore/Solidity/Interpreter.lean`) lacks — it applies only the RAW
+element-count guard `gt(length, 0xffffffffffffffff)`.
+
+**Result: the gap does NOT exist under legacy ground truth. No change made.**
+
+The premise came from the `solc 0.8.35 --ir` (via-IR) pipeline. Ground truth for
+this repo is solc 0.8.35 **legacy** (optimizer off), verified two ways:
+
+1. **Real EVM (Forge lane, legacy codegen).** A probe
+   `f(uint n){ uint[] memory a = new uint[](n); return a.length; }` called with
+   `n = 0x0900000000000000` does NOT revert Panic(0x41): the staticcall consumes
+   ~1.05e9 gas (memory-expansion/zero-init) and returns an **empty** revert
+   (out-of-gas), i.e. `data.length == 0`, not the 36-byte panic payload. The
+   same held for `uint8[]` and `bytes[]`. A small `f(3)` returns 3.
+2. **Legacy `--asm`.** Each `new T[](n)` / `new bytes(n)` and each `abi.decode`
+   allocation emits exactly ONE `0xffffffffffffffff … gt … iszero … panic`
+   sequence (the RAW guard), then updates the free pointer with a **plain
+   `add`** (`length … 0x20 mul 0x20 add … add … 0x40 mstore`) — there is **no**
+   `gt(newFreePtr, 0xffffffffffffffff)` overflow check. The scaled
+   `finalize_allocation` free-pointer guard is emitted ONLY by the via-IR
+   pipeline (`YulUtilFunctions::finalizeAllocationFunction`), never by legacy.
+
+Consequently, in the window the RAW guard passes and legacy simply attempts the
+allocation and runs out of gas (an empty/OOG revert the fuel-based model does
+not represent as a value — it is not a Panic 0x41). Porting the scaled guard
+into `checkMemoryAllocation` would make the model emit Panic(0x41) where legacy
+does not, INTRODUCING a divergence rather than closing one.
+
+Corollaries:
+- The existing OOM lanes (`memory-allocation-overflow`, `dispatch-oom` #83,
+  `try-catch` #84, decode #62) all drive lengths **at/above** the raw threshold
+  (`2^64`, `type(uint256).max`), so they exercise the RAW guard that legacy DOES
+  emit — they remain correct and untouched.
+- `abiCheckAllocation?` (Interpreter.lean) carries an unused scaled term
+  (`n*elementSize + wordBytes > 0xffffffffffffffff`) that likewise does not
+  reflect legacy in the window, but it is never distinguishing under any lane
+  (all decode-OOM fixtures use above-raw-threshold lengths) and is left exactly
+  as-is to avoid touching the green DEC-OOM path.
+- The OOM allocation-panic family is therefore **complete at the RAW guard**
+  under legacy; there is no scaled-guard member to add.
+
+No interpreter, proof, witness, manifest, or lane change resulted from this
+investigation; only this decision record.
+
 ## 2026-07-09 — callpos-remainder: compound-assign-RHS call + storage `push(<call>)`
 
 Two highest-reachability over-rejects in the call-position family (a user CALL
