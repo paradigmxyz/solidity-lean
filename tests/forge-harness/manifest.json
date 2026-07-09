@@ -278,6 +278,54 @@
       }
     },
     {
+      "name": "tuple-lhs-index-call",
+      "description": "TUP-IDX: a tuple ASSIGNMENT whose LHS component is indexed by an INTERNAL function call \u2014 `(xs[f()], z) = (3, 4)` (array), `(m[k()], z) = (8, 9)` (mapping), two call-valued indices with call-valued RHS (`(xs[tick(1)], ys[tick1(2)]) = (rhs(3), rhs(4))`), and a call in BOTH an LHS index and the RHS (`(xs[keyf()], z) = (rhs(3), 9)`). solc accepts and runs these (the index call runs once); solidity-lean formerly over-rejected at Executable lowering because the tuple-LHS lvalue lowering had no internal-call hoisting for the index operand (the out-of-scope sibling of MI1). The fix hoists each call-valued LHS index into a per-component temp and builds the tuple target from it. Evaluation order matches solc \u2014 RHS components left-to-right, THEN LHS index expressions left-to-right \u2014 pinned by runOrder's logv == 3412. Forge deploys on pinned solc/EVM and asserts the values + order; Lean imports the same source and runs the source semantics.",
+      "forge": {
+        "root": "tests/forge-harness/tuple-lhs-index-call",
+        "match_contract": "TupleLhsIndexCallForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/tuple-lhs-index-call/src/TupleLhsIndexCall.sol",
+        "contract": "TupleLhsIndexCallHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedArrayIndexCall",
+            "expr": "(do\n  let ret \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runArray\" SolidCore.Solidity.Source.State.empty [] 1\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runArray\" SolidCore.Solidity.Source.State.empty []\n  let x0 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getXs\" st [SolidCore.Solidity.Source.Value.word 0] 3\n  let zz \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getZ\" st [] 4\n  Except.ok (ret && x0 && zz))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedMappingKeyCall",
+            "expr": "(do\n  let ret \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runMapping\" SolidCore.Solidity.Source.State.empty [] 7\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runMapping\" SolidCore.Solidity.Source.State.empty []\n  let m2 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getM\" st [SolidCore.Solidity.Source.Value.word 2] 8\n  let zz \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getZ\" st [] 9\n  Except.ok (ret && m2 && zz))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedEvalOrderRhsThenLhsIndex",
+            "expr": "(do\n  let ret \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runOrder\" SolidCore.Solidity.Source.State.empty [] 3412\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runOrder\" SolidCore.Solidity.Source.State.empty []\n  let x0 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getXs\" st [SolidCore.Solidity.Source.Value.word 0] 3\n  let y1 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getYs\" st [SolidCore.Solidity.Source.Value.word 1] 4\n  Except.ok (ret && x0 && y1))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedCallInBothIndexAndRhs",
+            "expr": "(do\n  let ret \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runBoth\" SolidCore.Solidity.Source.State.empty [] 37\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"runBoth\" SolidCore.Solidity.Source.State.empty []\n  let x2 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getXs\" st [SolidCore.Solidity.Source.Value.word 2] 3\n  let zz \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleLhsIndexCall.importedContract \"getZ\" st [] 9\n  Except.ok (ret && x2 && zz))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "packed-storage",
       "description": "Forge checks solc/EVM top-level, struct-field, and fixed-array packed storage writes through source-visible reads; Lean imports the same source contract from solc AST and checks the abstract source storage words plus returned values.",
       "forge": {
@@ -8577,7 +8625,7 @@
     },
     {
       "name": "modifier-return-reject",
-      "description": "#54 (MOD-RET, 2026-07-09) from docs/solc-modifier-execution-review.md: solc 0.8.35 REJECTS a `return` that carries ANY expression inside a MODIFIER body — even a void-typed one like `return delete x;` or `return require(true);` — with TypeError 7552 'Return arguments not allowed' (TypeChecker::endVisit(Return), TypeChecker.cpp:1133-1146: a modifier's functionReturnParameters is nullptr). solidity-lean was over-accepting these (its checkReturnExprs keyed only on the empty returnTys and special-cased delete/require/void as allowed, never consulting env.inModifier). Fixed by rejecting any expression-bearing return when env.inModifier. solc_rejects pins solc's compile-time rejection of both modifier forms (with `_;` present so the return-argument error is the salient one). Lean witnesses pin the rejection AND the precision boundary: a bare `return;` in a modifier and a zero-return FUNCTION `return delete x;` (empty-but-non-null return list) both stay ACCEPTED.",
+      "description": "#54 (MOD-RET, 2026-07-09) from docs/solc-modifier-execution-review.md: solc 0.8.35 REJECTS a `return` that carries ANY expression inside a MODIFIER body \u2014 even a void-typed one like `return delete x;` or `return require(true);` \u2014 with TypeError 7552 'Return arguments not allowed' (TypeChecker::endVisit(Return), TypeChecker.cpp:1133-1146: a modifier's functionReturnParameters is nullptr). solidity-lean was over-accepting these (its checkReturnExprs keyed only on the empty returnTys and special-cased delete/require/void as allowed, never consulting env.inModifier). Fixed by rejecting any expression-bearing return when env.inModifier. solc_rejects pins solc's compile-time rejection of both modifier forms (with `_;` present so the return-argument error is the salient one). Lean witnesses pin the rejection AND the precision boundary: a bare `return;` in a modifier and a zero-return FUNCTION `return delete x;` (empty-but-non-null return list) both stay ACCEPTED.",
       "solc_rejects": [
         {
           "source": "tests/forge-harness/modifier-return-reject/invalid/ModifierReturnDelete.sol",

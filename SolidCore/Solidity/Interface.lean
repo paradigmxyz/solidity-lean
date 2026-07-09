@@ -12729,6 +12729,67 @@ def varDeclCoreWithEnv? (storageNames : List Name)
             coreTy name (some initCore))
   | _, _, _ => none
 
+/-- TUP-IDX: hoist internal-function calls out of the INDEX operand of a
+    tuple-assignment LHS component. For each component `base[iname(iargs)]`
+    (an internal call in the array-index / mapping-key position), bind the
+    call result into a per-component temp and build the tuple lvalue target
+    from that temp read, mirroring the MI1 single-assign path
+    (`Expr.assign (Expr.index base (call)) …`). Non-call-index components (a
+    plain lvalue, or an index whose operand is a param/storage-read/constant)
+    keep the ordinary pure `Expr.toCoreLValue?` path unchanged — no behaviour
+    change. Returns the prefix statements (the per-component index-call temp
+    binders, concatenated LEFT-to-right) and the resulting target list; the
+    caller sequences these AFTER the RHS temps so solc's order (RHS
+    left-to-right, THEN LHS index expressions left-to-right) is preserved. -/
+def FunctionDecl.tupleLhsIndexCallHoistTargets?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) :
+    Nat -> List TupleItem ->
+      Option (List CoreStmt × List (Option CoreLValue))
+  | _, [] => some ([], [])
+  | idx, TupleItem.hole :: rest => do
+      let (restPre, restTargets) ←
+        FunctionDecl.tupleLhsIndexCallHoistTargets?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions (idx + 1) rest
+      some (restPre, none :: restTargets)
+  | idx,
+      TupleItem.value
+        (Expr.index base (Expr.call (Expr.ident iname) iargs)) :: rest => do
+      let tmp := "_sol_lhs_index_call_" ++ toString idx
+      let idxTy ←
+        Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env
+          (Expr.call (Expr.ident iname) iargs)
+      let idxCoreTy ← Ty.toCore? idxTy
+      let buildLV ← Expr.indexLValueCoreBuilder? storageNames base
+      let hoisted ←
+        FunctionDecl.internalSingleReturnCallCore?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions iname iargs
+          (fun idxCore =>
+            SolidCore.Solidity.Source.Stmt.assign
+              (SolidCore.Solidity.Source.LValue.var tmp) idxCore)
+      let (restPre, restTargets) ←
+        FunctionDecl.tupleLhsIndexCallHoistTargets?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions (idx + 1) rest
+      some
+        ( [ SolidCore.Solidity.Source.Stmt.varDecl idxCoreTy tmp none
+          , hoisted ] ++ restPre
+        , some (buildLV (SolidCore.Solidity.Source.Expr.var tmp))
+            :: restTargets )
+  | idx, TupleItem.value expr :: rest => do
+      let target ← Expr.toCoreLValue? storageNames expr
+      let (restPre, restTargets) ←
+        FunctionDecl.tupleLhsIndexCallHoistTargets?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions (idx + 1) rest
+      some (restPre, some target :: restTargets)
+termination_by _ items => (internalFuel, sizeOf items, 4)
+
 def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -13076,23 +13137,50 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   [ SolidCore.Solidity.Source.Stmt.assignTupleNested targets
                       (SolidCore.Solidity.Source.Expr.tuple replExprs) ]))
           else do
-            let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
-            let componentTys ←
-              mapOption
-                (fun item =>
-                  match item with
-                  | TupleItem.value expr =>
-                      Expr.abiTyWithInternalFunctionsEnv?
-                        functions freeFunctions env expr
-                  | TupleItem.hole => none)
-                rhsItems
-            FunctionDecl.tupleItemsUseCoreWithInternalCalls?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions "_sol_tuple_assign_item"
-              0 componentTys rhsItems
-              (fun coreExprs =>
-                SolidCore.Solidity.Source.Stmt.assignTuple targets
-                  (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+            -- TUP-IDX: hoist internal calls out of any LHS-component INDEX
+            -- (`(xs[f()], z) = …`, `(m[k()], z) = …`) into per-component temps;
+            -- non-call-index components keep the pure `toCoreLValueTargets?`
+            -- path unchanged. `lhsPrefix` binds the index-call temps and must
+            -- run AFTER the RHS is evaluated (solc: RHS left-to-right, THEN LHS
+            -- index expressions left-to-right).
+            let (lhsPrefix, targets) ←
+              FunctionDecl.tupleLhsIndexCallHoistTargets?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions 0 lhsItems
+            match Expr.toCore? storageNames (Expr.tuple rhsItems) with
+            | some rhsCore =>
+                -- RHS is call-free (e.g. `(3, 4)`): it is pure, so evaluating
+                -- it inside `assignTuple` after the LHS index temps is order-
+                -- unobservable. Reached here only because an LHS index call made
+                -- the plain `Stmt.toCore?` fail.
+                some
+                  (SolidCore.Solidity.Source.Stmt.block
+                    (lhsPrefix ++
+                      [ SolidCore.Solidity.Source.Stmt.assignTuple
+                          targets rhsCore ]))
+            | none => do
+                -- RHS itself contains internal calls (e.g. `(rhs(3), rhs(4))`,
+                -- possibly alongside call-valued LHS indices). Bind the RHS
+                -- components into temps LEFT-to-right first, THEN the LHS index
+                -- temps, THEN assign (temp reads only) — matching solc's order.
+                let componentTys ←
+                  mapOption
+                    (fun item =>
+                      match item with
+                      | TupleItem.value expr =>
+                          Expr.abiTyWithInternalFunctionsEnv?
+                            functions freeFunctions env expr
+                      | TupleItem.hole => none)
+                    rhsItems
+                FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions "_sol_tuple_assign_item"
+                  0 componentTys rhsItems
+                  (fun coreExprs =>
+                    SolidCore.Solidity.Source.Stmt.block
+                      (lhsPrefix ++
+                        [ SolidCore.Solidity.Source.Stmt.assignTuple targets
+                            (SolidCore.Solidity.Source.Expr.tuple coreExprs) ]))
   | Stmt.expr
       (Expr.call
         (Expr.member (Expr.call (Expr.ident name) args) "push")
