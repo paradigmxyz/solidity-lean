@@ -4218,6 +4218,39 @@
       }
     },
     {
+      "name": "abi-encodecall-selector",
+      "description": "EC1 pin: abi.encodeCall derives the 4-byte selector and the argument encode types from the callee's DECLARED parameter types, not the argument expression types. Forge + pinned solc are ground truth; imported Lean checks the Solidus interpreter agrees for an arg narrower than the parameter and an integer literal against a narrow parameter.",
+      "forge": {
+        "root": "tests/forge-harness/abi-encodecall-selector",
+        "match_contract": "EncodeCallSelectorForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/abi-encodecall-selector/src/EncodeCallSelector.sol",
+        "contract": "EncodeCallSelectorHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.EncodeCallSelector"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.EncodeCallSelector.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedEncodeCallSelectorFromParameterTypes",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.EncodeCallSelector.importedSourceUnit\n  let target := \"EncodeCallSelectorHarnessTarget\"\n  let state := SolidCore.Solidity.Source.State.empty\n  let word := SolidCore.Solidity.Source.Value.word\n  let encodeWord := SolidCore.Solidity.Source.ABI.encodeWord\n  let encodeSelector := SolidCore.Solidity.Source.ABI.encodeSelector\n  let selectorFromSignature := SolidCore.Solidity.Source.ABI.selectorFromSignature\n  let callBytes := fun fuel name args expected => do\n    let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract fuel source target (SolidCore.Solidity.Source.CallTarget.name name) state args\n    match result with\n    | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes actual] => Except.ok (actual == expected)\n    | _ => Except.ok false\n  let selA := selectorFromSignature \"foo(uint256)\"\n  let expectedA := encodeSelector selA ++ encodeWord 3\n  let argNarrower <- callBytes 256 \"argNarrowerThanParam\" [word 0x1234] expectedA\n  let selB := selectorFromSignature \"foo(uint8)\"\n  let expectedB := encodeSelector selB ++ encodeWord 3\n  let literalNarrow <- callBytes 256 \"literalVsNarrowParam\" [] expectedB\n  Except.ok (argNarrower && literalNarrow))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "typechecker-calldata-origins",
       "description": "Forge and imported Lean check legal calldata aliases, copies, internal calls, returns, reassignment, tuple propagation, and ABI/library boundaries; pinned solc and the common Lean checker reject memory/storage-to-calldata bindings, returns, calls, reassignment, and tuple bindings.",
       "forge": {

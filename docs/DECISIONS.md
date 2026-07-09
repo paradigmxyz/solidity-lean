@@ -4395,3 +4395,65 @@ list is not re-opened.
   `[0x20,0x40,0x80,1,0xaa,2,0xbb,0xcc]`, byte-identical to solc/Forge. (A
   separate `uint256[][2] memory` + `new uint256[]` init probe hit an unrelated
   memory-array-allocation limitation — M-series territory, not this ABI item.)
+
+## 2026-07-08 — EC1 fixed: `abi.encodeCall` selector + encoding from DECLARED parameter types
+
+`docs/solc-encodecall-selector-review.md` EC1 (wrong-VALUE family, pinned-solc
+0.8.35 confirmed). solc derives the 4-byte selector AND the argument encode
+types of `abi.encodeCall(fnPtr, args)` from the callee's DECLARED parameter
+types, never from the argument expression types. Two repros bracket the bug:
+an argument narrower than the parameter (`i.foo`, `foo(uint256)`, `uint8` arg →
+`0x2fbebd38`) and an integer literal against a narrow parameter (`this.foo`,
+`foo(uint8)`, literal `3` → `0x11602fb3`). Both verified against the pinned
+compiler's `--ir` / `--hashes`.
+
+**Two defects on the same path (both closed).**
+
+- **Lowering wrong-value (the reported bug).** `Expr.functionPointerSelectorCore?`
+  built the signature from `argTys`, and the two `abi.encodeCall` lowering sites
+  fed both the selector AND the encode `coreTys` from the argument expression
+  types. Because the env-free `Expr.toCore?` never sees the callee's parameter
+  types, the fix is in the typed pre-pass `Expr.annotateAbiFuel` (which carries a
+  `TypeEnv`): for the `encodeCall` branches it resolves the callee's declared
+  parameter types via a new `Expr.encodeCallDeclaredParamTys?` (reads the
+  `__external_call_kind:<contract>:<fn>(...)` entries already carried in the type
+  env) and wraps each argument whose ABI-canonical type differs from its
+  parameter in an explicit conversion to the PARAMETER type. Downstream both the
+  selector signature (`sourceTys`) and the encode types (`coreTys`) are then
+  taken from the parameter types. When the argument's ABI-canonical type already
+  matches the parameter (the overwhelmingly common exact-typed case, incl.
+  reference-type params) the annotation is byte-for-byte the pre-existing one, so
+  there is no regression. `functionPointerSelectorCore?` itself is unchanged —
+  other callers keep their behavior.
+
+- **Typecheck over-reject (found during verification, same path).** The reported
+  analysis assumed both repros were accepted; in fact the narrower-argument repro
+  was OVER-REJECTED (`unknownFunction "foo"`). The `encodeCall` member-pointer
+  checker resolved the pointer with the type-EXACT contextual resolver
+  (`resolveContractMemberFunctionContextual`), which only matches an exact type
+  or an untyped literal — so a `uint8` variable passed where a `uint256` is
+  declared found no overload. solc resolves an `encodeCall` pointer by name alone
+  (it must be unique) and checks convertibility separately. Fix: new
+  `TypeContext.resolveEncodeCallPointerSig` resolves by name + arity (a genuine
+  same-arity overload is `ambiguousFunction`, matching solc's "must be unique"),
+  and the two member-pointer resolution sites use it. The per-argument
+  assignability check (`checkEncodeCallTupleItemsAssignableTo` /
+  `checkArgAssignableToParam`) is unchanged, so a truly non-convertible argument
+  is still rejected (just downstream, as an assignability error). The general
+  contextual resolver used elsewhere is untouched.
+
+**Pinned.** One Forge-paired lane `abi-encodecall-selector`: a harness contract
+whose two public functions return the `encodeCall` bytes for both repros; the
+Forge test asserts the bytes against solc/EVM (`bytes4(...) ==
+IEncodeCallCallee.foo.selector` / `EncodeCallSelectorHarnessTarget.foo.selector`
+and full `abi.encodeWithSelector(sel, uint256(3)/uint8(3))`), and the imported
+Lean eval checks the Solidus interpreter returns
+`encodeSelector(selectorFromSignature "foo(uint256)"/"foo(uint8)") ++
+encodeWord 3` for each. Pre-fix the lane fails on both counts (narrow repro
+over-rejected at typecheck; literal repro's selector wrong).
+
+Validation: `lake build` green; `scripts/smoke_replay.sh SMOKE_JOBS=6 --only
+abi-encodecall-selector` = 29 cases `forge_interpreter_compare=pass`; the new
+lane also passes with Forge on (`forge=ok lean=ok`); all four encodeCall-using
+lanes (`abi-encodecall-selector`, `abi-malformed`, `function-member-kinds`,
+`receive-fallback-dispatch`) re-verified green.

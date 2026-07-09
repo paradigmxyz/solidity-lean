@@ -7183,6 +7183,31 @@ def Expr.externalFunctionValueCallReturnCore?
   else
     none
 
+-- EC1: `abi.encodeCall(fnPtr, args)` derives the 4-byte selector AND the
+-- argument ENCODE types from the callee's DECLARED parameter types — never from
+-- the argument expression types (solc `ExpressionCompiler`/`ABIFunctions`). The
+-- env-free `Expr.toCore?` lowering only sees the argument expressions, so the
+-- annotate pass (which has the `TypeEnv`) resolves the declared parameter types
+-- here and forces each argument to encode at its parameter type. The declared
+-- parameter types live in the external-call-kind entries carried in the type
+-- env under keys `__external_call_kind:<contract>:<fn>(...)` whose value is a
+-- `Ty.function paramTys ...` (see `ExternalCallKindEntry.toTypeEnvEntry?`).
+def Expr.encodeCallDeclaredParamTys? (env : TypeEnv)
+    (functionPointer : Expr) : Option (List Ty) :=
+  match functionPointer with
+  | Expr.member target name => do
+      let contractName ← Expr.externalCallTargetContractNameWithEnv? env target
+      let keyPrefix :=
+        externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ name ++ "("
+      env.findSome? (fun entry =>
+        if entry.fst.startsWith keyPrefix then
+          match entry.snd with
+          | Ty.functionWithLocations paramTys _ _ _ _ _ => some paramTys
+          | _ => none
+        else
+          none)
+  | _ => none
+
 def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
   | 0, _, expr => expr
   | fuel + 1, env, expr =>
@@ -7232,6 +7257,36 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
                       Expr.call (Expr.typeName ty) [Arg.positional annotated]
                   | none => annotated
             TupleItem.value encoded
+      -- EC1: encode an `abi.encodeCall` argument at its DECLARED parameter type.
+      -- When the argument's own ABI type already matches the parameter type (by
+      -- ABI canonical form) this is exactly the ordinary abi annotation; when it
+      -- differs (implicit conversion — narrow variable, or integer literal vs a
+      -- non-`uint256` parameter) the argument is wrapped in an explicit
+      -- conversion to the parameter type so both the selector signature and the
+      -- encode type are taken from the parameter type, matching solc.
+      let annotateEncodeCallArg (paramTy : Ty) (itemExpr : Expr) : Expr :=
+        let annotated := annotate itemExpr
+        let baseTy? :=
+          match Expr.abiTy? [] annotated with
+          | some t => some t
+          | none => Expr.abiTyWithEnv? env annotated
+        match baseTy? with
+        | some baseTy =>
+            if Ty.abiCanonical? baseTy == Ty.abiCanonical? paramTy then
+              match Expr.abiTy? [] annotated with
+              | some _ => annotated
+              | none =>
+                  Expr.call (Expr.typeName baseTy) [Arg.positional annotated]
+            else
+              Expr.call (Expr.typeName paramTy) [Arg.positional annotated]
+        | none => annotated
+      let annotateEncodeCallTupleItems
+          (paramTys : List Ty) (items : List TupleItem) : List TupleItem :=
+        (paramTys.zip items).map (fun (paramTy, item) =>
+          match item with
+          | TupleItem.hole => TupleItem.hole
+          | TupleItem.value itemExpr =>
+              TupleItem.value (annotateEncodeCallArg paramTy itemExpr))
       match expr with
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name
@@ -7260,16 +7315,27 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
                 (annotateArg head :: rest.map annotateAbiArg)
       | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
           [Arg.positional functionPointer, Arg.positional (Expr.tuple items)] =>
+          let annotatedItems :=
+            match Expr.encodeCallDeclaredParamTys? env functionPointer with
+            | some paramTys =>
+                if paramTys.length == items.length then
+                  annotateEncodeCallTupleItems paramTys items
+                else
+                  items.map annotateAbiTupleItem
+            | none => items.map annotateAbiTupleItem
           Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
             [ Arg.positional (annotate functionPointer)
-            , Arg.positional
-                (Expr.tuple (items.map annotateAbiTupleItem)) ]
+            , Arg.positional (Expr.tuple annotatedItems) ]
       | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
           [Arg.positional functionPointer, Arg.positional argumentExpr] =>
+          let annotatedArg :=
+            match Expr.encodeCallDeclaredParamTys? env functionPointer with
+            | some [paramTy] =>
+                Arg.positional (annotateEncodeCallArg paramTy argumentExpr)
+            | _ => annotateAbiArg (Arg.positional argumentExpr)
           Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
             [ Arg.positional (annotate functionPointer)
-            , annotateAbiArg
-                (Arg.positional argumentExpr) ]
+            , annotatedArg ]
       | Expr.call (Expr.member (Expr.ident "abi") "decode")
           [Arg.positional data, typesExpr] =>
           Expr.call (Expr.member (Expr.ident "abi") "decode")
