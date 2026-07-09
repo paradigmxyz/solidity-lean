@@ -42,6 +42,49 @@ multidim narrow (1234), index-of-literal (20), inline-literal-as-internal-argume
 (18), direct return of a fixed memory-array literal ([1,2,3]), and an
 order-sensitive int8 negative-leading literal (255002).
 `forge=ok lean=ok forge_interpreter_compare=pass`.
+## 2026-07-09 — #59/UNI1: `unicode"..."` non-BMP code point imports correct UTF-8 bytes (wrong-value + over-accept closed)
+
+From `docs/solc-string-literal-review.md`. A `unicode"..."` literal containing a
+NON-BMP code point (supplementary plane, > U+FFFF, e.g. U+1F600 GRINNING FACE)
+decoded to the WRONG bytes. Root cause was in the importer, not the semantics:
+`scripts/solc_ast_to_lean_source.py` built every Lean string literal with
+`json.dumps(value)`, whose default `ensure_ascii=True` encodes a non-BMP code
+point as a UTF-16 SURROGATE PAIR (`😀`) in the generated `.lean`
+source. Lean 4 does not recombine surrogate escapes — each `\uXXXX` half becomes
+a null char — so `bytes(unicode"😀")` decoded to `[0,0]` (2 bytes) instead of
+solc's `[240,159,152,128]` (4 UTF-8 bytes 0xF0 0x9F 0x98 0x80). Two effects:
+wrong bytes/length/keccak, and a latent OVER-ACCEPT — `bytes2(unicode"😀")`
+spuriously fit `bytes2` as `0x0000` (2 <= 2) while solc rejects (4 > 2).
+BMP / ASCII / 2-3-byte UTF-8 were already correct.
+
+**Fix (importer only, `scripts/solc_ast_to_lean_source.py`).**
+- `lean_string` now emits `json.dumps(value, ensure_ascii=False)`: the ACTUAL
+  Unicode characters go into the source (Lean reads it as UTF-8), while
+  quotes/backslashes/control chars (`\"`, `\\`, `\n`, `\t`) stay properly
+  escaped, so ordinary string/hex literals import unchanged.
+- `main` forces `sys.stdout.reconfigure(encoding="utf-8")` so the emitted
+  characters reach the harness (which captures stdout into a UTF-8 file) intact
+  regardless of the process locale.
+- The only other `json.dumps` sites are `scalar_value_repr` (coverage counting
+  over enum-domain fields only — never emitted into Lean source) and the solc
+  stdin request / `--audit-coverage` dump; none rely on ascii-escaping for
+  emitted Lean literals. No Lean semantics changed.
+
+The over-accept was masked, not present in the semantics: the existing
+string->bytesN gate `fixedBytesWordFromBytes?` (`bytes.length <= size`, in
+`SolidCore/Solidity/Interface.lean`) rejects the now-correct 4-byte decode.
+Verified directly via `TypeCheck.checkExpr`: `bytes2(unicode"😀")` -> reject,
+`bytes4(unicode"😀")` -> accept.
+
+**Verification.** Emoji round-trips to 4 bytes on BOTH sides; `你` stays 3, ASCII
+unchanged. New paired lane `unicode-nonbmp` (pure `unicode"😀"` + mixed
+`unicode"a你😀b"`: byte length, individual UTF-8 bytes, keccak256(bytes(...)),
+plus a `solc_rejects` fixture `invalid/Bytes2NonBmp.sol` for `bytes2(unicode"😀")`)
+runs green through the interpreter (forge=ok lean=ok forge_interpreter_compare=pass,
+solc rejects with "Literal is larger than the type"). Full `lake build` green
+(1106 jobs, incl. FuelMonotonicity + SolidCore.Witness.*). Full paired replay
+(all 178 manifest cases) re-run to confirm zero regressions from the shared
+importer change.
 
 ## 2026-07-09 — #53/FP-EQ-2: internal fn-pointer equality on ternary/storage-derived pointers (FP-EQ follow-up closed)
 
