@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/callpos-remainder/out"
+cache_path = "../../.foundry-suites/callpos-remainder/cache"
+evm_version = "cancun"

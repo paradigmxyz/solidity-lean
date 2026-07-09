@@ -5,6 +5,85 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — callpos-remainder: compound-assign-RHS call + storage `push(<call>)`
+
+Two highest-reachability over-rejects in the call-position family (a user CALL
+is a STATEMENT in the Executable core, so a call nested in a sub-expression must
+be HOISTED into a prefix temp-binding). solc accepts + compiles both (pinned
+solc 0.8.35, `--bin` exit 0); solidity-lean failed to lower → whole function
+rejected. Both closed soundly in `Stmt.toCoreWithInternalCalls?`
+(`SolidCore/Solidity/Interface.lean`).
+
+### Bug 1 — compound-assign RHS contains a user call (`total += fee()`)
+
+The compound-op statement arm (Interface.lean ~13463) matched every
+compound-assign with a wildcard RHS and routed it through the env-aware pure
+lowering `Expr.toCoreAssignOpWithEnv?` (~6822), which does `Expr.toCore? rhs` →
+`none` for any call, so the whole function over-rejected. Repros:
+`x += f()` (internal), `x += t.g()` (external member), `m[k] += f()`,
+`arr[i] += f()`, and the other compound operators.
+
+Eval order (checked against solc `--ir`): for `x += f()` solc emits
+`expr := fun_f()` BEFORE `read_from_storage(x)`; for `m[k] += f()` the call is
+emitted BEFORE reading the index `k` and computing the slot. So solc evaluates
+the RHS call FIRST, THEN resolves+reads the LValue.
+
+Fix (Interface.lean ~13474 `none` fallback): when the env-aware pure lowering
+fails, and the statement is a compound-assign whose RHS the call hoister can
+lower, hoist the call into a prefix statement (internal via
+`FunctionDecl.internalExprSingleReturnUseCore?`, external member via
+`Expr.externalMemberSingleReturnCallTy?` + `externalCallSingleReturnCoreWithKindEnv?`),
+and feed the resulting pure temp-read expression as the RHS of the SAME
+`assignOpCleanupExpr` node (`lhsCore OP= retExpr` carrying the LValue-width
+cleanup). Because the prefix runs the call first and the cleanup node then
+resolves+reads the LValue with a pure RHS, solc's order is reproduced exactly
+AND the COMPOUND-CLEANUP (#72) is preserved: narrow `+=` still Panics 0x11 on
+overflow, `<<=` still truncates unchecked. Any shape the hoister can't lower
+(multiple calls in one RHS, deeper nesting, or a non-narrowable LValue) returns
+`none` and preserves the prior over-reject — never unsound code.
+
+### Bug 2 — direct storage array `.push(<call>)` (`xs.push(compute())`)
+
+The member-call statement arm (Interface.lean ~13655) tried pure `Stmt.toCore?`,
+then `localStorageArrayMemberStmtCore?`, then
+`externalCallDiscardCoreWithKindEnv?` — none hoists a call ARGUMENT, so
+`xs.push(f())` / `xs.push(t.g())` over-rejected. solc `--ir` shows the receiver
+slot is computed, then the argument call, then the push.
+
+Fix (new final `none` arm): for `Expr.call (Expr.member target "push")
+[Arg.positional value]` on a DIRECT storage array (`Expr.storageRefPathCore?`
+yields `indexes = []`, mirroring the existing push guard), hoist the call
+argument into a prefix statement and push the temp-read through the existing
+`storageArrayPushRef` path. SCOPE: restricted to `indexes = []` (no dynamic
+index in the receiver path) — for `nested[k].push(f())` solc computes the
+receiver slot (reading `k`) BEFORE the argument call, which a call-first hoist
+would reorder, so those return `none` and keep the prior over-reject.
+
+### Left OPEN (scope discipline, per task): index-read `arr[f()]` in non-return
+position, external call with a call-valued argument `t.h(f())`, chained receiver
+`t.b().c()`, array-literal `[f(), g()]`, and `nested[k].push(f())` (dynamic-index
+receiver). None fell out of the shared helper; each preserves its current
+over-reject and emits no unsound code.
+
+### Lane + proofs
+
+New sanctioned lane `callpos-remainder`. `CallposRemainderHarnessTarget` (the
+own-call `--contract`) holds the Bug-1 INTERNAL repros — fully executable-
+lowerable, so own-call (`checkedOwnCall{Word,Panic}Matches`, fuel 256) pins
+acceptance AND semantics: `addInternal`=42, `mapAddInternal`=42, the eval-order
+pins `orderInternal`=101 and `mapOrderInternal`=17 (only correct if the call
+runs before the LValue), `narrowInRange`=155, `narrowOverflow` Panic 0x11 and
+`narrowShlCall`=0 (cleanup preserved through the hoist), and the call-free
+control `plainCompoundControl`=15. A SECOND contract `CallposRemainderExtPush`
+holds Bug 2 (`push`) and the Bug-1 EXTERNAL (`this.g()`) repros: solidity-lean's
+own-call executor has no dynamic-array/external-self-call support, so these are
+pinned by `importedContractAccepted` (whole-source-unit acceptance — true iff
+the fix's lowering succeeds) and executed against real solc/EVM by the Forge
+test. Full `lake build` 100% clean (proofs incl. FuelMonotonicity); no witness
+asserted these positions as over-rejects, so none needed updating. Regression
+spot-check: `compound-cleanup`, `extcall-binary`, `call-position` all still
+`lean=ok`/`forge_interpreter_compare=pass`.
+
 ## 2026-07-09 — reject-fidelity-2: CMP-MIXEDSIGN #86 + PRIV-SHADOW #69
 
 Two independent acceptance-boundary over-accepts (solc rejects at compile time;

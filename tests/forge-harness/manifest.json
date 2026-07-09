@@ -112,6 +112,74 @@
       }
     },
     {
+      "name": "callpos-remainder",
+      "description": "CALLPOS-REMAINDER closes the two highest-reachability remaining call-position over-rejects. Bug 1: a compound-assign RHS containing a user call (`total += fee()`, `m[k] += f()`, `x += this.g()`) routed through the env-aware pure lowering, which returns none for any call RHS, so solidity-lean over-rejected the whole function; the fix hoists the call into a prefix statement and feeds the pure temp-read result as the RHS of the SAME assignOpCleanupExpr node, preserving the LValue-width COMPOUND-CLEANUP (Panic 0x11 on narrow `+=`, truncating `<<=`); solc evaluates the RHS call FIRST (verified via --ir: `x += f()`/`m[k] += f()` emit the call before the LValue read/index). Bug 2: a direct storage array `.push(<call>)` whose argument is a user call (`xs.push(f())`, `xs.push(this.g())`) had no lowering for the call arg; the fix hoists the call, then pushes the temp-read through the existing storageArrayPushRef path (restricted to receivers with no dynamic index, matching solc's evaluate-arg-then-push order). Internal variants pin acceptance AND runtime (including two eval-order pins and the narrow-width Panic 0x11 / `<<=` truncation cleanup-preservation controls) via own-call execution; external `this.`-self-call variants pin acceptance via importedContractAccepted and are executed by the Forge test.",
+      "forge": {
+        "root": "tests/forge-harness/callpos-remainder",
+        "match_contract": "CallposRemainderForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/callpos-remainder/src/CallposRemainder.sol",
+        "contract": "CallposRemainderHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CallposRemainder"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "addInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"addInternal\" SolidCore.Solidity.Source.State.empty [] 42",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "orderInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"orderInternal\" SolidCore.Solidity.Source.State.empty [] 101",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mapAddInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"mapAddInternal\" SolidCore.Solidity.Source.State.empty [] 42",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mapOrderInternal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"mapOrderInternal\" SolidCore.Solidity.Source.State.empty [] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowInRange",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"narrowInRange\" SolidCore.Solidity.Source.State.empty [] 155",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"narrowOverflow\" SolidCore.Solidity.Source.State.empty [] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowShlCall",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"narrowShlCall\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainCompoundControl",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposRemainder.importedContract \"plainCompoundControl\" SolidCore.Solidity.Source.State.empty [] 15",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "checked-arithmetic",
       "description": "Forge checks solc/EVM checked and unchecked arithmetic behavior; pinned solc and the common checker reject nested unchecked blocks; Lean checks the paired Solidity source-interpreter witnesses.",
       "forge": {

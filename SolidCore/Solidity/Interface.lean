@@ -13474,7 +13474,54 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       match Expr.toCoreAssignOpWithEnv? storageNames env expr with
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
-      | none => Stmt.toCore? storageNames (Stmt.expr expr)
+      | none =>
+          -- CALLPOS-REMAINDER Bug 1: the compound-assign RHS contains a user
+          -- call (`total += fee()`, `m[k] += f()`, `x += t.g()`), which the
+          -- env-aware pure lowering above cannot handle (`Expr.toCore? rhs` →
+          -- `none` for any call), so it over-rejected. solc evaluates the RHS
+          -- FIRST (verified via `--ir`: for `x += f()` and `m[k] += f()` the
+          -- call `expr := f()` is emitted BEFORE the LValue `read`/index), so
+          -- hoisting the call into a prefix statement and then lowering the
+          -- read-modify-write through the SAME `assignOpCleanupExpr` path
+          -- reproduces solc's order exactly AND preserves the LValue-width
+          -- COMPOUND-CLEANUP (Panic 0x11 on narrow `+=`, truncating `<<=`),
+          -- since the hoisted call result is fed as the (pure temp-read) RHS of
+          -- the very same cleanup node. Only a single-user-call RHS the hoister
+          -- can lower is accepted (internal via `internalExprSingleReturnUseCore?`,
+          -- external/member via `externalCallSingleReturnCoreWithKindEnv?`); any
+          -- shape either can't lower (multiple calls, deeper nesting, or a
+          -- non-narrowable LValue) returns `none` and preserves the prior
+          -- over-reject rather than emitting unsound code.
+          match expr with
+          | Expr.assign lhs op rhs =>
+              match
+                (do
+                  let coreOp ← AssignOp.toCoreBinary? op
+                  let lhsCore ← Expr.toCoreLValue? storageNames lhs
+                  let lhsTy ← Expr.abiTyWithEnv? env lhs
+                  let cleanup ← Ty.toCoreValueCleanup? lhsTy
+                  let useResult : CoreExpr -> CoreStmt := fun retExpr =>
+                    SolidCore.Solidity.Source.Stmt.exprStmt
+                      (SolidCore.Solidity.Source.Expr.assignOpCleanupExpr
+                        lhsCore.toExpr coreOp retExpr cleanup)
+                  match
+                      FunctionDecl.internalExprSingleReturnUseCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions rhs
+                        useResult with
+                  | some coreStmt => some coreStmt
+                  | none =>
+                      match
+                          Expr.externalMemberSingleReturnCallTy?
+                            storageNames env externalCallKindEnv rhs with
+                      | some rhsTy =>
+                          Expr.externalCallSingleReturnCoreWithKindEnv?
+                            storageNames env externalCallKindEnv rhsTy rhs
+                            useResult
+                      | none => none) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames (Stmt.expr expr)
+          | _ => Stmt.toCore? storageNames (Stmt.expr expr)
   | Stmt.expr
       (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
         (Expr.call (Expr.ident name) args)) => do
@@ -13660,8 +13707,61 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               storageRefEnv env storageNames expr with
           | some coreStmt => some coreStmt
           | none =>
-              Expr.externalCallDiscardCoreWithKindEnv?
-                storageNames env externalCallKindEnv expr
+              match
+                  Expr.externalCallDiscardCoreWithKindEnv?
+                    storageNames env externalCallKindEnv expr with
+              | some coreStmt => some coreStmt
+              | none =>
+                  -- CALLPOS-REMAINDER Bug 2: storage-array `.push(<call>)` whose
+                  -- ARGUMENT is a user call (`xs.push(f())`, `xs.push(t.g())`).
+                  -- The pure push path (`localStorageArrayMemberStmtCore?`)
+                  -- cannot lower a call argument, so it over-rejected. solc
+                  -- evaluates the push argument, then pushes; hoist the call
+                  -- into a prefix statement and push the (pure temp-read)
+                  -- result through the SAME `storageArrayPushRef` path. Scope:
+                  -- only a DIRECT storage array (`indexes = []`, i.e. the
+                  -- receiver path reads no dynamic index) — for a receiver whose
+                  -- path itself has dynamic indexes (`nested[k].push(f())`) solc
+                  -- computes the receiver slot BEFORE evaluating the argument
+                  -- (verified via `--ir`: `xs.push`'s self-slot is emitted
+                  -- before `f()`), which a call-first hoist would reorder, so
+                  -- those return `none` and keep the prior over-reject.
+                  match expr with
+                  | Expr.call (Expr.member target "push")
+                      [Arg.positional value] =>
+                      (do
+                        let (source, indexes) ←
+                          Expr.storageRefPathCore? storageRefEnv storageNames
+                            target
+                        match target with
+                        | Expr.ident name => do
+                            let ty ← TypeEnv.lookup? env name
+                            if Ty.hasStorageArrayMembers ty then some ()
+                            else none
+                        | _ => some ()
+                        match indexes with
+                        | [] =>
+                            let mkPush : CoreExpr -> CoreStmt := fun valueCore =>
+                              SolidCore.Solidity.Source.Stmt.storageArrayPushRef
+                                source (some valueCore)
+                            match
+                                FunctionDecl.internalExprSingleReturnUseCore?
+                                  internalFuel storageRefEnv env
+                                  externalCallKindEnv storageNames modifiers
+                                  functions freeFunctions value mkPush with
+                            | some coreStmt => some coreStmt
+                            | none =>
+                                match
+                                    Expr.externalMemberSingleReturnCallTy?
+                                      storageNames env externalCallKindEnv
+                                      value with
+                                | some vTy =>
+                                    Expr.externalCallSingleReturnCoreWithKindEnv?
+                                      storageNames env externalCallKindEnv vTy
+                                      value mkPush
+                                | none => none
+                        | _ => none)
+                  | _ => none
   | Stmt.expr expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
       | some coreStmt => some coreStmt
