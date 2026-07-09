@@ -3313,6 +3313,17 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
         actualFields == expectedFields
     | _, _ => false
 
+/-- Is this the type of an INTERNAL function pointer value (a dispatch id)?
+    An external function pointer (`Visibility.external_`) is an address+selector
+    pair and is deliberately excluded — its comparison/encoding path is
+    unrelated. Used to route fn-value number literals (the shape a bare function
+    name takes after `rewriteInternalFnValueIdents`) and internal-fn comparison
+    operands to the `Expr.internalFunction` pointer value. -/
+def Ty.isInternalFunctionValueTy : Ty -> Bool
+  | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ => false
+  | Ty.functionWithLocations _ _ _ _ _ _ => true
+  | _ => false
+
 def Ty.commonImplicit? (left right : Ty) : Option Ty :=
   if left == right then
     some left
@@ -4950,6 +4961,26 @@ def Expr.toCoreStorageArrayAs? (storageNames : List Name)
       | _ => none
   | _ => none
 
+/-- A fn-value number literal (the shape a bare function NAME takes after
+    `rewriteInternalFnValueIdents`) targeted at an INTERNAL function type becomes
+    the core internal-function-pointer value. This is the value-production site
+    shared by every typed lowering context (var-decl init, comparison operand,
+    return, argument), so a ternary/storage/comparison-derived internal function
+    pointer carries `Value.internalFunction` everywhere — the same
+    representation the env-aware `toCoreAsWithEnv?` produces for the direct
+    initializer (kept in sync with `Interface.lean` §7133). A REAL number literal
+    in an internal-fn position is rejected by the typechecker, so post-typecheck
+    this shape is unambiguous; external function types are excluded. -/
+def Expr.toCoreInternalFunctionValueLiteralAs? (targetTy : Ty) :
+    Expr -> Option CoreExpr
+  | Expr.literal (Literal.number text) =>
+      if Ty.isInternalFunctionValueTy targetTy then
+        (parseNumberNat? text).map
+          SolidCore.Solidity.Source.Expr.internalFunction
+      else
+        none
+  | _ => none
+
 def Expr.toCoreAs? (storageNames : List Name)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   match Expr.toCoreStorageArrayAs? storageNames targetTy expr with
@@ -4965,6 +4996,9 @@ def Expr.toCoreAs? (storageNames : List Name)
                   Expr.isFixedBytesLiteralCandidate expr then
                 none
               else
+                match Expr.toCoreInternalFunctionValueLiteralAs? targetTy expr with
+                | some coreExpr => some coreExpr
+                | none =>
                 match Expr.toCoreNumericLiteralAs? targetTy expr with
                 | some coreExpr => some coreExpr
                 | none =>
@@ -6883,7 +6917,24 @@ def Expr.commonOperandTyWithEnv? (env : TypeEnv)
     (lhs rhs : Expr) : Option Ty := do
   let lhsTy ← Expr.abiTyWithEnv? env lhs
   let rhsTy ← Expr.abiTyWithEnv? env rhs
-  if Expr.adoptsOperandLiteralTy rhs && implicitLiteralFits lhsTy rhs then
+  -- Internal function-pointer comparison (`fp == g` / `fp != g`): one operand is
+  -- an internal-function value (a var/storage/ternary-derived
+  -- `Value.internalFunction` dispatch id) and the other is a bare function NAME —
+  -- which `rewriteInternalFnValueIdents` has turned into a number literal (its
+  -- abiTy is `uint`, so `commonImplicit?` would otherwise fail and drop the op to
+  -- the word-producing env-less path, leaving `internalFunction == word` →
+  -- typeMismatch). Adopt the internal-function type so BOTH operands elaborate to
+  -- `Expr.internalFunction` via `toCoreAs?` (a dispatch-id compare, matching
+  -- solc 0.8.35 legacy). The typechecker rejects a real number vs a fn pointer,
+  -- so a number-literal operand here is always a rewritten fn value.
+  if Ty.isInternalFunctionValueTy lhsTy &&
+      (Ty.isInternalFunctionValueTy rhsTy ||
+        (Expr.numberLiteralInt? rhs).isSome) then
+    some lhsTy
+  else if Ty.isInternalFunctionValueTy rhsTy &&
+      (Expr.numberLiteralInt? lhs).isSome then
+    some rhsTy
+  else if Expr.adoptsOperandLiteralTy rhs && implicitLiteralFits lhsTy rhs then
     some lhsTy
   else if Expr.adoptsOperandLiteralTy lhs && implicitLiteralFits rhsTy lhs then
     some rhsTy

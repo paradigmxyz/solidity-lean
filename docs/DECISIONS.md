@@ -5,6 +5,50 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — #53/FP-EQ-2: internal fn-pointer equality on ternary/storage-derived pointers (FP-EQ follow-up closed)
+
+Follow-up to #50/FP-EQ (the `fnptr-internal-eq` lane), which gave `BinaryOp.apply`
+a `Value.internalFunction` arm for `==`/`!=` but only covered pointers produced by
+DIRECT-name assignment. A pointer produced through a TERNARY initializer
+(`fp = p ? a : b`) or read back from a STORAGE field still reverted / mis-typed on
+comparison: its runtime value arrived as a plain `Value.word` instead of
+`Value.internalFunction`, so `internalFunction == word` failed with `typeMismatch`.
+Ground truth: pinned solc 0.8.35 legacy (optimizer=false) accepts both (dispatch-id
+compare, legacy-pipeline warning only) and Forge returns the expected bools.
+
+**Fix (value-production site, `SolidCore/Solidity/Interface.lean`).** A bare function
+NAME, after `rewriteInternalFnValueIdents`, takes the shape of a number literal; in
+any typed lowering context targeted at an internal-function type it must become the
+core `Expr.internalFunction` pointer value, not a word.
+
+- `Ty.isInternalFunctionValueTy` — true for `functionWithLocations` EXCEPT
+  `Visibility.external_` (external pointers are address+selector pairs, unrelated
+  encoding/compare path).
+- `Expr.toCoreInternalFunctionValueLiteralAs?` — a number-literal targeted at an
+  internal-fn type lowers to `Expr.internalFunction`; wired into `Expr.toCoreAs?`
+  ahead of the numeric-literal path. This is the shared production site for every
+  typed context (var-decl init, comparison operand, return, argument), so a
+  ternary/storage/comparison-derived pointer carries `Value.internalFunction`
+  everywhere — matching what the env-aware `toCoreAsWithEnv?` already did for the
+  direct initializer. A REAL number literal in an internal-fn position is rejected by
+  the typechecker, so post-typecheck the shape is unambiguous.
+- `Expr.commonOperandTyWithEnv?` — for `fp == g` / `fp != g` where one operand is an
+  internal-fn value and the other is a bare function name (whose abiTy is `uint`),
+  adopt the internal-function type so BOTH operands elaborate via `toCoreAs?` to
+  `Expr.internalFunction` instead of dropping to the word-producing env-less path.
+
+External function pointers and calling-through-pointer behavior are untouched (the
+`Visibility.external_` exclusion + the number-literal-only operand guard). The
+preserved patch from the prior agent applied cleanly and built + verified as-is;
+no completion changes were needed.
+
+**Verification.** Full `lake build` green (1105 jobs, incl. FuelMonotonicity +
+SolidCore.Witness.*). New paired lane `fnptr-internal-eq-derived` (ternary-init
+eq/ne both branches + storage round-trip eq/ne) confirms `forge=ok lean=ok
+forge_interpreter_compare=pass` — end-to-end through the interpreter, not just a
+typecheck. The original `fnptr-internal-eq` lane and `scripts/smoke_replay.sh
+SMOKE_JOBS=6` (29 cases) stay green.
+
 ## 2026-07-09 — #52/EC-CMP: ordered comparison on same-enum operands accepted (over-reject closed)
 
 A confirmed over-reject (from `docs/solc-enum-review.md`). solc 0.8.35 ACCEPTS
