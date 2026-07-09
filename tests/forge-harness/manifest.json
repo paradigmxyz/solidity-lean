@@ -6311,6 +6311,87 @@
       }
     },
     {
+      "name": "unicode-nonbmp",
+      "description": "Forge and the imported Lean interpreter agree that a unicode\"...\" literal containing a NON-BMP code point (U+1F600 GRINNING FACE) lowers to its 4 UTF-8 bytes 0xF0 0x9F 0x98 0x80 - not a UTF-16 surrogate pair. Pins bytes length, individual UTF-8 bytes, and keccak256(bytes(...)) for a pure emoji and a mixed ASCII+BMP(U+4F60)+non-BMP string, plus solc's rejection of bytes2(unicode\"...\") (4 bytes > 2). Regression guard for the importer, which previously ascii-escaped the code point to a surrogate pair that Lean decoded to null bytes.",
+      "forge": {
+        "root": "tests/forge-harness/unicode-nonbmp",
+        "match_contract": "UnicodeNonBmpForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/unicode-nonbmp/invalid/Bytes2NonBmp.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/unicode-nonbmp/src/UnicodeNonBmp.sol",
+        "contract": "UnicodeNonBmp",
+        "namespace": "SolidCore.Solidity.SolcAstImport.UnicodeNonBmp"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "emojiLength",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"emojiLength\" SolidCore.Solidity.Source.State.empty [] 4",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emojiByte0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"emojiByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 240",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emojiByte3",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"emojiByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3] 128",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emojiKeccak",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"emojiHash\" SolidCore.Solidity.Source.State.empty [] 0x367c272ea502ac6e9f085c1baddc52d0ac0224f1b7d1e8621202620efa3ba084",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mixedLength",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"mixedLength\" SolidCore.Solidity.Source.State.empty [] 9",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mixedByte0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"mixedByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 97",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mixedByte3",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"mixedByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3] 160",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mixedByte4",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"mixedByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 4] 240",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mixedByte8",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"mixedByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8] 98",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mixedKeccak",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.UnicodeNonBmp.importedContract \"mixedHash\" SolidCore.Solidity.Source.State.empty [] 0x1d57900652a9c0f7da60e61aa038786463531be3cba31334368cd6d6dd78fb89",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "abi-memory-eager",
       "description": "Forge and the imported Lean interpreter compare solc's eager per-element validation of a memory-location aggregate ABI parameter versus lazy per-access validation of a calldata aggregate: a dirty (out-of-range uint8) element that is never read reverts empty for a memory uint8[]/struct parameter but succeeds for the calldata counterpart that only reads .length / a clean sibling.",
       "forge": {

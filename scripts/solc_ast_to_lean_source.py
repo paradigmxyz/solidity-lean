@@ -80,7 +80,16 @@ def resolve_executable(name: str) -> str:
 
 
 def lean_string(value: str) -> str:
-    return json.dumps(value)
+    # `ensure_ascii=False` emits the ACTUAL Unicode characters (Lean reads the
+    # generated source as UTF-8) instead of `\uXXXX` escapes.  Default
+    # `ensure_ascii=True` encodes non-BMP code points (e.g. emoji, U+1F600) as a
+    # UTF-16 surrogate PAIR (`😀`); Lean 4 does not recombine
+    # surrogate escapes, so each becomes a null char and the string decodes to
+    # the wrong bytes.  `json.dumps` still escapes quotes/backslashes/control
+    # characters correctly with `ensure_ascii=False`, so ordinary string
+    # literals (including `\"`, `\\`, `\n`) import unchanged.  The importer forces
+    # UTF-8 stdout in `main` so the emitted characters reach Lean intact.
+    return json.dumps(value, ensure_ascii=False)
 
 
 def lean_list(items: Sequence[str]) -> str:
@@ -2100,6 +2109,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # The generated Lean source may now contain non-ASCII characters (see
+    # `lean_string`); Lean reads source as UTF-8, so force UTF-8 stdout instead
+    # of relying on the locale, which could otherwise mangle or fail to encode
+    # emitted code points.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
