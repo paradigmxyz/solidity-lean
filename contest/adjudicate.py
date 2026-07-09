@@ -650,6 +650,38 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         evm_obs = _selftest_perturb_evm(evm_obs)
         evidence["selftest_perturbed"] = True
     evidence["evm_observable"] = evm_obs.to_dict()
+    # Scope check (X-RETABI, revert channel): a custom-error revert is compared by
+    # decoding its args from the DECLARED error param types (observable._decode_abi_
+    # values), but the EVM decoder + Solidus renderer only agree on the faithfully-
+    # comparable ABI subset (_comparable_return_type). An ARRAY/STRUCT/TUPLE/FUNCTION-
+    # typed error param decodes to a DIFFERENT string on each side for IDENTICAL
+    # behavior — e.g. `error E(uint256[])` renders `custom:E:b:0x..` here (the dynamic
+    # arm reads the array's offset word as raw bytes) vs `custom:E:[w:..]` in Solidus
+    # (Value.dynamicArray -> `[..]`), a `bytesN[N]` fixed array reads only its first
+    # head word, and a struct/function param renders one wrong word — any of which
+    # fabricates a `wrong-revert` SOUNDNESS_GAP. Return types are already fenced this
+    # way at step 1; the revert channel had no equivalent gate. Only fires when the
+    # MEASURED result actually reverted with a KNOWN custom error whose param types
+    # are not all comparable — a scalar-only custom error still compares faithfully
+    # and can still be a real gap.
+    if not measured.ok:
+        _rd = bytes.fromhex(measured.ret_hex[2:]
+                            if measured.ret_hex.startswith("0x")
+                            else measured.ret_hex)
+        _sel = _rd[:4].hex() if len(_rd) >= 4 else ""
+        if _sel in error_defs:
+            _ename, _etypes = error_defs[_sel]
+            _uncomparable = [t for t in _etypes if not _comparable_return_type(t)]
+            if _uncomparable:
+                _e = reg.entry_by_id("X-RETABI")
+                if _e is not None and _e.is_active(effective_version):
+                    evidence["revert_param_scope"] = {
+                        "error": _ename, "uncomparable": _uncomparable}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-RETABI (intentional exclusion, out of "
+                        f"scope) — custom-error {_ename} param type(s) "
+                        f"{_uncomparable} not in the faithfully-comparable ABI "
+                        f"subset (revert channel)"), evidence=evidence)
     # declared_observable is now only a sanity cross-check (misreport hint).
     declared_norm = (claim.get("declared_observable", {}) or {}).get("normal_form")
     if declared_norm and declared_norm.strip() != evm_obs.raw.strip():

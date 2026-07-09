@@ -233,8 +233,12 @@ _SYNTACTIC: list[ExclusionEntry] = [
             "and flat tuples (multiple returns) of those. ARRAY (`T[]`, `T[N]`) and "
             "STRUCT types are not yet encoded/decoded to match Solidus's "
             "`[..]`/`(..)` form on either side, so using them would raise a spurious "
-            "divergence. Out of scope until the recursive ABI codec lands; "
-            "restructure the entry to use scalars/bytes/string meanwhile."
+            "divergence. The SAME subset bounds the custom-error REVERT channel: a "
+            "custom error with an array/struct/tuple/function-typed param decodes "
+            "differently on each side for identical behavior, so such a revert is "
+            "also out of scope (adjudicator, revert channel). Out of scope until the "
+            "recursive ABI codec lands; restructure to use scalars/bytes/string "
+            "meanwhile."
         ),
         roadmap_ref="competition-design.md §3.4; observable._decode_abi_values",
     ),

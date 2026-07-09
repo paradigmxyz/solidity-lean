@@ -310,6 +310,30 @@ def hardening_unit_tests() -> tuple[bool, str]:
                    adj._comparable_return_type("uint256") is True and
                    adj._comparable_return_type("bytes4") is True))
 
+    # Revert-channel scope (this fix): array/struct/tuple custom-error params are
+    # NOT in the comparable subset (so a `wrong-revert` mismatch on them is fenced
+    # to REJECTED_OOS, not a fake SOUNDNESS_GAP), while scalar params still compare.
+    checks.append(("err-array-oos",
+                   adj._comparable_return_type("uint256[]") is False and
+                   adj._comparable_return_type("uint256[3]") is False and
+                   adj._comparable_return_type("struct C.S") is False))
+    checks.append(("err-scalar-ok",
+                   adj._comparable_return_type("uint256") is True and
+                   adj._comparable_return_type("address") is True))
+    # And demonstrate the actual render mismatch the gate protects against: the EVM
+    # side decodes `error E(uint256[])` with [1,2,3] via the dynamic-bytes arm to a
+    # raw-bytes string, NOT Solidus's `custom:E:[w:1,w:2,w:3]` — equal behavior,
+    # different string, hence out of scope.
+    _sel = "aabbccdd"
+    _rev = bytes.fromhex(_sel) + (0x20).to_bytes(32, "big") \
+        + (3).to_bytes(32, "big") \
+        + b"".join(n.to_bytes(32, "big") for n in (1, 2, 3))
+    _nf = obs.evm_revert_normal_form(
+        "0x" + _rev.hex(), errors={_sel: ("E", ["uint256[]"])})
+    checks.append(("err-array-render-differs",
+                   _nf != "revert|custom:E:[w:1,w:2,w:3]"
+                   and _nf.startswith("revert|custom:E:")))
+
     ok = all(v for _n, v in checks)
     detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
     return ok, detail
