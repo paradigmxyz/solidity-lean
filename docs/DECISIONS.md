@@ -44,6 +44,42 @@ parameter, a Forge test asserting the bools, a `solc_rejects` fixture pinning
 the different-enum rejection, and a manifest Lean eval importing the same source
 (`solc_rejects=ok forge=ok lean=ok`, `forge_interpreter_compare=pass`). Full
 `lake build` green (1104 jobs); smoke replay 29/29.
+## 2026-07-09 — #54 (MOD-RET): `return <expr>` inside a modifier body rejected (over-accept closed)
+
+A confirmed over-accept (from `docs/solc-modifier-execution-review.md`). solc
+0.8.35 REJECTS a `return` that carries ANY expression inside a MODIFIER body —
+including a void-typed one like `return delete x;`, `return require(true);`, or
+`return voidFn();` — with TypeError 7552 "Return arguments not allowed".
+
+**solc's exact predicate** — `TypeChecker::endVisit(Return)`
+(`libsolidity/analysis/TypeChecker.cpp:1133-1146`): a modifier has no
+`functionReturnParameters` (nullptr), so any `Return` carrying an expression
+errors. This is DISTINCT from a zero-return FUNCTION, whose return list is a
+non-null EMPTY list; solc DOES allow `return delete x;` there. Confirmed on
+pinned solc: both modifier forms emit "Return arguments not allowed", while
+`function zr() internal { return delete x; }` compiles cleanly.
+
+**Lean root cause** — modifier bodies are typechecked with `returnTys := []`,
+and `checkReturnExprs` (`SolidCore/Solidity/TypeCheck.lean`) keyed only on the
+empty `returnTys`, special-casing `delete`/`require`/void expressions as
+allowed — it never consulted `env.inModifier`, so a modifier was treated
+identically to a zero-return function (over-accept).
+
+**Fix** — in the `some expr, []` branch of `checkReturnExprs`, guard on
+`env.inModifier`: when true, reject with `TypeError.returnArityMismatch 0 1`
+(the nearest existing return-arity error; a modifier expects 0 return values,
+got 1) regardless of the expression's type. The zero-return-FUNCTION path
+(`inModifier = false`) is unchanged, so `return delete x;` there stays accepted.
+A bare `return;` in a modifier (the `none, []` case) also stays accepted.
+
+**Pinning** — new corpus lane `modifier-return-reject` (`solc_rejects` +
+`lean`): two `invalid/*.sol` (modifier `return delete x;` and
+`return require(true);`, each with `_;` present so "Return arguments not
+allowed" is the salient solc error) pin solc's rejection;
+`SolidCore/Witness/ModifierReturnReject.lean` pins the rejection AND the
+precision boundary (bare modifier `return;` and the zero-return-function
+`return delete x;` both stay accepted). Full `lake build` green (1105 jobs);
+`smoke_replay.sh` 29/29; the new lane passes (`solc_rejects=ok lean=ok`).
 
 ## 2026-07-09 — CP1/#48: struct-element array copy INTO storage rejected under legacy codegen (over-accept closed)
 

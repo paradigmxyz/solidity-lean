@@ -8736,6 +8736,18 @@ def checkReturnExprs (env : CheckEnv)
       -- 6777 "Return arguments required.", TypeChecker.cpp:1138).
       Except.error (TypeError.returnArityMismatch expected.length 0)
   | some expr, [] =>
+      if env.inModifier then
+        -- A modifier has no `functionReturnParameters` (nullptr in solc), so
+        -- ANY `return` carrying an expression is rejected — even a void-typed
+        -- one like `return delete x;` or `return require(true);` (solc
+        -- TypeError 7552 "Return arguments not allowed",
+        -- TypeChecker::endVisit(Return), TypeChecker.cpp:1133-1146). This is
+        -- distinct from a zero-return FUNCTION, whose empty-but-non-null
+        -- return list still permits a void-typed return expression (handled
+        -- by the branch below). A bare `return;` in a modifier stays allowed
+        -- (the `none, []` case above).
+        Except.error (TypeError.returnArityMismatch 0 1)
+      else
       match expr with
       | Solidity.Expr.call
           (Solidity.Expr.ident "require")

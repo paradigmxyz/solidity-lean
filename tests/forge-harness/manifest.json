@@ -8453,6 +8453,48 @@
           }
         ]
       }
+    },
+    {
+      "name": "modifier-return-reject",
+      "description": "#54 (MOD-RET, 2026-07-09) from docs/solc-modifier-execution-review.md: solc 0.8.35 REJECTS a `return` that carries ANY expression inside a MODIFIER body — even a void-typed one like `return delete x;` or `return require(true);` — with TypeError 7552 'Return arguments not allowed' (TypeChecker::endVisit(Return), TypeChecker.cpp:1133-1146: a modifier's functionReturnParameters is nullptr). solidity-lean was over-accepting these (its checkReturnExprs keyed only on the empty returnTys and special-cased delete/require/void as allowed, never consulting env.inModifier). Fixed by rejecting any expression-bearing return when env.inModifier. solc_rejects pins solc's compile-time rejection of both modifier forms (with `_;` present so the return-argument error is the salient one). Lean witnesses pin the rejection AND the precision boundary: a bare `return;` in a modifier and a zero-return FUNCTION `return delete x;` (empty-but-non-null return list) both stay ACCEPTED.",
+      "solc_rejects": [
+        {
+          "source": "tests/forge-harness/modifier-return-reject/invalid/ModifierReturnDelete.sol",
+          "contains": "Return arguments not allowed"
+        },
+        {
+          "source": "tests/forge-harness/modifier-return-reject/invalid/ModifierReturnRequire.sol",
+          "contains": "Return arguments not allowed"
+        }
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.ModifierReturnReject"
+        ],
+        "evals": [
+          {
+            "label": "modReturnDeleteRejected",
+            "expr": "SolidCore.Solidity.Executable.ModifierReturnReject.modReturnDeleteRejected",
+            "expect": "true"
+          },
+          {
+            "label": "modReturnRequireRejected",
+            "expr": "SolidCore.Solidity.Executable.ModifierReturnReject.modReturnRequireRejected",
+            "expect": "true"
+          },
+          {
+            "label": "modBareReturnAccepted",
+            "expr": "SolidCore.Solidity.Executable.ModifierReturnReject.modBareReturnAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "zeroReturnFnDeleteAccepted",
+            "expr": "SolidCore.Solidity.Executable.ModifierReturnReject.zeroReturnFnDeleteAccepted",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }
