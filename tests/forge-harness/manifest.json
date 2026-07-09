@@ -7365,6 +7365,143 @@
           }
         ]
       }
+    },
+    {
+      "name": "call-option-eval-order",
+      "description": "Forge checks external-call option/argument evaluation ORDER (gap EO1): solc 0.8.35 evaluates target, then call options in written order (gas/value by written position), then calldata -- yielding order-trace 1234 for {gas,value} and 1324 for {value,gas}, identically for the expression `.call` and statement `try` forms. Lean imports the same source and, under a fail-open responder, checks the paired source-interpreter returns the same order-trace (each of target/gas/value/calldata appends its digit).",
+      "forge": {
+        "root": "tests/forge-harness/call-option-eval-order",
+        "match_contract": "CallOptionEvalOrderForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/call-option-eval-order/src/CallOptionEvalOrder.sol",
+        "contract": "CallOptionEvalOrder",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CallOptionEvalOrder"
+      },
+      "solc_rejects": [],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CallOptionEvalOrder.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "exprGasFirstOrder1234",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallOptionEvalOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallOptionEvalOrder\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"exprGasFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 1234)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "exprValueFirstOrder1324",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallOptionEvalOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallOptionEvalOrder\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"exprValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 1324)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "tryGasFirstOrder1234",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallOptionEvalOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallOptionEvalOrder\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"tryGasFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 1234)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "tryValueFirstOrder1324",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallOptionEvalOrder.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallOptionEvalOrder\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"tryValueFirst\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word traceOut] => Except.ok (SolidCore.Solidity.Source.wordEq traceOut 1324)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "catch-dispatch-by-kind",
+      "description": "Forge checks try/catch clause dispatch by revert KIND (gaps CB1+A2): a 36-byte Error-selector+zeros payload is NOT Error(string) (< solc's 0x44 minimum) and routes to catch(bytes); a well-formed Error(\"x\") routes to catch Error(string) with \"x\"; a Panic routes to catch Panic; a Panic with no Panic clause falls through to catch(bytes) (kind-based, not source-order). Lean imports the caller and drives it under a responder supplying each revert payload, checking the same routing.",
+      "forge": {
+        "root": "tests/forge-harness/catch-dispatch-by-kind",
+        "match_contract": "CatchDispatchForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/catch-dispatch-by-kind/src/CatchDispatch.sol",
+        "contract": "CatchDispatch",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CatchDispatch"
+      },
+      "solc_rejects": [],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CatchDispatch.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "shortErrorRoutesToBytes",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] (SolidCore.Solidity.Source.ABI.encodeSelector SolidCore.Solidity.Source.ABI.errorSelector ++ List.replicate 32 0) 0 none false\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"route\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.bytes reason, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 4 && reason == [] && SolidCore.Solidity.Source.wordEq len 36)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "errorRoutesToErrorClause",
+            "expr": "(match SolidCore.Solidity.Executable.Examples.externalErrorBytes? \"x\" with\n | none => Except.ok false\n | some out =>\n  (do\n  let result \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] out 0 none false\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"route\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.bytes reason, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 2 && reason == [120] && SolidCore.Solidity.Source.wordEq len 0)\n  | _ => Except.ok false))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "panicRoutesToPanicClause",
+            "expr": "(match SolidCore.Solidity.Executable.Examples.externalPanicBytes? 0x12 with\n | none => Except.ok false\n | some out =>\n  (do\n  let result \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] out 0 none false\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"route\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.bytes _reason, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 3 && true && SolidCore.Solidity.Source.wordEq len 0)\n  | _ => Except.ok false))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "panicFallsThroughToBytes",
+            "expr": "(match SolidCore.Solidity.Executable.Examples.externalPanicBytes? 0x12 with\n | none => Except.ok false\n | some out =>\n  (do\n  let result \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedHighLevelExternalResult SolidCore.Solidity.Source.LowLevelCallKind.call \"boom()\" [] [] out 0 none false\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CatchDispatch.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CatchDispatch\"\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [result] []) contract \"routeNoPanic\" { contract.core.context with accountCodes := [(0xbeef, [1])] } SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word tag, SolidCore.Solidity.Source.Value.word len] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq tag 4 && SolidCore.Solidity.Source.wordEq len 36)\n  | _ => Except.ok false))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "selfdestruct-balance",
+      "description": "Forge checks the selfdestruct balance transfer (gap CS1): selfdestruct(recipient) moves the contract's entire balance to the recipient and zeroes self (a distinct recipient is credited; the self-recipient edge ends at 0). EIP-6780 only governs deletion, which stays recorded. Lean imports the same source and checks the paired source-interpreter post-selfdestruct balances (self=0, recipient credited) plus the recorded selfdestruct effect.",
+      "forge": {
+        "root": "tests/forge-harness/selfdestruct-balance",
+        "match_contract": "SelfdestructBalanceForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/selfdestruct-balance/src/SelfdestructBalance.sol",
+        "contract": "SelfdestructBalance",
+        "namespace": "SolidCore.Solidity.SolcAstImport.SelfdestructBalance"
+      },
+      "solc_rejects": [],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.SelfdestructBalance.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "transferZeroesSelfCreditsRecipient",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.SelfdestructBalance.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SelfdestructBalance\"\n  let ctx := { contract.core.context with self := 0xcafe, accountBalances := [(0xcafe, 100), (0xbeef, 0)] }\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 128 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"blow\" ctx SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xbeef]\n  let st := SolidCore.Solidity.Source.CallResult.resultState r\n  Except.ok (SolidCore.Solidity.Source.wordEq st.selfBalance 0 && SolidCore.Solidity.Source.wordEq (st.envAccountBalance ctx 0xcafe) 0 && SolidCore.Solidity.Source.wordEq (st.envAccountBalance ctx 0xbeef) 100 && st.selfdestructEffects.length == 1))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selfRecipientEdgeZero",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.SelfdestructBalance.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SelfdestructBalance\"\n  let ctx := { contract.core.context with self := 0xcafe, accountBalances := [(0xcafe, 100), (0xbeef, 0)] }\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 128 (SolidCore.Solidity.Source.responderOfResults [] []) contract \"blowSelf\" ctx SolidCore.Solidity.Source.State.empty []\n  let st := SolidCore.Solidity.Source.CallResult.resultState r\n  Except.ok (SolidCore.Solidity.Source.wordEq st.selfBalance 0 && SolidCore.Solidity.Source.wordEq (st.envAccountBalance ctx 0xcafe) 0 && st.selfdestructEffects.length == 1))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
