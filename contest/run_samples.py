@@ -434,6 +434,31 @@ def hardening_unit_tests() -> tuple[bool, str]:
                    _meas._parse_measurement("revert|0x08c379a0f|self=0x01|origin=0x02")
                    is None))
 
+    # solidity-lean-reject channel invariants (load-bearing for the round-1
+    # fuel-starvation defense + round-20 rsplit): the reject reason is `reprStr e`,
+    # which can embed SOURCE-DERIVED text (identifiers / string literals). It must
+    # NOT be able to (a) escape the fixed `solidity-lean-reject|` prefix to look like
+    # a "ran" result, nor (b) dodge the executable-failure -> NEEDS_REVIEW routing.
+    _rej = _obs.parse_observable(
+        'solidity-lean-reject|unsupported "foo##STO##bar" | success|w:999##EVT##x')
+    checks.append(("reject-prefix-holds-with-markers", _rej.is_solidity_lean_reject))
+    checks.append(("reject-not-a-run-result",
+                   _obs.parse_observable("success|w:5##EVT####STO##").is_solidity_lean_reject
+                   is False))
+    checks.append(("reject-reason-cannot-fake-run",
+                   _obs.parse_observable("solidity-lean-reject|success|w:5")
+                   .is_solidity_lean_reject))
+    # executable-failure detection is substring-based: caught with extra junk, not
+    # spuriously triggered without the wrapper (fuel-starvation -> NEEDS_REVIEW).
+    checks.append(("exec-failure-substring-caught",
+                   adj._is_executable_failure("checked executable foo | ##STO## bar")))
+    checks.append(("exec-failure-no-false-trigger",
+                   not adj._is_executable_failure("some other reject reason")))
+    # _unescape_lean_repr round-trips exotic reject/revert reason chars.
+    import contest.harness_bridge as _hb
+    checks.append(("unescape-quote", _hb._unescape_lean_repr(r'a\"b') == 'a"b'))
+    checks.append(("unescape-backslash", _hb._unescape_lean_repr(r'x\\y') == r'x\y'))
+
     # claim-field type confusion: a non-object claim.json / non-object entry must
     # be REJECT_MALFORMED, not an uncaught crash (audit finding).
     import tempfile as _tf, json as _json
