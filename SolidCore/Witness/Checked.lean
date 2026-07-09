@@ -7491,36 +7491,22 @@ def checkedMulmodVariableZeroModulusPanics :
     "mulmodZero" SolidCore.Solidity.Source.State.empty
     [SolidCore.Solidity.Source.Value.word 0] 0x12
 
-def checkedAddmodLiteralZeroModulusPanics :
-    Except TypeError Bool := do
-  let result ←
-    CheckedInput.callContract 16 addmodZeroLiteralSource
-      "AddmodZeroLiteral"
-      (SolidCore.Solidity.Source.CallTarget.name "addmodLiteralZero")
-      SolidCore.Solidity.Source.State.empty []
-  match result with
-  | SolidCore.Solidity.Source.CallResult.reverted _
-      (SolidCore.Solidity.Source.RevertData.panic code) =>
-      Except.ok (SolidCore.Solidity.Source.wordEq code 0x12)
-  | _ => Except.ok false
+-- MULMOD0: a compile-time-CONSTANT zero modulus in addmod/mulmod is Error 4195
+-- "Arithmetic modulo zero" in solc's constant evaluator — a COMPILE reject.
+-- These witnesses formerly pinned the pre-fix over-accept (compile then runtime
+-- Panic 0x12); they now pin the corrected compile-time rejection. The RUNTIME
+-- (non-constant modulus) Panic 0x12 stays covered by
+-- checkedAddmodVariableZeroModulusPanics / checkedMulmodVariableZeroModulusPanics.
+def checkedAddmodLiteralZeroModulusRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit addmodZeroLiteralSource)
 
-def checkedMulmodLiteralZeroModulusPanics :
-    Except TypeError Bool := do
-  let result ←
-    CheckedInput.callContract 16 mulmodZeroLiteralSource
-      "MulmodZeroLiteral"
-      (SolidCore.Solidity.Source.CallTarget.name "mulmodLiteralZero")
-      SolidCore.Solidity.Source.State.empty []
-  match result with
-  | SolidCore.Solidity.Source.CallResult.reverted _
-      (SolidCore.Solidity.Source.RevertData.panic code) =>
-      Except.ok (SolidCore.Solidity.Source.wordEq code 0x12)
-  | _ => Except.ok false
+def checkedMulmodLiteralZeroModulusRejected : Bool :=
+  Result.isError (TypecheckedInput.checkedSourceUnit mulmodZeroLiteralSource)
 
-def checkedModularArithmeticZeroLiteralSourcesAccepted : Bool :=
-  Result.isOk
+def checkedModularArithmeticZeroLiteralSourcesRejected : Bool :=
+  Result.isError
       (TypecheckedInput.checkedSourceUnit addmodZeroLiteralSource) &&
-    Result.isOk
+    Result.isError
       (TypecheckedInput.checkedSourceUnit mulmodZeroLiteralSource)
 
 def checkedModularArithmeticInvalidSourcesRejected : Bool :=

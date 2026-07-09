@@ -4529,6 +4529,17 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         lhs.expectAssignableTo (Solidity.Ty.uint 256)
         rhs.expectAssignableTo (Solidity.Ty.uint 256)
         modulus.expectAssignableTo (Solidity.Ty.uint 256)
+        -- solc's constant evaluator (ConstantEvaluator.cpp) folds the modulus
+        -- argument and raises Error 4195 "Arithmetic modulo zero" whenever it
+        -- folds to a constant zero — regardless of whether the other operands
+        -- are constant. Mirror the div/mod mechanism: reject a modulus whose
+        -- constant fold (`numberLiteralRat?`, catching `0`, `1-1`, `2*0`) is
+        -- zero. A non-constant modulus (fold `none`) stays a runtime Panic 0x12.
+        require
+          (match Solidity.Executable.Expr.numberLiteralRat? modulus.source with
+           | some value => value.num != 0
+           | none => true)
+          (TypeError.unsupported (name ++ " with constant zero modulus"))
         Except.ok (some (Solidity.Ty.uint 256))
     | _ => Except.error (TypeError.arityMismatch name 3 checkedArgs.length)
   else if name == "keccak256" || name == "sha256" then do

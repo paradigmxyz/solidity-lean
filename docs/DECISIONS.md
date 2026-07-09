@@ -44,6 +44,37 @@ New sanctioned lane `neg-narrow-widened` (forge fixture + manifest): checked
 `negI8toI16`/`castNegI8toI16`/`negI128toI256` of the narrow min Panic 0x11; the
 `unchecked` variants wrap to `intN.min`; a non-min control widens correctly. Full
 `lake build` green (1106 jobs); full pinned-solc replay green (0 failures).
+## 2026-07-09 — MULMOD0: a compile-time-constant zero modulus in addmod/mulmod is now a COMPILE-time reject (mirroring div/mod-by-zero), not a runtime Panic 0x12
+
+Divergence: solc 0.8.35's constant evaluator (`ConstantEvaluator.cpp`) folds the
+MODULUS argument of `addmod`/`mulmod` and raises Error 4195 "Arithmetic modulo
+zero" whenever it folds to a constant zero — a COMPILE error — *regardless* of
+whether the other two operands are constant (verified: `mulmod(2,3,0)`,
+`addmod(2,3,0)`, the constant-expression forms `mulmod(2,3,1-1)` / `addmod(2,3,2*0)`,
+and even `mulmod(g(),g(),0)` / `mulmod(a,b,0)` with non-constant `a,b` all reject).
+solidity-lean formerly ACCEPTED a constant-zero modulus and produced a runtime
+Panic 0x12 — an over-accept at the constant-folding boundary. The RUNTIME case
+(a non-constant modulus, e.g. `mulmod(2,3,m)` with `m` a parameter) stays a
+runtime Panic 0x12 and must remain accepted; it is unchanged.
+
+Fix: in `checkBuiltinIdentCall` (`TypeCheck.lean`, the `addmod`/`mulmod` arm) fold
+the modulus argument's source with the *same* machinery that already rejects a
+constant `x / 0` / `x % 0` initializer — `Expr.numberLiteralRat?` (which returns
+`none` for a non-constant expression and threads `NumberRat.div?`/`mod?`'s
+zero-divisor `none` through, so `1-1` and `2*0` fold to a `NumberRat` with
+`num = 0`). If the modulus folds to `some v` with `v.num = 0`, reject with
+`TypeError.unsupported "<name> with constant zero modulus"`; a fold of `none`
+(non-constant) or a non-zero constant stays accepted. Only the modulus is folded
+— matching solc, which rejects on the modulus alone.
+
+New sanctioned lane `mulmod-zero` (no existing fixtures/tests touched): three
+`invalid/` programs pinned to `pragma solidity 0.8.35;` that pinned solc rejects
+with "Arithmetic modulo zero" (`MulmodConstZero`, `AddmodConstZero`,
+`MulmodConstExprZero`); an accepted-control `src` contract (`runtimeMulmod`/`
+runtimeAddmod` with a parameter modulus, plus constant non-zero `mulmod(2,3,7)`)
+imported from the solc AST; a forge test asserting the runtime-zero Panic 0x12
+and the folded non-zero values; and `SolidCore.Witness.MulmodZero` named
+witnesses pinning both sides of the boundary (`mulmodZeroBoundaryHolds`).
 
 ## 2026-07-09 — SLICE-MEMCOPY: calldata-slice -> memory-local copy no longer spuriously reverts Panic(0) (fuel off-by-one in the memory-ref value fallback)
 

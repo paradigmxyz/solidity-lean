@@ -18,3 +18,4 @@ import SolidCore.Witness.CeFamily
 import SolidCore.Witness.OverloadShadow
 import SolidCore.Witness.ModifierReturnReject
 import SolidCore.Witness.GetterStructReject
+import SolidCore.Witness.MulmodZero

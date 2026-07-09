@@ -9020,6 +9020,83 @@
           }
         ]
       }
+    },
+    {
+      "name": "mulmod-zero",
+      "description": "MULMOD0: a compile-time-CONSTANT zero modulus in addmod/mulmod (a literal 0, or a constant expression like 1-1 / 2*0 that solc's constant evaluator folds to zero) is Error 4195 \"Arithmetic modulo zero\" — a COMPILE error, not a runtime Panic. solidity-lean formerly ACCEPTED it and produced a runtime Panic 0x12. The fix mirrors the existing div/mod-by-zero constant-fold rejection: checkBuiltinIdentCall folds the modulus argument via numberLiteralRat? and rejects a constant that folds to zero, regardless of whether the other operands are constant. A NON-constant modulus (mulmod(2,3,m) with m a parameter) and a constant NON-zero modulus stay ACCEPTED; the runtime-zero case remains a runtime Panic 0x12. Pinned solc rejects the three invalid/ programs; forge deploys the accepted controls and asserts the runtime Panic 0x12 for a zero modulus and the folded values for non-zero; Lean imports the accepted controls and pins both sides of the tightened boundary via named witnesses.",
+      "forge": {
+        "root": "tests/forge-harness/mulmod-zero",
+        "match_contract": "MulmodZeroForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/mulmod-zero/src/MulmodZero.sol",
+        "contract": "MulmodZeroHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.MulmodZero"
+      },
+      "solc_rejects": [
+        {
+          "source": "tests/forge-harness/mulmod-zero/invalid/MulmodConstZero.sol",
+          "contains": "Arithmetic modulo zero"
+        },
+        {
+          "source": "tests/forge-harness/mulmod-zero/invalid/AddmodConstZero.sol",
+          "contains": "Arithmetic modulo zero"
+        },
+        {
+          "source": "tests/forge-harness/mulmod-zero/invalid/MulmodConstExprZero.sol",
+          "contains": "Arithmetic modulo zero"
+        }
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.MulmodZero"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.MulmodZero.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "mulmodConstantZeroRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.mulmodConstantZeroRejected",
+            "expect": "true"
+          },
+          {
+            "label": "addmodConstantZeroRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.addmodConstantZeroRejected",
+            "expect": "true"
+          },
+          {
+            "label": "mulmodConstantExprZeroRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.mulmodConstantExprZeroRejected",
+            "expect": "true"
+          },
+          {
+            "label": "addmodConstantExprZeroRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.addmodConstantExprZeroRejected",
+            "expect": "true"
+          },
+          {
+            "label": "mulmodRuntimeModulusAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.mulmodRuntimeModulusAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "mulmodConstantNonzeroAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.mulmodConstantNonzeroAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "mulmodZeroBoundaryHolds",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.mulmodZeroBoundaryHolds",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

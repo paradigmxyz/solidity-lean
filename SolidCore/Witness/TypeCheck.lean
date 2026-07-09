@@ -4334,8 +4334,11 @@ def addmodZeroLiteralSource : Solidity.SourceUnit :=
                               , Solidity.Arg.positional
                                   (numberExpr "0") ]))) } ] } ] }
 
-def addmodZeroLiteralAccepted : Bool :=
-  sourceUnitAccepted? addmodZeroLiteralSource
+-- MULMOD0: a compile-time-CONSTANT zero modulus in addmod/mulmod is Error 4195
+-- "Arithmetic modulo zero" in solc's constant evaluator — a COMPILE reject, not
+-- the runtime Panic 0x12 this witness formerly pinned as accepted.
+def addmodZeroLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check addmodZeroLiteralSource)
 
 def mulmodZeroLiteralSource : Solidity.SourceUnit :=
   { items :=
@@ -4358,8 +4361,8 @@ def mulmodZeroLiteralSource : Solidity.SourceUnit :=
                               , Solidity.Arg.positional
                                   (numberExpr "0") ]))) } ] } ] }
 
-def mulmodZeroLiteralAccepted : Bool :=
-  sourceUnitAccepted? mulmodZeroLiteralSource
+def mulmodZeroLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check mulmodZeroLiteralSource)
 
 def mulmodSignedModulusSource : Solidity.SourceUnit :=
   { items :=
@@ -4442,8 +4445,8 @@ def badKeccakUintRejected : Bool :=
 def globalPrimitiveBuiltinDisciplineMatches : Bool :=
   addmodConstantAccepted &&
     addmodVariableModulusAccepted &&
-    addmodZeroLiteralAccepted &&
-    mulmodZeroLiteralAccepted &&
+    addmodZeroLiteralRejected &&
+    mulmodZeroLiteralRejected &&
     keccakBytesAccepted &&
     addmodSignedArgumentRejected &&
     mulmodSignedModulusRejected &&
