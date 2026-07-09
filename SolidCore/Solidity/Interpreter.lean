@@ -7039,7 +7039,16 @@ def Expr.evalListWithRuntimeOrder
 def Expr.memoryRefOrValueWithRuntimeOrder
     (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Option Nat × Option Value × Runtime) :=
-  Expr.memoryRefOrValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
+  -- Budget `orderFuel expr + 2` (one more than the plain `evalWithRuntimeOrder`
+  -- entry, `orderFuel expr + 1`). The non-ref fallback arms of
+  -- `memoryRefOrValueWithRuntimeOrderFuel` re-evaluate the FULL `expr` inline via
+  -- `evalWithRuntimeOrderFuel` using the already-decremented `fuel`; a correct
+  -- from-scratch eval needs `orderFuel expr + 1`, so after the one-step decrement
+  -- inside the recursor the entry budget must be `orderFuel expr + 2`. With only
+  -- `+ 1` a multi-child RHS at its exact fuel bound (e.g. a calldata slice
+  -- `input[i:j]` copied into a `memory` local) exhausts fuel and spuriously
+  -- reverts `Panic(0)` (`RevertData.typeMismatch`).
+  Expr.memoryRefOrValueWithRuntimeOrderFuel (Expr.orderFuel expr + 2)
     order context runtime expr
 
 /-- Reference-preserving expression evaluation for memory-ref-valued assignment

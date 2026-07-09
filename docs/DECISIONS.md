@@ -5,6 +5,40 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — SLICE-MEMCOPY: calldata-slice -> memory-local copy no longer spuriously reverts Panic(0) (fuel off-by-one in the memory-ref value fallback)
+
+Full-replay regression: `entrypoint-slice-control` evals
+`importedSliceMemoryLocalCopies` / `importedSliceMemoryLocalCopyIndependence`
+returned `Except.ok false`. The source functions do a calldata-slice into a
+`memory` local (`bytes memory local = input[1:3];`,
+`uint256[] memory local = input[1:3];`, `string memory local = input[1:3];`).
+These reverted `Panic(0)` (`RevertData.typeMismatch`), while the calldata-LOCAL
+binding form (`bytes calldata local = input[1:3];`) and a whole-value memory copy
+(`bytes memory local = input;`) both worked.
+
+Root cause is a fuel-accounting off-by-one — NOT the D1 lazy-calldata change (D1
+touched neither the slice, the memory-copy, nor the eval fuel; verified). A
+`memory` var-decl lowers to `Stmt.memoryVarDecl`, which uses
+`Expr.memoryRefOrValueWithRuntimeOrder` to preserve a memory-ref pointer when the
+RHS denotes one (the M1/M2/M3 aliasing path, commit ce58cfd). That refactor made
+the non-ref fallback arms of `memoryRefOrValueWithRuntimeOrderFuel` TOTAL by
+re-evaluating the FULL RHS inline via `evalWithRuntimeOrderFuel` using the
+already-decremented `fuel`. A correct from-scratch eval needs `orderFuel expr + 1`
+(exactly what the public `evalWithRuntimeOrder` passes); the wrapper only budgeted
+`orderFuel expr + 1`, so after the recursor's one-step decrement the fallback saw
+`orderFuel expr` — one short. Leaf/shallow RHSs (a bare `input` ident) survived,
+but a three-child `Expr.slice base start stop` at its exact fuel bound exhausted
+fuel, and `evalWithRuntimeOrderFuel 0` throws `RevertData.typeMismatch` = Panic(0).
+
+Fix (`SolidCore/Solidity/Interpreter.lean`): bump the non-recursive wrapper
+`Expr.memoryRefOrValueWithRuntimeOrder`'s entry budget from `Expr.orderFuel expr
++ 1` to `+ 2`, so the fallback's post-decrement `fuel` equals the required
+`orderFuel expr + 1`. The wrapper sits OUTSIDE the eval mutual block, so this does
+not perturb the inferred (fuel-structural) termination; the internal recursor and
+its recursive arms are unchanged. Verified via `CheckedInput.ownCall` at the ABI
+boundary: `sliceMemoryLocalLength -> 2`, `arraySliceMemoryLocalFirst -> 20`,
+`stringSliceMemoryLocal -> [98,99]`, plus the mutation/independence evals.
+
 ## 2026-07-09 — MEMALLOC-WITNESS: `arrayLiteralLocalFunction` witness updated for AL1 (bare inline-array literal is invalid Solidity)
 
 Full-replay regression: `commonTypecheckerMemoryAllocationDiscipline` failed
