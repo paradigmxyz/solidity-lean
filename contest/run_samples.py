@@ -122,6 +122,25 @@ def run_real_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
     return ok, detail
 
 
+def run_real_storage_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """REAL end-to-end BROAD-STORAGE soundness-detector test (contest #8).
+
+    Runs `ctor_storage` through the FULL live pipeline (constructor state +
+    whole-storage-map comparison, no declared slots), then injects a one-unit
+    delta into the measured EVM storage map. The comparator+classifier must
+    return SOUNDNESS_GAP(wrong-state). Proves the broad-storage detection path
+    works over a genuine Solidus execution with ZERO bugs in Solidus."""
+    report = adj.adjudicate(
+        SAMPLES / "ctor_storage", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_storage_slot)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-state" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} "
+              f"component={comp} qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
 def run_real_coverage_selftest(timeout: int = 500) -> tuple[bool, str]:
     """REAL end-to-end coverage-detector test (methodology step 3, bug-injection).
 
@@ -212,6 +231,10 @@ def main() -> int:
     results.append(("coverage-detector (REAL run + injected fail-closed)", ok, d))
     _print("coverage-detector (REAL run + injected fail-closed)", ok, d)
 
+    ok, d = run_real_storage_selftest()
+    results.append(("storage-detector (REAL run + injected slot delta)", ok, d))
+    _print("storage-detector (REAL run + injected slot delta)", ok, d)
+
     ok, d = run_full("oos_gasleft", "REJECTED_OOS")
     results.append(("oos_gasleft (FULL)", ok, d))
     _print("oos_gasleft (FULL)", ok, d)
@@ -230,6 +253,14 @@ def main() -> int:
     ok, d = run_full("events_storage", "NO_DIVERGENCE")
     results.append(("events_storage parity (FULL)", ok, d))
     _print("events_storage parity (FULL)", ok, d)
+
+    # constructor state + BROAD storage auto-detection (contest #8): the entry
+    # call runs against the post-construction state (initializer + ctor writes),
+    # and the WHOLE storage map — including a mapping's hashed slot — is compared
+    # on both engines with NO submitter-declared observed_slots.
+    ok, d = run_full("ctor_storage", "NO_DIVERGENCE")
+    results.append(("ctor_storage broad-storage (FULL)", ok, d))
+    _print("ctor_storage broad-storage (FULL)", ok, d)
 
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM

@@ -137,8 +137,26 @@ def renderStorage (slots : List SolidCore.Solidity.Source.Word)
       ++ toString (SolidCore.Solidity.Shared.norm
            (SolidCore.Solidity.Source.State.loadSlot state s))))
 
+-- Broad storage divergence (contest #8): instead of trusting a submitter-declared
+-- slot list, dump the ENTIRE post-call storage map. Every slot the contract ever
+-- wrote (via constructor, initializer, or the entry call) lives in state.storage
+-- (StorageMap = Std.HashMap Word Word, the live self account's slots). We emit all
+-- non-zero slots; a slot holding 0 is indistinguishable from never-written, so it
+-- is dropped on BOTH sides to keep the comparison symmetric. Order is irrelevant:
+-- the comparator parses this into a slot->value map. Mappings/dynamic arrays land
+-- at their keccak-derived slots, which both engines compute identically, so they
+-- are covered too — no declared slots required.
+def renderStorageAll
+    (state : SolidCore.Solidity.Source.State) : String :=
+  let entries := Std.HashMap.toList state.storage
+  String.intercalate ";" (entries.filterMap (fun kv =>
+    let v := SolidCore.Solidity.Shared.norm kv.2
+    if v == 0 then none
+    else some (toString (SolidCore.Solidity.Shared.norm kv.1) ++ ":"
+                 ++ toString v)))
+
 def renderFull (self : SolidCore.Solidity.Source.Word)
-    (slots : List SolidCore.Solidity.Source.Word)
+    (_slots : List SolidCore.Solidity.Source.Word)
     (r : Except SolidCore.Solidity.TypeCheck.TypeError
                 SolidCore.Solidity.Source.CallResult) : String :=
   match r with
@@ -148,8 +166,11 @@ def renderFull (self : SolidCore.Solidity.Source.Word)
     let evs := match res with
       | CallResult.returned state _ => renderEvents self state
       | CallResult.reverted _ _ => ""
+    -- Broad storage check (contest #8): dump the WHOLE post-call storage map, not
+    -- just declared `slots`. `slots` is retained for signature compatibility and
+    -- as an (unused) targeted-subset hook; the full-map dump subsumes it.
     let sto := match res with
-      | CallResult.returned state _ => renderStorage slots state
+      | CallResult.returned state _ => renderStorageAll state
       | CallResult.reverted _ _ => ""
     outcome ++ "##EVT##" ++ evs ++ "##STO##" ++ sto
 
@@ -459,6 +480,30 @@ def perturb_leading_value(o: "Observable") -> "Observable":
     return Observable(raw=new_line + tail)
 
 
+def perturb_storage_slot(o: "Observable") -> "Observable":
+    """Return a copy of ``o`` with the value of its first storage slot bumped by 1.
+
+    Fault-injection SELF-TEST twin of :func:`perturb_leading_value`, but for the
+    broad storage component (contest #8): it injects a one-unit delta into the
+    storage map at the observable boundary so the full pipeline exercises a real
+    SOUNDNESS_GAP(wrong-state) WITHOUT shipping any bug in Solidus. Never used in
+    real adjudication. If there is no storage section, ``o`` is returned as-is."""
+    import re
+    line, events, storage = _split_sections(o.raw)
+    if not storage:
+        return Observable(raw=o.raw)
+    m = re.match(r"(\d+):(\d+)(.*)$", storage.strip(), re.S)
+    if not m:
+        return Observable(raw=o.raw)
+    slot, val, rest = m.group(1), int(m.group(2)), m.group(3)
+    new_storage = f"{slot}:{val + 1}{rest}"
+    rebuilt = line
+    if events is not None:
+        rebuilt += _EVT_SEP + events
+    rebuilt += _STO_SEP + new_storage
+    return Observable(raw=rebuilt)
+
+
 @dataclass
 class ObservableComparison:
     equal: bool
@@ -475,6 +520,29 @@ class ObservableComparison:
         if self.differing_component:
             d["differing_component"] = self.differing_component
         return d
+
+
+def _parse_storage_map(section: str) -> dict[int, int]:
+    """Parse a ``slot:value;slot:value`` storage section into a {slot: value} map.
+
+    Zero-valued slots are dropped so a slot holding 0 compares equal to a slot
+    that was never written (the two are indistinguishable on-chain). This makes
+    the broad full-map comparison symmetric and order-independent: the Solidus
+    side dumps its HashMap in arbitrary order, the EVM side dumps vm.accesses
+    order, and both normalize to the same canonical map."""
+    out: dict[int, int] = {}
+    for pair in section.strip().split(";"):
+        pair = pair.strip()
+        if not pair:
+            continue
+        k, _, v = pair.partition(":")
+        try:
+            slot, val = int(k), int(v)
+        except ValueError:
+            continue
+        if val != 0:
+            out[slot] = val
+    return out
 
 
 def compare_observables(solidus: Observable, evm: Observable) -> ObservableComparison:
@@ -507,7 +575,8 @@ def compare_observables(solidus: Observable, evm: Observable) -> ObservableCompa
             return ObservableComparison(False, solidus, evm,
                                         differing_component="wrong-events")
         s_st, e_st = solidus.storage, evm.storage
-        if s_st is not None and e_st is not None and s_st.strip() != e_st.strip():
+        if s_st is not None and e_st is not None and \
+                _parse_storage_map(s_st) != _parse_storage_map(e_st):
             return ObservableComparison(False, solidus, evm,
                                         differing_component="wrong-state")
     return ObservableComparison(True, solidus, evm)

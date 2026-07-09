@@ -165,6 +165,8 @@ interface CVm {
     function stopPrank() external;
     function recordLogs() external;
     function getRecordedLogs() external returns (VmLog[] memory);
+    function record() external;
+    function accesses(address) external returns (bytes32[] memory reads, bytes32[] memory writes);
     function load(address,bytes32) external view returns (bytes32);
     function writeFile(string calldata, string calldata) external;
     function toString(bytes calldata) external pure returns (string memory);
@@ -190,16 +192,14 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
         pin.append(f"vm.deal(address(this), {ov.value});")
     pin_block = "\n        ".join(pin)
     value_opt = f"{{value: {ov.value}}}" if ov.value else ""
-    # Observed storage slots (§3.4 component 5): read each declared slot with
-    # vm.load and render `slot:value` decimal, matching the Solidus renderer.
-    slots = slots or []
-    sto_parts = []
-    for i, s in enumerate(slots):
-        sep = ";" if i > 0 else ""
-        sto_parts.append(
-            f'sto = abi.encodePacked(sto, "{sep}", vm.toString(uint256({int(s)})), '
-            f'":", vm.toString(uint256(vm.load(address(target), bytes32(uint256({int(s)}))))));')
-    sto_block = "\n            ".join(sto_parts) if sto_parts else ""
+    # Observed storage (§3.4 component 5), BROAD auto-detection (contest #8): we no
+    # longer trust a submitter-declared slot list. `vm.record()` (armed before the
+    # deploy, so constructor writes are captured too) lets `vm.accesses(target)`
+    # report EVERY slot the contract wrote across deploy + entry call; we vm.load
+    # each and emit `slot:value`. Duplicate slots and zero values are normalized
+    # away by the Python comparator (observable._parse_storage_map), so no dedup is
+    # needed here. This mirrors the Solidus side, which dumps its whole storage map.
+    _ = slots  # retained for signature compatibility; superseded by vm.accesses
     return f"""// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.35;
 
@@ -212,6 +212,8 @@ contract ContestMeasure {{
 
     function test_ContestMeasure() public {{
         {pin_block}
+        // Arm storage recording BEFORE the deploy so constructor SSTOREs count.
+        vm.record();
         {sig.contract} target = new {sig.contract}();
         vm.recordLogs();
         vm.prank(address(uint160({ov.sender})));
@@ -230,7 +232,13 @@ contract ContestMeasure {{
                 t = abi.encodePacked(t, "];d=", vm.toString(logs[i].data));
                 evt = abi.encodePacked(evt, i > 0 ? "~" : "", t);
             }}
-            {sto_block}
+            // Full post-call storage map: every written slot -> current value.
+            (, bytes32[] memory ws) = vm.accesses(address(target));
+            for (uint k = 0; k < ws.length; k++) {{
+                sto = abi.encodePacked(sto, k > 0 ? ";" : "",
+                    vm.toString(uint256(ws[k])), ":",
+                    vm.toString(uint256(vm.load(address(target), ws[k]))));
+            }}
         }}
         string memory out = string(abi.encodePacked(
             ok ? "ok" : "revert", "|", vm.toString(ret),

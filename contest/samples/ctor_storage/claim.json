@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "CtorSt", "function": "run", "args": [7], "value": 0 },
+  "expected_divergence": "Control for constructor state + BROAD storage auto-detection. No observed_slots declared: the initializer (slot0=11), constructor (slot1=22), entry write (slot2=7), and mapping entry m[7]=107 (hashed slot) must all be compared automatically and agree -> NO_DIVERGENCE. Return is 11+22+7=40.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:40" },
+  "feature": "constructor-state-and-broad-storage",
+  "register_version_seen": "1.2.0"
+}
