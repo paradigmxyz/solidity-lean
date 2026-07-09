@@ -168,6 +168,17 @@ def coverage_fingerprint(solidus: hb.SolidusResult) -> tuple:
     return ("elaboration", "elab_reject", _first_token(msg))
 
 
+def _is_executable_failure(msg: str) -> bool:
+    """True if a Solidus reject message is the generic `executableFailure` wrapper
+    (`TypeError.unsupported "checked executable ..."`, SolidCore Checked.lean:18).
+
+    This wrapper is what `FunctionDef.call?` produces for EVERY fold-through
+    `none`: out-of-fuel, non-termination, a runtime-unimplemented op, and a
+    typecheck-during-exec reject all collapse to it, so it cannot be trusted as a
+    clean missing-feature signal — it is routed to NEEDS_REVIEW."""
+    return "checked executable" in (msg or "")
+
+
 def _first_token(msg: str) -> str:
     """Extract a STABLE, collision-resistant node-type/field identity from a fail
     message (review D-2).
@@ -390,7 +401,15 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     # This MUST run before Forge/measurement so untrusted code never executes
     # with a cheatcode reference the gate would have caught.
     env_ov = cenv.EnvOverrides()
-    env_ov.value = int(entry.get("value", 0) or 0)
+    # entry.value is attacker-controlled and reaches BOTH the Foundry measurement
+    # (call{value:...}) and the Solidus env. A non-numeric value used to raise an
+    # UNCAUGHT ValueError (adjudicator crash); a negative / >uint256 value is not a
+    # legal msg.value. Validate it as an integer in [0, 2^256) -> REJECT_MALFORMED.
+    val = _valid_value(entry.get("value", 0))
+    if val is None:
+        return Report("REJECT_MALFORMED", reason=(
+            "entry.value must be an integer in [0, 2**256)"), evidence=evidence)
+    env_ov.value = val
     try:
         src_asts = gate.get_source_asts(submission.sources, tools.solc)
     except Exception as exc:  # solc failure on adversarial source (finding 5)
@@ -520,9 +539,21 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             f"entry contract {entry['contract']!r} not found in submitted sources"),
             evidence=evidence)
     namespace = f"{NAMESPACE_PREFIX}.{_sanitize(root.name)}"
+    # The interpreter runs at _FUEL_CAP, NOT at the submitter's `fuel` (audit
+    # finding, CONTEST-BREAKING). Statement-fuel exhaustion renders as a clean
+    # `solidus-reject` (`.error .outOfFuel` folds through FunctionDef.call? into
+    # the generic `executableFailure` wrapper, indistinguishable from a real
+    # reject) which the classifier would otherwise bank as a qualifying
+    # COVERAGE_GAP. A submitter picking `fuel: 1` could thus fabricate a gap on
+    # nearly any program. Running at the cap removes cheap starvation; the
+    # residual (a program that genuinely needs > cap, e.g. an infinite loop) is
+    # handled below by routing run-stage `executableFailure` rejects — which are
+    # provably indistinguishable from out-of-fuel/non-termination — to
+    # NEEDS_REVIEW rather than auto-qualifying. `fuel` is still validated (bad
+    # values -> REJECT_MALFORMED) but no longer drives the interpreter down.
     solidus = hb.run_solidus_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
-        work / "solidus", namespace, fuel=fuel,
+        work / "solidus", namespace, fuel=_FUEL_CAP,
         tools=tools, timeout=timeout, env=env_ov, slots=slots,
         constructor_args=ctor_args)
     if _selftest_perturb_solidus is not None:  # coverage bug-injection self-test
@@ -560,6 +591,26 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 "Solidus run failed inconclusively (timeout / resource "
                 "exhaustion / build or environment error), not a clean reject: "
                 f"{solidus.message[:300]}"),
+                evidence=evidence)
+        # A RUN-stage fail-closed carrying the generic `executableFailure` wrapper
+        # ("checked executable ...") is AMBIGUOUS and must NOT auto-qualify (audit
+        # finding, CONTEST-BREAKING). `FunctionDef.call?` folds statement-fuel
+        # exhaustion (`.error .outOfFuel`), non-termination (an infinite loop that
+        # exhausts even _FUEL_CAP), a runtime-unimplemented operation, AND a
+        # typecheck-during-exec reject into the SAME `none` -> the SAME
+        # `TypeError.unsupported "checked executable ..."` string (SolidCore
+        # Checked.lean:18). They are provably indistinguishable at this layer, so
+        # a submitter could mint a COVERAGE_GAP with an infinite loop (the EVM
+        # just reverts out-of-gas). Route these to human review; a genuine
+        # missing-feature reject surfaces distinctly at the IMPORT stage (an
+        # unsupported NODE) and still auto-qualifies below.
+        if solidus.stage == "run" and _is_executable_failure(solidus.message):
+            return Report("NEEDS_REVIEW", reason=(
+                "Solidus fails closed at run stage with the generic "
+                "executable-failure wrapper, which is indistinguishable from "
+                "out-of-fuel / non-termination / a runtime-unimplemented op; a "
+                "human must confirm this is a genuine coverage gap and not fuel "
+                f"exhaustion: {solidus.message[:300]}"),
                 evidence=evidence)
         finger = coverage_fingerprint(solidus)
         if finger[1] == "excluded":
@@ -781,6 +832,23 @@ def _valid_fuel(value: object) -> Optional[int]:
     if fuel < 1 or fuel > _FUEL_CAP:
         return None
     return fuel
+
+
+_UINT256_MAX = (1 << 256) - 1
+
+
+def _valid_value(value: object) -> Optional[int]:
+    """Validate entry.value as an integer msg.value in [0, 2**256). Accepts a
+    bool as 0/1 is REJECTED (a JSON bool is not a wei amount). Returns None on a
+    non-integer / out-of-range value so the caller can REJECT_MALFORMED instead
+    of crashing (audit finding: `int('abc')` raised an uncaught ValueError)."""
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, int):
+        return None
+    if value < 0 or value > _UINT256_MAX:
+        return None
+    return value
 
 
 _MAX_SLOTS = 64

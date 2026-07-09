@@ -221,11 +221,17 @@ untrusted-execution / sandbox requirements of a public deployment see
   (wrong-value / wrong-panic / wrong-revert / revert-vs-success), **or**
   over-accept (Solidus runs a program solc rejects). *Qualifies for the leaderboard.*
 
-**EVM-side observable — precision limit.** v1 takes the solc+EVM observable from
-the Forge-**validated** `declared_observable.normal_form` (the Forge test must
-PASS first, so the declared value is proven real). v1 does not yet re-parse the
-full observable tuple out of Foundry traces; that (and events/state extraction)
-is a v1.x refinement. The Solidus side is always recomputed by the Lean `#eval`.
+**EVM-side observable — MEASURED, not declared.** The solc+EVM observable is
+**measured** from a harness-generated Forge run (`measure.py` deploys the entry
+contract with `new C()` / a low-level `create` and calls the entry by selector,
+independently of the submitter's test) and decoded to the normal form
+(`observable.evm_observable`). The submitter's Forge test must PASS as a
+real-behavior gate, but its assertions do NOT feed the oracle:
+`claim.declared_observable` is only a **misreport cross-check** (a disagreement is
+recorded in evidence; adjudication always uses the MEASURED value). The Solidus
+side is independently recomputed by the Lean `#eval`. This is what defeats the
+"trivially-passing test declaring a false observable" attack — do NOT regress the
+adjudicator to read the declared value.
 
 ## Dedup (design §6.2)
 

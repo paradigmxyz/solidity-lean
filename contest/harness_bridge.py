@@ -240,14 +240,64 @@ _INCONCLUSIVE_LEAN_SIGNATURES: tuple[str, ...] = (
 
 
 def lean_failure_inconclusive(stderr: str) -> bool:
-    """True iff a non-zero Lean exit is a resource/build/environment failure (an
-    INCONCLUSIVE run) rather than Lean cleanly rejecting the imported program.
+    """True iff a non-zero Lean exit should be treated as INCONCLUSIVE (routed to
+    human review) rather than auto-qualified as a coverage gap.
 
-    A clean program-level reject (unsupported node, type mismatch, elaboration
-    error about the generated source) is a real coverage gap; the signatures
-    above are the toolchain/resource noise that must NOT auto-qualify."""
-    low = stderr.lower()
-    return any(sig in low for sig in _INCONCLUSIVE_LEAN_SIGNATURES)
+    DEFAULT-INCONCLUSIVE (audit finding, CONTEST-BREAKING). The old design was an
+    allow-list of "noise" signatures that returned inconclusive ONLY on a match,
+    defaulting everything else to a qualifying COVERAGE_GAP — i.e. it FAILED OPEN:
+    an OOM-killer SIGKILL (status 137, empty stderr), "no space left on device",
+    a Lean PANIC / libc++abi abort, a segfault, or an `elan` toolchain error all
+    produced NO listed signature and were minted as fake gaps.
+
+    A non-zero Lean exit here happens ONLY AFTER a SUCCESSFUL import (an importer
+    reject returns earlier with stage="import"), and the observable helper catches
+    program-level `Except.error`s and PRINTS them as a `solidus-reject` (exit 0
+    WITH the marker, handled separately). So a non-zero exit with no marker is a
+    failure of the Lean toolchain / our generated harness / a resource limit —
+    NOT Lean cleanly rejecting the submitted program. We therefore default to
+    inconclusive. The signature list is retained only as documentation of the
+    common noise shapes; the classification no longer depends on matching it."""
+    return True
+
+
+def _unescape_lean_repr(s: str) -> str:
+    """Reverse Lean's `Repr String` / `String.quote` escaping of the #eval output.
+
+    Handles the escapes Lean emits: ``\\\\`` ``\\"`` ``\\'`` ``\\n`` ``\\t`` ``\\r``
+    and ``\\u{HHHH}``. A backslash is processed once (so ``\\\\n`` -> a literal
+    backslash then ``n``, never a newline). An unrecognized escape keeps the
+    following character verbatim (drops the backslash)."""
+    if "\\" not in s:
+        return s
+    out: list[str] = []
+    i, n = 0, len(s)
+    simple = {"\\": "\\", '"': '"', "'": "'", "n": "\n", "t": "\t", "r": "\r"}
+    while i < n:
+        c = s[i]
+        if c != "\\" or i + 1 >= n:
+            out.append(c)
+            i += 1
+            continue
+        nxt = s[i + 1]
+        if nxt == "u" and i + 2 < n and s[i + 2] == "{":
+            close = s.find("}", i + 3)
+            if close != -1:
+                try:
+                    out.append(chr(int(s[i + 3:close], 16)))
+                    i = close + 1
+                    continue
+                except ValueError:
+                    pass
+            out.append(nxt)
+            i += 2
+        elif nxt in simple:
+            out.append(simple[nxt])
+            i += 2
+        else:
+            out.append(nxt)
+            i += 2
+    return "".join(out)
 
 
 def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
@@ -338,9 +388,14 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
             generated_source_path=gen_path)
 
     if not marker_lines:
+        # Exit 0 but the #eval printed no observable marker: the helper never ran
+        # to a rendered result (truncated output / OOM before print / a harness
+        # bug), NOT a clean program reject (those print `solidus-reject`). Treat as
+        # INCONCLUSIVE, never a coverage gap (audit finding: this fell through to
+        # fail_closed with inconclusive=False and was minted as a fake gap).
         return SolidusResult(
             ok=False, stage="lean", fail_closed=True, observable=None,
-            message="no observable produced by #eval",
+            message="no observable produced by #eval", inconclusive=True,
             generated_source_path=gen_path)
 
     # #eval prints the string quoted, e.g.  "CONTEST_OBS success|w:0"
@@ -349,6 +404,14 @@ def run_solidus_observable(source: Path, contract: str, fname: str, args: list,
     payload = raw.split(marker, 1)[1].strip()
     if payload.endswith('"'):
         payload = payload[:-1]
+    # Reverse Lean's `Repr String` escaping (audit finding): the only
+    # submitter-controlled free text in the observable is a revert `Error(string)`
+    # / custom-error string, and Lean prints it escaped (`a"b` -> `a\"b`, newlines
+    # -> `\n`). The EVM side decodes the SAME message byte-accurately, so without
+    # un-escaping a revert string containing `"`, `\`, or a control char produced a
+    # spurious `wrong-revert` SOUNDNESS_GAP. The rest of the observable is
+    # numeric/hex/structural and contains no backslashes, so this is a no-op there.
+    payload = _unescape_lean_repr(payload)
     payload = payload.strip()
     observed = obs.parse_observable(payload)
 
