@@ -381,6 +381,23 @@ def hardening_unit_tests() -> tuple[bool, str]:
     checks.append(("entry-string", _sub3 is None and
                    _rep3 is not None and _rep3.verdict == "REJECT_MALFORMED"))
 
+    # Advisory delta-shape cluster hint (dedup-evasion mitigation): a KNOWN lane-S
+    # over_accept gap (G2..G12 all share component=over_accept, delta=over-accept)
+    # re-skinned with a NOVEL feature dodges match_relaxed but must still surface in
+    # cluster_by_delta — WITHOUT being auto-marked duplicate_of (delta over-clusters).
+    _cluster = kg.cluster_by_delta("S", "over_accept", "over-accept")
+    checks.append(("delta-cluster-nonempty",
+                   len(_cluster) >= 2 and "G2" in _cluster))
+    # It is advisory-only: match on a novel feature token returns no exact/relaxed hit.
+    checks.append(("reskin-dodges-relaxed",
+                   kg.match_relaxed("S", "totally-novel-feature-string") is None))
+    # And a genuinely novel delta family clusters to nothing.
+    checks.append(("novel-delta-empty",
+                   kg.cluster_by_delta("S", "return_value", "no-such-delta") == []))
+    # Lane C never produces a delta cluster (its middle token is adjudicator-derived).
+    checks.append(("laneC-no-cluster",
+                   kg.cluster_by_delta("C", "typecheck", "over_reject") == []))
+
     ok = all(v for _n, v in checks)
     detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
     return ok, detail
