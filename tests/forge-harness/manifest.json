@@ -6665,6 +6665,72 @@
       }
     },
     {
+      "name": "nonutf8-string-literal",
+      "description": "Forge, pinned solc, and the imported Lean interpreter agree that a plain (non-`unicode`, non-`hex\"...\"`) string literal whose bytes are NOT valid UTF-8 (`\"\\xff\\x00\\x41\"` == 0xFF 0x00 0x41) has type `literal_string hex\"ff0041\"`: it converts to `bytes` (accepted, in both `bytes(...)` and `bytes memory =` contexts) but NOT to `string` (rejected). solc omits the AST `value` field for such a literal and keeps only `hexValue`; the importer previously died on the missing `value` and now falls back to `hexValue`, lowering the literal exactly like a `hex\"...\"` literal (Lean type Ty.bytes). Pins bytes length, individual raw bytes 0xFF/0x00/0x41, keccak256(bytes(...)), and solc's rejection of the string-context conversion.",
+      "forge": {
+        "root": "tests/forge-harness/nonutf8-string-literal",
+        "match_contract": "NonUtf8StringLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/nonutf8-string-literal/invalid/StringNonUtf8.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/nonutf8-string-literal/src/NonUtf8StringLiteral.sol",
+        "contract": "NonUtf8StringLiteral",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "convLength",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"convLength\" SolidCore.Solidity.Source.State.empty [] 3",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "convByte0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"convByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 255",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "convByte1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"convByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "convByte2",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"convByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2] 65",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "assignByte0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"assignByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 255",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "assignByte2",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"assignByteAt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2] 65",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "convKeccak",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NonUtf8StringLiteral.importedContract \"convHash\" SolidCore.Solidity.Source.State.empty [] 0x8713df5144a9a15c25fa20d963c79dfb5011c89f220a8a5aa20f56b444a5febc",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "abi-memory-eager",
       "description": "Forge and the imported Lean interpreter compare solc's eager per-element validation of a memory-location aggregate ABI parameter versus lazy per-access validation of a calldata aggregate: a dirty (out-of-range uint8) element that is never read reverts empty for a memory uint8[]/struct parameter but succeeds for the calldata counterpart that only reads .length / a clean sibling.",
       "forge": {

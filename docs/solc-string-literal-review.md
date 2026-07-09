@@ -104,13 +104,26 @@ literals) but real end-to-end in the import→Lean pipeline.
   product of prior CE work with solc's `int32`/4096-bit precision caps replicated
   (`:2723-2768`, `:2796-2819`). Spot-checked forms parse; no divergence found.
 
-## Coverage gap (not a semantic divergence)
+## Coverage gap — RESOLVED 2026-07-09 (SB-A #80)
 
 Regular `"..."` literals containing **non-UTF-8 bytes** (e.g. `"\xff"`, `"\xc3\x28"`)
-make solc emit `value=null` (only `hexValue`). The importer `fail()`s at
-`:1065-1066` (`"string literal missing value"`), so such valid-solc programs are
-**excluded from the corpus** rather than mis-evaluated. A correctness gap in
-coverage, but the Lean semantics never sees them, so no accept/reject divergence.
+make solc emit `value=null` (only `hexValue`). The importer used to `fail()` in the
+`kind == "string"` branch (`"string literal missing value"`), so such valid-solc
+programs were **excluded from the corpus** rather than imported.
+
+**Fixed:** the `kind == "string"` branch now falls back to `node.get("hexValue")`
+when `value` is absent/non-str, lowering the literal as `Expr.literal
+(Literal.hexString <hexValue>)` — exactly like the sibling `hexString` branch.
+This matches solc's boundary precisely: solc types such a literal as
+`literal_string hex"..."` (the SAME type as a `hex"..."` literal), which converts
+to `bytes` (ACCEPT — verified for both `bytes("\xff\x00\x41")` and `bytes memory b
+= "\xff\x00\x41";`) but is NOT implicitly convertible to `string` (REJECT:
+"Contains invalid UTF-8 sequence"). In Lean `Literal.hexString` has `abiTy? =
+Ty.bytes`, so the checker likewise accepts the bytes contexts and rejects the
+string context. Valid-UTF-8 plain string literals still carry a `value` field, so
+the new branch never triggers for them (no regression). Exercised by the
+`nonutf8-string-literal` harness lane (`bytes` accept + `invalid/StringNonUtf8.sol`
+string reject).
 
 ## Recommendation (import-side, does not touch Lean semantics)
 

@@ -5,6 +5,40 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — SB-A (#80): non-UTF-8 plain string literal now imports (import-stage over-reject fix)
+
+Import-stage over-reject. A plain double-quoted string literal whose bytes are
+not valid UTF-8 (e.g. `"\xff\x00\x41"`) makes solc omit the AST `value` field and
+keep only `hexValue:"ff0041"`. The importer's `kind == "string"` branch
+(`scripts/solc_ast_to_lean_source.py`) did `value = node.get("value"); if not
+isinstance(value, str): fail(...)`, so it died and the whole fixture could not be
+imported even though solc ACCEPTS the program.
+
+solc boundary I verified with pinned solc 0.8.35 (each compiled with `--bin`):
+- `bytes("\xff\x00\x41")` — ACCEPT
+- `bytes memory b = "\xff\x00\x41";` — ACCEPT
+- `string memory s = "\xff\x00\x41";` — REJECT: "Type literal_string hex\"ff0041\"
+  is not implicitly convertible to expected type string memory. Contains invalid
+  UTF-8 sequence at position 0."
+- `hex"ff0041"` behaves identically (ACCEPT→bytes, REJECT→string), confirming solc
+  gives the non-UTF-8 string literal the SAME type as a hex-string literal.
+- Valid-UTF-8 plain literals (`bytes("abc")`, `string s = "abc";`) still carry a
+  `value` field, so the new path never triggers — no regression.
+
+Fix: in the `kind == "string"` branch, when `value` is absent/non-str, fall back
+to `node.get("hexValue")` and lower as `Expr.literal (Literal.hexString
+<hexValue>)` (identical to the sibling `hexString` branch). No Lean change needed:
+`Literal.hexString.abiTy? = Ty.bytes` already reproduces solc's accept(bytes)/
+reject(string) boundary, and a non-UTF-8 byte sequence cannot be a Lean `String`
+anyway. The new code path triggers ONLY when `value` is absent, so the import of
+every currently-working fixture is unchanged (spot-checked utf8-string-literal,
+unicode-nonbmp, bytes-concat-string-literal: all still import + eval identically).
+
+New sanctioned lane `nonutf8-string-literal`: pins bytes length (3), raw bytes
+0xFF/0x00/0x41, keccak256(bytes(...))
+=0x8713df51…, in both `bytes(...)` and `bytes memory =` contexts, plus
+`invalid/StringNonUtf8.sol` (solc_rejects) for the string-context reject.
+
 ## 2026-07-09 — ENCPACKED-LIT (#78): bare number/rational literal argument to `abi.encodePacked` now rejected (over-accept fix)
 
 Over-accept. solc rejects a bare number/rational literal as a *packed*-encoding

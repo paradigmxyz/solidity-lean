@@ -1072,6 +1072,17 @@ def expr_from_node(node: dict[str, Any]) -> str:
         if kind == "string":
             value = node.get("value")
             if not isinstance(value, str):
+                # solc omits `value` for a plain string literal whose bytes are
+                # not valid UTF-8 (e.g. "\xff\x00\x41"); it keeps only `hexValue`
+                # and gives the literal the type `literal_string hex"..."` — the
+                # SAME type as a `hex"..."` literal. Such a literal converts to
+                # `bytes` (accepted) but NOT to `string` (rejected: invalid UTF-8).
+                # Lower it exactly like the hexString branch so the Lean type
+                # (Ty.bytes) reproduces solc's accept/reject boundary; a non-UTF-8
+                # byte sequence cannot be a Lean String anyway.
+                hex_value = node.get("hexValue")
+                if isinstance(hex_value, str):
+                    return f"Expr.literal (Literal.hexString {lean_string(hex_value)})"
                 fail("string literal missing value")
             return f"Expr.literal (Literal.string {lean_string(value)})"
         if kind == "hexString":
