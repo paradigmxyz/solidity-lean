@@ -104,3 +104,66 @@ elements individually "fit". Equivalently, drop the `implicitLiteralFits`
 element-wise shortcut for `Expr.array` targets and route through
 `expectAssignableToIn` with the bottom-up literal type. Root anchors:
 TypeCheck.lean:4950-4955 and 8270-8279.
+
+## AL-EXEC: resolved over-reject (executable lowering of inline array literals)
+
+Task #58 (2026-07-09). The AL1 note above observed that "the executable
+interpreter does not run inline-array-literal functions" and pinned the
+`array-literal-widen` accepted controls via Forge only. That was a **real
+executable over-reject**, now fixed.
+
+### Reproduce (interpreter `ownCall` vs pinned solc/Forge)
+
+Each shape below is element-type-matched to its fixed-size memory-array target,
+so pinned solc 0.8.35 accepts and runs it. Running the imported contract through
+`TypeCheck.CheckedInput.ownCall` BEFORE the fix:
+
+| shape | solc/Forge | interpreter (before) | interpreter (after) |
+| --- | --- | --- | --- |
+| `uint8[3] a = [1,2,3]` (bare, var-init) | 10203 | `unsupported "checked executable checked contract"` | 10203 |
+| `uint8[2][2] m = [[1,2],[3,4]]` (bare, multidim) | 1234 | same over-reject | 1234 |
+| `int8[2] x = [int8(-1),2]` (typed lead) | 255002 | 255002 (already ran) | 255002 |
+| `uint16[3] x = [uint16(1),2,3]` (typed lead) | (ran) | ran | ran |
+| `[uint256(10),20,30][i]`, `i=1` (index-of-literal) | 20 | ran | 20 |
+| `sum3([uint256(5),6,7])` (arg to internal) | 18 | ran | 18 |
+| `return [uint256(1),2,3]` (return literal) | [1,2,3] | ran | [1,2,3] |
+| `bytes1[2]/bool[2]/address[1]` (typed elems) | (ran) | ran | ran |
+
+Failing iff the literal's element type is a NARROW integer AND the elements are
+undecorated number literals; a single explicitly-cast leading element made it
+run. A single failing function aborts the WHOLE contract's Core lowering
+(`toCoreContractFor? = none`), so `array-literal-widen`'s `uint8Elems`/
+`multi8Elems` poisoned its (uint256-only would-be-fine) siblings — hence the
+Forge-only pinning.
+
+### Root cause
+
+The env-less `abiTy?` of a bare number literal is `uint256`, so
+`arrayLiteralTy? [1,2,3] = uint256[3]`. The typed contextual lowering
+(`Expr.toCoreAs?`) took the generic fixed→fixed array path, which requires the
+inferred source array type to EQUAL the target; `uint256[3] ≠ uint8[3]` and an
+array target is not implicitly convertible, so it returned `none`.
+
+### Fix (`SolidCore/Solidity/Interface.lean`)
+
+New sibling `Expr.fixedArrayLiteralAs?` in the `toCore?`/`toCoreAs?` mutual
+block; `Expr.toCoreAs?` consults it first. For a fixed-size array target
+`Ty.array elemTy (some n)` and an `Expr.array` of length `n`, it lowers each
+element directly at `elemTy` (`arrayLiteralCoreExprsAs?` → `toCoreAs?`,
+left-to-right) and wraps the result as a fresh `Source.Expr.fixedArray`.
+Post-typecheck (AL1) `elemTy` equals solc's bottom-up literal element type, so
+this is solc-faithful; nested/multidim literals recurse because each element's
+`toCoreAs? elemTy` re-enters the same arm. All typed positions (var-init,
+return, internal-argument, index-of-literal) funnel through
+`toCoreAsWithEnv? → toCoreAsWithEnvDirect? → toCoreAs?`, so all are covered.
+This reroutes every fixed-array-literal assignment (including the previously
+working uint256 ones) through the element-wise path; values are unchanged.
+
+### Lane `inline-array-literal-exec`
+
+`tests/forge-harness/inline-array-literal-exec/` — a `src`/`test` Forge harness
+(6 tests) plus manifest `solc_import` + interpreter `ownCall` evals that assert
+the interpreter reproduces the exact Forge/EVM values (10203, 1234, 20, 18,
+[1,2,3], 255002). `forge=ok lean=ok forge_interpreter_compare=pass`. The point
+of this lane (unlike `array-literal-widen`) is INTERPRETER execution, not just
+Forge.

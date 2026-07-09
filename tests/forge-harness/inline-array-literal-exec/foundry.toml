@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/inline-array-literal-exec/out"
+cache_path = "../../.foundry-suites/inline-array-literal-exec/cache"
+evm_version = "cancun"

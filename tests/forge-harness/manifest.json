@@ -6781,6 +6781,64 @@
       }
     },
     {
+      "name": "inline-array-literal-exec",
+      "description": "AL-EXEC (task #58, 2026-07-09): executable lowering of an inline array literal USED in a function body. solc 0.8.35 types an inline array literal bottom-up (smallest common mobile element type, e.g. [1,2,3] : uint8[3]) and requires the fixed-size memory-array target's element type to EQUAL that bottom-up type. Post-typecheck (AL1) the interpreter previously OVER-REJECTED at executable lowering whenever the elements were undecorated narrow-int literals (uint8[3]=[1,2,3], uint8[2][2]=[[1,2],[3,4]]): the env-less abiTy? of a bare number literal is uint256, so the generic fixed->fixed array conversion saw a uint256[.] source vs the narrow target and failed, aborting the whole contract with `unsupported \"checked executable checked contract\"`. The fix lowers an inline array literal against a fixed-array target element-wise at the (AL1-verified) target element type. This lane runs each solc-accepted shape through the INTERPRETER via ownCall and pins the SAME runtime value Forge pins on the EVM: var-init narrow (10203), nested/multidim narrow (1234), index-of-literal ([10,20,30][1]=20), inline literal as internal-call argument (sum3([5,6,7])=18), direct return of a fixed memory-array literal ([1,2,3]), and an order-sensitive int8 negative-leading literal (255002).",
+      "forge": {
+        "root": "tests/forge-harness/inline-array-literal-exec",
+        "match_contract": "InlineArrayLiteralExecForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/inline-array-literal-exec/src/InlineArrayLiteralExec.sol",
+        "contract": "InlineArrayLiteralExecTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "varInitNarrowExec",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"varInitNarrow\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 10203)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "multidimNarrowExec",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"multidimNarrow\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 1234)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "indexOfLiteralExec",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"indexOfLiteral\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 20)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "argToInternalExec",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"argToInternal\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 18)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "int8NarrowExec",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"int8Narrow\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq v 255002)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "returnLiteralExec",
+            "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.InlineArrayLiteralExec.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 contract (SolidCore.Solidity.Source.CallTarget.name \"returnLiteral\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.fixedArray [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c]] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq a 1 && SolidCore.Solidity.Source.wordEq b 2 && SolidCore.Solidity.Source.wordEq c 3)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "acceptance-boundaries-round2",
       "description": "Round-2 acceptance boundaries (2026-07-08) from docs/solc-implementation-divergences-2.md. Pinned solc 0.8.35 and this typechecker both REJECT: (E1) a NON-rational immutable read (keccak256- or constant-ref-initialized) inside a pure function (TypeError 2527; only a RationalNumber initializer stays pure), (O1) a duplicate contract in an override(A,A) list (error 4520), and (PT1) a constant whose value cyclically depends on itself (error 6161). Both still ACCEPT the neighbors on the Lean side: the same immutable read in a view function and a numeric-literal / constant-arithmetic immutable read in pure; the legitimate diamond override(A,B); a non-cyclic constant chain. E2 (over-reject fix): this.f.selector in a pure function is now ACCEPTED while this.f() stays a pure-violation. AE1 confirmed already-handled: abi.encodePacked(bytes[]/string[]) is rejected while encodePacked(uint[]) is accepted.",
       "solc_rejects": [
