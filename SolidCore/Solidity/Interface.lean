@@ -3474,11 +3474,27 @@ def Ty.implicitCleanupCore? (targetTy : Ty) (expr : CoreExpr) :
     | SolidCore.Solidity.Source.Expr.binary
         SolidCore.Solidity.Source.BinaryOp.shl _ _ => true
     | _ => false
+  -- NARROW-BITWISE (F2): `~x` on a narrow `uintN` is masked by solc with
+  -- `cleanup_t_uintN` (`and(not(x),2^N-1)`), NEVER a range check — even in a
+  -- checked block. Routing it through the checked `uintCleanup` would panic
+  -- (0x11) because `not(x)` is a full-width word. So a narrow-uint `~` cleans
+  -- with the truncating `uintCast`, matching solc. (Full-width `uint256` `~`
+  -- keeps the existing `uintCleanup 256`, an identity mask, to avoid churn; and
+  -- `~intN` stays on the checked `intCleanup` — `~` of an `intN`-range value is
+  -- already in range, so it passes and matches solc's `signextend`.)
+  let isNarrowUintBitNot :=
+    match expr with
+    | SolidCore.Solidity.Source.Expr.unary
+        SolidCore.Solidity.Source.UnaryOp.bitNot _ =>
+        match targetTy with
+        | Ty.uint bits => let bits := if bits == 0 then 256 else bits; bits < 256
+        | _ => false
+    | _ => false
   match targetTy with
   | Ty.uint bits =>
       let bits := if bits == 0 then 256 else bits
       if 0 < bits && bits <= 256 then
-        if isLeftShift then
+        if isLeftShift || isNarrowUintBitNot then
           some (SolidCore.Solidity.Source.Expr.uintCast bits expr)
         else
           some (SolidCore.Solidity.Source.Expr.uintCleanup bits expr)
@@ -6854,6 +6870,29 @@ def Expr.toCoreIncDecWithEnv? (storageNames : List Name)
           targetCore.toExpr coreOp returnOld cleanup)
   | _ => none
 
+/-- NARROW-BITWISE (F1/F2): a bitwise operation whose result is then WIDENED to a
+    larger `uintN`/`intN` must first be cleaned at its OWN (operand) width, then
+    widened — solc emits `convert_t_uintM_to_t_uintN(op_at_M)`, where the inner
+    `op_at_M` already applied `cleanup_t_uintM`. The model must not collapse this
+    to a single wide `uintCleanup`/`intCleanup`, which would skip the
+    operand-width truncation (`x << k` widened) or panic (`~x` widened).
+
+    The operand-width clean is exactly the truncating cast `implicitCleanupCore?`
+    produces at the source type, so this predicate flags the shapes for which
+    that source-width clean is the truncating one:
+      * a left shift `<<` (any narrow uint/int operand), and
+      * `~` on a narrow *unsigned* operand (`~intN` already lands in range, so it
+        keeps the checked path and needs no extra operand-width clean). -/
+def CoreExpr.needsOperandWidthBitwiseClean (sourceTy : Ty) : CoreExpr -> Bool
+  | SolidCore.Solidity.Source.Expr.binary
+      SolidCore.Solidity.Source.BinaryOp.shl _ _ => true
+  | SolidCore.Solidity.Source.Expr.unary
+      SolidCore.Solidity.Source.UnaryOp.bitNot _ =>
+      match sourceTy with
+      | Ty.uint _ => true
+      | _ => false
+  | _ => false
+
 def Expr.coreAsFromTy? (targetTy sourceTy : Ty) (coreExpr : CoreExpr) :
     Option CoreExpr :=
   if sourceTy == targetTy then
@@ -6876,15 +6915,27 @@ def Expr.coreAsFromTy? (targetTy sourceTy : Ty) (coreExpr : CoreExpr) :
     | Ty.uint bits => do
         let bits := if bits == 0 then 256 else bits
         let _ ← Ty.allowsUintCastSource? bits sourceTy
+        -- NARROW-BITWISE (F1/F2): clean a widened `<<`/`~` at its operand width
+        -- FIRST (truncating cast), then widen — never collapse to one wide clean.
+        let operandCleaned :=
+          if CoreExpr.needsOperandWidthBitwiseClean sourceTy coreExpr then
+            Ty.implicitCleanupCore sourceTy coreExpr
+          else
+            coreExpr
         some
           (SolidCore.Solidity.Source.Expr.uintCleanup
-            bits coreExpr)
+            bits operandCleaned)
     | Ty.int bits => do
         let bits := if bits == 0 then 256 else bits
         let _ ← Ty.allowsIntCastSource? bits sourceTy
+        let operandCleaned :=
+          if CoreExpr.needsOperandWidthBitwiseClean sourceTy coreExpr then
+            Ty.implicitCleanupCore sourceTy coreExpr
+          else
+            coreExpr
         some
           (SolidCore.Solidity.Source.Expr.intCleanup
-            bits coreExpr)
+            bits operandCleaned)
     | Ty.bytesN targetSize
     | Ty.fixedBytes targetSize =>
         match sourceTy with
