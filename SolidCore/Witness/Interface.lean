@@ -1218,7 +1218,8 @@ def arrayLiteralLocalFunction : FunctionDecl :=
                   location := some DataLocation.memory } ]
               (some
                 (Expr.array
-                  [ Expr.literal (Literal.number "1")
+                  [ Expr.call (Expr.typeName (Ty.uint 256))
+                      [Arg.positional (Expr.literal (Literal.number "1"))]
                   , Expr.literal (Literal.number "2")
                   , Expr.literal (Literal.number "3") ]))
           , Stmt.expr

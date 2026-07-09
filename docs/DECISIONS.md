@@ -5,6 +5,30 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-07-09 — MEMALLOC-WITNESS: `arrayLiteralLocalFunction` witness updated for AL1 (bare inline-array literal is invalid Solidity)
+
+Full-replay regression: `commonTypecheckerMemoryAllocationDiscipline` failed
+because type-checking the witness `checkedMemoryAndCalldataContract` threw
+`TypeError.expectedType (uint256[3]) (uint256[3])`. The witness function
+`arrayLiteralLocalFunction` ("middle", `SolidCore/Witness/Interface.lean`) encoded
+`uint256[3] memory xs = [1, 2, 3];`. That is INVALID Solidity: pinned solc 0.8.35
+rejects it — `Type uint8[3] memory is not implicitly convertible to expected type
+uint256[3] memory` — because a bare inline-array literal takes its element type
+bottom-up from the first element (`uint8`), and `uint8[3]` does not implicitly
+convert to a fixed-size `uint256[3]`. The AL1 fix (#56) correctly began rejecting
+this bare form; the witness simply encoded the pre-AL1 (over-accepting) behavior
+and was stale, so it is the witness — not the checker — that had to move.
+
+Fix: cast the FIRST literal element to `uint256` (`[uint256(1), 2, 3]`) so the
+literal's bottom-up type is `uint256[3]` and `arrayLiteralFixedWidenCheck` takes
+its `litTy == expected` OK branch. This is the exact edit solc requires to compile
+the same intent. Runtime is unchanged (`xs[1] = 9`, returns `9`), so
+`checkedArrayLiteralLocalMatches` / `arrayLiteralLocalMatchesExpected` still hold.
+Only `arrayLiteralLocalFunction` was touched — `arrayLiteralAbiEncodeFunction` and
+`arrayLiteralFixedBytesWidenFunction` are left as-is (their `abi.encode([...])`
+forms have no fixed-array assignment target, so AL1 does not apply; confirmed with
+pinned solc).
+
 ## 2026-07-09 — CP1/#48 REVERTED: struct-array memory/calldata->storage copy restored to ACCEPTED (via-IR behavior)
 
 CP1 (commit db4ac58, entry dated 2026-07-09 below) added a TypeCheck guard that
