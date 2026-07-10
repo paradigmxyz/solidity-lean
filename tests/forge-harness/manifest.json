@@ -11295,6 +11295,99 @@
           }
         ]
       }
+    },
+    {
+      "name": "call-position-consolidated",
+      "description": "#147-#151 CALL-POSITION CONSOLIDATED: a value-returning call in an argument-like position (modifier-invocation argument #147, array-literal element #148, struct-constructor argument #149, new dynamic-array / new bytes / new contract argument #150, or a call nested non-directly inside any function-call/index argument #151) is a STATEMENT in the Executable core and must be hoisted into an ordered prefix eval-temp before the surrounding construct is lowered. These positions did not route through the hoisting machinery, so a call there made the whole contract unlowerable (over-reject) even though solc accepts all of them. The fix adds a generic argument-position peel that hoists the leftmost (in evaluation order) strictly-nested internal single-return call into a prefix temp and re-lowers the construct against it; variable declarations splice the temps as siblings so the local stays in scope, and short-circuit right operands / ternary branches are never hoisted. Forge deploys on pinned solc/EVM and asserts each return value and the left-to-right argument evaluation order; Lean imports the same source and runs the source semantics.",
+      "forge": {
+        "root": "tests/forge-harness/call-position-consolidated",
+        "match_contract": "CallPositionConsolidatedForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/call-position-consolidated/src/CallPositionConsolidated.sol",
+        "contract": "CallPositionConsolidatedHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CallPositionConsolidated"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "modifierArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"modifierArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 3))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "modifierNestedArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"modifierNestedArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 4))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "arrayLit",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"arrayLit\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 34))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "arrayLitOrder",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"arrayLitOrder\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 12))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "structArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"structArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 34))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "structArgOrder",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"structArgOrder\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 12))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "newArrayArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"newArrayArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 3))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "newBytesArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"newBytesArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 5))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestedArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"nestedArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 5))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestedIndexArg",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"nestedIndexArg\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 10))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctrlArray",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"ctrlArray\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 12))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctrlStruct",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"ctrlStruct\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 12))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctrlNewArray",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CallPositionConsolidated.importedSourceUnit\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"CallPositionConsolidatedHarnessTarget\"\n  let cd \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"ctrlNewArray\" []\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 300 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (r.success && r.output == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 4))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

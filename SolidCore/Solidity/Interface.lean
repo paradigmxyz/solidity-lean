@@ -12649,6 +12649,164 @@ def externalBinarySingleReturnUseCore?
       | _ => none
   | none, none => none
 
+/- CALL-POSITION CONSOLIDATED (#147-#151): find the leftmost — in evaluation
+    order — STRICT-inner internal single-return call inside `expr` (a call that
+    is not the whole expression and whose own arguments contain no further such
+    call), replace it with `Expr.ident tmp`, and return
+    `(that call expression, its return type, the rewritten expression)`.
+
+    Value-returning calls in argument-like positions — array/tuple/struct
+    elements (`[g(), h()]`, `S(g(), h())`), `new`/constructor and function-call
+    arguments (`new T(g())`, `h(g() + 1)`, `h(a[g()])`) — are represented as
+    STATEMENTS in the Executable core, so a call nested there must be hoisted
+    into a prefix temp before the surrounding construct is lowered. The direct
+    call-position machinery only reaches a bare `f(...)` argument; this walker is
+    the generic fallback that peels ONE such nested call so the enclosing
+    statement lowering can re-run on the (structurally smaller) rewritten form.
+
+    Short-circuit (`&&`/`||`) right operands and ternary branches are NOT
+    descended into, so a conditionally-evaluated call is never hoisted (which
+    would change solc's evaluation semantics and could run a call solc skips);
+    those positions preserve the prior over-reject. `atRoot` suppresses matching
+    the whole expression, so only strictly-nested calls are peeled — a payload
+    that is itself a call is left to the existing call-statement arms. -/
+mutual
+
+def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
+    (env : TypeEnv) (tmp : Name) (atRoot : Bool) :
+    Nat -> Expr -> Option (Expr × Ty × Expr)
+  | 0, _ => none
+  | fuel + 1, e =>
+    let rootCandidate : Option (Expr × Ty × Expr) :=
+      if atRoot then none
+      else
+        match Expr.actualInternalSingleReturnCall? functions env e with
+        | some (_, retTy) =>
+            -- Replace the hoisted call with the temp read wrapped in an explicit
+            -- (value-identity) conversion to the call's own return type, so the
+            -- residual expression still carries a type at this position. Bare
+            -- idents defeat the env-less array/`new`-argument common-type
+            -- inference the re-lowering runs, whereas a `(retTy)(tmp)` node types
+            -- exactly as the call result did (matching solc's coercion of the
+            -- call's value into the surrounding construct).
+            some (e, retTy,
+              Expr.call (Expr.typeName retTy) [Arg.positional (Expr.ident tmp)])
+        | none => none
+    match e with
+    | Expr.binary op l r =>
+        match op with
+        | BinaryOp.boolAnd
+        | BinaryOp.boolOr =>
+            match Expr.findArgPosInnerCall? functions env tmp false fuel l with
+            | some (c, t, l') => some (c, t, Expr.binary op l' r)
+            | none => none
+        | _ =>
+            match Expr.findArgPosInnerCall? functions env tmp false fuel l with
+            | some (c, t, l') => some (c, t, Expr.binary op l' r)
+            | none =>
+                match Expr.findArgPosInnerCall? functions env tmp false fuel r with
+                | some (c, t, r') => some (c, t, Expr.binary op l r')
+                | none => none
+    | Expr.unary op x =>
+        match Expr.findArgPosInnerCall? functions env tmp false fuel x with
+        | some (c, t, x') => some (c, t, Expr.unary op x')
+        | none => none
+    | Expr.payableConversion x =>
+        match Expr.findArgPosInnerCall? functions env tmp false fuel x with
+        | some (c, t, x') => some (c, t, Expr.payableConversion x')
+        | none => none
+    | Expr.index b i =>
+        match Expr.findArgPosInnerCall? functions env tmp false fuel b with
+        | some (c, t, b') => some (c, t, Expr.index b' i)
+        | none =>
+            match Expr.findArgPosInnerCall? functions env tmp false fuel i with
+            | some (c, t, i') => some (c, t, Expr.index b i')
+            | none => none
+    | Expr.member b m =>
+        match Expr.findArgPosInnerCall? functions env tmp false fuel b with
+        | some (c, t, b') => some (c, t, Expr.member b' m)
+        | none => none
+    | Expr.array elems =>
+        match Expr.findArgPosInnerCallExprs? functions env tmp fuel elems with
+        | some (c, t, elems') => some (c, t, Expr.array elems')
+        | none => none
+    | Expr.tuple items =>
+        match Expr.findArgPosInnerCallTuple? functions env tmp fuel items with
+        | some (c, t, items') => some (c, t, Expr.tuple items')
+        | none => none
+    | Expr.newExpr ty args =>
+        match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
+        | some (c, t, args') => some (c, t, Expr.newExpr ty args')
+        | none => none
+    | Expr.call callee args =>
+        match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
+        | some (c, t, args') => some (c, t, Expr.call callee args')
+        | none =>
+            match Expr.findArgPosInnerCall? functions env tmp false fuel callee with
+            | some (c, t, callee') => some (c, t, Expr.call callee' args)
+            | none => rootCandidate
+    | Expr.callWithOptions callee options args =>
+        match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
+        | some (c, t, args') =>
+            some (c, t, Expr.callWithOptions callee options args')
+        | none => none
+    | _ => rootCandidate
+termination_by fuel _ => fuel
+
+def Expr.findArgPosInnerCallExprs? (functions : List FunctionDecl)
+    (env : TypeEnv) (tmp : Name) :
+    Nat -> List Expr -> Option (Expr × Ty × List Expr)
+  | 0, _ => none
+  | _, [] => none
+  | fuel + 1, e :: rest =>
+    match Expr.findArgPosInnerCall? functions env tmp false fuel e with
+    | some (c, t, e') => some (c, t, e' :: rest)
+    | none =>
+        match Expr.findArgPosInnerCallExprs? functions env tmp fuel rest with
+        | some (c, t, rest') => some (c, t, e :: rest')
+        | none => none
+termination_by fuel _ => fuel
+
+def Expr.findArgPosInnerCallArgs? (functions : List FunctionDecl)
+    (env : TypeEnv) (tmp : Name) :
+    Nat -> List Arg -> Option (Expr × Ty × List Arg)
+  | 0, _ => none
+  | _, [] => none
+  | fuel + 1, arg :: rest =>
+    let argExpr :=
+      match arg with
+      | Arg.positional expr => expr
+      | Arg.named _ expr => expr
+    match Expr.findArgPosInnerCall? functions env tmp false fuel argExpr with
+    | some (c, t, e') => some (c, t, Arg.withExpr e' arg :: rest)
+    | none =>
+        match Expr.findArgPosInnerCallArgs? functions env tmp fuel rest with
+        | some (c, t, rest') => some (c, t, arg :: rest')
+        | none => none
+termination_by fuel _ => fuel
+
+def Expr.findArgPosInnerCallTuple? (functions : List FunctionDecl)
+    (env : TypeEnv) (tmp : Name) :
+    Nat -> List TupleItem -> Option (Expr × Ty × List TupleItem)
+  | 0, _ => none
+  | _, [] => none
+  | fuel + 1, item :: rest =>
+    match item with
+    | TupleItem.hole =>
+        match Expr.findArgPosInnerCallTuple? functions env tmp fuel rest with
+        | some (c, t, rest') => some (c, t, TupleItem.hole :: rest')
+        | none => none
+    | TupleItem.value expr =>
+        match Expr.findArgPosInnerCall? functions env tmp false fuel expr with
+        | some (c, t, e') => some (c, t, TupleItem.value e' :: rest)
+        | none =>
+            match Expr.findArgPosInnerCallTuple? functions env tmp fuel rest with
+            | some (c, t, rest') => some (c, t, item :: rest')
+            | none => none
+termination_by fuel _ => fuel
+
+end
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -14324,6 +14482,99 @@ def Expr.lowLevelTupleVarDeclCorePieces? (storageNames : List Name)
       , SolidCore.Solidity.Source.Stmt.assignTuple
           targets (SolidCore.Solidity.Source.Expr.var resultName) ])
 
+/-- CALL-POSITION CONSOLIDATED (#147-#151) generic fallback: hoist the leftmost
+    STRICT-inner internal single-return call in `payload` into a prefix temp,
+    then re-lower `rebuild replacedExpr` (the statement rebuilt with that call
+    replaced by the temp reference) via `Stmt.toCoreWithInternalCalls?` at one
+    less fuel. Each invocation peels ONE nested call, so a payload with several
+    nested calls is drained by the fuel-decreasing re-entry (the residual
+    statement is what the ordinary call-position arms lower once its
+    argument-like positions are call-free). Returns `none` when `payload` has no
+    strictly-nested internal call the walker reaches, or when the hoisted call /
+    residual statement fails to lower, preserving the prior over-reject rather
+    than emitting unsound code. solc evaluates these argument-like positions
+    left-to-right and before the consuming construct; the walker peels in that
+    order and the prefix runs before the residual, matching solc. -/
+def Stmt.argPositionHoist? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (returnTys : List Ty)
+    (payload : Expr) (rebuild : Expr -> Stmt) : Option CoreStmt :=
+  match internalFuel with
+  | 0 => none
+  | fuel + 1 =>
+    let tmp := "_sol_argpos_" ++ toString fuel
+    -- Walk budget: a plain (computable) node bound comfortably exceeding any
+    -- realistic argument-position expression depth (`sizeOf` is intentionally
+    -- avoided here — it has no executable code, which would infect the whole
+    -- lowering with `noncomputable`).
+    match
+        Expr.findArgPosInnerCall? functions env tmp true 100000 payload with
+    | some (callExpr, retTy, replacedExpr) => do
+        let retCoreTy ← Ty.toCore? retTy
+        let callCore ←
+          FunctionDecl.internalExprSingleReturnUseCore?
+            fuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions callExpr
+            (fun c =>
+              SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var tmp) c)
+        let restCore ←
+          Stmt.toCoreWithInternalCalls?
+            fuel storageRefEnv ((tmp, retTy) :: env) externalCallKindEnv
+            storageNames modifiers functions freeFunctions returnTys
+            (rebuild replacedExpr)
+        some
+          (SolidCore.Solidity.Source.Stmt.block
+            [ SolidCore.Solidity.Source.Stmt.varDecl retCoreTy tmp none
+            , callCore
+            , restCore ])
+    | none => none
+termination_by (internalFuel, sizeOf payload, 0)
+
+/- CALL-POSITION CONSOLIDATED (#148-#150) list-level peel: hoist EVERY
+   strictly-nested internal single-return call inside `payload` into FLAT,
+   ordered prefix statements (`retTy _tmp; _tmp = call`) and return them together
+   with the fully argument-position-call-free residual expression. Unlike the
+   block-wrapping `Stmt.argPositionHoist?`, this returns the temps as a flat list
+   so a variable-declaration statement can be re-lowered with its local spliced
+   as a SIBLING (a block would scope the local out before later statements). The
+   peel is left-to-right / innermost-first, matching solc's argument evaluation
+   order. `none` only if a hoisted call fails to lower. -/
+def Expr.argPositionHoistPrefix? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (payload : Expr) :
+    Option (List CoreStmt × Expr) :=
+  match internalFuel with
+  | 0 => some ([], payload)
+  | fuel + 1 =>
+    let tmp := "_sol_argpos_" ++ toString fuel
+    match
+        Expr.findArgPosInnerCall? functions env tmp true 100000 payload with
+    | some (callExpr, retTy, replacedExpr) =>
+        (do
+          let retCoreTy ← Ty.toCore? retTy
+          let callCore ←
+            FunctionDecl.internalExprSingleReturnUseCore?
+              fuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions callExpr
+              (fun c =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var tmp) c)
+          let (restPieces, finalExpr) ←
+            Expr.argPositionHoistPrefix? fuel storageRefEnv
+              ((tmp, retTy) :: env) externalCallKindEnv storageNames modifiers
+              functions freeFunctions replacedExpr
+          some
+            (SolidCore.Solidity.Source.Stmt.varDecl retCoreTy tmp none
+                :: callCore :: restPieces
+            , finalExpr))
+    | none => some ([], payload)
+termination_by (internalFuel, sizeOf payload, 1)
+
 def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
@@ -14879,6 +15130,11 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   -- args` arm below now hoists EVERY direct-call argument via
   -- `hoistDirectInternalCallArgs?`, subsuming it.
   | Stmt.expr expr@(Expr.call (Expr.ident name) args) =>
+      let argHoist? : Option CoreStmt :=
+        Stmt.argPositionHoist? internalFuel storageRefEnv env
+          externalCallKindEnv storageNames modifiers functions
+          freeFunctions returnTys (Expr.call (Expr.ident name) args)
+          (fun e => Stmt.expr e)
       let fallback? :=
         match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
         | some coreStmt => some coreStmt
@@ -14887,8 +15143,11 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
                 modifiers functions freeFunctions name args with
             | some coreStmt => some coreStmt
-            | none => Stmt.toCore? storageNames
-                (Stmt.expr (Expr.call (Expr.ident name) args))
+            | none =>
+                match argHoist? with
+                | some coreStmt => some coreStmt
+                | none => Stmt.toCore? storageNames
+                    (Stmt.expr (Expr.call (Expr.ident name) args))
       match FunctionDecl.hoistDirectInternalCallArgs?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions "_sol_call_arg" args with
@@ -14924,7 +15183,13 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           storageNames externalCallKindEnv expr with
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
-      | none => Stmt.toCore? storageNames (Stmt.expr expr)
+      | none =>
+          match
+              Stmt.argPositionHoist? internalFuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions
+                freeFunctions returnTys expr (fun e => Stmt.expr e) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames (Stmt.expr expr)
   | Stmt.expr expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _) =>
       match
         Expr.toContractCreationCoreWithKindEnv?
@@ -15317,10 +15582,24 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                       | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
                       | none => resultExpr)) with
               | some coreStmt => some coreStmt
+              | none =>
+                  match
+                      Stmt.argPositionHoist? internalFuel storageRefEnv env
+                        externalCallKindEnv storageNames modifiers functions
+                        freeFunctions returnTys rhs
+                        (fun e => Stmt.expr (Expr.assign lhs AssignOp.assign e)) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames
+                      (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
+          | none =>
+              match
+                  Stmt.argPositionHoist? internalFuel storageRefEnv env
+                    externalCallKindEnv storageNames modifiers functions
+                    freeFunctions returnTys rhs
+                    (fun e => Stmt.expr (Expr.assign lhs AssignOp.assign e)) with
+              | some coreStmt => some coreStmt
               | none => Stmt.toCore? storageNames
                   (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
-          | none => Stmt.toCore? storageNames
-              (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
   | Stmt.varDecl [binding]
       (some (Expr.binary op lhs rhs)) =>
       let fallback :=
@@ -16010,8 +16289,15 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           modifiers functions freeFunctions returnTys items with
       | some coreStmt => some coreStmt
       | none =>
-          Stmt.toCore? storageNames
-            (Stmt.returnValues (some (Expr.tuple items)))
+          match
+              Stmt.argPositionHoist? internalFuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions
+                freeFunctions returnTys (Expr.tuple items)
+                (fun e => Stmt.returnValues (some e)) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.returnValues (some (Expr.tuple items)))
   | Stmt.returnValues (some (Expr.binary op lhs rhs)) =>
       match FunctionDecl.internalBinarySingleReturnUseCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -16109,9 +16395,16 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   internalFuel storageRefEnv env externalCallKindEnv
                   storageNames modifiers functions freeFunctions name args with
               | some coreStmt => some (CoreStmt.thenReturnEmpty coreStmt)
-              | none => Stmt.toCore? storageNames
-                  (Stmt.returnValues
-                    (some (Expr.call (Expr.ident name) args)))
+              | none =>
+                  match
+                      Stmt.argPositionHoist? internalFuel storageRefEnv env
+                        externalCallKindEnv storageNames modifiers functions
+                        freeFunctions returnTys (Expr.call (Expr.ident name) args)
+                        (fun e => Stmt.returnValues (some e)) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames
+                      (Stmt.returnValues
+                        (some (Expr.call (Expr.ident name) args)))
             else
               match FunctionDecl.internalReturnCallCore?
                   internalFuel storageRefEnv env externalCallKindEnv
@@ -16125,9 +16418,17 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                       (fun retExpr =>
                         SolidCore.Solidity.Source.Stmt.returnValues [retExpr]) with
                   | some coreStmt => some coreStmt
-                  | none => Stmt.toCore? storageNames
-                      (Stmt.returnValues
-                        (some (Expr.call (Expr.ident name) args)))
+                  | none =>
+                      match
+                          Stmt.argPositionHoist? internalFuel storageRefEnv env
+                            externalCallKindEnv storageNames modifiers functions
+                            freeFunctions returnTys
+                            (Expr.call (Expr.ident name) args)
+                            (fun e => Stmt.returnValues (some e)) with
+                      | some coreStmt => some coreStmt
+                      | none => Stmt.toCore? storageNames
+                          (Stmt.returnValues
+                            (some (Expr.call (Expr.ident name) args)))
       match FunctionDecl.hoistDirectInternalCallArgs?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions "_sol_return_arg" args with
@@ -16174,7 +16475,14 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           storageNames externalCallKindEnv expr with
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
-      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+      | none =>
+          match
+              Stmt.argPositionHoist? internalFuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions
+                freeFunctions returnTys expr
+                (fun e => Stmt.returnValues (some e)) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues
       (some expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _)) =>
       match
@@ -16210,7 +16518,14 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.returnValues (some expr) =>
       match returnValuesCoreWithReturnTys? storageNames env returnTys expr with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+      | none =>
+          match
+              Stmt.argPositionHoist? internalFuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions
+                freeFunctions returnTys expr
+                (fun e => Stmt.returnValues (some e)) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.ifElse (Expr.call (Expr.ident name) args)
       thenBranch elseBranch => do
       let thenCore ←
@@ -17756,6 +18071,52 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           externalCallKindEnv
           storageNames modifiers functions freeFunctions returnTys rest
       some (callStmts ++ tail)
+  | Stmt.varDecl bindings (some expr) :: rest =>
+      -- CALL-POSITION CONSOLIDATED (#148-#150): a variable declaration whose
+      -- initializer nests value-returning calls in argument-like positions
+      -- (array/struct-tuple element, `new`/constructor argument). Peel those
+      -- calls into ordered sibling prefix temps, then re-lower the residual
+      -- (arg-position-call-free) declaration through the list so the LOCAL's
+      -- decl is spliced as a SIBLING and stays in scope for later statements.
+      -- Fires only when a strictly-nested call is actually found; otherwise
+      -- falls back to the generic per-statement lowering below (byte-identical).
+      let generic : Option (List CoreStmt) := do
+        let head ←
+          Stmt.toCoreWithInternalCalls? internalFuel storageRefEnv env
+            externalCallKindEnv storageNames modifiers functions freeFunctions
+            returnTys (Stmt.varDecl bindings (some expr))
+        let tail ←
+          Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
+            (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+            (VarBindings.extendTypeEnv env bindings) externalCallKindEnv
+            storageNames modifiers functions freeFunctions returnTys rest
+        some (head :: tail)
+      -- Restrict to the initializer shapes that (a) have no specific list arm
+      -- above and (b) declare a local that must survive as a sibling: array /
+      -- struct-tuple literals and `new` expressions. Every other initializer
+      -- keeps its exact prior handling.
+      let isTarget : Bool :=
+        match expr with
+        | Expr.array _ => true
+        | Expr.tuple _ => true
+        | Expr.newExpr _ _ => true
+        | _ => false
+      match internalFuel, isTarget with
+      | fuel + 1, true =>
+          match
+              Expr.argPositionHoistPrefix? fuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions
+                freeFunctions expr with
+          | some (prefixStmts@(_ :: _), residualExpr) =>
+              (match
+                  Stmt.listToCoreWithInternalCallsWithRefs? fuel storageRefEnv
+                    env externalCallKindEnv storageNames modifiers functions
+                    freeFunctions returnTys
+                    (Stmt.varDecl bindings (some residualExpr) :: rest) with
+              | some spliced => some (prefixStmts ++ spliced)
+              | none => generic)
+          | _ => generic
+      | _, _ => generic
   | stmt :: rest => do
       let head ←
         Stmt.toCoreWithInternalCalls?
