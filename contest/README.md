@@ -199,8 +199,7 @@ adversary bank a fake divergence, so the bias is correct (design §1.2, §8).
 ## How the adjudicator classifies (design §4)
 
 Two qualifying lanes (COVERAGE_GAP, SOUNDNESS_GAP); everything else is
-non-qualifying. This is a **for-fun leaderboard** — qualifying submissions earn a
-place on the public leaderboard, there is no monetary component. For the
+non-qualifying. Qualifying submissions earn a place on the leaderboard. For the
 untrusted-execution / sandbox requirements of a public deployment see
 `docs/contest-security-and-sandbox.md`.
 

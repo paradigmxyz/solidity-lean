@@ -30,8 +30,7 @@ Qualifying verdicts (count for the leaderboard): COVERAGE_GAP (lane C),
 SOUNDNESS_GAP (lane S). Everything else (INVALID, REJECTED_OOS, NO_DIVERGENCE,
 REJECT_MALFORMED) does not qualify and returns the specific reason.
 
-This is a for-fun contest: qualifying submissions earn a place on the public
-leaderboard.
+Qualifying submissions earn a place on the leaderboard.
 """
 
 from __future__ import annotations
