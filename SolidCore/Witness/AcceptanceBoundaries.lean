@@ -441,6 +441,113 @@ def g8ErrorNeighborsAccepted : Bool :=
   sourceUnitAccepted? g8ContractErrorSource &&
     sourceUnitAccepted? g8FreeErrorSource
 
+-- ===========================================================================
+-- G11 — an `internal` or `private` contract-member function declared `payable`
+-- is REJECTED (solc: `"internal" and "private" functions cannot be payable`,
+-- TypeChecker::visitFunction). Only `external`/`public` members may carry the
+-- `payable` mutability. Free/library functions are handled by their own
+-- (already-existing) payable rejections and are not exercised here.
+-- ===========================================================================
+
+def g11PayableFn (vis : Visibility) : FunctionDecl :=
+  { kind := FunctionKind.function
+    name := some "f"
+    visibility := some vis
+    mutability := StateMutability.payable
+    body := some (Stmt.block []) }
+
+def badInternalPayableRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "G11Internal" (g11PayableFn Visibility.internal_)))
+
+def badPrivatePayableRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (su_singleContract "G11Private" (g11PayableFn Visibility.private_)))
+
+-- Neighbors that stay ACCEPTED: `external payable` and `public payable`.
+def g11PayableNeighborsAccepted : Bool :=
+  sourceUnitAccepted?
+      (su_singleContract "G11External" (g11PayableFn Visibility.external_)) &&
+    sourceUnitAccepted?
+      (su_singleContract "G11Public" (g11PayableFn Visibility.public_))
+
+-- ===========================================================================
+-- G12 — regression pins for two shapes solc REJECTS that this typechecker
+-- already rejected (verified 2026-07-09; these were investigated as suspected
+-- over-accepts but the model was already correct). Pinned so a future loosening
+-- cannot silently re-open them.
+--   * implicit `string memory` → `bytes memory` assignment
+--     (solc: "Type string memory is not implicitly convertible to expected type
+--     bytes memory"), while the EXPLICIT `bytes(s)` cast stays accepted;
+--   * `==` on two `string` operands (solc: "Built-in binary operator == cannot
+--     be applied to types string memory and string memory") — covered for
+--     `bytes` by g3EqOnBytesRejected; this adds the `string` operand case.
+-- ===========================================================================
+
+def g12StringToBytesAssignFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    mutability := StateMutability.pure
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    body := some (Stmt.block
+      [ Stmt.varDecl
+          [{ name := some "s", ty := some Ty.string
+             location := some DataLocation.memory }]
+          (some (Expr.literal (Literal.string "hi")))
+      , Stmt.varDecl
+          [{ name := some "b", ty := some Ty.bytes
+             location := some DataLocation.memory }]
+          (some (Expr.ident "s"))
+      , Stmt.returnValues (some (Expr.member (Expr.ident "b") "length")) ]) }
+
+def badStringToBytesAssignRejected : Bool :=
+  Result.isError
+    (SourceUnit.check (su_singleContract "G12Assign" g12StringToBytesAssignFn))
+
+-- Neighbor: the EXPLICIT `bytes(s)` cast stays accepted.
+def g12ExplicitBytesCastFn : FunctionDecl :=
+  { g12StringToBytesAssignFn with
+    body := some (Stmt.block
+      [ Stmt.varDecl
+          [{ name := some "s", ty := some Ty.string
+             location := some DataLocation.memory }]
+          (some (Expr.literal (Literal.string "hi")))
+      , Stmt.varDecl
+          [{ name := some "b", ty := some Ty.bytes
+             location := some DataLocation.memory }]
+          (some (Expr.call (Expr.typeName Ty.bytes)
+            [Arg.positional (Expr.ident "s")]))
+      , Stmt.returnValues (some (Expr.member (Expr.ident "b") "length")) ]) }
+
+def explicitBytesCastAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "G12Cast" g12ExplicitBytesCastFn)
+
+def g12EqStringFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params :=
+      [ { name := some "a", ty := Ty.string, location := some DataLocation.memory }
+      , { name := some "b", ty := Ty.string
+          location := some DataLocation.memory } ]
+    returns := [{ name := none, ty := Ty.bool, location := none }]
+    body :=
+      some (Stmt.returnValues
+        (some (Expr.binary BinaryOp.eq (Expr.ident "a") (Expr.ident "b")))) }
+
+def badStringEqualityRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "G12Eq" g12EqStringFn))
+
+-- Build-time gate: pin every acceptance-boundary witness added here so a future
+-- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard badInternalPayableRejected
+#guard badPrivatePayableRejected
+#guard g11PayableNeighborsAccepted
+#guard badStringToBytesAssignRejected
+#guard explicitBytesCastAccepted
+#guard badStringEqualityRejected
+
 end Examples
 end TypeCheck
 end Solidity

@@ -10726,6 +10726,18 @@ def FunctionDecl.checkHeader (env : CheckEnv)
         (TypeError.invalidFunctionHeader "function missing name")
       require fn.visibility.isSome
         (TypeError.invalidFunctionHeader "contract function missing visibility")
+      -- solc: `"internal" and "private" functions cannot be payable`
+      -- (TypeChecker::visitFunction). Only `external`/`public` members may carry
+      -- the `payable` mutability; `internal`/`private` payable is a header error.
+      -- Free functions (payable rejected outright above) and library functions
+      -- (payable rejected below) have their own arms; this covers ordinary
+      -- contract members, which previously had no payable/visibility tie.
+      require
+        (!(fn.mutability == Solidity.StateMutability.payable) ||
+          fn.visibility == some Solidity.Visibility.external_ ||
+          fn.visibility == some Solidity.Visibility.public_)
+        (TypeError.invalidFunctionHeader
+          "internal or private function is payable")
   | some _, Solidity.FunctionKind.constructor =>
       require fn.name.isNone
         (TypeError.invalidFunctionHeader "constructor has a name")
