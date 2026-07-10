@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/shortcircuit-pure-operand/out"
+cache_path = "../../.foundry-suites/shortcircuit-pure-operand/cache"
+evm_version = "cancun"

@@ -1509,6 +1509,67 @@
       }
     },
     {
+      "name": "shortcircuit-callpos",
+      "description": "SHORTCIRCUIT-CALL-POS (#131) over-rejects \u2014 the residual of the EXT-CALL-POS family (#70/#73/extcall-binary). Three call-in-short-circuit / call-in-ternary positions solc 0.8.35 accepts but solidity-lean failed to LOWER: (1) BOTH operands external calls in `&&`/`||` (`this.f() && this.g()`); (2) an EXTERNAL-call ternary CONDITION (`this.f() ? a : b`); (3) a call nested in an otherwise-pure operand (`h() && (j()+1>0)`). The runtime short-circuit was already correct \u2014 purely a lowering coverage gap. The fix mirrors the both-internal `&&`/`||` hoister for both-external, hoists an external-call ternary condition like the internal one, and hoists a pure-operand's inner call INSIDE the guarded branch so it runs exactly when the lhs selects it. Uses `this.`-self-calls (STATICCALL/CALL) so importedContractAccepted pins acceptance (lowering); the Forge test exercises real solc/EVM execution and PROVES short-circuit via a `_counter` witness (0 when the effectful operand is skipped, 1 when it runs).",
+      "forge": {
+        "root": "tests/forge-harness/shortcircuit-callpos",
+        "match_contract": "ShortCircuitCallPosForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/shortcircuit-callpos/src/ShortCircuitCallPos.sol",
+        "contract": "ShortCircuitCallPosTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ShortCircuitCallPos"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ShortCircuitCallPos.importedContractAccepted",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "shortcircuit-pure-operand",
+      "description": "SHORTCIRCUIT-CALL-POS (#131) case 3 \u2014 a call nested in an otherwise-pure operand of `&&`/`||` (`h() && (j()+1>0)`), with PURELY INTERNAL calls so the contract is EXECUTABLE in the solidity-lean model. The semantics eval RUNS the contract in-model and proves short-circuit is preserved: `skipPanic` (`hFalse() && (1/jZero()>0)`) and `skipPanicOr` (`hTrue() || (1/jZero()>0)`) return normally because the div-by-zero in the SKIPPED operand does not execute, while `runPanic` (`hTrue() && (1/jZero()>0)`) reverts Panic 0x12 because the SELECTED operand is genuinely lowered and evaluated. The Forge lane pins the same behaviour (plus a `_counter` effect witness) on real solc/EVM.",
+      "forge": {
+        "root": "tests/forge-harness/shortcircuit-pure-operand",
+        "match_contract": "ShortCircuitPureOperandForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/shortcircuit-pure-operand/src/ShortCircuitPureOperand.sol",
+        "contract": "ShortCircuitPureOperandTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ShortCircuitPureOperand"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ShortCircuitPureOperand.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedShortCircuitSemantics",
+            "expr": "(\n  let src := SolidCore.Solidity.SolcAstImport.ShortCircuitPureOperand.importedSourceUnit\n  let callN := fun (fn : String) =>\n    SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 src\n      \"ShortCircuitPureOperandTarget\"\n      (SolidCore.Solidity.Source.CallTarget.name fn)\n      SolidCore.Solidity.Source.State.empty []\n  let retWord := fun (fn : String) (v : Nat) =>\n    match callN fn with\n    | Except.ok (SolidCore.Solidity.Source.CallResult.returned _\n        [SolidCore.Solidity.Source.Value.word w]) =>\n        SolidCore.Solidity.Source.wordEq w v\n    | _ => false\n  let panics := fun (fn : String) =>\n    match callN fn with\n    | Except.ok (SolidCore.Solidity.Source.CallResult.reverted _\n        (SolidCore.Solidity.Source.RevertData.panic code)) => code == 0x12\n    | _ => false\n  retWord \"skipPanic\" 0 &&\n  retWord \"skipPanicOr\" 1 &&\n  panics \"runPanic\" &&\n  retWord \"pureOperand\" 1)",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
       "name": "qualified-callee",
       "description": "QUAL-CALLEE (#74/#77): emit/revert/require whose callee is a MEMBER access (Base.BaseHit, Base.BaseErr, self QualifiedCalleeHarnessTarget.LocalHit/LocalErr) rather than a bare identifier. solc 0.8.35 accepts these; solidity-lean previously over-rejected them (emit at the executable lowering; base-/self-qualified revert and require at the type checker AND lowering). Lean imports the same source unit from solc AST and checks the qualified-callee emit event topics/data and the base-/self-qualified custom-error revert name+args, including the require(cond, Base.Err(a)) form. Library-/interface-qualified errors (L.Bad) remain declined (see docs/DECISIONS.md).",
       "forge": {
@@ -7760,7 +7821,7 @@
     },
     {
       "name": "array-widen-copy",
-      "description": "#126 ARRAY-WIDEN-COPY — copy assignment INTO a FIXED storage array with a NON-integer value element type (`bytes32[3] = bytes32[2]`). solc accepts (ArrayType::isImplicitlyConvertibleTo, Types.cpp:1640-1648): the first M elements are copied and the old tail (indices M..N-1) is zero-cleared. solidity-lean formerly over-rejected every non-integer element base (the gate was `isInteger`); now it accepts any implicitly-convertible non-struct element while holding the legacy struct-value carve-out rejected. Forge pins solc/EVM (tail cleared to zero); Lean imports the same contract from the solc AST and checks the copied values.",
+      "description": "#126 ARRAY-WIDEN-COPY \u2014 copy assignment INTO a FIXED storage array with a NON-integer value element type (`bytes32[3] = bytes32[2]`). solc accepts (ArrayType::isImplicitlyConvertibleTo, Types.cpp:1640-1648): the first M elements are copied and the old tail (indices M..N-1) is zero-cleared. solidity-lean formerly over-rejected every non-integer element base (the gate was `isInteger`); now it accepts any implicitly-convertible non-struct element while holding the legacy struct-value carve-out rejected. Forge pins solc/EVM (tail cleared to zero); Lean imports the same contract from the solc AST and checks the copied values.",
       "forge": {
         "root": "tests/forge-harness/array-widen-copy",
         "match_contract": "ArrayWidenCopyForgeTest",
@@ -7785,7 +7846,7 @@
           },
           {
             "label": "importedCopyWidenClearsTail",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.ArrayWidenCopy.importedContract (SolidCore.Solidity.Source.CallTarget.name \"copyWidenClearsTail\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0x11, SolidCore.Solidity.Source.Value.word 0x22]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq a 0x11 && SolidCore.Solidity.Source.wordEq b 0x22 && SolidCore.Solidity.Source.wordEq c 0)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.ArrayWidenCopy.importedContract (SolidCore.Solidity.Source.CallTarget.name \"copyWidenClearsTail\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0x11, SolidCore.Solidity.Source.Value.word 0x22]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq a 0x11 && SolidCore.Solidity.Source.wordEq b 0x22 && SolidCore.Solidity.Source.wordEq c 0)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           }
         ]
@@ -10674,22 +10735,22 @@
           },
           {
             "label": "importedCReturns",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 5)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 5)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           },
           {
             "label": "importedCContractLevelCustomError",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word v]) =>\n      Except.ok (name == \"MemberErr\" && SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word v]) =>\n      Except.ok (name == \"MemberErr\" && SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           },
           {
             "label": "importedFrReturns",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"fr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 7)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"fr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 7)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           },
           {
             "label": "importedFrFreeLevelCustomError",
-            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"fr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word v]) =>\n      Except.ok (name == \"FreeErr\" && SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"fr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word v]) =>\n      Except.ok (name == \"FreeErr\" && SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           }
         ]

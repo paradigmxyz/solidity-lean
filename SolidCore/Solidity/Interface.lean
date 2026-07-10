@@ -12366,7 +12366,51 @@ def externalBinarySingleReturnUseCore?
         (SolidCore.Solidity.Source.Stmt.block
           [ SolidCore.Solidity.Source.Stmt.varDecl lhsCoreTy lhsTmp (some lhsCore)
           , branchCore ])
-  | _, _ => none
+  | some lhsTy, some rhsTy => do
+      -- #131 SHORTCIRCUIT-CALL-POS: BOTH operands external single-return calls.
+      -- Only the short-circuiting `&&`/`||` are handled (the #131 scope): evaluate
+      -- the LEFT call into a bool temp, then guard the RIGHT external call on that
+      -- temp so the (effectful) right call runs exactly when solc would evaluate
+      -- it. Mirrors the both-internal path 13243-13278. `_ => none` for every
+      -- other operator preserves the prior over-reject (no unsound eager both-call
+      -- arithmetic).
+      let coreOp ← BinaryOp.toCore? op
+      match op with
+      | BinaryOp.boolAnd
+      | BinaryOp.boolOr => do
+          let lhsTmp := "_sol_bin_ext_both_lhs"
+          let rhsCallCore ←
+            Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv rhsTy rhs
+              (fun retExpr =>
+                useResult
+                  (SolidCore.Solidity.Source.Expr.binary coreOp
+                    (SolidCore.Solidity.Source.Expr.var lhsTmp) retExpr))
+          let skipCore :=
+            match op with
+            | BinaryOp.boolAnd =>
+                useResult (SolidCore.Solidity.Source.Expr.word 0)
+            | _ =>
+                useResult (SolidCore.Solidity.Source.Expr.word 1)
+          let branchCore :=
+            match op with
+            | BinaryOp.boolAnd =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  rhsCallCore skipCore
+            | _ =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  skipCore rhsCallCore
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv lhsTy lhs
+            (fun retExpr =>
+              SolidCore.Solidity.Source.Stmt.block
+                [ SolidCore.Solidity.Source.Stmt.varDecl
+                    SolidCore.Solidity.Source.Ty.bool lhsTmp (some retExpr)
+                , branchCore ])
+      | _ => none
+  | none, none => none
 
 set_option maxHeartbeats 1000000 in
 mutual
@@ -13069,6 +13113,22 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
           useResult
             (SolidCore.Solidity.Source.Expr.ternary
               condExpr thenCore elseCore))
+  | Expr.call (Expr.member _ _) _
+  | Expr.callWithOptions (Expr.member _ _) _ _ => do
+      -- #131 SHORTCIRCUIT-CALL-POS: EXTERNAL single-return call in the ternary
+      -- CONDITION (`t.f() ? a : b`). Mirror the internal-condition arm above but
+      -- lower the condition through the external-call hoister (evaluate the call
+      -- into a temp, then a core `ternary` on the temp). Branches must be pure
+      -- (`Expr.toCore?` — no calls), so the untaken branch has no side effect and
+      -- the core `ternary` reproduces the value.
+      let thenCore ← Expr.toCore? storageNames thenExpr
+      let elseCore ← Expr.toCore? storageNames elseExpr
+      Expr.externalCallSingleReturnCoreWithKindEnv?
+        storageNames env externalCallKindEnv Ty.bool cond
+        (fun condExpr =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.ternary
+              condExpr thenCore elseCore))
   | _ => none
 termination_by (internalFuel, 0, 2)
 
@@ -13329,14 +13389,63 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               | _, _ => none
   | some (name, args, convert), none => do
       let coreOp ← BinaryOp.toCore? op
-      let rhsCore ← Expr.toCore? storageNames rhs
-      FunctionDecl.internalSingleReturnCallCore?
-        internalFuel storageRefEnv env externalCallKindEnv storageNames
-        modifiers functions freeFunctions name args
-        (fun retExpr =>
-          useResult
-            (SolidCore.Solidity.Source.Expr.binary
-              coreOp (convert retExpr) rhsCore))
+      match Expr.toCore? storageNames rhs with
+      | some rhsCore =>
+          FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.binary
+                  coreOp (convert retExpr) rhsCore))
+      | none =>
+          -- #131 SHORTCIRCUIT-CALL-POS (call-in-pure-operand): the LEFT operand is
+          -- a direct internal single-return call and the RIGHT operand is NOT
+          -- directly `toCore?`-able because it itself contains a call (e.g.
+          -- `h() && (j()+1>0)`). Only sound for the short-circuiting `&&`/`||`:
+          -- evaluate the left call into a bool temp, then hoist the right operand's
+          -- inner call(s) INSIDE the guarded branch (via
+          -- `internalExprSingleReturnUseCore?`), so the right call runs exactly
+          -- when the left temp selects it. Any other operator → `none` (the right
+          -- call would be evaluated eagerly, changing effects/order).
+          match op with
+          | BinaryOp.boolAnd
+          | BinaryOp.boolOr => do
+              let lhsTmp := "_sol_bin_lhs"
+              let rhsCallCore ←
+                FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions rhs
+                  (fun rhsResult =>
+                    useResult
+                      (SolidCore.Solidity.Source.Expr.binary coreOp
+                        (SolidCore.Solidity.Source.Expr.var lhsTmp) rhsResult))
+              let skipCore :=
+                match op with
+                | BinaryOp.boolAnd =>
+                    useResult (SolidCore.Solidity.Source.Expr.word 0)
+                | _ =>
+                    useResult (SolidCore.Solidity.Source.Expr.word 1)
+              let branchCore :=
+                match op with
+                | BinaryOp.boolAnd =>
+                    SolidCore.Solidity.Source.Stmt.ifElse
+                      (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                      rhsCallCore skipCore
+                | _ =>
+                    SolidCore.Solidity.Source.Stmt.ifElse
+                      (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                      skipCore rhsCallCore
+              FunctionDecl.internalSingleReturnCallCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions name args
+                (fun retExpr =>
+                  SolidCore.Solidity.Source.Stmt.block
+                    [ SolidCore.Solidity.Source.Stmt.varDecl
+                        SolidCore.Solidity.Source.Ty.bool lhsTmp
+                        (some (convert retExpr))
+                    , branchCore ])
+          | _ => none
   | none, some _ => do
       let coreOp ← BinaryOp.toCore? op
       let lhsTy ←
