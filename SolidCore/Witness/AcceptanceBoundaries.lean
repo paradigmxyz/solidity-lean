@@ -1317,12 +1317,91 @@ def qstructWrongTypeRejected : Bool :=
   Result.isError (SourceUnit.check (qsSU (qsFn qsPathP
     [Arg.positional (boolExpr true), Arg.positional (numberExpr "2")] "x" "y")))
 
+-- ===========================================================================
+-- CONST-GETTER-PURE-OVERRIDE (#115) — a `public constant` state variable's
+-- synthesized getter has state mutability PURE (not view), so it CAN override
+-- a `pure` interface/base function (solc `Types.cpp`
+-- `OverrideProxy::stateMutability()`: `isConstant() ? Pure : View`). A plain
+-- (non-constant) public state var's getter is VIEW and CANNOT override a pure
+-- base — that over-accept guard must stay closed.
+-- ===========================================================================
+
+private def cgPureInterface : ContractDecl :=
+  { name := "CgI"
+    kind := ContractKind.interface
+    items :=
+      [ ContractItem.function
+          { kind := FunctionKind.function
+            name := some "X"
+            returns := [{ name := none, ty := su_uint256, location := none }]
+            visibility := some Visibility.external_
+            mutability := StateMutability.pure
+            body := none } ] }
+
+private def cgViewInterface : ContractDecl :=
+  { name := "CgI"
+    kind := ContractKind.interface
+    items :=
+      [ ContractItem.function
+          { kind := FunctionKind.function
+            name := some "X"
+            returns := [{ name := none, ty := su_uint256, location := none }]
+            visibility := some Visibility.external_
+            mutability := StateMutability.view
+            body := none } ] }
+
+private def cgGetterContract (varMut : VarMutability) (init? : Option Expr) :
+    ContractDecl :=
+  { name := "CgC"
+    bases := [{ base := userPath "CgI" }]
+    items :=
+      [ ContractItem.stateVar
+          { name := "X"
+            ty := su_uint256
+            visibility := some Visibility.public_
+            mutability := varMut
+            override? := some {}
+            init := init? } ] }
+
+private def cgSourceUnit (iface getter : ContractDecl) : SourceUnit :=
+  { items := [SourceItem.contract iface, SourceItem.contract getter] }
+
+-- constant getter (PURE) overriding a pure base — ACCEPTED.
+def cgConstOverPureAccepted : Bool :=
+  sourceUnitAccepted?
+    (cgSourceUnit cgPureInterface
+      (cgGetterContract VarMutability.constant (some (numberExpr "5"))))
+
+-- constant getter (PURE) overriding a view base — still ACCEPTED.
+def cgConstOverViewAccepted : Bool :=
+  sourceUnitAccepted?
+    (cgSourceUnit cgViewInterface
+      (cgGetterContract VarMutability.constant (some (numberExpr "5"))))
+
+-- plain getter (VIEW) overriding a pure base — REJECTED (view ≠ pure). This is
+-- the over-accept guard: the constant special-case must not leak to mutables.
+def cgNonConstOverPureRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (cgSourceUnit cgPureInterface
+        (cgGetterContract VarMutability.mutable none)))
+
+-- plain getter (VIEW) overriding a view base — still ACCEPTED.
+def cgNonConstOverViewAccepted : Bool :=
+  sourceUnitAccepted?
+    (cgSourceUnit cgViewInterface
+      (cgGetterContract VarMutability.mutable none))
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
 #guard qstructQualifiedConstructionAccepted
 #guard qstructWrongArityRejected
 #guard qstructWrongFieldNameRejected
 #guard qstructWrongTypeRejected
+#guard cgConstOverPureAccepted
+#guard cgConstOverViewAccepted
+#guard cgNonConstOverPureRejected
+#guard cgNonConstOverViewAccepted
 
 end Examples
 end TypeCheck

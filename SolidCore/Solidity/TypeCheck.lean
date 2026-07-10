@@ -10346,7 +10346,13 @@ def StateVarDecl.publicGetterOverrideMember? (types : TypeContext)
           params := shape.fst
           returns := shape.snd
           visibility := some Solidity.Visibility.external_
-          mutability := Solidity.StateMutability.view
+          -- solc `Types.cpp` `OverrideProxy::stateMutability()`: a `constant`
+          -- state variable's synthesized getter is `pure`, otherwise `view`
+          -- (`immutable` stays `view`).
+          mutability :=
+            match decl.mutability with
+            | Solidity.VarMutability.constant => Solidity.StateMutability.pure
+            | _ => Solidity.StateMutability.view
           virtual := false
           implemented := true }
   | _ => none
