@@ -11368,9 +11368,12 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       require (!Parameters.anyStorageRef env.types fn.params)
         (TypeError.invalidFunctionHeader
           "external/public function parameter uses storage")
-    require (!Parameters.anyStorageRef env.types fn.returns)
-      (TypeError.invalidFunctionHeader
-        "external/public function return uses storage")
+    if env.inLibrary then
+      Except.ok ()
+    else
+      require (!Parameters.anyStorageRef env.types fn.returns)
+        (TypeError.invalidFunctionHeader
+          "external/public function return uses storage")
     if env.inLibrary then
       Except.ok ()
     else
@@ -11389,15 +11392,24 @@ def FunctionDecl.checkHeader (env : CheckEnv)
       match Parameters.firstAbiCoderV2OnlyTy? env.types fn.params with
       | some ty => Except.error (TypeError.invalidAbiType ty)
       | none => Except.ok ()
-    match Parameters.firstMappingContainingTy? env.types fn.returns with
-    | some ty => Except.error (TypeError.invalidAbiType ty)
-    | none => Except.ok ()
-    match Parameters.firstNonAbiEncodableTy? env.types fn.returns with
-    | some ty => Except.error (TypeError.invalidAbiType ty)
-    | none => Except.ok ()
-    match Parameters.firstAbiCoderV2OnlyTy? env.types fn.returns with
-    | some ty => Except.error (TypeError.invalidAbiType ty)
-    | none => Except.ok ()
+    if env.inLibrary then
+      Except.ok ()
+    else
+      match Parameters.firstMappingContainingTy? env.types fn.returns with
+      | some ty => Except.error (TypeError.invalidAbiType ty)
+      | none => Except.ok ()
+    if env.inLibrary then
+      Except.ok ()
+    else
+      match Parameters.firstNonAbiEncodableTy? env.types fn.returns with
+      | some ty => Except.error (TypeError.invalidAbiType ty)
+      | none => Except.ok ()
+    if env.inLibrary then
+      Except.ok ()
+    else
+      match Parameters.firstAbiCoderV2OnlyTy? env.types fn.returns with
+      | some ty => Except.error (TypeError.invalidAbiType ty)
+      | none => Except.ok ()
   else
     Except.ok ()
 

@@ -11267,6 +11267,34 @@
           }
         ]
       }
+    },
+    {
+      "name": "lib-storage-return",
+      "description": "#155 LIB-STORAGE-RETURN over-reject: solc 0.8.35 ACCEPTS public/external LIBRARY functions that RETURN a storage reference or a mapping type, symmetric with library functions that TAKE storage/mapping parameters (already accepted, #90/#93). checkHeader gated only the PARAM-side storage/mapping/abi checks behind the env.inLibrary exemption while the four RETURN-side checks were unconditional, so the model over-rejected every library function returning a storage ref or a mapping; non-library public/external functions returning storage/mapping still reject, internal functions are unaffected. The fix gates the four return-side checks behind the same env.inLibrary exemption. The Lean side imports the exact over-rejected library (public returns (S storage), external returns (S storage), public returns (mapping storage)) and pins acceptance. Forge deploys the library on pinned solc/EVM and, through a consumer that writes and reads state THROUGH the returned storage/mapping reference, asserts the real-EVM values (42 for the struct field, 99 for the mapping entry). The USE of a library storage-return value is a separate unimplemented interpreter-runtime path (fails invalidType even for the internal case), so the Lean side pins acceptance only.",
+      "forge": {
+        "root": "tests/forge-harness/lib-storage-return",
+        "match_contract": "LibStorageReturnForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/lib-storage-return/src/LibStorageReturn.sol",
+        "contract": "L",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LibStorageReturn"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LibStorageReturn.importedContractAccepted",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

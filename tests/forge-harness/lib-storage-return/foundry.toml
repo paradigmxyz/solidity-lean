@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/lib-storage-return/out"
+cache_path = "../../.foundry-suites/lib-storage-return/cache"
+evm_version = "cancun"
