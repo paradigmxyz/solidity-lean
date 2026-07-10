@@ -19,3 +19,5 @@ import SolidCore.Witness.OverloadShadow
 import SolidCore.Witness.ModifierReturnReject
 import SolidCore.Witness.GetterStructReject
 import SolidCore.Witness.MulmodZero
+import SolidCore.Witness.QualifiedCollision
+import SolidCore.Witness.QualifiedEventSelector

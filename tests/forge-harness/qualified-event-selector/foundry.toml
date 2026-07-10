@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/qualified-event-selector/out"
+cache_path = "../../.foundry-suites/qualified-event-selector/cache"
+evm_version = "cancun"

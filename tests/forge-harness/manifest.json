@@ -10978,6 +10978,77 @@
           }
         ]
       }
+    },
+    {
+      "name": "qualified-collision",
+      "description": "#136/#137 QUALIFIED-COLLISION: a type-qualified custom-error revert `revert L.E(...)` and event emit `emit L.Ev(...)` where the contract ALSO declares its own same-name error/event with a DIFFERENT signature. solc encodes the LIBRARY member (its selector / topic0); the model formerly lowered to the bare name and resolved first-match against a by-name runtime table, mis-targeting the contract's member (wrong selector/topic0) or over-rejecting the no-collision library emit. Fixed by lowering type-qualified emit/revert to a `.`-joined key (mirroring qualified constants) and registering matching keyed runtime entries whose topic/selector come from the declaring scope; the event checker gains a library-path branch. Bare (own) emits/reverts stay byte-identical.",
+      "forge": {
+        "root": "tests/forge-harness/qualified-collision",
+        "match_contract": "QualifiedCollisionForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/qualified-collision/src/QualifiedCollision.sol",
+        "contract": "QualifiedCollisionTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.QualifiedCollision"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "qualifiedCollisionEventTopics",
+            "expr": "(do\n  let emitLibOk <- (do\n  let source := SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let r <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source \"QualifiedCollisionTarget\" (SolidCore.Solidity.Source.CallTarget.name \"emitLib\") empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] => Except.ok (event.topics.head? == some (SolidCore.Solidity.Source.Keccak.digestWord \"Ev(uint8)\"))\n      | _ => Except.ok false\n  | _ => Except.ok false)\n  let emitOwnOk <- (do\n  let source := SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let r <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source \"QualifiedCollisionTarget\" (SolidCore.Solidity.Source.CallTarget.name \"emitOwn\") empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] => Except.ok (event.topics.head? == some (SolidCore.Solidity.Source.Keccak.digestWord \"Ev(uint256)\"))\n      | _ => Except.ok false\n  | _ => Except.ok false)\n  let emitLibNoColOk <- (do\n  let source := SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let r <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 source \"QualifiedCollisionTarget\" (SolidCore.Solidity.Source.CallTarget.name \"emitLibNoCollision\") empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] => Except.ok (event.topics.head? == some (SolidCore.Solidity.Source.Keccak.digestWord \"Ping(uint64)\"))\n      | _ => Except.ok false\n  | _ => Except.ok false)\n  Except.ok (emitLibOk && emitOwnOk && emitLibNoColOk))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "qualifiedCollisionRevertSelectors",
+            "expr": "(do\n  let revertLibOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedCollisionTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"revertLib\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  let sel := SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"E(uint8)\")\n  Except.ok (!r.success && r.output.take 4 == sel))\n  let revertOwnOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedCollisionTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"revertOwn\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  let sel := SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"E(uint256)\")\n  Except.ok (!r.success && r.output.take 4 == sel))\n  let revertLibNoColOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedCollisionTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"revertLibNoCollision\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  let sel := SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"Bad(uint64)\")\n  Except.ok (!r.success && r.output.take 4 == sel))\n  Except.ok (revertLibOk && revertOwnOk && revertLibNoColOk))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "qualified-event-selector",
+      "description": "#137 `.selector`: a type-qualified EVENT `.selector` (`Base.Ev.selector`, `L.Ping.selector`) is solc's 32-byte topic0. The model formerly OVER-REJECTED it (the qualified-selector typecheck fallback `contractSelectorMemberTy?` considered only errors and external functions, omitting events), and its event-selector lowering was by-name (a same-name library/contract event collision would mis-target). Fixed by accepting event `.selector` (bytes32) in the typecheck fallback and giving the event-selector lowering a path-qualified `Contract.Ev` key over all contracts/libraries. Bare own/inherited `Ev.selector` stays unchanged; `L.Ping.selector` resolves to L's Ping(uint256) topic0, not the contract's colliding Ping(address).",
+      "forge": {
+        "root": "tests/forge-harness/qualified-event-selector",
+        "match_contract": "QualifiedEventSelectorForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/qualified-event-selector/src/QualifiedEventSelector.sol",
+        "contract": "QualifiedEventSelectorTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.QualifiedEventSelector"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.QualifiedEventSelector.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "qualifiedEventSelectorTopics",
+            "expr": "(do\n  let ownEvOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedEventSelector.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedEventSelectorTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"ownEv\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && SolidCore.Solidity.Source.bytesToWordBE r.output == SolidCore.Solidity.Source.Keccak.digestWord \"Ev(uint256)\"))\n  let ownPingOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedEventSelector.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedEventSelectorTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"ownPing\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && SolidCore.Solidity.Source.bytesToWordBE r.output == SolidCore.Solidity.Source.Keccak.digestWord \"Ping(address)\"))\n  let baseEvOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedEventSelector.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedEventSelectorTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"baseEv\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && SolidCore.Solidity.Source.bytesToWordBE r.output == SolidCore.Solidity.Source.Keccak.digestWord \"Ev(uint256)\"))\n  let libPingOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.QualifiedEventSelector.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"QualifiedEventSelectorTarget\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"libPing\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && SolidCore.Solidity.Source.bytesToWordBE r.output == SolidCore.Solidity.Source.Keccak.digestWord \"Ping(uint256)\"))\n  Except.ok (ownEvOk && ownPingOk && baseEvOk && libPingOk))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

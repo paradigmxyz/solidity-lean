@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/qualified-collision/out"
+cache_path = "../../.foundry-suites/qualified-collision/cache"
+evm_version = "cancun"

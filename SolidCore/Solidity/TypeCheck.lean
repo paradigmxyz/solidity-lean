@@ -5455,14 +5455,20 @@ def TypeContext.contractDataMemberTy?
     | none => none)
 
 /-- Whether a type name exposes `member` as a `.selector`-bearing declaration:
-    an error (`I.IE`, `L.LE`) or an externally-callable function
-    (`L.g` — a library external function; a contract external/public function).
-    All such selectors are 4 bytes (`bytesN 4`). -/
+    an EVENT (`Base.Ev`, `L.Ping` — solc's `Event.selector` is the 32-byte
+    topic0, `bytesN 32`), an error (`I.IE`, `L.LE`), or an externally-callable
+    function (`L.g` — a library external function; a contract external/public
+    function; both 4-byte `bytesN 4`). Events take precedence: an event
+    `.selector` is bytes32, unlike the 4-byte error/function selector. -/
 def TypeContext.contractSelectorMemberTy?
     (types : TypeContext) (path : Path) (member : Name) :
     Option Ty := do
   let decl ← types.lookupContractDecl? path
   let order := types.contractDispatchOrder decl
+  let hasEvent :=
+    order.any (fun c =>
+      (Solidity.Executable.ContractDecl.directEvents c).any
+        (fun e => e.name == member && !e.anonymous))
   let hasError :=
     order.any (fun c =>
       (Solidity.Executable.ContractDecl.directErrors c).any
@@ -5471,7 +5477,8 @@ def TypeContext.contractSelectorMemberTy?
     order.any (fun c =>
       (ContractDecl.directFunctionSigsQualifiedLocalTypes c).any
         (fun sig => sig.name == member && sig.externallyCallable))
-  if hasError || hasExternalFn then some (Solidity.Ty.bytesN 4) else none
+  if hasEvent then some (Solidity.Ty.bytesN 32)
+  else if hasError || hasExternalFn then some (Solidity.Ty.bytesN 4) else none
 
 /-- Parameter names + types of an error declared in the contract/library named
     by `path` (or one of its bases), for checking a qualified error revert
@@ -5489,6 +5496,27 @@ def TypeContext.contractErrorSig?
         some
           (err.params.map (fun p => p.name),
             err.params.map (fun p =>
+              Ty.qualifyLocalUserTypes c.name localTypeNames p.ty))
+    | none => none)
+
+/-- Parameter names + types of an event declared in the contract/library named
+    by `path` (or one of its bases), for checking a qualified event emit
+    `emit L.Ev(args)`. Mirrors `contractErrorSig?`; used by `checkEventEmission`
+    so a LIBRARY-qualified event (absent from the contract's flattened
+    `env.events`) is accepted rather than over-rejected (#137). Types are
+    qualified with the DECLARING contract's local user types. -/
+def TypeContext.contractEventSig?
+    (types : TypeContext) (path : Path) (member : Name) :
+    Option (List (Option Name) × List Ty) := do
+  let decl ← types.lookupContractDecl? path
+  (types.contractDispatchOrder decl).findSome? (fun c =>
+    match (Solidity.Executable.ContractDecl.directEvents c).find?
+        (fun e => e.name == member) with
+    | some ev =>
+        let localTypeNames := ContractDecl.localTypeNames c
+        some
+          (ev.params.map (fun p => p.name),
+            ev.params.map (fun p =>
               Ty.qualifyLocalUserTypes c.name localTypeNames p.ty))
     | none => none)
 
@@ -9369,6 +9397,26 @@ def checkEventEmission (env : CheckEnv)
   match expr with
   | Solidity.Expr.call (Solidity.Expr.ident name) args => do
       checkEventArgs env name args
+  -- EMIT-QUAL library case (#137): `emit L.Ev(a)` names an event declared in a
+  -- LIBRARY (or interface / non-inherited contract) — not in the contract's
+  -- own/inherited event scope. Resolve it against the named type's event table
+  -- (mirroring the revert checker's `contractErrorSig?` branch); the executable
+  -- lowering carries library events in the runtime event table under the joined
+  -- `L.Ev` key so the topic is soundly emitted. A base-/self-qualified event
+  -- (`emit Base.Ev(a)`) is found by `contractEventSig?` too (its dispatch order
+  -- includes the base), and any qualifier whose event is genuinely absent falls
+  -- back to `checkEventArgs` (which resolves the flattened `env.events`, e.g.
+  -- free events) and is rejected there if truly unknown.
+  | Solidity.Expr.call
+      (Solidity.Expr.member (Solidity.Expr.typeName (Solidity.Ty.user path)) name)
+      args => do
+      match env.types.contractEventSig? path name with
+      | some (paramNames, paramTys) => do
+          let _ ←
+            checkContextualArgsAssignableToParamsFor
+              env "event emission" paramNames paramTys args
+          Except.ok ()
+      | none => checkEventArgs env name args
   -- G7: a qualified `emit A.E(...)` must still resolve its member to an event;
   -- solc rejects a non-event member callee with TypeError 9292 ("Expression has
   -- to be an event invocation"). Resolve the member name against in-scope events

@@ -6980,17 +6980,15 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.emitEvent (Expr.call (Expr.ident name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
       some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
-  -- EMIT-QUAL (#74): a qualified event emit `emit Base.E(a)` / `emit C.E(a)`
-  -- has a member-access callee (`Expr.member (Expr.typeName …) E` from the solc
-  -- AST importer, or `Expr.member (Expr.ident …) E` from the hand-written AST).
-  -- The type checker (`checkEventEmission`) already ACCEPTS the member form and
-  -- resolves it against the contract's flattened in-scope events (own +
-  -- inherited + free) by its UNQUALIFIED `name`; a qualifier whose event is not
-  -- in that scope (e.g. a library-declared event) is rejected there and never
-  -- reaches lowering. So lowering mirrors the bare-ident arm exactly (same
-  -- selector/topic + arg ABI encoding), keying `emitEvent` by the same
-  -- unqualified name. The `_` target admits any qualifier shape because the
-  -- checker is the gate; unresolved qualifiers are already rejected upstream.
+  -- EMIT-QUAL (#74): a qualified event emit `emit Base.E(a)` / `emit C.E(a)` has
+  -- a member-access callee; it lowers to the bare name (resolved against the
+  -- contract's flattened in-scope events plus the added library events).
+  -- QUALIFIED-COLLISION (#137): when the callee name is AMBIGUOUS (a library
+  -- event shares the name with a differently-signed contract event), an earlier
+  -- collision-aware pass (`Stmt.qualifyCollidingEventErrors`) has already
+  -- rewritten this member callee to a bare identifier carrying the `.`-joined
+  -- `qualifiedConstantKey`, so non-ambiguous qualified emits stay byte-identical
+  -- and only the ambiguous ones key by the joined path.
   | Stmt.emitEvent
       (Expr.call (Expr.member _ name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
@@ -7008,17 +7006,15 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.revertCall (Expr.call (Expr.ident name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
       some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
-  -- REVERT-QUAL (#77): a base-/self-qualified custom-error revert
-  -- `revert Base.Err(a)` / `revert C.Err(a)` has a member-access callee. The
-  -- checker's member arm in `checkRevertCall` accepts it by resolving the
-  -- UNQUALIFIED `name` against the contract's flattened errors (own + inherited
-  -- + free), so lowering mirrors the bare-ident custom-error arm (same selector
-  -- + arg ABI encoding), keying `revert` by the same unqualified name. The `_`
-  -- target is gated by that checker resolution: a qualifier whose error is not
-  -- in the contract's error table (e.g. a LIBRARY-declared error `L.Bad`) is
-  -- rejected upstream and never reaches here — library/interface-qualified
-  -- errors remain DECLINED (see docs/DECISIONS.md) because their selector could
-  -- not be soundly encoded from the contract's error table anyway.
+  -- REVERT-QUAL (#77): a base-/self-/library-qualified custom-error revert
+  -- `revert X.Err(a)` lowers to the bare name (resolved against the contract's
+  -- flattened errors plus the added library errors). QUALIFIED-COLLISION (#136):
+  -- when the callee name is AMBIGUOUS (a library error shares the name with a
+  -- differently-signed contract error), an earlier collision-aware pass
+  -- (`Stmt.qualifyCollidingEventErrors`) has already rewritten this member callee
+  -- to a bare identifier carrying the `.`-joined `qualifiedConstantKey`, so
+  -- non-ambiguous qualified reverts stay byte-identical and only the ambiguous
+  -- ones key by the joined path.
   | Stmt.revertCall
       (Expr.call (Expr.member _ name) args) => do
       let coreArgs ← Args.toCoreExprs? storageNames args
@@ -9041,6 +9037,20 @@ def EventDecls.selectorEntries (decls : List EventDecl) :
     EventSelectorEnv :=
   decls.filterMap EventDecl.selectorEntry?
 
+/-- QUALIFIED EVENT SELECTOR (#137 `.selector`): topic0 entry keyed by the
+    `Contract.Ev` joined name (via `selectorQualifiedName`), so a type-qualified
+    `Base.Ev.selector` / `L.Ping.selector` resolves to the DECLARING scope's
+    topic0 even under a same-name collision — mirroring the qualified FUNCTION
+    selector entries. -/
+def EventDecl.qualifiedSelectorEntry? (contractName : Name)
+    (decl : EventDecl) : Option (Name × Word) := do
+  let (name, selector) ← EventDecl.selectorEntry? decl
+  some (selectorQualifiedName contractName name, selector)
+
+def EventDecls.qualifiedSelectorEntries
+    (contractName : Name) (decls : List EventDecl) : EventSelectorEnv :=
+  decls.filterMap (EventDecl.qualifiedSelectorEntry? contractName)
+
 def EventSelectorEnv.lookup? (env : EventSelectorEnv) (query : Name) :
     Option Word :=
   SelectorEnv.lookup? env query
@@ -9533,6 +9543,33 @@ def Expr.resolveEventSelectorsFuel :
           match EventSelectorEnv.lookup? env name with
           | some selector => eventSelectorLiteralExpr selector
           | none => expr
+      -- QUALIFIED EVENT SELECTOR (#137 `.selector`): `Base.Ev.selector`,
+      -- `L.Ping.selector`. Resolve the DECLARING scope's topic0 by the joined
+      -- `Contract.Ev` key first (so a name collision with the contract's own
+      -- event does not mis-target), falling back to the bare name — mirroring the
+      -- qualified error/function selector arm.
+      | Expr.member
+          (Expr.member (Expr.typeName (Ty.user path)) name) "selector" =>
+          match pathLast? path with
+          | some contractName =>
+              match
+                  EventSelectorEnv.lookup? env
+                    (selectorQualifiedName contractName name) with
+              | some selector => eventSelectorLiteralExpr selector
+              | none =>
+                  match EventSelectorEnv.lookup? env name with
+                  | some selector => eventSelectorLiteralExpr selector
+                  | none =>
+                      Expr.member
+                        (Expr.member (Expr.typeName (Ty.user path)) name)
+                        "selector"
+          | none =>
+              match EventSelectorEnv.lookup? env name with
+              | some selector => eventSelectorLiteralExpr selector
+              | none =>
+                  Expr.member
+                    (Expr.member (Expr.typeName (Ty.user path)) name)
+                    "selector"
       | Expr.member (Expr.member base name) "selector" =>
           match EventSelectorEnv.lookup? env name with
           | some selector => eventSelectorLiteralExpr selector
@@ -10050,6 +10087,112 @@ def Stmt.resolveNamedEventErrorArgs
     (eventEnv errorEnv : NamedArgParamEnv) (stmt : Stmt) : Stmt :=
   Stmt.resolveNamedEventErrorArgsFuel defaultResolveInterfaceIdsFuel
     eventEnv errorEnv stmt
+
+/-- QUALIFIED-COLLISION (#136/#137): rewrite a TYPE-qualified emit/revert/require
+    error/event callee `X.M` to a bare identifier carrying the `.`-joined
+    `qualifiedConstantKey X.M` — but ONLY when `M` is an AMBIGUOUS name (a
+    library member whose bare name also names a differently-signed contract
+    member, so the by-name runtime table would mis-target). Non-ambiguous
+    qualified callees are left as member accesses and lower to the bare name
+    exactly as before (byte-identical). solc forbids a derived contract from
+    redeclaring an inherited event/error name, so base- or self-qualified
+    callees are never ambiguous and are never rewritten. -/
+def Expr.qualifyCollidingCallee (colliding : List Name) : Expr -> Expr
+  | Expr.call (Expr.member (Expr.typeName (Ty.user path)) name) args =>
+      if colliding.contains name then
+        Expr.call (Expr.ident (qualifiedConstantKey path name)) args
+      else
+        Expr.call (Expr.member (Expr.typeName (Ty.user path)) name) args
+  | other => other
+
+mutual
+
+def Stmt.qualifyCollidingEventErrorsFuel :
+    Nat -> List Name -> List Name -> Stmt -> Stmt
+  | 0, _, _, stmt => stmt
+  | fuel + 1, collidingEvents, collidingErrors, stmt =>
+      let recStmt :=
+        Stmt.qualifyCollidingEventErrorsFuel fuel collidingEvents collidingErrors
+      let recClause :=
+        CatchClause.qualifyCollidingEventErrorsFuel fuel collidingEvents
+          collidingErrors
+      match stmt with
+      | Stmt.block body => Stmt.block (body.map recStmt)
+      | Stmt.emitEvent expr =>
+          Stmt.emitEvent (Expr.qualifyCollidingCallee collidingEvents expr)
+      | Stmt.revertCall expr =>
+          Stmt.revertCall (Expr.qualifyCollidingCallee collidingErrors expr)
+      | Stmt.expr
+          (Expr.call (Expr.ident "require")
+            [ Arg.positional cond, Arg.positional errCall ]) =>
+          Stmt.expr
+            (Expr.call (Expr.ident "require")
+              [ Arg.positional cond
+              , Arg.positional
+                  (Expr.qualifyCollidingCallee collidingErrors errCall) ])
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse cond (recStmt thenBranch) (elseBranch.map recStmt)
+      | Stmt.whileLoop cond body => Stmt.whileLoop cond (recStmt body)
+      | Stmt.doWhile body cond => Stmt.doWhile (recStmt body) cond
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map recStmt) cond post (recStmt body)
+      | Stmt.tryCatch expr clauses =>
+          Stmt.tryCatch expr (clauses.map recClause)
+      | Stmt.tryCatchReturns expr returns success clauses =>
+          Stmt.tryCatchReturns expr returns (recStmt success)
+            (clauses.map recClause)
+      | Stmt.unchecked body => Stmt.unchecked (recStmt body)
+      | other => other
+
+def CatchClause.qualifyCollidingEventErrorsFuel :
+    Nat -> List Name -> List Name -> CatchClause -> CatchClause
+  | 0, _, _, clause => clause
+  | fuel + 1, collidingEvents, collidingErrors, clause =>
+      match clause with
+      | CatchClause.clause name params body =>
+          CatchClause.clause name params
+            (Stmt.qualifyCollidingEventErrorsFuel fuel collidingEvents
+              collidingErrors body)
+
+end
+
+def Stmt.qualifyCollidingEventErrors
+    (collidingEvents collidingErrors : List Name) (stmt : Stmt) : Stmt :=
+  Stmt.qualifyCollidingEventErrorsFuel defaultResolveInterfaceIdsFuel
+    collidingEvents collidingErrors stmt
+
+def FunctionDecl.qualifyCollidingEventErrors
+    (collidingEvents collidingErrors : List Name) (decl : FunctionDecl) :
+    FunctionDecl :=
+  { decl with
+    body :=
+      decl.body.map
+        (Stmt.qualifyCollidingEventErrors collidingEvents collidingErrors) }
+
+def ContractItem.qualifyCollidingEventErrors
+    (collidingEvents collidingErrors : List Name) :
+    ContractItem -> ContractItem
+  | ContractItem.function decl =>
+      ContractItem.function
+        (FunctionDecl.qualifyCollidingEventErrors collidingEvents collidingErrors
+          decl)
+  | ContractItem.modifierDecl decl =>
+      ContractItem.modifierDecl
+        { decl with
+          body :=
+            decl.body.map
+              (Stmt.qualifyCollidingEventErrors collidingEvents
+                collidingErrors) }
+  | other => other
+
+def ContractDecl.qualifyCollidingEventErrors
+    (collidingEvents collidingErrors : List Name) (decl : ContractDecl) :
+    ContractDecl :=
+  { decl with
+    items :=
+      decl.items.map
+        (ContractItem.qualifyCollidingEventErrors collidingEvents
+          collidingErrors) }
 
 def modifierArgTempName (index : Nat) : Name :=
   "_sol_mod_arg" ++ reprStr index
@@ -20982,6 +21125,84 @@ def ErrorDecl.toCore (decl : ErrorDecl) : Option CoreErrorDecl := do
           signature
       fields := fields.map (fun field => field.ty) }
 
+/-- QUALIFIED-COLLISION (#136/#137): runtime event-table entries for a
+    type-qualified emit `emit X.Ev(...)`. Mirrors `qualifiedConstantEntries`:
+    for every contract/library `decl`, every event reachable through it (its own
+    + inherited, in C3 order) is registered under the joined key
+    `decl.name . Ev` — so `L.Ev` (library), `Base.Ev`, `C.Ev`, and inherited
+    `Derived.Ev` all resolve to the DECLARING scope's event. The topic is
+    computed from the event's REAL signature (via `EventDecl.toCore`) and only
+    the lookup `name` is overwritten with the joined key, so a name collision
+    with the contract's own bare-name `Ev` can never mis-target: the lowering
+    keys the qualified emit by `X.Ev`, the bare emit by `Ev`. A `.`-joined key
+    never collides with a real Solidity identifier. -/
+def ContractDecl.qualifiedCoreEventEntries (contracts : List ContractDecl)
+    (decl : ContractDecl) : List CoreEventDecl :=
+  let order :=
+    match ContractDecl.dispatchOrder? contracts decl with
+    | some order => order
+    | none => [decl]
+  concatMapList
+    (fun c =>
+      (ContractDecl.directEvents c).filterMap
+        (fun e =>
+          (EventDecl.toCore e).map
+            (fun ce =>
+              { ce with name := qualifiedConstantKey (pathOfName decl.name) e.name })))
+    order
+
+def ContractDecls.qualifiedCoreEventEntries (contracts : List ContractDecl) :
+    List CoreEventDecl :=
+  concatMapList (ContractDecl.qualifiedCoreEventEntries contracts) contracts
+
+/-- QUALIFIED-COLLISION (#136): runtime error-table entries for a type-qualified
+    revert `revert X.E(...)` / `require(c, X.E(...))`. Analogue of
+    `qualifiedCoreEventEntries`; the selector is computed from the error's REAL
+    signature and only the lookup `name` is overwritten with the joined key
+    `decl.name . E`, so a library error `L.E(uint8)` reverting through `L.E`
+    encodes L's selector even when the contract declares its own colliding
+    `E(uint256)`. -/
+def ContractDecl.qualifiedCoreErrorEntries (contracts : List ContractDecl)
+    (decl : ContractDecl) : List CoreErrorDecl :=
+  let order :=
+    match ContractDecl.dispatchOrder? contracts decl with
+    | some order => order
+    | none => [decl]
+  concatMapList
+    (fun c =>
+      (ContractDecl.directErrors c).filterMap
+        (fun e =>
+          (ErrorDecl.toCore e).map
+            (fun ce =>
+              { ce with name := qualifiedConstantKey (pathOfName decl.name) e.name })))
+    order
+
+def ContractDecls.qualifiedCoreErrorEntries (contracts : List ContractDecl) :
+    List CoreErrorDecl :=
+  concatMapList (ContractDecl.qualifiedCoreErrorEntries contracts) contracts
+
+/-- Names appearing with ≥2 DISTINCT canonical signatures — the ambiguous
+    (colliding) names whose bare-name runtime lookup would mis-target. -/
+def collidingNamesOf (pairs : List (Name × String)) : List Name :=
+  pairs.filterMap
+    (fun p =>
+      if pairs.any (fun q => q.fst == p.fst && q.snd != p.snd) then some p.fst
+      else none)
+
+def EventDecls.collidingNames (decls : List EventDecl) : List Name :=
+  collidingNamesOf
+    (decls.filterMap
+      (fun d => (EventDecl.abiSignature? d).map (fun s => (d.name, s))))
+
+def ErrorDecl.canonicalSignature? (decl : ErrorDecl) : Option String := do
+  let types ← Parameters.abiCanonicalTypes? decl.params
+  some (decl.name ++ "(" ++ joinStringsWith "," types ++ ")")
+
+def ErrorDecls.collidingNames (decls : List ErrorDecl) : List Name :=
+  collidingNamesOf
+    (decls.filterMap
+      (fun d => (ErrorDecl.canonicalSignature? d).map (fun s => (d.name, s))))
+
 def StateVarDecl.publicGetterParamCore? (index : Nat) (ty : Ty) :
     Option (CoreBindingDecl × CoreExpr) := do
   let coreTy ← Ty.toCore? ty
@@ -21737,6 +21958,35 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     storageOrder.map (ContractDecl.resolveInterfaceIds interfaceIdEnv)
   let dispatchOrder :=
     dispatchOrder.map (ContractDecl.resolveInterfaceIds interfaceIdEnv)
+  -- QUALIFIED-COLLISION (#136/#137): rewrite AMBIGUOUS type-qualified emit/
+  -- revert/require callees to `.`-joined `qualifiedConstantKey` names so a
+  -- library member whose bare name collides with a differently-signed contract
+  -- member resolves to the correct selector/topic0 (the runtime table carries
+  -- matching qualified entries). Non-ambiguous qualified callees stay bare, so
+  -- base-/self-qualified emits/reverts (which solc forbids from shadowing an
+  -- inherited name, hence never ambiguous) are byte-identical.
+  let collidingEvents :=
+    EventDecls.collidingNames
+      (concatMapList ContractDecl.directEvents dispatchOrder ++ sourceEvents ++
+        concatMapList ContractDecl.directEvents
+          (allContracts.filter ContractDecl.isLibrary))
+  let collidingErrors :=
+    ErrorDecls.collidingNames
+      (concatMapList ContractDecl.directErrors dispatchOrder ++ sourceErrors ++
+        concatMapList ContractDecl.directErrors
+          (allContracts.filter ContractDecl.isLibrary))
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
+  let sourceFunctions :=
+    sourceFunctions.map
+      (FunctionDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
   let stateVars := concatMapList ContractDecl.directStateVars storageOrder
   if !namesUnique (sourceConstants.map StateVarDecl.name) then
     none
@@ -21782,6 +22032,15 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
     let visibleSourceEvents :=
       EventDecls.withoutNamesOf contractEvents sourceEvents
+    -- QUALIFIED EVENT SELECTOR (#137 `.selector`): qualified `Contract.Ev` keys
+    -- over ALL contracts/libraries (so `Base.Ev.selector` / `L.Ping.selector`
+    -- resolve to the declaring scope's topic0 under a collision), plus the bare
+    -- own/inherited entries for `Ev.selector`.
+    concatMapList
+      (fun decl =>
+        EventDecls.qualifiedSelectorEntries decl.name
+          (ContractDecl.directEvents decl))
+      allContracts ++
     EventDecls.selectorEntries (contractEvents ++ visibleSourceEvents)
   let functionAddressEnv :=
     FunctionDecls.selectorEntries
@@ -22016,8 +22275,26 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
         | none => fd)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
+  -- EMIT-QUAL library case (#137): a `emit L.Ev(...)` names an event declared in
+  -- a LIBRARY, not in the contract's own/inherited event scope. Add library
+  -- events (by name, without shadowing a same-named contract event) to the
+  -- runtime event table so a NON-colliding library-qualified emit resolves its
+  -- topic0 by the bare name — mirroring `extraLibraryErrors`.
+  let libraryEvents :=
+    concatMapList ContractDecl.directEvents
+      (allContracts.filter ContractDecl.isLibrary)
+  let extraLibraryEvents :=
+    EventDecls.withoutNamesOf (contractEvents ++ visibleSourceEvents)
+      libraryEvents
   let eventDecls ←
-    mapOption EventDecl.toCore (contractEvents ++ visibleSourceEvents)
+    mapOption EventDecl.toCore
+      (contractEvents ++ visibleSourceEvents ++ extraLibraryEvents)
+  -- QUALIFIED-COLLISION (#137): an AMBIGUOUS `emit X.Ev(...)` (a library event
+  -- whose bare name collides with a differently-signed contract event) is
+  -- lowered to the `.`-joined key `X.Ev`; register those keyed entries so it
+  -- resolves to L's topic even under the collision.
+  let eventDecls :=
+    eventDecls ++ ContractDecls.qualifiedCoreEventEntries allContracts
   -- REVERT-QUAL library case (#102/5): a `revert L.Err(...)` names an error
   -- declared in a LIBRARY, which is not in the contract's own/inherited error
   -- scope. Add library errors (by name, without shadowing a same-named contract
@@ -22034,6 +22311,12 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     mapOption
       ErrorDecl.toCore
       (contractErrors ++ visibleSourceErrors ++ extraLibraryErrors)
+  -- QUALIFIED-COLLISION (#136): type-qualified reverts `revert X.E(...)` lower to
+  -- a `.`-joined lookup key `X.E`; register those keyed entries so a
+  -- library-qualified error encodes L's selector even under a name collision
+  -- with the contract's own `E`.
+  let errorDecls :=
+    errorDecls ++ ContractDecls.qualifiedCoreErrorEntries allContracts
   some
     { storageFields :=
         ContractDecl.toCoreStorageFieldsFromSlot false layoutBaseSlot
@@ -22185,6 +22468,35 @@ def ContractDecl.constructorFunctionFromOrders?
     storageOrder.map (ContractDecl.resolveInterfaceIds interfaceIdEnv)
   let dispatchOrder :=
     dispatchOrder.map (ContractDecl.resolveInterfaceIds interfaceIdEnv)
+  -- QUALIFIED-COLLISION (#136/#137): rewrite AMBIGUOUS type-qualified emit/
+  -- revert/require callees to `.`-joined `qualifiedConstantKey` names so a
+  -- library member whose bare name collides with a differently-signed contract
+  -- member resolves to the correct selector/topic0 (the runtime table carries
+  -- matching qualified entries). Non-ambiguous qualified callees stay bare, so
+  -- base-/self-qualified emits/reverts (which solc forbids from shadowing an
+  -- inherited name, hence never ambiguous) are byte-identical.
+  let collidingEvents :=
+    EventDecls.collidingNames
+      (concatMapList ContractDecl.directEvents dispatchOrder ++ sourceEvents ++
+        concatMapList ContractDecl.directEvents
+          (allContracts.filter ContractDecl.isLibrary))
+  let collidingErrors :=
+    ErrorDecls.collidingNames
+      (concatMapList ContractDecl.directErrors dispatchOrder ++ sourceErrors ++
+        concatMapList ContractDecl.directErrors
+          (allContracts.filter ContractDecl.isLibrary))
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
+  let sourceFunctions :=
+    sourceFunctions.map
+      (FunctionDecl.qualifyCollidingEventErrors collidingEvents collidingErrors)
   let stateVars := concatMapList ContractDecl.directStateVars storageOrder
   if !namesUnique (sourceConstants.map StateVarDecl.name) then
     none
@@ -22230,6 +22542,15 @@ def ContractDecl.constructorFunctionFromOrders?
     let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
     let visibleSourceEvents :=
       EventDecls.withoutNamesOf contractEvents sourceEvents
+    -- QUALIFIED EVENT SELECTOR (#137 `.selector`): qualified `Contract.Ev` keys
+    -- over ALL contracts/libraries (so `Base.Ev.selector` / `L.Ping.selector`
+    -- resolve to the declaring scope's topic0 under a collision), plus the bare
+    -- own/inherited entries for `Ev.selector`.
+    concatMapList
+      (fun decl =>
+        EventDecls.qualifiedSelectorEntries decl.name
+          (ContractDecl.directEvents decl))
+      allContracts ++
     EventDecls.selectorEntries (contractEvents ++ visibleSourceEvents)
   let functionAddressEnv :=
     FunctionDecls.selectorEntries
