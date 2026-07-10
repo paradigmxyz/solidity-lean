@@ -9274,8 +9274,8 @@
             "expect": "true"
           },
           {
-            "label": "cmpHalfEqFoldable",
-            "expr": "SolidCore.Solidity.Executable.CeFamily.cmpHalfEqFoldable",
+            "label": "cmpHalfEqRejected",
+            "expr": "SolidCore.Solidity.Executable.CeFamily.cmpHalfEqRejected",
             "expect": "true"
           },
           {

@@ -68,9 +68,11 @@ def pnpFolds : Bool :=
 -- Accepted comparisons still fold (guard against over-rejecting).
 def cmp1lt2Foldable : Bool :=
   Expr.numberComparisonFoldable? (num "1") (num "2")
-def cmpHalfEqFoldable : Bool :=
-  Expr.numberComparisonFoldable?
-    (bin BinaryOp.div (num "1") (num "2")) (num "0.5")
+-- #117 FRAC-CMP: a fractional-vs-fractional comparison (`1/2 == 0.5`) is REJECTED
+-- by solc 0.8.35 ("Not yet implemented - FixedPointType."), so it is NOT foldable.
+def cmpHalfEqRejected : Bool :=
+  !(Expr.numberComparisonFoldable?
+    (bin BinaryOp.div (num "1") (num "2")) (num "0.5"))
 
 -- CE-2b: ~0 into an unsigned type fails closed (folds to -1, does not fit, and is
 -- a raw literal so lowering rejects instead of evaluating ~0 at runtime).
@@ -111,7 +113,7 @@ def allCeFamilyWitnesses : Bool :=
     p6Folds && p7Folds && p8Folds && p12Folds &&
     p9Folds && p14Folds &&
     p5Folds && pzpFolds && pnpFolds &&
-    cmp1lt2Foldable && cmpHalfEqFoldable &&
+    cmp1lt2Foldable && cmpHalfEqRejected &&
     tildeZeroIntoUintRejected && tildeZeroIntoIntAccepted &&
     expPrecisionRejected && literalExponentRejected &&
     shiftPrecisionRejected && shiftExponentCapRejected &&
