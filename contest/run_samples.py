@@ -601,6 +601,41 @@ def dedup_replay_unit_tests() -> tuple[bool, str]:
     checks.append(("replay-nonqualifying-skips-E1",
                    v.dedup_class == dr.NOT_IN_POOL and len(calls) == 1))
 
+    # batch_replay + summarize_batch over a pool. Per-submission behaviour is keyed
+    # by the sample dir name via an injected adjudicate_fn:
+    #   subA, subB -> same novel defect fpA that E1 does NOT fix  (re-skins)
+    #   subC       -> a divergence E1 CLOSES                      (duplicate)
+    #   subD       -> a distinct novel defect fpB E1 does not fix (own class)
+    #   subE       -> E0 does not qualify                         (not_in_pool)
+    _POOL = {
+        "subA": (_R("SOUNDNESS_GAP", fpA), _R("SOUNDNESS_GAP", fpA)),
+        "subB": (_R("SOUNDNESS_GAP", fpA), _R("SOUNDNESS_GAP", fpA)),
+        "subC": (_R("SOUNDNESS_GAP", fpA), _R("NO_DIVERGENCE")),
+        "subD": (_R("SOUNDNESS_GAP", fpB), _R("SOUNDNESS_GAP", fpB)),
+        "subE": (_R("NO_DIVERGENCE"), _R("NO_DIVERGENCE")),
+    }
+    def _pool_adj(root, tools=None, **kw):
+        e0, e1 = _POOL[Path(root).name]
+        return e1 if tools is not None else e0
+    pool = [(name, Path(f"/pool/{name}")) for name in
+            ("subA", "subB", "subC", "subD", "subE")]
+    items = dr.batch_replay(pool, Path("/ref"), adjudicate_fn=_pool_adj,
+                            tool_factory=lambda repo: ("REF", repo))
+    report = dr.summarize_batch(items)
+    checks.append(("batch-two-payout-classes", report["n_payouts"] == 2))
+    checks.append(("batch-duplicate-listed", report["duplicates"] == ["subC"]))
+    checks.append(("batch-not-in-pool-listed", report["not_in_pool"] == ["subE"]))
+    # the fpA class pays the FIRST filer (subA) and rejects the re-skin (subB).
+    _fpA_cls = next(c for c in report["payout_classes"]
+                    if c["key"] == "revert_data|A|wrong-revert")
+    checks.append(("batch-first-to-file-payee", _fpA_cls["payee"] == "subA"))
+    checks.append(("batch-reskin-rejected",
+                   _fpA_cls["rejected_reskins"] == ["subB"]))
+    _fpB_cls = next(c for c in report["payout_classes"]
+                    if c["key"] == "return_value|B|wrong-value")
+    checks.append(("batch-distinct-novel-own-payout",
+                   _fpB_cls["payee"] == "subD" and not _fpB_cls["rejected_reskins"]))
+
     failed = [n for n, ok in checks if not ok]
     detail = ", ".join(f"{n}={'ok' if ok else 'FAIL'}" for n, ok in checks)
     return (len(failed) == 0, detail)
