@@ -2159,6 +2159,107 @@ def encodeCallSameArityOverloadRejected : Bool :=
 #guard encodeCallSingleWrongArityRejected
 #guard encodeCallSameArityOverloadRejected
 
+-- ===========================================================================
+-- #130 DELETE-EXPR-TYPE — a `delete x` EXPRESSION has type `tuple()` (void),
+-- not the operand type. solc's TypeChecker assigns the delete unary-operation
+-- an empty tuple type, so it may appear ONLY in statement context; every
+-- value-context use is a `tuple() -> T` conversion error. Binary-confirmed on
+-- the pinned solc-0.8.35 (uint x; state var):
+--   (a) `uint y = delete x;`          → REJECT "Different number of components
+--        on the left hand side (1) than on the right hand side (0)."
+--   (b) `return delete x;` in a fn returning `uint` → REJECT "Different number
+--        of arguments in return statement than in returns declaration."
+--   (c) `g(delete x)` for `g(uint256)` → REJECT "Invalid implicit conversion
+--        from tuple() to uint256 requested."
+--   (d) `delete x;` as a bare expression-statement → ACCEPT (and still lowers
+--        + executes the delete — lowering keys off the syntactic delete shape,
+--        not the checked type).
+-- The model previously gave `delete x` the OPERAND's type, so (a)/(b)/(c) were
+-- over-accepted. The gate now returns `ty := tuple []` in the `UnaryOp.delete`
+-- arm of `checkExpr`. Over-accept only (solc emits no AST for the rejected
+-- programs), so no Forge lane — these #guards are the gate.
+-- ===========================================================================
+
+-- `delete x` on the `uint x` state var.
+private def deleteExprX : Solidity.Expr :=
+  Solidity.Expr.unary Solidity.UnaryOp.delete (Solidity.Expr.ident "x")
+
+-- Contract holding a `uint x` state var plus the given functions.
+private def delSource (fns : List Solidity.FunctionDecl) : Solidity.SourceUnit :=
+  { items :=
+      [Solidity.SourceItem.contract
+        { name := "DeleteExprTy"
+          items :=
+            Solidity.ContractItem.stateVar { name := "x", ty := uint256 }
+              :: fns.map Solidity.ContractItem.function }] }
+
+-- (a) `function f() public { uint y = delete x; }` → REJECT (1-vs-0 components).
+private def delVarDeclFn : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := []
+    mutability := Solidity.StateMutability.nonpayable
+    body :=
+      some (Solidity.Stmt.block
+        [Solidity.Stmt.varDecl
+          [{ name := some "y", ty := some uint256 }]
+          (some deleteExprX)]) }
+
+def deleteInVarDeclRejected : Bool :=
+  Result.isError (SourceUnit.check (delSource [delVarDeclFn]))
+
+-- (b) `function f() public returns (uint) { return delete x; }` → REJECT.
+private def delReturnValueFn : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := [{ name := none, ty := uint256, location := none }]
+    mutability := Solidity.StateMutability.nonpayable
+    body := some (Solidity.Stmt.returnValues (some deleteExprX)) }
+
+def deleteInValueReturnRejected : Bool :=
+  Result.isError (SourceUnit.check (delSource [delReturnValueFn]))
+
+-- (c) `function g(uint) internal {}` + `function f() public { g(delete x); }`
+-- → REJECT (tuple() -> uint256 in argument position).
+private def delGFn : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some "g"
+    params := [{ name := some "a", ty := uint256, location := none }]
+    returns := []
+    visibility := some Solidity.Visibility.internal_
+    mutability := Solidity.StateMutability.nonpayable
+    body := some (Solidity.Stmt.block []) }
+
+private def delCallGFn : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := []
+    mutability := Solidity.StateMutability.nonpayable
+    body :=
+      some (Solidity.Stmt.block
+        [Solidity.Stmt.expr
+          (Solidity.Expr.call (Solidity.Expr.ident "g")
+            [Solidity.Arg.positional deleteExprX])]) }
+
+def deleteAsCallArgRejected : Bool :=
+  Result.isError (SourceUnit.check (delSource [delGFn, delCallGFn]))
+
+-- (d) `function f() public { delete x; }` → still ACCEPTS as a statement.
+private def delStmtFn : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := []
+    mutability := Solidity.StateMutability.nonpayable
+    body := some (Solidity.Stmt.block [Solidity.Stmt.expr deleteExprX]) }
+
+def deleteAsStatementAccepted : Bool :=
+  sourceUnitAccepted? (delSource [delStmtFn])
+
+#guard deleteInVarDeclRejected
+#guard deleteInValueReturnRejected
+#guard deleteAsCallArgRejected
+#guard deleteAsStatementAccepted
+
 end Examples
 end TypeCheck
 end Solidity

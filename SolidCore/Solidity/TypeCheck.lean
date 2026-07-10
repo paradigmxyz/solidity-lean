@@ -7483,7 +7483,12 @@ def checkExpr (env : CheckEnv) :
             requireStateWriteAllowed env
           else
             Except.ok ()
-          Except.ok { source := expr, ty := checked.ty, lvalue := false }
+          -- A `delete x` EXPRESSION has type `tuple()` (void), not the operand
+          -- type: solc's TypeChecker gives the delete unary-operation an empty
+          -- tuple type, so it may appear only in statement context. Value-context
+          -- uses (`uint y = delete x;`, `return delete x;` in a value-returning
+          -- fn, `g(delete x)`) are rejected as tuple()→T conversions.
+          Except.ok { source := expr, ty := Solidity.Ty.tuple [], lvalue := false }
       | Solidity.UnaryOp.preIncrement
       | Solidity.UnaryOp.preDecrement
       | Solidity.UnaryOp.postIncrement
@@ -9118,9 +9123,6 @@ def checkReturnExprs (env : CheckEnv)
               else do
                 let checked ← checkExpr env expr
                 requireEqTy (Solidity.Ty.tuple []) checked.ty
-      | Solidity.Expr.unary Solidity.UnaryOp.delete _ => do
-          let _ ← checkExpr env expr
-          Except.ok ()
       | _ => do
           let checked ← checkExpr env expr
           requireEqTy (Solidity.Ty.tuple []) checked.ty
