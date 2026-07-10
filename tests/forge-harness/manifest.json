@@ -10057,6 +10057,44 @@
           }
         ]
       }
+    },
+    {
+      "name": "push-field-lvalue",
+      "description": "Forge checks the real-EVM storage effect of assigning THROUGH the reference returned by a zero-arg dynamic-array `.push()`: `xs.push().a = 7` (struct-element member) and `ys.push()[1] = 9` (fixed-array element index) append a default element then write the new last element's slot. solc accepts these; solidity-lean formerly over-rejected the whole contract because it could not lower an lvalue whose base is a `.push()` call. Lean imports the same contract from the solc AST and checks the resulting storage reads.",
+      "forge": {
+        "match_contract": "PushFieldLValueForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/push-field-lvalue"
+      },
+      "solc_import": {
+        "contract": "PushFieldLValueHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.PushFieldLValue",
+        "source": "tests/forge-harness/push-field-lvalue/src/PushFieldLValue.sol"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "expect": "Except.ok true",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.PushFieldLValue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"structMember\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word a0, SolidCore.Solidity.Source.Value.word b0] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq len 1 && SolidCore.Solidity.Source.wordEq a0 7 && SolidCore.Solidity.Source.wordEq b0 0)\n  | _ => Except.ok false)",
+            "label": "importedStructMember"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.PushFieldLValue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"structTwoFields\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word a0, SolidCore.Solidity.Source.Value.word b0, SolidCore.Solidity.Source.Value.word a1, SolidCore.Solidity.Source.Value.word b1] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq len 2 && SolidCore.Solidity.Source.wordEq a0 7 && SolidCore.Solidity.Source.wordEq b0 0 && SolidCore.Solidity.Source.wordEq a1 0 && SolidCore.Solidity.Source.wordEq b1 9)\n  | _ => Except.ok false)",
+            "label": "importedStructTwoFields"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.PushFieldLValue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"arrayIndex\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word e0, SolidCore.Solidity.Source.Value.word e1, SolidCore.Solidity.Source.Value.word e2] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq len 1 && SolidCore.Solidity.Source.wordEq e0 0 && SolidCore.Solidity.Source.wordEq e1 9 && SolidCore.Solidity.Source.wordEq e2 0)\n  | _ => Except.ok false)",
+            "label": "importedArrayIndex"
+          }
+        ]
+      }
     }
   ]
 }

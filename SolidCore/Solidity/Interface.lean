@@ -1645,6 +1645,17 @@ def Expr.sourceTyWithEnv? (env : StructEnv) (typeEnv : TypeEnv) :
       some (Ty.tuple tys)
   | Expr.ternary _ thenExpr _ =>
       Expr.sourceTyWithEnv? env typeEnv thenExpr
+  | Expr.call (Expr.member base "push") [] => do
+      -- PUSH-FIELD-LVALUE: the zero-arg `.push()` on a storage dynamic array
+      -- returns a reference to the newly-appended element, whose type is the
+      -- array's element type. Inferring it here lets the struct-member→index
+      -- rewrite in `resolveStructsFuel` turn `xs.push().a` into
+      -- `xs.push()[fieldIndex]`, which the lowering handles. (`.push(v)` takes an
+      -- argument and returns nothing, so it is deliberately NOT matched.)
+      let baseTy ← Expr.sourceTyWithEnv? env typeEnv base
+      match baseTy with
+      | Ty.array elementTy _ => some elementTy
+      | _ => none
   | _ => none
 
 def Expr.structDeclWithEnv? (env : StructEnv) (typeEnv : TypeEnv)
@@ -4159,6 +4170,20 @@ def Expr.bytesStringSpecialCore? (storageNames : List Name) :
       | none => some (sourceIdentCore storageNames name)
   | _ => none
 
+/-- PUSH-FIELD-LVALUE: peel any trailing index accessors off an lvalue whose
+    innermost base is a zero-arg storage-array `.push()` call. Returns the
+    array target expression and the trailing index expressions in
+    application order (outermost-last), or `none` when the base is not such a
+    push. `xs.push().a` reaches here already rewritten to
+    `xs.push()[fieldIndex]` by `resolveStructsFuel`; `ys.push()[i]` arrives
+    directly. Structural recursion on the index spine. -/
+def Expr.stripPushIndexPath? : Expr -> Option (Expr × List Expr)
+  | Expr.call (Expr.member target "push") [] => some (target, [])
+  | Expr.index base index => do
+      let (target, idxs) ← Expr.stripPushIndexPath? base
+      some (target, idxs ++ [index])
+  | _ => none
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -6365,6 +6390,41 @@ def storageArrayPushPathAssignCore? (storageNames : List Name)
         (SolidCore.Solidity.Source.Stmt.storageArrayPushPathAssign
           name indexes rhsCore)
 
+/-- PUSH-FIELD-LVALUE: lower an assignment whose LHS writes THROUGH the storage
+    reference returned by a zero-arg `.push()`, e.g. `xs.push().a = 7` (after the
+    struct-member→index rewrite this is `xs.push()[0] = 7`) or `ys.push()[1] = 9`
+    for a fixed-array element. Emits, in solc's order, the push (growing the
+    array) followed by an assign to the indexed sub-path of the newly-appended
+    last element. The last-element slot is computed exactly as the direct
+    push-assign / push-return-alias paths do — via `storageLastPushedIndexExpr`
+    over the array's `storagePathCore?` (`storage(name) - 1` after the push).
+    Returns `none` for a non-push LHS (the caller then falls back to the ordinary
+    lvalue lowering) and for a bare `xs.push() = v` (handled by its own arm) or a
+    nested push-target path (unsupported; unchanged over-reject, no regression). -/
+def storageArrayPushIndexedAssignCore? (storageNames : List Name)
+    (lhs rhs : Expr) : Option CoreStmt := do
+  let (target, trailing) ← Expr.stripPushIndexPath? lhs
+  match trailing with
+  | [] => none
+  | _ =>
+      let (name, indexes) ← Expr.storagePathCore? storageNames target
+      match indexes with
+      | [] => do
+          let rhsCore ← Expr.toCore? storageNames rhs
+          let trailingCore ← mapOption (Expr.toCore? storageNames) trailing
+          let lastIndex := storageLastPushedIndexExpr name []
+          let baseLv :=
+            SolidCore.Solidity.Source.LValue.storageIndex name lastIndex
+          let lv :=
+            trailingCore.foldl
+              (fun acc idx => SolidCore.Solidity.Source.LValue.index acc idx)
+              baseLv
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.storageArrayPush name none
+              , SolidCore.Solidity.Source.Stmt.assign lv rhsCore ])
+      | _ => none
+
 def storageArrayPushPathCore? (storageNames : List Name)
     (target : Expr) (value? : Option Expr) : Option CoreStmt := do
   let (name, indexes) ← Expr.storagePathCore? storageNames target
@@ -6641,10 +6701,17 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
         (Expr.call (Expr.member target "push") [])
         AssignOp.assign rhs) =>
       storageArrayPushPathAssignCore? storageNames target rhs
-  | Stmt.expr (Expr.assign lhs AssignOp.assign rhs) => do
-      let lhsCore ← Expr.toCoreLValue? storageNames lhs
-      let rhsCore ← Expr.toCore? storageNames rhs
-      some (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
+  | Stmt.expr (Expr.assign lhs AssignOp.assign rhs) =>
+      -- PUSH-FIELD-LVALUE: first try lowering an assignment through a
+      -- `.push()`-returned reference (`xs.push().a = 7`, `ys.push()[1] = 9`).
+      -- Returns `none` for every ordinary LHS, so the plain lvalue path below is
+      -- unchanged (the direct `xs.push() = v` arm above still wins for that shape).
+      match storageArrayPushIndexedAssignCore? storageNames lhs rhs with
+      | some stmt => some stmt
+      | none => do
+          let lhsCore ← Expr.toCoreLValue? storageNames lhs
+          let rhsCore ← Expr.toCore? storageNames rhs
+          some (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
   | Stmt.expr (Expr.assign lhs op rhs) => do
       let lhsCore ← Expr.toCoreLValue? storageNames lhs
       let coreOp ← AssignOp.toCoreBinary? op
