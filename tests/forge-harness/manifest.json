@@ -9999,6 +9999,64 @@
           }
         ]
       }
+    },
+    {
+      "name": "calldata-lazy-value",
+      "description": "Forge/real-EVM ground truth that solc defers ALL value-element validation of a CALLDATA-location array/struct to ACCESS time: abiDecodingFunctionCalldataArray/...Struct read no value elements at the dispatch boundary (only length + stride bound checks) and return a calldata pointer, so a DIRTY value element (a bool word == 2, an address with dirty high bits, a dirty static struct member) that the body never reads does NOT revert; the same element reverts empty (validator_revert_*) the moment it is accessed. Forge drives hand-built calldata carrying the dirty element for both the not-accessed (success) and accessed (empty revert) cases across bool[], address[], and a fully-static calldata struct. Lean imports the same contract and checks the interpreter's calldata dispatch defers value-element validation to access (substituting a calldataDeferredInvalid marker) instead of over-rejecting at the boundary.",
+      "forge": {
+        "root": "tests/forge-harness/calldata-lazy-value",
+        "match_contract": "CalldataLazyValueForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/calldata-lazy-value/src/CalldataLazyValue.sol",
+        "contract": "CalldataLazyValueHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CalldataLazyValue"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "boolArrayDirtyElementNotAccessedSucceeds",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"boolLen(bool[])\" ++ w 0x20 ++ w 1 ++ w 2\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedSourceUnit \"CalldataLazyValueHarnessTarget\" SolidCore.Solidity.Source.State.empty cd\n  Except.ok (result.success && result.output == w 1))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "boolArrayDirtyElementAccessedReverts",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"boolAt(bool[],uint256)\" ++ w 0x40 ++ w 0 ++ w 1 ++ w 2\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedSourceUnit \"CalldataLazyValueHarnessTarget\" SolidCore.Solidity.Source.State.empty cd\n  match result with\n  | { success := false, output := [], .. } => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "addressArrayDirtyElementNotAccessedSucceeds",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"addrLen(address[])\" ++ w 0x20 ++ w 1 ++ w 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedSourceUnit \"CalldataLazyValueHarnessTarget\" SolidCore.Solidity.Source.State.empty cd\n  Except.ok (result.success && result.output == w 1))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "addressArrayDirtyElementAccessedReverts",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"addrAt(address[],uint256)\" ++ w 0x40 ++ w 0 ++ w 1 ++ w 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedSourceUnit \"CalldataLazyValueHarnessTarget\" SolidCore.Solidity.Source.State.empty cd\n  match result with\n  | { success := false, output := [], .. } => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "staticStructDirtyMemberNotAccessedSucceeds",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"structVal((bool,uint256))\" ++ w 2 ++ w 42\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedSourceUnit \"CalldataLazyValueHarnessTarget\" SolidCore.Solidity.Source.State.empty cd\n  Except.ok (result.success && result.output == w 42))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "staticStructDirtyMemberAccessedReverts",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"structFlag((bool,uint256))\" ++ w 2 ++ w 42\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataLazyValue.importedSourceUnit \"CalldataLazyValueHarnessTarget\" SolidCore.Solidity.Source.State.empty cd\n  match result with\n  | { success := false, output := [], .. } => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

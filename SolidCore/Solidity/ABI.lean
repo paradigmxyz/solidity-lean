@@ -426,7 +426,16 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
               with
               | Except.ok v => Except.ok v
               | Except.error e =>
-                  if lazy && Ty.isDynamicAbi elementTy then
+                  -- On the calldata (lazy) path, the eager head-area presence
+                  -- check below already guaranteed every element's head words
+                  -- are present, so a decode failure here is a *value*
+                  -- validation failure (dirty bool/address/bytesN, or a nested
+                  -- dynamic element's malformed inner offset/length), never a
+                  -- bounds failure. solc validates such elements only on
+                  -- ACCESS, so substitute the deferred-invalid marker instead
+                  -- of reverting at the boundary. This now covers value-type
+                  -- (non-`isDynamicAbi`) elements too, not just dynamic ones.
+                  if lazy then
                     Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
                     Except.error e
@@ -435,9 +444,11 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
             Except.ok (value :: rest)
       let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
       -- Eager head-area presence check (solc `gt(arrayPos+length*stride,end)`):
-      -- the `length` element head words must be within calldata. Only the
-      -- offset-following read INSIDE a present head is deferred.
-      if lazy && Ty.isDynamicAbi elementTy &&
+      -- the `length` element head words must be within calldata. This applies
+      -- to value-type elements (stride 0x20) as well as dynamic ones (offset
+      -- stride 0x20); only the value validation / offset-following read INSIDE
+      -- a present head is deferred to access time.
+      if lazy &&
           (readBytes? (argData.drop (offset + wordBytes)) 0
             (length * step * wordBytes)).isNone then
         Except.error RevertData.empty
@@ -457,7 +468,11 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
               match decodeValueAtWithFuel? fuel lazy arrayData index elementTy with
               | Except.ok v => Except.ok v
               | Except.error e =>
-                  if lazy && Ty.isDynamicAbi elementTy then
+                  -- calldata (lazy) path: the enclosing branch's eager
+                  -- head-area presence check guarantees bounds, so a failure
+                  -- here is a value/inner validation failure that solc defers
+                  -- to access time — substitute the deferred-invalid marker.
+                  if lazy then
                     Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
                     Except.error e
@@ -476,8 +491,17 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
           Except.ok (Value.fixedArray values)
       else
         do
-        let values ← decodeArrayValues? argData size headIndex
-        Except.ok (Value.fixedArray values)
+        -- Static-element fixed array `T[N] calldata`: the `N` element words are
+        -- inline in the head. Eager presence check (solc `slt(sub(end,pos),N*32)`)
+        -- so a truncated head still reverts eagerly; only a present-but-dirty
+        -- element value is deferred to access time via the marker above.
+        let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
+        if lazy && (readBytes? argData (wordBytes * headIndex)
+            (size * step * wordBytes)).isNone then
+          Except.error RevertData.empty
+        else do
+          let values ← decodeArrayValues? argData size headIndex
+          Except.ok (Value.fixedArray values)
   | fuel + 1, lazy, argData, headIndex, Ty.tuple elementTys =>
       let rec decodeTupleValues? (tupleData : Bytes) :
           List Ty -> Nat -> Except RevertData (List Value)
@@ -487,7 +511,13 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
               match decodeValueAtWithFuel? fuel lazy tupleData index ty with
               | Except.ok v => Except.ok v
               | Except.error e =>
-                  if lazy && Ty.isDynamicAbi ty then
+                  -- calldata (lazy) path: the eager head-area presence check
+                  -- (either branch below) guarantees every member's head words
+                  -- are present, so a failure here is a value/inner validation
+                  -- failure that solc defers to access — substitute the marker.
+                  -- Covers static value members (dirty bool/address/bytesN) of
+                  -- a calldata struct, not just dynamic members.
+                  if lazy then
                     Except.ok (Value.calldataDeferredInvalid ty)
                   else
                     Except.error e
@@ -508,8 +538,16 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
           Except.ok (Value.tuple values)
       else
         do
-        let values ← decodeTupleValues? argData elementTys headIndex
-        Except.ok (Value.tuple values)
+        -- Fully-static struct `S calldata` decoded inline in the head. Eager
+        -- presence check so a truncated head still reverts eagerly; a
+        -- present-but-dirty value member is deferred to access via the marker.
+        let headWords ← abiArgOpt (Ty.listAbiHeadWords? elementTys)
+        if lazy && (readBytes? argData (wordBytes * headIndex)
+            (headWords * wordBytes)).isNone then
+          Except.error RevertData.empty
+        else do
+          let values ← decodeTupleValues? argData elementTys headIndex
+          Except.ok (Value.tuple values)
   -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
   -- position (params/returns lower enums to `uint256` + `AbiCleanup.enum`).
   | _fuel + 1, _lazy, _, _, Ty.enumStorage _ => Except.error RevertData.empty
