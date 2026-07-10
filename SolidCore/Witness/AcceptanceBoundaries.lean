@@ -695,6 +695,44 @@ def varDeclBodyNeighborsAccepted : Bool :=
   sourceUnitAccepted? (su_singleContract "G15Braced"
       (cfVoidFn (Stmt.ifElse (boolExpr true) (Stmt.block [uintXDecl]) none))) &&
     sourceUnitAccepted? (su_singleContract "G15ForInit" forInitVarDeclFn)
+-- #109 COMMON-TYPE-LITERAL-MOBILE — the common type of a narrow typed operand
+-- and an untyped number LITERAL that does NOT fit it is
+-- `commonType(narrow, literal->mobileType())` (`Types.cpp:286`), i.e. the
+-- literal's SMALLEST-fitting `uintN`/`intN` (300 ↦ uint16) — NOT uint256. So
+-- `uint8 a + 300` really is `uint16` and solc ACCEPTS returning it as uint16
+-- (the model formerly typed it uint256 and over-rejected the return). The
+-- widening applies ONLY on the binary-operator common-type path: a plain
+-- assignment `uint8 x = 300` is a fit check that still REJECTS.
+-- ===========================================================================
+
+-- `function f(uint8 a) public pure returns (uint16) { return a + 300; }`
+private def commonTypeLiteralAddFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := Solidity.Ty.uint 8 }]
+    returns := [{ name := none, ty := Solidity.Ty.uint 16 }]
+    body := some (Stmt.returnValues
+      (some (Expr.binary BinaryOp.add
+        (Expr.ident "a") (numberExpr "300")))) }
+
+-- `function f(uint8 a) public pure { uint8 x = 300; }` — a non-fitting literal
+-- assigned to a narrow variable is a fit check (`isImplicitlyConvertibleTo`),
+-- NOT the mobile-type common-type widening; solc REJECTS it and so must we.
+private def commonTypeLiteralAssignFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := Solidity.Ty.uint 8 }]
+    returns := []
+    body := some (Stmt.varDecl
+      [{ name := some "x", ty := some (Solidity.Ty.uint 8) }]
+      (some (numberExpr "300"))) }
+
+def commonTypeLiteralAddReturnsU16Accepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "CTL109Add" commonTypeLiteralAddFn)
+
+def commonTypeLiteralNarrowAssignRejected : Bool :=
+  Result.isError (SourceUnit.check
+    (su_singleContract "CTL109Assign" commonTypeLiteralAssignFn))
 
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
@@ -1132,6 +1170,8 @@ def abiDecodeAddressPayableAccepted : Bool :=
 #guard badHexWeiLiteralRejected
 #guard badHexSecondsLiteralRejected
 #guard hexDenomNeighborsAccepted
+#guard commonTypeLiteralAddReturnsU16Accepted
+#guard commonTypeLiteralNarrowAssignRejected
 
 end Examples
 end TypeCheck

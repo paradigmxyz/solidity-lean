@@ -7403,7 +7403,26 @@ def Expr.commonOperandTyWithEnv? (env : TypeEnv)
   else if Expr.adoptsOperandLiteralTy lhs && implicitLiteralFits rhsTy lhs then
     some rhsTy
   else
-    Ty.commonImplicit? lhsTy rhsTy
+    -- Mirror `Type::commonType` (`Types.cpp:286`) for a typed operand vs an
+    -- untyped number literal that does NOT fit it: the common type is
+    -- `commonType(typed, literal->mobileType())`, using the literal's
+    -- smallest-fitting `uintN`/`intN` (`RationalNumberType::mobileType`) — NOT
+    -- the `uint256` that `abiTy?` reports for a bare literal. This keeps lowering
+    -- in lockstep with the typechecker (`commonArrayElementTy?`), so
+    -- `uint8 a * 300` casts BOTH operands to `uint16` and the checked mul Panics
+    -- on overflow exactly as solc's 16-bit arithmetic does. Gate on
+    -- `isRawNumberLiteralExpression` (no `T(x)` leaf) so typed conversions keep
+    -- their real type; an out-of-range literal (`> 2^256-1`) falls back to
+    -- `abiTy?`'s type.
+    let lhsTy' :=
+      if Expr.isRawNumberLiteralExpression lhs then
+        (Expr.untypedLiteralMobileTy? lhs).getD lhsTy
+      else lhsTy
+    let rhsTy' :=
+      if Expr.isRawNumberLiteralExpression rhs then
+        (Expr.untypedLiteralMobileTy? rhs).getD rhsTy
+      else rhsTy
+    Ty.commonImplicit? lhsTy' rhsTy'
 
 def Expr.binaryToCoreWithEnvTyped? (storageNames : List Name) (env : TypeEnv)
     (op : BinaryOp) (lhs rhs : Expr) : Option (Ty × CoreExpr) :=

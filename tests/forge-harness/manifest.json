@@ -10161,6 +10161,59 @@
           }
         ]
       }
+    },
+    {
+      "name": "common-type-literal",
+      "description": "Forge checks the real-EVM value of a binary op whose operands are a narrow typed integer and an untyped number LITERAL that does NOT fit it (#109 COMMON-TYPE-LITERAL-MOBILE). solc computes the common type as commonType(narrow, literal->mobileType()) using the literal's SMALLEST-fitting uintN/intN (300 -> uint16, 70000 -> uint24), NOT uint256, so checked arithmetic runs at that narrow width: uint8 a*300 Panics 0x11 for a>=219 (a=255 -> 76500 > 65535) yet returns the fitting value otherwise; uint8 a+300 really is uint16 (so it returns as uint16 -- the over-reject twin solc accepts); uint16 a*70000 runs at uint24. solidity-lean formerly widened the literal to uint256, ran the op at 256 bits, missed the overflow Panic and mis-typed the result. Lean imports the same contract from the solc AST.",
+      "forge": {
+        "root": "tests/forge-harness/common-type-literal",
+        "match_contract": "CommonTypeLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/common-type-literal/src/CommonTypeLiteral.sol",
+        "contract": "CommonTypeLiteralHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CommonTypeLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CommonTypeLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "mulWidenNoOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CommonTypeLiteral.importedContract \"mulWiden\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200] 60000",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulWidenOverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.CommonTypeLiteral.importedContract \"mulWiden\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 255] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "addReturnU16",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CommonTypeLiteral.importedContract \"addReturnU16\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10] 310",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulU24NoOverflow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CommonTypeLiteral.importedContract \"mulU24\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 100] 7000000",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulU24OverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.CommonTypeLiteral.importedContract \"mulU24\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1000] 17",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

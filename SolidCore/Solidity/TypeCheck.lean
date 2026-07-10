@@ -3422,7 +3422,29 @@ def CheckedExpr.commonArrayElementTy? (left right : CheckedExpr) :
       implicitLiteralFits right.ty left.source then
     some right.ty
   else
-    Ty.commonImplicit? left.ty right.ty
+    -- solc `Type::commonType` (`Types.cpp:286`): the common type of a typed
+    -- operand and an untyped number literal that does NOT fit it is
+    -- `commonType(typed, literal->mobileType())`, where `mobileType()`
+    -- (`RationalNumberType::mobileType`, `Types.cpp:1210`) is the literal's
+    -- SMALLEST-fitting `uintN`/`intN` — NOT the `uint256` that `literalTy?`
+    -- assigns for the checked width. Adopt that mobile type here so e.g.
+    -- `uint8 a * 300` types as `uint16` (checked mul at 16 bits, overflow
+    -- Panics when `a ≥ 219`) rather than the too-wide `uint256`. A non-literal
+    -- operand keeps its checked type; an untyped literal that fits nothing
+    -- (`> 2^256-1`) falls back to its checked type too. The gate matches solc's
+    -- notion of an untyped integer-constant expression (no `T(x)` conversion
+    -- leaf), so a typed conversion operand is never mis-widened.
+    let leftTy :=
+      if exprIsUntypedNumberLiteralExpression left.source then
+        (Solidity.Executable.Expr.untypedLiteralMobileTy? left.source).getD
+          left.ty
+      else left.ty
+    let rightTy :=
+      if exprIsUntypedNumberLiteralExpression right.source then
+        (Solidity.Executable.Expr.untypedLiteralMobileTy? right.source).getD
+          right.ty
+      else right.ty
+    Ty.commonImplicit? leftTy rightTy
 
 def CheckedExprs.commonArrayElementTyFrom? (current : Ty) :
     List CheckedExpr -> Option Ty
