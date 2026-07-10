@@ -8,6 +8,7 @@ example corpus (`compositionalControlExample`, signed-arithmetic, revert/require
 `writesThenReverts`, etc.) with their little AST-builder helpers.
 -/
 import SolidCore.Solidity.Interpreter
+import SolidCore.Solidity.ABI
 
 namespace SolidCore
 namespace Solidity
@@ -345,6 +346,75 @@ example :
 -- A normal small length is unaffected: no over-panic for either shape.
 example : abiCheckAllocation? false 3 = Except.ok () := rfl
 example : abiCheckAllocation? true 3 = Except.ok () := rfl
+
+/-! ### ABI-DECODE-EAGER-HEADCHECK (#128): truncated dynamic-element-array head
+
+When solc EAGERLY decodes a `memory` array of dynamically-encoded elements
+(`bytes[] memory`, `string[] memory`, `uint[][] memory`, dynamic `S[] memory`,
+or `abi.decode(data, (bytes[]))`), `abi_decode_available_length_*_array` emits a
+HEAD-AREA presence check — `srcEnd := add(arrayPos, mul(length, 0x20)); if
+gt(srcEnd, end) { revert(0,0) }` — AFTER the outer allocation but BEFORE the
+element loop. So a truncated outer head reverts EMPTY; solc never reaches an
+inner element's allocation. The model previously ran this check only on the
+calldata (lazy) path, so on the eager (memory) path it decoded elements
+immediately and an inner huge length hit `abiCheckAllocation?` → Panic(0x41),
+turning solc's empty revert into a Panic. These witnesses pin the fix.
+
+Calldata (post-selector, relative): outer offset 0x20, length 3, elem0 inner
+offset 0x20, then 2^64. arrayPos = 0x40, srcEnd = 0x40 + 3*0x20 = 0xA0 > end =
+0x80 → EMPTY. Pre-fix the model reached elem0 whose inner length 2^64 fired
+`abiCheckAllocation? true (2^64)` = Panic(0x41) (see the raw-count witness above).
+
+The decoders are fuel-recursive (compiled via `brecOn`), so they do not reduce
+under the kernel `rfl` used above; these results are pinned with `#guard`, which
+evaluates via the interpreter and fails the build if false, adding no axioms. -/
+
+def word32 (value : Word) : List Byte := wordToBytesBE 32 value
+
+/-- Bool view: the decode reverts EMPTY (solc `revert(0,0)`), not Panic(0x41). -/
+def headCheckIsEmptyRevert {α} : Except RevertData α -> Bool
+  | Except.error RevertData.empty => true
+  | _ => false
+
+/-- Bool view: the decode succeeds (used for the no-over-reject controls). -/
+def headCheckDecodeOk {α} : Except RevertData α -> Bool
+  | Except.ok _ => true
+  | _ => false
+
+-- `bytes[] memory` with a truncated element-head area (srcEnd = 0xA0 > end 0x80).
+def truncatedBytesArrayHeadCalldata : List Byte :=
+  word32 0x20 ++ word32 3 ++ word32 0x20 ++ word32 (2 ^ 64)
+
+-- External `memory`-param eager path (`ABI.decodeValueAt?`, lazy = false):
+-- reverts EMPTY at the head-area check, NOT Panic(0x41).
+#guard headCheckIsEmptyRevert
+  (ABI.decodeValueAt? false truncatedBytesArrayHeadCalldata 0
+    (Ty.dynamicArray Ty.bytesCalldata))
+
+-- `abi.decode(data, (bytes[]))` / external-return eager path
+-- (`abiDecodeValuesExcept?`): same EMPTY revert, not Panic(0x41).
+#guard headCheckIsEmptyRevert
+  (abiDecodeValuesExcept? [Ty.dynamicArray Ty.bytesCalldata]
+    truncatedBytesArrayHeadCalldata)
+
+-- Positive control 1: a well-formed `uint[] memory` with `srcEnd == end` (the
+-- strict-`gt` boundary) still PASSES and decodes — no over-reject. length 1,
+-- arrayPos 0x40, srcEnd 0x40 + 1*0x20 = 0x60 = end.
+def wellFormedSrcEndEqEndCalldata : List Byte :=
+  word32 0x20 ++ word32 1 ++ word32 42
+
+#guard headCheckDecodeOk
+  (ABI.decodeValueAt? false wellFormedSrcEndEqEndCalldata 0
+    (Ty.dynamicArray Ty.uint256))
+
+-- Positive control 2: trailing garbage beyond `end` is fine (the head fits;
+-- `end` is the actual data end) — still passes and decodes the single element.
+def wellFormedTrailingGarbageCalldata : List Byte :=
+  word32 0x20 ++ word32 1 ++ word32 42 ++ word32 0xdead
+
+#guard headCheckDecodeOk
+  (abiDecodeValuesExcept? [Ty.dynamicArray Ty.uint256]
+    wellFormedTrailingGarbageCalldata)
 
 end Source
 end Solidity

@@ -5004,6 +5004,17 @@ def abiDecodeValueAtWithFuel? :
       -- solc allocates the array (element size 0x20) before reading elements,
       -- so an oversized length raises Panic(0x41) ahead of data presence.
       abiCheckAllocation? false length
+      -- Head-area presence check (solc `abi_decode_available_length_*_array`:
+      -- `srcEnd := add(arrayPos, mul(length, headStride)); if gt(srcEnd, end)`):
+      -- run AFTER the outer allocation guard but BEFORE any element decode, so a
+      -- truncated element-head area reverts EMPTY here instead of reaching an
+      -- inner dynamic element's Panic(0x41). Stride = element calldata head size
+      -- (`step * 0x20`), matching solc's `mul(length, calldata_head)`. `gt` is
+      -- strict, so a well-formed head with `srcEnd == end` PASSES.
+      let step ← abiDecodeOpt (Ty.abiHeadWords? elementTy)
+      if (readBytes? (argData.drop (offset + wordBytes)) 0
+            (length * step * wordBytes)).isNone then
+        Except.error RevertData.empty
       let rec decodeDynamicValues? : Nat -> Nat -> Except RevertData (List Value)
         | 0, _ => Except.ok []
         | remaining + 1, index => do

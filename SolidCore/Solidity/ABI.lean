@@ -444,13 +444,20 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
             let rest ← decodeDynamicArrayValues? remaining (index + step)
             Except.ok (value :: rest)
       let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
-      -- Eager head-area presence check (solc `gt(arrayPos+length*stride,end)`):
-      -- the `length` element head words must be within calldata. This applies
-      -- to value-type elements (stride 0x20) as well as dynamic ones (offset
-      -- stride 0x20); only the value validation / offset-following read INSIDE
-      -- a present head is deferred to access time.
-      if lazy &&
-          (readBytes? (argData.drop (offset + wordBytes)) 0
+      -- Head-area presence check (solc `abi_decode_available_length_*_array`:
+      -- `srcEnd := add(arrayPos, mul(length, headStride)); if gt(srcEnd, end)`):
+      -- the `length` element head words must be within `argData`. This runs on
+      -- BOTH the calldata (lazy) and memory (eager) paths, and — crucially —
+      -- AFTER the outer allocation guard (`abiCheckAllocation?` above) but BEFORE
+      -- any element decode, so on the eager path a truncated element-head area
+      -- reverts EMPTY here instead of reaching an inner dynamic element's
+      -- Panic(0x41). It applies to value-type elements (stride 0x20) as well as
+      -- dynamic ones (offset stride 0x20; static-element stride = element head
+      -- size, i.e. `step * 0x20`, matching solc's `mul(length, calldata_head)`).
+      -- Only the value validation / offset-following read INSIDE a present head
+      -- is deferred to access time (calldata/lazy path). `gt` is strict, so a
+      -- well-formed head with `srcEnd == end` PASSES (readBytes? returns some).
+      if (readBytes? (argData.drop (offset + wordBytes)) 0
             (length * step * wordBytes)).isNone then
         Except.error RevertData.empty
       else do
