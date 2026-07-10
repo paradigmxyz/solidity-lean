@@ -1859,6 +1859,102 @@ def structDynArraySelfAccepted : Bool :=
 #guard cgNonConstOverPureRejected
 #guard cgNonConstOverViewAccepted
 
+-- #124 SLICE-DYN-BASE — a calldata index-range (slice) `a[start:end]` is allowed
+-- only when the sliced array's ELEMENT (base) type is *statically* encoded.
+-- solc rejects a slice on `T[] calldata` whose `T` is dynamically encoded
+-- (TypeChecker.cpp ~3723, error 2148: "Index range access is not supported for
+-- arrays with dynamically encoded base types."). Binary-confirmed on solc
+-- 0.8.35: `uint[]` and `uint[2][]` slices ACCEPT; `uint[][]`, `bytes[]`,
+-- `string[]` slices REJECT; slicing `bytes`/`string` themselves still ACCEPTS
+-- (their element is a byte = statically encoded). The model previously accepted
+-- ANY element type. The gate is now in `checkExpr`'s slice arm, reusing
+-- `Ty.abiEncodedDynamic?` (an exact mirror of solc `Type::isDynamicallyEncoded`).
+-- Over-accept only (solc emits no AST for the rejected program), so no Forge
+-- lane — these #guards are the gate.
+-- ===========================================================================
+
+-- A calldata slice function: `function f(T[] calldata a) external pure
+-- returns (T[] calldata) { return a[0:1]; }`.
+private def sliceArrayFn (elem : Ty) : FunctionDecl :=
+  { name := some "f"
+    visibility := some Visibility.external_
+    mutability := StateMutability.pure
+    params :=
+      [ { name := some "a"
+          ty := Ty.array elem none
+          location := some DataLocation.calldata } ]
+    returns :=
+      [ { name := none
+          ty := Ty.array elem none
+          location := some DataLocation.calldata } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.slice (Expr.ident "a")
+              (some (numberExpr "0")) (some (numberExpr "1"))))) }
+
+-- A calldata slice on `bytes`/`string` itself: `function f(T calldata a)
+-- external pure returns (T calldata) { return a[0:1]; }`.
+private def sliceBytesLikeFn (ty : Ty) : FunctionDecl :=
+  { name := some "f"
+    visibility := some Visibility.external_
+    mutability := StateMutability.pure
+    params :=
+      [ { name := some "a", ty := ty
+          location := some DataLocation.calldata } ]
+    returns :=
+      [ { name := none, ty := ty
+          location := some DataLocation.calldata } ]
+    body :=
+      some
+        (Stmt.returnValues
+          (some
+            (Expr.slice (Expr.ident "a")
+              (some (numberExpr "0")) (some (numberExpr "1"))))) }
+
+-- Statically-encoded element: `uint[] calldata` slice still ACCEPTS.
+def sliceUintArrayAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "SliceUint"
+    (sliceArrayFn (Ty.uint 256)))
+
+-- Fixed-array-of-static element `uint[2]` is statically encoded → ACCEPTS.
+def sliceUintFixedArrayElemAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "SliceUint2"
+    (sliceArrayFn (Ty.array (Ty.uint 256) (some 2))))
+
+-- Slicing `bytes`/`string` themselves still ACCEPTS (byte element is static).
+def sliceBytesAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "SliceBytes"
+    (sliceBytesLikeFn Ty.bytes))
+
+def sliceStringAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "SliceString"
+    (sliceBytesLikeFn Ty.string))
+
+-- Dynamically-encoded element `uint[]` (a dynamic array) → REJECT (2148).
+def sliceUintNestedArrayRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "SliceUintNested"
+    (sliceArrayFn (Ty.array (Ty.uint 256) none))))
+
+-- `bytes[]` element is dynamically encoded → REJECT.
+def sliceBytesArrayRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "SliceBytesArr"
+    (sliceArrayFn Ty.bytes)))
+
+-- `string[]` element is dynamically encoded → REJECT.
+def sliceStringArrayRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "SliceStringArr"
+    (sliceArrayFn Ty.string)))
+
+#guard sliceUintArrayAccepted
+#guard sliceUintFixedArrayElemAccepted
+#guard sliceBytesAccepted
+#guard sliceStringAccepted
+#guard sliceUintNestedArrayRejected
+#guard sliceBytesArrayRejected
+#guard sliceStringArrayRejected
+
 end Examples
 end TypeCheck
 end Solidity

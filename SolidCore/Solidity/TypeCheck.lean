@@ -6009,7 +6009,24 @@ def checkExpr (env : CheckEnv) :
             -- ("Index range access is only supported for dynamic calldata
             -- arrays."). Requiring `len? = none` here (the calldata-location
             -- requirement below handles memory arrays) matches that.
-            Except.ok (Solidity.Ty.array element none)
+            --
+            -- solc additionally rejects a slice whose element (base) type is
+            -- *dynamically encoded* in the ABI/calldata sense (TypeChecker.cpp
+            -- ~3723, error 2148: "Index range access is not supported for
+            -- arrays with dynamically encoded base types."). So `uint[]`
+            -- slices, but `uint[][]`, `bytes[]`, `string[]`, and any array of a
+            -- dynamically-encoded struct do not. `Ty.abiEncodedDynamic?`
+            -- mirrors solc's `Type::isDynamicallyEncoded` exactly. Note this
+            -- does NOT reject slicing `bytes`/`string` themselves — those are
+            -- handled by the two cases above (their element is a byte, which is
+            -- statically encoded).
+            if Ty.abiEncodedDynamic? env.types 64 element then
+              Except.error
+                (TypeError.unsupported
+                  ("index range access is not supported for arrays with " ++
+                    "dynamically encoded base types"))
+            else
+              Except.ok (Solidity.Ty.array element none)
         | other =>
             Except.error
               (TypeError.expectedType
