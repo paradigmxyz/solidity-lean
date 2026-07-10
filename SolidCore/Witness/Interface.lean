@@ -21931,6 +21931,173 @@ def internalForPostCallMatches : Option Bool := do
             (SolidCore.Solidity.Source.State.loadSlot state 0) 3)
   | _ => some false
 
+-- LOOP-COND-CALL-CONTINUE (#133): a `for`/`while`/`do-while` whose CONDITION
+-- contains a user call (hoisted, cf. the call-position family) COMBINED with a
+-- bare `continue` in the body. The naive `while(1){…}` desugar sends `continue`
+-- to the loop top, skipping `post` (`for`) or the condition re-check
+-- (`do-while`); the fix relocates those to a flag-guarded top so `continue`
+-- routes through the hoisted condition re-evaluation, matching solc. Each
+-- function below is pinned against pinned-solc/EVM Forge ground truth in
+-- `tests/forge-harness/loopcond-continue`. Before the fix these `for`/`do-while`
+-- shapes failed to lower (`ContractDecl.toCore?` → `none`), so every `#guard`
+-- here genuinely gates the fix.
+namespace LoopCondCallContinue
+
+private def numLit (n : Nat) : Expr :=
+  Expr.literal (Literal.number (toString n))
+
+private def incr (name : String) : Expr :=
+  Expr.assign (Expr.ident name) AssignOp.addAssign (numLit 1)
+
+private def accAdd (rhs : Expr) : Stmt :=
+  Stmt.expr (Expr.assign (Expr.ident "out") AssignOp.addAssign rhs)
+
+private def initI : Stmt :=
+  Stmt.varDecl [{ name := some "i", ty := some (Ty.uint 256) }] (some (numLit 0))
+
+-- `i < bound()` — the call-bearing condition shared by every loop below.
+private def condLtBound : Expr :=
+  Expr.binary BinaryOp.lt (Expr.ident "i")
+    (Expr.call (Expr.ident "bound") [])
+
+private def boundFn : ContractItem :=
+  ContractItem.function
+    { name := some "bound"
+      visibility := some Visibility.internal_
+      returns := [{ name := some "b", ty := Ty.uint 256 }]
+      body := some (Stmt.returnValues (some (numLit 5))) }
+
+private def addOneFn : ContractItem :=
+  ContractItem.function
+    { name := some "addOne"
+      visibility := some Visibility.internal_
+      params := [{ name := some "x", ty := Ty.uint 256 }]
+      returns := [{ name := some "y", ty := Ty.uint 256 }]
+      body :=
+        some
+          (Stmt.returnValues
+            (some (Expr.binary BinaryOp.add (Expr.ident "x") (numLit 1)))) }
+
+private def outFn (name : String) (body : Stmt) : ContractItem :=
+  ContractItem.function
+    { name := some name
+      visibility := some Visibility.public_
+      returns := [{ name := some "out", ty := Ty.uint 256 }]
+      body := some body }
+
+-- `if (i % 2 == 0) continue;`
+private def continueIfEven : Stmt :=
+  Stmt.ifElse
+    (Expr.binary BinaryOp.eq
+      (Expr.binary BinaryOp.mod (Expr.ident "i") (numLit 2)) (numLit 0))
+    Stmt.continue none
+
+private def contract : ContractDecl :=
+  { name := "LoopCondCallContinue"
+    items :=
+      [ boundFn
+      , addOneFn
+        -- for (uint i=0; i<bound(); i++) { if (i%2==0) continue; out += i; }
+      , outFn "forContinue"
+          (Stmt.block
+            [ Stmt.forLoop (some initI) (some condLtBound) (some (incr "i"))
+                (Stmt.block [continueIfEven, accAdd (Expr.ident "i")])
+            , Stmt.returnValues (some (Expr.ident "out")) ])
+        -- uint i=0; do { i++; if (i==2) continue; out += i; } while (i<bound());
+      , outFn "doWhileContinue"
+          (Stmt.block
+            [ initI
+            , Stmt.doWhile
+                (Stmt.block
+                  [ Stmt.expr (incr "i")
+                  , Stmt.ifElse
+                      (Expr.binary BinaryOp.eq (Expr.ident "i") (numLit 2))
+                      Stmt.continue none
+                  , accAdd (Expr.ident "i") ])
+                condLtBound
+            , Stmt.returnValues (some (Expr.ident "out")) ])
+        -- uint i=0; while (i<bound()) { i++; if (i==2) continue; out += i; }
+      , outFn "whileContinue"
+          (Stmt.block
+            [ initI
+            , Stmt.whileLoop condLtBound
+                (Stmt.block
+                  [ Stmt.expr (incr "i")
+                  , Stmt.ifElse
+                      (Expr.binary BinaryOp.eq (Expr.ident "i") (numLit 2))
+                      Stmt.continue none
+                  , accAdd (Expr.ident "i") ])
+            , Stmt.returnValues (some (Expr.ident "out")) ])
+        -- for + call-cond + MULTIPLE continues.
+      , outFn "forMultiContinue"
+          (Stmt.block
+            [ Stmt.forLoop (some initI) (some condLtBound) (some (incr "i"))
+                (Stmt.block
+                  [ Stmt.ifElse
+                      (Expr.binary BinaryOp.eq (Expr.ident "i") (numLit 1))
+                      Stmt.continue none
+                  , Stmt.ifElse
+                      (Expr.binary BinaryOp.eq (Expr.ident "i") (numLit 3))
+                      Stmt.continue none
+                  , accAdd (Expr.ident "i") ])
+            , Stmt.returnValues (some (Expr.ident "out")) ])
+        -- for + call-cond + continue, BODY also hoists a call (addOne).
+      , outFn "forBodyCall"
+          (Stmt.block
+            [ Stmt.forLoop (some initI) (some condLtBound) (some (incr "i"))
+                (Stmt.block
+                  [ continueIfEven
+                  , accAdd (Expr.call (Expr.ident "addOne")
+                      [Arg.positional (Expr.ident "i")]) ])
+            , Stmt.returnValues (some (Expr.ident "out")) ])
+        -- for + call-cond + continue nested TWO ifs deep.
+      , outFn "forNestedIfContinue"
+          (Stmt.block
+            [ Stmt.forLoop (some initI) (some condLtBound) (some (incr "i"))
+                (Stmt.block
+                  [ Stmt.ifElse
+                      (Expr.binary BinaryOp.gt (Expr.ident "i") (numLit 0))
+                      (Stmt.ifElse
+                        (Expr.binary BinaryOp.eq
+                          (Expr.binary BinaryOp.mod (Expr.ident "i") (numLit 2))
+                          (numLit 1))
+                        Stmt.continue none)
+                      none
+                  , accAdd (Expr.ident "i") ])
+            , Stmt.returnValues (some (Expr.ident "out")) ])
+        -- for + call-cond + BOTH continue and break (break exits whole loop).
+      , outFn "forContinueBreak"
+          (Stmt.block
+            [ Stmt.forLoop (some initI) (some condLtBound) (some (incr "i"))
+                (Stmt.block
+                  [ Stmt.ifElse
+                      (Expr.binary BinaryOp.eq (Expr.ident "i") (numLit 4))
+                      Stmt.break none
+                  , continueIfEven
+                  , accAdd (Expr.ident "i") ])
+            , Stmt.returnValues (some (Expr.ident "out")) ]) ] }
+
+private def returns (fn : String) (expected : Nat) : Bool :=
+  match
+      ContractDecl.call? 256 contract
+        (SolidCore.Solidity.Source.CallTarget.name fn)
+        SolidCore.Solidity.Source.State.empty [] with
+  | some (SolidCore.Solidity.Source.CallResult.returned _
+      [SolidCore.Solidity.Source.Value.word value]) =>
+      SolidCore.Solidity.Source.wordEq value expected
+  | _ => false
+
+-- Values #eval-confirmed and pinned against pinned-solc/EVM Forge ground truth.
+#guard returns "forContinue" 4
+#guard returns "doWhileContinue" 13
+#guard returns "whileContinue" 13
+#guard returns "forMultiContinue" 6
+#guard returns "forBodyCall" 6
+#guard returns "forNestedIfContinue" 6
+#guard returns "forContinueBreak" 4
+
+end LoopCondCallContinue
+
 def loopBreakContinueContract : ContractDecl :=
   { name := "LoopBreakContinue"
     items :=

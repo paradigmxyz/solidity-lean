@@ -16366,26 +16366,50 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | none =>
           -- CALL-POSITION (#2): the post-body condition contains a call. Desugar
           -- `do body while(cond)` into `while(1) { body; <hoist>; if(cond') {}
-          -- else break }`. This is sound only when `body` has no bare
-          -- `continue` (a `continue` must re-check `cond`, but in the desugared
-          -- form it would jump to the `while(1)` top, skipping the check); when
-          -- it does, fall back to the prior (over-reject) behaviour.
-          if Stmt.mentionsBareContinue body then none
-          else
-            match
-                FunctionDecl.conditionUseCoreWithInternalCalls?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions cond
-                  (fun condCore =>
-                    SolidCore.Solidity.Source.Stmt.ifElse
-                      condCore SolidCore.Solidity.Source.Stmt.skip
-                      SolidCore.Solidity.Source.Stmt.break) with
-            | some checkCore =>
+          -- else break }`, evaluating the hoisted condition-call at the bottom
+          -- of every iteration (re-evaluation matches solc).
+          match
+              FunctionDecl.conditionUseCoreWithInternalCalls?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions cond
+                (fun condCore =>
+                  SolidCore.Solidity.Source.Stmt.ifElse
+                    condCore SolidCore.Solidity.Source.Stmt.skip
+                    SolidCore.Solidity.Source.Stmt.break) with
+          | some checkCore =>
+              if Stmt.mentionsBareContinue body then
+                -- LOOP-COND-CALL-CONTINUE (#133): a bare `continue` in a
+                -- do-while must jump to the (hoisted) condition re-check, but
+                -- the naive `while(1) { body; check }` desugar would send it to
+                -- the `while(1)` top (re-running `body`, skipping `check`).
+                -- Relocate `check` to the TOP of the loop, guarded by a fresh
+                -- flag so it is skipped on the first iteration — then `continue`
+                -- and normal fall-through both re-check `cond` before the next
+                -- `body`, exactly matching do-while semantics. The whole loop is
+                -- wrapped in a `block` (its own scope), so the flag never
+                -- collides with a nested call-condition loop's flag.
+                let flagName := "__solidcore_loop_first"
+                some
+                  (SolidCore.Solidity.Source.Stmt.block
+                    [ SolidCore.Solidity.Source.Stmt.varDecl
+                        SolidCore.Solidity.Source.Ty.bool flagName
+                        (some (SolidCore.Solidity.Source.Expr.word 1))
+                    , SolidCore.Solidity.Source.Stmt.whileLoop
+                        (SolidCore.Solidity.Source.Expr.word 1)
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [ SolidCore.Solidity.Source.Stmt.ifElse
+                              (SolidCore.Solidity.Source.Expr.var flagName)
+                              (SolidCore.Solidity.Source.Stmt.assign
+                                (SolidCore.Solidity.Source.LValue.var flagName)
+                                (SolidCore.Solidity.Source.Expr.word 0))
+                              checkCore
+                          , bodyCore ]) ])
+              else
                 some
                   (SolidCore.Solidity.Source.Stmt.whileLoop
                     (SolidCore.Solidity.Source.Expr.word 1)
                     (SolidCore.Solidity.Source.Stmt.block [bodyCore, checkCore]))
-            | none => none
+          | none => none
   | Stmt.forLoop init cond post body => do
       let initCore ←
         match init with
@@ -16443,15 +16467,9 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           -- CALL-POSITION (#1): the condition contains a call. Desugar
           -- `for (init; cond; post) body` into
           -- `{ init; while(1) { <hoist>; if(cond') {} else break; body; post } }`.
-          -- Sound only when `body` has no bare `continue` (a `continue` must run
-          -- `post` then re-check `cond`; in the desugared form it would jump to
-          -- the `while(1)` top, skipping `post`). Otherwise fall back to the
-          -- prior (over-reject) behaviour.
           match cond with
           | none => none  -- unreachable: `none` cond succeeds above
           | some condExpr =>
-              if Stmt.mentionsBareContinue body then none
-              else
                 -- The condition is in the scope of the for-init declaration, so
                 -- extend the type env with any init bindings before hoisting the
                 -- call (the hoister needs the type of a non-call operand like the
@@ -16470,13 +16488,44 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                           condCore SolidCore.Solidity.Source.Stmt.skip
                           SolidCore.Solidity.Source.Stmt.break) with
                 | some checkCore =>
-                    some
-                      (SolidCore.Solidity.Source.Stmt.block
-                        [ initCore
-                        , SolidCore.Solidity.Source.Stmt.whileLoop
-                            (SolidCore.Solidity.Source.Expr.word 1)
-                            (SolidCore.Solidity.Source.Stmt.block
-                              [checkCore, bodyCore, postCore]) ])
+                    if Stmt.mentionsBareContinue body then
+                      -- LOOP-COND-CALL-CONTINUE (#133): a bare `continue` in a
+                      -- `for` must run `post` and then re-check `cond`; the naive
+                      -- `while(1) { check; body; post }` desugar would instead
+                      -- send it to the `while(1)` top (re-running `check`,
+                      -- skipping `post`). Relocate `post` to the TOP of the loop,
+                      -- guarded by a fresh flag so it is skipped on the first
+                      -- iteration — then `continue` and normal fall-through both
+                      -- run `post` before the `check`, exactly matching `for`
+                      -- semantics. The loop is wrapped in a `block` (its own
+                      -- scope), so the flag never collides with a nested
+                      -- call-condition loop's flag.
+                      let flagName := "__solidcore_loop_first"
+                      some
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [ initCore
+                          , SolidCore.Solidity.Source.Stmt.varDecl
+                              SolidCore.Solidity.Source.Ty.bool flagName
+                              (some (SolidCore.Solidity.Source.Expr.word 1))
+                          , SolidCore.Solidity.Source.Stmt.whileLoop
+                              (SolidCore.Solidity.Source.Expr.word 1)
+                              (SolidCore.Solidity.Source.Stmt.block
+                                [ SolidCore.Solidity.Source.Stmt.ifElse
+                                    (SolidCore.Solidity.Source.Expr.var flagName)
+                                    (SolidCore.Solidity.Source.Stmt.assign
+                                      (SolidCore.Solidity.Source.LValue.var flagName)
+                                      (SolidCore.Solidity.Source.Expr.word 0))
+                                    postCore
+                                , checkCore
+                                , bodyCore ]) ])
+                    else
+                      some
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [ initCore
+                          , SolidCore.Solidity.Source.Stmt.whileLoop
+                              (SolidCore.Solidity.Source.Expr.word 1)
+                              (SolidCore.Solidity.Source.Stmt.block
+                                [checkCore, bodyCore, postCore]) ])
                 | none => none
   | Stmt.tryCatch expr clauses => do
       match Expr.toExternalCallWithKindEnv?

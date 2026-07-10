@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/loopcond-continue/out"
+cache_path = "../../.foundry-suites/loopcond-continue/cache"
+evm_version = "cancun"

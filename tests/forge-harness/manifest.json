@@ -1,6 +1,69 @@
 {
   "cases": [
     {
+      "name": "loopcond-continue",
+      "description": "#133 LOOP-COND-CALL-CONTINUE over-reject: a for/while/do-while whose CONDITION contains a user call (hoisted into a pre-condition statement, cf. the call-position family) COMBINED with a bare `continue` in the body formerly declined to lower. The naive while(1){...} desugar of a hoisted-condition loop routes `continue` to the loop top, skipping the `post` step (for) or the condition re-check (do-while) that solc runs. The fix relocates `post`/the condition check to a flag-guarded top of the while(1), so `continue` and normal fall-through both route through the hoisted condition-call re-evaluation, matching solc control flow and runtime values (while already re-checked at the top and was unaffected). Covers continue nested in if, multiple continues, a body that also hoists a call, and continue+break in the same loop. Forge pins real solc/EVM values; Lean imports the same source and runs own-call execution.",
+      "forge": {
+        "root": "tests/forge-harness/loopcond-continue",
+        "match_contract": "LoopcondContinueForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/loopcond-continue/src/LoopcondContinue.sol",
+        "contract": "LoopcondContinueHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LoopcondContinue"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "forContinue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"forContinue\" SolidCore.Solidity.Source.State.empty [] 4",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "doWhileContinue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"doWhileContinue\" SolidCore.Solidity.Source.State.empty [] 13",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "whileContinue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"whileContinue\" SolidCore.Solidity.Source.State.empty [] 13",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "forMultiContinue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"forMultiContinue\" SolidCore.Solidity.Source.State.empty [] 6",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "forBodyCall",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"forBodyCall\" SolidCore.Solidity.Source.State.empty [] 6",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "forNestedIfContinue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"forNestedIfContinue\" SolidCore.Solidity.Source.State.empty [] 6",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "forContinueBreak",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.LoopcondContinue.importedContract \"forContinueBreak\" SolidCore.Solidity.Source.State.empty [] 4",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "tuple-write-order",
       "description": "#132 TUPLE-WRITE-ORDER: for `(lhs0, lhs1, ...) = rhs`, solc resolves ALL LHS lvalue references up front left-to-right (a later component's index/key observes PRE-STORE state), then performs the stores RIGHT-TO-LEFT (when two components alias the same location the LEFTMOST assignment wins). Repros: `(x,x)=(1,2)` (local, x==1), `(arr[0],arr[0])=(1,2)` (storage, arr[0]==1), and `arr[0]=5; (arr[0], arr[arr[0]])=(1,2)` where the second index sees arr[0]==5 so it writes arr[5]=2 then arr[0]=1 giving (arr[0],arr[1],arr[5])==(1,0,2). solidity-lean formerly recursed head-first and interleaved resolve-then-write, giving the rightmost aliased write and observing earlier writes; the fix resolves all LHS refs left-to-right then stores right-to-left. Forge deploys on pinned solc/EVM and asserts the values; Lean imports the same source and runs the source semantics.",
       "forge": {
