@@ -27,18 +27,28 @@ def uncheckedSubResult : Option CoreResult :=
     (SolidCore.Solidity.Source.Runtime.ofState SolidCore.Solidity.Source.State.empty)
     uncheckedSub
 
+-- The ternary's rejected (false) branch is a RUNTIME division by zero
+-- (`1 / z`, `z` a zero-valued local), NOT a constant `1 / 0`: solc rejects a
+-- constant `1 / 0` at compile time (Error 2271; see #104 — it is folded by the
+-- ConstantEvaluator and division by a zero constant returns null), so the true
+-- test of "the ternary skips its rejected branch" must use a branch that is
+-- valid at compile time yet would Panic 0x12 at runtime if it were evaluated.
 def ternarySkipsRejectedBranch : Stmt :=
-  Stmt.returnValues
-    (some
-      (Expr.ternary
-        (Expr.literal (Literal.bool true))
-        (Expr.literal (Literal.number "7"))
-        (Expr.binary BinaryOp.div
-          (Expr.literal (Literal.number "1"))
-          (Expr.literal (Literal.number "0")))))
+  Stmt.block
+    [ Stmt.varDecl
+        [{ name := some "z", ty := some (Ty.uint 256) }]
+        (some (Expr.literal (Literal.number "0")))
+    , Stmt.returnValues
+        (some
+          (Expr.ternary
+            (Expr.literal (Literal.bool true))
+            (Expr.literal (Literal.number "7"))
+            (Expr.binary BinaryOp.div
+              (Expr.literal (Literal.number "1"))
+              (Expr.ident "z")))) ]
 
 def ternarySkipsRejectedBranchResult : Option CoreResult :=
-  Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
+  Stmt.eval? 16 [] SolidCore.Solidity.Source.Context.empty
     (SolidCore.Solidity.Source.Runtime.ofState SolidCore.Solidity.Source.State.empty)
     ternarySkipsRejectedBranch
 
@@ -61,14 +71,23 @@ def doWhileRunsBeforeConditionResult : Option CoreResult :=
     (SolidCore.Solidity.Source.Runtime.ofState SolidCore.Solidity.Source.State.empty)
     doWhileRunsBeforeCondition
 
+-- A RUNTIME division by zero (`1 / z`, `z` a zero-valued local) as an
+-- expression statement: unlike the ternary case above it IS evaluated, so it
+-- Panics 0x12 at runtime. A constant `1 / 0` is a compile-time error in solc
+-- (Error 2271; see #104), so a runtime-failure test must use a non-constant
+-- divisor to stay valid Solidity.
 def expressionStatementFailure : Stmt :=
-  Stmt.expr
-    (Expr.binary BinaryOp.div
-      (Expr.literal (Literal.number "1"))
-      (Expr.literal (Literal.number "0")))
+  Stmt.block
+    [ Stmt.varDecl
+        [{ name := some "z", ty := some (Ty.uint 256) }]
+        (some (Expr.literal (Literal.number "0")))
+    , Stmt.expr
+        (Expr.binary BinaryOp.div
+          (Expr.literal (Literal.number "1"))
+          (Expr.ident "z")) ]
 
 def expressionStatementFailureResult : Option CoreResult :=
-  Stmt.eval? 4 [] SolidCore.Solidity.Source.Context.empty
+  Stmt.eval? 8 [] SolidCore.Solidity.Source.Context.empty
     (SolidCore.Solidity.Source.Runtime.ofState SolidCore.Solidity.Source.State.empty)
     expressionStatementFailure
 
