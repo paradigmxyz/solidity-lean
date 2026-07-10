@@ -167,6 +167,12 @@ def ConstantEnv.lookup? (env : ConstantEnv) (name : Name) : Option Expr :=
       else
         ConstantEnv.lookup? rest name
 
+/-- Synthetic `ConstantEnv` key for a constant read through a type name
+    (`Base.K`, `L.LK`). A `.`-joined path can never collide with a real Solidity
+    identifier, so qualified entries coexist with the ordinary bare-name ones. -/
+def qualifiedConstantKey (path : Path) (member : Name) : Name :=
+  String.intercalate "." (path.segments ++ [member])
+
 mutual
 
 def Expr.inlineConstantsFuel : Nat -> ConstantEnv -> Expr -> Expr
@@ -183,6 +189,14 @@ def Expr.inlineConstantsFuel : Nat -> ConstantEnv -> Expr -> Expr
           | some replacement => inline replacement
           | none => Expr.ident name
       | Expr.typeName ty => Expr.typeName ty
+      | Expr.member (Expr.typeName (Ty.user path)) member =>
+          -- Qualified constant read (`Base.K`, `L.LK`): inline the constant's
+          -- value exactly like the bare-identifier form, keyed by the joined
+          -- type path. A qualified state-variable read (`Base.v`) has no
+          -- constant entry and is left for storage lowering.
+          match ConstantEnv.lookup? constants (qualifiedConstantKey path member) with
+          | some replacement => inline replacement
+          | none => Expr.member (Expr.typeName (Ty.user path)) member
       | Expr.member base member => Expr.member (inline base) member
       | Expr.index base index => Expr.index (inline base) (inline index)
       | Expr.slice base start stop =>
@@ -4192,7 +4206,23 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.ident name =>
       some (sourceIdentCore storageNames name)
   | Expr.member (Expr.typeName ty) member =>
-      Ty.typeInfoExpr? ty member
+      match Ty.typeInfoExpr? ty member with
+      | some info => some info
+      | none =>
+          -- Qualified (inherited) STATE-VARIABLE read through a type name
+          -- (`Base.v`): resolves to the same storage/immutable slot as the bare
+          -- identifier. Constants were already inlined; only storage-backed
+          -- names reach here.
+          match ty with
+          | Ty.user _ =>
+              match stateNameRuntimeKey? member storageNames with
+              | some key => some (SolidCore.Solidity.Source.Expr.storage key)
+              | none =>
+                  match stateNameImmutableKey? member storageNames with
+                  | some key =>
+                      some (SolidCore.Solidity.Source.Expr.immutable key)
+                  | none => none
+          | _ => none
   | Expr.call (Expr.typeName (Ty.address _))
       [Arg.positional (Expr.call (Expr.typeName innerTy)
         [Arg.positional innerExpr])] =>
@@ -6190,6 +6220,15 @@ def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
       let baseCore ← Expr.toCoreLValue? storageNames base
       let indexCore ← Expr.toCore? storageNames index
       some (SolidCore.Solidity.Source.LValue.index baseCore indexCore)
+  | Expr.member (Expr.typeName (Ty.user _)) name =>
+      -- Qualified (inherited) STATE-VARIABLE write target (`Base.v = …`):
+      -- resolves to the same storage/immutable slot as the bare identifier.
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (SolidCore.Solidity.Source.LValue.storage key)
+      | none =>
+          match stateNameImmutableKey? name storageNames with
+          | some key => some (SolidCore.Solidity.Source.LValue.immutable key)
+          | none => none
   | _ => none
 termination_by expr => (sizeOf expr, 0)
 
@@ -20353,6 +20392,31 @@ def ContractDecl.dispatchOrder? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
   ContractDecl.dispatchOrderWithFuel? (contracts.length + 1) contracts decl
 
+/-- Qualified-constant `ConstantEnv` entries for reads through a type name.
+    For every contract/library `decl`, every constant reachable through it (its
+    own + inherited, in C3 order) is registered under the joined key
+    `decl.name . const` — so `Base.K`, `L.LK`, and even `Derived.K` (a constant
+    inherited into `Derived`) all resolve to the constant's initializer. -/
+def ContractDecl.qualifiedConstantEntries (contracts : List ContractDecl)
+    (decl : ContractDecl) : ConstantEnv :=
+  let order :=
+    match ContractDecl.dispatchOrder? contracts decl with
+    | some order => order
+    | none => [decl]
+  concatMapList
+    (fun c =>
+      (ContractDecl.directStateVars c).filterMap
+        (fun sv =>
+          match StateVarDecl.constantEntry? sv with
+          | some (_, e) =>
+              some (qualifiedConstantKey (pathOfName decl.name) sv.name, e)
+          | none => none))
+    order
+
+def ContractDecls.qualifiedConstantEntries (contracts : List ContractDecl) :
+    ConstantEnv :=
+  concatMapList (ContractDecl.qualifiedConstantEntries contracts) contracts
+
 /-- Storage / constructor / initializer order.
 
     solc lays out contract storage and runs base constructors + inline
@@ -21480,7 +21544,9 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let stateVars :=
     ScopedStateVarDecls.coreDecls duplicateStateNames scopedStateVars
   let sourceConstantEnv := StateVars.constantEnv sourceConstants
-  let constants := StateVars.constantEnv stateVars ++ sourceConstantEnv
+  let constants :=
+    StateVars.constantEnv stateVars ++ sourceConstantEnv ++
+      ContractDecls.qualifiedConstantEntries allContracts
   let storageStateVars := stateVars.filter StateVarDecl.isStorageBacked
   let transientStateVars := stateVars.filter StateVarDecl.isTransient
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable
@@ -21654,10 +21720,22 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     ContractDecl.toCoreImmutableFieldsFrom stateVars
   let eventDecls ←
     mapOption EventDecl.toCore (contractEvents ++ visibleSourceEvents)
+  -- REVERT-QUAL library case (#102/5): a `revert L.Err(...)` names an error
+  -- declared in a LIBRARY, which is not in the contract's own/inherited error
+  -- scope. Add library errors (by name, without shadowing a same-named contract
+  -- error) to the runtime error table so `findErrorDecl?` can encode the
+  -- selector + args. solc computes the same canonical selector regardless of the
+  -- declaring scope.
+  let libraryErrors :=
+    concatMapList ContractDecl.directErrors
+      (allContracts.filter ContractDecl.isLibrary)
+  let extraLibraryErrors :=
+    ErrorDecls.withoutNamesOf (contractErrors ++ visibleSourceErrors)
+      libraryErrors
   let errorDecls ←
     mapOption
       ErrorDecl.toCore
-      (contractErrors ++ visibleSourceErrors)
+      (contractErrors ++ visibleSourceErrors ++ extraLibraryErrors)
   some
     { storageFields :=
         ContractDecl.toCoreStorageFieldsFromSlot false layoutBaseSlot
@@ -21914,7 +21992,9 @@ def ContractDecl.constructorFunctionFromOrders?
   let stateVars :=
     ScopedStateVarDecls.coreDecls duplicateStateNames scopedStateVars
   let sourceConstantEnv := StateVars.constantEnv sourceConstants
-  let constants := StateVars.constantEnv stateVars ++ sourceConstantEnv
+  let constants :=
+    StateVars.constantEnv stateVars ++ sourceConstantEnv ++
+      ContractDecls.qualifiedConstantEntries allContracts
   let storageStateVars := stateVars.filter StateVarDecl.isStorageBacked
   let transientStateVars := stateVars.filter StateVarDecl.isTransient
   let immutableStateVars := stateVars.filter StateVarDecl.isImmutable

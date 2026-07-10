@@ -1192,6 +1192,15 @@ def expr_from_node(node: dict[str, Any]) -> str:
         member = node.get("memberName")
         if not isinstance(expression, dict) or not isinstance(member, str):
             fail("MemberAccess missing expression or memberName")
+        # A member access whose OWN type is itself a type (`t_type$...`) is a
+        # nested type-name reference — e.g. `Base.E` where enum `E` is declared
+        # in contract `Base`. solc's parser keeps it as a MemberAccess, but the
+        # model represents a qualified type name as a single `Ty.user` path.
+        # Collapse it to `Expr.typeName (Ty.user {Base, E})` so that a further
+        # member (`Base.E.Variant`) matches the same `member (typeName path) …`
+        # shape used by the unqualified enum-value form.
+        if is_type_expression_node(node):
+            return "Expr.typeName (" + type_from_expression_node(node) + ")"
         return f"Expr.member ({expr_from_node(expression)}) {lean_string(member)}"
     if node_type == "IndexAccess":
         base = node.get("baseExpression")

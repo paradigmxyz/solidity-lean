@@ -5319,6 +5319,74 @@ def resolveContextual (env : CheckEnv)
 
 end ErrorSigs
 
+/-- The dispatch (C3-linearized) order of the contract named by `path`, or the
+    lone contract when it has no bases (a library / a base-less contract). Used
+    to search a qualified type name's own + inherited members. -/
+def TypeContext.contractDispatchOrder
+    (types : TypeContext) (decl : Solidity.ContractDecl) :
+    List Solidity.ContractDecl :=
+  match Solidity.Executable.ContractDecl.dispatchOrder?
+      (types.contractDecls.map Prod.snd) decl with
+  | some order => order
+  | none => [decl]
+
+/-- Resolve a data member (constant or state variable) read through a type name:
+    `Base.K`, `L.LK` (constant), `Base.v` (inherited storage variable). solc
+    resolves these statically to the declaration inherited through the named
+    contract/library/interface. Returns the member's type (with the DECLARING
+    contract's local user types qualified) together with whether it is a
+    `constant` (compile-time value, not an lvalue / state read). -/
+def TypeContext.contractDataMemberTy?
+    (types : TypeContext) (path : Path) (member : Name) :
+    Option (Ty × Bool) := do
+  let decl ← types.lookupContractDecl? path
+  (types.contractDispatchOrder decl).findSome? (fun c =>
+    match (Solidity.Executable.ContractDecl.directStateVars c).find?
+        (fun sv => sv.name == member) with
+    | some sv =>
+        some
+          (Ty.qualifyLocalUserTypes c.name (ContractDecl.localTypeNames c) sv.ty,
+            Solidity.Executable.StateVarDecl.isConstant sv)
+    | none => none)
+
+/-- Whether a type name exposes `member` as a `.selector`-bearing declaration:
+    an error (`I.IE`, `L.LE`) or an externally-callable function
+    (`L.g` — a library external function; a contract external/public function).
+    All such selectors are 4 bytes (`bytesN 4`). -/
+def TypeContext.contractSelectorMemberTy?
+    (types : TypeContext) (path : Path) (member : Name) :
+    Option Ty := do
+  let decl ← types.lookupContractDecl? path
+  let order := types.contractDispatchOrder decl
+  let hasError :=
+    order.any (fun c =>
+      (Solidity.Executable.ContractDecl.directErrors c).any
+        (fun e => e.name == member))
+  let hasExternalFn :=
+    order.any (fun c =>
+      (ContractDecl.directFunctionSigsQualifiedLocalTypes c).any
+        (fun sig => sig.name == member && sig.externallyCallable))
+  if hasError || hasExternalFn then some (Solidity.Ty.bytesN 4) else none
+
+/-- Parameter names + types of an error declared in the contract/library named
+    by `path` (or one of its bases), for checking a qualified error revert
+    `revert L.LE(args)`. Types are qualified with the DECLARING contract's local
+    user types. -/
+def TypeContext.contractErrorSig?
+    (types : TypeContext) (path : Path) (member : Name) :
+    Option (List (Option Name) × List Ty) := do
+  let decl ← types.lookupContractDecl? path
+  (types.contractDispatchOrder decl).findSome? (fun c =>
+    match (Solidity.Executable.ContractDecl.directErrors c).find?
+        (fun e => e.name == member) with
+    | some err =>
+        let localTypeNames := ContractDecl.localTypeNames c
+        some
+          (err.params.map (fun p => p.name),
+            err.params.map (fun p =>
+              Ty.qualifyLocalUserTypes c.name localTypeNames p.ty))
+    | none => none)
+
 mutual
 
 def checkExpr (env : CheckEnv) :
@@ -5445,29 +5513,46 @@ def checkExpr (env : CheckEnv) :
                 (Solidity.Ty.user _) =>
                 env.types.isContractPath path
             | _ => env.types.isContractValuePath path
-          if receiverAllowed then do
-            let sig ←
-              env.types.resolveContractExternalFunctionValue path member
-            match FunctionSig.externalFunctionValueTy? sig with
-            | some _ =>
-                Except.ok
-                  { source := expr
-                    ty := Solidity.Ty.bytesN 4
-                    lvalue := false
-                    stateLValue := false }
-            | none => Except.error (TypeError.unsupported "member selector")
-          else do
-            let fnChecked ←
-              checkExpr env (Solidity.Expr.member base member)
-            match fnChecked.ty with
-            | Solidity.Ty.functionWithLocations _ _ _ _ _
-                Solidity.Visibility.external_ =>
-                Except.ok
-                  { source := expr
-                    ty := Solidity.Ty.bytesN 4
-                    lvalue := false
-                    stateLValue := false }
+          -- Qualified ERROR / library-function selector fallback:
+          -- `I.IE.selector`, `L.LE.selector`, `L.g.selector`. These are NOT
+          -- external-function VALUES, so external-function-value resolution
+          -- fails; resolve them from the type name's error/function table.
+          let selectorFallback : Except TypeError CheckedExpr :=
+            match base with
+            | Solidity.Expr.typeName (Solidity.Ty.user _) =>
+                match env.types.contractSelectorMemberTy? path member with
+                | some ty =>
+                    Except.ok
+                      { source := expr, ty := ty
+                        lvalue := false, stateLValue := false }
+                | none =>
+                    Except.error (TypeError.unsupported "member selector")
             | _ => Except.error (TypeError.unsupported "member selector")
+          if receiverAllowed then
+            match env.types.resolveContractExternalFunctionValue path member with
+            | Except.ok sig =>
+                match FunctionSig.externalFunctionValueTy? sig with
+                | some _ =>
+                    Except.ok
+                      { source := expr
+                        ty := Solidity.Ty.bytesN 4
+                        lvalue := false
+                        stateLValue := false }
+                | none => selectorFallback
+            | Except.error _ => selectorFallback
+          else
+            match checkExpr env (Solidity.Expr.member base member) with
+            | Except.ok fnChecked =>
+                match fnChecked.ty with
+                | Solidity.Ty.functionWithLocations _ _ _ _ _
+                    Solidity.Visibility.external_ =>
+                    Except.ok
+                      { source := expr
+                        ty := Solidity.Ty.bytesN 4
+                        lvalue := false
+                        stateLValue := false }
+                | _ => selectorFallback
+            | Except.error _ => selectorFallback
       | _ => do
           let fnChecked ←
             checkExpr env (Solidity.Expr.member base member)
@@ -5622,6 +5707,30 @@ def checkExpr (env : CheckEnv) :
         | _ => none
       if let some checked := memberFnValue? then
         return checked
+      -- Qualified DATA member: a constant or (inherited) state variable read
+      -- through a type name — `Base.K`, `L.LK`, `Base.v`. Resolved before
+      -- `checkTy` because a library type name is not itself a value type. A
+      -- non-constant state variable is a storage lvalue and a state read.
+      let dataMember? : Option (Except TypeError CheckedExpr) :=
+        (match ty with
+         | Solidity.Ty.user path =>
+             env.types.contractDataMemberTy? path member
+         | _ => none).map
+          (fun (dataTy, isConstant) => do
+            if !isConstant then
+              requireStateReadAllowed env
+            Except.ok
+              { source := expr
+                ty := dataTy
+                lvalue := !isConstant
+                stateLValue := !isConstant
+                dataLocation? :=
+                  if !isConstant && Ty.needsDataLocation env.types dataTy then
+                    some Solidity.DataLocation.storage
+                  else
+                    none })
+      if let some result := dataMember? then
+        return (← result)
       checkTy env.types ty
       let ty := env.qualifyCurrentLocalUserTypes ty
       match ty with
@@ -9118,8 +9227,24 @@ def checkRevertCall (env : CheckEnv)
   -- library-declared error `L.Bad`, which `env.errors` does not carry) — those
   -- stay DECLINED, matching the executable lowering which could not soundly
   -- encode a library error's selector from the contract's error table.
-  | Solidity.Expr.call (Solidity.Expr.member _ name) args => do
-      checkCustomErrorArgs env name args
+  | Solidity.Expr.call (Solidity.Expr.member base name) args => do
+      -- REVERT-QUAL library case (#102/5): `revert L.LE(a)` names an error
+      -- declared in a LIBRARY (or interface / non-inherited contract) — not in
+      -- the contract's own/inherited error scope. Resolve it against the named
+      -- type's error table; the executable lowering carries library errors in
+      -- the runtime error table so the selector is soundly encoded. A base-/
+      -- self-qualified error (`revert Base.Err(a)`) still routes through
+      -- `checkCustomErrorArgs`.
+      match base with
+      | Solidity.Expr.typeName (Solidity.Ty.user path) =>
+          match env.types.contractErrorSig? path name with
+          | some (paramNames, paramTys) => do
+              let _ ←
+                checkContextualArgsAssignableToParamsFor
+                  env "custom error" paramNames paramTys args
+              Except.ok ()
+          | none => checkCustomErrorArgs env name args
+      | _ => checkCustomErrorArgs env name args
   | other => do
       let _ ← checkExpr env other
       Except.ok ()
