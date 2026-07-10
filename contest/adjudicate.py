@@ -668,8 +668,10 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             evidence=evidence)
     # Custom-error definitions (name + params + selector) from the entry source,
     # so a custom-error revert decodes to custom:<Name>:... instead of raw:.
-    error_defs = meas.error_definitions(sig.source_file, tools.solc)
+    error_defs, ambiguous_sels = meas.error_definitions(sig.source_file, tools.solc)
     evidence["custom_errors"] = {sel: name for sel, (name, _t) in error_defs.items()}
+    if ambiguous_sels:
+        evidence["ambiguous_error_selectors"] = sorted(ambiguous_sels)
     evm_obs = obs.evm_observable(
         measured.ok, measured.ret_hex, sig.return_types,
         events=measured.events, storage=measured.storage, errors=error_defs)
@@ -696,6 +698,25 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                             if measured.ret_hex.startswith("0x")
                             else measured.ret_hex)
         _sel = _rd[:4].hex() if len(_rd) >= 4 else ""
+        # Scope check (X-ERRSEL, revert channel): the revert selector is defined by
+        # two-or-more distinctly-named custom errors (a 4-byte collision). solc
+        # rejects colliding errors within one contract but NOT across separate
+        # contracts / a file-level error, so a submission can plant a second error
+        # whose name a last-wins selector map resolves to instead of the reverted
+        # one. The on-chain bytes are IDENTICAL (same selector+args) -> the NAME is
+        # not a faithful observable, so a name mismatch would fabricate a
+        # wrong-revert SOUNDNESS_GAP. Route the ambiguous revert to REJECTED_OOS.
+        if _sel and _sel in ambiguous_sels:
+            _e = reg.entry_by_id("X-ERRSEL")
+            if _e is not None and _e.is_active(effective_version):
+                evidence["ambiguous_revert_selector"] = _sel
+                return Report("REJECTED_OOS", reason=(
+                    f"reject gate fired: X-ERRSEL (intentional exclusion, out of "
+                    f"scope) — the revert selector 0x{_sel} is defined by two or "
+                    f"more distinctly-named custom errors (a 4-byte selector "
+                    f"collision); the on-chain revert is indistinguishable between "
+                    f"them, so the custom-error name is not a faithful observable"),
+                    evidence=evidence)
         if _sel in error_defs:
             _ename, _etypes = error_defs[_sel]
             _uncomparable = [t for t in _etypes if not _comparable_return_type(t)]
