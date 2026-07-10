@@ -9855,6 +9855,49 @@
           }
         ]
       }
+    },
+    {
+      "name": "named-arg-order",
+      "description": "NAMED-ARG-ORDER regression pin. solc 0.8.35 LEGACY codegen (corpus ground truth) evaluates a call's NAMED arguments in the callee's PARAMETER/DECLARATION order, then binds by name; solc via-IR instead evaluates them in SOURCE (call-site) order (verified on real EVM: an internal call `twoI({b: e1, a: e2})` runs `e2` (param a, declared first) before `e1` (param b) under legacy => order digits 21, whereas via-IR gives 12). solidity-lean lowers an internal call's named arguments into per-parameter temporaries evaluated in parameter order (the boundaryArgDecls / toExprsForParams? path), so it ALREADY matches LEGACY -- no model change was needed. This lane guarantees the model keeps legacy parameter-order semantics for internal named arguments and does not drift to the via-IR source order. Each argument is an assignment expression `trace = trace*10+n` (order-observable, not a nested call). Scenarios: positionalOrder pins the shared source-order path (12); internalOrder pins 2-arg named parameter order (21); internalThree pins 3-arg named parameter order with a scrambled {c,a,b} call site (231, unambiguously parameter order vs the source order 123). Values captured on real EVM via Forge and re-checked by the Forge test; Lean imports the same source and runs the source semantics via own-call. Named-argument syntax is only accepted by solc for function calls / struct constructors / events / errors (NOT modifier or base-constructor invocations, which are rejected at parse); struct/event/error named args route through the ABI/component encoder whose child evaluation order is a separate independently-tracked concern, so this lane covers only the encoder-decoupled internal-call path.",
+      "forge": {
+        "root": "tests/forge-harness/named-arg-order",
+        "match_contract": "NamedArgOrderForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/named-arg-order/src/NamedArgOrder.sol",
+        "contract": "NamedArgOrderHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NamedArgOrder"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.NamedArgOrder.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "positionalOrder",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NamedArgOrder.importedContract \"positionalOrder\" SolidCore.Solidity.Source.State.empty [] 12",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "internalOrder",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NamedArgOrder.importedContract \"internalOrder\" SolidCore.Solidity.Source.State.empty [] 21",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "internalThree",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NamedArgOrder.importedContract \"internalThree\" SolidCore.Solidity.Source.State.empty [] 231",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

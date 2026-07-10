@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/named-arg-order/out"
+cache_path = "../../.foundry-suites/named-arg-order/cache"
+evm_version = "cancun"
