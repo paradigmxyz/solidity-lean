@@ -993,6 +993,37 @@ def tuple_item_from_node(node: Any) -> str:
     return f"TupleItem.value ({expr_from_node(node)})"
 
 
+def is_abi_decode_call(expression: Any) -> bool:
+    """True for the callee of an `abi.decode(...)` call."""
+    if not isinstance(expression, dict):
+        return False
+    if expression.get("nodeType") != "MemberAccess":
+        return False
+    if expression.get("memberName") != "decode":
+        return False
+    inner = expression.get("expression")
+    return (
+        isinstance(inner, dict)
+        and inner.get("nodeType") == "Identifier"
+        and inner.get("name") == "abi"
+    )
+
+
+def abi_decode_type_arg_from_node(node: Any) -> str:
+    """Lower `abi.decode`'s type argument, preserving a single-element tuple
+    wrapper that the generic TupleExpression handling would otherwise collapse.
+    solc requires this argument to be a tuple of types, so `(uint)` must stay a
+    one-element `Expr.tuple` rather than degrade to a bare `Expr.typeName`."""
+    if isinstance(node, dict) and node.get("nodeType") == "TupleExpression" and node.get("isInlineArray") is not True:
+        components = node.get("components", [])
+        if not isinstance(components, list):
+            fail("TupleExpression.components must be a list")
+        return "Expr.tuple " + lean_list(
+            [tuple_item_from_node(component) for component in components]
+        )
+    return expr_from_node(node)
+
+
 def try_clause_params_from_node(node: dict[str, Any]) -> str:
     params = node.get("parameters")
     if params is None:
@@ -1186,6 +1217,27 @@ def expr_from_node(node: dict[str, Any]) -> str:
             if len(args) != 1:
                 fail("type(...) call must have one argument")
             return expr_from_node(args[0])
+        # abi.decode's second argument is a TUPLE of types. solc's generic
+        # single-element `(uint)` collapse (below, in expr_from_node) would strip
+        # the tuple wrapper and make `(uint)` indistinguishable from a bare
+        # `uint` — but solc accepts `(uint)` and rejects bare `uint` (error
+        # 6444). Preserve the tuple wrapper here so the model can tell them
+        # apart. (solc emits no AST for the rejected bare form, so only the
+        # accepted parenthesized shape ever reaches the importer.)
+        if (
+            is_abi_decode_call(expression)
+            and len(args) == 2
+            and node.get("names") in (None, [])
+        ):
+            return (
+                "Expr.call ("
+                + expr_from_node(expression)
+                + ") "
+                + lean_list([
+                    f"Arg.positional ({expr_from_node(args[0])})",
+                    f"Arg.positional ({abi_decode_type_arg_from_node(args[1])})",
+                ])
+            )
         return "Expr.call (" + expr_from_node(expression) + ") " + args_from_nodes(args, node.get("names"))
     if node_type == "MemberAccess":
         expression = node.get("expression")

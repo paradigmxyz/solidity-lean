@@ -1056,6 +1056,72 @@ def try107MultiWideningRejected : Bool :=
 #guard try107NarrowingRejected
 #guard try107ExactMatchesAccepted
 #guard try107MultiWideningRejected
+-- ABI-DECODE — the second argument must be a TUPLE of types, and every
+-- top-level decoded `address` component is coerced to `address payable`.
+--
+--   * Bare (non-parenthesized) single type `abi.decode(data, uint)` is REJECTED
+--     (solc TypeError 6444, `TypeChecker.cpp:127-136`: "The second argument to
+--     \"abi.decode\" has to be a tuple of types."). `(uint)` — a one-element
+--     tuple — and `(uint, bool)` are ACCEPTED. (The importer preserves the
+--     tuple wrapper for this argument, so `Expr.typeName` here can only mean the
+--     rejected bare form.)
+--   * Each top-level decoded `address` is forced to `address payable`
+--     (`TypeChecker.cpp:150-152`), so it is assignable to an `address payable`
+--     variable. Probed against pinned solc 0.8.35:
+--       `address payable p = abi.decode(data, (address));`  compiles.
+-- ===========================================================================
+
+private def abiDecodeDataParam : Parameter :=
+  { name := some "data", ty := Ty.bytes, location := some DataLocation.memory }
+
+private def abiDecodeExpr (typesExpr : Expr) : Expr :=
+  Expr.call (Expr.member (Expr.ident "abi") "decode")
+    [Arg.positional (Expr.ident "data"), Arg.positional typesExpr]
+
+private def abiDecodeStmtFn (body : Stmt) : FunctionDecl :=
+  { kind := FunctionKind.function
+    name := some "f"
+    params := [abiDecodeDataParam]
+    returns := []
+    visibility := some Visibility.public_
+    mutability := StateMutability.pure
+    body := some (Stmt.block [body]) }
+
+-- Bare single type `abi.decode(data, uint)` — REJECTED (error 6444).
+def abiDecodeBareTypeRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "AbiDecodeBare"
+    (abiDecodeStmtFn (Stmt.expr (abiDecodeExpr (Expr.typeName (Ty.uint 256)))))))
+
+-- `(uint)` — one-element tuple — ACCEPTED.
+def abiDecodeSingleTupleAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "AbiDecodeSingleTuple"
+    (abiDecodeStmtFn (Stmt.expr (abiDecodeExpr
+      (Expr.tuple [TupleItem.value (Expr.typeName (Ty.uint 256))])))))
+
+-- `(uint, bool)` — multi-element tuple — ACCEPTED.
+def abiDecodeMultiTupleAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "AbiDecodeMultiTuple"
+    (abiDecodeStmtFn (Stmt.expr (abiDecodeExpr
+      (Expr.tuple
+        [ TupleItem.value (Expr.typeName (Ty.uint 256))
+        , TupleItem.value (Expr.typeName Ty.bool) ])))))
+
+-- `address payable p = abi.decode(data, (address));` — ACCEPTED because the
+-- decoded top-level `address` is coerced to `address payable`.
+def abiDecodeAddressPayableAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "AbiDecodeAddrPayable"
+    (abiDecodeStmtFn
+      (Stmt.varDecl
+        [{ name := some "p", ty := Ty.address true, location := none }]
+        (some (abiDecodeExpr
+          (Expr.tuple [TupleItem.value (Expr.typeName (Ty.address false))]))))))
+
+-- Build-time gate: pin every acceptance-boundary witness added here so a future
+-- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard abiDecodeBareTypeRejected
+#guard abiDecodeSingleTupleAccepted
+#guard abiDecodeMultiTupleAccepted
+#guard abiDecodeAddressPayableAccepted
 #guard badInternalPayableRejected
 #guard badPrivatePayableRejected
 #guard g11PayableNeighborsAccepted

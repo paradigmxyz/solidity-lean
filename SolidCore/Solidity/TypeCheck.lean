@@ -4482,6 +4482,17 @@ def checkStringConcatArgs : List CheckedExpr -> Except TypeError Unit
         (TypeError.invalidAbiType expr.ty)
       checkStringConcatArgs rest
 
+/-- solc forces every top-level decoded `address` component of `abi.decode`'s
+result to `address payable`
+(`TypeChecker.cpp:150-152`, `typeCheckABIDecodeAndRetrieveReturnType`). The
+coercion is applied to each top-level returned component only — addresses nested
+inside a decoded array or struct are NOT rewritten (confirmed against solc
+0.8.35: `abi.decode(data,(address[]))[0].transfer(1)` and a decoded
+struct-with-address member both reject). -/
+def coerceAbiDecodeAddressPayable : Ty -> Ty
+  | Solidity.Ty.address false => Solidity.Ty.address true
+  | ty => ty
+
 def checkAbiDecodeTupleItems (types : TypeContext) :
     List Solidity.TupleItem -> Except TypeError (List Ty)
   | [] => Except.ok []
@@ -4498,20 +4509,20 @@ def checkAbiDecodeTupleItems (types : TypeContext) :
       Except.error
         (TypeError.invalidAbiCall "abi.decode expects type names")
 
+/-- The second argument to `abi.decode` must be a TUPLE of types
+(`TypeChecker.cpp:127-136`, error 6444). A bare (non-parenthesized) single type
+`abi.decode(data, uint)` is rejected by solc; `(uint)` (a one-element tuple) is
+accepted. solc's AST wraps `(uint)` in a `TupleExpression`, and the importer
+preserves that wrapper for `abi.decode`'s type argument, so the only accepted
+shape here is `Expr.tuple`. -/
 def checkAbiDecodeTypesExpr (types : TypeContext) :
     Solidity.Expr -> Except TypeError (List Ty)
-  | Solidity.Expr.typeName ty => do
-      checkTy types ty
-      require (TypeContext.isAbiEncodable types ty)
-        (TypeError.invalidAbiType ty)
-      require (TypeContext.abiCoderSupports types ty)
-        (TypeError.invalidAbiType ty)
-      Except.ok [ty]
   | Solidity.Expr.tuple items =>
       checkAbiDecodeTupleItems types items
   | _ =>
       Except.error
-        (TypeError.invalidAbiCall "abi.decode expects a type expression")
+        (TypeError.invalidAbiCall
+          "the second argument to abi.decode has to be a tuple of types")
 
 def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
     (argInfos : List ArgInfo) (checkedArgs : List CheckedExpr) :
@@ -6572,10 +6583,13 @@ def checkExpr (env : CheckEnv) :
                   Solidity.Arg.positional typesExpr ],
                 [data, _] => do
                   data.expectBytesLike
-                  let tys ← checkAbiDecodeTypesExpr env.types typesExpr
-                  require (tys.length > 0)
+                  let rawTys ← checkAbiDecodeTypesExpr env.types typesExpr
+                  require (rawTys.length > 0)
                     (TypeError.invalidAbiCall
                       "abi.decode expects at least one target type")
+                  -- solc forces each top-level decoded `address` to `address
+                  -- payable` (TypeChecker.cpp:150-152).
+                  let tys := rawTys.map coerceAbiDecodeAddressPayable
                   Except.ok
                     { source := expr
                       ty := resultTyFromReturns tys

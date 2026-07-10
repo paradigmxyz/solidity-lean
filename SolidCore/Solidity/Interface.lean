@@ -5349,7 +5349,14 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
   | Expr.call (Expr.member (Expr.ident "abi") "encode") _ => some Ty.bytes
   | Expr.call (Expr.member (Expr.ident "abi") "decode")
       [_, Arg.positional typesExpr] => do
-      let tys ← Expr.abiDecodeSourceTypes? typesExpr
+      let rawTys ← Expr.abiDecodeSourceTypes? typesExpr
+      -- solc forces each top-level decoded `address` component to
+      -- `address payable` (TypeChecker.cpp:150-152); match it here so the
+      -- lowered expression type agrees with the typechecker.
+      let tys := rawTys.map (fun ty =>
+        match ty with
+        | Ty.address false => Ty.address true
+        | _ => ty)
       match tys with
       | [] => none
       | [ty] => some ty
@@ -6180,10 +6187,12 @@ def TupleItems.toAbiDecodeSourceTypes? :
   | _ => none
 termination_by items => (sizeOf items, 0)
 
+-- The second argument to `abi.decode` must be a TUPLE of types
+-- (solc `TypeChecker.cpp:127-136`, error 6444). A bare single type
+-- `abi.decode(data, uint)` is rejected; `(uint)` (a one-element tuple) is
+-- accepted. The importer preserves the tuple wrapper for this argument, so the
+-- only accepted shape is `Expr.tuple`.
 def Expr.abiDecodeSourceTypes? : Expr -> Option (List Ty)
-  | Expr.typeName ty => do
-      let _ ← Ty.toCore? ty
-      some [ty]
   | Expr.tuple items => TupleItems.toAbiDecodeSourceTypes? items
   | _ => none
 
