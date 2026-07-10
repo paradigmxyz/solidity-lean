@@ -12707,13 +12707,52 @@ def StructDecl.hasForbiddenStructReferenceCycle (types : TypeContext)
 
 end
 
+-- Count of type nodes the by-value cycle detector may consume fuel on while
+-- descending a single field type: one per node, descending into fixed *and*
+-- dynamic array elements and into tuple components (an over-count relative to
+-- the detector, which stops at dynamic arrays/mappings — safe, we only need an
+-- upper bound).
+mutual
+def Ty.structCycleFuelNodes : Ty -> Nat
+  | Solidity.Ty.array element _ => 1 + Ty.structCycleFuelNodes element
+  | Solidity.Ty.tuple tys => 1 + Tys.structCycleFuelNodes tys
+  | _ => 1
+def Tys.structCycleFuelNodes : List Ty -> Nat
+  | [] => 0
+  | ty :: rest => Ty.structCycleFuelNodes ty + Tys.structCycleFuelNodes rest
+end
+
+/-- Fuel budget for the by-value struct-cycle detector.
+
+`Ty.hasForbiddenStructReferenceCycle` reports a forbidden cycle only when a
+by-value path (fixed-array / tuple descent, stopping at pointers = dynamic
+arrays and mappings) returns to one of the `targets` structs, consuming one unit
+of fuel per type node visited. Because `targets` is fixed to the struct being
+checked and never grows, over-supplying fuel can never cause a false positive:
+it only ever lets the search reach a genuine self-return. We therefore size the
+budget as a guaranteed upper bound on the fuel cost of any simple by-value
+cycle. A simple cycle visits each struct in scope at most once, so its total
+fuel cost is bounded by the number of field-type nodes summed over all struct
+declarations (`Ty.structCycleFuelNodes` per field). The `+ 1` leaves a margin so
+the target node is reached with fuel to spare. The old fixed bound of 64 missed
+by-value cycles of length ≥ 65. -/
+def TypeContext.structCycleFuel (types : TypeContext) : Nat :=
+  1 +
+    types.structs.foldl
+      (fun acc entry =>
+        acc +
+          entry.2.fields.foldl
+            (fun a field => a + Ty.structCycleFuelNodes field.ty) 0)
+      0
+
 def StructField.check (env : CheckEnv) (selfPaths : List Path)
     (field : Solidity.StructField) : Except TypeError Unit := do
   checkTy env.types field.ty
   require (!Ty.containsLibraryType env.types 64 field.ty)
     (TypeError.invalidType field.ty)
   require
-    (!Ty.hasForbiddenStructReferenceCycle env.types selfPaths 64 field.ty)
+    (!Ty.hasForbiddenStructReferenceCycle env.types selfPaths
+      env.types.structCycleFuel field.ty)
     (TypeError.invalidType field.ty)
 
 def StructDecl.check (env : CheckEnv) (selfPaths : List Path)

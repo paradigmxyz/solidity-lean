@@ -1707,8 +1707,81 @@ def czbAmbiguousOverloadRejected : Bool :=
                   , czbOverloadG (Ty.bytesN 32) "2"
                   , czbOverloadCaller ] } ] })
 
+-- ===========================================================================
+-- #123 STRUCT-CYCLE-FUEL — a struct that reaches itself by value (through fixed
+-- arrays / nested structs, i.e. WITHOUT a pointer = dynamic array or mapping) is
+-- REJECTED ("Recursive struct definition.") for a by-value cycle of ANY length.
+-- The detector previously used a fixed fuel of 64, so a by-value cycle of length
+-- ≥ 65 escaped and was over-accepted. The fuel is now sized to an upper bound on
+-- the by-value path cost (`sizeOf types.structs + 1`), catching cycles of any
+-- length while a deep ACYCLIC chain still accepts (running out of fuel = accept;
+-- the detector only flags a genuine return to the struct under check).
+-- Over-accept only (solc emits no AST for the rejected program), so no Forge
+-- lane — these #guards are the gate.
+-- ===========================================================================
+
+private def scCycleName (i : Nat) : Name := "SC" ++ toString i
+
+-- N free structs S0..S(N-1) with S_i.f : S_((i+1) mod N) — a by-value cycle of
+-- length N (every hop is a by-value nested struct, no pointer).
+def structCycleByValueItems (n : Nat) : List Solidity.SourceItem :=
+  (List.range n).map (fun i =>
+    SourceItem.freeStruct
+      { name := scCycleName i
+        fields :=
+          [ { name := "f"
+              ty := Ty.user (userPath (scCycleName ((i + 1) % n))) } ] })
+
+def structCycleByValue65Rejected : Bool :=
+  Result.isError (SourceUnit.check { items := structCycleByValueItems 65 })
+
+def structCycleByValue130Rejected : Bool :=
+  Result.isError (SourceUnit.check { items := structCycleByValueItems 130 })
+
+private def scChainName (i : Nat) : Name := "SA" ++ toString i
+
+-- N free structs S0..S(N-1) forming a DEEP but ACYCLIC by-value chain: S_i.f :
+-- S_(i+1), and the last one closes with a value type. Length 130 > 64 exercises
+-- the key over-reject risk: the larger fuel must NOT false-positive here.
+def structAcyclicChainItems (n : Nat) : List Solidity.SourceItem :=
+  (List.range n).map (fun i =>
+    SourceItem.freeStruct
+      { name := scChainName i
+        fields :=
+          [ { name := "f"
+              ty :=
+                if i + 1 == n then su_uint256
+                else Ty.user (userPath (scChainName (i + 1))) } ] })
+
+def structAcyclicChain130Accepted : Bool :=
+  sourceUnitAccepted? { items := structAcyclicChainItems 130 }
+
+-- Short guards: direct by-value self-reference rejects; a dynamic-array
+-- self-reference (a pointer) still accepts.
+def structDirectSelfRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      { items :=
+          [ SourceItem.freeStruct
+              { name := "SCSelf"
+                fields := [{ name := "f", ty := Ty.user (userPath "SCSelf") }] } ] })
+
+def structDynArraySelfAccepted : Bool :=
+  sourceUnitAccepted?
+    { items :=
+        [ SourceItem.freeStruct
+            { name := "SCDyn"
+              fields :=
+                [ { name := "f"
+                    ty := Ty.array (Ty.user (userPath "SCDyn")) none } ] } ] }
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard structCycleByValue65Rejected
+#guard structCycleByValue130Rejected
+#guard structAcyclicChain130Accepted
+#guard structDirectSelfRejected
+#guard structDynArraySelfAccepted
 #guard czbAssignZeroFoldAccepted
 #guard czbAssignNonZeroRejected
 #guard czbAmbiguousOverloadRejected
