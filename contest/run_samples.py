@@ -622,19 +622,22 @@ def dedup_replay_unit_tests() -> tuple[bool, str]:
     items = dr.batch_replay(pool, Path("/ref"), adjudicate_fn=_pool_adj,
                             tool_factory=lambda repo: ("REF", repo))
     report = dr.summarize_batch(items)
-    checks.append(("batch-two-payout-classes", report["n_payouts"] == 2))
+    checks.append(("batch-two-unique-classes", report["n_unique"] == 2))
     checks.append(("batch-duplicate-listed", report["duplicates"] == ["subC"]))
     checks.append(("batch-not-in-pool-listed", report["not_in_pool"] == ["subE"]))
-    # the fpA class pays the FIRST filer (subA) and rejects the re-skin (subB).
-    _fpA_cls = next(c for c in report["payout_classes"]
+    # the fpA class's representative is the EARLIEST submission (subA); the re-skin
+    # (subB) folds in as a duplicate of it.
+    _fpA_cls = next(c for c in report["unique_classes"]
                     if c["key"] == "revert_data|A|wrong-revert")
-    checks.append(("batch-first-to-file-payee", _fpA_cls["payee"] == "subA"))
-    checks.append(("batch-reskin-rejected",
+    checks.append(("batch-representative-earliest",
+                   _fpA_cls["representative"] == "subA"))
+    checks.append(("batch-reskin-folded-in",
                    _fpA_cls["rejected_reskins"] == ["subB"]))
-    _fpB_cls = next(c for c in report["payout_classes"]
+    _fpB_cls = next(c for c in report["unique_classes"]
                     if c["key"] == "return_value|B|wrong-value")
-    checks.append(("batch-distinct-novel-own-payout",
-                   _fpB_cls["payee"] == "subD" and not _fpB_cls["rejected_reskins"]))
+    checks.append(("batch-distinct-novel-own-class",
+                   _fpB_cls["representative"] == "subD"
+                   and not _fpB_cls["rejected_reskins"]))
 
     failed = [n for n, ok in checks if not ok]
     detail = ", ".join(f"{n}={'ok' if ok else 'FAIL'}" for n, ok in checks)

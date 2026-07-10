@@ -5,7 +5,8 @@ WHY (design, discussed with Dan 2026-07-09)
 Same-root-cause dedup at SUBMISSION time is effectively undecidable: "are these
 two submissions the same bug?" means "do they share a root cause", which means
 understanding the bug -- manual, and defeated by cosmetic re-skinning. The dedup
-key that actually matters economically is instead
+key that actually matters -- whether two submissions count as ONE distinct finding --
+is instead
 
     "does the SAME fix kill both?"
 
@@ -27,10 +28,10 @@ engine-independent (it is the measured ground truth), so replaying against E1 on
 re-runs the SOLIDITY-LEAN side and re-compares against the same EVM observable.
 
 For dedup AMONG fresh novel submissions (no known fix yet), the same trick batches:
-admit all, hold payout, and when the first novel bug is FIXED, re-run the other
-unpaid novel submissions against the newly-patched engine; every one that vanishes
-was a duplicate of that fix -> collapses into one payout class. `collapse_classes`
-models that batch step given a sequence of (submission, post-fix) replays.
+admit all, and when the first novel bug is FIXED, re-run the other still-open novel
+submissions against the newly-patched engine; every one that vanishes was a duplicate
+of that fix -> collapses into one distinct-finding class. `collapse_classes` models
+that batch step given a sequence of (submission, post-fix) replays.
 
 STATUS: harness-side prototype. The reference build E1 is supplied by the caller
 (a path to a patched checkout); producing the actual gap-fixes lives in
@@ -148,8 +149,9 @@ def classify_dedup(e0_report: Any, e1_report: Any) -> DedupVerdict:
 
 
 @dataclass
-class PayoutClass:
-    """One dedup equivalence class -> at most one payout (first-to-file wins)."""
+class UniqueClass:
+    """One dedup equivalence class -> counts as ONE distinct finding. The earliest
+    member is the class REPRESENTATIVE (the submission credited with the find)."""
     key: str
     members: list[str] = field(default_factory=list)
 
@@ -157,28 +159,29 @@ class PayoutClass:
         return {"key": self.key, "members": list(self.members)}
 
 
-def collapse_classes(items: list[tuple[str, DedupVerdict]]) -> list[PayoutClass]:
-    """Collapse (submission_id, DedupVerdict) pairs into payout classes.
+def collapse_classes(items: list[tuple[str, DedupVerdict]]) -> list[UniqueClass]:
+    """Collapse (submission_id, DedupVerdict) pairs into distinct-finding classes.
 
     DUPLICATE / NOT_IN_POOL submissions do not form new classes (they collapse
     onto a known gap or fall out of the pool). NOVEL / SHIFTED submissions group
     by their adjudicator-derived fingerprint, so re-skins of the same novel defect
     share a class; INCONCLUSIVE items get their own singleton review class.
 
-    Ordering is preserved (first-to-file within a class is the earliest member),
-    so the caller can pay the first member of each class and reject the rest."""
-    classes: dict[str, PayoutClass] = {}
+    Ordering is preserved (the earliest submission within a class is its
+    representative), so the caller can credit the first member of each class and
+    mark the rest duplicates."""
+    classes: dict[str, UniqueClass] = {}
     order: list[str] = []
 
-    def _bucket(key: str) -> PayoutClass:
+    def _bucket(key: str) -> UniqueClass:
         if key not in classes:
-            classes[key] = PayoutClass(key=key)
+            classes[key] = UniqueClass(key=key)
             order.append(key)
         return classes[key]
 
     for sub_id, dv in items:
         if dv.dedup_class in (DUPLICATE, NOT_IN_POOL):
-            continue  # collapses onto a known gap / not a candidate -> no payout
+            continue  # collapses onto a known gap / not a candidate -> not distinct
         if dv.dedup_class == INCONCLUSIVE:
             _bucket(f"review:{sub_id}").members.append(sub_id)
             continue
@@ -230,7 +233,7 @@ def batch_replay(
         tool_factory: Optional[Callable[..., Any]] = None,
         **adjudicate_kwargs: Any) -> list[tuple[str, DedupVerdict]]:
     """Replay a whole pool of (submission_id, dir) against one reference build,
-    preserving submission order (first-to-file). Returns (id, DedupVerdict) pairs
+    preserving submission order (earliest first). Returns (id, DedupVerdict) pairs
     ready for ``collapse_classes``. Injectable for testing like
     ``replay_against_reference``."""
     out: list[tuple[str, DedupVerdict]] = []
@@ -244,12 +247,12 @@ def batch_replay(
 
 
 def summarize_batch(items: list[tuple[str, DedupVerdict]]) -> dict[str, Any]:
-    """Collapse a replayed pool into a payout report:
+    """Collapse a replayed pool into a distinct-findings report:
 
-      * payout_classes -- one per surviving NOVEL/SHIFTED equivalence class; the
-        FIRST member is the payee (first-to-file), the rest are rejected as
-        same-class re-skins.
-      * duplicates     -- ids that collapsed onto a known-gap fix (no payout).
+      * unique_classes -- one per surviving NOVEL/SHIFTED equivalence class; the
+        FIRST member is the representative (earliest submission), the rest are the
+        same-class re-skins folded into it.
+      * duplicates     -- ids that collapsed onto a known-gap fix (not distinct).
       * needs_review   -- SHIFTED / INCONCLUSIVE ids a human must look at.
       * not_in_pool    -- ids whose E0 did not qualify.
     """
@@ -260,24 +263,24 @@ def summarize_batch(items: list[tuple[str, DedupVerdict]]) -> dict[str, Any]:
     needs_review = [sid for sid, dv in items
                     if dv.dedup_class in (SHIFTED, INCONCLUSIVE)]
 
-    payout_classes = []
+    unique_classes = []
     for cls in classes:
         if not cls.members:
             continue
-        # A review-only singleton class (key "review:<id>") is not a payout.
+        # A review-only singleton class (key "review:<id>") is not a distinct find.
         if cls.key.startswith("review:"):
             continue
-        payout_classes.append({
+        unique_classes.append({
             "key": cls.key,
-            "payee": cls.members[0],                 # first-to-file
+            "representative": cls.members[0],         # earliest submission
             "rejected_reskins": cls.members[1:],
             "dedup_class": by_id[cls.members[0]].dedup_class,
         })
 
     return {
         "total": len(items),
-        "payout_classes": payout_classes,
-        "n_payouts": len(payout_classes),
+        "unique_classes": unique_classes,
+        "n_unique": len(unique_classes),
         "duplicates": duplicates,
         "needs_review": needs_review,
         "not_in_pool": not_in_pool,
@@ -286,7 +289,7 @@ def summarize_batch(items: list[tuple[str, DedupVerdict]]) -> dict[str, Any]:
 
 def _discover_pool(pool_dir: Path) -> list[tuple[str, Path]]:
     """Each immediate subdirectory of ``pool_dir`` containing a claim.json is one
-    submission; its directory name is the (first-to-file-ordered) submission id."""
+    submission; its directory name is the (submission-order) submission id."""
     subs = [(p.name, p) for p in sorted(pool_dir.iterdir())
             if p.is_dir() and (p / "claim.json").is_file()]
     return subs
@@ -303,7 +306,7 @@ def _main() -> int:
                         help="a single submission dir (omit with --pool)")
     parser.add_argument("--pool", type=Path,
                         help="a directory of submission subdirs to batch-replay "
-                             "and collapse into payout classes")
+                             "and collapse into distinct-finding classes")
     parser.add_argument("--reference-build", type=Path, required=True,
                         help="path to a fully-built reference checkout E1 "
                              "(= current build + known-gap fixes)")
@@ -314,8 +317,8 @@ def _main() -> int:
         items = batch_replay(pool, args.reference_build)
         report = summarize_batch(items)
         print(json.dumps(report, indent=2))
-        # exit 1 if any payout class survives (a human must pay/verify), else 0.
-        return 1 if report["n_payouts"] or report["needs_review"] else 0
+        # exit 1 if any distinct finding survives (a human must verify), else 0.
+        return 1 if report["n_unique"] or report["needs_review"] else 0
 
     if not args.submission:
         parser.error("provide a submission dir or --pool <dir>")
@@ -323,8 +326,8 @@ def _main() -> int:
     print(f"=== DEDUP: {verdict.dedup_class.upper()} "
           f"(E0={verdict.e0_verdict}, E1={verdict.e1_verdict}) ===")
     print(json.dumps(verdict.to_dict(), indent=2))
-    # duplicate/not-in-pool -> non-payout (exit 0); novel/shifted/inconclusive
-    # -> a human/payout action is warranted (exit 1 signals "needs attention").
+    # duplicate/not-in-pool -> not a distinct finding (exit 0); novel/shifted/
+    # inconclusive -> a human should verify (exit 1 signals "needs attention").
     return 0 if verdict.dedup_class in (DUPLICATE, NOT_IN_POOL) else 1
 
 
