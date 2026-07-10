@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/abiencode-lit-fixedbytes/out"
+cache_path = "../../.foundry-suites/abiencode-lit-fixedbytes/cache"
+evm_version = "cancun"

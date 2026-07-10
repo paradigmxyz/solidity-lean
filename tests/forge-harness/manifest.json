@@ -10925,6 +10925,59 @@
           }
         ]
       }
+    },
+    {
+      "name": "abiencode-lit-fixedbytes",
+      "description": "#140 ABIENCODE-LIT-FIXEDBYTES: a string/hex/bytes literal passed to a fixed bytesN parameter over a `new C(...)` creation or external member call is ABI-encoded by solc as ONE left-aligned 32-byte word (not the dynamic head/length/data of bytes/string). Forge deploys on the real EVM (new C(hex\"1234\") -> 0x1234, new C(\"ab\") -> 0x6162, new E(hex\"deadbeef\") -> 0xdeadbeef..., c.f(hex\"abcd\") -> 0xabcd, and a dynamic bytes param stays dynamic). Lean imports the same source and checks each creation/call lowers the literal argument to the single fixed word the callee's declared parameter type demands, while the dynamic-bytes parameter keeps its dynamic encoding.",
+      "forge": {
+        "root": "tests/forge-harness/abiencode-lit-fixedbytes",
+        "match_contract": "AbiEncodeLitFixedBytesForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/abiencode-lit-fixedbytes/src/AbiEncodeLitFixedBytes.sol",
+        "contract": "AbiLitFactory",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedFactoryAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "ctorHexLiteralLowersToOneFixedWord",
+            "expr": "(do\n  let args \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.fixedBytes 2] [SolidCore.Solidity.Source.Value.word 0x1234]\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiLitFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"AbiLitC\", constructorArgs := args, value := 0, salt? := none, success := true, address := 0xcafe } ]) contract \"makeCtorHex\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word address] =>\n      match (SolidCore.Solidity.Source.CallResult.resultState result).externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>\n          Except.ok (SolidCore.Solidity.Source.wordEq address 0xcafe && SolidCore.Solidity.Source.ContractCreationResult.matches create \"AbiLitC\" args 0 none && create.success)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctorStringLiteralLowersToOneFixedWord",
+            "expr": "(do\n  let args \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.fixedBytes 2] [SolidCore.Solidity.Source.Value.word 0x6162]\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiLitFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"AbiLitC\", constructorArgs := args, value := 0, salt? := none, success := true, address := 0xcafe } ]) contract \"makeCtorStr\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word address] =>\n      match (SolidCore.Solidity.Source.CallResult.resultState result).externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>\n          Except.ok (SolidCore.Solidity.Source.wordEq address 0xcafe && SolidCore.Solidity.Source.ContractCreationResult.matches create \"AbiLitC\" args 0 none && create.success)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctorBytes32LiteralLowersToOneFixedWord",
+            "expr": "(do\n  let args \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.fixedBytes 32] [SolidCore.Solidity.Source.Value.word 0xdeadbeef00000000000000000000000000000000000000000000000000000000]\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiLitFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"AbiLitE\", constructorArgs := args, value := 0, salt? := none, success := true, address := 0xcafe } ]) contract \"makeCtorBig\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word address] =>\n      match (SolidCore.Solidity.Source.CallResult.resultState result).externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>\n          Except.ok (SolidCore.Solidity.Source.wordEq address 0xcafe && SolidCore.Solidity.Source.ContractCreationResult.matches create \"AbiLitE\" args 0 none && create.success)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dynamicBytesParamStaysDynamic",
+            "expr": "(do\n  let args \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.bytesCalldata] [SolidCore.Solidity.Source.Value.bytes [0x12, 0x34]]\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiLitFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"AbiLitDynC\", constructorArgs := args, value := 0, salt? := none, success := true, address := 0xcafe } ]) contract \"makeDyn\" contract.core.context SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word address] =>\n      match (SolidCore.Solidity.Source.CallResult.resultState result).externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>\n          Except.ok (SolidCore.Solidity.Source.wordEq address 0xcafe && SolidCore.Solidity.Source.ContractCreationResult.matches create \"AbiLitDynC\" args 0 none && create.success)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "externalCallHexLiteralLowersToOneFixedWord",
+            "expr": "(do\n  let encoded \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.fixedBytes 2] [SolidCore.Solidity.Source.Value.word 0xabcd]\n  let calldata := ([0xa7, 0xab, 0xdc, 0x09] : List SolidCore.Solidity.Source.Byte) ++ encoded\n  let row : SolidCore.Solidity.Source.LowLevelCallResult := { kind := SolidCore.Solidity.Source.LowLevelCallKind.staticcall, target := 0xc0ffee, calldata := calldata, value := 0, gas? := none, success := true, output := encoded }\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.AbiEncodeLitFixedBytes.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"AbiLitFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64 (SolidCore.Solidity.Source.responderOfResults [row] []) contract \"callF\" contract.core.context SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xc0ffee]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word ret] =>\n      match (SolidCore.Solidity.Source.CallResult.resultState result).externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>\n          Except.ok (SolidCore.Solidity.Source.wordEq ret 0xabcd && SolidCore.Solidity.Source.LowLevelCallResult.matches call SolidCore.Solidity.Source.LowLevelCallKind.staticcall 0xc0ffee calldata 0 none && call.success)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

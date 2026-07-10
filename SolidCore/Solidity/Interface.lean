@@ -5539,24 +5539,72 @@ def ExternalCallKindEntry.namedArgExprs? (entry : ExternalCallKindEntry)
   else
     none
 
+-- ABIENCODE-LIT-FIXEDBYTES (#140): encode ONE argument against the callee's
+-- DECLARED parameter type. The env-free `Expr.abiTy?` reports a literal's own
+-- default type (a hex/string/bytes literal ⇒ dynamic `bytes`/`string`), but on a
+-- call / `new C(...)` boundary solc encodes the argument by the PARAMETER type.
+-- The only case where the produced BYTES (not merely the reported type) differ is
+-- a string/hex/bytes literal targeting a fixed `bytesN`: solc emits ONE
+-- left-aligned 32-byte word, never the dynamic head/length/data of `bytes`.
+-- Re-encode that literal against the fixed target via
+-- `Expr.toCoreFixedBytesLiteralAs?` — the SAME conversion TypeCheck already
+-- accepts (`toCoreFixedBytesLiteralAs?` / `Literal.toFixedBytesWord?`).
+--
+-- Every other implicit conversion (number literal ⇒ `uintN`/`intN`, an exact
+-- match, …) is byte-identical to the env-free encoding: a number literal's
+-- `uint256` word equals its `uintN` word, so those keep the plain path — when the
+-- arg's `abiTy?` already equals the parameter type, and otherwise
+-- `toCoreFixedBytesLiteralAs?` returns `none` for non-`bytesN` targets so this
+-- function returns `none` and the caller falls back to the env-free lowering
+-- (whose bytes are already correct there). This mirrors solc's overload
+-- resolution: any literal convertible to two distinct parameter types is
+-- rejected by solc as ambiguous, so a lowered (accepted) call always has a
+-- unique applicable signature.
+def Expr.toAbiEncodeArgAgainst? (storageNames : List Name) (paramTy : Ty)
+    (expr : Expr) : Option (CoreTy × CoreExpr) :=
+  match Expr.abiTy? storageNames expr with
+  | some ty =>
+      if ty == paramTy then do
+        let coreTy ← Ty.toCore? ty
+        let coreExpr ← Expr.toCore? storageNames expr
+        some (coreTy, coreExpr)
+      else do
+        let coreTy ← Ty.toCore? paramTy
+        let coreExpr ← Expr.toCoreFixedBytesLiteralAs? paramTy expr
+        some (coreTy, coreExpr)
+  | none => none
+
+-- Zip the DECLARED parameter types with the (already param-ordered, positional)
+-- argument expressions, encoding each against its parameter type. Length
+-- equality is enforced structurally (both lists must run out together).
+def Args.toAbiEncodeAgainst? (storageNames : List Name) :
+    List Ty -> List Arg -> Option (List CoreTy × List CoreExpr)
+  | [], [] => some ([], [])
+  | paramTy :: restTys, Arg.positional expr :: restArgs => do
+      let (coreTy, coreExpr) ←
+        Expr.toAbiEncodeArgAgainst? storageNames paramTy expr
+      let (coreTys, coreExprs) ←
+        Args.toAbiEncodeAgainst? storageNames restTys restArgs
+      some (coreTy :: coreTys, coreExpr :: coreExprs)
+  | _, _ => none
+
 def ExternalCallKindEntry.toAbiCallSource? (storageNames : List Name)
     (entry : ExternalCallKindEntry) (args : List Arg) :
     Option (List Ty × List CoreTy × List CoreExpr) :=
-  match Args.toAbiEncodeSource? storageNames args with
-  | some (sourceTys, coreTys, coreExprs) =>
-      if sourceTys == entry.paramTys then
-        some (entry.paramTys, coreTys, coreExprs)
-      else
-        none
-  | none => do
+  match Args.namedNamesForExternalCall? args with
+  | some _ => do
+      -- All-named (or empty) argument list: reorder to parameter order first,
+      -- then encode each against its declared parameter type.
       let exprs ← ExternalCallKindEntry.namedArgExprs? entry args
       let positionalArgs := exprs.map Arg.positional
-      let (sourceTys, coreTys, coreExprs) ←
-        Args.toAbiEncodeSource? storageNames positionalArgs
-      if sourceTys == entry.paramTys then
-        some (entry.paramTys, coreTys, coreExprs)
-      else
-        none
+      let (coreTys, coreExprs) ←
+        Args.toAbiEncodeAgainst? storageNames entry.paramTys positionalArgs
+      some (entry.paramTys, coreTys, coreExprs)
+  | none => do
+      -- Positional argument list.
+      let (coreTys, coreExprs) ←
+        Args.toAbiEncodeAgainst? storageNames entry.paramTys args
+      some (entry.paramTys, coreTys, coreExprs)
 
 def ExternalCallKindEnv.lookupConstructorEntry?
     (env : ExternalCallKindEnv) (contractName : Name) :
