@@ -959,6 +959,17 @@ def main() -> int:
     results.append(("error_selector_collision HARDENING (FULL)", ok, d))
     _print("error_selector_collision HARDENING (FULL)", ok, d)
 
+    # Round 34 hardening (17th vector): a contract that emits in its CONSTRUCTOR
+    # (Ctor(1)) and in the entry function (Ran(2)). The EVM event observable arms
+    # vm.recordLogs() AFTER the deploy, so it shows only the entry call's Ran(2);
+    # solidity-lean's State accumulates ctor + entry logs in one stream, so
+    # renderEvents used to dump BOTH -> a fabricated wrong-events SOUNDNESS_GAP
+    # (qualifies=True). renderFullDelta/renderEventsFrom now drop the post-
+    # construction log prefix so only the entry-call event is compared -> parity.
+    ok, d = run_full("ctor_event_probe", "NO_DIVERGENCE")
+    results.append(("ctor_event_probe HARDENING (FULL)", ok, d))
+    _print("ctor_event_probe HARDENING (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:

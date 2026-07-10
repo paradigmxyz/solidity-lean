@@ -174,6 +174,40 @@ def renderFull (self : SolidCore.Solidity.Source.Word)
       | CallResult.reverted _ _ => ""
     outcome ++ "##EVT##" ++ evs ++ "##STO##" ++ sto
 
+-- Like renderEvents, but drops the first `skip` log entries — the events emitted
+-- during CONSTRUCTION. The EVM measurement arms vm.recordLogs() AFTER the deploy,
+-- so its event observable excludes constructor logs; the solidity-lean State
+-- accumulates ctor + entry-call logs in one stream, so we skip the post-
+-- construction prefix to compare only the ENTRY CALL's events (component 4).
+-- (Storage, by contrast, is compared INCLUDING ctor writes on both sides: the EVM
+-- arms vm.record() BEFORE the deploy, and renderStorageAll dumps the full map.)
+def renderEventsFrom (self : SolidCore.Solidity.Source.Word)
+    (state : SolidCore.Solidity.Source.State) (skip : Nat) : String :=
+  let entries := (SolidCore.Solidity.Source.State.logEntries state self).drop skip
+  String.intercalate "~" (entries.map (fun e =>
+    "t=[" ++ String.intercalate ","
+        (e.topics.map (fun w => toString (SolidCore.Solidity.Shared.norm w)))
+      ++ "];d=" ++ hexOfBytes e.data))
+
+-- renderFull variant that receives the post-construction log count so the event
+-- section shows ONLY the entry call's logs (see renderEventsFrom). Storage still
+-- dumps the whole map (ctor writes included, symmetric with the EVM side).
+def renderFullDelta (self : SolidCore.Solidity.Source.Word)
+    (_slots : List SolidCore.Solidity.Source.Word)
+    (r : Except SolidCore.Solidity.TypeCheck.TypeError
+                (Nat × SolidCore.Solidity.Source.CallResult)) : String :=
+  match r with
+  | Except.error e => "solidity-lean-reject|" ++ reprStr e
+  | Except.ok (ctorLogs, res) =>
+    let outcome := renderCallResult (Except.ok res)
+    let evs := match res with
+      | CallResult.returned state _ => renderEventsFrom self state ctorLogs
+      | CallResult.reverted _ _ => ""
+    let sto := match res with
+      | CallResult.returned state _ => renderStorageAll state
+      | CallResult.reverted _ _ => ""
+    outcome ++ "##EVT##" ++ evs ++ "##STO##" ++ sto
+
 end SolidCore.Solidity.Contest
 """
 
@@ -227,10 +261,14 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
         # contract never comes into existence. Surface the ctor revert as the
         # observable outcome (short-circuit the entry call).
         f"      | rr@(SolidCore.Solidity.Source.CallResult.reverted _ _) =>\n"
-        f"          return rr\n"
-        f"    {TC}.CheckedContract.callFunctionWithContext {fuel}\n"
-        f"      contract \"{fname}\" ctx deployState {args_lean})")
-    call = (f"SolidCore.Solidity.Contest.renderFull "
+        f"          return (0, rr)\n"
+        # Count the logs emitted during CONSTRUCTION so the observable can show only
+        # the ENTRY CALL's events (the EVM side arms recordLogs after the deploy).
+        f"    let ctorLogs := (SolidCore.Solidity.Source.State.logEntries deployState {self_addr}).length\n"
+        f"    let callRes ← {TC}.CheckedContract.callFunctionWithContext {fuel}\n"
+        f"      contract \"{fname}\" ctx deployState {args_lean}\n"
+        f"    pure (ctorLogs, callRes))")
+    call = (f"SolidCore.Solidity.Contest.renderFullDelta "
             f"{self_addr} {slots_lean} {do_block}")
     return f'#eval "{OBSERVABLE_MARKER.strip()} " ++ ({call})'
 
