@@ -10420,6 +10420,43 @@
           }
         ]
       }
+    },
+    {
+      "name": "const-zero-bytesn",
+      "description": "CONST-ZERO-BYTESN (#121): any constant expression that FOLDS to the value 0 is implicitly convertible to any bytesN type (solc RationalNumberType::isImplicitlyConvertibleTo, Types.cpp:1035, the `m_value == rational(0)` branch operating on the folded value). So `1-1`, `2*0`, `-0`, `5-5` all convert to bytes32/bytes16 and lower to the zero word regardless of width. solidity-lean formerly checked this only syntactically (direct literal), over-rejecting folded-zero expressions. Forge runs the accepted program on real EVM (bytes32 x = 1-1 returns bytes32(0); g(2-2) resolves the bytes32 overload); Lean imports the same contract from the solc AST, confirms acceptance, and checks the folded-zero values and overload resolution. A nonzero fold (1+1 -> 2) and an ambiguous g(uint256)/g(bytes32) overload on the folded 0 stay REJECTED -- see invalid/ fixtures and the AcceptanceBoundaries witnesses.",
+      "forge": {
+        "root": "tests/forge-harness/const-zero-bytesn",
+        "match_contract": "ConstZeroBytesNForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/const-zero-bytesn/invalid/NonZeroFold.sol",
+        "tests/forge-harness/const-zero-bytesn/invalid/AmbiguousOverload.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/const-zero-bytesn/src/ConstZeroBytesN.sol",
+        "contract": "ConstZeroBytesN",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ConstZeroBytesN"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedConstZeroBytesNAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ConstZeroBytesN.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedConstZeroBytesNSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.ConstZeroBytesN.importedSourceUnit\n  let target := \"ConstZeroBytesN\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let empty := SolidCore.Solidity.Source.State.empty\n  let callWord := fun name args expected =>\n    SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty args expected\n  let zeroFold \u2190 callWord \"zeroFold\" [] 0\n  let zeroFold16 \u2190 callWord \"zeroFold16\" [] 0\n  let callG \u2190 callWord \"callGWithZeroFold\" [] 42\n  let gDirect \u2190 callWord \"g\" [word 0] 42\n  Except.ok (zeroFold && zeroFold16 && callG && gDirect))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

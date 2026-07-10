@@ -1558,6 +1558,97 @@ def intCmpNeighborsAccepted : Bool :=
 #guard fracCmpMixedRatDecEqRejected
 #guard fracCmpNonTermLtRejected
 #guard intCmpNeighborsAccepted
+
+-- CZB (#121 CONST-ZERO-BYTESN) — ANY constant expression that *folds to 0* is
+-- implicitly convertible to any `bytesN` (solc
+-- `RationalNumberType::isImplicitlyConvertibleTo`, Types.cpp:1035, the
+-- `m_value == rational(0)` branch on the folded value). A nonzero fold does
+-- NOT convert (over-accept guard); a two-candidate overload where the folded 0
+-- matches BOTH `uint256` and `bytes32` is ambiguous → REJECTED.
+-- ===========================================================================
+
+-- `bytes32 x = 1-1; return x;` — the folded 0 converts to bytes32 → ACCEPTED.
+def czbAssignZeroFoldFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := [{ name := none, ty := Ty.bytesN 32, location := none }]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "x", ty := some (Ty.bytesN 32)
+                  location := none } ]
+              (some
+                (Expr.binary BinaryOp.sub (numberExpr "1") (numberExpr "1")))
+          , Stmt.returnValues (some (Expr.ident "x")) ]) }
+
+def czbAssignZeroFoldAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "CZBAssign" czbAssignZeroFoldFn)
+
+-- `bytes32 x = 1+1;` — the folded 2 is NOT convertible to bytes32 → REJECTED
+-- (over-accept guard: a nonzero fold must not leak through).
+def czbAssignNonZeroFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := [{ name := none, ty := Ty.bytesN 32, location := none }]
+    body :=
+      some
+        (Stmt.block
+          [ Stmt.varDecl
+              [ { name := some "x", ty := some (Ty.bytesN 32)
+                  location := none } ]
+              (some
+                (Expr.binary BinaryOp.add (numberExpr "1") (numberExpr "1")))
+          , Stmt.returnValues (some (Expr.ident "x")) ]) }
+
+def czbAssignNonZeroRejected : Bool :=
+  Result.isError
+    (SourceUnit.check (su_singleContract "CZBAssignNZ" czbAssignNonZeroFn))
+
+-- Overloaded `g(uint256)` + `g(bytes32)`, call `g(1-1)`: the folded 0 matches
+-- BOTH candidates → no unique declaration → REJECTED (mirror over-accept guard).
+private def czbOverloadG (paramTy : Ty) (ret : String) : ContractItem :=
+  ContractItem.function
+    { kind := FunctionKind.function
+      name := some "g"
+      params := [{ name := some "a", ty := paramTy, location := none }]
+      returns := [{ name := none, ty := su_uint256, location := none }]
+      visibility := some Visibility.public_
+      mutability := StateMutability.pure
+      body := some (Stmt.returnValues (some (numberExpr ret))) }
+
+private def czbOverloadCaller : ContractItem :=
+  ContractItem.function
+    { kind := FunctionKind.function
+      name := some "h"
+      returns := [{ name := none, ty := su_uint256, location := none }]
+      visibility := some Visibility.public_
+      mutability := StateMutability.pure
+      body :=
+        some
+          (Stmt.returnValues
+            (some
+              (Expr.call (Expr.ident "g")
+                [ Arg.positional
+                    (Expr.binary BinaryOp.sub
+                      (numberExpr "1") (numberExpr "1")) ]))) }
+
+def czbAmbiguousOverloadRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      { items :=
+          [ SourceItem.contract
+              { name := "CZBAmbig"
+                items :=
+                  [ czbOverloadG su_uint256 "1"
+                  , czbOverloadG (Ty.bytesN 32) "2"
+                  , czbOverloadCaller ] } ] })
+
+-- Build-time gate: pin every acceptance-boundary witness added here so a future
+-- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard czbAssignZeroFoldAccepted
+#guard czbAssignNonZeroRejected
+#guard czbAmbiguousOverloadRejected
 #guard qstructQualifiedConstructionAccepted
 #guard qstructWrongArityRejected
 #guard qstructWrongFieldNameRejected

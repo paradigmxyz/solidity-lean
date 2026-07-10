@@ -3655,7 +3655,20 @@ def Expr.toCoreFixedBytesLiteralAs? (ty : Ty) : Expr -> Option CoreExpr
       let size ← Ty.fixedBytesSize? ty
       let word ← Literal.toFixedBytesWord? size literal
       some (SolidCore.Solidity.Source.Expr.word word)
-  | _ => none
+  | expr => do
+      -- solc `RationalNumberType::isImplicitlyConvertibleTo` (Types.cpp:1035):
+      -- ANY constant rational expression that *folds to 0* is implicitly
+      -- convertible to any `bytesN` (the `m_value == rational(0)` branch — it
+      -- operates on the folded value, so `1-1`, `2-2`, `3*0`, `-0`, `5-5`, …).
+      -- The exact-width-hex-literal branch (`m_compatibleBytesType`) stays
+      -- literal-only above and is NOT extended to folded expressions. A folded
+      -- 0 lowers to the zero word regardless of the `bytesN` width.
+      let _size ← Ty.fixedBytesSize? ty
+      let value ← Expr.untypedNumberLiteralRat? expr
+      if value.num == 0 then
+        some (SolidCore.Solidity.Source.Expr.word 0)
+      else
+        none
 
 def Expr.isFixedBytesLiteralCandidate : Expr -> Bool
   | Expr.literal literal => Literal.isFixedBytesCandidate literal
