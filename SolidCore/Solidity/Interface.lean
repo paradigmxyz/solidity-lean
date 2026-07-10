@@ -4762,7 +4762,13 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.call (Expr.member (Expr.ident "string") "concat") args => do
       let (sourceTys, coreTys, coreExprs) ←
         Args.toAbiEncodeSource? storageNames args
-      if Tys.allStringConcatArgs sourceTys then
+      -- `string.concat` and `bytes.concat` lower identically (packed byte
+      -- concatenation); the typechecker (`checkStringConcatArgs`) is the
+      -- acceptance authority, admitting `string`/`unicode` literals and
+      -- valid-UTF-8 `hex"…"` literals (the latter typed `Ty.bytes`). So gate the
+      -- lowering on the broader `allBytesConcatArgs`, which admits both `Ty.string`
+      -- and the `Ty.bytes` hex-literal form; anything else was already rejected.
+      if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
           (Tys.packedTopWidths sourceTys) coreTys coreExprs)
       else
@@ -4770,7 +4776,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") args => do
       let (sourceTys, coreTys, coreExprs) ←
         Args.toAbiEncodeSource? storageNames args
-      if Tys.allStringConcatArgs sourceTys then
+      if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
           (Tys.packedTopWidths sourceTys) coreTys coreExprs)
       else

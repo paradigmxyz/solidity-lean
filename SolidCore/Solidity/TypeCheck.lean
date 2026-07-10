@@ -4552,11 +4552,72 @@ def checkBytesConcatArgs : List CheckedExpr -> Except TypeError Unit
       require ok (TypeError.invalidAbiType expr.ty)
       checkBytesConcatArgs rest
 
+/-- Well-formed UTF-8 validation over a raw byte (`Nat`) sequence, following
+RFC 3629 / Unicode Table 3-7 (rejecting overlong encodings, the UTF-16 surrogate
+range `U+D800..U+DFFF`, and code points above `U+10FFFF`). This matches solc's
+`util::validateUTF8`, which `StringLiteralType::isImplicitlyConvertibleTo(string
+memory)` (Types.cpp) uses to decide whether a string / hex-string literal may be
+implicitly converted to `string memory` — the exact gate `string.concat`
+applies to each argument (`typeCheckStringConcatFunction`, TypeChecker.cpp). -/
+def bytesAreValidUtf8 : List Nat -> Bool
+  | [] => true
+  | b0 :: rest =>
+      if b0 < 0x80 then
+        bytesAreValidUtf8 rest
+      else if b0 < 0xC2 then
+        -- 0x80..0xBF: stray continuation byte; 0xC0/0xC1: overlong 2-byte lead.
+        false
+      else if b0 < 0xE0 then
+        match rest with
+        | b1 :: rest' =>
+            if 0x80 <= b1 && b1 < 0xC0 then bytesAreValidUtf8 rest' else false
+        | [] => false
+      else if b0 < 0xF0 then
+        match rest with
+        | b1 :: b2 :: rest' =>
+            let cont := 0x80 <= b1 && b1 < 0xC0 && 0x80 <= b2 && b2 < 0xC0
+            let notOverlong := !(b0 == 0xE0 && b1 < 0xA0)
+            let notSurrogate := !(b0 == 0xED && 0xA0 <= b1)
+            if cont && notOverlong && notSurrogate then bytesAreValidUtf8 rest'
+            else false
+        | _ => false
+      else if b0 < 0xF5 then
+        match rest with
+        | b1 :: b2 :: b3 :: rest' =>
+            let cont :=
+              0x80 <= b1 && b1 < 0xC0 && 0x80 <= b2 && b2 < 0xC0 &&
+                0x80 <= b3 && b3 < 0xC0
+            let notOverlong := !(b0 == 0xF0 && b1 < 0x90)
+            let notTooLarge := !(b0 == 0xF4 && 0x90 <= b1)
+            if cont && notOverlong && notTooLarge then bytesAreValidUtf8 rest'
+            else false
+        | _ => false
+      else
+        -- 0xF5..0xFF: leads beyond U+10FFFF.
+        false
+  termination_by bytes => bytes.length
+  decreasing_by all_goals simp_wf <;> omega
+
+/-- solc accepts a *hex-string* literal (`hex"61"`) as a `string.concat`
+argument exactly when its decoded bytes are valid UTF-8. Such a literal is typed
+`Ty.bytes` in this frontend, so the `Ty`-only `isStringConcatArg` gate rejects it
+regardless of UTF-8 validity; inspect the source literal and its decoded bytes,
+mirroring the `bytes.concat` `exprIsStringLiteral` precedent, plus the UTF-8 gate
+that `StringLiteralType::isImplicitlyConvertibleTo(string memory)` imposes. -/
+def exprIsUtf8HexStringLiteral : Solidity.Expr -> Bool
+  | Solidity.Expr.literal (Solidity.Literal.hexString text) =>
+      match Solidity.Executable.parseHexString? text with
+      | some bytes => bytesAreValidUtf8 bytes
+      | none => false
+  | _ => false
+
 def checkStringConcatArgs : List CheckedExpr -> Except TypeError Unit
   | [] => Except.ok ()
   | expr :: rest => do
-      require (Solidity.Executable.Ty.isStringConcatArg expr.ty)
-        (TypeError.invalidAbiType expr.ty)
+      let ok :=
+        Solidity.Executable.Ty.isStringConcatArg expr.ty
+          || exprIsUtf8HexStringLiteral expr.source
+      require ok (TypeError.invalidAbiType expr.ty)
       checkStringConcatArgs rest
 
 /-- solc forces every top-level decoded `address` component of `abi.decode`'s

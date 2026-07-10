@@ -24,3 +24,4 @@ import SolidCore.Witness.QualifiedEventSelector
 import SolidCore.Witness.ErrorSelectorCollision
 import SolidCore.Witness.LitCoercionFamily
 import SolidCore.Witness.DeployAbstract
+import SolidCore.Witness.StringConcatHexLit
