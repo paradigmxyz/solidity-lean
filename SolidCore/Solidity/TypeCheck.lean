@@ -9931,6 +9931,39 @@ def checkNoInheritedNamedDeclarationClashes
         (TypeError.invalidContractHeader message)
       checkNoInheritedNamedDeclarationClashes message inheritedNames rest
 
+-- INHERITED-IDENTIFIER-CLASH (solc name resolution, error 9097 "Identifier
+-- already declared", `DeclarationContainer::conflictingDeclaration`,
+-- DeclarationContainer.cpp:35). When solc builds a contract's name scope it
+-- merges the visible (non-private) members of the WHOLE linearized base list.
+-- Two declarations that share a name conflict UNLESS both are functions or both
+-- are events (the only overloadable kinds). Every other kind — state variable,
+-- error, struct, enum, user-defined value type — is non-overloadable, and a
+-- function/event colliding with any different kind (or a function with an
+-- event) also conflicts. This checks the INHERITED-vs-INHERITED (sibling) case:
+-- two DISTINCT declarations reached from different bases sharing a name. Each
+-- base appears exactly once in the C3 linearization, so a single declaration
+-- reached via multiple diamond paths appears once and does NOT self-clash
+-- (matching solc, which compares distinct declarations). `nonOverloadableNames`
+-- are the inherited non-overloadable member names; `funcNames`/`eventNames` are
+-- the inherited (non-private) function / event names. A non-overloadable name
+-- clashes with any equally-named sibling of ANY kind (another non-overloadable,
+-- a function, or an event); two functions or two events do NOT clash here
+-- (function overloading is legal; duplicate-signature events are the separate
+-- error-5883 check). Own-vs-inherited clashes are handled by the
+-- `checkNoInherited*` calls above; this fills the sibling gap.
+def checkNoInheritedSiblingIdentifierClashes
+    (funcNames eventNames : List Name) :
+    List Name -> Except TypeError Unit
+  | [] => Except.ok ()
+  | name :: rest => do
+      require
+        (!Solidity.Executable.nameIn name rest &&
+          !Solidity.Executable.nameIn name funcNames &&
+          !Solidity.Executable.nameIn name eventNames)
+        (TypeError.invalidContractHeader
+          "inherited identifier already declared")
+      checkNoInheritedSiblingIdentifierClashes funcNames eventNames rest
+
 structure OverrideMember where
   origin : Path
   originKind : Solidity.ContractKind
@@ -13249,6 +13282,25 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   -- via two diamond paths (`C is A,B` with `A,B is Z`) appears once and does
   -- NOT clash — matching solc, which compares distinct declarations.
   EventSigs.ensureNoDuplicateAbiSignatures contractTypes inheritedEventSigs
+  -- INHERITED-IDENTIFIER-CLASH: the general NAME-based sibling clash (solc error
+  -- 9097). Two DISTINCT inherited declarations from different bases that share a
+  -- name conflict unless both are functions or both are events. `funcNames` are
+  -- the inherited non-private function names; `eventNames` the inherited event
+  -- names; `nonOverloadableNames` the inherited (non-private) state-variable,
+  -- error, struct, enum and UDVT names. A non-overloadable name may not repeat
+  -- and may not coincide with any inherited function/event name; a function name
+  -- may not coincide with an event name. Names come from `ancestorPaths` /
+  -- `inheritedContracts` (the C3 linearization, each base once), so a single
+  -- declaration reached via multiple diamond paths appears once and is safe.
+  let inheritedClashFuncNames := inheritedFunctionSigs.map (·.name)
+  let inheritedNonOverloadableNames :=
+    inheritedStateVarNames ++ inheritedNonEventTypeNames
+  checkNoInheritedSiblingIdentifierClashes
+    inheritedClashFuncNames inheritedEventNames
+    inheritedNonOverloadableNames
+  checkNoInheritedNamedDeclarationClashes
+    "inherited identifier already declared"
+    inheritedEventNames inheritedClashFuncNames
   StateVarDecls.checkNoInheritedShadowing inheritedStateVarNames stateVars
   checkNoInheritedStateNameClashes inheritedStateVarNames
     (modifiers.map Solidity.ModifierDecl.name ++

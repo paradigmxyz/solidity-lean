@@ -778,8 +778,177 @@ def dupEventSiblingNeighborsAccepted : Bool :=
       , dupEventBase "DupEvTB" (dupEventItem Solidity.Ty.bool)
       , dupEventEmpty "DupEvTC" ["DupEvTA", "DupEvTB"] ])
 
+-- ===========================================================================
+-- INHERITED-IDENTIFIER-CLASH — a contract inheriting from two (or more) SIBLING
+-- bases that each declare a NON-OVERLOADABLE identifier of the SAME NAME is
+-- REJECTED, even when the derived contract declares nothing of its own. Unlike
+-- the event case above (ABI-signature-based, error 5883), this is solc's general
+-- NAME-based name-resolution clash (error 9097 "Identifier already declared",
+-- `DeclarationContainer::conflictingDeclaration`, DeclarationContainer.cpp:35).
+-- It is name-based, NOT signature-based: `error E(uint)` in A and
+-- `error E(address)` in B still clash. Confirmed against pinned solc 0.8.35:
+--   contract A{error E(uint);}  contract B{error E(address);} contract C is A,B{}  → 9097
+--   contract A{uint x;}         contract B{bool x;}           contract C is A,B{}  → 9097
+--   contract A{struct S{uint a;}} contract B{struct S{bool b;}} contract C is A,B{} → 9097
+--   contract A{enum E{X}}       contract B{enum E{Y}}         contract C is A,B{}  → 9097
+--   contract A{error Foo();}    contract B{uint Foo;}         contract C is A,B{}  → 9097 (cross-kind)
+--   contract A{event Foo();}    contract B{error Foo();}      contract C is A,B{}  → 9097 (cross-kind)
+--   contract A{function f()public{}} contract B{uint f;}      contract C is A,B{}  → 9097 (cross-kind)
+--   contract A{function f()public{}} contract B{event f();}   contract C is A,B{}  → 9097 (func-vs-event)
+-- The overloadable exception: two FUNCTIONS or two EVENTS may share a name across
+-- bases (function overloading; duplicate-signature events are the separate 5883
+-- check). PRIVATE base members are not inherited into the derived scope, so they
+-- do not participate (verified: private func/state-var foo vs sibling error foo
+-- both ACCEPT). Neighbors that MUST stay accepted:
+--   * DIAMOND — a single declaration reached via two paths
+--     (`Z{error E;} A is Z; B is Z; C is A,B`) appears once in the C3
+--     linearization, so it does NOT self-clash (verified ACCEPT for error / state
+--     var / struct / enum); and
+--   * legal function/event overloading across bases; and
+--   * distinct names across bases.
+-- The tightening runs `checkNoInheritedSiblingIdentifierClashes` (name-based)
+-- over the inherited non-overloadable / function / event name lists gathered from
+-- `ancestorPaths` / `inheritedContracts` (each base once).
+-- ===========================================================================
+
+private def icErr (n : Name) (ty : Solidity.Ty) : Solidity.ContractItem :=
+  Solidity.ContractItem.errorDecl
+    { name := n, params := [{ name := none, ty := ty, location := none }] }
+private def icSv (n : Name) (ty : Solidity.Ty) : Solidity.ContractItem :=
+  Solidity.ContractItem.stateVar { name := n, ty := ty }
+private def icStruct (n : Name) (fn : Name) (ty : Solidity.Ty) :
+    Solidity.ContractItem :=
+  Solidity.ContractItem.structDecl { name := n, fields := [{ name := fn, ty := ty }] }
+private def icEnum (n : Name) (c : Name) : Solidity.ContractItem :=
+  Solidity.ContractItem.enumDecl { name := n, cases := [c] }
+private def icEvent (n : Name) (ty : Solidity.Ty) : Solidity.ContractItem :=
+  Solidity.ContractItem.eventDecl { name := n, params := [{ name := none, ty := ty }] }
+private def icFunc (n : Name) : Solidity.ContractItem :=
+  Solidity.ContractItem.function
+    { name := some n, visibility := some Solidity.Visibility.public_,
+      body := some (Solidity.Stmt.block []) }
+
+private def icBase (name : Name) (items : List Solidity.ContractItem)
+    (bases : List Name := []) : Solidity.ContractDecl :=
+  { name := name, bases := bases.map (fun b => { base := userPath b }), items := items }
+private def icSU (cs : List Solidity.ContractDecl) : Solidity.SourceUnit :=
+  { items := cs.map SourceItem.contract }
+
+-- (a) Non-overloadable sibling clashes, each kind → REJECT. Parameter/field
+-- types deliberately DIFFER between the two bases to pin name-based (not
+-- signature-based) collision.
+def icErrorSiblingRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcErrA" [icErr "E" su_uint256]
+    , icBase "IcErrB" [icErr "E" (Solidity.Ty.address false)]
+    , icBase "IcErrC" [] ["IcErrA", "IcErrB"] ]))
+
+def icStateVarSiblingRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcSvA" [icSv "x" su_uint256]
+    , icBase "IcSvB" [icSv "x" Solidity.Ty.bool]
+    , icBase "IcSvC" [] ["IcSvA", "IcSvB"] ]))
+
+def icStructSiblingRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcStA" [icStruct "S" "a" su_uint256]
+    , icBase "IcStB" [icStruct "S" "b" Solidity.Ty.bool]
+    , icBase "IcStC" [] ["IcStA", "IcStB"] ]))
+
+def icEnumSiblingRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcEnA" [icEnum "E" "X"]
+    , icBase "IcEnB" [icEnum "E" "Y"]
+    , icBase "IcEnC" [] ["IcEnA", "IcEnB"] ]))
+
+-- (b) Cross-kind sibling clashes → REJECT.
+def icErrorVsStateVarRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcXA" [icErr "Foo" su_uint256]
+    , icBase "IcXB" [icSv "Foo" su_uint256]
+    , icBase "IcXC" [] ["IcXA", "IcXB"] ]))
+
+def icEventVsErrorRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcYA" [icEvent "Foo" su_uint256]
+    , icBase "IcYB" [icErr "Foo" su_uint256]
+    , icBase "IcYC" [] ["IcYA", "IcYB"] ]))
+
+def icFuncVsStateVarRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcZA" [icFunc "Foo"]
+    , icBase "IcZB" [icSv "Foo" su_uint256]
+    , icBase "IcZC" [] ["IcZA", "IcZB"] ]))
+
+def icFuncVsEventRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcWA" [icFunc "f"]
+    , icBase "IcWB" [icEvent "f" su_uint256]
+    , icBase "IcWC" [] ["IcWA", "IcWB"] ]))
+
+-- (c) Transitive: a function inherited from a GRANDPARENT clashes with a
+-- sibling's equally-named error → REJECT (scope is the whole linearization).
+def icGrandparentFuncVsSiblingErrorRejected : Bool :=
+  Result.isError (SourceUnit.check (icSU
+    [ icBase "IcGZ" [icFunc "f"]
+    , icBase "IcGA" [] ["IcGZ"]
+    , icBase "IcGB" [icErr "f" su_uint256]
+    , icBase "IcGC" [] ["IcGA", "IcGB"] ]))
+
+-- Neighbors that MUST stay accepted.
+--   (d) diamond single-declaration reached via two paths — error / state var /
+--       struct / enum — no self-clash.
+def icDiamondNeighborsAccepted : Bool :=
+  sourceUnitAccepted? (icSU
+      [ icBase "IcDErrZ" [icErr "E" su_uint256]
+      , icBase "IcDErrA" [] ["IcDErrZ"]
+      , icBase "IcDErrB" [] ["IcDErrZ"]
+      , icBase "IcDErrC" [] ["IcDErrA", "IcDErrB"] ]) &&
+    sourceUnitAccepted? (icSU
+      [ icBase "IcDSvZ" [icSv "x" su_uint256]
+      , icBase "IcDSvA" [] ["IcDSvZ"]
+      , icBase "IcDSvB" [] ["IcDSvZ"]
+      , icBase "IcDSvC" [] ["IcDSvA", "IcDSvB"] ]) &&
+    sourceUnitAccepted? (icSU
+      [ icBase "IcDStZ" [icStruct "S" "a" su_uint256]
+      , icBase "IcDStA" [] ["IcDStZ"]
+      , icBase "IcDStB" [] ["IcDStZ"]
+      , icBase "IcDStC" [] ["IcDStA", "IcDStB"] ]) &&
+    sourceUnitAccepted? (icSU
+      [ icBase "IcDEnZ" [icEnum "E" "X"]
+      , icBase "IcDEnA" [] ["IcDEnZ"]
+      , icBase "IcDEnB" [] ["IcDEnZ"]
+      , icBase "IcDEnC" [] ["IcDEnA", "IcDEnB"] ])
+
+--   (e) legal overloading across bases (functions with distinct names, events
+--       with different signatures) and distinct sibling names — no clash.
+def icOverloadNeighborsAccepted : Bool :=
+  sourceUnitAccepted? (icSU
+      [ icBase "IcOfA" [icFunc "f"]
+      , icBase "IcOfB" [icFunc "g"]
+      , icBase "IcOfC" [] ["IcOfA", "IcOfB"] ]) &&
+    sourceUnitAccepted? (icSU
+      [ icBase "IcOeA" [icEvent "E" su_uint256]
+      , icBase "IcOeB" [icEvent "E" Solidity.Ty.bool]
+      , icBase "IcOeC" [] ["IcOeA", "IcOeB"] ]) &&
+    sourceUnitAccepted? (icSU
+      [ icBase "IcOdA" [icErr "E1" su_uint256]
+      , icBase "IcOdB" [icErr "E2" su_uint256]
+      , icBase "IcOdC" [] ["IcOdA", "IcOdB"] ])
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard icErrorSiblingRejected
+#guard icStateVarSiblingRejected
+#guard icStructSiblingRejected
+#guard icEnumSiblingRejected
+#guard icErrorVsStateVarRejected
+#guard icEventVsErrorRejected
+#guard icFuncVsStateVarRejected
+#guard icFuncVsEventRejected
+#guard icGrandparentFuncVsSiblingErrorRejected
+#guard icDiamondNeighborsAccepted
+#guard icOverloadNeighborsAccepted
 #guard dupEventSiblingRejected
 #guard dupEventSiblingIndexedRejected
 #guard dupEventSiblingNeighborsAccepted
