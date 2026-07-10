@@ -598,8 +598,115 @@ def hexDenomNeighborsAccepted : Bool :=
       (plainNumberFn "0x10")) &&
     sourceUnitAccepted? (su_singleContract "G13HexTimesDays" hexTimesDaysFn)
 
+-- ===========================================================================
+-- G14 — a constant `/` or `%` whose operands are BOTH number literals and whose
+-- divisor folds to ZERO is REJECTED at compile time (solc TypeChecker.cpp:
+-- 1709-1712, Error 2271: "Built-in binary operator / cannot be applied to types
+-- int_const 1 and int_const 0"; folding `RationalNumberType` division/modulo by
+-- zero returns null). Confirmed with pinned solc 0.8.35: `1/0`, `5%0` → reject.
+-- The guard lives in the div/mod arm of `checkExpr` (TypeCheck.lean): when both
+-- operands fold via `numberLiteralRat?` and the divisor is zero, reject.
+-- Neighbors that stay ACCEPTED: a constant `/`/`%` by a NON-zero divisor
+-- (`4/2 = 2`, `5%3 = 2`), and a RUNTIME divide-by-zero `a/0` (a non-constant
+-- dividend → fold `none` → still a runtime Panic 0x12, NOT a compile reject).
+-- ===========================================================================
+
+private def constBinOpReturnFn (op : BinaryOp) (a b : String) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    body := some (Stmt.returnValues
+      (some (Expr.binary op (numberExpr a) (numberExpr b)))) }
+
+private def runtimeDivByZeroFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := su_uint256, location := none }]
+    body := some (Stmt.returnValues
+      (some (Expr.binary BinaryOp.div (Expr.ident "a") (numberExpr "0")))) }
+
+def badConstDivByZeroRejected : Bool :=
+  Result.isError (SourceUnit.check
+    (su_singleContract "G14Div" (constBinOpReturnFn BinaryOp.div "1" "0")))
+
+def badConstModByZeroRejected : Bool :=
+  Result.isError (SourceUnit.check
+    (su_singleContract "G14Mod" (constBinOpReturnFn BinaryOp.mod "5" "0")))
+
+def constDivModNeighborsAccepted : Bool :=
+  -- Non-zero constant divisor folds; a runtime divide-by-zero stays accepted.
+  sourceUnitAccepted? (su_singleContract "G14Div42"
+      (constBinOpReturnFn BinaryOp.div "4" "2")) &&
+    sourceUnitAccepted? (su_singleContract "G14Mod53"
+      (constBinOpReturnFn BinaryOp.mod "5" "3")) &&
+    sourceUnitAccepted? (su_singleContract "G14RuntimeDiv" runtimeDivByZeroFn)
+
+-- ===========================================================================
+-- G15 — a bare variable-declaration statement may NOT be the single-statement
+-- body of an `if`/`else` branch, a `while`/`do-while` body, or a `for` body
+-- (solc SyntaxChecker.cpp:217-249, Error 9079: "Variable declarations can only
+-- be used inside blocks."). Confirmed with pinned solc 0.8.35 for all five
+-- positions. The guard lives in the `ifElse`/`whileLoop`/`doWhile`/`forLoop`
+-- arms of `checkStmt` via `Stmt.isBareVarDecl`. Neighbors that stay ACCEPTED:
+-- a BRACED body `if (true) { uint x = 1; }` (a `Stmt.block`, not a bare
+-- `Stmt.varDecl`), and a variable declaration in the `for` INIT position
+-- (`for (uint i = 0; …)`), which solc explicitly allows.
+-- ===========================================================================
+
+private def uintXDecl : Stmt :=
+  Stmt.varDecl [{ name := some "x", ty := some su_uint256, location := none }]
+    (some (numberExpr "1"))
+
+private def cfVoidFn (body : Stmt) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := []
+    body := some (Stmt.block [body]) }
+
+def badIfVarDeclBodyRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "G15If"
+    (cfVoidFn (Stmt.ifElse (boolExpr true) uintXDecl none))))
+
+def badElseVarDeclBodyRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "G15Else"
+    (cfVoidFn (Stmt.ifElse (boolExpr true) (Stmt.block []) (some uintXDecl)))))
+
+def badWhileVarDeclBodyRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "G15While"
+    (cfVoidFn (Stmt.whileLoop (boolExpr true) uintXDecl))))
+
+def badDoWhileVarDeclBodyRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "G15DoWhile"
+    (cfVoidFn (Stmt.doWhile uintXDecl (boolExpr true)))))
+
+def badForVarDeclBodyRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "G15For"
+    (cfVoidFn (Stmt.forLoop none (some (boolExpr true)) none uintXDecl))))
+
+private def forInitVarDeclFn : FunctionDecl :=
+  -- `for (uint i = 0; false; ) { }` — vardecl in the INIT, block body: accepts.
+  cfVoidFn (Stmt.forLoop
+    (some (Stmt.varDecl
+      [{ name := some "i", ty := some su_uint256, location := none }]
+      (some (numberExpr "0"))))
+    (some (boolExpr false)) none (Stmt.block []))
+
+def varDeclBodyNeighborsAccepted : Bool :=
+  -- A braced vardecl body and a for-init vardecl stay accepted.
+  sourceUnitAccepted? (su_singleContract "G15Braced"
+      (cfVoidFn (Stmt.ifElse (boolExpr true) (Stmt.block [uintXDecl]) none))) &&
+    sourceUnitAccepted? (su_singleContract "G15ForInit" forInitVarDeclFn)
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard badConstDivByZeroRejected
+#guard badConstModByZeroRejected
+#guard constDivModNeighborsAccepted
+#guard badIfVarDeclBodyRejected
+#guard badElseVarDeclBodyRejected
+#guard badWhileVarDeclBodyRejected
+#guard badDoWhileVarDeclBodyRejected
+#guard badForVarDeclBodyRejected
+#guard varDeclBodyNeighborsAccepted
 #guard badInternalPayableRejected
 #guard badPrivatePayableRejected
 #guard g11PayableNeighborsAccepted

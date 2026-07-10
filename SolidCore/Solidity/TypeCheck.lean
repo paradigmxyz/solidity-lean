@@ -7345,9 +7345,23 @@ def checkExpr (env : CheckEnv) :
           Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.add
       | Solidity.BinaryOp.sub
-      | Solidity.BinaryOp.mul
+      | Solidity.BinaryOp.mul =>
+          let ty ← CheckedExprs.arithmeticTy lhsChecked rhsChecked
+          Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.div
       | Solidity.BinaryOp.mod =>
+          -- solc folds a constant `/` or `%` whose operands are both number
+          -- literals; folding division/modulo by a constant-zero divisor fails,
+          -- so `TypeChecker::binaryOperatorResult` returns null and raises
+          -- Error 2271 ("Built-in binary operator / cannot be applied to types
+          -- int_const 1 and int_const 0", TypeChecker.cpp:1709-1712). A
+          -- non-constant divisor (fold `none`) stays a runtime Panic 0x12.
+          require
+            (match Solidity.Executable.Expr.numberLiteralRat? lhs,
+                   Solidity.Executable.Expr.numberLiteralRat? rhs with
+             | some _, some divisor => divisor.num != 0
+             | _, _ => true)
+            (TypeError.unsupported "constant division or modulo by zero")
           let ty ← CheckedExprs.arithmeticTy lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.exp =>
@@ -9434,6 +9448,16 @@ structure CheckedStmt where
   source : Solidity.Stmt
   deriving Repr
 
+-- solc SyntaxChecker 9079 (`checkSingleStatementVariableDeclaration`,
+-- SyntaxChecker.cpp:217-249): a bare variable-declaration statement may not be
+-- the single-statement body of an `if`/`else` branch, a `while`/`do-while`
+-- body, or a `for` body — "Variable declarations can only be used inside
+-- blocks." A block `{ uint x = 1; }` (a `Stmt.block`) is fine, as is a nested
+-- control-flow statement; only a directly-embedded `Stmt.varDecl` is rejected.
+def _root_.SolidCore.Solidity.Stmt.isBareVarDecl : Solidity.Stmt -> Bool
+  | Solidity.Stmt.varDecl _ _ => true
+  | _ => false
+
 mutual
 
 def checkStmt (env : CheckEnv) :
@@ -9531,17 +9555,27 @@ def checkStmt (env : CheckEnv) :
   | stmt@(Solidity.Stmt.ifElse cond thenBranch elseBranch?) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
+      -- solc 9079: a bare `Stmt.varDecl` may not be a branch body.
+      require (!thenBranch.isBareVarDecl)
+        (TypeError.unsupported "variable declaration as if-branch body")
       let _ ← checkStmt env thenBranch
       match elseBranch? with
-      | some elseBranch => let _ ← checkStmt env elseBranch; Except.ok ()
+      | some elseBranch =>
+          require (!elseBranch.isBareVarDecl)
+            (TypeError.unsupported "variable declaration as else-branch body")
+          let _ ← checkStmt env elseBranch; Except.ok ()
       | none => Except.ok ()
       Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.whileLoop cond body) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
+      require (!body.isBareVarDecl)
+        (TypeError.unsupported "variable declaration as while-loop body")
       let _ ← checkStmt env.enterLoop body
       Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.doWhile body cond) => do
+      require (!body.isBareVarDecl)
+        (TypeError.unsupported "variable declaration as do-while body")
       let _ ← checkStmt env.enterLoop body
       let condChecked ← checkExpr env cond
       condChecked.expectBool
@@ -9568,6 +9602,9 @@ def checkStmt (env : CheckEnv) :
       match post? with
       | some post => let _ ← checkExpr loopEnv post; Except.ok ()
       | none => Except.ok ()
+      -- solc 9079 applies to the `for` BODY only; a `Stmt.varDecl` init is fine.
+      require (!body.isBareVarDecl)
+        (TypeError.unsupported "variable declaration as for-loop body")
       let _ ← checkStmt loopEnv.enterLoop body
       Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.tryCatch expr clauses) => do
