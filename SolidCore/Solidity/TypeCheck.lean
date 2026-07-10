@@ -4817,7 +4817,24 @@ def checkArrayMutationCall? (env : CheckEnv)
     (targetChecked : CheckedExpr) :
     Except TypeError (Option CheckedExpr) := do
   if member == "push" || member == "pop" then
-    if targetChecked.ty.hasArrayMutationMemberSurface then
+    -- solc: builtin `push`/`pop` exist ONLY on STORAGE dynamic arrays (and
+    -- storage `bytes`). On memory/calldata arrays (and fixed-size arrays) the
+    -- builtin does not exist, so we must NOT intercept — fall through so
+    -- using-for resolution can dispatch an attached `push`/`pop`. The storage
+    -- condition below is exactly the success condition of the old
+    -- `expectStorageMutationTarget` guard (dataLocation? == storage), so the
+    -- storage push/pop path is unchanged.
+    let isStorageDynSurface :=
+      targetChecked.ty.dynamicStorageArrayElement?.isSome &&
+        targetChecked.dataLocation? == some Solidity.DataLocation.storage
+    if isStorageDynSurface then
+      -- Attached (using-for) functions live in the SAME member namespace as the
+      -- builtin. If an attached `push`/`pop` applies to this receiver too, the
+      -- member is ambiguous — solc: `Member "push" not unique after
+      -- argument-dependent lookup`.
+      let attached ←
+        UsingDecls.memberCandidates env targetChecked member env.usingDecls
+      require attached.isEmpty (TypeError.ambiguousFunction member)
       requireNoNamedArgs member argInfos
       targetChecked.expectStorageMutationTarget target
       requireStateWriteAllowed env

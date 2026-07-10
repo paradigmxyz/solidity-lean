@@ -9480,6 +9480,132 @@ def accBndUnusedLibrarySource : Solidity.SourceUnit :=
 def accBndUnusedLibraryAccepted : Bool :=
   sourceUnitAccepted? accBndUnusedLibrarySource
 
+-- ────────────────────────────────────────────────────────────────────────
+-- #135 ARRAY-MUTATION-VS-USINGFOR
+-- Builtin `push`/`pop` exist only on STORAGE dynamic arrays (and storage
+-- `bytes`).  Attached (using-for) functions of the same name live in the SAME
+-- member namespace, so when a storage dyn-array receiver has BOTH the builtin
+-- and an attached `push`/`pop`, the member is ambiguous — solc:
+-- `Member "push" not unique after argument-dependent lookup`.  Over-accept
+-- witness: the model must REJECT.  (Div1, the memory/calldata over-reject, is
+-- replay-reachable and pinned by the array-mutation-usingfor forge lane.)
+def amUfLibPushFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "push"
+    params :=
+      [ { name := some "s"
+          ty := uintArrayTy
+          location := some Solidity.DataLocation.storage }
+      , { name := some "v", ty := uint256, location := none } ]
+    returns := []
+    visibility := some Solidity.Visibility.internal_
+    mutability := Solidity.StateMutability.nonpayable
+    body :=
+      some
+        (Solidity.Stmt.block
+          [ Solidity.Stmt.expr
+              (Solidity.Expr.assign
+                (Solidity.Expr.index
+                  (Solidity.Expr.ident "s")
+                  (numberExpr "0"))
+                Solidity.AssignOp.assign
+                (Solidity.Expr.ident "v")) ]) }
+
+def amUfStoragePushCallFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "g"
+    returns := []
+    visibility := some Solidity.Visibility.public_
+    mutability := Solidity.StateMutability.nonpayable
+    body :=
+      some
+        (Solidity.Stmt.block
+          [ Solidity.Stmt.expr
+              (Solidity.Expr.call
+                (Solidity.Expr.member
+                  (Solidity.Expr.ident "arr") "push")
+                [Solidity.Arg.positional (numberExpr "7")]) ]) }
+
+-- `arr.push(7)` on a storage dyn array WITH `using L for uint[];` where L also
+-- declares `push` — AMBIGUOUS, solc and (with the fix) the model REJECT.
+def amUfAmbiguousStoragePushSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { kind := Solidity.ContractKind.library
+            name := "L"
+            items :=
+              [Solidity.ContractItem.function amUfLibPushFunction] }
+      , Solidity.SourceItem.usingDecl
+          { library := userPath "L"
+            target := some uintArrayTy }
+      , Solidity.SourceItem.contract
+          { name := "C"
+            items :=
+              [ Solidity.ContractItem.stateVar
+                  { name := "arr", ty := uintArrayTy }
+              , Solidity.ContractItem.function
+                  amUfStoragePushCallFunction ] } ] }
+
+def amUfAmbiguousStoragePushRejected : Bool :=
+  Result.isError (SourceUnit.check amUfAmbiguousStoragePushSource)
+
+-- Control: same storage `arr.push(7)` with NO using-for directive — the builtin
+-- push must still resolve and be ACCEPTED (the common path must not regress).
+def amUfStorageBuiltinPushSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "C"
+            items :=
+              [ Solidity.ContractItem.stateVar
+                  { name := "arr", ty := uintArrayTy }
+              , Solidity.ContractItem.function
+                  amUfStoragePushCallFunction ] } ] }
+
+def amUfStorageBuiltinPushAccepted : Bool :=
+  sourceUnitAccepted? amUfStorageBuiltinPushSource
+
+-- Control: `m.push(1)` on a MEMORY array with NO attached push — the member does
+-- not exist, so solc and the model REJECT (guards against over-accepting a bare
+-- memory push once the storage gate falls through to using-for).
+def amUfMemoryPushNoUsingFunction : Solidity.FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "g"
+    returns := []
+    visibility := some Solidity.Visibility.public_
+    mutability := Solidity.StateMutability.pure
+    body :=
+      some
+        (Solidity.Stmt.block
+          [ Solidity.Stmt.varDecl
+              [ { name := some "m"
+                  ty := some uintArrayTy
+                  location := some Solidity.DataLocation.memory } ]
+              (some
+                (Solidity.Expr.newExpr uintArrayTy
+                  [Solidity.Arg.positional (numberExpr "1")]))
+          , Solidity.Stmt.expr
+              (Solidity.Expr.call
+                (Solidity.Expr.member
+                  (Solidity.Expr.ident "m") "push")
+                [Solidity.Arg.positional (numberExpr "1")]) ]) }
+
+def amUfMemoryPushNoUsingSource : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "C"
+            items :=
+              [Solidity.ContractItem.function
+                amUfMemoryPushNoUsingFunction] } ] }
+
+def amUfMemoryPushNoUsingRejected : Bool :=
+  Result.isError (SourceUnit.check amUfMemoryPushNoUsingSource)
+
+-- Combined #135 acceptance discipline (over-accept reject + both controls).
+def arrayMutationUsingForDisciplineMatches : Bool :=
+  amUfAmbiguousStoragePushRejected &&
+    amUfStorageBuiltinPushAccepted &&
+    amUfMemoryPushNoUsingRejected
+
 -- Combined discipline: both reject-fidelity fixes and their accept controls.
 def acceptBoundaryDisciplineMatches : Bool :=
   -- DIV-DUP-INH-MOD #81

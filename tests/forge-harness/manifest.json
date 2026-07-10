@@ -32,12 +32,12 @@
           },
           {
             "label": "importedStorageAliasLeftmostWins",
-            "expr": "(do\n  let ret ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runStorageAlias\" SolidCore.Solidity.Source.State.empty [] 1\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runStorageAlias\" SolidCore.Solidity.Source.State.empty []\n  let a0 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 0] 1\n  Except.ok (ret && a0))",
+            "expr": "(do\n  let ret \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runStorageAlias\" SolidCore.Solidity.Source.State.empty [] 1\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runStorageAlias\" SolidCore.Solidity.Source.State.empty []\n  let a0 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 0] 1\n  Except.ok (ret && a0))",
             "expect": "Except.ok true"
           },
           {
             "label": "importedIndexObservesPreStoreState",
-            "expr": "(do\n  let ret ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runIndexPreStore\" SolidCore.Solidity.Source.State.empty [] 102\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runIndexPreStore\" SolidCore.Solidity.Source.State.empty []\n  let a0 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 0] 1\n  let a1 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 1] 0\n  let a5 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 5] 2\n  Except.ok (ret && a0 && a1 && a5))",
+            "expr": "(do\n  let ret \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runIndexPreStore\" SolidCore.Solidity.Source.State.empty [] 102\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runIndexPreStore\" SolidCore.Solidity.Source.State.empty []\n  let a0 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 0] 1\n  let a1 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 1] 0\n  let a5 \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 5] 2\n  Except.ok (ret && a0 && a1 && a5))",
             "expect": "Except.ok true"
           }
         ]
@@ -6427,6 +6427,57 @@
         "contract": "UsingForWildcardHarnessTarget",
         "namespace": "SolidCore.Solidity.SolcAstImport.UsingForWildcard",
         "source": "tests/forge-harness/using-for-wildcard/src/UsingForWildcard.sol"
+      }
+    },
+    {
+      "name": "array-mutation-usingfor",
+      "description": "#135 ARRAY-MUTATION-VS-USINGFOR: builtin push/pop exist ONLY on STORAGE dynamic arrays (and storage bytes). On a MEMORY/calldata array the builtin does not exist, so `m.pop()`/`m.push(v)` must dispatch through using-for to the attached library function (solc lowers `m.pop()` to `MemArrLib.pop(m)`). solidity-lean formerly intercepted the name push/pop for ANY array receiver and demanded a storage lvalue, over-rejecting these (Div1). Forge ground truth: viaMemoryPop()=3, viaMemoryPush()=7, viaCalldataPop([_,_,_,_])=4. Lean imports the same source and own-calls each entrypoint, pinning memory/calldata using-for dispatch. Div2 (over-accept): a storage arr.push(7) that ALSO has an attached L.push is AMBIGUOUS -> solc rejects \"Member push not unique after argument-dependent lookup\"; pinned by solc_rejects and the model witness arrayMutationUsingForDisciplineMatches.",
+      "forge": {
+        "root": "tests/forge-harness/array-mutation-usingfor",
+        "match_contract": "ArrayMutationUsingForForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/array-mutation-usingfor/invalid/AmbiguousStoragePush.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/array-mutation-usingfor/src/ArrayMutationUsingFor.sol",
+        "contract": "ArrayMutationUsingForHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ArrayMutationUsingFor"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractTypechecks",
+            "expr": "SolidCore.Solidity.SolcAstImport.ArrayMutationUsingFor.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "viaMemoryPop",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.ArrayMutationUsingFor.importedSourceUnit \"ArrayMutationUsingForHarnessTarget\" \"viaMemoryPop\" SolidCore.Solidity.Source.State.empty [] 3",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "viaMemoryPush",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.ArrayMutationUsingFor.importedSourceUnit \"ArrayMutationUsingForHarnessTarget\" \"viaMemoryPush\" SolidCore.Solidity.Source.State.empty [] 7",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "viaCalldataPop",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 4000 SolidCore.Solidity.SolcAstImport.ArrayMutationUsingFor.importedSourceUnit \"ArrayMutationUsingForHarnessTarget\" \"viaCalldataPop\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.dynamicArray [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 1]] 4",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ambiguityAndControlsDiscipline",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.arrayMutationUsingForDisciplineMatches",
+            "expect": "true"
+          }
+        ]
       }
     },
     {

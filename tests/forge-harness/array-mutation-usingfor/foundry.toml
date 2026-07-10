@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/array-mutation-usingfor/out"
+cache_path = "../../.foundry-suites/array-mutation-usingfor/cache"
+evm_version = "cancun"
