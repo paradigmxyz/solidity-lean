@@ -442,6 +442,71 @@ def g8ErrorNeighborsAccepted : Bool :=
     sourceUnitAccepted? g8FreeErrorSource
 
 -- ===========================================================================
+-- G8b — REQUIRE-CUSTOM-ERROR (#120): solc 0.8.26+ accepts a declared custom
+-- error as require's second argument, `require(a > 0, Err(a))`, reverting with
+-- the error selector ++ abi.encode(args) on a false condition. This holds
+-- identically whether `Err` is declared at CONTRACT level or FILE level (a free
+-- error), resolved via the SAME error table as `revert Err(a)`. An UNDECLARED
+-- name (neither an error nor a function) in that position must still be
+-- REJECTED — require's custom-error arm must not become a catch-all.
+-- ===========================================================================
+
+-- `require(a > 0, Err(a))` where `a` is the function's uint256 parameter.
+private def g8bRequireErr (errName : Name) : Stmt :=
+  Stmt.expr
+    (Expr.call (Expr.ident "require")
+      [ Arg.positional
+          (Expr.binary Solidity.BinaryOp.gt (Expr.ident "a") (numberExpr "0"))
+      , Arg.positional
+          (Expr.call (Expr.ident errName) [Arg.positional (Expr.ident "a")]) ])
+
+private def g8bFn (errName : Name) : ContractItem :=
+  ContractItem.function
+    { simpleReturnFunction with
+      name := some "f"
+      params := [{ name := some "a", ty := uint256, location := none }]
+      returns := []
+      body := some (Stmt.block [g8bRequireErr errName]) }
+
+private def g8bErrorDecl (name : Name) : ContractItem :=
+  ContractItem.errorDecl
+    { name := name, params := [{ name := some "x", ty := uint256, location := none }] }
+
+private def g8bFreeError (name : Name) : SourceItem :=
+  SourceItem.freeError
+    { name := name, params := [{ name := some "x", ty := uint256, location := none }] }
+
+-- Contract-level error `MemberErr` used in require.
+def g8bContractLevelSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "G8bContract"
+            items := [ g8bErrorDecl "MemberErr", g8bFn "MemberErr" ] } ] }
+
+-- File-level (free) error `FreeErr` used in require — must be accepted too.
+def g8bFileLevelSource : SourceUnit :=
+  { items :=
+      [ g8bFreeError "FreeErr"
+      , SourceItem.contract
+          { name := "G8bFree"
+            items := [ g8bFn "FreeErr" ] } ] }
+
+-- An UNDECLARED name (no such error and no such function) in require's reason
+-- position: rejected, exactly as `require(a > 0, Nope(a))` is by solc.
+def g8bUndeclaredSource : SourceUnit :=
+  { items :=
+      [ SourceItem.contract
+          { name := "G8bUndeclared"
+            items := [ g8bFn "Nope" ] } ] }
+
+def g8bRequireCustomErrorAccepted : Bool :=
+  sourceUnitAccepted? g8bContractLevelSource &&
+    sourceUnitAccepted? g8bFileLevelSource
+
+def g8bRequireUndeclaredRejected : Bool :=
+  Result.isError (SourceUnit.check g8bUndeclaredSource)
+
+-- ===========================================================================
 -- G11 — an `internal` or `private` contract-member function declared `payable`
 -- is REJECTED (solc: `"internal" and "private" functions cannot be payable`,
 -- TypeChecker::visitFunction). Only `external`/`public` members may carry the

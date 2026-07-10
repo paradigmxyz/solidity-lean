@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/require-custom-error/out"
+cache_path = "../../.foundry-suites/require-custom-error/cache"
+evm_version = "cancun"

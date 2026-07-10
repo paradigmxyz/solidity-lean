@@ -7332,6 +7332,16 @@
             "label": "g8ErrorNeighborsAccepted",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.g8ErrorNeighborsAccepted",
             "expect": "true"
+          },
+          {
+            "label": "g8bRequireCustomErrorAccepted",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g8bRequireCustomErrorAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g8bRequireUndeclaredRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.g8bRequireUndeclaredRejected",
+            "expect": "true"
           }
         ]
       }
@@ -10599,6 +10609,54 @@
           {
             "label": "importedTReturns",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract \"t\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9] 9",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "require-custom-error",
+      "description": "REQUIRE-CUSTOM-ERROR (#120): solc 0.8.26+ accepts a custom-error instance as require's second argument, reverting on a false condition with the error's selector ++ abi.encode(args) (a custom-error revert, NOT Error(string)). This holds identically whether the error is declared at CONTRACT level (require(a>0, MemberErr(a))) or FILE level as a free error (require(a>0, FreeErr(a))). Forge pins both revert kinds and the passing return values against real solc/EVM; Lean imports the same source unit and checks the RevertData.custom name/args for both the contract-level and the file-level error, plus the returned words. Free errors live at the source-unit level, so the imported-source-unit entry point (not the bare contract decl) is the faithful call target that carries them.",
+      "forge": {
+        "root": "tests/forge-harness/require-custom-error",
+        "match_contract": "RequireCustomErrorForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/require-custom-error/src/RequireCustomError.sol",
+        "contract": "RequireCustomErrorHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RequireCustomError"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.RequireCustomError.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedCReturns",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 5)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedCContractLevelCustomError",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word v]) =>\n      Except.ok (name == \"MemberErr\" && SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedFrReturns",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"fr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 7)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedFrFreeLevelCustomError",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireCustomError.importedSourceUnit (SolidCore.Solidity.Source.CallTarget.name \"fr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word v]) =>\n      Except.ok (name == \"FreeErr\" && SolidCore.Solidity.Source.wordEq v 0)\n  | _ => Except.ok false)",
             "expect": "Except.ok true"
           }
         ]
