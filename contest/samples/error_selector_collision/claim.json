@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Entry", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "HARDENING: two custom errors (E82926 in the entry contract, file-level E94430) share the 4-byte selector 0x554d5780. A last-wins selector map mislabels the revert (EVM custom:E94430 vs solidity-lean custom:E82926) though the on-chain revert bytes are IDENTICAL. Must be REJECTED_OOS (X-ERRSEL), NOT a qualifying wrong-revert SOUNDNESS_GAP.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|custom:E82926:" },
+  "feature": "error-selector-collision",
+  "register_version_seen": "1.2.0"
+}

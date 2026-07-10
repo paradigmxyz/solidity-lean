@@ -948,6 +948,17 @@ def main() -> int:
     results.append(("abilazy_passthrough RENDER-PARITY (FULL)", ok, d))
     _print("abilazy_passthrough RENDER-PARITY (FULL)", ok, d)
 
+    # Round 33 hardening (16th vector): two custom errors sharing a 4-byte selector
+    # (entry-contract E82926 + file-level E94430, both -> 0x554d5780). solc rejects
+    # colliding errors within one contract but NOT a file-level one, so a last-wins
+    # selector map renders custom:E94430 (EVM) vs custom:E82926 (solidity-lean) for
+    # BYTE-IDENTICAL revert data -> a fabricated wrong-revert SOUNDNESS_GAP
+    # (qualifies=True) before the fix. X-ERRSEL now routes the ambiguous-selector
+    # revert to REJECTED_OOS (the name is not a faithful observable).
+    ok, d = run_full("error_selector_collision", "REJECTED_OOS")
+    results.append(("error_selector_collision HARDENING (FULL)", ok, d))
+    _print("error_selector_collision HARDENING (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:

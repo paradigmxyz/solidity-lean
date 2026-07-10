@@ -80,18 +80,31 @@ def _param_type(p: dict[str, Any]) -> str:
     return str(td.get("typeString") or "")
 
 
-def error_definitions(source: Path, solc: str) -> dict[str, tuple[str, list[str]]]:
+def error_definitions(
+        source: Path, solc: str
+) -> tuple[dict[str, tuple[str, list[str]]], set[str]]:
     """Map each user-defined error's 4-byte selector (8 lowercase hex, no 0x) to
     ``(name, [param_type, ...])`` from the compiled AST, so the EVM side can
     decode a custom-error revert into the ``custom:<Name>:...`` normal form.
 
     Uses solc's own ``errorSelector`` on each ``ErrorDefinition`` node (no keccak
-    dependency); errors without a selector are skipped."""
+    dependency); errors without a selector are skipped.
+
+    Returns ``(defs, ambiguous)`` where ``ambiguous`` is the set of selectors
+    defined by TWO OR MORE distinctly-named errors — a 4-byte selector collision.
+    solc rejects colliding errors WITHIN one contract, but NOT across separate
+    contracts or a file-level error, so a submission can plant a second error
+    (e.g. a brute-forced ``E94430()`` colliding with the entry's ``E82926()``)
+    whose name a last-wins selector map would resolve to instead of the actually-
+    reverted one. The on-chain revert bytes are IDENTICAL for both (same selector,
+    same args), so a name mismatch would fabricate a wrong-revert SOUNDNESS_GAP;
+    the caller routes an ambiguous-selector revert to REJECTED_OOS."""
     out: dict[str, tuple[str, list[str]]] = {}
+    ambiguous: set[str] = set()
     try:
         _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
     except Exception:
-        return out
+        return out, ambiguous
     for node in gate.iter_nodes(ast):
         if node.get("nodeType") != "ErrorDefinition":
             continue
@@ -99,10 +112,14 @@ def error_definitions(source: Path, solc: str) -> dict[str, tuple[str, list[str]
         name = node.get("name")
         if not sel or not name:
             continue
+        sel = str(sel).lower()
         types = [_param_type(p) for p in
                  node.get("parameters", {}).get("parameters", [])]
-        out[str(sel).lower()] = (str(name), types)
-    return out
+        prior = out.get(sel)
+        if prior is not None and prior[0] != str(name):
+            ambiguous.add(sel)   # same selector, different error name -> collision
+        out[sel] = (str(name), types)
+    return out, ambiguous
 
 
 def constructor_param_types(source: Path, contract: str,

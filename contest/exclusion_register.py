@@ -242,6 +242,27 @@ _SYNTACTIC: list[ExclusionEntry] = [
         ),
         roadmap_ref="competition-design.md §3.4; observable._decode_abi_values",
     ),
+    ExclusionEntry(
+        id="X-ERRSEL",
+        kind="syntactic",
+        # Adjudicator-checked (revert channel): needs the measured revert selector.
+        detector="adjudicator:revert_selector",
+        since_version="1.2.0",
+        reason=(
+            "The measured revert's 4-byte selector is defined by TWO OR MORE "
+            "distinctly-named custom errors in the submission — a 4-byte selector "
+            "collision. solc rejects colliding errors within one contract but NOT "
+            "across separate contracts or a file-level error, so a submission can "
+            "plant a second error (e.g. a brute-forced `E94430()` colliding with "
+            "the entry's `E82926()`) that a last-wins selector map resolves to "
+            "instead of the actually-reverted one. The on-chain revert bytes are "
+            "IDENTICAL for both (same selector, same args) and no caller can tell "
+            "them apart, so the custom-error NAME is not a faithful observable and "
+            "a name mismatch would fabricate a wrong-revert SOUNDNESS_GAP. Such a "
+            "revert is out of scope; give the errors distinct 4-byte selectors."
+        ),
+        roadmap_ref="competition-design.md §3.4; measure.error_definitions",
+    ),
 ]
 
 
