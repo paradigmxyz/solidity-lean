@@ -5343,6 +5343,14 @@ inductive Expr where
   | var : String -> Expr
   | immutable : String -> Expr
   | storage : String -> Expr
+  /-- The storage SLOT (as a `uint256` word) of a top-level storage state
+      variable. Used to ABI-encode a `T storage` pointer argument on the
+      external (public/external) library `delegatecall` boundary: solc passes
+      the callee's storage `self` as its slot number in the delegatecall
+      calldata (see `Ty.abiCanonical` `... storage` signatures). Evaluates to
+      `context.storageSlot? name` — a compile-time-constant slot for a
+      top-level state variable. -/
+  | storageSlot : String -> Expr
   | storageBytes : String -> Expr
   | storageIndex : String -> Expr -> Expr
   | storagePath : String -> List Expr -> Expr
@@ -6064,6 +6072,7 @@ def Expr.orderFuel : Expr -> Nat
   | Expr.var _ => 1
   | Expr.immutable _ => 1
   | Expr.storage _ => 1
+  | Expr.storageSlot _ => 1
   | Expr.storageBytes _ => 1
   | Expr.storageIndex _ idx => Expr.orderFuel idx + 1
   | Expr.storagePath _ indexes => Expr.listEvalFuel indexes + 1
@@ -6250,6 +6259,11 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
           | Expr.storage name => do
               let value ← runtime.loadStorageField context name
               pure (value, runtime)
+          | Expr.storageSlot name =>
+              match context.storageSlot? name with
+              | some slot => pure (Value.word slot, runtime)
+              | none =>
+                  throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.storageBytes name => do
               let value ← runtime.loadStorageByteStringField context name
               pure (value, runtime)

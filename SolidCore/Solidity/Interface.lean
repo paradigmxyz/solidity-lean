@@ -3999,11 +3999,48 @@ def externalFunctionSignature? (name : Name) (argTys : List Ty) :
   let canonicals ← Ty.listAbiCanonical? argTys
   some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
 
+def dataLocationIsStorage : Option DataLocation -> Bool
+  | some DataLocation.storage => true
+  | _ => false
+
+/-- The ABI-signature rendering of a parameter type honouring its source data
+    location. solc includes ` storage` (with a leading space) in the external
+    signature ONLY for `storage`-pointer parameters — memory/calldata locations
+    are omitted. This is the public/external LIBRARY boundary: a public library
+    `function f(uint256[] storage self, ...)` has selector
+    `f(uint256[] storage,...)`. -/
+def Ty.abiCanonicalWithLocation? (ty : Ty) (loc : Option DataLocation) :
+    Option String := do
+  let base ← Ty.abiCanonical? ty
+  if dataLocationIsStorage loc then
+    some (base ++ " storage")
+  else
+    some base
+
+def Tys.listAbiCanonicalWithLocations? :
+    List Ty -> List (Option DataLocation) -> Option (List String)
+  | [], _ => some []
+  | ty :: tys, locs => do
+      let head ← Ty.abiCanonicalWithLocation? ty (locs.headD none)
+      let tail ← Tys.listAbiCanonicalWithLocations? tys locs.tail
+      some (head :: tail)
+
+def externalFunctionSignatureWithLocations? (name : Name) (argTys : List Ty)
+    (locations : List (Option DataLocation)) : Option String := do
+  let canonicals ← Tys.listAbiCanonicalWithLocations? argTys locations
+  some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
+
 structure ExternalCallKindEntry where
   contractName : Name
   functionName : Name
   paramTys : List Ty := []
   paramNames : List (Option Name) := []
+  -- Reference-signature extension: the source data location of each parameter.
+  -- Only the external/public LIBRARY boundary carries `storage`-location
+  -- parameters (`T storage self`), which solc passes by SLOT in the
+  -- delegatecall calldata and renders `... storage` in the ABI signature. An
+  -- empty list means "no location information" (treated as all-`none`).
+  paramLocations : List (Option DataLocation) := []
   returnTys : List Ty := []
   mutability : StateMutability := StateMutability.nonpayable
   isConstructor : Bool := false
@@ -5602,21 +5639,93 @@ def Expr.externalCallNeedsCodeCheckWithEnv (_env : TypeEnv)
   | Expr.callWithOptions (Expr.member _ _) _ _ => returnTys.isEmpty
   | _ => false
 
+/-- The slot-word core expression for a `storage`-pointer library-call
+    argument. solc encodes a `T storage self` parameter as its storage slot
+    number in the delegatecall calldata. A plain top-level state-variable
+    reference lowers (via `Args.toAbiEncodeSource?`) to `Expr.storage name`; its
+    slot is `Expr.storageSlot name`. Any other storage-pointer shape (nested
+    array/mapping element, storage-pointer local/param) has a dynamic slot we do
+    not yet model on this boundary, so it is left over-rejecting (`none`). -/
+def coreStoragePointerSlotExpr? : CoreExpr -> Option CoreExpr
+  | SolidCore.Solidity.Source.Expr.storage name =>
+      some (SolidCore.Solidity.Source.Expr.storageSlot name)
+  | _ => none
+
+/-- Rewrite the ABI types/expressions of a library external call so each
+    `storage`-location parameter is encoded by SLOT (`uint256`), matching solc's
+    delegatecall calldata. Non-storage parameters pass through unchanged.
+    Returns `none` (over-reject) if a `storage` argument is not a slot-encodable
+    top-level state-variable reference. -/
+def applyStoragePointerCallArgs? :
+    List CoreTy -> List CoreExpr -> List (Option DataLocation) ->
+      Option (List CoreTy × List CoreExpr)
+  | [], [], _ => some ([], [])
+  | coreTy :: coreTys, coreExpr :: coreExprs, locs => do
+      let (tailTys, tailExprs) ←
+        applyStoragePointerCallArgs? coreTys coreExprs locs.tail
+      if dataLocationIsStorage (locs.headD none) then
+        let slotExpr ← coreStoragePointerSlotExpr? coreExpr
+        some
+          ( SolidCore.Solidity.Source.Ty.uint256 :: tailTys
+          , slotExpr :: tailExprs )
+      else
+        some (coreTy :: tailTys, coreExpr :: tailExprs)
+  | _, _, _ => none
+
+/-- The library external ABI/signature payload with the `storage`-pointer slot
+    lowering applied. When no parameter is a `storage` pointer this is exactly
+    `(externalFunctionSignature?, coreTys, coreExprs)` — no behaviour change for
+    ordinary contract calls and memory/calldata library calls. -/
+def externalCallStoragePointerPayload?
+    (name : Name) (sourceTys : List Ty) (coreTys : List CoreTy)
+    (coreExprs : List CoreExpr) (locations : List (Option DataLocation)) :
+    Option (String × List CoreTy × List CoreExpr) := do
+  let signature ← externalFunctionSignatureWithLocations? name sourceTys locations
+  if locations.any dataLocationIsStorage then
+    let (encTys, encExprs) ←
+      applyStoragePointerCallArgs? coreTys coreExprs locations
+    some (signature, encTys, encExprs)
+  else
+    some (signature, coreTys, coreExprs)
+
+/-- The target contract/library name for the ABI/kind-env lookup: a regular
+    contract-typed receiver via the type env, OR a generated library-address
+    ident (`__solidcore_library_*`, produced by the using-for / direct library
+    call rewrites) mapped back to its library name. The latter is what lets a
+    public/external LIBRARY call consult its `ExternalCallKindEntry` (carrying
+    the parameters' data locations) so a `storage`-pointer `self` is encoded by
+    slot. Contract receivers already resolve through
+    `externalCallTargetContractNameWithEnv?`; recovering the library name here
+    does NOT change kind/mutability resolution (those keep using
+    `externalCallTargetContractNameWithEnv?`, for which a generated library
+    address still resolves to `delegatecall` by shape). -/
+def Expr.externalCallAbiContractName? (env : TypeEnv) (target : Expr) :
+    Option Name :=
+  match Expr.externalCallTargetContractNameWithEnv? env target with
+  | some contractName => some contractName
+  | none =>
+      match target with
+      | Expr.ident targetName => generatedLibraryAddressName? targetName
+      | _ => none
+
 def Expr.externalCallAbiWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (target : Expr) (name : Name) (args : List Arg) :
-    Option (List Ty × List CoreTy × List CoreExpr) :=
-  match Expr.externalCallTargetContractNameWithEnv? env target with
+    Option (List Ty × List CoreTy × List CoreExpr × List (Option DataLocation)) :=
+  let fallback :=
+    match Args.toAbiEncodeSource? storageNames args with
+    | some (sourceTys, coreTys, coreExprs) =>
+        some (sourceTys, coreTys, coreExprs, ([] : List (Option DataLocation)))
+    | none => none
+  match Expr.externalCallAbiContractName? env target with
   | some contractName =>
       match
           ExternalCallKindEnv.lookupAbiCall?
             storageNames externalCallKindEnv contractName name args with
-      | some (_, sourceTys, coreTys, coreExprs) =>
-          some (sourceTys, coreTys, coreExprs)
-      | none =>
-          Args.toAbiEncodeSource? storageNames args
-  | none =>
-      Args.toAbiEncodeSource? storageNames args
+      | some (entry, sourceTys, coreTys, coreExprs) =>
+          some (sourceTys, coreTys, coreExprs, entry.paramLocations)
+      | none => fallback
+  | none => fallback
 
 def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv) :
@@ -5630,18 +5739,19 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
       else
         some ()
       let targetCore ← Expr.toCore? storageNames target
-      let (sourceTys, coreTys, coreExprs) ←
+      let (sourceTys, coreTys, coreExprs, locations) ←
         Expr.externalCallAbiWithKindEnv?
           storageNames env externalCallKindEnv target name args
       let kind :=
         Expr.externalCallKindForTargetWithEnv
           env externalCallKindEnv target name sourceTys
-      let signature ← externalFunctionSignature? name sourceTys
+      let (signature, encTys, encExprs) ←
+        externalCallStoragePointerPayload? name sourceTys coreTys coreExprs locations
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           (SolidCore.Solidity.Source.Expr.word
             (SolidCore.Solidity.Source.ABI.selectorFromSignature signature))
-          coreTys coreExprs
+          encTys encExprs
       some
         ( kind
         , targetCore
@@ -5655,7 +5765,7 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
       else
         some ()
       let targetCore ← Expr.toCore? storageNames target
-      let (sourceTys, coreTys, coreExprs) ←
+      let (sourceTys, coreTys, coreExprs, locations) ←
         Expr.externalCallAbiWithKindEnv?
           storageNames env externalCallKindEnv target name args
       let kind :=
@@ -5667,12 +5777,13 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
       let (valueCore, gasCore?, gasFirst) ←
         StateMutability.externalCallOptionsCore?
           storageNames mutability? kind options
-      let signature ← externalFunctionSignature? name sourceTys
+      let (signature, encTys, encExprs) ←
+        externalCallStoragePointerPayload? name sourceTys coreTys coreExprs locations
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           (SolidCore.Solidity.Source.Expr.word
             (SolidCore.Solidity.Source.ABI.selectorFromSignature signature))
-          coreTys coreExprs
+          encTys encExprs
       some (kind, targetCore, callData, valueCore, gasCore?, gasFirst)
   | _ => none
 
@@ -19247,6 +19358,7 @@ def FunctionDecl.externalCallKindEntry? (contractName : Name)
           functionName := functionName
           paramTys := decl.params.map Parameter.ty
           paramNames := decl.params.map Parameter.name
+          paramLocations := decl.params.map Parameter.location
           returnTys := decl.returns.map Parameter.ty
           mutability := decl.mutability }
   | _, _, _ => none
