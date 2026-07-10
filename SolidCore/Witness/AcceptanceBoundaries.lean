@@ -1495,8 +1495,69 @@ def ternaryStorageMemberTargetAccepted : Bool :=
 #guard ternaryStorageMixedLocationRejected
 #guard ternaryStorageMemberTargetAccepted
 
+-- #117 FRAC-CMP-OVERACCEPT — solc 0.8.35 REJECTS every fractional-vs-fractional
+-- literal comparison. Each fractional rational's mobile type is a FixedPointType
+-- (Types.cpp:1234-1270); FixedPointType::binaryOperatorResult (Types.cpp:846-855)
+-- yields no usable common type for a comparison (differing fractional-digit
+-- counts have none, the same-count path is "Not yet implemented - FixedPointType"),
+-- and non-terminating fractions have no fixed mobile type at all ("cannot be
+-- applied to types rational_const ..."). Binary-confirmed reject: `0.5 < 0.25`,
+-- `0.5 == 0.5`, `1/2 == 0.5`, `1/3 < 1/2`. The gate lives in the `<>≤≥`/`==!=`
+-- arms of `checkExpr` via `numberComparisonFoldable?` → `comparisonFoldable`'s
+-- both-fractional branch (`none, none => false`). Neighbors that stay ACCEPTED:
+-- same-sign INTEGER literal comparisons (`1 < 2`, `3 == 3`), which fold to a bool
+-- — the fix must not regress those into an over-reject.
+-- ===========================================================================
+
+private def cmpReturnBoolFn (body : Expr) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    returns := [{ name := none, ty := Ty.bool, location := none }]
+    body := some (Stmt.returnValues (some body)) }
+
+private def fracExpr (num den : String) : Expr :=
+  Expr.binary BinaryOp.div (numberExpr num) (numberExpr den)
+
+-- 0.5 < 0.25 — two terminating decimals: REJECT.
+def fracCmpLtRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "FracLt"
+    (cmpReturnBoolFn (Expr.binary BinaryOp.lt
+      (numberExpr "0.5") (numberExpr "0.25")))))
+
+-- 0.5 == 0.5 — equal terminating decimals: still REJECT.
+def fracCmpEqRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "FracEq"
+    (cmpReturnBoolFn (Expr.binary BinaryOp.eq
+      (numberExpr "0.5") (numberExpr "0.5")))))
+
+-- 1/2 == 0.5 — rational fraction vs decimal: REJECT.
+def fracCmpMixedRatDecEqRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "FracRatDec"
+    (cmpReturnBoolFn (Expr.binary BinaryOp.eq
+      (fracExpr "1" "2") (numberExpr "0.5")))))
+
+-- 1/3 < 1/2 — two non-terminating fractions: REJECT.
+def fracCmpNonTermLtRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "FracNonTerm"
+    (cmpReturnBoolFn (Expr.binary BinaryOp.lt
+      (fracExpr "1" "3") (fracExpr "1" "2")))))
+
+-- Over-reject guard: same-sign INTEGER literal comparisons still ACCEPT/fold.
+def intCmpNeighborsAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "IntLt"
+      (cmpReturnBoolFn (Expr.binary BinaryOp.lt
+        (numberExpr "1") (numberExpr "2")))) &&
+    sourceUnitAccepted? (su_singleContract "IntEq"
+      (cmpReturnBoolFn (Expr.binary BinaryOp.eq
+        (numberExpr "3") (numberExpr "3"))))
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard fracCmpLtRejected
+#guard fracCmpEqRejected
+#guard fracCmpMixedRatDecEqRejected
+#guard fracCmpNonTermLtRejected
+#guard intCmpNeighborsAccepted
 #guard qstructQualifiedConstructionAccepted
 #guard qstructWrongArityRejected
 #guard qstructWrongFieldNameRejected

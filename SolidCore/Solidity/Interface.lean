@@ -3119,8 +3119,15 @@ def NumberRat.integerMobile? (v : NumberRat) : Option Int := do
 -- type (u256 for both-nonnegative, s256 for both-negative), so they fold; but
 -- two OPPOSITE-SIGN integer literals never share a common type — solc rejects
 -- them unconditionally ("cannot be applied to types int_const -1 and int_const 1"),
--- regardless of magnitude. Two fractionals always share a common fixed type; a
--- mix of integer and fractional has no common type.
+-- regardless of magnitude. A pair of FRACTIONAL rationals never yields a usable
+-- common type in 0.8.35: each operand's mobile type is a FixedPointType, and
+-- FixedPointType::binaryOperatorResult (Types.cpp:846-855) returns nullptr for a
+-- comparison (differing fractional-digit counts have no common type, and the
+-- same-count path is unimplemented — "Not yet implemented - FixedPointType"),
+-- while non-terminating fractions have no fixed mobile type at all ("cannot be
+-- applied to types rational_const ..."). Either way solc REJECTS every
+-- fractional-vs-fractional literal comparison, so we do too. A mix of integer
+-- and fractional likewise has no common mobile type.
 def NumberRat.comparisonFoldable (lhs rhs : NumberRat) : Bool :=
   match lhs.exactInt?, rhs.exactInt? with
   | some i, some j =>
@@ -3130,7 +3137,7 @@ def NumberRat.comparisonFoldable (lhs rhs : NumberRat) : Bool :=
           else if i < 0 && j < 0 then true
           else false
       | _, _ => false
-  | none, none => true
+  | none, none => false
   | _, _ => false
 
 def BinaryOp.applyNumberBool? (op : BinaryOp)
@@ -3183,7 +3190,9 @@ end
 -- solc's mobile-type rule. Returns `true` for any non-literal comparison (the
 -- normal typed rule applies there); only a pure literal-vs-literal comparison
 -- whose operands lack a common mobile type is rejected (e.g. `2**300 < 2**301`,
--- `1/2 < 1`), matching solc while still folding `1 < 2` and `1/2 == 0.5`.
+-- `1/2 < 1`, and every fractional-vs-fractional pair such as `0.5 < 0.25` or
+-- `1/2 == 0.5`), matching solc while still folding same-sign integer pairs like
+-- `1 < 2`.
 def Expr.numberComparisonFoldable? (lhs rhs : Expr) : Bool :=
   match Expr.numberLiteralRat? lhs, Expr.numberLiteralRat? rhs with
   | some l, some r => NumberRat.comparisonFoldable l r
