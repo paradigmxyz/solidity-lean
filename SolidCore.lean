@@ -21,3 +21,4 @@ import SolidCore.Witness.GetterStructReject
 import SolidCore.Witness.MulmodZero
 import SolidCore.Witness.QualifiedCollision
 import SolidCore.Witness.QualifiedEventSelector
+import SolidCore.Witness.ErrorSelectorCollision

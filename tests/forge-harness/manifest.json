@@ -11049,6 +11049,39 @@
           }
         ]
       }
+    },
+    {
+      "name": "error-selector-collision",
+      "description": "#139 ERROR-SELECTOR-COLLISION: when two scopes each declare `error Bad` with a DIFFERENT signature and each uses `Bad.selector`, the model's single GLOBAL flat name->selector table returned none on the name collision, so the bare `.selector` failed to lower and the WHOLE contract could not be replayed (over-reject). solc scopes the bare error selector PER CONTRACT (own + inherited + unshadowed file-level), exactly as the type-checker does via ErrorSigs.resolveByName. Fixed by building the bare-selector error table from the target contract's linearization (dispatchOrder) plus unshadowed file-level errors, and adding qualified `Contract.Bad` selector keys so `Lib.Bad.selector` resolves to the declaring scope under a collision (mirrors qualified function/event selectors, f6effeb). A.s()=Bad(uint256) 0xa2f43130, B.s()=Bad(address) 0x830c4ac2 (not poisoned by A), B.q()=Lib.Bad(bytes32) 0x30665c7b, Derived.s()=inherited Bad(uint256) 0xa2f43130, UsesFree.s()=file-level Bad(bool) 0x381f6d34.",
+      "forge": {
+        "root": "tests/forge-harness/error-selector-collision",
+        "match_contract": "ErrorSelectorCollisionForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/error-selector-collision/src/ErrorSelectorCollision.sol",
+        "contract": "A",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "errorSelectorCollisionPerScope",
+            "expr": "(do\n  let aOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"A\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"s\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && r.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"Bad(uint256)\")))\n  let bOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"B\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"s\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && r.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"Bad(address)\")))\n  let bQualOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"B\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"q\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && r.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"Bad(bytes32)\")))\n  let derivedOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"Derived\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"s\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && r.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"Bad(uint256)\")))\n  let usesFreeOk <- (do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ErrorSelectorCollision.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"UsesFree\"\n  let cd <- SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"s\" []\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd\n  Except.ok (r.success && r.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature \"Bad(bool)\")))\n  Except.ok (aOk && bOk && bQualOk && derivedOk && usesFreeOk))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

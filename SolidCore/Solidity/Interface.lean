@@ -9027,6 +9027,20 @@ def ErrorDecls.selectorEntries (decls : List ErrorDecl) :
     SelectorEnv :=
   decls.filterMap ErrorDecl.selectorEntry?
 
+/-- ERROR-SELECTOR-COLLISION (#139 `.selector`): selector entry keyed by the
+    `Contract.Bad` joined name (via `selectorQualifiedName`), so a type-qualified
+    `L.Bad.selector` / `Base.Bad.selector` resolves to the DECLARING scope's
+    selector even under a same-name collision — mirroring the qualified FUNCTION
+    and EVENT selector entries. -/
+def ErrorDecl.qualifiedSelectorEntry? (contractName : Name)
+    (decl : ErrorDecl) : Option (Name × Word) := do
+  let (name, selector) ← ErrorDecl.selectorEntry? decl
+  some (selectorQualifiedName contractName name, selector)
+
+def ErrorDecls.qualifiedSelectorEntries
+    (contractName : Name) (decls : List ErrorDecl) : SelectorEnv :=
+  decls.filterMap (ErrorDecl.qualifiedSelectorEntry? contractName)
+
 def StateVarDecls.selectorEntries (decls : List StateVarDecl) :
     SelectorEnv :=
   decls.filterMap StateVarDecl.selectorEntry?
@@ -22015,15 +22029,55 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
         FunctionDecls.qualifiedSelectorEntries decl.name
           (ContractDecl.directOrdinaryFunctions decl))
       allContracts
+  -- ERROR-SELECTOR-COLLISION (#139): qualified `Contract.Bad` keys over ALL
+  -- contracts/libraries, so a type-qualified `L.Bad.selector` / `Base.Bad.selector`
+  -- resolves to the declaring scope's selector even under a same-name collision
+  -- (mirrors the qualified FUNCTION/EVENT selector entries).
+  let qualifiedErrorSelectorEnv :=
+    concatMapList
+      (fun decl =>
+        ErrorDecls.qualifiedSelectorEntries decl.name
+          (ContractDecl.directErrors decl))
+      allContracts
+  -- The bare `Bad.selector` scope is PER-CONTRACT: solc resolves it against the
+  -- errors visible to the enclosing contract (own + inherited + unshadowed
+  -- file-level), exactly as the type-checker does via `ErrorSigs.resolveByName
+  -- env.errors`. `dispatchOrder` is the target contract's linearization, so its
+  -- direct errors ARE the target's own+inherited errors; within a single
+  -- linearization solc forbids redeclaring an inherited error name, so these
+  -- never self-collide. A same-name error in a SIBLING contract no longer
+  -- poisons the bare name for the target.
+  let targetContractErrors := concatMapList ContractDecl.directErrors dispatchOrder
+  let targetVisibleSourceErrors :=
+    ErrorDecls.withoutNamesOf targetContractErrors sourceErrors
   let selectorEnv :=
-    qualifiedSelectorEnv ++
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
     FunctionDecls.selectorEntries
       (sourceFunctions ++ allContractFunctions) ++
     ErrorDecls.selectorEntries
       (sourceErrors ++ allContractErrors) ++
     StateVarDecls.selectorEntries allContractStateVars
+  -- Bare-selector env for the TARGET contract's own code (dispatch/storage
+  -- orders): only the target's visible errors, plus qualified keys and the
+  -- function selectors.
+  let targetUnqualifiedSelectorEnv :=
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
+    FunctionDecls.selectorEntries
+      (sourceFunctions ++ allContractFunctions) ++
+    ErrorDecls.selectorEntries
+      (targetContractErrors ++ targetVisibleSourceErrors)
+  -- Bare-selector env for FREE functions/constants: file-level errors only
+  -- (free functions cannot see any contract's errors).
+  let freeUnqualifiedSelectorEnv :=
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
+    FunctionDecls.selectorEntries
+      (sourceFunctions ++ allContractFunctions) ++
+    ErrorDecls.selectorEntries sourceErrors
+  -- Global fallback env for LIBRARY/other contracts pulled from `allContracts`
+  -- (e.g. inlined library helpers): keep the historical whole-program error
+  -- table so a library helper's own error `.selector` still resolves.
   let unqualifiedSelectorEnv :=
-    qualifiedSelectorEnv ++
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
     FunctionDecls.selectorEntries
       (sourceFunctions ++ allContractFunctions) ++
     ErrorDecls.selectorEntries
@@ -22063,19 +22117,19 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let sourceFunctions :=
     sourceFunctions.map
       (FunctionDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv freeUnqualifiedSelectorEnv)
   let sourceConstants :=
     sourceConstants.map
       (StateVarDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv freeUnqualifiedSelectorEnv)
   let storageOrder :=
     storageOrder.map
       (ContractDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv targetUnqualifiedSelectorEnv)
   let dispatchOrder :=
     dispatchOrder.map
       (ContractDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv targetUnqualifiedSelectorEnv)
   let allContracts :=
     allContracts.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
   let sourceFunctions :=
@@ -22525,15 +22579,55 @@ def ContractDecl.constructorFunctionFromOrders?
         FunctionDecls.qualifiedSelectorEntries decl.name
           (ContractDecl.directOrdinaryFunctions decl))
       allContracts
+  -- ERROR-SELECTOR-COLLISION (#139): qualified `Contract.Bad` keys over ALL
+  -- contracts/libraries, so a type-qualified `L.Bad.selector` / `Base.Bad.selector`
+  -- resolves to the declaring scope's selector even under a same-name collision
+  -- (mirrors the qualified FUNCTION/EVENT selector entries).
+  let qualifiedErrorSelectorEnv :=
+    concatMapList
+      (fun decl =>
+        ErrorDecls.qualifiedSelectorEntries decl.name
+          (ContractDecl.directErrors decl))
+      allContracts
+  -- The bare `Bad.selector` scope is PER-CONTRACT: solc resolves it against the
+  -- errors visible to the enclosing contract (own + inherited + unshadowed
+  -- file-level), exactly as the type-checker does via `ErrorSigs.resolveByName
+  -- env.errors`. `dispatchOrder` is the target contract's linearization, so its
+  -- direct errors ARE the target's own+inherited errors; within a single
+  -- linearization solc forbids redeclaring an inherited error name, so these
+  -- never self-collide. A same-name error in a SIBLING contract no longer
+  -- poisons the bare name for the target.
+  let targetContractErrors := concatMapList ContractDecl.directErrors dispatchOrder
+  let targetVisibleSourceErrors :=
+    ErrorDecls.withoutNamesOf targetContractErrors sourceErrors
   let selectorEnv :=
-    qualifiedSelectorEnv ++
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
     FunctionDecls.selectorEntries
       (sourceFunctions ++ allContractFunctions) ++
     ErrorDecls.selectorEntries
       (sourceErrors ++ allContractErrors) ++
     StateVarDecls.selectorEntries allContractStateVars
+  -- Bare-selector env for the TARGET contract's own code (dispatch/storage
+  -- orders): only the target's visible errors, plus qualified keys and the
+  -- function selectors.
+  let targetUnqualifiedSelectorEnv :=
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
+    FunctionDecls.selectorEntries
+      (sourceFunctions ++ allContractFunctions) ++
+    ErrorDecls.selectorEntries
+      (targetContractErrors ++ targetVisibleSourceErrors)
+  -- Bare-selector env for FREE functions/constants: file-level errors only
+  -- (free functions cannot see any contract's errors).
+  let freeUnqualifiedSelectorEnv :=
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
+    FunctionDecls.selectorEntries
+      (sourceFunctions ++ allContractFunctions) ++
+    ErrorDecls.selectorEntries sourceErrors
+  -- Global fallback env for LIBRARY/other contracts pulled from `allContracts`
+  -- (e.g. inlined library helpers): keep the historical whole-program error
+  -- table so a library helper's own error `.selector` still resolves.
   let unqualifiedSelectorEnv :=
-    qualifiedSelectorEnv ++
+    qualifiedSelectorEnv ++ qualifiedErrorSelectorEnv ++
     FunctionDecls.selectorEntries
       (sourceFunctions ++ allContractFunctions) ++
     ErrorDecls.selectorEntries
@@ -22573,19 +22667,19 @@ def ContractDecl.constructorFunctionFromOrders?
   let sourceFunctions :=
     sourceFunctions.map
       (FunctionDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv freeUnqualifiedSelectorEnv)
   let sourceConstants :=
     sourceConstants.map
       (StateVarDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv freeUnqualifiedSelectorEnv)
   let storageOrder :=
     storageOrder.map
       (ContractDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv targetUnqualifiedSelectorEnv)
   let dispatchOrder :=
     dispatchOrder.map
       (ContractDecl.resolveSelectorsWithUnqualified
-        selectorEnv unqualifiedSelectorEnv)
+        selectorEnv targetUnqualifiedSelectorEnv)
   let allContracts :=
     allContracts.map (ContractDecl.resolveEventSelectors eventSelectorEnv)
   let sourceFunctions :=
