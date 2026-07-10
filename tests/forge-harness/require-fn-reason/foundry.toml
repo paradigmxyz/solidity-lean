@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/require-fn-reason/out"
+cache_path = "../../.foundry-suites/require-fn-reason/cache"
+evm_version = "cancun"

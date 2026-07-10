@@ -10535,6 +10535,74 @@
           }
         ]
       }
+    },
+    {
+      "name": "require-fn-reason",
+      "description": "REQUIRE-FN-REASON (#118): require(cond, reason) classifies the reason exactly as solc/EVM. A bare string-returning function call reason (require(x>0, boom())) reverts with Error(string) built from the CALLED function's returned string (selector 0x08c379a0), NOT a custom-error revert; a string local variable and a ternary string reason likewise give Error(string). A DECLARED-error reason (require(x>0, MyErr(x))) stays a custom-error revert (custom selector ++ abi.encode(args)). Forge pins every revert kind and return value against real solc/EVM; Lean imports the same source and checks the reverted Error(string) bytes (raw returndata) and the RevertData.custom name/args.",
+      "forge": {
+        "root": "tests/forge-harness/require-fn-reason",
+        "match_contract": "RequireFnReasonForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/require-fn-reason/src/RequireFnReason.sol",
+        "contract": "RequireFnReasonHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RequireFnReason"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedFReturns",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract \"f\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3] 3",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedFFnReasonError",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract (SolidCore.Solidity.Source.CallTarget.name \"f\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.raw bs) =>\n      -- Error(string) = selector 0x08c379a0 ++ abi.encode(\"boom\"):\n      -- head-offset word 0x20, length word 0x04, then the ascii bytes of \"boom\".\n      Except.ok (bs.length == 100\n        && bs.take 4 == [8, 195, 121, 160]\n        && (bs.drop 64).take 4 == [0, 0, 0, 4]\n        && (bs.drop 68).take 4 == [98, 111, 111, 109])\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedCReturns",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract \"c\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 5",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedCCustomError",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract (SolidCore.Solidity.Source.CallTarget.name \"c\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom name [SolidCore.Solidity.Source.Value.word x]) =>\n      Except.ok (name == \"MyErr\" && SolidCore.Solidity.Source.wordEq x 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedSStringVarError",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract (SolidCore.Solidity.Source.CallTarget.name \"s\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.raw bs) =>\n      Except.ok (bs.length == 100\n        && bs.take 4 == [8, 195, 121, 160]\n        && (bs.drop 64).take 4 == [0, 0, 0, 4]\n        && (bs.drop 68).take 4 == [115, 118, 97, 114])\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedTTernaryError",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract (SolidCore.Solidity.Source.CallTarget.name \"t\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.raw bs) =>\n      Except.ok (bs.length == 100\n        && bs.take 4 == [8, 195, 121, 160]\n        && (bs.drop 64).take 4 == [0, 0, 0, 2]\n        && (bs.drop 68).take 2 == [108, 111])\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedSReturns",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract \"s\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 4] 4",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedTReturns",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.RequireFnReason.importedContract \"t\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9] 9",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
