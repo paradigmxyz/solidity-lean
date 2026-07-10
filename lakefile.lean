@@ -9,7 +9,8 @@ require evmyul from git
 -- Lake path dependency (a sibling git repo); promote to a git URL later. A
 -- hash-check (scripts/check_shared_interaction_hashes.py) guarantees its
 -- Simulation sources stay byte-identical to evm-compiler's.
-require «evm-interaction» from ".." / "evm-interaction"
+require «evm-interaction» from git
+  "https://github.com/danrobinson/evm-interaction.git" @ "c939817c55f966dab97e1ba8df05ceca1fdfbdb2"
 
 package «solidity-lean» where
   leanOptions := #[
