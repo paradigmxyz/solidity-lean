@@ -11213,7 +11213,12 @@ def Parameter.matchesArgWithInternalFunctions?
     (param : Parameter) (arg : Expr) : Option Bool := do
   let argTy ←
     Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env arg
-  some (Ty.matchesShape argTy param.ty)
+  -- Argument passing (including using-for additional args and the re-checked
+  -- receiver) uses DIRECTIONAL implicit convertibility: the argument must be
+  -- convertible TO the parameter type, e.g. a `uint8` arg binds a `uint256`
+  -- parameter (widened). Wider→narrower and incompatible/signedness mismatches
+  -- stay rejected because `canImplicitlyConvert` is directional.
+  some (Ty.canImplicitlyConvert argTy param.ty)
 
 def Parameter.matchesArgAllowingInternalFunctionNameWithFunctions?
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
@@ -18871,7 +18876,14 @@ def FunctionDecl.firstParamMatchesWithInternalFunctions?
       let receiverTy ←
         Expr.abiTyWithInternalFunctionsEnv?
           functions freeFunctions env receiver
-      some (Ty.matchesShape receiverTy first.ty)
+      -- USING-FOR function usability (Types.cpp `Type::attachedFunctions`):
+      -- the receiver need only be IMPLICITLY CONVERTIBLE to the function's
+      -- first-parameter type (directional), NOT exact-width. e.g. a `uint8`
+      -- receiver binds `f(uint256 self)` (widened, zero-extended). The wider
+      -- direction (uint256 receiver → uint8 self) stays rejected because
+      -- `canImplicitlyConvert` is directional. Directive APPLICABILITY
+      -- (receiver == target type) is a separate, still-exact check.
+      some (Ty.canImplicitlyConvert receiverTy first.ty)
   | [] => some false
 
 def FunctionDecl.annotateSingleCoreReturn (decl : FunctionDecl)

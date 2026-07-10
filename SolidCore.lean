@@ -27,4 +27,5 @@ import SolidCore.Witness.LitCoercionFamily
 import SolidCore.Witness.DeployAbstract
 import SolidCore.Witness.StringConcatHexLit
 import SolidCore.Witness.LibStorageReturn
+import SolidCore.Witness.UsingForWiden
 import SolidCore.Witness.CallPositionConsolidated
