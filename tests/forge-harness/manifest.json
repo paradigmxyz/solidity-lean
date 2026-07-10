@@ -180,6 +180,84 @@
       }
     },
     {
+      "name": "overreject-callpos-batch",
+      "description": "OVERREJECT-CALLPOS-BATCH closes three confirmed call-position over-rejects (solc 0.8.35 legacy accepts + compiles each; the model used to reject the whole contract at Source->Executable). A: `T x = outer(inner())` — a direct internal call whose argument is itself a direct internal call; the single-binding varDecl arm never hoisted the nested-call argument, so it is now hoisted into a prefix temp before the outer call (solc order inner-before-outer, verified via --ir). B: `T x = m[f()]` / `y = m[f()]` / `T z = m[f()] + 1` — an internal call used as a mapping/array index in a non-return read position; the index-call hoist existed only in the return arm, so an `Expr.index base (call)` arm was added to the single-return expression hoister (reusing `indexReadCoreBuilder?`) and the generic varDecl / plain-assign fallbacks were routed through it (base is a pure reference, so hoisting the index call preserves solc order). E: `m[f()] = g()` — an index-assign whose index and RHS are both calls; on pure-RHS failure the RHS call is hoisted into the RHS temp before the index call, preserving solc RHS-before-index order (verified via --ir: g() before f()). Everything is own-call executable (internal calls + mappings), so acceptance AND runtime are pinned by own-contract execution, including two eval-order pins (orderCompose = 12 requires inner-before-outer; writeIdxOrder = 21 requires RHS-before-index). Call-free controls pin the pre-existing pure paths; the Forge test re-checks every case against real solc/EVM.",
+      "forge": {
+        "root": "tests/forge-harness/overreject-callpos-batch",
+        "match_contract": "OverrejectCallposBatchForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/overreject-callpos-batch/src/OverrejectCallposBatch.sol",
+        "contract": "OverrejectCallposBatchHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "composeVal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"composeVal\" SolidCore.Solidity.Source.State.empty [] 103",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "orderCompose",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"orderCompose\" SolidCore.Solidity.Source.State.empty [] 12",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "readIdx",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"readIdx\" SolidCore.Solidity.Source.State.empty [] 55",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "assignIdx",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"assignIdx\" SolidCore.Solidity.Source.State.empty [] 66",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "binIdx",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"binIdx\" SolidCore.Solidity.Source.State.empty [] 56",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "writeIdx",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"writeIdx\" SolidCore.Solidity.Source.State.empty [] 77",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "writeIdxOrder",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"writeIdxOrder\" SolidCore.Solidity.Source.State.empty [] 21",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainVarDeclControl",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"plainVarDeclControl\" SolidCore.Solidity.Source.State.empty [] 5",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainIdxControl",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"plainIdxControl\" SolidCore.Solidity.Source.State.empty [] 9",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainWriteControl",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.OverrejectCallposBatch.importedContract \"plainWriteControl\" SolidCore.Solidity.Source.State.empty [] 88",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "checked-arithmetic",
       "description": "Forge checks solc/EVM checked and unchecked arithmetic behavior; pinned solc and the common checker reject nested unchecked blocks; Lean checks the paired Solidity source-interpreter witnesses.",
       "forge": {

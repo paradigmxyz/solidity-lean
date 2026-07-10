@@ -12810,6 +12810,27 @@ def FunctionDecl.internalExprSingleReturnUseCore?
       FunctionDecl.internalBinarySingleReturnUseCore?
         internalFuel storageRefEnv env externalCallKindEnv storageNames
         modifiers functions freeFunctions op lhs rhs useResult
+  | Expr.index base (Expr.call (Expr.ident iname) iargs) =>
+      -- OVERREJECT-CALLPOS-BATCH (B): an internal single-return call used as a
+      -- mapping/array INDEX in a NON-return read position (`uint x = m[f()]`,
+      -- `y = m[f()]`, `z = m[f()] + 1`, `t.h(m[f()])`). The pure index-read
+      -- lowering (`Expr.toCore?`) has no internal-call fallback for the index
+      -- operand, so this used to over-reject. The base is a pure storage/local
+      -- reference (`indexReadCoreBuilder?`), so its evaluation has no side
+      -- effect; hoist the index call into a temp and build the read from the
+      -- temp — matching solc legacy `arr[f()]` order (base is a reference, then
+      -- the index call runs; verified via `--ir`). Non-internal-call indices
+      -- never reach here (the constructor pattern requires a direct call), and a
+      -- base containing its own call makes `indexReadCoreBuilder?` return `none`,
+      -- so the caller preserves the prior over-reject rather than emit unsound
+      -- code.
+      match Expr.indexReadCoreBuilder? storageNames base with
+      | some buildRead =>
+          FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions iname iargs
+            (fun idxCore => useResult (buildRead idxCore))
+      | none => none
   | _ => none
 termination_by (internalFuel, sizeOf expr, 5)
 
@@ -14164,7 +14185,46 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                     targetCoreTy indexAssignRhsTempName (some rhsCore)
                 , hoisted ])) with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames original
+      | none =>
+          -- OVERREJECT-CALLPOS-BATCH (E): `m[f()] = g()` — the RHS is ITSELF a
+          -- call-position shape, so the pure RHS lowering (`toCoreAsWithEnv?`)
+          -- above fails. solc evaluates the RHS FIRST, then the index (verified
+          -- via `--ir`: `m[f()] = g()` runs g() before f()). Declare the RHS
+          -- temp uninitialised, hoist the RHS call into it, THEN hoist the index
+          -- call — preserving RHS-before-index order. Any RHS the hoister cannot
+          -- lower leaves this `none`, preserving the prior over-reject.
+          match
+              (do
+                let targetTy ←
+                  Expr.abiTyWithEnv? env
+                    (Expr.index base (Expr.call (Expr.ident iname) iargs))
+                let targetCoreTy ← Ty.toCore? targetTy
+                let buildLV ← Expr.indexLValueCoreBuilder? storageNames base
+                let indexHoist ←
+                  FunctionDecl.internalSingleReturnCallCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions iname iargs
+                    (fun idxCore =>
+                      SolidCore.Solidity.Source.Stmt.assign (buildLV idxCore)
+                        (SolidCore.Solidity.Source.Expr.var
+                          indexAssignRhsTempName))
+                let rhsHoist ←
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions rhs
+                    (fun resultExpr =>
+                      SolidCore.Solidity.Source.Stmt.assign
+                        (SolidCore.Solidity.Source.LValue.var
+                          indexAssignRhsTempName)
+                        (Ty.implicitCleanupCore targetTy resultExpr))
+                some
+                  (SolidCore.Solidity.Source.Stmt.block
+                    [ SolidCore.Solidity.Source.Stmt.varDecl
+                        targetCoreTy indexAssignRhsTempName none
+                    , rhsHoist
+                    , indexHoist ])) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames original
   | Stmt.expr (Expr.assign lhs AssignOp.assign
       expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.toCoreLValue? storageNames lhs,
@@ -14450,8 +14510,30 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.expr (Expr.assign lhs AssignOp.assign rhs) =>
       match assignmentCoreWithEnv? storageNames env lhs rhs with
       | some coreStmt => some coreStmt
-      | none => Stmt.toCore? storageNames
-          (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
+      | none =>
+          -- OVERREJECT-CALLPOS-BATCH (B): plain `lhs = rhs` where the pure
+          -- assignment lowering fails and `rhs` is a call-position shape the
+          -- single-return hoister recognises (e.g. `y = arr[f()]`). The target
+          -- LValue is lowered purely (`toCoreLValue?`); a target whose own index
+          -- contains a call fails there and preserves the prior over-reject.
+          -- solc evaluates the RHS then the (pure-index) LHS reference, which
+          -- the prefix-then-assign shape reproduces.
+          match Expr.toCoreLValue? storageNames lhs with
+          | some targetCore =>
+              let targetTy? := Expr.abiTyWithEnv? env lhs
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions rhs
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign targetCore
+                      (match targetTy? with
+                      | some targetTy => Ty.implicitCleanupCore targetTy resultExpr
+                      | none => resultExpr)) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames
+                  (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
+          | none => Stmt.toCore? storageNames
+              (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
   | Stmt.varDecl [binding]
       (some (Expr.binary op lhs rhs)) =>
       let fallback :=
@@ -15934,27 +16016,84 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
-      | none => do
-          let head ←
-            Stmt.toCoreWithInternalCalls?
-              (internalFuel := internalFuel)
-              (storageRefEnv := storageRefEnv)
-              (env := env)
-              (externalCallKindEnv := externalCallKindEnv)
-              (storageNames := storageNames)
-              (modifiers := modifiers)
-              (functions := functions)
-              (freeFunctions := freeFunctions)
-              (returnTys := returnTys)
-              (stmt := Stmt.varDecl [binding] (some source))
-          let tail ←
-            Stmt.listToCoreWithInternalCallsWithRefs?
-              internalFuel
-              (VarBinding.extendStorageRefEnv storageRefEnv binding)
-              (VarBinding.extendTypeEnv env binding)
-              externalCallKindEnv
-              storageNames modifiers functions freeFunctions returnTys rest
-          some (head :: tail)
+      | none =>
+          -- OVERREJECT-CALLPOS-BATCH (B): `T x = m[f()]` — an internal call used
+          -- as a mapping/array INDEX in a varDecl initializer. The pure varDecl
+          -- lowering has no internal-call fallback for the index operand, so
+          -- this used to over-reject. Hoist the index call (via the single-
+          -- return expression hoister's `Expr.index base (call)` arm) into a
+          -- prefix statement and assign the read to the local. The local's decl
+          -- is emitted as a SIBLING in the enclosing statement list (never a
+          -- self-scoping sub-block) so it stays in scope for later statements;
+          -- solc's declare-then-initialise order and `m[f()]` base-then-index
+          -- order (base is a pure reference) are preserved. A non-call index or
+          -- a base containing a call makes the hoister return `none`, falling
+          -- back to the pure varDecl lowering — no behaviour change.
+          match binding.name with
+          | some localName =>
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions source
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      (match binding.ty with
+                      | some targetTy =>
+                          Ty.implicitCleanupCore targetTy resultExpr
+                      | none => resultExpr)) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (declCore :: assignBlock :: tail)
+              | none => do
+                  let head ←
+                    Stmt.toCoreWithInternalCalls?
+                      (internalFuel := internalFuel)
+                      (storageRefEnv := storageRefEnv)
+                      (env := env)
+                      (externalCallKindEnv := externalCallKindEnv)
+                      (storageNames := storageNames)
+                      (modifiers := modifiers)
+                      (functions := functions)
+                      (freeFunctions := freeFunctions)
+                      (returnTys := returnTys)
+                      (stmt := Stmt.varDecl [binding] (some source))
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys rest
+                  some (head :: tail)
+          | none => do
+              let head ←
+                Stmt.toCoreWithInternalCalls?
+                  (internalFuel := internalFuel)
+                  (storageRefEnv := storageRefEnv)
+                  (env := env)
+                  (externalCallKindEnv := externalCallKindEnv)
+                  (storageNames := storageNames)
+                  (modifiers := modifiers)
+                  (functions := functions)
+                  (freeFunctions := freeFunctions)
+                  (returnTys := returnTys)
+                  (stmt := Stmt.varDecl [binding] (some source))
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys rest
+              some (head :: tail)
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
       let pieces? : Option (List CoreStmt) :=
         match tupleVarDeclCorePieces? storageNames bindings items with
@@ -16556,28 +16695,104 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                           externalCallKindEnv
                           storageNames modifiers functions freeFunctions returnTys rest
                       some (declCore :: assignBlock :: tail)
-                  | none => do
-                      let head ←
-                        match FunctionDecl.abiInternalSingleReturnUseCore?
-                            internalFuel storageRefEnv env externalCallKindEnv
-                            storageNames modifiers functions freeFunctions
-                            "_sol_vardecl_abi_arg" expr
-                            (fun replacedExpr =>
-                              varDeclCoreWithEnv? storageNames env binding
-                                replacedExpr) with
-                        | some coreStmt => some coreStmt
-                        | none =>
-                            Stmt.toCore? storageNames
-                              (Stmt.varDecl [binding]
-                                (some (Expr.call (Expr.ident name) args)))
-                      let tail ←
-                        Stmt.listToCoreWithInternalCallsWithRefs?
-                          internalFuel
-                          (VarBinding.extendStorageRefEnv storageRefEnv binding)
-                          (VarBinding.extendTypeEnv env binding)
-                          externalCallKindEnv
-                          storageNames modifiers functions freeFunctions returnTys rest
-                      some (head :: tail)
+                  | none =>
+                      match FunctionDecl.abiInternalSingleReturnUseCore?
+                          internalFuel storageRefEnv env externalCallKindEnv
+                          storageNames modifiers functions freeFunctions
+                          "_sol_vardecl_abi_arg" expr
+                          (fun replacedExpr =>
+                            varDeclCoreWithEnv? storageNames env binding
+                              replacedExpr) with
+                      | some coreStmt => do
+                          let tail ←
+                            Stmt.listToCoreWithInternalCallsWithRefs?
+                              internalFuel
+                              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                              (VarBinding.extendTypeEnv env binding)
+                              externalCallKindEnv
+                              storageNames modifiers functions freeFunctions
+                              returnTys rest
+                          some (coreStmt :: tail)
+                      | none =>
+                          -- OVERREJECT-CALLPOS-BATCH (A): `T x = outer(inner())`
+                          -- — a direct internal call whose own argument is a
+                          -- direct internal call. `internalSingleReturnCallCore?`
+                          -- above fails because the pure per-arg lowering
+                          -- (`boundaryArgDecls?`) cannot lower a call argument.
+                          -- Mirror the STATEMENT arm's hoist: bind the argument
+                          -- call into a prefix temp, then re-lower the outer call
+                          -- against the temp-substituted argument list. solc
+                          -- evaluates the inner call first, then the outer
+                          -- (verified via `--ir`), which prefix-then-outer
+                          -- reproduces. The local's decl is spliced as a SIBLING
+                          -- in the enclosing statement list (never a self-scoping
+                          -- sub-block) so it stays in scope for later statements.
+                          -- Only the FIRST direct-call argument is hoisted (a
+                          -- second one leaves `replacedArgs` still unlowerable ->
+                          -- `none` -> the original over-reject is preserved; the
+                          -- two-call-arg shape is left open).
+                          match (do
+                              let (argName, argArgs, argTmp, replacedArgs) ←
+                                Args.replaceDirectInternalCallArg?
+                                  "_sol_vardecl_arg" 0 args
+                              let argRetTy ←
+                                FunctionDecl.directOrPtrCallArgReturnTy?
+                                  functions freeFunctions env argName argArgs
+                              let argCoreTy ← Ty.toCore? argRetTy
+                              let argCore ←
+                                FunctionDecl.internalSingleReturnCallCore?
+                                  internalFuel storageRefEnv env
+                                  externalCallKindEnv storageNames modifiers
+                                  functions freeFunctions argName argArgs
+                                  (fun retExpr =>
+                                    SolidCore.Solidity.Source.Stmt.assign
+                                      (SolidCore.Solidity.Source.LValue.var argTmp)
+                                      retExpr)
+                              let declCore ←
+                                Stmt.toCore? storageNames
+                                  (Stmt.varDecl [binding] none)
+                              let assignCore ←
+                                FunctionDecl.internalSingleReturnCallCore?
+                                  internalFuel storageRefEnv env
+                                  externalCallKindEnv storageNames modifiers
+                                  functions freeFunctions name replacedArgs
+                                  (fun retExpr =>
+                                    SolidCore.Solidity.Source.Stmt.assign
+                                      (SolidCore.Solidity.Source.LValue.var
+                                        localName)
+                                      retExpr)
+                              some
+                                [ SolidCore.Solidity.Source.Stmt.varDecl
+                                    argCoreTy argTmp none
+                                , argCore
+                                , declCore
+                                , assignCore ]) with
+                          | some pieces => do
+                              let tail ←
+                                Stmt.listToCoreWithInternalCallsWithRefs?
+                                  internalFuel
+                                  (VarBinding.extendStorageRefEnv storageRefEnv
+                                    binding)
+                                  (VarBinding.extendTypeEnv env binding)
+                                  externalCallKindEnv
+                                  storageNames modifiers functions freeFunctions
+                                  returnTys rest
+                              some (pieces ++ tail)
+                          | none => do
+                              let head ←
+                                Stmt.toCore? storageNames
+                                  (Stmt.varDecl [binding]
+                                    (some (Expr.call (Expr.ident name) args)))
+                              let tail ←
+                                Stmt.listToCoreWithInternalCallsWithRefs?
+                                  internalFuel
+                                  (VarBinding.extendStorageRefEnv storageRefEnv
+                                    binding)
+                                  (VarBinding.extendTypeEnv env binding)
+                                  externalCallKindEnv
+                                  storageNames modifiers functions freeFunctions
+                                  returnTys rest
+                              some (head :: tail)
       | none => do
           let head ←
             Stmt.toCore? storageNames
