@@ -342,6 +342,14 @@ structure ModifierDecl where
   virtual : Bool := false
   override? : Option OverrideSpecifier := none
   body : Option Stmt := none
+  -- Set during whole-contract elaboration to the contract that DECLARES this
+  -- modifier (its position in the C3 linearization). Used to resolve a
+  -- statically QUALIFIED modifier invocation `Base.m` (solc
+  -- `VirtualLookup::Static`) to the named base's own modifier, rather than the
+  -- most-derived override that name-first lookup would pick. `none` on
+  -- freshly-imported/hand-built decls; stamped by
+  -- `ContractDecl.directModifiersStamped`.
+  declaringContract : Option Name := none
   deriving Repr
 
 structure EventParam where

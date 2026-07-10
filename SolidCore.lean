@@ -29,3 +29,4 @@ import SolidCore.Witness.StringConcatHexLit
 import SolidCore.Witness.LibStorageReturn
 import SolidCore.Witness.UsingForWiden
 import SolidCore.Witness.CallPositionConsolidated
+import SolidCore.Witness.ModifierStaticQualifier

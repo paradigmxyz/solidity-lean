@@ -11474,6 +11474,44 @@
           }
         ]
       }
+    },
+    {
+      "name": "modifier-static-qualifier",
+      "description": "#157: a statically QUALIFIED modifier invocation `MsqBase.m` binds to the named base's own modifier (solc VirtualLookup::Static), not the most-derived override; an unqualified `m` stays virtual. Forge/real-EVM: MsqDerived.f() leaves tag==1 (Base.m ran), MsqDerivedU.f() leaves tag==2 (override ran). Lean imports the same source unit from the solc AST and reproduces both tag values through static modifier resolution.",
+      "solc_import": {
+        "contract": "MsqDerived",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ModifierStaticQualifier",
+        "source": "tests/forge-harness/modifier-static-qualifier/src/ModifierStaticQualifier.sol"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.ModifierStaticQualifier.importedContractAccepted"
+          },
+          {
+            "label": "MsqDerivedTagAfterF",
+            "expect": "true",
+            "expr": "(match SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 SolidCore.Solidity.SolcAstImport.ModifierStaticQualifier.importedSourceUnit \"MsqDerived\" (SolidCore.Solidity.Source.CallTarget.name \"f\") SolidCore.Solidity.Source.State.empty [] with\n  | Except.ok (SolidCore.Solidity.Source.CallResult.returned state _) =>\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1\n  | _ => false)"
+          },
+          {
+            "label": "MsqDerivedUTagAfterF",
+            "expect": "true",
+            "expr": "(match SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 SolidCore.Solidity.SolcAstImport.ModifierStaticQualifier.importedSourceUnit \"MsqDerivedU\" (SolidCore.Solidity.Source.CallTarget.name \"f\") SolidCore.Solidity.Source.State.empty [] with\n  | Except.ok (SolidCore.Solidity.Source.CallResult.returned state _) =>\n      SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 2\n  | _ => false)"
+          }
+        ]
+      },
+      "forge": {
+        "match_contract": "ModifierStaticQualifierForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/modifier-static-qualifier"
+      }
     }
   ]
 }

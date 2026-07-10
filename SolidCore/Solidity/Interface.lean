@@ -10806,14 +10806,42 @@ def modifierFindByName? (modifiers : List SourceModifierDecl)
     (name : Name) : Option SourceModifierDecl :=
   modifiers.find? (fun modifier => modifier.name == name)
 
+/-- Resolve a modifier invocation TARGET path against the available modifiers.
+
+An UNQUALIFIED target (`m`, a single-segment path) resolves VIRTUALLY: the
+first name match over the most-derived-first `modifiers` list, i.e. the
+most-derived override (unchanged behavior).
+
+A QUALIFIED target (`Base.m`, multi-segment) resolves STATICALLY (solc
+`VirtualLookup::Static`): the qualifier segment names the base contract, and we
+bind to THAT contract's own modifier named by the last segment. This requires
+the modifiers to carry `declaringContract` (see `directModifiersStamped`); if
+no stamped match exists (unstamped list, or the qualifier is not a contract in
+the linearization) we fall back to the virtual name-first lookup so no path
+regresses. -/
+def modifierResolve? (modifiers : List SourceModifierDecl)
+    (target : Path) : Option SourceModifierDecl := do
+  let name ← pathLast? target
+  match target.segments with
+  | _ :: _ :: _ =>
+      -- Qualified `...Qualifier.name`: the contract qualifier is the segment
+      -- immediately before the modifier name (last segment of the path init).
+      let qualifier ← target.segments.dropLast.reverse.head?
+      match modifiers.find?
+          (fun modifier =>
+            modifier.declaringContract == some qualifier &&
+              modifier.name == name) with
+      | some modifier => some modifier
+      | none => modifierFindByName? modifiers name
+  | _ => modifierFindByName? modifiers name
+
 def functionExpandModifiers? (available : List SourceModifierDecl)
     (invocations : List SourceModifierInvocation) (body : Stmt) : Option Stmt :=
   match invocations with
   | [] => some body
   | invocation :: rest => do
       let inner ← functionExpandModifiers? available rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
+      let modifierDecl ← modifierResolve? available invocation.target
       modifierApply? modifierDecl invocation inner
 
 def modifierApplyToCore? (storageNames returnNames : List Name)
@@ -10879,8 +10907,7 @@ def functionExpandModifiersToCore? (storageNames returnNames : List Name)
       let inner ←
         functionExpandModifiersToCore?
           storageNames returnNames available rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
+      let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyToCore? storageNames returnNames
         modifierDecl invocation inner
 
@@ -12237,8 +12264,7 @@ def functionExpandLeadingModifiers? (available : List SourceModifierDecl) :
   | [], body => some body
   | invocation :: rest, body => do
       let inner ← functionExpandLeadingModifiers? available rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
+      let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyLeadingSource? modifierDecl invocation inner
 
 def Ty.internalCallConversionCore? (targetTy : Ty) :
@@ -12844,8 +12870,7 @@ def functionExpandModifiersToCoreWithInternalCalls?
         functionExpandModifiersToCoreWithInternalCalls?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           returnNames available functions freeFunctions returnTys rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
+      let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyToCoreWithEnv? storageRefEnv env storageNames returnNames
         modifierDecl invocation inner
 termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
@@ -18739,8 +18764,7 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
         functionExpandModifiersToCoreWithInternalCallsFull?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           returnNames available functions freeFunctions returnTys rest body
-      let modifierName ← pathLast? invocation.target
-      let modifierDecl ← modifierFindByName? available modifierName
+      let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyToCoreWithInternalCalls? internalFuel storageRefEnv env
         externalCallKindEnv storageNames returnNames available functions
         freeFunctions returnTys modifierDecl invocation inner
@@ -20396,6 +20420,15 @@ def ContractDecl.directModifiers (decl : ContractDecl) : List SourceModifierDecl
 
 def ContractDecl.modifiers (decl : ContractDecl) : List SourceModifierDecl :=
   ContractDecl.directModifiers decl
+
+/-- Like `directModifiers`, but stamps each modifier with `declaringContract :=
+some decl.name` so a later statically-QUALIFIED invocation `Base.m` can bind to
+the exact declaring base's modifier (solc `VirtualLookup::Static`) instead of
+the most-derived override that name-first lookup returns. -/
+def ContractDecl.directModifiersStamped (decl : ContractDecl) :
+    List SourceModifierDecl :=
+  (ContractDecl.directModifiers decl).map
+    (fun modifier => { modifier with declaringContract := some decl.name })
 
 def ContractDecl.directFunctions (decl : ContractDecl) : List FunctionDecl :=
   decl.items.filterMap (fun item =>
@@ -22641,7 +22674,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
   let modifiers :=
-    (concatMapList ContractDecl.directModifiers dispatchOrder).map
+    (concatMapList ContractDecl.directModifiersStamped dispatchOrder).map
       (ModifierDecl.inlineConstants constants)
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
@@ -23177,7 +23210,7 @@ def ContractDecl.constructorFunctionFromOrders?
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
   let modifiers :=
-    (concatMapList ContractDecl.directModifiers dispatchOrder).map
+    (concatMapList ContractDecl.directModifiersStamped dispatchOrder).map
       (ModifierDecl.inlineConstants constants)
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
