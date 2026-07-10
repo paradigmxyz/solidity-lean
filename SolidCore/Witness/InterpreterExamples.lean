@@ -306,6 +306,46 @@ def writesThenReverts : FunctionDef :=
 def writesThenRevertsCall : Option CallResult :=
   writesThenReverts.call? 8 [writesThenReverts.toInternal] rollbackContext State.empty []
 
+/-! ### DEC-ALLOC-MEMPTR (#114): `abiCheckAllocation?` finalize-allocation band
+
+solc's `finalize_allocation` panics 0x41 when `add(memPtr, roundUp(size))`
+exceeds `2^64-1`, with `memPtr` (≥ `0x80`) the running free-memory pointer that
+the older raw `elementSize * n + 0x20` bound omitted. These witnesses pin the
+band on the reachable `memPtr = 0x80` path and confirm the guard does not
+over-panic just below it. -/
+
+-- `uint256[]` (value array). `32 * n + 32 = 2^64 - 32 ≤ 2^64-1`, so the raw
+-- bound alone would NOT panic; the `0x80` memPtr base tips it over → Panic(0x41).
+example :
+    abiCheckAllocation? false 576460752303423486
+      = Except.error RevertData.memoryAllocationTooLarge := rfl
+
+-- One below the solc threshold (`32 * n + 32 + 0x80 = 2^64 - 1`): NO over-panic.
+example :
+    abiCheckAllocation? false 576460752303423482 = Except.ok () := rfl
+
+-- `bytes` (byte array). `n + 32 = 2^64 - 1 ≤ 2^64-1`; raw bound would NOT panic,
+-- but `roundUp(n) + 32 + 0x80` overflows `2^64-1` → Panic(0x41).
+example :
+    abiCheckAllocation? true 18446744073709551583
+      = Except.error RevertData.memoryAllocationTooLarge := rfl
+
+-- Isolates the byte-length roundUp: at `n = 2^64 - 161` even `n + 32 + 0x80`
+-- (memPtr WITHOUT roundUp) equals exactly `2^64-1` and would NOT panic, but
+-- `roundUp(n) = 2^64 - 160` pushes `newFreePtr` to `2^64` → Panic(0x41).
+example :
+    abiCheckAllocation? true 18446744073709551455
+      = Except.error RevertData.memoryAllocationTooLarge := rfl
+
+-- The raw-count first gate still fires above `2^64-1` (unchanged from #62/#88).
+example :
+    abiCheckAllocation? false (2 ^ 64)
+      = Except.error RevertData.memoryAllocationTooLarge := rfl
+
+-- A normal small length is unaffected: no over-panic for either shape.
+example : abiCheckAllocation? false 3 = Except.ok () := rfl
+example : abiCheckAllocation? true 3 = Except.ok () := rfl
+
 end Source
 end Solidity
 end SolidCore

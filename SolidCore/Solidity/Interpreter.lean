@@ -4891,27 +4891,54 @@ def abiDecodeOpt {α} : Option α -> Except RevertData α
 
 /-- solc allocates a dynamic array / `bytes` / `string` decode target BEFORE the
 data-presence check, so an oversized runtime length raises Panic(0x41) rather
-than the empty revert. Mirror the two production guards:
+than the empty revert. Mirror the FULL production allocation path:
 
-* `array_allocation_size_*` opens with
+* `arrayAllocationSizeFunction` (`YulUtilFunctions.cpp:2362`) opens with
   `if gt(length, 0xffffffffffffffff) { panic_error_0x41() }` on the raw element
-  count (`YulUtilFunctions::arrayAllocationSizeFunction`), and
-* `finalize_allocation` fires `panic_error_0x41()` when the scaled free pointer
-  `length * elementSize + 0x20` exceeds `0xffffffffffffffff`.
+  count, then computes the byte size:
+    - byte arrays / `string`: `size := roundUp(length)` — the *byte* length
+      rounded UP to a multiple of 32 (`round_up_to_mul_of_32`, i.e.
+      `and(add(length, 31), not(31))`), NOT `length * 1`, and
+    - value arrays `T[]`:     `size := mul(length, 0x20)` — one word (a value or
+      a pointer) per element,
+  then adds the `0x20` length slot for the dynamic case (`size := add(size, 0x20)`).
+* `finalize_allocation` (`YulUtilFunctions.cpp:3256`) then sets
+  `newFreePtr := add(memPtr, roundUp(size))` and fires `panic_error_0x41()` when
+  `gt(newFreePtr, 0xffffffffffffffff)` (or `lt(newFreePtr, memPtr)`, a
+  wraparound). `memPtr` is the CURRENT free-memory pointer — the term the earlier
+  guard omitted. Because `memPtr ≥ 0x80`, solc's panic threshold is strictly
+  LOWER than the `elementSize * n + 0x20` bound alone.
 
-`elementSize` is `1` for `bytes`/`string` (byte length) and `0x20` for `T[]`
-(memory arrays store a word — a value or a pointer — per element). Both guards
-run before the `if gt(srcEnd, end) { revert }` data-presence check, so this must
-too. Value types never allocate and therefore never reach this guard. -/
-def abiCheckAllocation? (elementSize : Nat) (length : Word) :
+The model abstracts memory (the decoder is a pure function of the argument
+bytes; there is no running free pointer). On the reachable path solc allocates
+the decode target at the INITIAL free-memory pointer `0x80`: the external
+dispatcher decodes the first/only dynamic reference parameter with the free
+pointer still at its `0x80` reset, and a fresh `abi.decode` target is likewise
+the first allocation. So `memPtr = 0x80` reproduces solc's threshold exactly on
+that path, and — since `memPtr ≥ 0x80` for ANY decode — it is a sound lower
+bound that never over-panics on a length solc would accept (a decode preceded by
+further allocation has an even lower solc threshold; the residual band above
+`0x80` is a memory-layout abstraction limit, not an over-reject).
+
+`size` is already 32-aligned, so the outer `roundUp(size)` is the identity; the
+first gate caps `length ≤ 2^64-1`, so `newFreePtr` stays far below `2^256` and
+the wraparound arm is unreachable (Nat arithmetic has no wraparound anyway). -/
+def abiCheckAllocation? (byteArray : Bool) (length : Word) :
     Except RevertData Unit :=
   let n := SolidCore.Solidity.Shared.norm length
   if n > 0xffffffffffffffff then
     Except.error RevertData.memoryAllocationTooLarge
-  else if n * elementSize + wordBytes > 0xffffffffffffffff then
-    Except.error RevertData.memoryAllocationTooLarge
   else
-    Except.ok ()
+    -- `arrayAllocationSizeFunction`: byte length rounds UP to a word; value
+    -- arrays take one word per element; both add the `0x20` length slot.
+    let dataSize := if byteArray then (n + 31) / 32 * 32 else n * wordBytes
+    let size := dataSize + wordBytes
+    -- `finalize_allocation`: `newFreePtr = memPtr + roundUp(size)`, panic if it
+    -- exceeds `2^64-1`. `memPtr = 0x80` = the initial free-memory pointer.
+    if 0x80 + size > 0xffffffffffffffff then
+      Except.error RevertData.memoryAllocationTooLarge
+    else
+      Except.ok ()
 
 def abiDecodeValueAtWithFuel? :
     Nat -> List Byte -> Nat -> Ty -> Except RevertData Value
@@ -4968,7 +4995,7 @@ def abiDecodeValueAtWithFuel? :
       let length ← abiDecodeOpt (readWord? argData offset)
       -- solc allocates the `bytes`/`string` (element size 1) before the
       -- data-presence check, so an oversized length raises Panic(0x41).
-      abiCheckAllocation? 1 length
+      abiCheckAllocation? true length
       let bytes ← abiDecodeOpt (readBytes? argData (offset + wordBytes) length)
       Except.ok (Value.bytes bytes)
   | fuel + 1, argData, headIndex, Ty.dynamicArray elementTy => do
@@ -4976,7 +5003,7 @@ def abiDecodeValueAtWithFuel? :
       let length ← abiDecodeOpt (readWord? argData offset)
       -- solc allocates the array (element size 0x20) before reading elements,
       -- so an oversized length raises Panic(0x41) ahead of data presence.
-      abiCheckAllocation? wordBytes length
+      abiCheckAllocation? false length
       let rec decodeDynamicValues? : Nat -> Nat -> Except RevertData (List Value)
         | 0, _ => Except.ok []
         | remaining + 1, index => do

@@ -394,10 +394,11 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
   | _fuel + 1, lazy, argData, headIndex, Ty.bytesCalldata => do
       let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
       let length ← abiArgOpt (readWord? argData offset)
-      -- A `memory`-location `bytes`/`string` (eager) is allocated (element
-      -- size 1) BEFORE the calldata data-presence check, so an oversized length
-      -- raises Panic(0x41). A `calldata` param never allocates → empty revert.
-      if !lazy then abiCheckAllocation? 1 length
+      -- A `memory`-location `bytes`/`string` (eager) is allocated (byte length
+      -- rounded up to a word + memPtr) BEFORE the calldata data-presence check,
+      -- so an oversized length raises Panic(0x41). A `calldata` param never
+      -- allocates → empty revert.
+      if !lazy then abiCheckAllocation? true length
       let bytes ← abiArgOpt (readBytes? argData (offset + wordBytes) length)
       Except.ok (Value.bytes bytes)
   | fuel + 1, lazy, argData, headIndex, Ty.dynamicArray elementTy => do
@@ -406,7 +407,7 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
       -- A `memory` array (eager) is allocated (memory stride 0x20 per element)
       -- BEFORE elements are read, so an oversized length raises Panic(0x41); a
       -- `calldata` array (lazy) returns a pointer and never allocates.
-      if !lazy then abiCheckAllocation? wordBytes length
+      if !lazy then abiCheckAllocation? false length
       -- Inner-element validation is deferred only for a *calldata* array of
       -- *dynamic* elements (solc returns a calldata pointer and validates each
       -- element's inner offset/length lazily on access); a structurally
