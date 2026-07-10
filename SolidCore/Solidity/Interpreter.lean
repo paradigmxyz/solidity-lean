@@ -4175,6 +4175,33 @@ def Runtime.loadStorageRefPathValue (context : Context)
     Except RevertData Value :=
   runtime.loadStoragePath context name indexes
 
+/-- The storage SLOT (as a `Word`) of the storage lvalue rooted at state
+    variable `name` and reached through `indexes` — the same slot the value
+    forms load from, obtained via `State.resolveStoragePathSlot`, but returned
+    rather than dereferenced. Used to ABI-encode a storage pointer by slot on
+    the public-library `delegatecall` boundary. -/
+def Runtime.storagePathSlotValue (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Word := do
+  let field ←
+    match context.storageField? name with
+    | some field => Except.ok field
+    | none => Except.error RevertData.typeMismatch
+  if field.transient && !indexes.isEmpty then
+    Except.error RevertData.typeMismatch
+  else
+    pure ()
+  let layout ←
+    match field.layout? with
+    | some layout => Except.ok layout
+    | none =>
+        match field.ty? with
+        | some ty => Except.ok (StorageLayout.scalar ty)
+        | none => Except.error RevertData.typeMismatch
+  let (slot, _) ←
+    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+  Except.ok slot
+
 def Runtime.storeStoragePathWithDeepClear (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value)
     (value : Value) : Except RevertData Runtime := do
@@ -5351,6 +5378,22 @@ inductive Expr where
       `context.storageSlot? name` — a compile-time-constant slot for a
       top-level state variable. -/
   | storageSlot : String -> Expr
+  /-- The storage SLOT (as a `uint256` word) of a storage LVALUE rooted at a
+      top-level state variable and reached through mapping keys / array indices /
+      struct-field ordinals (`indexes`). Generalises `storageSlot` to
+      `mapping`-value, array-element and struct-member storage pointers passed on
+      the external/public-library `delegatecall` boundary (LIB-STORAGE-PUBLIC-2).
+      Evaluates by resolving the same slot path the value forms
+      (`storageIndex`/`storagePath`) use — `State.resolveStoragePathSlot` from the
+      field's base slot and layout — and returning that slot number, without
+      loading the value. -/
+  | storagePathSlot : String -> List Expr -> Expr
+  /-- The storage SLOT (as a `uint256` word) of a `T storage` local pointer
+      (`Foo storage p = …`) reached through further `indexes`. The pointer is a
+      `Value.storagePathRef target refIndexes` in the runtime; the slot is the
+      resolution of `(target, refIndexes ++ indexes)`. Used to encode such a
+      local as its slot on the public-library `delegatecall` boundary. -/
+  | storageRefSlot : String -> List Expr -> Expr
   | storageBytes : String -> Expr
   | storageIndex : String -> Expr -> Expr
   | storagePath : String -> List Expr -> Expr
@@ -6073,6 +6116,8 @@ def Expr.orderFuel : Expr -> Nat
   | Expr.immutable _ => 1
   | Expr.storage _ => 1
   | Expr.storageSlot _ => 1
+  | Expr.storagePathSlot _ indexes => Expr.listEvalFuel indexes + 1
+  | Expr.storageRefSlot _ indexes => Expr.listEvalFuel indexes + 1
   | Expr.storageBytes _ => 1
   | Expr.storageIndex _ idx => Expr.orderFuel idx + 1
   | Expr.storagePath _ indexes => Expr.listEvalFuel indexes + 1
@@ -6278,6 +6323,25 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   indexes
               let value ← runtime'.loadStoragePath context name indexValues
               pure (value, runtime')
+          | Expr.storagePathSlot name indexes => do
+              let (indexValues, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  indexes
+              let slot ←
+                runtime'.storagePathSlotValue context name indexValues
+              pure (Value.word slot, runtime')
+          | Expr.storageRefSlot name indexes => do
+              let (indexValues, runtime') ←
+                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                  indexes
+              match runtime'.lookupStoragePathRef? name with
+              | some (target, refIndexes) => do
+                  let slot ←
+                    runtime'.storagePathSlotValue context target
+                      (refIndexes ++ indexValues)
+                  pure (Value.word slot, runtime')
+              | none =>
+                  throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.externalFunctionValue addressExpr selector => do
               let (value, runtime') ←
                 Expr.evalWithRuntimeOrderFuel fuel order context runtime

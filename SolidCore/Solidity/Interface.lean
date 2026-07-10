@@ -5639,17 +5639,58 @@ def Expr.externalCallNeedsCodeCheckWithEnv (_env : TypeEnv)
   | Expr.callWithOptions (Expr.member _ _) _ _ => returnTys.isEmpty
   | _ => false
 
+/-- A storage lvalue CoreExpr (already lowered by `Expr.toCore?`) rooted at a
+    top-level STATE variable, decomposed into `(name, indexes)` — the same
+    `(name, indexes)` the value forms `storageIndex`/`storagePath` load from.
+    Mapping-value / array-element / struct-member storage pointers lower to
+    `storageIndex name idx`, a nested `index` chain over one of those, or a bare
+    `storage name`; struct members were already rewritten to an index ordinal
+    upstream (`resolveStructs`). Used to recover the slot path for
+    `coreStoragePointerSlotExpr?`. -/
+def coreStorageStatePath? : CoreExpr -> Option (Name × List CoreExpr)
+  | SolidCore.Solidity.Source.Expr.storage name => some (name, [])
+  | SolidCore.Solidity.Source.Expr.storageIndex name idx => some (name, [idx])
+  | SolidCore.Solidity.Source.Expr.storagePath name indexes => some (name, indexes)
+  | SolidCore.Solidity.Source.Expr.index base idx => do
+      let (name, indexes) ← coreStorageStatePath? base
+      some (name, indexes ++ [idx])
+  | _ => none
+
+/-- A storage lvalue CoreExpr rooted at a `T storage` LOCAL pointer, decomposed
+    into `(name, indexes)`. A bare storage-pointer local lowers to `Expr.var
+    name`; further element access lowers to an `index` chain over it. Used to
+    recover the slot of a storage-pointer-local argument. -/
+def coreStorageRefPath? : CoreExpr -> Option (Name × List CoreExpr)
+  | SolidCore.Solidity.Source.Expr.var name => some (name, [])
+  | SolidCore.Solidity.Source.Expr.index base idx => do
+      let (name, indexes) ← coreStorageRefPath? base
+      some (name, indexes ++ [idx])
+  | _ => none
+
 /-- The slot-word core expression for a `storage`-pointer library-call
     argument. solc encodes a `T storage self` parameter as its storage slot
     number in the delegatecall calldata. A plain top-level state-variable
     reference lowers (via `Args.toAbiEncodeSource?`) to `Expr.storage name`; its
-    slot is `Expr.storageSlot name`. Any other storage-pointer shape (nested
-    array/mapping element, storage-pointer local/param) has a dynamic slot we do
-    not yet model on this boundary, so it is left over-rejecting (`none`). -/
+    slot is the compile-time-constant `Expr.storageSlot name`. Other
+    storage-pointer shapes — a `mapping` value, an array element, a struct-member
+    array (all rooted at a state variable, possibly through a nested `index`
+    chain), or a `T storage` local pointer — carry a runtime-computed slot; those
+    are encoded via `storagePathSlot` / `storageRefSlot`, which resolve the same
+    slot the value forms load from (`State.resolveStoragePathSlot`). Only a shape
+    that is neither a state-rooted nor a local-rooted storage lvalue is left
+    over-rejecting (`none`). -/
 def coreStoragePointerSlotExpr? : CoreExpr -> Option CoreExpr
   | SolidCore.Solidity.Source.Expr.storage name =>
       some (SolidCore.Solidity.Source.Expr.storageSlot name)
-  | _ => none
+  | coreExpr =>
+      match coreStorageStatePath? coreExpr with
+      | some (name, indexes) =>
+          some (SolidCore.Solidity.Source.Expr.storagePathSlot name indexes)
+      | none =>
+          match coreStorageRefPath? coreExpr with
+          | some (name, indexes) =>
+              some (SolidCore.Solidity.Source.Expr.storageRefSlot name indexes)
+          | none => none
 
 /-- Rewrite the ABI types/expressions of a library external call so each
     `storage`-location parameter is encoded by SLOT (`uint256`), matching solc's

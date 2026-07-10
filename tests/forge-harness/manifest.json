@@ -9898,6 +9898,39 @@
           }
         ]
       }
+    },
+    {
+      "name": "lib-storage-public-2",
+      "description": "A public library function `pushPub(uint256[] storage,uint256)` taking a `T storage` pointer, invoked with storage-pointer ARGUMENTS that are not bare top-level state variables: a MAPPING VALUE `m[k]` (direct `L2.pushPub(m[k], v)`), a STRUCT-MEMBER array `s.a` (using-for `s.a.pushPub(v)`), and a `T storage` LOCAL bound to a nested-array element (`uint256[] storage p = aa[i]; L2.pushPub(p, v)`). solc 0.8.35 encodes each `T storage self` as the pointer's runtime-computed storage SLOT in the delegatecall calldata (keccak256(k.slot_m) for the mapping value, the additive field slot for the struct member, keccak256(slot_aa)+i for the nested-array element). Before LIB-STORAGE-PUBLIC-2 the model over-rejected these at the executable-lowering boundary (`coreStoragePointerSlotExpr?` returned `none` for any non-`Expr.storage` storage lvalue). Forge pins the real-EVM storage effect (read-backs of m[k], s.a, aa[i] after the library push); imported Lean pins that the contract now lowers AND emits a delegatecall whose calldata carries exactly the resolved slot (selector `pushPub(uint256[] storage,uint256)` + slot word + value word) for all three shapes.",
+      "forge": {
+        "root": "tests/forge-harness/lib-storage-public-2",
+        "match_contract": "LibStoragePublic2ForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/lib-storage-public-2/src/LibStoragePublic2.sol",
+        "contract": "LibStoragePublic2",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LibStoragePublic2"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedLibStoragePublic2Accepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LibStoragePublic2.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedLibStoragePublic2StoragePointerDelegatecall",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.LibStoragePublic2.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract\n    (<- SolidCore.Solidity.TypeCheck.CheckedInput.program source) \"LibStoragePublic2\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let ctx := { program.core.context with contractAddresses := [(\"L2\", 0xbeef)], accountCodes := [(0xbeef, [1])] }\n  let mkCd := fun (slot v : Nat) => do\n    let enc <- SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues\n      [SolidCore.Solidity.Source.Ty.uint256, SolidCore.Solidity.Source.Ty.uint256] [word slot, word v]\n    Except.ok (SolidCore.Solidity.Source.ABI.encodeSelector\n      (SolidCore.Solidity.Source.ABI.selectorFromSignature \"pushPub(uint256[] storage,uint256)\") ++ enc)\n  let runOne := fun (fn : String) (cd : List SolidCore.Solidity.Source.Byte) (st : SolidCore.Solidity.Source.State) (args : List SolidCore.Solidity.Source.Value) => do\n    let oracle : SolidCore.Solidity.Source.LowLevelCallResult :=\n      { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall\n        target := 0xbeef, calldata := cd, value := 0, gas? := none, success := true, output := [] }\n    let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256\n      (SolidCore.Solidity.Source.responderOfResults [oracle] []) program fn ctx st args\n    match r with\n    | SolidCore.Solidity.Source.CallResult.returned state _ =>\n        match state.externalInteractions with\n        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>\n            Except.ok (SolidCore.Solidity.Source.LowLevelCallResult.matches call\n              SolidCore.Solidity.Source.LowLevelCallKind.delegatecall 0xbeef cd 0 none && call.success)\n        | _ => Except.ok false\n    | _ => Except.ok false\n  let structCd <- mkCd 1 99\n  let structOk <- runOne \"pushStruct\" structCd SolidCore.Solidity.Source.State.empty [word 99]\n  let mapCd <- mkCd (SolidCore.Solidity.Source.mappingStorageSlot 0 3) 22\n  let mapOk <- runOne \"pushMapping\" mapCd SolidCore.Solidity.Source.State.empty [word 3, word 22]\n  let localCd <- mkCd (SolidCore.Solidity.Source.dynamicArrayStorageSlot 2 0) 77\n  let dummy : SolidCore.Solidity.Source.LowLevelCallResult :=\n    { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall\n      target := 0xbeef, calldata := localCd, value := 0, gas? := none, success := true, output := [] }\n  let ra <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256\n    (SolidCore.Solidity.Source.responderOfResults [dummy] []) program \"addRow\" ctx SolidCore.Solidity.Source.State.empty []\n  let stateA := match ra with\n    | SolidCore.Solidity.Source.CallResult.returned state _ => state\n    | SolidCore.Solidity.Source.CallResult.reverted state _ => state\n  let localOk <- runOne \"pushLocal\" localCd stateA [word 0, word 77]\n  Except.ok (structOk && mapOk && localOk))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
