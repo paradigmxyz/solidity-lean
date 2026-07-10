@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Emitter", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "HARDENING: the constructor emits Ctor(1) and entry f() emits Ran(2). The EVM event observable (recordLogs armed AFTER deploy) shows only the entry call's Ran(2); solidity-lean must render only the entry-call event delta (not the cumulative ctor+entry log). Must be NO_DIVERGENCE, not a fabricated wrong-events SOUNDNESS_GAP.",
+  "declared_observable": { "kind": "events", "normal_form": "success|##EVT##t=[85100209838424016913431972738421267169923878295841271604566800439840182705655];d=0x0000000000000000000000000000000000000000000000000000000000000002##STO##" },
+  "feature": "constructor-event-not-in-entry-observable",
+  "register_version_seen": "1.2.0"
+}
