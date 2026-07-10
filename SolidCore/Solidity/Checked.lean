@@ -705,12 +705,15 @@ def constructContractFrom? (fuel : Nat) (program : CheckedProgram)
     (name : Name) (state : CoreState) (sender value : Word)
     (args : List CoreValue) : Option CoreCallResult := do
   let contract ← contract? program name
+  guard (contract.decl.kind == Solidity.ContractKind.contract
+    && !contract.decl.abstract)
   CheckedContract.constructFrom? fuel contract state sender value args
 
 def constructContractFrom (fuel : Nat) (program : CheckedProgram)
     (name : Name) (state : CoreState) (sender value : Word)
     (args : List CoreValue) : Except TypeError CoreCallResult := do
   let contract ← contract program name
+  let _ ← requireCreatableContractDecl contract.decl
   CheckedContract.constructFrom fuel contract state sender value args
 
 def constructContractWithContext? (fuel : Nat) (program : CheckedProgram)
@@ -718,6 +721,8 @@ def constructContractWithContext? (fuel : Nat) (program : CheckedProgram)
     (sender value : Word) (args : List CoreValue) :
     Option CoreCallResult := do
   let contract ← contract? program name
+  guard (contract.decl.kind == Solidity.ContractKind.contract
+    && !contract.decl.abstract)
   CheckedContract.constructWithContext?
     fuel contract context state sender value args
 
@@ -726,6 +731,7 @@ def constructContractWithContext (fuel : Nat) (program : CheckedProgram)
     (sender value : Word) (args : List CoreValue) :
     Except TypeError CoreCallResult := do
   let contract ← contract program name
+  let _ ← requireCreatableContractDecl contract.decl
   CheckedContract.constructWithContext
     fuel contract context state sender value args
 
