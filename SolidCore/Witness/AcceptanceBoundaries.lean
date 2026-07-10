@@ -1955,6 +1955,103 @@ def sliceStringArrayRejected : Bool :=
 #guard sliceBytesArrayRejected
 #guard sliceStringArrayRejected
 
+-- ===========================================================================
+-- #126 ARRAY-WIDEN-COPY — a copy assignment INTO a (non-pointer) storage array
+-- accepts a length-widening / element-convertible source for ANY non-struct
+-- element type (solc `ArrayType::isImplicitlyConvertibleTo`, Types.cpp:1640-1648;
+-- the model formerly restricted the base to integers only, over-rejecting
+-- bytes32/bool/address/enum/nested-value-array element types). The legacy
+-- CODEGEN carve-out ("Copying of type struct … to storage is not supported in
+-- legacy") fires only when the array's DIRECT element is a struct VALUE; nesting
+-- the struct one array level down (`S[][2] → S[][3]`) is ACCEPTED by legacy.
+-- Boundary re-verified against the pinned solc-0.8.35 binary (2026-07-10).
+-- ===========================================================================
+
+-- `function f(<srcTy> memory m) { a = m; }` writing a storage array `a`.
+private def arrayCopyAssignFn (srcTy : Ty) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    mutability := StateMutability.nonpayable
+    returns := []
+    params :=
+      [ { name := some "m", ty := srcTy
+          location := some DataLocation.memory } ]
+    body :=
+      some
+        (Stmt.expr
+          (Expr.assign (Expr.ident "a") AssignOp.assign (Expr.ident "m"))) }
+
+private def arrayCopyContract
+    (cname : Name) (destTy srcTy : Ty)
+    (extra : List SourceItem := []) : SourceUnit :=
+  { items :=
+      extra ++
+        [ SourceItem.contract
+            { name := cname
+              items :=
+                [ ContractItem.stateVar { name := "a", ty := destTy }
+                , ContractItem.function (arrayCopyAssignFn srcTy) ] } ] }
+
+private def widenArr (elem : Ty) : Ty := Ty.array elem (some 3)
+private def srcArr (elem : Ty) : Ty := Ty.array elem (some 2)
+private def wcArrWidenStruct : StructDecl :=
+  { name := "S", fields := [{ name := "x", ty := Ty.uint 256 }] }
+private def wcArrWidenStructTy : Ty := Ty.user { segments := ["S"] }
+
+-- ACCEPT: value / reference element types (formerly over-rejected).
+def wcBytes32ArrayWidenAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCBytes32"
+      (widenArr (Ty.bytesN 32)) (srcArr (Ty.bytesN 32)))
+
+def wcBoolArrayWidenAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCBool" (widenArr Ty.bool) (srcArr Ty.bool))
+
+def wcAddressArrayWidenAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCAddr"
+      (widenArr (Ty.address false)) (srcArr (Ty.address false)))
+
+-- ACCEPT: nested value-array element `uint[][2] → uint[][3]`.
+def wcNestedValueArrayWidenAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCNestedVal"
+      (widenArr (Ty.array (Ty.uint 256) none))
+      (srcArr (Ty.array (Ty.uint 256) none)))
+
+-- ACCEPT (subsumes the old integer-widening path): `uint8[2] → uint16[3]`.
+def wcIntWidenArrayAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCIntWiden"
+      (widenArr (Ty.uint 16)) (srcArr (Ty.uint 8)))
+
+-- ACCEPT (corrected boundary): nested struct-array `S[][2] → S[][3]` — legacy
+-- accepts because the DIRECT element `S[]` is an array, not a struct value.
+def wcNestedStructArrayWidenAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCNestedStruct"
+      (widenArr (Ty.array wcArrWidenStructTy none))
+      (srcArr (Ty.array wcArrWidenStructTy none))
+      [SourceItem.freeStruct wcArrWidenStruct])
+
+-- REJECT (legacy-vs-IR carve-out held): direct struct-value element
+-- `S[2] → S[3]` stays rejected.
+def wcStructArrayWidenRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (arrayCopyContract "WCStruct"
+        (widenArr wcArrWidenStructTy) (srcArr wcArrWidenStructTy)
+        [SourceItem.freeStruct wcArrWidenStruct]))
+
+#guard wcBytes32ArrayWidenAccepted
+#guard wcBoolArrayWidenAccepted
+#guard wcAddressArrayWidenAccepted
+#guard wcNestedValueArrayWidenAccepted
+#guard wcIntWidenArrayAccepted
+#guard wcNestedStructArrayWidenAccepted
+#guard wcStructArrayWidenRejected
+
 end Examples
 end TypeCheck
 end Solidity

@@ -1088,41 +1088,10 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
             actualMutability expectedMutability
     | _, _ => false
 
--- G14 / R2: acceptance of a copy assignment INTO a (non-pointer) storage array
--- with an implicitly-convertible element type and/or a differing length. solc's
--- rule (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
--- `Types.cpp:1628-1665`) is: base implicitly convertible; a DYNAMIC dest accepts
--- any source length (dynamic or fixed source); a FIXED dest `T[N]` requires a
--- FIXED source `S[M]` with `N ≥ M`. The runtime resizes/pads the dest to the
--- source length, converts each element (sign/zero-extending an integer widening
--- to the dest width — a widening never overflows, so never Panic 0x11), and
--- zero-fills / pads the tail (probed against the pin, 2026-07-08):
---   * dyn dest ← fixed src ACCEPT; fixed dest N<M REJECT; fixed dest N≥M ACCEPT;
---   * signed↔unsigned base REJECT; base narrowing REJECT; fixed dest ← dyn src
---     REJECT (all mirrored by the base/length checks below).
---
--- The base must be an INTEGER type (uint/int) that `canImplicitlyConvert` maps
--- (same-signedness widening — this already forbids signed↔unsigned and
--- narrowing, exactly as solc). Restricting to integer bases keeps every accepted
--- shape one whose copied VALUES the interpreter reproduces bit-for-bit against
--- Forge (see the R2 DECISIONS entry). The strict same-base rule still governs
--- pointer/memory targets and every non-storage context, so this is only
--- consulted for a genuine storage-variable dest.
-def Ty.integerArrayElemWiden? (srcElem destElem : Ty) : Bool :=
-  srcElem.isInteger && destElem.isInteger &&
-    Ty.canImplicitlyConvert srcElem destElem
-
-def Ty.storageArrayCopyAssignable? (destTy srcTy : Ty) : Bool :=
-  match destTy, srcTy with
-  -- Dynamic dest: any source length (dynamic OR fixed source).
-  | Solidity.Ty.array destElem none,
-    Solidity.Ty.array srcElem _ =>
-      Ty.integerArrayElemWiden? srcElem destElem
-  -- Fixed dest `T[N]`: fixed source `S[M]` with N ≥ M.
-  | Solidity.Ty.array destElem (some n),
-    Solidity.Ty.array srcElem (some m) =>
-      m <= n && Ty.integerArrayElemWiden? srcElem destElem
-  | _, _ => false
+-- G14 / R2: `Ty.storageArrayCopyAssignable?` (defined after
+-- `TypeContext.canImplicitlyConvert`, since it needs the type-context-aware
+-- convertibility for contract covariance / enum & user-value-type aliases)
+-- models acceptance of a copy assignment INTO a (non-pointer) storage array.
 
 def Ty.fixedBytesSize? : Ty -> Option Nat
   | Solidity.Ty.bytesN size =>
@@ -1253,6 +1222,74 @@ def TypeContext.canImplicitlyConvert (types : TypeContext)
             TypeContext.contractHasAncestorPathFuel types 64
               actualPath expectedPath)
     | _, _ => false
+
+-- G14 / R2: acceptance of a copy assignment INTO a (non-pointer) storage array
+-- with an implicitly-convertible element type and/or a differing length. solc's
+-- rule (`ArrayType::isImplicitlyConvertibleTo` for a non-pointer storage dest,
+-- `Types.cpp:1640-1648`) is fully recursive: a DYNAMIC dest accepts any source
+-- length (dynamic or fixed source); a FIXED dest `T[N]` requires a FIXED source
+-- `S[M]` with `N ≥ M`; the element type must itself be implicitly convertible,
+-- recursing the same length rule through nested arrays. The runtime resizes and
+-- pads the dest to the source length, converts each element, and zero-fills the
+-- tail. Element convertibility is the type-context-aware `isImplicitlyConvertibleTo`
+-- (integer / fixed-bytes widening, `address payable → address`, contract
+-- covariance `Derived → Base`, enum / user-value-type identity), matching every
+-- pinned-binary probe (2026-07-10):
+--   * dyn dest ← fixed src ACCEPT; fixed dest N<M REJECT (at any nesting level);
+--   * base narrowing / signed↔unsigned / distinct-enum / Base→Derived REJECT.
+--
+-- LEGACY CODEGEN CARVE-OUT: copying an array whose DIRECT element type is a
+-- struct VALUE is "not supported in legacy (only supported by the IR pipeline)"
+-- (`S[2] → S[3]`, `S[] → S[]`, etc. all REJECT). This is a codegen limit, not a
+-- type-conversion one, and it fires ONLY at the direct element — nesting the
+-- struct one array level down (`S[][2] → S[][3]`, `S[2][2] → S[2][3]`) is
+-- ACCEPTED by legacy, because the per-element copy of an ARRAY element is
+-- supported. So the struct exclusion is applied ONLY to the outer array's direct
+-- element, and `Ty.storageArrayCopyConvertible?` (the recursion) carries no such
+-- exclusion. This keeps every value/reference-element widening accepted while
+-- holding the direct-struct-element copy rejected (task #122 legacy-vs-IR zone).
+--
+-- The strict same-base rule still governs pointer/memory targets and every
+-- non-storage context, so this is only consulted for a genuine storage dest.
+def Ty.isStructValueTy (types : TypeContext) : Ty -> Bool
+  | Solidity.Ty.struct _ _ => true
+  | Solidity.Ty.user path =>
+      match types.lookupStruct? path with
+      | some _ => true
+      | none => false
+  | _ => false
+
+-- Recursive element convertibility: nested arrays widen length the same way,
+-- the leaf element uses the type-context-aware implicit convertibility. No
+-- struct exclusion here (only the outer direct element is carved out).
+def Ty.storageArrayCopyConvertible? (types : TypeContext) :
+    Nat -> Ty -> Ty -> Bool
+  | 0, _, _ => false
+  | fuel + 1, destTy, srcTy =>
+      match destTy, srcTy with
+      | Solidity.Ty.array destElem none,
+        Solidity.Ty.array srcElem _ =>
+          Ty.storageArrayCopyConvertible? types fuel destElem srcElem
+      | Solidity.Ty.array destElem (some n),
+        Solidity.Ty.array srcElem (some m) =>
+          m <= n && Ty.storageArrayCopyConvertible? types fuel destElem srcElem
+      | _, _ =>
+          TypeContext.canImplicitlyConvert types srcTy destTy
+
+def Ty.storageArrayCopyAssignable? (types : TypeContext)
+    (destTy srcTy : Ty) : Bool :=
+  match destTy, srcTy with
+  -- Dynamic dest: any source length (dynamic OR fixed source).
+  | Solidity.Ty.array destElem none,
+    Solidity.Ty.array srcElem _ =>
+      !Ty.isStructValueTy types srcElem &&
+        Ty.storageArrayCopyConvertible? types 64 destElem srcElem
+  -- Fixed dest `T[N]`: fixed source `S[M]` with N ≥ M.
+  | Solidity.Ty.array destElem (some n),
+    Solidity.Ty.array srcElem (some m) =>
+      m <= n && !Ty.isStructValueTy types srcElem &&
+        Ty.storageArrayCopyConvertible? types 64 destElem srcElem
+  | _, _ => false
 
 def fixedPointLiteralRaw? (decimals : Nat)
     (expr : Solidity.Expr) : Option Nat := do
@@ -7680,7 +7717,7 @@ def checkExpr (env : CheckEnv) :
                   -- storage-copy rule); the strict rule still governs pointer
                   -- rebinds and non-storage targets.
                   if lhsChecked.stateLValue && !rebindsStoragePointer &&
-                      Ty.storageArrayCopyAssignable? lhsChecked.ty
+                      Ty.storageArrayCopyAssignable? env.types lhsChecked.ty
                         rhsChecked.ty then
                     Except.ok ()
                   else

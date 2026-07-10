@@ -7759,6 +7759,39 @@
       }
     },
     {
+      "name": "array-widen-copy",
+      "description": "#126 ARRAY-WIDEN-COPY — copy assignment INTO a FIXED storage array with a NON-integer value element type (`bytes32[3] = bytes32[2]`). solc accepts (ArrayType::isImplicitlyConvertibleTo, Types.cpp:1640-1648): the first M elements are copied and the old tail (indices M..N-1) is zero-cleared. solidity-lean formerly over-rejected every non-integer element base (the gate was `isInteger`); now it accepts any implicitly-convertible non-struct element while holding the legacy struct-value carve-out rejected. Forge pins solc/EVM (tail cleared to zero); Lean imports the same contract from the solc AST and checks the copied values.",
+      "forge": {
+        "root": "tests/forge-harness/array-widen-copy",
+        "match_contract": "ArrayWidenCopyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/array-widen-copy/src/ArrayWidenCopy.sol",
+        "contract": "ArrayWidenCopyHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ArrayWidenCopy"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ArrayWidenCopy.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedCopyWidenClearsTail",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.ArrayWidenCopy.importedContract (SolidCore.Solidity.Source.CallTarget.name \"copyWidenClearsTail\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0x11, SolidCore.Solidity.Source.Value.word 0x22]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq a 0x11 && SolidCore.Solidity.Source.wordEq b 0x22 && SolidCore.Solidity.Source.wordEq c 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "signed-literal-arithmetic",
       "description": "solc lets a numeric literal (including a negated literal) adopt a signed operand's type in a binary arithmetic op: `int256 x = a / 1e18;`, `a / -2`, `a % -8`, etc. are accepted and evaluated as signed (truncated toward zero; INT_MIN/-1 Panics 0x11). Forge pins solc/EVM; Lean checks the paired source-interpreter witnesses (H1 completeness fix).",
       "forge": {
