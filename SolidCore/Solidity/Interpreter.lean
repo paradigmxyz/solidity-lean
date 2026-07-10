@@ -3881,6 +3881,25 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
           field.slot (StorageLayout.dynamicArray elementLayout)
           value
       Except.ok { runtime with state }
+  | some layout@(StorageLayout.struct _), Value.tuple _ => do
+      -- STORE-TAIL-CLEAR: a whole-struct assignment must recurse so that any
+      -- dynamic-array member shrinking below its stored length gets its tail
+      -- element slots zeroed (solc `copy_struct_to_storage` →
+      -- `cleanup_storage_array_end`). The deep-store recursion already does
+      -- this at every level; the plain `storeStorageField` path did not.
+      let state ←
+        State.storeStorageLayoutAtWithDeepClear runtime.state
+          field.slot layout value
+      Except.ok { runtime with state }
+  | some layout@(StorageLayout.fixedArray size _), Value.fixedArray _ => do
+      -- STORE-TAIL-CLEAR: same for a whole fixed-array assignment whose
+      -- elements are structs / dynamic arrays. Pad a shorter source first
+      -- (R2), matching the plain path, then recurse to tail-zero shrunk
+      -- dynamic-array members at every level.
+      let state ←
+        State.storeStorageLayoutAtWithDeepClear runtime.state
+          field.slot layout (value.padFixedArrayTo size)
+      Except.ok { runtime with state }
   | _, _ =>
       Runtime.storeStorageField context runtime name value
 

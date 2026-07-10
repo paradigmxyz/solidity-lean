@@ -9623,6 +9623,59 @@
           }
         ]
       }
+    },
+    {
+      "name": "store-tail-clear",
+      "description": "STORE-TAIL-CLEAR (G): a whole-aggregate storage assignment whose TOP layout is a struct or fixedArray must recurse and ZERO the shrunk tail element slots of every dynamic-array member (solc copy_struct_to_storage -> copy_array_to_storage -> resize_array -> cleanup_storage_array_end -> clear_storage_range). solidity-lean formerly tail-zeroed only a top-level dynamic array; a struct/fixedArray top fell through to a plain store that left the shrunk tail STALE. Routing struct AND fixedArray tops through the existing deep-store recursion (storeStorageLayoutAtWithDeepClear) fixes it. The Lean evals read the raw tail slots off the post-call state (the stale tail is invisible to length-bounded getters); the Forge side pins the solc/EVM getter values.",
+      "forge": {
+        "root": "tests/forge-harness/store-tail-clear",
+        "match_contract": "StoreTailClearForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/store-tail-clear/src/StoreTailClear.sol",
+        "contract": "StoreTailClearHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StoreTailClear"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "structShrinkTailZeroed",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContract (SolidCore.Solidity.Source.CallTarget.name \"structShrink\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word e0, SolidCore.Solidity.Source.Value.word e1] =>\n      let t2 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 1 2)\n      let t3 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 1 3)\n      let t4 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 1 4)\n      Except.ok (SolidCore.Solidity.Source.wordEq len 2 && SolidCore.Solidity.Source.wordEq e0 100 && SolidCore.Solidity.Source.wordEq e1 200 && SolidCore.Solidity.Source.wordEq t2 0 && SolidCore.Solidity.Source.wordEq t3 0 && SolidCore.Solidity.Source.wordEq t4 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "storageToStorageShrinkTailZeroed",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContract (SolidCore.Solidity.Source.CallTarget.name \"storageToStorageShrink\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word e0, SolidCore.Solidity.Source.Value.word e1] =>\n      let t2 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 1 2)\n      let t4 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 1 4)\n      Except.ok (SolidCore.Solidity.Source.wordEq len 2 && SolidCore.Solidity.Source.wordEq e0 111 && SolidCore.Solidity.Source.wordEq e1 222 && SolidCore.Solidity.Source.wordEq t2 0 && SolidCore.Solidity.Source.wordEq t4 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "fixedArrayDynShrinkTailZeroed",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContract (SolidCore.Solidity.Source.CallTarget.name \"fixedArrayDynShrink\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st [SolidCore.Solidity.Source.Value.word l0, SolidCore.Solidity.Source.Value.word e01, SolidCore.Solidity.Source.Value.word l1, SolidCore.Solidity.Source.Value.word e11] =>\n      let a2 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 4 2)\n      let a4 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 4 4)\n      let b2 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 5 2)\n      let b4 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 5 4)\n      Except.ok (SolidCore.Solidity.Source.wordEq l0 2 && SolidCore.Solidity.Source.wordEq e01 101 && SolidCore.Solidity.Source.wordEq l1 2 && SolidCore.Solidity.Source.wordEq e11 201 && SolidCore.Solidity.Source.wordEq a2 0 && SolidCore.Solidity.Source.wordEq a4 0 && SolidCore.Solidity.Source.wordEq b2 0 && SolidCore.Solidity.Source.wordEq b4 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "fixedArrayStructShrinkTailZeroed",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContract (SolidCore.Solidity.Source.CallTarget.name \"fixedArrayStructShrink\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned st [SolidCore.Solidity.Source.Value.word l0, SolidCore.Solidity.Source.Value.word e01, SolidCore.Solidity.Source.Value.word l1, SolidCore.Solidity.Source.Value.word e11] =>\n      let a2 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 7 2)\n      let a4 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 7 4)\n      let b2 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 9 2)\n      let b4 := st.loadSlot (SolidCore.Solidity.Source.dynamicArrayStorageSlot 9 4)\n      Except.ok (SolidCore.Solidity.Source.wordEq l0 2 && SolidCore.Solidity.Source.wordEq e01 101 && SolidCore.Solidity.Source.wordEq l1 2 && SolidCore.Solidity.Source.wordEq e11 201 && SolidCore.Solidity.Source.wordEq a2 0 && SolidCore.Solidity.Source.wordEq a4 0 && SolidCore.Solidity.Source.wordEq b2 0 && SolidCore.Solidity.Source.wordEq b4 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "structGrowControl",
+            "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContract (SolidCore.Solidity.Source.CallTarget.name \"structGrow\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word e2, SolidCore.Solidity.Source.Value.word e3] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq len 4 && SolidCore.Solidity.Source.wordEq e2 3 && SolidCore.Solidity.Source.wordEq e3 4)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
