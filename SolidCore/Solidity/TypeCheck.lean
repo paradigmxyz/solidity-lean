@@ -7563,9 +7563,27 @@ def checkExpr (env : CheckEnv) :
           thenChecked.dataLocation?
         else
           none
+      -- G#116 (TERNARY-STORAGE-STATELVALUE): a conditional of two storage
+      -- references is itself a storage reference (solc `TypeChecker::visit(
+      -- Conditional)` takes the common type of the two branches; two storage
+      -- lvalues yield a storage reference implicitly convertible to a
+      -- `S storage` pointer). Mirror how member/index propagate
+      -- `baseChecked.stateLValue`: carry the storage-lvalue marker only when
+      -- BOTH branches are storage-ref state lvalues AND the common location is
+      -- storage. This keeps `S storage p = b ? s0 : s1;`,
+      -- `(b ? s0 : s1).x = 5`, and `g(b ? s0 : s1)` (storage-ref arg) accepted,
+      -- while value-type state vars (`(b ? a : bb) = 5`) — which have
+      -- `stateLValue = true` but no storage data location — stay non-lvalue
+      -- (solc: "Conditional expression as left value is not supported yet").
+      -- The ternary is never itself an lvalue, so a direct
+      -- `(b ? s0 : s1) = …` still rejects (assign requires `lvalue`).
+      let resultStateLValue :=
+        thenChecked.stateLValue && elseChecked.stateLValue &&
+          resultLocation == some Solidity.DataLocation.storage
       Except.ok
         { source := expr
           ty := resultTy
+          stateLValue := resultStateLValue
           dataLocation? := resultLocation }
   | expr@(Solidity.Expr.assign lhs _ rhs) => do
       match lhs with

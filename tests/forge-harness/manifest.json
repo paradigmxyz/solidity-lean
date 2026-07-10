@@ -7595,6 +7595,69 @@
       }
     },
     {
+      "name": "ternary-storage-pointer",
+      "description": "Forge + Lean pin G#116 (TERNARY-STORAGE-STATELVALUE): solc ACCEPTS `S storage p = b ? s0 : s1;` (a storage pointer initialized from a ternary of two storage state vars) and the pointer ALIASES the selected state var. Forge proves on real EVM that writing through p mutates exactly `b ? s0 : s1` (selected slot written, other untouched), that the member-lvalue form `(b ? s0 : s1).x = v` and a ternary passed to a `storage`-ref param alias the selection too. Lean imports the same contract from the solc AST, confirms acceptance (formerly over-rejected), and re-checks the aliasing via own-calls.",
+      "forge": {
+        "root": "tests/forge-harness/ternary-storage-pointer",
+        "match_contract": "TernaryStoragePointerForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/ternary-storage-pointer/src/TernaryStoragePointer.sol",
+        "contract": "TernaryStoragePointerHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TernaryStoragePointer"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedAliasSelectedTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"aliasSelected\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 42] 42",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedAliasSelectedFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"aliasSelected\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 42] 42",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedOtherUntouchedTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"otherUntouched\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 42] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedOtherUntouchedFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"otherUntouched\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 42] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedReadThroughTrueEmpty",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"readThrough\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedReadThroughFalseEmpty",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"readThrough\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedPassToStorageParamTrueEmpty",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 96 SolidCore.Solidity.SolcAstImport.TernaryStoragePointer.importedContract \"passToStorageParam\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 0",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "nested-tuple-assignment",
       "description": "Forge checks solc/EVM nested tuple assignment `((a, b), c) = ((x, y), z)` (and `(a, (b, c)) = \u2026`): the RHS tuple is evaluated once, left-to-right, and destructured against the nested target tree in lockstep, a swap `((a,b),c)=((b,c),a)` reads the RHS into temps first, and a nested hole `((a,),c)=\u2026` evaluates then discards its component. solc accepts these; solidity-lean formerly over-rejected them (flat tuple LHS). Lean imports the same contract from the solc AST and checks source nested-tuple assignment behavior (G13).",
       "forge": {

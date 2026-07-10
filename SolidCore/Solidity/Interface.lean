@@ -8480,6 +8480,42 @@ def Ty.storageReferenceSupported? (ty : Ty) : Option Unit :=
       | some _ => some ()
       | none => none
 
+/-- G#116 (TERNARY-STORAGE-STATELVALUE): resolve ONE branch of a ternary
+    storage reference (`b ? s0 : s1`) to the storage-alias DECL statement that
+    binds `name` to that branch's storage reference. Mirrors the storage-arg
+    branch dispatch below (state-var → `storageAlias`/`storageAliasPath`;
+    storage-ref local → `storageAliasFrom`/`storageAliasFromPath`). -/
+def Expr.storageRefBranchAliasDeclCore? (storageRefEnv : StorageRefEnv)
+    (storageNames : List Name) (name : Name) :
+    Expr -> Option CoreStmt
+  | Expr.ident target =>
+      match stateNameRuntimeKey? target storageNames with
+      | some key => some (SolidCore.Solidity.Source.Stmt.storageAlias name key)
+      | none =>
+          if StorageRefEnv.isStorageRef storageRefEnv target then
+            some (SolidCore.Solidity.Source.Stmt.storageAliasFrom name target)
+          else
+            none
+  | arg =>
+      match Expr.storageRefPathCore? storageRefEnv storageNames arg with
+      | some (source, indexes) =>
+          match indexes with
+          | [] =>
+              some (SolidCore.Solidity.Source.Stmt.storageAliasFrom name source)
+          | _ =>
+              some
+                (SolidCore.Solidity.Source.Stmt.storageAliasFromPath
+                  name source indexes)
+      | none => do
+          let (target, indexes) ← Expr.storagePathCore? storageNames arg
+          match indexes with
+          | [] =>
+              some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+          | _ =>
+              some
+                (SolidCore.Solidity.Source.Stmt.storageAliasPath
+                  name target indexes)
+
 def Parameter.toStorageAwareCoreArgDecl? (storageRefEnv : StorageRefEnv)
     (storageNames : List Name) (env : TypeEnv) (fallbackPrefix : String)
     (index : Nat) (param : Parameter) (arg : Expr) : Option CoreStmt := do
@@ -8488,6 +8524,19 @@ def Parameter.toStorageAwareCoreArgDecl? (storageRefEnv : StorageRefEnv)
   | some DataLocation.storage =>
       let _ ← Ty.storageReferenceSupported? param.ty
       match arg with
+      | Expr.ternary cond thenExpr elseExpr => do
+          -- G#116: a ternary of two storage references passed to a `storage`-ref
+          -- parameter aliases the SELECTED branch (like the varDecl form). Emit
+          -- an `ifElse` binding the temp/param to the chosen branch's alias.
+          let condCore ← Expr.toCore? storageNames cond
+          let thenStmt ←
+            Expr.storageRefBranchAliasDeclCore? storageRefEnv storageNames
+              name thenExpr
+          let elseStmt ←
+            Expr.storageRefBranchAliasDeclCore? storageRefEnv storageNames
+              name elseExpr
+          some
+            (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
       | Expr.ident target =>
           match stateNameRuntimeKey? target storageNames with
           | some key =>
@@ -11724,6 +11773,29 @@ def storageAliasDeclFromRefPathCore? (storageRefEnv : StorageRefEnv)
           some
             (SolidCore.Solidity.Source.Stmt.storageAliasFromPath
               name target indexes)
+  | _ => none
+
+/-- G#116: lower a `T storage p = cond ? thenBranch : elseBranch;` local. solc
+    accepts a storage-pointer initialized from a conditional of two storage
+    references (the conditional is itself a storage reference). At runtime the
+    pointer must ALIAS the SELECTED branch, so lower to an `ifElse` that runs the
+    matching storage-alias DECL in the CURRENT scope (the `ifElse` evaluator runs
+    the chosen bare branch directly — no scope push — so `p` persists). -/
+def storageAliasDeclFromTernaryCore? (storageRefEnv : StorageRefEnv)
+    (storageNames : List Name) (binding : VarBinding)
+    (cond thenExpr elseExpr : Expr) : Option CoreStmt := do
+  let name ← binding.name
+  match binding.location with
+  | some DataLocation.storage =>
+      let condCore ← Expr.toCore? storageNames cond
+      let thenStmt ←
+        Expr.storageRefBranchAliasDeclCore? storageRefEnv storageNames
+          name thenExpr
+      let elseStmt ←
+        Expr.storageRefBranchAliasDeclCore? storageRefEnv storageNames
+          name elseExpr
+      some
+        (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
   | _ => none
 
 def storageAliasAssignmentCore? (storageRefEnv : StorageRefEnv)
@@ -16453,6 +16525,25 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       some (pieces ++ tail)
   | Stmt.varDecl [binding]
       (some (Expr.ternary cond thenExpr elseExpr)) :: rest =>
+      -- G#116 (TERNARY-STORAGE-STATELVALUE): `T storage p = b ? s0 : s1;` — a
+      -- storage-pointer local initialized from a conditional of two storage
+      -- references. Lower to an `ifElse` selecting the branch's storage alias so
+      -- `p` aliases the SELECTED state var at runtime. Only fires for a
+      -- `storage`-located binding whose branches are storage references; value /
+      -- memory ternaries fall through to the branch-assignment lowering below.
+      match
+          storageAliasDeclFromTernaryCore?
+            storageRefEnv storageNames binding cond thenExpr elseExpr with
+      | some head => do
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+      | none =>
       match binding.name with
       | some localName =>
           let targetTy? := binding.ty

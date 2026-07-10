@@ -1392,6 +1392,109 @@ def cgNonConstOverViewAccepted : Bool :=
     (cgSourceUnit cgViewInterface
       (cgGetterContract VarMutability.mutable none))
 
+-- ===========================================================================
+-- G#116 (TERNARY-STORAGE-STATELVALUE) — a `storage`-pointer local initialized
+-- from a TERNARY of two storage state variables (`S storage p = b ? s0 : s1;`)
+-- is ACCEPTED (solc `TypeChecker::visit(VariableDeclarationStatement)` gates the
+-- pointer only on `isImplicitlyConvertibleTo`; a conditional of two storage
+-- references is itself a storage reference). Formerly over-rejected because the
+-- ternary CheckedExpr builder dropped the `stateLValue` marker. The genuinely
+-- invalid MIXED-location form (`b ? m : s0` with `m` a memory struct → `S
+-- storage`) has no common storage reference and stays REJECTED (matches pinned
+-- solc: "… memory is not implicitly convertible to … storage pointer").
+-- ===========================================================================
+
+private def tsStruct : Solidity.Ty := Solidity.Ty.user (userPath "S")
+
+private def tsStructItem : Solidity.ContractItem :=
+  Solidity.ContractItem.structDecl
+    { name := "S", fields := [{ name := "x", ty := su_uint256 }] }
+
+private def tsStateVars : List Solidity.ContractItem :=
+  [ Solidity.ContractItem.stateVar { name := "s0", ty := tsStruct }
+  , Solidity.ContractItem.stateVar { name := "s1", ty := tsStruct } ]
+
+private def tsContract (fn : Solidity.FunctionDecl) : Solidity.SourceUnit :=
+  { items :=
+      [Solidity.SourceItem.contract
+        { name := "TernStor"
+          items := tsStructItem :: tsStateVars
+            ++ [Solidity.ContractItem.function fn] }] }
+
+private def tsPBinding : Solidity.VarBinding :=
+  { name := some "p", ty := some tsStruct,
+    location := some Solidity.DataLocation.storage }
+
+-- ACCEPT: `S storage p = b ? s0 : s1; return p.x;`
+private def tsAcceptFn : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some "f"
+    params := [{ name := some "b", ty := Solidity.Ty.bool, location := none }]
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    visibility := some Solidity.Visibility.external_
+    mutability := Solidity.StateMutability.view
+    body :=
+      some (Solidity.Stmt.block
+        [ Solidity.Stmt.varDecl [tsPBinding]
+            (some (Solidity.Expr.ternary (Solidity.Expr.ident "b")
+              (Solidity.Expr.ident "s0") (Solidity.Expr.ident "s1")))
+        , Solidity.Stmt.returnValues
+            (some (Solidity.Expr.member (Solidity.Expr.ident "p") "x")) ]) }
+
+def ternaryStorageStateLValueAccepted : Bool :=
+  sourceUnitAccepted? (tsContract tsAcceptFn)
+
+-- REJECT (over-accept guard): a mixed-location ternary `b ? m : s0` where `m`
+-- is a `memory` struct has no common storage reference, so it is NOT implicitly
+-- convertible to `S storage p`.
+private def tsRejectMixedFn : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some "g"
+    params :=
+      [ { name := some "b", ty := Solidity.Ty.bool, location := none }
+      , { name := some "m", ty := tsStruct,
+          location := some Solidity.DataLocation.memory } ]
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    visibility := some Solidity.Visibility.external_
+    mutability := Solidity.StateMutability.view
+    body :=
+      some (Solidity.Stmt.block
+        [ Solidity.Stmt.varDecl [tsPBinding]
+            (some (Solidity.Expr.ternary (Solidity.Expr.ident "b")
+              (Solidity.Expr.ident "m") (Solidity.Expr.ident "s0")))
+        , Solidity.Stmt.returnValues
+            (some (Solidity.Expr.member (Solidity.Expr.ident "p") "x")) ]) }
+
+def ternaryStorageMixedLocationRejected : Bool :=
+  Result.isError (SourceUnit.check (tsContract tsRejectMixedFn))
+
+-- ACCEPT: the member-lvalue MUTATION target `(b ? s0 : s1).x = 5;` (solc accepts
+-- — member access on a storage conditional is an lvalue). Pins the typecheck
+-- path that reads `stateLValue` through the ternary base.
+private def tsMemberTargetFn : Solidity.FunctionDecl :=
+  { kind := Solidity.FunctionKind.function
+    name := some "h"
+    params := [{ name := some "b", ty := Solidity.Ty.bool, location := none }]
+    returns := []
+    visibility := some Solidity.Visibility.external_
+    mutability := Solidity.StateMutability.nonpayable
+    body :=
+      some (Solidity.Stmt.block
+        [ Solidity.Stmt.expr
+            (Solidity.Expr.assign
+              (Solidity.Expr.member
+                (Solidity.Expr.ternary (Solidity.Expr.ident "b")
+                  (Solidity.Expr.ident "s0") (Solidity.Expr.ident "s1")) "x")
+              Solidity.AssignOp.assign
+              (Solidity.Expr.literal (Solidity.Literal.number "5"))) ]) }
+
+def ternaryStorageMemberTargetAccepted : Bool :=
+  sourceUnitAccepted? (tsContract tsMemberTargetFn)
+
+#guard ternaryStorageStateLValueAccepted
+#guard ternaryStorageMixedLocationRejected
+#guard ternaryStorageMemberTargetAccepted
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
 #guard qstructQualifiedConstructionAccepted
