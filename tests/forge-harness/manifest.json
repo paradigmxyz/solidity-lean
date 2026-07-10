@@ -9931,6 +9931,74 @@
           }
         ]
       }
+    },
+    {
+      "name": "callpos-family",
+      "description": "CALLPOS-FAMILY closes the remaining still-reachable call-position over-rejects after the boundary-completion arc: MULTIPLE direct-call arguments in one call (f(g(), h()), f(g(), 10, h())) and NESTED call arguments (f(g(h())), f(f(g())), f(g(h()), 1)). The earlier single-argument hoist peeled only the FIRST direct-call argument, so these two shapes stayed over-rejecting (solc 0.8.35 legacy accepts+compiles each; the model returned none at Source->Executable). Fix: FunctionDecl.hoistDirectInternalCallArgs? hoists EVERY direct-call argument (nested-first, then left-to-right) into ordered prefix temps, wired into the call-statement / return / single- and multi-binding varDecl arms; the pre-existing specialized f(first, g()) call-statement arm (which only hoisted the second arg) was removed as the general hoist subsumes it. solc evaluates call arguments left-to-right and a nested call before its enclosing call (verified via --ir); the prefix reproduces that. Everything is own-call executable (internal calls + a state var), so acceptance AND runtime are pinned by own-contract execution, including two eval-order pins (multiArgOrder=12 needs gA() before hB(); nestOrder=133 needs innermost-first). A call-free control pins the pre-existing pure path; the Forge test re-checks every case against real solc/EVM.",
+      "forge": {
+        "root": "tests/forge-harness/callpos-family",
+        "match_contract": "CallposFamilyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/callpos-family/src/CallposFamily.sol",
+        "contract": "CallposFamilyHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CallposFamily"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CallposFamily.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "multiArgsVal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"multiArgsVal\" SolidCore.Solidity.Source.State.empty [] 12",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "threeMixedVal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"threeMixedVal\" SolidCore.Solidity.Source.State.empty [] 22",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "doubleNestVal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"doubleNestVal\" SolidCore.Solidity.Source.State.empty [] 7",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestPlusArgVal",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"nestPlusArgVal\" SolidCore.Solidity.Source.State.empty [] 7",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "varDeclMulti",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"varDeclMulti\" SolidCore.Solidity.Source.State.empty [] 12",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "multiArgOrder",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"multiArgOrder\" SolidCore.Solidity.Source.State.empty [] 12",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestOrder",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"nestOrder\" SolidCore.Solidity.Source.State.empty [] 133",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "controlPlain",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.CallposFamily.importedContract \"controlPlain\" SolidCore.Solidity.Source.State.empty [] 7",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

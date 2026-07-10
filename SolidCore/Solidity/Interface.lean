@@ -13295,6 +13295,95 @@ def FunctionDecl.conditionUseCoreWithInternalCalls?
       some (useCond condCore)
 termination_by (internalFuel, sizeOf cond, 6)
 
+/-- CALLPOS-FAMILY: hoist EVERY direct internal-call argument — including
+    MULTIPLE call arguments in one call (`f(g(), h())`) and NESTED call
+    arguments (`f(g(h()))`, `f(f(g()))`) — into ordered prefix temps, so the
+    residual call carries only pure/temp-read arguments. Generalises the older
+    single-`Args.replaceDirectInternalCallArg?` hoist, which peeled only the
+    FIRST direct-call argument and left the two-call-arg / nested-inner-call
+    shapes over-rejecting. solc legacy evaluates function-call arguments
+    left-to-right, and a nested call before the call that consumes it (verified
+    via `--ir`); the emitted prefix reproduces that order (a call's own
+    argument hoists precede the temp that consumes them; earlier arguments
+    precede later ones). Returns the prefix decl/assign statements, the
+    (temp, ty) env extension, and the residual argument list; `none` if any
+    hoisted call fails to lower (preserving the prior over-reject) — the FUEL
+    argument is the structural recursion bound (peeled one per arg/nesting
+    level). -/
+def FunctionDecl.hoistDirectInternalCallArgsAux?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (fallbackPrefix : String) :
+    Nat -> Nat -> List Arg ->
+      Option (Nat × List CoreStmt × List (Name × Ty) × List Arg)
+  | 0, _, _ => none
+  | _, counter, [] => some (counter, [], [], [])
+  | Nat.succ fuel, counter, arg :: rest =>
+      match Arg.directInternalCall? arg with
+      | some (callName, callArgs) => do
+          -- Hoist this call's OWN (possibly call-bearing) arguments first, so
+          -- the inner temps are evaluated before the temp that consumes them.
+          let (c1, innerPre, innerEnv, innerReplacedArgs) ←
+            FunctionDecl.hoistDirectInternalCallArgsAux?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions fallbackPrefix
+              fuel counter callArgs
+          let tempName := internalCallArgTempName fallbackPrefix c1
+          let argRetTy ←
+            FunctionDecl.directOrPtrCallArgReturnTy?
+              functions freeFunctions env callName callArgs
+          let argCoreTy ← Ty.toCore? argRetTy
+          let assignCore ←
+            FunctionDecl.internalSingleReturnCallCore?
+              internalFuel storageRefEnv (innerEnv ++ env) externalCallKindEnv
+              storageNames modifiers functions freeFunctions
+              callName innerReplacedArgs
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var tempName) retExpr)
+          let thisPre :=
+            innerPre ++
+              [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy tempName none
+              , assignCore ]
+          let (c3, restPre, restEnv, restReplaced) ←
+            FunctionDecl.hoistDirectInternalCallArgsAux?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions fallbackPrefix
+              fuel (c1 + 1) rest
+          some
+            ( c3
+            , thisPre ++ restPre
+            , (tempName, argRetTy) :: (innerEnv ++ restEnv)
+            , Arg.withExpr (Expr.ident tempName) arg :: restReplaced )
+      | none => do
+          let (c3, restPre, restEnv, restReplaced) ←
+            FunctionDecl.hoistDirectInternalCallArgsAux?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions fallbackPrefix
+              fuel counter rest
+          some (c3, restPre, restEnv, arg :: restReplaced)
+
+/-- Wrapper over `hoistDirectInternalCallArgsAux?`: run the hoist over an
+    argument list and surface the prefix pieces / temp env / residual args only
+    when at least one direct-call argument was actually hoisted (otherwise
+    `none`, so the caller keeps its existing pure-argument lowering path). -/
+def FunctionDecl.hoistDirectInternalCallArgs?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (fallbackPrefix : String)
+    (args : List Arg) :
+    Option (List CoreStmt × List (Name × Ty) × List Arg) := do
+  let (_, prefixPieces, tempEnv, replacedArgs) ←
+    FunctionDecl.hoistDirectInternalCallArgsAux?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions fallbackPrefix 64 0 args
+  if prefixPieces.isEmpty then none
+  else some (prefixPieces, tempEnv, replacedArgs)
+
 def assignmentCoreWithEnv? (storageNames : List Name)
     (env : TypeEnv) (lhs rhs : Expr) : Option CoreStmt := do
   let lhsCore ← Expr.toCoreLValue? storageNames lhs
@@ -14200,35 +14289,11 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Expr.call (Expr.ident "require")
                 [ Arg.positional cond
                 , Arg.positional (Expr.call (Expr.ident name) args) ]))
-  | Stmt.expr
-      (Expr.call (Expr.ident name)
-        [ Arg.positional first
-        , Arg.positional (Expr.call (Expr.ident argName) argArgs) ]) => do
-      let (argCallee, _) ←
-        FunctionDecl.findInternalCalleeWithArgs?
-          functions env argName argArgs
-      match argCallee.returns with
-      | [retParam] => do
-          let argCoreTy ← Ty.toCore? retParam.ty
-          let argTmp := "_sol_call_arg1"
-          let argCore ←
-            FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions argName argArgs
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.assign
-                  (SolidCore.Solidity.Source.LValue.var argTmp) retExpr)
-          let callCore ←
-            FunctionDecl.internalStatementCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name
-              [Arg.positional first, Arg.positional (Expr.ident argTmp)]
-          some
-            (SolidCore.Solidity.Source.Stmt.block
-              [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy argTmp none
-              , argCore
-              , callCore ])
-      | _ => none
+  -- NOTE: the earlier specialized `f(first, g())` call-statement arm (which
+  -- hoisted ONLY the second argument and failed when `first` was itself a call,
+  -- e.g. `f(g(), h());`) was removed — the general `Expr.call (Expr.ident name)
+  -- args` arm below now hoists EVERY direct-call argument via
+  -- `hoistDirectInternalCallArgs?`, subsuming it.
   | Stmt.expr expr@(Expr.call (Expr.ident name) args) =>
       let fallback? :=
         match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
@@ -14240,33 +14305,19 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             | some coreStmt => some coreStmt
             | none => Stmt.toCore? storageNames
                 (Stmt.expr (Expr.call (Expr.ident name) args))
-      match Args.replaceDirectInternalCallArg? "_sol_call_arg" 0 args with
-      | some (argName, argArgs, argTmp, replacedArgs) =>
-          match FunctionDecl.directOrPtrCallArgReturnTy?
-              functions freeFunctions env argName argArgs with
-          | some argRetTy => do
-                  let argCoreTy ← Ty.toCore? argRetTy
-                  let argCore ←
-                    FunctionDecl.internalSingleReturnCallCore?
-                      internalFuel storageRefEnv env externalCallKindEnv
-                      storageNames modifiers functions freeFunctions
-                      argName argArgs
-                      (fun retExpr =>
-                        SolidCore.Solidity.Source.Stmt.assign
-                          (SolidCore.Solidity.Source.LValue.var argTmp)
-                          retExpr)
-                  let callCore ←
-                    FunctionDecl.internalStatementCallCore?
-                      internalFuel storageRefEnv env externalCallKindEnv
-                      storageNames modifiers functions freeFunctions
-                      name replacedArgs
-                  some
-                    (SolidCore.Solidity.Source.Stmt.block
-                      [ SolidCore.Solidity.Source.Stmt.varDecl
-                          argCoreTy argTmp none
-                      , argCore
-                      , callCore ])
-          | none => fallback?
+      match FunctionDecl.hoistDirectInternalCallArgs?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions "_sol_call_arg" args with
+      | some (prefixPieces, tempEnv, replacedArgs) =>
+          (match FunctionDecl.internalStatementCallCore?
+              internalFuel storageRefEnv (tempEnv ++ env) externalCallKindEnv
+              storageNames modifiers functions freeFunctions
+              name replacedArgs with
+          | some callCore =>
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  (prefixPieces ++ [callCore]))
+          | none => fallback?)
       | none => fallback?
   | Stmt.expr
       (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) =>
@@ -15085,33 +15136,20 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                     some
                       (SolidCore.Solidity.Source.Stmt.block
                         (decls ++ [callCore]))
-      match Args.replaceDirectInternalCallArg? "_sol_vardecl_arg" 0 args with
-      | some (argName, argArgs, argTmp, replacedArgs) =>
-          match FunctionDecl.directOrPtrCallArgReturnTy?
-              functions freeFunctions env argName argArgs with
-          | some argRetTy => do
-                  let argCoreTy ← Ty.toCore? argRetTy
-                  let argCore ←
-                    FunctionDecl.internalSingleReturnCallCore?
-                      internalFuel storageRefEnv env externalCallKindEnv
-                      storageNames modifiers functions freeFunctions
-                      argName argArgs
-                      (fun retExpr =>
-                        SolidCore.Solidity.Source.Stmt.assign
-                          (SolidCore.Solidity.Source.LValue.var argTmp)
-                          retExpr)
-                  let pieces ←
-                    FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
-                      internalFuel storageRefEnv env externalCallKindEnv
-                      storageNames modifiers functions freeFunctions
-                      name replacedArgs bindings
-                  some
-                    (SolidCore.Solidity.Source.Stmt.block
-                      [ SolidCore.Solidity.Source.Stmt.varDecl
-                          argCoreTy argTmp none
-                      , argCore
-                      , SolidCore.Solidity.Source.Stmt.block pieces ])
-          | none => fallback?
+      match FunctionDecl.hoistDirectInternalCallArgs?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions "_sol_vardecl_arg" args with
+      | some (prefixPieces, tempEnv, replacedArgs) =>
+          (match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
+              internalFuel storageRefEnv (tempEnv ++ env) externalCallKindEnv
+              storageNames modifiers functions freeFunctions
+              name replacedArgs bindings with
+          | some pieces =>
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  (prefixPieces ++
+                    [SolidCore.Solidity.Source.Stmt.block pieces]))
+          | none => fallback?)
       | none => fallback?
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) => do
@@ -15506,52 +15544,39 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                   | none => Stmt.toCore? storageNames
                       (Stmt.returnValues
                         (some (Expr.call (Expr.ident name) args)))
-      match Args.replaceDirectInternalCallArg? "_sol_return_arg" 0 args with
-      | some (argName, argArgs, argTmp, replacedArgs) =>
-          match FunctionDecl.directOrPtrCallArgReturnTy?
-              functions freeFunctions env argName argArgs with
-          | some argTy => do
-                  let argCoreTy ← Ty.toCore? argTy
-                  let envWithArgTmp := (argTmp, argTy) :: env
-                  let argCore ←
+      match FunctionDecl.hoistDirectInternalCallArgs?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions "_sol_return_arg" args with
+      | some (prefixPieces, tempEnv, replacedArgs) =>
+          let envWith := tempEnv ++ env
+          (match
+              (if returnTys.isEmpty then
+                match FunctionDecl.internalStatementCallCore?
+                    internalFuel storageRefEnv envWith externalCallKindEnv
+                    storageNames modifiers functions freeFunctions
+                    name replacedArgs with
+                | some coreStmt =>
+                    some (CoreStmt.thenReturnEmpty coreStmt)
+                | none => none
+              else
+                match FunctionDecl.internalReturnCallCore?
+                    internalFuel storageRefEnv envWith externalCallKindEnv
+                    storageNames modifiers functions freeFunctions
+                    name replacedArgs returnTys with
+                | some coreStmt => some coreStmt
+                | none =>
                     FunctionDecl.internalSingleReturnCallCore?
-                      internalFuel storageRefEnv env externalCallKindEnv
+                      internalFuel storageRefEnv envWith externalCallKindEnv
                       storageNames modifiers functions freeFunctions
-                      argName argArgs
+                      name replacedArgs
                       (fun retExpr =>
-                        SolidCore.Solidity.Source.Stmt.assign
-                          (SolidCore.Solidity.Source.LValue.var argTmp)
-                          retExpr)
-                  let callCore ←
-                    if returnTys.isEmpty then
-                      match FunctionDecl.internalStatementCallCore?
-                          internalFuel storageRefEnv envWithArgTmp externalCallKindEnv
-                          storageNames modifiers functions freeFunctions
-                          name replacedArgs with
-                      | some coreStmt =>
-                          some (CoreStmt.thenReturnEmpty coreStmt)
-                      | none => none
-                    else
-                      match FunctionDecl.internalReturnCallCore?
-                          internalFuel storageRefEnv envWithArgTmp externalCallKindEnv
-                          storageNames modifiers functions freeFunctions
-                          name replacedArgs returnTys with
-                      | some coreStmt => some coreStmt
-                      | none =>
-                          FunctionDecl.internalSingleReturnCallCore?
-                            internalFuel storageRefEnv envWithArgTmp externalCallKindEnv
-                            storageNames modifiers functions freeFunctions
-                            name replacedArgs
-                            (fun retExpr =>
-                              SolidCore.Solidity.Source.Stmt.returnValues
-                                [retExpr])
-                  some
-                    (SolidCore.Solidity.Source.Stmt.block
-                      [ SolidCore.Solidity.Source.Stmt.varDecl
-                          argCoreTy argTmp none
-                      , argCore
-                      , callCore ])
-          | none => fallback?
+                        SolidCore.Solidity.Source.Stmt.returnValues
+                          [retExpr])) with
+          | some callCore =>
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  (prefixPieces ++ [callCore]))
+          | none => fallback?)
       | none => fallback?
   | Stmt.returnValues
       (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
@@ -16866,46 +16891,33 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                               returnTys rest
                           some (coreStmt :: tail)
                       | none =>
-                          -- OVERREJECT-CALLPOS-BATCH (A): `T x = outer(inner())`
-                          -- — a direct internal call whose own argument is a
-                          -- direct internal call. `internalSingleReturnCallCore?`
-                          -- above fails because the pure per-arg lowering
+                          -- OVERREJECT-CALLPOS-BATCH (A) + CALLPOS-FAMILY:
+                          -- `T x = outer(inner())`, `T x = f(g(), h())`,
+                          -- `T x = f(g(h()))` — a direct internal call whose
+                          -- arguments contain direct internal calls (one, many,
+                          -- or nested). `internalSingleReturnCallCore?` above
+                          -- fails because the pure per-arg lowering
                           -- (`boundaryArgDecls?`) cannot lower a call argument.
-                          -- Mirror the STATEMENT arm's hoist: bind the argument
-                          -- call into a prefix temp, then re-lower the outer call
-                          -- against the temp-substituted argument list. solc
-                          -- evaluates the inner call first, then the outer
-                          -- (verified via `--ir`), which prefix-then-outer
-                          -- reproduces. The local's decl is spliced as a SIBLING
-                          -- in the enclosing statement list (never a self-scoping
-                          -- sub-block) so it stays in scope for later statements.
-                          -- Only the FIRST direct-call argument is hoisted (a
-                          -- second one leaves `replacedArgs` still unlowerable ->
-                          -- `none` -> the original over-reject is preserved; the
-                          -- two-call-arg shape is left open).
+                          -- Hoist EVERY call argument into ordered prefix temps
+                          -- (`hoistDirectInternalCallArgs?`, solc left-to-right /
+                          -- inner-before-outer order, verified via `--ir`), then
+                          -- re-lower the outer call against the temp-substituted
+                          -- argument list. The temps and the local's decl are
+                          -- spliced as SIBLINGS in the enclosing statement list
+                          -- (never a self-scoping sub-block) so the local stays
+                          -- in scope for later statements.
                           match (do
-                              let (argName, argArgs, argTmp, replacedArgs) ←
-                                Args.replaceDirectInternalCallArg?
-                                  "_sol_vardecl_arg" 0 args
-                              let argRetTy ←
-                                FunctionDecl.directOrPtrCallArgReturnTy?
-                                  functions freeFunctions env argName argArgs
-                              let argCoreTy ← Ty.toCore? argRetTy
-                              let argCore ←
-                                FunctionDecl.internalSingleReturnCallCore?
+                              let (prefixPieces, tempEnv, replacedArgs) ←
+                                FunctionDecl.hoistDirectInternalCallArgs?
                                   internalFuel storageRefEnv env
                                   externalCallKindEnv storageNames modifiers
-                                  functions freeFunctions argName argArgs
-                                  (fun retExpr =>
-                                    SolidCore.Solidity.Source.Stmt.assign
-                                      (SolidCore.Solidity.Source.LValue.var argTmp)
-                                      retExpr)
+                                  functions freeFunctions "_sol_vardecl_arg" args
                               let declCore ←
                                 Stmt.toCore? storageNames
                                   (Stmt.varDecl [binding] none)
                               let assignCore ←
                                 FunctionDecl.internalSingleReturnCallCore?
-                                  internalFuel storageRefEnv env
+                                  internalFuel storageRefEnv (tempEnv ++ env)
                                   externalCallKindEnv storageNames modifiers
                                   functions freeFunctions name replacedArgs
                                   (fun retExpr =>
@@ -16914,11 +16926,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                                         localName)
                                       retExpr)
                               some
-                                [ SolidCore.Solidity.Source.Stmt.varDecl
-                                    argCoreTy argTmp none
-                                , argCore
-                                , declCore
-                                , assignCore ]) with
+                                (prefixPieces ++ [declCore, assignCore])) with
                           | some pieces => do
                               let tail ←
                                 Stmt.listToCoreWithInternalCallsWithRefs?
