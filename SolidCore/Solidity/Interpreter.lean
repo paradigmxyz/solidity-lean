@@ -417,6 +417,25 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.int256, Value.int value => some (Value.int value)
   | Ty.int256, Value.word value => some (Value.int value)
   | Ty.fixedBytes _, Value.word value => some (Value.word value)
+  -- LIT-COERCION (#142 `.push(literal)` / #145 `bytesN`-keyed mapping key): a
+  -- hex/string/bytes LITERAL flowing to a `bytesN` storage element or mapping key
+  -- is lowered target-blind to a dynamic-`bytes` `Value.bytes`. solc coerces it to
+  -- the fixed target — the ≤ n meaningful bytes packed as the internal
+  -- (right-in-word) `bytesN` value, IDENTICAL to `Literal.toFixedBytesWord?` used
+  -- on the clean assignment/return paths (`bytesToWordBE (bytes ‖ zero-pad to n)`).
+  -- `coerceStorageWordAs` (push element) and `coerceMappingKeyWordAs` (mapping key)
+  -- both route through here; the storage/mapping-slot machinery then aligns the
+  -- word. Only a literal produces a `Value.bytes` for a `fixedBytes` target — solc
+  -- rejects any implicit `bytes`→`bytesN` value conversion at compile time.
+  | Ty.fixedBytes size, Value.bytes bytes =>
+      if bytes.length ≤ size then
+        some
+          (Value.word
+            (bytesToWordBE
+              (bytes.map normByte ++
+                List.replicate (size - bytes.length) 0)))
+      else
+        none
   | Ty.enumStorage maxValue, Value.word value =>
       -- Storage-write coercion of an enum value: solc's
       -- `update_storage_value_…_enum` routes through `cleanup_t_enum`
@@ -4632,6 +4651,20 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
         some
           (wordToBytesBE size value ++
             List.replicate (wordBytes - size) 0)
+      else
+        none
+  -- LIT-COERCION (#141 emit event data + indexed `bytesN` topic): a
+  -- hex/string/bytes LITERAL argument to a `bytesN` event field is lowered
+  -- target-blind to a dynamic-`bytes` `Value.bytes`. solc coerces it to the
+  -- fixed target — ONE left-aligned 32-byte word (the ≤ n meaningful bytes at
+  -- the top, zero-padded); a `bytesN` indexed topic is that same word UNHASHED
+  -- (value type). This routes both the non-indexed data (`abiEncodeValues?`) and
+  -- the indexed topic (`abiEventTopic?`, non-hashed branch → `bytesToWordBE`).
+  | Ty.fixedBytes size, Value.bytes bytes =>
+      if bytes.length ≤ size then
+        some
+          (bytes.map normByte ++
+            List.replicate (wordBytes - bytes.length) 0)
       else
         none
   | Ty.externalFunction, Value.externalFunction addr selector =>

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/lit-coercion-family/out"
+cache_path = "../../.foundry-suites/lit-coercion-family/cache"
+evm_version = "cancun"

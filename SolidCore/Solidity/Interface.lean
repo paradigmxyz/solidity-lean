@@ -4637,11 +4637,19 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         (Tys.packedTopWidths sourceTys) coreTys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSelector")
       (Arg.positional selector :: args) => do
-      match Expr.abiTy? storageNames selector with
-      | some (Ty.bytesN 4) => some ()
-      | some (Ty.fixedBytes 4) => some ()
-      | _ => none
-      let selectorCore ← Expr.toCore? storageNames selector
+      -- LIT-COERCION (#143): the leading selector argument is `bytes4`. A `bytes4`
+      -- (or `bytesN 4`) VALUE/expression lowers directly. A bare hex NUMBER literal
+      -- whose byte-width is exactly 4 (e.g. `0x12345678`) has `abiTy? = uint256`
+      -- but solc implicitly converts it to `bytes4` (its exact-width compatible
+      -- bytes type), so fall back to the target-aware literal coercion. That
+      -- coercion is width-exact: a 2-byte hex literal (`0x1234`, compatible type
+      -- `bytes2`, NOT implicitly `bytes4`) and any decimal literal both yield
+      -- `none` here — matching solc, which rejects them.
+      let selectorCore ←
+        match Expr.abiTy? storageNames selector with
+        | some (Ty.bytesN 4) => Expr.toCore? storageNames selector
+        | some (Ty.fixedBytes 4) => Expr.toCore? storageNames selector
+        | _ => Expr.toCoreFixedBytesLiteralAs? (Ty.fixedBytes 4) selector
       let (tys, exprs) ← Args.toAbiEncode? storageNames args
       some
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -7873,8 +7881,19 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
       | Ty.functionWithLocations paramTys _ returnTys _ mutability
           Visibility.external_ => do
           if paramTys.length == args.length then
-            let coreTys ← Ty.listToCore? paramTys
-            let coreExprs ← Args.toCoreExprs? storageNames args
+            -- LIT-COERCION (#144): encode each arg against its DECLARED parameter
+            -- type (reusing #140's `toAbiEncodeArgAgainst?`), so a `bytesN`-typed
+            -- parameter receiving a hex/string LITERAL gets the left-aligned word
+            -- rather than the literal's own dynamic-`bytes` encoding. Falls back to
+            -- the target-blind lowering when a non-literal arg has no derivable
+            -- `abiTy?` (preserves prior acceptance; those bytes were already right).
+            let (coreTys, coreExprs) ←
+              match Args.toAbiEncodeAgainst? storageNames paramTys args with
+              | some pair => some pair
+              | none => do
+                  let coreTys ← Ty.listToCore? paramTys
+                  let coreExprs ← Args.toCoreExprs? storageNames args
+                  some (coreTys, coreExprs)
             let fnCore ← Expr.toCore? storageNames fn
             let calldataCore :=
               SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
@@ -7898,8 +7917,15 @@ def Expr.externalFunctionValueCallCore? (storageNames : List Name)
       | Ty.functionWithLocations paramTys _ returnTys _ mutability
           Visibility.external_ => do
           if paramTys.length == args.length then
-            let coreTys ← Ty.listToCore? paramTys
-            let coreExprs ← Args.toCoreExprs? storageNames args
+            -- LIT-COERCION (#144), options form: same target-aware arg encoding
+            -- as the plain `Expr.call` arm above.
+            let (coreTys, coreExprs) ←
+              match Args.toAbiEncodeAgainst? storageNames paramTys args with
+              | some pair => some pair
+              | none => do
+                  let coreTys ← Ty.listToCore? paramTys
+                  let coreExprs ← Args.toCoreExprs? storageNames args
+                  some (coreTys, coreExprs)
             let kind := StateMutability.externalFunctionCallKind mutability
             let (valueCore, gasCore?, gasFirst) ←
               StateMutability.externalCallOptionsCore?

@@ -169,6 +169,19 @@ def encodeStaticValue? : Ty -> Value -> Option Bytes
           List.replicate (wordBytes - size) 0)
       else
         none
+  -- LIT-COERCION (#141 revert/require custom-error data): a hex/string/bytes
+  -- LITERAL argument to a `bytesN` error parameter is lowered target-blind to a
+  -- dynamic-`bytes` `Value.bytes` (its type derived from the literal, not the
+  -- declared parameter). solc coerces such a literal to the fixed target: ONE
+  -- left-aligned 32-byte word (the ≤ n meaningful bytes at the top, zero-padded).
+  -- Encode it as that word here — the ONLY way a `Value.bytes` reaches a
+  -- `fixedBytes` slot is this literal path (solc rejects any implicit
+  -- `bytes`→`bytesN` value conversion at compile time).
+  | Ty.fixedBytes size, Value.bytes bytes =>
+      if bytes.length ≤ size then
+        some (padRightWord bytes)
+      else
+        none
   | Ty.externalFunction, Value.externalFunction addr selector =>
       if addressFits addr && selectorFits selector then
         some

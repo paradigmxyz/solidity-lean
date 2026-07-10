@@ -11082,6 +11082,84 @@
           }
         ]
       }
+    },
+    {
+      "name": "lit-coercion-family",
+      "description": "#141-#145 LIT-COERCION FAMILY: a string/hex/bytes LITERAL flowing into a declared fixed bytesN target through a target-blind lowering path is coerced by solc to ONE left-aligned 32-byte word (the <=n meaningful bytes at the top, zero-padded). Covers emit event data + indexed topic (#141), custom-error revert/require data (#141), dynamic-array .push element (#142), abi.encodeWithSelector bare 4-byte hex-number selector literal accepted (#143), external function-pointer value call arg (#144), and a bytesN-keyed mapping key (#145). Controls: a literal into a DYNAMIC bytes event field stays dynamic, and a NON-literal bytes2 variable arg is byte-identical to the coerced literal. Forge deploys on pinned solc/EVM and asserts the log data/topic, revert data, pushed element, mapping slot value, encodeWithSelector output, and function-pointer call result; Lean imports the same source and runs the source semantics.",
+      "forge": {
+        "root": "tests/forge-harness/lit-coercion-family",
+        "match_contract": "LitCoercionFamilyForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/lit-coercion-family/src/LitCoercionFamily.sol",
+        "contract": "LitCoercionFamily",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LitCoercionFamily"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "emitDataLeftAlignedWord",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitData\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [ev] => Except.ok (ev.name == \"EvData\" && ev.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"EvData(bytes2)\"] && ev.dataBytes == (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 0x1234000000000000000000000000000000000000000000000000000000000000))\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitIndexedTopicLeftAlignedWord",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitIdx\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [ev] => Except.ok (ev.name == \"EvIdx\" && ev.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"EvIdx(bytes2)\", 0x1234000000000000000000000000000000000000000000000000000000000000] && ev.dataBytes == [])\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "revertCustomErrorOneWord",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedSourceUnit\n  let c ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LitCoercionFamily\"\n  let cd ← SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"doRevert\" []\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (!r.success && r.output == (([0xfd, 0xa2, 0x8e, 0xa8] : List SolidCore.Solidity.Source.Byte) ++ (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 0x1234000000000000000000000000000000000000000000000000000000000000))))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "requireCustomErrorOneWord",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedSourceUnit\n  let c ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LitCoercionFamily\"\n  let cd ← SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"doRequire\" []\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c SolidCore.Solidity.Source.State.empty cd\n  Except.ok (!r.success && r.output == (([0xfd, 0xa2, 0x8e, 0xa8] : List SolidCore.Solidity.Source.Byte) ++ (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 0x1234000000000000000000000000000000000000000000000000000000000000))))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "pushLiteralElementLeftAlignedWord",
+            "expr": "(do\n  let r1 ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"pushLit\") SolidCore.Solidity.Source.State.empty []\n  match r1 with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let r2 ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"arr\") st [SolidCore.Solidity.Source.Value.word 0]\n      match r2 with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 0x1234)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mappingBytesNKeyStoresAndReads",
+            "expr": "(do\n  let r1 ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"setMap\") SolidCore.Solidity.Source.State.empty []\n  match r1 with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let r2 ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"m\") st [SolidCore.Solidity.Source.Value.word 0x61626364]\n      match r2 with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 7)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "encodeWithSelectorBareHexLiteral",
+            "expr": "(do\n  let r ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"selData\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes b] =>\n      Except.ok (b == (([0x12, 0x34, 0x56, 0x78] : List SolidCore.Solidity.Source.Byte) ++ SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 7))\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "externalFunctionPointerArgLeftAlignedWord",
+            "expr": "(do\n  let argWord : List SolidCore.Solidity.Source.Byte := ([0x61, 0x62, 0x63, 0x64] : List SolidCore.Solidity.Source.Byte) ++ List.replicate 28 0\n  let calldata : List SolidCore.Solidity.Source.Byte := ([0xe2, 0x2d, 0x9c, 0xb4] : List SolidCore.Solidity.Source.Byte) ++ argWord\n  let row : SolidCore.Solidity.Source.LowLevelCallResult :=\n    { kind := SolidCore.Solidity.Source.LowLevelCallKind.call, target := 0xc0ffee, calldata := calldata,\n       value := 0, gas? := none, success := true, output := argWord }\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedSourceUnit\n  let contract ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LitPtrCaller\"\n  let result ← SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 64\n    (SolidCore.Solidity.Source.responderOfResults [row] []) contract \"callPtr\" contract.core.context SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xc0ffee]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word ret] =>\n      match (SolidCore.Solidity.Source.CallResult.resultState result).externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>\n          Except.ok (SolidCore.Solidity.Source.wordEq ret 0x61626364 && SolidCore.Solidity.Source.LowLevelCallResult.matches call SolidCore.Solidity.Source.LowLevelCallKind.call 0xc0ffee calldata 0 none && call.success)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "controlDynamicBytesFieldStaysDynamic",
+            "expr": "(do\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedSourceUnit\n  let c ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LitCoercionFamily\"\n  let cd ← SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"emitDyn\" []\n  let r ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c SolidCore.Solidity.Source.State.empty cd\n  match r.state.events with\n  | [ev] => Except.ok (ev.dataBytes.length == 96 && ev.dataBytes == (SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 0x20 ++ SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 2 ++ (([0x12, 0x34] : List SolidCore.Solidity.Source.Byte) ++ List.replicate 30 0)))\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "controlNonLiteralVariableArgUnchanged",
+            "expr": "(do\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 32 SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitVar\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0x1234]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [ev] => Except.ok (ev.dataBytes == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 0x1234000000000000000000000000000000000000000000000000000000000000)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
