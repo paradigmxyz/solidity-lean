@@ -539,6 +539,65 @@ def g12EqStringFn : FunctionDecl :=
 def badStringEqualityRejected : Bool :=
   Result.isError (SourceUnit.check (su_singleContract "G12Eq" g12EqStringFn))
 
+-- ===========================================================================
+-- G13 — a HEX number literal combined with a unit denomination is REJECTED
+-- (solc TypeChecker.cpp:3969-3975, error 5145: "Hexadecimal numbers cannot be
+-- used with unit denominations. You can use an expression of the form
+-- \"0x1234 * 1 days\" instead."). Confirmed with pinned solc 0.8.35:
+-- `0x10 ether`, `0x2 wei`, `0x1 seconds`, `0x3 minutes` → all reject.
+-- The guard lives in `parseUnitNumberRat?` (Interface.lean): a `0x`/`0X`-prefixed
+-- literal text carrying a denomination folds to `none`. Neighbors that stay
+-- ACCEPTED: any DECIMAL denomination (`1 ether`, `0.5 ether`, `2 days`), a plain
+-- hex literal with NO denomination (`0x10`), and a hex literal inside an
+-- EXPRESSION with a unit (`0x1234 * 1 days`, a binary op — not a single
+-- denominated literal, so it never reaches the guard).
+-- ===========================================================================
+
+private def denomLiteralFn (text : String) (unit : UnitDenomination) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    body := some (Stmt.returnValues
+      (some (Expr.literal (Literal.unitNumber text unit)))) }
+
+private def plainNumberFn (text : String) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    body := some (Stmt.returnValues
+      (some (Expr.literal (Literal.number text)))) }
+
+-- `0x1234 * 1 days`: a binary op, NOT a hex-literal-with-denomination.
+private def hexTimesDaysFn : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    body := some (Stmt.returnValues
+      (some (Expr.binary BinaryOp.mul
+        (Expr.literal (Literal.number "0x1234"))
+        (Expr.literal (Literal.unitNumber "1" UnitDenomination.days))))) }
+
+def badHexEtherLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check
+    (su_singleContract "G13HexEther" (denomLiteralFn "0x10" UnitDenomination.ether)))
+
+def badHexWeiLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check
+    (su_singleContract "G13HexWei" (denomLiteralFn "0x2" UnitDenomination.wei)))
+
+def badHexSecondsLiteralRejected : Bool :=
+  Result.isError (SourceUnit.check
+    (su_singleContract "G13HexSeconds" (denomLiteralFn "0x1" UnitDenomination.seconds)))
+
+def hexDenomNeighborsAccepted : Bool :=
+  -- Decimal denominations, plain hex, and hex-in-an-expression stay accepted.
+  sourceUnitAccepted? (su_singleContract "G13OneEther"
+      (denomLiteralFn "1" UnitDenomination.ether)) &&
+    sourceUnitAccepted? (su_singleContract "G13HalfEther"
+      (denomLiteralFn "0.5" UnitDenomination.ether)) &&
+    sourceUnitAccepted? (su_singleContract "G13TwoDays"
+      (denomLiteralFn "2" UnitDenomination.days)) &&
+    sourceUnitAccepted? (su_singleContract "G13PlainHex"
+      (plainNumberFn "0x10")) &&
+    sourceUnitAccepted? (su_singleContract "G13HexTimesDays" hexTimesDaysFn)
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
 #guard badInternalPayableRejected
@@ -547,6 +606,10 @@ def badStringEqualityRejected : Bool :=
 #guard badStringToBytesAssignRejected
 #guard explicitBytesCastAccepted
 #guard badStringEqualityRejected
+#guard badHexEtherLiteralRejected
+#guard badHexWeiLiteralRejected
+#guard badHexSecondsLiteralRejected
+#guard hexDenomNeighborsAccepted
 
 end Examples
 end TypeCheck

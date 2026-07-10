@@ -2910,8 +2910,18 @@ def NumberRat.scaleNat (value : NumberRat) (factor : Nat) : NumberRat :=
 
 def parseUnitNumberRat? (text : String)
     (unit : UnitDenomination) : Option NumberRat := do
-  let value ← parseNumberRat? text
-  some (value.scaleNat unit.factor)
+  -- solc REJECTS a hex number literal combined with a unit denomination
+  -- (TypeChecker.cpp:3969-3975, error 5145): `0x10 ether`, `0x2 wei`,
+  -- `0x1 seconds`, … are all fatal type errors. Only an *expression* such as
+  -- `0x1234 * 1 days` is allowed (that is a binary op, not a single
+  -- denominated literal, and never reaches this function). The importer keeps
+  -- solc's `Literal.value` verbatim, so a hex literal is detectable by its
+  -- `0x`/`0X` prefix — reject rather than fold it, matching solc's boundary.
+  if text.startsWith "0x" || text.startsWith "0X" then
+    none
+  else
+    let value ← parseNumberRat? text
+    some (value.scaleNat unit.factor)
 
 def parseUnitNumberNat? (text : String)
     (unit : UnitDenomination) : Option Nat := do
