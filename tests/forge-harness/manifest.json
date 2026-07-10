@@ -11388,6 +11388,35 @@
           }
         ]
       }
+    },
+    {
+      "name": "sci-exp-plus",
+      "description": "Over-accept #159: Solidity's number scanner allows an optional '-' but never a leading '+' in a scientific-notation exponent. Pinned solc rejects 1e+5/1E+5/1.0e+2 at scan time (Invalid literal value) and accepts 1e5/1e-5. Witness-only (no AST is emitted for the rejected literal): Lean checks parseNumberRat? rejects '+'-exponents and still parses the signed/unsigned forms.",
+      "solc_rejects": [
+        "contract C { function f() public pure returns (uint) { return 1e+5; } }"
+      ],
+      "lean": {
+        "imports": [
+          "SolidCore.Witness.SciExpPlus"
+        ],
+        "evals": [
+          {
+            "label": "plusExponentRejects",
+            "expr": "SolidCore.Solidity.Executable.SciExpPlus.plusExponentRejects",
+            "expect": "true"
+          },
+          {
+            "label": "noSignParses",
+            "expr": "SolidCore.Solidity.Executable.SciExpPlus.noSignParses",
+            "expect": "true"
+          },
+          {
+            "label": "minusExponentParses",
+            "expr": "SolidCore.Solidity.Executable.SciExpPlus.minusExponentParses",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }

@@ -10,6 +10,7 @@ import SolidCore.Witness.GasleftResource
 import SolidCore.Witness.TypeCheck
 import SolidCore.Witness.Checked
 import SolidCore.Witness.RationalConstants
+import SolidCore.Witness.SciExpPlus
 import SolidCore.Witness.AcceptanceBoundaries
 import SolidCore.Witness.AcceptanceBoundariesRound2
 import SolidCore.Witness.ArrayLiteralWiden

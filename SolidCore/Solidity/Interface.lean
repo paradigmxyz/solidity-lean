@@ -2695,9 +2695,11 @@ def parseDecimalMantissa? (chars : List Char) :
 
 def parseDecimalExponentSuffix? :
     List Char -> Option (Bool × Nat)
-  | '+' :: rest => do
-      let digits ← parseSeparatedDigits? decimalDigit? rest
-      some (false, digitsToNat 10 0 digits)
+  -- Solidity's number scanner allows an OPTIONAL '-' in a scientific-notation
+  -- exponent, but NEVER a leading '+': `1e+5`, `1E+5`, `1.0e+2`, `2e+3 seconds`
+  -- are all scan-time "Invalid literal value" rejects in solc 0.8.35. A leading
+  -- '+' falls through to the bare-digits branch below, where the '+' is not a
+  -- decimal digit and `parseSeparatedDigits?` yields `none` (reject). (#159)
   | '-' :: rest => do
       let digits ← parseSeparatedDigits? decimalDigit? rest
       some (true, digitsToNat 10 0 digits)
