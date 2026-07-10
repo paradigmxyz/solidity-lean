@@ -952,6 +952,110 @@ def icOverloadNeighborsAccepted : Bool :=
 #guard dupEventSiblingRejected
 #guard dupEventSiblingIndexedRejected
 #guard dupEventSiblingNeighborsAccepted
+-- #107 TRY-RETURNS-EXACT-TYPE — in `try C.g() returns (T x, ...) { } catch { }`
+-- each returns-clause parameter type must EXACTLY EQUAL the corresponding
+-- declared return type of the called function (solc TypeChecker.cpp:1011-1024,
+-- endVisit(TryStatement), error 6509: "Invalid type, expected <ret> but got
+-- <clause>"; solc compares AST `Type` objects with `*type != *returnType`, i.e.
+-- exact inequality — NOT implicit convertibility). Confirmed with pinned solc
+-- 0.8.35:
+--   * g returns uint8, clause `uint256 x`  -> REJECT 6509 (widening)
+--   * g returns uint256, clause `uint8 x`  -> REJECT 6509 (narrowing)
+--   * g returns uint8, clause `uint8 x`    -> ACCEPT (exact)
+--   * g returns uint256, clause `uint x`   -> ACCEPT (`uint` == `uint256`, same
+--     `Ty.uint 256`; the AST normalises both, so exact equality holds)
+--   * g returns `uint[] memory`, clause `uint[] memory a` -> ACCEPT (a `calldata`
+--     clause is rejected earlier by a data-location check, error path unrelated)
+--   * multi-return exact match (uint8, address) -> ACCEPT
+-- The model previously used implicit convertibility (`expectAssignableToTys`),
+-- accepting the widening/narrowing cases; the fix
+-- (`CheckedExpr.expectExactlyEqualToTys`) tightens the per-element comparison to
+-- exact `Ty` equality while keeping the arity check (solc error 2800) untouched.
+-- ===========================================================================
+
+private def t107GFn (gReturns : List Parameter) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "g"
+    visibility := some Visibility.external_
+    mutability := StateMutability.view
+    returns := gReturns
+    body := some (Stmt.block []) }
+
+private def t107FFn (clause : List Parameter) : FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    visibility := some Visibility.public_
+    mutability := StateMutability.nonpayable
+    returns := []
+    body := some (Stmt.block
+      [ Stmt.tryCatchReturns
+          (Expr.call (Expr.member (Expr.ident "this") "g") [])
+          clause
+          (Stmt.block [])
+          [CatchClause.clause none [] (Stmt.block [])] ]) }
+
+private def t107Contract (gReturns clause : List Parameter) : SourceUnit :=
+  { items := [ SourceItem.contract
+      { name := "C"
+        items := [ ContractItem.function (t107FFn clause)
+                 , ContractItem.function (t107GFn gReturns) ] } ] }
+
+-- Parameter builders (return params are unnamed; clause params bind a name).
+private def t107Ret (ty : Ty) (loc : Option DataLocation := none) : Parameter :=
+  { name := none, ty := ty, location := loc }
+private def t107Clause (nm : Name) (ty : Ty) (loc : Option DataLocation := none) :
+    Parameter :=
+  { name := some nm, ty := ty, location := loc }
+
+private def t107U8 : Ty := Ty.uint 8
+private def t107U256 : Ty := Ty.uint 256
+private def t107Addr : Ty := Ty.address false
+private def t107UArr : Ty := Ty.array (Ty.uint 256) none
+
+-- Widening clause (uint8 return, uint256 clause) is REJECTED.
+def try107WideningRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (t107Contract [t107Ret t107U8] [t107Clause "x" t107U256]))
+
+-- Narrowing clause (uint256 return, uint8 clause) is REJECTED.
+def try107NarrowingRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (t107Contract [t107Ret t107U256] [t107Clause "x" t107U8]))
+
+-- Exact matches ACCEPT: uint8/uint8; uint256/uint256 (= `uint`); address/address;
+-- `uint[] memory`/`uint[] memory`; and a multi-return (uint8, address) exact match.
+def try107ExactMatchesAccepted : Bool :=
+  sourceUnitAccepted?
+      (t107Contract [t107Ret t107U8] [t107Clause "x" t107U8]) &&
+    sourceUnitAccepted?
+      (t107Contract [t107Ret t107U256] [t107Clause "x" t107U256]) &&
+    sourceUnitAccepted?
+      (t107Contract [t107Ret t107Addr] [t107Clause "x" t107Addr]) &&
+    sourceUnitAccepted?
+      (t107Contract
+        [t107Ret t107UArr (some DataLocation.memory)]
+        [t107Clause "a" t107UArr (some DataLocation.memory)]) &&
+    sourceUnitAccepted?
+      (t107Contract
+        [t107Ret t107U8, t107Ret t107Addr]
+        [t107Clause "x" t107U8, t107Clause "y" t107Addr])
+
+-- A multi-return with ONE widening element must still REJECT (per-element exact).
+def try107MultiWideningRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (t107Contract
+        [t107Ret t107U8, t107Ret t107Addr]
+        [t107Clause "x" t107U256, t107Clause "y" t107Addr]))
+
+-- Build-time gate: pin every acceptance-boundary witness added here so a future
+-- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard try107WideningRejected
+#guard try107NarrowingRejected
+#guard try107ExactMatchesAccepted
+#guard try107MultiWideningRejected
 #guard badInternalPayableRejected
 #guard badPrivatePayableRejected
 #guard g11PayableNeighborsAccepted

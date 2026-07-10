@@ -8955,6 +8955,39 @@ def CheckedExpr.expectAssignableToTys (types : TypeContext)
           checkTysAssignableTo types actual tys
       | _ => Except.error (TypeError.returnArityMismatch tys.length 1)
 
+-- #107 TRY-RETURNS-EXACT-TYPE. In `try C.g() returns (T x, ...) { } catch { }`
+-- solc (TypeChecker.cpp:1011-1024, endVisit(TryStatement), error 6509) requires
+-- each returns-clause parameter type to EXACTLY EQUAL (`*type != *returnType`,
+-- AST Type inequality) the corresponding declared return type of the called
+-- function — NOT merely be implicitly convertible. So a widening clause
+-- (`uint256 x` for a `uint8`-returning callee) or a narrowing clause is REJECTED,
+-- even though the value would be assignable. Arity is a separate solc check
+-- (error 2800); we keep the arity-error path identical to
+-- `checkTysAssignableTo` and only tighten the per-element comparison from
+-- `canImplicitlyConvert` to exact `Ty` equality (`requireEqTy`). Note `uint` and
+-- `uint256` normalise to the same `Ty`, so same-type clauses still accept.
+def checkTysExactlyEqualTo :
+    List Ty -> List Ty -> Except TypeError Unit
+  | [], [] => Except.ok ()
+  | actualTy :: actualRest, expectedTy :: expectedRest => do
+      requireEqTy expectedTy actualTy
+      checkTysExactlyEqualTo actualRest expectedRest
+  | actual, expected =>
+      Except.error (TypeError.returnArityMismatch
+        expected.length actual.length)
+
+def CheckedExpr.expectExactlyEqualToTys
+    (checked : CheckedExpr) (expected : List Ty) :
+    Except TypeError Unit :=
+  match expected with
+  | [] => requireEqTy (Solidity.Ty.tuple []) checked.ty
+  | [ty] => requireEqTy ty checked.ty
+  | tys =>
+      match checked.ty with
+      | Solidity.Ty.tuple actual =>
+          checkTysExactlyEqualTo actual tys
+      | _ => Except.error (TypeError.returnArityMismatch tys.length 1)
+
 def Ty.isExternalFunction : Ty -> Bool
   | Solidity.Ty.functionWithLocations _ _ _ _ _
       Solidity.Visibility.external_ => true
@@ -9618,7 +9651,9 @@ def checkStmt (env : CheckEnv) :
       ensureUniqueNames "try return"
         ((Parameters.namedTypes returns).map Prod.fst)
       let checked ← checkTryTarget env expr
-      checked.expectAssignableToTys env.types (Parameters.tys returns)
+      -- #107: returns-clause types must EXACTLY EQUAL the callee return types
+      -- (solc error 6509), not merely be implicitly convertible.
+      checked.expectExactlyEqualToTys (Parameters.tys returns)
       let successEnv :=
         (env.extendVarsWithStorageRefs
         (Parameters.namedTypeStorageRefs env.types returns)).extendDataLocations
